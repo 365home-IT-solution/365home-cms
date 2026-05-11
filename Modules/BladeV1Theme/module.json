@@ -1,0 +1,11 @@
+{
+    "name": "BladeThemeV1",
+    "alias": "bladethemev1",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\BladeThemeV1\\Providers\\BladeThemeV1ServiceProvider"
+    ],
+    "files": []
+}

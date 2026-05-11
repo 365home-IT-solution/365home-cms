@@ -1,0 +1,147 @@
+@mixin styleButton {
+  .cssbuttons-io-button {
+    background: var(--swiper-theme-color);
+    color: white;
+    font-family: inherit;
+    padding: 0.35em;
+    padding-left: 1.2em;
+    font-size: 17px;
+    font-weight: 500;
+    border-radius: 0.9em;
+    border: none;
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    box-shadow: inset 0 0 1.6em -0.6em var(--swiper-theme-color);
+    overflow: hidden;
+    position: relative;
+    height: 2.8em;
+    padding-right: 3.3em;
+    cursor: pointer;
+
+    @media (max-width: 768px) {
+      font-size: 12px;
+      height: 2.5em;
+      padding-right: 3em;
+    }
+  }
+
+  .cssbuttons-io-button .icon {
+    background: white;
+    margin-left: 1em;
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 2.2em;
+    width: 2.2em;
+    border-radius: 0.7em;
+    box-shadow: 0.1em 0.1em 0.6em 0.2em var(--swiper-theme-color);
+    right: 0.3em;
+    transition: all 0.3s;
+
+    @media (max-width: 768px) {
+      height: 2em;
+      width: 2em;
+    }
+  }
+
+  .cssbuttons-io-button:hover .icon {
+    width: calc(100% - 0.6em);
+  }
+
+  .cssbuttons-io-button .icon svg {
+    width: 1.1em;
+    transition: transform 0.3s;
+    color: var(--swiper-theme-color);
+
+    @media (max-width: 768px) {
+      width: 1em;
+    }
+  }
+
+  .cssbuttons-io-button:hover .icon svg {
+    transform: translateX(0.1em);
+  }
+
+  .cssbuttons-io-button:active .icon {
+    transform: scale(0.95);
+  }
+}
+
+@mixin styleButtonClose {
+  button {
+    width: 150px;
+    height: 47px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    background-color: #1f1f1f;
+    border: none;
+    border-radius: 12px;
+    box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.15);
+
+    @media (max-width: 768px) {
+      width: 143px;
+      height: 30px;
+    }
+  }
+
+  button,
+  button span {
+    transition: 200ms;
+  }
+
+  button .text {
+    transform: translateX(35px);
+    color: white;
+    font-weight: 500;
+    font-size: 17px;
+
+    @media (max-width: 768px) {
+      font-size: 12px;
+    }
+  }
+
+  button .icon {
+    position: absolute;
+    border-left: 1px solid var(--swiper-theme-color);
+    transform: translateX(90px);
+    height: 30px;
+    width: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  button svg {
+    width: 12px;
+    fill: #eee;
+  }
+
+  button:hover {
+    background: var(--swiper-theme-color);
+  }
+
+  button:hover .text {
+    color: transparent;
+  }
+
+  button:hover .icon {
+    width: 150px;
+    border-left: none;
+    transform: translateX(0);
+
+    @media (max-width: 768px) {
+      width: 143px;
+    }
+  }
+
+  button:focus {
+    outline: none;
+  }
+
+  button:active .icon svg {
+    transform: scale(0.8);
+  }
+}

@@ -1,0 +1,54 @@
+{
+    "name": "goldenbeeltd-vn/comment-module",
+    "name-module-vi": "Bình luận",
+    "docs": "/tai-lieu-huong-dan/comment/getting-started",
+    "type": "laravel-module",
+    "description": "Hệ thống quản lý bình luận thông minh, tích hợp được cho cả sản phẩm và bài viết, giúp tương tác với người dùng dễ dàng hơn.",
+    "version": "1.0.0",
+    "license": "proprietary",
+    "authors": [
+        {
+            "name": "Golden Bee IT Solutions Co., Ltd",
+            "email": "support@goldenbeeltd.vn",
+            "homepage": "https://goldenbeeltd.vn",
+            "role": "Developer"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [],
+            "aliases": {}
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\Comment\\": ""
+        }
+    },
+    "require": {
+        "php": "^7.4|^8.0",
+        "laravel/framework": "^8.0|^9.0|^10.0"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "keywords": [
+        "laravel",
+        "module",
+        "comment"
+    ],
+    "homepage": "https://github.com/goldenbeeltd-vn/comment-module",
+    "repository": {
+        "type": "git",
+        "url": "git@github.com:goldenbeeltd-vn/comment-module.git"
+    },
+    "config": {
+        "allow-plugins": {
+            "joshbrw/laravel-module-installer": true
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "@php artisan module:enable Comment"
+        ]
+    }
+}

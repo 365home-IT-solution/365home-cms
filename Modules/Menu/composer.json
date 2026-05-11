@@ -1,0 +1,55 @@
+{
+    "name": "goldenbeeltd-vn/menu-module",
+    "name-module-vi": "Menu",
+    "docs": "/tai-lieu-huong-dan/menu/getting-started",
+    "type": "laravel-module",
+    "description": "Hệ thống menu cung cấp giải pháp quản lý menu linh hoạt và dễ dàng tích hợp. Module hỗ trợ đầy đủ các tính năng tạo và quản lý menu đa cấp.",
+    "version": "1.0.0",
+    "license": "proprietary",
+    "authors": [
+        {
+            "name": "Golden Bee IT Solutions Co., Ltd",
+            "email": "support@goldenbeeltd.vn",
+            "homepage": "https://goldenbeeltd.vn",
+            "role": "Developer"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [],
+            "aliases": {}
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\Menu\\": ""
+        }
+    },
+    "require": {
+        "php": "^7.4|^8.0",
+        "laravel/framework": "^8.0|^9.0|^10.0",
+        "spatie/laravel-package-tools": "^1.14.0"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "keywords": [
+        "laravel",
+        "module",
+        "menu"
+    ],
+    "homepage": "https://github.com/goldenbeeltd-vn/menu-module",
+    "repository": {
+        "type": "git",
+        "url": "git@github.com:goldenbeeltd-vn/menu-module.git"
+    },
+    "config": {
+        "allow-plugins": {
+            "joshbrw/laravel-module-installer": true
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "@php artisan module:enable Menu"
+        ]
+    }
+}

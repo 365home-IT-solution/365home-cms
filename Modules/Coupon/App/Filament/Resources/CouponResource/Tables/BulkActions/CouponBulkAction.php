@@ -1,0 +1,31 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Modules\Coupon\App\Filament\Resources\CouponResource\Tables\BulkActions;
+
+use Filament\Tables;
+
+class CouponBulkAction
+{
+    public static function bulkActions(): array
+    {
+        return [
+            Tables\Actions\BulkActionGroup::make([
+                Tables\Actions\DeleteBulkAction::make(),
+                Tables\Actions\BulkAction::make('activate')
+                    ->label('Kích hoạt')
+                    ->icon('heroicon-o-check-circle')
+                    ->action(fn ($records) => $records->each->update(['is_active' => true]))
+                    ->deselectRecordsAfterCompletion(),
+
+                Tables\Actions\BulkAction::make('deactivate')
+                    ->label('Tạm dừng')
+                    ->icon('heroicon-o-x-circle')
+                    ->color('warning')
+                    ->action(fn ($records) => $records->each->update(['is_active' => false]))
+                    ->deselectRecordsAfterCompletion(),
+            ]),
+        ];
+    }
+}

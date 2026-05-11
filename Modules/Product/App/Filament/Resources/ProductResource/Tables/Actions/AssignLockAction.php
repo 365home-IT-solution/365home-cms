@@ -1,0 +1,91 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Modules\Product\App\Filament\Resources\ProductResource\Tables\Actions;
+
+use App\Services\TTLockService;
+use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Placeholder;
+use Filament\Tables\Actions\Action;
+use Filament\Notifications\Notification;
+use Modules\Product\App\Models\Product;
+use Illuminate\Support\HtmlString;
+
+class AssignLockAction
+{
+    public static function make(): Action
+    {
+        return Action::make('assignLock')
+            ->label('Gán khóa TTLock')
+            ->icon('heroicon-o-key')
+            ->color('warning')
+            ->modalHeading(fn (Product $record) => "Gán khóa TTLock → {$record->name}")
+            ->modalDescription('Chọn 2 khóa TTLock cho phòng này: khóa ngoài (check-in) và khóa trong (check-out).')
+            ->modalWidth('lg')
+            ->fillForm(fn (Product $record): array => [
+                'lock_id'          => $record->lock_id,
+                'lock_id_checkout' => $record->lock_id_checkout,
+            ])
+            ->form(function (Product $record): array {
+                /** @var TTLockService $ttlock */
+                $ttlock = app(TTLockService::class);
+                $locks  = $ttlock->getLockList();
+
+                // Tạo options: lockId => "lockAlias (lockMac) 🔋X%"
+                $options = [];
+                foreach ($locks as $lock) {
+                    $alias    = $lock['lockAlias'] ?? $lock['lockName'] ?? "Lock #{$lock['lockId']}";
+                    $mac      = $lock['lockMac'] ?? '';
+                    $battery  = isset($lock['electricQuantity']) ? " 🔋{$lock['electricQuantity']}%" : '';
+                    $group    = isset($lock['groupName']) && $lock['groupName'] ? " [{$lock['groupName']}]" : '';
+                    $options[$lock['lockId']] = "{$alias}{$group} • {$mac}{$battery}";
+                }
+
+                $fields = [];
+
+                if (empty($options)) {
+                    $fields[] = Placeholder::make('no_locks')
+                        ->label('')
+                        ->content(new HtmlString(
+                            '<div class="text-warning-600 bg-warning-50 rounded-lg p-3 text-sm">'
+                            . 'Không lấy được danh sách khóa. Kiểm tra lại TTLOCK credentials trong .env'
+                            . '</div>'
+                        ));
+                } else {
+                    $fields[] = Select::make('lock_id')
+                        ->label('Khóa ngoài (Check-in)')
+                        ->helperText('Khách nhập mã vào cửa ngoài để check-in')
+                        ->options($options)
+                        ->searchable()
+                        ->placeholder('— Chọn khóa ngoài —')
+                        ->nullable();
+
+                    $fields[] = Select::make('lock_id_checkout')
+                        ->label('Khóa trong (Check-out)')
+                        ->helperText('Khách nhập mã ra khỏi cửa trong để check-out')
+                        ->options($options)
+                        ->searchable()
+                        ->placeholder('— Chọn khóa trong —')
+                        ->nullable();
+                }
+
+                return $fields;
+            })
+            ->action(function (Product $record, array $data): void {
+                $newCheckin  = $data['lock_id'] ?? null;
+                $newCheckout = $data['lock_id_checkout'] ?? null;
+
+                $record->update([
+                    'lock_id'          => $newCheckin,
+                    'lock_id_checkout' => $newCheckout,
+                ]);
+
+                Notification::make()
+                    ->title('Gán khóa thành công')
+                    ->body("🚪 Ngoài (check-in): " . ($newCheckin ?? 'Chưa gán') . "\n🚪 Trong (check-out): " . ($newCheckout ?? 'Chưa gán'))
+                    ->success()
+                    ->send();
+            });
+    }
+}

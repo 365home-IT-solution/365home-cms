@@ -1,0 +1,53 @@
+{
+    "name": "goldenbeeltd-vn/theme-studio-module",
+    "name-module-vi": "Theme studio version 1",
+    "type": "laravel-module",
+    "description": "",
+    "version": "1.0.0",
+    "license": "proprietary",
+    "authors": [
+        {
+            "name": "Golden Bee IT Solutions Co., Ltd",
+            "email": "support@goldenbeeltd.vn",
+            "homepage": "https://goldenbeeltd.vn",
+            "role": "Developer"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [],
+            "aliases": {}
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\ThemeStudio\\": ""
+        }
+    },
+    "require": {
+        "php": "^8.2|^7.4",
+        "laravel/framework": "^8.0|^9.0|^10.0"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "keywords": [
+        "laravel",
+        "module",
+        "themesetting"
+    ],
+    "homepage": "https://github.com/goldenbeeltd-vn/theme-studio-module",
+    "repository": {
+        "type": "git",
+        "url": "git@github.com:goldenbeeltd-vn/theme-studio-module.git"
+    },
+    "config": {
+        "allow-plugins": {
+            "joshbrw/laravel-module-installer": true
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "@php artisan module:enable ThemeStudio"
+        ]
+    }
+}

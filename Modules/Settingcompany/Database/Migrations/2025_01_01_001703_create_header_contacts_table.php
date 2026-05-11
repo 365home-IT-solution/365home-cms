@@ -1,0 +1,27 @@
+﻿<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('header_contacts', function (Blueprint $table) {
+            $table->id();
+            $table->string('icon')->nullable();
+            $table->string('name');
+            $table->string('value');
+            $table->unsignedBigInteger('header_id');
+            $table->timestamps();
+
+            $table->index('header_id');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('header_contacts');
+    }
+};

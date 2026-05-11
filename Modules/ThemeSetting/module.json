@@ -1,0 +1,11 @@
+{
+    "name": "ThemeSetting",
+    "alias": "themesetting",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\ThemeSetting\\App\\Providers\\ThemeSettingServiceProvider"
+    ],
+    "files": []
+}

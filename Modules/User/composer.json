@@ -1,0 +1,55 @@
+{
+    "name": "goldenbeeltd-vn/user-module",
+    "name-module-vi": "Thành viên",
+    "docs": "/tai-lieu-huong-dan/user/getting-started",
+    "type": "laravel-module",
+    "description": "Hệ thống Quản lý thành viên cung cấp một giao diện trực quan và dễ sử dụng để quản lý tài khoản người dùng trong hệ thống. Module này cho phép quản trị viên thực hiện các thao tác cơ bản như xem, thêm, sửa, xóa thành viên và quản lý phân quyền.",
+    "version": "1.0.0",
+    "license": "proprietary",
+    "authors": [
+        {
+            "name": "Golden Bee IT Solutions Co., Ltd",
+            "email": "support@goldenbeeltd.vn",
+            "homepage": "https://goldenbeeltd.vn",
+            "role": "Developer"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [],
+            "aliases": {}
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\User\\": ""
+        }
+    },
+    "require": {
+        "php": "^7.4|^8.0",
+        "laravel/framework": "^8.0|^9.0|^10.0",
+        "filament/spatie-laravel-media-library-plugin": "^3.2"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "keywords": [
+        "laravel",
+        "module",
+        "user"
+    ],
+    "homepage": "https://github.com/goldenbeeltd-vn/user-module",
+    "repository": {
+        "type": "git",
+        "url": "git@github.com:goldenbeeltd-vn/user-module.git"
+    },
+    "config": {
+        "allow-plugins": {
+            "joshbrw/laravel-module-installer": true
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "@php artisan module:enable User"
+        ]
+    }
+}

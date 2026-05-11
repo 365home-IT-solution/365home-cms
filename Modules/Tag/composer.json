@@ -1,0 +1,55 @@
+{
+    "name": "goldenbeeltd-vn/tag-module",
+    "name-module-vi": "Thẻ",
+    "docs": "/tai-lieu-huong-dan/tag/getting-started",
+    "type": "laravel-module",
+    "description": "Module tag là giải pháp quản lý và phân loại nội dung.",
+    "version": "1.0.0",
+    "license": "proprietary",
+    "authors": [
+        {
+            "name": "Golden Bee IT Solutions Co., Ltd",
+            "email": "support@goldenbeeltd.vn",
+            "homepage": "https://goldenbeeltd.vn",
+            "role": "Developer"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [],
+            "aliases": {}
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\Tag\\": ""
+        }
+    },
+    "require": {
+        "php": "^7.4|^8.0",
+        "laravel/framework": "^8.0|^9.0|^10.0",
+        "filament/spatie-laravel-tags-plugin": "^3.2"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "keywords": [
+        "laravel",
+        "module",
+        "tag"
+    ],
+    "homepage": "https://github.com/goldenbeeltd-vn/tag-module",
+    "repository": {
+        "type": "git",
+        "url": "git@github.com:goldenbeeltd-vn/tag-module.git"
+    },
+    "config": {
+        "allow-plugins": {
+            "joshbrw/laravel-module-installer": true
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "@php artisan module:enable Tag"
+        ]
+    }
+}

@@ -1,0 +1,54 @@
+{
+    "name": "goldenbeeltd-vn/form-module",
+    "name-module-vi": "Biểu mẫu",
+    "docs": "/tai-lieu-huong-dan/form/getting-started",
+    "type": "laravel-module",
+    "description": "Hệ thống quản lý biểu mẫu cung cấp linh hoạt, giúp thiết lập gửi mail, nhận thông tin nhanh chóng.",
+    "version": "1.0.0",
+    "license": "proprietary",
+    "authors": [
+        {
+            "name": "Golden Bee IT Solutions Co., Ltd",
+            "email": "support@goldenbeeltd.vn",
+            "homepage": "https://goldenbeeltd.vn",
+            "role": "Developer"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [],
+            "aliases": {}
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\Form\\": ""
+        }
+    },
+    "require": {
+        "php": "^7.4|^8.0",
+        "laravel/framework": "^8.0|^9.0|^10.0"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "keywords": [
+        "laravel",
+        "module",
+        "form"
+    ],
+    "homepage": "https://github.com/goldenbeeltd-vn/form-module",
+    "repository": {
+        "type": "git",
+        "url": "git@github.com:goldenbeeltd-vn/form-module.git"
+    },
+    "config": {
+        "allow-plugins": {
+            "joshbrw/laravel-module-installer": true
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "@php artisan module:enable Form"
+        ]
+    }
+}

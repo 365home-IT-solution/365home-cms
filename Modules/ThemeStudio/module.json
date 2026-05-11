@@ -1,0 +1,11 @@
+{
+    "name": "ThemeStudio",
+    "alias": "themestudio",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\ThemeStudio\\App\\Providers\\ThemeStudioServiceProvider"
+    ],
+    "files": []
+}

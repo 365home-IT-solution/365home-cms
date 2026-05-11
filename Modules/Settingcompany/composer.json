@@ -1,0 +1,54 @@
+{
+    "name": "goldenbeeltd-vn/settingcompany-module",
+    "name-module-vi": "Thông tin doanh nghiệp",
+    "docs": "/tai-lieu-huong-dan/settingcompany/getting-started",
+    "type": "laravel-module",
+    "description": "Module SettingCompany cho phép người dùng quản lý các thông tin chi tiết về công ty, bao gồm nhưng không giới hạn ở tên công ty, địa chỉ, thông tin liên hệ, logo và các thiết lập khác.",
+    "version": "1.0.0",
+    "license": "proprietary",
+    "authors": [
+        {
+            "name": "Golden Bee IT Solutions Co., Ltd",
+            "email": "support@goldenbeeltd.vn",
+            "homepage": "https://goldenbeeltd.vn",
+            "role": "Developer"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [],
+            "aliases": {}
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\SettingCompany\\": ""
+        }
+    },
+    "require": {
+        "php": "^7.4|^8.0",
+        "laravel/framework": "^8.0|^9.0|^10.0"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "keywords": [
+        "laravel",
+        "module",
+        "settingcompany"
+    ],
+    "homepage": "https://github.com/goldenbeeltd-vn/settingcompany-module",
+    "repository": {
+        "type": "git",
+        "url": "git@github.com:goldenbeeltd-vn/settingcompany-module.git"
+    },
+    "config": {
+        "allow-plugins": {
+            "joshbrw/laravel-module-installer": true
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "@php artisan module:enable SettingCompany"
+        ]
+    }
+}

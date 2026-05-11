@@ -1,0 +1,84 @@
+<?php
+
+namespace App\Providers;
+
+use App\Http\View\Composers\ProductColorComposer;
+use App\Settings\MailSettings;
+use Filament\Tables\Table;
+use Filament\Support\Facades\FilamentView;
+use Filament\View\PanelsRenderHook;
+use Guava\FilamentKnowledgeBase\Enums\TableOfContentsPosition;
+use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\ServiceProvider;
+use Opcodes\LogViewer\Facades\LogViewer;
+use Guava\FilamentKnowledgeBase\Filament\Panels\KnowledgeBasePanel;
+use Illuminate\Support\Facades\View as ViewFacade;
+use Illuminate\Contracts\View\View;
+use Illuminate\Support\Facades\Route;
+use Livewire\Livewire;
+
+class AppServiceProvider extends ServiceProvider
+{
+    /**
+     * Register any application services.
+     */
+    public function register(): void
+    {
+        KnowledgeBasePanel::configureUsing(
+            fn(KnowledgeBasePanel $panel) => $panel
+                ->viteTheme('resources/css/filament/admin/theme.css')
+                ->brandName('Tài liệu hướng dẫn')
+                ->tableOfContentsPosition(TableOfContentsPosition::Start)
+                ->disableBreadcrumbs()
+        );
+
+        Blade::directive('livewireIf', function ($expression) {
+            return "<?php if(view()->exists($expression)) { echo \Livewire\Livewire::mount($expression)->html(); } ?>";
+        });
+
+    }
+
+    /**
+     * Bootstrap any application services.
+     */
+    public function boot(): void
+    {
+        Table::configureUsing(function (Table $table): void {
+            $table
+                ->emptyStateHeading('Không có dữ liệu')
+                ->defaultPaginationPageOption(10)
+                ->paginated([10, 25, 50, 100])
+                ->extremePaginationLinks()
+                ->defaultSort('created_at', 'desc');
+        });
+
+        LogViewer::auth(function ($request) {
+            $role = auth()?->user()?->roles?->first()->name;
+            return $role == config('filament-shield.super_admin.name');
+        });
+
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::FOOTER,
+            fn(): View => view('filament.components.panel-footer'),
+        );
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::USER_MENU_BEFORE,
+            fn(): View => view('filament.components.button-website'),
+        );
+
+        try {
+            $settings = app(MailSettings::class);
+            $settings->loadMailSettingsToConfig();
+        } catch (\Exception $e) {
+            \Log::error('Failed to load mail settings: ' . $e->getMessage());
+        }
+
+        ViewFacade::composer('*', ProductColorComposer::class);
+
+        // Secure the Livewire update route with rate limiting + origin validation
+        Livewire::setUpdateRoute(function ($handle) {
+            return Route::post('/livewire/update', $handle)
+                ->middleware(['web', 'livewire.secure']);
+        });
+    }
+}

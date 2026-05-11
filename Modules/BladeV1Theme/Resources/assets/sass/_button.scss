@@ -1,0 +1,172 @@
+.btn-storm {
+  z-index: 0;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.02, 0.01, 0.47, 1);
+}
+
+.btn-storm::before,
+.btn-storm::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: #fff;
+  opacity: 0;
+  transition: transform 0.15s cubic-bezier(0.02, 0.01, 0.47, 1), opacity 0.15s cubic-bezier(0.02, 0.01, 0.47, 1);
+  z-index: -1;
+  transform: translate(100%, -25%) translate3d(0, 0, 0);
+}
+
+.btn-storm:hover::before,
+.btn-storm:hover::after {
+  opacity: 0.15;
+  transition: transform 0.2s cubic-bezier(0.02, 0.01, 0.47, 1), opacity 0.2s cubic-bezier(0.02, 0.01, 0.47, 1);
+}
+
+.btn-storm:hover::before {
+  transform: translate3d(50%, 0, 0) scale(0.9);
+}
+
+.btn-storm:hover::after {
+  transform: translate(50%, 0) scale(1.1);
+}
+
+.btn-close-1 {
+  font-family: inherit;
+  background: #212121;
+  color: white;
+  fill: rgb(155, 153, 153);
+  padding: 0.7em 1em;
+  padding-left: 0.9em;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  border: none;
+  font-weight: 1000;
+}
+
+.btn-close-1 span {
+  display: block;
+  margin-right: 0.3em;
+  transition: all 0.3s ease-in-out;
+}
+
+.btn-close-1 svg {
+  display: block;
+  transform-origin: center center;
+  transition: transform 0.3s ease-in-out;
+}
+
+.btn-close-1:hover {
+  background: #000;
+}
+
+.btn-close-1:hover .svg-wrapper {
+  transform: scale(1.25);
+  transition: 0.5s linear;
+}
+
+.btn-close-1:hover svg {
+  transform: translateX(-1.2em) scale(1.1);
+  fill: #fff;
+}
+
+.btn-close-1:hover span {
+  opacity: 0;
+  transition: 0.5s linear;
+}
+
+.btn-close-1:active {
+  transform: scale(0.95);
+}
+
+.outline-btn-1 {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-color: transparent;
+  background-color: inherit;
+  color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary);
+  overflow: hidden;
+  transition: all 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.outline-btn-1 .circle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 20px;
+  background-color: var(--color-primary);
+  border-radius: 50%;
+  opacity: 0;
+  transition: all .5s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.outline-btn-1 .text {
+  position: relative;
+  z-index: 1;
+  transition: all 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.outline-btn-1:hover {
+  box-shadow: 0 0 0 12px transparent;
+  color: white;
+}
+
+.outline-btn-1:active {
+  scale: 0.95;
+  box-shadow: 0 0 0 4px var(--color-primary);
+}
+
+.outline-btn-1:hover .circle {
+  width: 220px;
+  height: 220px;
+  opacity: 1;
+}
+
+.text-btn-1::after {
+  position: absolute;
+  content: "";
+  width: 0;
+  left: 0;
+  bottom: -5px;
+  background: var(--color-primary);
+  height: 1px;
+  transition: 0.3s ease-out;
+}
+
+.text-btn-1 p::before {
+  position: absolute;
+  content: '';
+  width: 0%;
+  inset: 0;
+  color: var(--color-primary);
+  overflow: hidden;
+  transition: 0.3s ease-out;
+}
+
+.text-btn-1:hover::after {
+  width: 100%;
+}
+
+.text-btn-1:hover p::before {
+  width: 100%;
+}
+
+.text-btn-1:hover svg {
+  transform: translateX(3px);
+  color: var(--color-primary);
+}
+
+.text-btn-1 svg {
+  transition: 0.2s;
+  position: relative;
+  width: 15px;
+  transition-delay: 0.2s;
+}

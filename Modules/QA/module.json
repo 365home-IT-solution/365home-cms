@@ -1,0 +1,11 @@
+{
+    "name": "QA",
+    "alias": "qa",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\QA\\App\\Providers\\QAServiceProvider"
+    ],
+    "files": []
+}

@@ -1,0 +1,29 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }};
+
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Table;
+use {{ namespace }}\Actions\{{ resource }}Action;
+use {{ namespace }}\BulkActions\{{ resource }}BulkAction;
+use {{ namespace }}\Filters\{{ resource }}Filter;
+
+class {{ class }}
+{
+    public static function table(Table $table): Table
+    {
+        return $table
+            ->columns([
+                TextColumn::make('created_at')
+                    ->label('Ngày thêm')
+                    ->dateTime()
+                    ->sortable(),
+            ])
+            ->defaultSort('created_at', 'desc')
+            ->filters({{ resource }}Filter::filter())
+            ->actions({{ resource }}Action::action())
+            ->bulkActions({{ resource }}BulkAction::bulkActions());
+    }
+}

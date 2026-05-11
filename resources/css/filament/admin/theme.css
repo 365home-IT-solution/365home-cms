@@ -1,0 +1,8 @@
+@import '/vendor/filament/filament/resources/css/theme.css';
+@import '/resources/css/filament/admin/default.css';
+@import '/resources/css/filament/admin/scrollbar.css';
+@import '/resources/css/filament/admin/table.css';
+@import '/resources/css/filament/admin/logo.css';
+@import '/resources/css/filament/admin/tiny.css';
+@config 'tailwind.config.js';
+

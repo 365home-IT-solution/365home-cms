@@ -1,0 +1,174 @@
+<?php
+
+namespace Modules\BladeThemeV1\Livewire;
+
+use App\Settings\GeneralSettings;
+use Livewire\Component;
+use Modules\SettingCompany\Entities\Business;
+use Modules\ThemeSetting\App\Models\ThemeSection;
+use Modules\BladeThemeV1\Enums\FooterSection;
+use Modules\BladeThemeV1\Traits\HandleCalculateTrait;
+use Modules\BladeThemeV1\Traits\HandleSectionCfgTrait;
+
+class Footer extends Component
+{
+    use HandleCalculateTrait, HandleSectionCfgTrait;
+
+    public array $footerConfig = [];
+    public array $footerBottomConfig = [];
+    public $smColumns, $mdColumns, $lgColumns;
+    public string $logo;
+    private ThemeSection $section;
+    private GeneralSettings $generalSettings;
+
+    public function mount()
+    {
+        $this->generalSettings = new GeneralSettings();
+
+        $this->section = $this->getFooterConfig();
+        $footerMainConfig = $this->getChildSectionConfigs(FooterSection::FOOTER_MAIN->value);
+        $footerBottomConfig = $this->getChildSectionConfigs(FooterSection::FOOTER_BOTTOM->value);
+
+        $this->calculateColumns($footerMainConfig['footer_column']);
+        $this->logo = $this->generalSettings->brand_logo;
+
+        $this->footerConfig = [
+            'newsletter' => [
+                'is_visible' => $footerMainConfig['newsletter'],
+                'heading' => $footerMainConfig['heading'],
+                'description' => $footerMainConfig['description'],
+                'form' => $footerMainConfig['form'],
+            ],
+            'content' => $this->formatFooterContent($footerMainConfig['footer_content']),
+            'styling' => [
+                'columns' => [
+                    'sm' => $this->smColumns,
+                    'md' => $this->mdColumns,
+                    'lg' => $this->lgColumns,
+                ],
+                'backgroundColor' => $footerMainConfig['background_color'],
+                'titleColor' => $footerMainConfig['title_color'] ?? 'var(--color-primary)',
+                'textColor' => $footerMainConfig['base_color'],
+            ]
+        ];
+        $this->footerBottomConfig = [
+            'base_color' => $footerBottomConfig['base_color'],
+            'background_color' => $footerBottomConfig['background_color'],
+            'copyright' => $footerBottomConfig['copyright'],
+            'bottom_menu' => (function () use ($footerBottomConfig) {
+                $menuId = $footerBottomConfig['bottom_menu'];
+                $menuItems = \Modules\Menu\Entities\Menu::find($menuId)?->menuItems;
+                return $this->formatMenuItems($menuItems);
+            })()
+        ];
+    }
+
+    private function formatFooterContent(array $footerContent): array
+    {
+        $formattedContent = [];
+
+        foreach ($footerContent as $column) {
+            $formattedColumn = [
+                'title' => $column['title'],
+                'content' => []
+            ];
+
+            foreach ($column['rows'] as $row) {
+                $contentItem = [
+                    'type' => $row['content_type'],
+                    'data' => null
+                ];
+
+                switch ($row['content_type']) {
+                    case 'text':
+                        $contentItem['data'] = $row['text_content'];
+                        break;
+
+                    case 'business':
+                        $contentItem['data'] = Business::find($row['business_id'])?->toArray();
+                        break;
+
+                    case 'image':
+                        $contentItem['data'] =  $row['image_content'];
+                        break;
+
+                    case 'menu':
+                        if ($row['menu_id']) {
+                            // Nếu bạn có Menu model, có thể load menu items ở đây
+                            $menuItems = \Modules\Menu\Entities\Menu::find($row['menu_id'])?->menuItems;
+                            if ($menuItems) {
+                                $contentItem['data'] = $this->formatMenuItems($menuItems);
+                            }
+                        }
+                        break;
+
+                    case 'social_media':
+                        $contentItem['data'] = array_map(function($social) {
+                            return [
+                                'platform' => $social['platform'],
+                                'url' => $social['url'],
+                            ];
+                        }, $row['social_media']);
+                        break;
+
+                    case 'iframe':
+                        $contentItem['data'] = $row['iframe_content'];
+                        break;
+
+                    case 'google_map':
+                        $contentItem['data'] = $row['google_map'];
+                        break;
+                }
+
+                $formattedColumn['content'][] = $contentItem;
+            }
+
+            $formattedContent[] = $formattedColumn;
+        }
+
+        return $formattedContent;
+    }
+
+    public function calculateColumns(int $columnsCount)
+    {
+        $columns = $this->calculateColumnsTrait(null, $columnsCount);
+        $this->smColumns = $columns['sm'];
+        $this->mdColumns = $columns['md'];
+        $this->lgColumns = $columns['lg'];
+    }
+
+    private function getFooterConfig()
+    {
+        return ThemeSection::where('name', 'footer')
+            ->with(['children'])
+            ->first();
+    }
+
+    private function formatMenuItems($menuItems, $parentId = null): array
+    {
+        $items = [];
+
+        foreach ($menuItems as $item) {
+            if ($item->parent_id === $parentId && $item->target !== '_parent') {
+                $children = $this->formatMenuItems($menuItems, $item->id);
+
+                $items[] = [
+                    'title' => $item->title,
+                    'url' => $item->url,
+                    'target' => $item->target,
+                    'order' => $item->order,
+                    'children' => $children,
+                ];
+            }
+        }
+
+        return $items;
+    }
+
+    public function render()
+    {
+        return view('bladethemev1::livewire.footer', [
+            'footerConfig' => $this->footerConfig
+        ]);
+    }
+}

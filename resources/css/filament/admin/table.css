@@ -1,0 +1,27 @@
+/* Style cho hàng chẵn */
+.fi-ta-row:nth-child(even) {
+    background-color: rgb(249 250 251); /* light gray cho theme sáng */
+}
+
+/* Style cho hàng chẵn trong dark mode */
+.dark .fi-ta-row:nth-child(even) {
+    background-color: rgba(31, 41, 55, 0.5); /* dark gray với opacity cho theme tối */
+}
+
+/* Hiệu ứng hover vẫn giữ nguyên */
+.fi-ta-row:hover {
+    background-color: rgb(249 250 251); /* gray-50 */
+}
+
+.dark .fi-ta-row:hover {
+    background-color: rgba(255, 255, 255, 0.05); /* white/5 */
+}
+
+/* Đảm bảo selected row vẫn nổi bật hơn */
+.fi-ta-row.selected {
+    background-color: rgb(243 244 246); /* gray-100 */
+}
+
+.dark .fi-ta-row.selected {
+    background-color: rgba(31, 41, 55, 0.7); /* darker gray với opacity cao hơn */
+}

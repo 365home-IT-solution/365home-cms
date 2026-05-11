@@ -1,0 +1,61 @@
+{
+    "name": "goldenbeeltd-vn/product-module",
+    "name-module-vi": "Sản phẩm",
+    "docs": "/tai-lieu-huong-dan/product/getting-started",
+    "type": "laravel-module",
+    "description": "Module quản lý sản phẩm cho hệ thống Golden Bee, cung cấp các chức năng quản lý sản phẩm, danh mục và các thông tin liên quan.",
+    "version": "1.0.0",
+    "license": "proprietary",
+    "authors": [
+        {
+            "name": "Golden Bee IT Solutions Co., Ltd",
+            "email": "support@goldenbeeltd.vn",
+            "homepage": "https://goldenbeeltd.vn",
+            "role": "Developer"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Modules\\Product\\App\\Providers\\ProductServiceProvider"
+            ],
+            "aliases": {
+                "Product": "Modules\\Product\\App\\Facades\\Product"
+            }
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\Product\\": ""
+        }
+    },
+    "require": {
+        "php": "^7.4|^8.0",
+        "laravel/framework": "^8.0|^9.0|^10.0",
+        "codewithdennis/filament-select-tree": "^3.1",
+        "filament/spatie-laravel-media-library-plugin": "^3.2",
+        "filament/spatie-laravel-tags-plugin": "^3.2"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "keywords": [
+        "laravel",
+        "module",
+        "product"
+    ],
+    "homepage": "https://github.com/goldenbeeltd-vn/product-module",
+    "repository": {
+        "type": "git",
+        "url": "git@github.com:goldenbeeltd-vn/product-module.git"
+    },
+    "config": {
+        "allow-plugins": {
+            "joshbrw/laravel-module-installer": true
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "@php artisan module:enable Product"
+        ]
+    }
+}

@@ -1,0 +1,427 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@import "lightgallery/css/lightgallery-bundle.min.css";
+@import "plyr/dist/plyr.css";
+@import "@fortawesome/fontawesome-free/css/all.min.css";
+@import "mixin";
+@import "button";
+@import "custom";
+@import "menu-item";
+
+html {
+    font-size: 0.8rem; /* Default font size for mobile */
+}
+
+@media (min-width: 768px) {  /* md breakpoint */
+    html {
+        font-size: 0.9rem;
+    }
+}
+
+.custom-arrow {
+    transform: rotateX(180deg);
+}
+
+.template_card:hover img {
+    transform: translateY(calc(-100% + 450px));
+}
+
+.template_card:hover .overlay {
+    opacity: 1;
+}
+
+.hover-effect {
+    transition: color 0.3s ease;
+}
+
+.hover-effect:hover {
+    color: #ff0000 !important;
+}
+
+.heading-container {
+    color: #2b2b2b;
+    padding-left: 20px;
+    font-size: 40px;
+    font-weight: normal;
+    text-transform: capitalize;
+    text-align: center;
+    position: relative;
+    border-bottom: 1px solid #b2b2b2;
+    height: 32px;
+    margin-bottom: 24px;
+}
+
+.text-justify {
+    text-align: justify;
+}
+
+.swiper-wrapper {
+    width: 100%;
+    height: max-content !important;
+    -webkit-transition-timing-function: linear !important;
+    transition-timing-function: linear !important;
+    position: relative;
+}
+
+.swiper-pagination-bullet {
+    background: #4f46e5;
+}
+
+.pulse {
+    animation: pulse-animation 1.5s infinite;
+}
+
+@keyframes pulse-animation {
+    0% {
+        box-shadow: 0 0 0 0px rgba(194, 120, 3, 0.9);
+    }
+
+    100% {
+        box-shadow: 0 0 0 15px rgba(194, 120, 3, 0);
+    }
+}
+
+.post-title {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    /* Giới hạn tối đa 2 dòng */
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-height: 3rem;
+    /* Đảm bảo chiều cao đủ cho 2 dòng */
+}
+
+.post-summary {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    /* Giới hạn tối đa 3 dòng */
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-height: 4.5rem;
+    /* Đảm bảo chiều cao đủ cho 3 dòng */
+}
+
+.scrollable-tags {
+    display: flex;
+    flex-wrap: nowrap;
+    /* Ngăn nội dung thẻ xuống hàng */
+    gap: 0.5rem;
+    /* Khoảng cách giữa các thẻ */
+    overflow-x: auto;
+    /* Cho phép cuộn ngang khi nội dung quá dài */
+    scrollbar-width: thin;
+    /* Đặt thanh cuộn mỏng hơn */
+    min-height: 1rem;
+    /* Đảm bảo chiều cao tối thiểu ngay cả khi không có thẻ */
+}
+
+.scrollable-tags::-webkit-scrollbar {
+    height: 6px;
+    /* Chiều cao của thanh cuộn */
+}
+
+.scrollable-tags::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.3);
+    /* Màu thanh cuộn */
+    border-radius: 10px;
+    /* Bo tròn thanh cuộn */
+}
+
+.overlay-title {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    /* Giới hạn tối đa 2 dòng */
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.overlay-summary {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    /* Giới hạn tối đa 3 dòng */
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.toc-wrap {
+    background-color: #f9fafb;
+
+    &::-webkit-scrollbar {
+        -webkit-appearance: none;
+        width: 7px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        border-radius: 5px;
+        background-color: #cccccc;
+        -webkit-box-shadow: 0 0 1px rgba(255, 255, 255, 0.5);
+    }
+
+    #toc {
+        max-height: calc(100vh - 150px);
+        padding: 1rem;
+        overflow-y: scroll;
+
+        a {
+            &:hover {
+                text-decoration: underline;
+            }
+        }
+
+        .toc-active {
+            font-weight: bold;
+            color: #2563eb;
+        }
+
+        .toc-item {
+            padding: 0.1em 0;
+
+            a {
+                padding: 0.25em 0.5em;
+            }
+        }
+
+        .toc-h2 {
+            margin-left: 0.5em;
+        }
+
+        .toc-h3 {
+            margin-left: 1.75em;
+        }
+
+        .toc-h4 {
+            margin-left: 3em;
+        }
+
+        .toc-h5 {
+            margin-left: 4.25em;
+        }
+
+        .toc-h6 {
+            margin-left: 5.5em;
+        }
+    }
+}
+
+.post-content h1,
+.post-content h2,
+.post-content h3,
+.post-content h4,
+.post-content h5,
+.post-content h6 {
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
+}
+
+.post-content h1 {
+    font-size: 1.6em; /* Giảm từ 2em xuống 1.8em */
+    font-weight: 700;
+}
+
+.post-content h2 {
+    font-size: 1.5em; /* Giảm từ 1.6em xuống 1.5em */
+    font-weight: 600;
+}
+
+.post-content h3 {
+    font-size: 1.3em; /* Giảm từ 1.4em xuống 1.3em */
+    font-weight: 500;
+}
+
+.post-content h4 {
+    font-size: 1.1em; /* Giảm từ 1.15em xuống 1.1em */
+    font-weight: 500;
+}
+
+.post-content h5 {
+    font-size: 0.85em; /* Giảm từ 0.9em xuống 0.85em */
+    font-weight: 500;
+}
+
+.post-content h6 {
+    font-size: 0.7em; /* Giảm từ 0.75em xuống 0.7em */
+    font-weight: 500;
+}
+
+.post-content img {
+    margin-top: 10px;
+    border-radius: 10px;
+}
+
+.post-content figcaption {
+    display: flex;
+    justify-content: center;
+}
+
+.post-content.prose.max-w-none {
+    line-height: 2rem;
+}
+
+.shadow-custom {
+    box-shadow: rgba(100, 100, 111, 0.2) 0px 7px 29px 0px;
+}
+
+.text-gradient {
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    position: relative;
+    z-index: 1;
+}
+
+.rediant {
+    background: rgb(0, 166, 80);
+    background: -moz-linear-gradient(
+            90deg,
+            rgba(0, 166, 80, 1) 0%,
+            rgba(0, 173, 238, 1) 100%
+    );
+    background: -webkit-linear-gradient(
+            90deg,
+            rgba(0, 166, 80, 1) 0%,
+            rgba(0, 173, 238, 1) 100%
+    );
+    background: linear-gradient(
+            90deg,
+            rgba(0, 166, 80, 1) 0%,
+            rgba(0, 173, 238, 1) 100%
+    );
+}
+
+@media (min-width: 769px) {
+    .zoom {
+        position: relative;
+        overflow: hidden;
+    }
+
+    .zoom::before {
+        content: "";
+        position: absolute;
+        top: -150%;
+        right: -150%;
+        width: 300%;
+        height: 300%;
+        background: rgba(255, 255, 255, 0.5); /* Màu sắc của đường sóng */
+        transform: rotate(45deg);
+        transition: all 0.5s ease-in-out;
+        z-index: 2;
+        opacity: 0; /* Không nhìn thấy ban đầu */
+    }
+
+    .zoom:hover::before {
+        top: 100%;
+        right: 100%;
+        opacity: 1; /* Hiện thị khi hover */
+    }
+
+    .zoom:hover img {
+        transform: scale(1.1) translateZ(0);
+    }
+
+    img {
+        transition: transform 1s ease-out;
+    }
+}
+
+.swiper-button-next::after,
+.swiper-button-prev::after {
+    font-size: 2.4rem !important;
+}
+
+@media (max-width: 768px) {
+    .swiper-button-next::after,
+    .swiper-button-prev::after {
+        font-size: 1.2rem !important;
+    }
+}
+
+.custom-lheight {
+    line-height: 1.2rem;
+}
+
+.post-content ul,
+.post-content ol {
+    margin-left: 2em; /* 20px/16px = 1.25em */
+    padding-right: 2em;
+    box-sizing: border-box;
+}
+
+.post-content ul ul,
+.post-content ul ol,
+.post-content ol ul,
+.post-content ol ol {
+    margin-left: 3em; /* 40px/16px = 2.5em */
+}
+
+.post-content ul {
+    list-style-type: disc;
+}
+
+.post-content ul ul {
+    list-style-type: circle;
+}
+
+.post-content ol {
+    list-style-type: decimal;
+}
+
+@media screen and (max-width: 768px) {
+    .post-content ul,
+    .post-content ol {
+        margin-left: 1.5em;
+        padding-right: 1em;
+    }
+
+    .post-content ul ul,
+    .post-content ul ol,
+    .post-content ol ul,
+    .post-content ol ol {
+        margin-left: 2em;
+    }
+}
+
+@media screen and (max-width: 480px) {
+    .post-content ul,
+    .post-content ol {
+        margin-left: 0.8em;
+        padding-right: 0.8em;
+    }
+
+    .post-content ul ul,
+    .post-content ul ol,
+    .post-content ol ul,
+    .post-content ol ol {
+        margin-left: 1.5em;
+    }
+
+    .post-content li {
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
+}
+
+.fixed-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    animation: slideDown 0.4s ease-in-out;
+}
+
+@keyframes slideDown {
+    from {
+        transform: translateY(-100%);
+    }
+    to {
+        transform: translateY(0);
+    }
+}
+
+.text-md {
+    font-size: 1rem;
+    line-height: 1.25rem;
+}

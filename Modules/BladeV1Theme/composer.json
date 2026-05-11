@@ -1,0 +1,53 @@
+{
+    "name": "goldenbeeltd-vn/blade-v1-theme-module",
+    "name-module-vi": "Blade theme version 1",
+    "type": "laravel-module",
+    "description": "",
+    "version": "1.0.0",
+    "license": "proprietary",
+    "authors": [
+        {
+            "name": "Golden Bee IT Solutions Co., Ltd",
+            "email": "support@goldenbeeltd.vn",
+            "homepage": "https://goldenbeeltd.vn",
+            "role": "Developer"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [],
+            "aliases": {}
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\BladeThemeV1\\": ""
+        }
+    },
+    "require": {
+        "php": "^8.2|^7.4",
+        "laravel/framework": "^8.0|^9.0|^10.0"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "keywords": [
+        "laravel",
+        "module",
+        "bladethemev1"
+    ],
+    "homepage": "https://github.com/goldenbeeltd-vn/blade-v1-theme-module",
+    "repository": {
+        "type": "git",
+        "url": "git@github.com:goldenbeeltd-vn/blade-v1-theme-module.git"
+    },
+    "config": {
+        "allow-plugins": {
+            "joshbrw/laravel-module-installer": true
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "@php artisan module:enable BladeThemeV1"
+        ]
+    }
+}

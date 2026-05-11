@@ -1,0 +1,13 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }};
+
+class {{ class }}
+{
+    public static function filter(): array
+    {
+        return [];
+    }
+}

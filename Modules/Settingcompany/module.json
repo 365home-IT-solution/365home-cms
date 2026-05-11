@@ -1,0 +1,11 @@
+{
+    "name": "SettingCompany",
+    "alias": "settingcompany",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\SettingCompany\\Providers\\SettingCompanyServiceProvider"
+    ],
+    "files": []
+}

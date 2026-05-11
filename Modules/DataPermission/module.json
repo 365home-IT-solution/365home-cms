@@ -1,0 +1,11 @@
+{
+    "name": "DataPermission",
+    "alias": "datapermission",
+    "description": "Phân quyền dữ liệu theo người dùng và bảng dữ liệu",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\DataPermission\\Providers\\DataPermissionServiceProvider"
+    ],
+    "files": []
+}

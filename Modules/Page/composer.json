@@ -1,0 +1,54 @@
+{
+    "name": "goldenbeeltd-vn/page-module",
+    "name-module-vi": "Trang",
+    "docs": "/tai-lieu-huong-dan/page/getting-started",
+    "type": "laravel-module",
+    "description": "Một hệ thống để quản lý các thành phần và bố cục trang động. Hệ thống này cung cấp một hệ thống cấu hình linh hoạt để xây dựng và tùy chỉnh các thành phần, phần và mẫu của trang. Các tính năng bao gồm quản lý thành phần, cấu hình bố cục và tích hợp dễ dàng với hệ thống. Lý tưởng cho các dự án yêu cầu khả năng xây dựng trang theo hệ thống với các thành phần có thể định cấu hình.",
+    "version": "1.0.0",
+    "license": "proprietary",
+    "authors": [
+        {
+            "name": "Golden Bee IT Solutions Co., Ltd",
+            "email": "support@goldenbeeltd.vn",
+            "homepage": "https://goldenbeeltd.vn",
+            "role": "Developer"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [],
+            "aliases": {}
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\Page\\": ""
+        }
+    },
+    "require": {
+        "php": "^7.4|^8.0",
+        "laravel/framework": "^8.0|^9.0|^10.0"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "keywords": [
+        "laravel",
+        "module",
+        "page"
+    ],
+    "homepage": "https://github.com/goldenbeeltd-vn/page-module",
+    "repository": {
+        "type": "git",
+        "url": "git@github.com:goldenbeeltd-vn/page-module.git"
+    },
+    "config": {
+        "allow-plugins": {
+            "joshbrw/laravel-module-installer": true
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "@php artisan module:enable Page"
+        ]
+    }
+}

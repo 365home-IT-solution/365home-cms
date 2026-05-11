@@ -1,0 +1,96 @@
+{
+    "name": "guava/filament-knowledge-base",
+    "description": "A filament plugin that adds a knowledge base and help to your filament panel(s).",
+    "keywords": [
+        "Guava",
+        "laravel",
+        "filament-knowledge-base"
+    ],
+    "homepage": "https://github.com/guava/filament-knowledge-base",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Lukas Frey",
+            "email": "lukas.frey@guava.cz",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": "^8.1",
+        "calebporzio/sushi": "^2.5",
+        "filament/filament": "^3.2",
+        "illuminate/contracts": "^10.0|^11.0",
+        "league/commonmark": "^2.4",
+        "n0sz/commonmark-marker-extension": "^1.0",
+        "spatie/laravel-package-tools": "^1.14.0",
+        "spatie/php-structure-discoverer": "^2.1",
+        "symfony/yaml": "^7.0"
+    },
+    "suggest": {
+        "spatie/shiki-php": "Required to support syntax highlighting"
+    },
+    "require-dev": {
+        "laravel/pint": "^1.0",
+        "nunomaduro/collision": "^8.0",
+        "nunomaduro/larastan": "^2.0.1",
+        "orchestra/testbench": "^9.0",
+        "pestphp/pest": "^2.0",
+        "pestphp/pest-plugin-arch": "^2.0",
+        "pestphp/pest-plugin-laravel": "^2.0",
+        "phpstan/extension-installer": "^1.1",
+        "phpstan/phpstan-deprecation-rules": "^1.0",
+        "phpstan/phpstan-phpunit": "^1.0"
+    },
+    "autoload": {
+        "files": [
+            "src/helpers.php"
+        ],
+        "psr-4": {
+            "Guava\\FilamentKnowledgeBase\\": "src/",
+            "Guava\\FilamentKnowledgeBase\\Database\\Factories\\": "database/factories/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Guava\\FilamentKnowledgeBase\\Tests\\": "tests/",
+            "Workbench\\App\\": "workbench/app/"
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": "@composer run prepare",
+        "clear": "@php vendor/bin/testbench package:purge-filament-knowledge-base --ansi",
+        "prepare": "@php vendor/bin/testbench package:discover --ansi",
+        "build": [
+            "@composer run prepare",
+            "@php vendor/bin/testbench workbench:build --ansi"
+        ],
+        "start": [
+            "Composer\\Config::disableProcessTimeout",
+            "@composer run build",
+            "@php vendor/bin/testbench serve"
+        ],
+        "analyse": "vendor/bin/phpstan analyse",
+        "test": "vendor/bin/pest",
+        "test-coverage": "vendor/bin/pest --coverage",
+        "format": "vendor/bin/pint"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true,
+            "phpstan/extension-installer": true
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Guava\\FilamentKnowledgeBase\\KnowledgeBaseServiceProvider"
+            ],
+            "aliases": {
+                "KnowledgeBase": "Guava\\FilamentKnowledgeBase\\Facades\\KnowledgeBase"
+            }
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}

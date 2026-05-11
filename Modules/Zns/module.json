@@ -1,0 +1,11 @@
+{
+    "name": "Zns",
+    "alias": "zns",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\Zns\\App\\Providers\\ZnsServiceProvider"
+    ],
+    "files": []
+}

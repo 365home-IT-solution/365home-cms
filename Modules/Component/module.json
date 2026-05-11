@@ -1,0 +1,11 @@
+{
+    "name": "Component",
+    "alias": "component",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\Component\\Providers\\ComponentServiceProvider"
+    ],
+    "files": []
+}

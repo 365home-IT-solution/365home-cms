@@ -1,0 +1,39 @@
+<?php
+
+namespace App\Console;
+
+use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
+
+class Kernel extends ConsoleKernel
+{
+    /**
+     * Define the application's command schedule.
+     */
+    protected function schedule(Schedule $schedule): void
+    {
+        // Command cũ - giữ nguyên
+        $schedule->command('access-codes:auto-delete-expired')
+            ->dailyAt('02:00')
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping();
+
+        // ✅ Thêm mới - tự động hủy đơn hàng hết hạn sau 15 phút
+        $schedule->command('orders:expire-pending')
+            ->everyMinute()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping()
+            ->runInBackground()
+            ->appendOutputTo(storage_path('logs/expire-orders.log'));
+    }
+
+    /**
+     * Register the commands for the application.
+     */
+    protected function commands(): void
+    {
+        $this->load(__DIR__.'/Commands');
+
+        require base_path('routes/console.php');
+    }
+}

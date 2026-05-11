@@ -1,0 +1,19 @@
+.tox .tox-tbtn {
+    @apply hover:!bg-primary-500 focus:!bg-primary-500;
+  }
+  
+.tox .tox-tbtn--enabled {
+    @apply !bg-primary-500;
+}
+  
+.tox .tox-collection__item {
+    @apply hover:!bg-primary-100;
+}
+  
+.tox .tox-button {
+    @apply !bg-primary-500 hover:!bg-primary-500;
+}
+  
+.tox *:focus:not(.tox-textfield) {
+    @apply !ring-2 !ring-primary-500;
+}

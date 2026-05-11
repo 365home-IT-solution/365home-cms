@@ -1,0 +1,11 @@
+{
+    "name": "AccessCode",
+    "alias": "accesscode",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\AccessCode\\App\\Providers\\AccessCodeServiceProvider"
+    ],
+    "files": []
+}

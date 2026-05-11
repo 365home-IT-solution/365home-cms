@@ -1,0 +1,53 @@
+{
+    "name": "goldenbeeltd-vn/dashboard-module",
+    "type": "laravel-module",
+    "description": "Giải pháp phân tích dữ liệu thông minh, cung cấp cái nhìn tổng quan về hiệu suất sản phẩm, lưu lượng bài viết và tình trạng biểu mẫu. Với tính năng lọc thời gian tiên tiến, việc theo dõi số liệu thống kê trở nên đơn giản và hiệu quả hơn bao giờ hết.",
+    "version": "1.0.0",
+    "license": "proprietary",
+    "authors": [
+        {
+            "name": "Golden Bee IT Solutions Co., Ltd",
+            "email": "support@goldenbeeltd.vn",
+            "homepage": "https://goldenbeeltd.vn",
+            "role": "Developer"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [],
+            "aliases": {}
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\Dashboard\\": ""
+        }
+    },
+    "require": {
+        "php": "^7.4|^8.0",
+        "laravel/framework": "^8.0|^9.0|^10.0",
+        "flowframe/laravel-trend": "^0.3.0"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "keywords": [
+        "laravel",
+        "module",
+        "dashboard"
+    ],
+    "homepage": "https://github.com/goldenbeeltd-vn/dashboard-module",
+    "repository": {
+        "type": "git",
+        "url": "git@github.com:goldenbeeltd-vn/dashboard-module.git"
+    },
+    "config": {
+        "allow-plugins": {
+            "joshbrw/laravel-module-installer": true
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "@php artisan module:enable Dashboard"
+        ]
+    }
+}

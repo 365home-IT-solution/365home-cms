@@ -1,0 +1,4 @@
+@extends('$LOWER_NAME$::layouts.master')
+
+@section('content')
+@endsection

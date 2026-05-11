@@ -1,0 +1,16 @@
+<?php
+
+declare(strict_types=1);
+
+namespace {{ namespace }};
+
+use Filament\Forms\Form;
+
+class {{ class }}
+{
+    public static function form(Form $form): Form
+    {
+        return $form
+            ->schema([]);
+    }
+}
