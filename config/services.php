@@ -86,11 +86,11 @@ return [
     ],
 
     'ttlock' => [
-        'client_id'     => env('TTLOCK_CLIENT_ID'),
-        'client_secret' => env('TTLOCK_CLIENT_SECRET'),
-        'username'      => env('TTLOCK_USERNAME'),
-        'password'      => env('TTLOCK_PASSWORD'), // MD5 lowercase
-        'api_base'      => env('TTLOCK_API_BASE', 'https://euapi.ttlock.com'),
+        'client_id'      => env('TTLOCK_CLIENT_ID'),
+        'client_secret'  => env('TTLOCK_CLIENT_SECRET'),
+        'username'       => env('TTLOCK_USERNAME'),
+        'password'       => env('TTLOCK_PASSWORD'), // MD5 lowercase
+        'api_base'       => env('TTLOCK_API_BASE', 'https://euapi.ttlock.com'),
     ],
 
     'ocr_space' => [

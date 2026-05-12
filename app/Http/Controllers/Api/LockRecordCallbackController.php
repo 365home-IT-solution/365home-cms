@@ -55,8 +55,11 @@ class LockRecordCallbackController extends Controller
 public function handle(Request $request)
 {
     Log::info('TTLock callback received', [
-        'ip'   => $request->ip(),
-        'data' => $request->all(),
+        'ip'         => $request->ip(),
+        'lockId'     => $request->input('lockId'),
+        'lockMac'    => $request->input('lockMac'),
+        'notifyType' => $request->input('notifyType'),
+        // 'records' bị omit vì chứa keyboardPwd (passcode của khách)
     ]);
 
     $notifyType = (int) $request->input('notifyType');

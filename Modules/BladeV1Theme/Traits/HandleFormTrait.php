@@ -129,9 +129,6 @@ trait HandleFormTrait {
         if (is_array($input)) {
             return array_map([$this, 'sanitizeInput'], $input);
         }
-        if (preg_match('/<script.*?>.*?alert\s*\(.*?\).*?<\/script>/is', $input)) {
-            return '<script>alert("Chúc bạn may mắn lần sau :)))");</script>';
-        }
         $sanitized = strip_tags($input);
 
         $sanitized = htmlspecialchars($sanitized, ENT_QUOTES | ENT_HTML5, 'UTF-8');

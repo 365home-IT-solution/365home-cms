@@ -23,19 +23,19 @@ class TTLockService
 
     public function __construct()
     {
-        $this->clientId     = config('services.ttlock.client_id', '');
-        $this->clientSecret = config('services.ttlock.client_secret', '');
-        $this->username     = config('services.ttlock.username', '');
-        $this->password     = config('services.ttlock.password', '');
+        $this->clientId     = config('services.ttlock.client_id') ?? '';
+        $this->clientSecret = config('services.ttlock.client_secret') ?? '';
+        $this->username     = config('services.ttlock.username') ?? '';
+        $this->password     = config('services.ttlock.password') ?? '';
     }
 
     // =========================================================
-    // PUBLIC: Láº¥y access token (tá»± Ä‘á»™ng refresh náº¿u háº¿t háº¡n)
+    // PUBLIC: Lấy access token (tự động refresh nếu hết hạn)
     // =========================================================
 
     public function getAccessToken(): ?string
     {
-        // 1. Thá»­ láº¥y tá»« cache trÆ°á»›c
+        // 1. Thử lấy từ cache trước
         $token        = Cache::get(self::TOKEN_KEY);
         $refreshToken = Cache::get('ttlock_refresh_token');
 
@@ -43,7 +43,7 @@ class TTLockService
             return $token;
         }
 
-        // 2. Náº¿u cÃ³ refresh_token thÃ¬ dÃ¹ng Ä‘á»ƒ láº¥y token má»›i
+        // 2. Nếu có refresh_token thì dùng để lấy token mới
         if ($refreshToken) {
             $result = $this->refreshAccessToken($refreshToken);
             if ($result) {
@@ -51,13 +51,13 @@ class TTLockService
             }
         }
 
-        // 3. Láº¥y token má»›i báº±ng username/password
+        // 3. Lấy token mới bằng username/password
         $result = $this->fetchNewToken();
         return $result['access_token'] ?? null;
     }
 
     // =========================================================
-    // Láº¥y access token báº±ng username + password (Resource Owner)
+    // Lấy access token bằng username + password (Resource Owner)
     // =========================================================
 
     public function fetchNewToken(): ?array
@@ -94,7 +94,7 @@ class TTLockService
     }
 
     // =========================================================
-    // Refresh access token báº±ng refresh_token
+    // Refresh access token bằng refresh_token
     // =========================================================
 
     public function refreshAccessToken(string $refreshToken): ?array
@@ -131,19 +131,19 @@ class TTLockService
     }
 
     // =========================================================
-    // LÆ°u tokens vÃ o cache
+    // Lưu tokens vào cache
     // =========================================================
 
     private function storeTokens(array $data): void
     {
-        $expiresIn    = (int) ($data['expires_in'] ?? 7776000); // 90 ngÃ y máº·c Ä‘á»‹nh
+        $expiresIn    = (int) ($data['expires_in'] ?? 7776000); // 90 ngày mặc định
         $refreshToken = $data['refresh_token'] ?? null;
         $accessToken  = $data['access_token'];
 
-        // LÆ°u access_token, trá»« 5 phÃºt dá»± phÃ²ng trÆ°á»›c khi háº¿t háº¡n
+        // Lưu access_token, trừ 5 phút dự phòng trước khi hết hạn
         Cache::put(self::TOKEN_KEY, $accessToken, now()->addSeconds($expiresIn - 300));
 
-        // LÆ°u refresh_token 10 nÄƒm (nhÆ° TTLock quy Ä‘á»‹nh)
+        // Lưu refresh_token 10 năm (như TTLock quy định)
         if ($refreshToken) {
             Cache::put('ttlock_refresh_token', $refreshToken, now()->addYears(10));
         }
@@ -155,7 +155,7 @@ class TTLockService
     }
 
     // =========================================================
-    // XÃ³a token cache (dÃ¹ng khi muá»‘n force re-auth)
+    // Xóa token cache (dùng khi muốn force re-auth)
     // =========================================================
 
     public function clearTokenCache(): void
@@ -165,12 +165,12 @@ class TTLockService
     }
 
     // =========================================================
-    // Láº¥y danh sÃ¡ch khÃ³a cá»§a tÃ i khoáº£n
+    // Lấy danh sách khóa của tài khoản
     // GET /v3/lock/list
     // =========================================================
 
     /**
-     * Láº¥y toÃ n bá»™ danh sÃ¡ch khÃ³a (táº¥t cáº£ trang).
+     * Lấy toàn bộ danh sách khóa (tất cả trang).
      *
      * @return array{lockId: int, lockName: string, lockAlias: string, lockMac: string,
      *               electricQuantity: int, hasGateway: int, groupId: int, groupName: string}[]
@@ -225,20 +225,20 @@ class TTLockService
     }
 
     // =========================================================
-    // Cáº¥p mÃ£ passcode cho 1 khÃ³a
+    // Cấp mã passcode cho 1 khóa
     // POST /v3/keyboardPwd/get
     //
     // keyboardPwdType:
-    //   1 = One-time  2 = Permanent  3 = Period (tá»« startDate â†’ endDate)
+    //   1 = One-time  2 = Permanent  3 = Period (từ startDate → endDate)
     // =========================================================
 
     /**
-     * Cáº¥p 1 mÃ£ passcode ngáº«u nhiÃªn cho khÃ³a TTLock.
+     * Cấp 1 mã passcode ngẫu nhiên cho khóa TTLock.
      *
      * @param  int    $lockId       TTLock lockId
-     * @param  int    $startDate    Timestamp milliseconds (báº¯t Ä‘áº§u hiá»‡u lá»±c)
-     * @param  int    $endDate      Timestamp milliseconds (háº¿t háº¡n), 0 = Permanent
-     * @param  string $name         TÃªn mÃ£ (hiá»ƒn thá»‹ trong app TTLock)
+     * @param  int    $startDate    Timestamp milliseconds (bắt đầu hiệu lực)
+     * @param  int    $endDate      Timestamp milliseconds (hết hạn), 0 = Permanent
+     * @param  string $name         Tên mã (hiển thị trong app TTLock)
      * @param  int    $pwdType      1=one-time, 2=permanent, 3=period
      * @return array{code: string, keyboardPwdId: int}|null
      */
@@ -246,7 +246,7 @@ class TTLockService
         int    $lockId,
         int    $startDate,
         int    $endDate = 0,
-        string $name    = 'KhÃ¡ch Ä‘áº·t phÃ²ng',
+        string $name    = 'Khách đặt phòng',
         int    $pwdType = 3
     ): ?array {
         $token = $this->getAccessToken();
@@ -309,20 +309,20 @@ class TTLockService
     }
 
     // =========================================================
-    // ThÃªm mÃ£ passcode tÃ¹y chá»‰nh vÃ o khÃ³a
+    // Thêm mã passcode tùy chỉnh vào khóa
     // POST /v3/keyboardPwd/add
     //
-    // DÃ¹ng Ä‘á»ƒ cáº¥p cÃ¹ng 1 mÃ£ cho khÃ³a checkout sau khi Ä‘Ã£ generate cho khÃ³a checkin
+    // Dùng để cấp cùng 1 mã cho khóa checkout sau khi đã generate cho khóa checkin
     // =========================================================
 
     /**
-     * ThÃªm mÃ£ passcode tÃ¹y chá»‰nh vÃ o khÃ³a TTLock.
+     * Thêm mã passcode tùy chỉnh vào khóa TTLock.
      *
      * @param  int    $lockId      TTLock lockId
-     * @param  string $code        MÃ£ sá»‘ (6-9 kÃ½ tá»± sá»‘)
+     * @param  string $code        Mã số (6-9 ký tự số)
      * @param  int    $startDate   Timestamp milliseconds
      * @param  int    $endDate     Timestamp milliseconds (0 = permanent)
-     * @param  string $name        TÃªn mÃ£
+     * @param  string $name        Tên mã
      * @param  int    $pwdType     1=one-time, 2=permanent, 3=period
      * @param  int    $addType     1=app add, 2=gateway add (default: 2)
      * @return array{keyboardPwdId: int}|null
@@ -332,7 +332,7 @@ class TTLockService
         string $code,
         int    $startDate,
         int    $endDate = 0,
-        string $name    = 'KhÃ¡ch Ä‘áº·t phÃ²ng',
+        string $name    = 'Khách đặt phòng',
         int    $pwdType = 3,
         int    $addType = 2
     ): ?array {
@@ -396,18 +396,18 @@ class TTLockService
     }
 
     // =========================================================
-    // Cáº­p nháº­t thá»i gian hiá»‡u lá»±c cá»§a mÃ£ passcode
+    // Cập nhật thời gian hiệu lực của mã passcode
     // POST /v3/keyboardPwd/change
     // =========================================================
 
     /**
-     * Thay Ä‘á»•i thá»i gian hiá»‡u lá»±c cá»§a mÃ£ passcode TTLock.
+     * Thay đổi thời gian hiệu lực của mã passcode TTLock.
      *
      * @param  int    $lockId         TTLock lockId
-     * @param  int    $keyboardPwdId  ID mÃ£ cáº§n sá»­a
+     * @param  int    $keyboardPwdId  ID mã cần sửa
      * @param  int    $startDate      Timestamp milliseconds
      * @param  int    $endDate        Timestamp milliseconds (0 = permanent)
-     * @param  string $name           TÃªn mÃ£ (tÃ¹y chá»n)
+     * @param  string $name           Tên mã (tùy chọn)
      * @param  int    $changeType     1=app change, 2=gateway change
      * @return bool
      */
@@ -474,15 +474,15 @@ class TTLockService
     }
 
     // =========================================================
-    // XÃ³a mÃ£ passcode khá»i khÃ³a
+    // Xóa mã passcode khỏi khóa
     // POST /v3/keyboardPwd/delete
     // =========================================================
 
     /**
-     * XÃ³a mÃ£ passcode khá»i khÃ³a TTLock.
+     * Xóa mã passcode khỏi khóa TTLock.
      *
      * @param  int $lockId         TTLock lockId
-     * @param  int $keyboardPwdId  ID cá»§a mÃ£ cáº§n xÃ³a (láº¥y tá»« generate/add)
+     * @param  int $keyboardPwdId  ID của mã cần xóa (lấy từ generate/add)
      * @param  int $deleteType     1=app delete, 2=gateway delete (default: 2)
      * @return bool
      */
@@ -531,4 +531,3 @@ class TTLockService
         }
     }
 }
-

@@ -4,7 +4,7 @@ use Illuminate\Support\Facades\Route;
 
 // Admin: unread notification count (for tab-title polling)
 // Cached per-user for 2s — supports many concurrent admins without hammering the DB
-Route::middleware(['auth', 'web'])->prefix('admin/api')->group(function () {
+Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group(function () {
     Route::get('notifications/unread-count', function () {
         $user = auth()->user();
         if (! $user) {
@@ -219,16 +219,15 @@ Route::middleware(['auth', 'web'])->prefix('admin/api')->group(function () {
         if (! $user) {
             return response()->json(['ok' => false], 401);
         }
-        $order = \Modules\Payment\Entities\Order::findOrFail($id);
-
-        // Kiểm tra quyền: chỉ superadmin hoặc user có category được phép
+        // Gộp ownership check vào query để tránh leak sự tồn tại của đơn (403 vs 404)
+        $query = \Modules\Payment\Entities\Order::query();
         if (! $user->isSuperAdmin()) {
             $allowedIds = $user->allowedCategoryIds() ?? [];
-            if (! in_array($order->category_id, $allowedIds)) {
-                return response()->json(['ok' => false], 403);
-            }
+            $query->whereIn('category_id', $allowedIds);
         }
-        $order->deposit_room = $request->input('deposit_room', '');
+        $order = $query->findOrFail($id);
+
+        $order->deposit_room = trim(substr($request->input('deposit_room', ''), 0, 500));
         $order->save();
         return response()->json(['ok' => true, 'deposit_room' => $order->deposit_room]);
     })->name('admin.orders.deposit-room');

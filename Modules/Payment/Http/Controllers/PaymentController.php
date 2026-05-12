@@ -460,8 +460,8 @@ private function buildTelegramMessage(Order $order, string $status): string
             $receivedSignature = $request->input('signature');
 
             if (!$receivedSignature) {
-                Log::warning('PayOS Webhook: No signature in body');
-                return config('app.env') === 'local';
+                Log::warning('PayOS Webhook: No signature in body — request rejected');
+                return false;
             }
 
             $data = $request->input('data');
