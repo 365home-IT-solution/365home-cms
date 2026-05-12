@@ -249,6 +249,10 @@ class KnowledgeBasePanel extends Panel
 
     protected function makeNavigation(NavigationBuilder $builder): NavigationBuilder
     {
+        if (app()->runningInConsole()) {
+            return $builder;
+        }
+
         $documentables = KnowledgeBase::model()::all();
 
         if (File::exists(app_path('Docs'))) {
