@@ -21,6 +21,7 @@ jobs:
             cd /home/dev/www/365home
             git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/365home-IT-solution/365home-cms.git
             git pull origin production
+            rm -f bootstrap/cache/packages.php bootstrap/cache/services.php
             composer install --no-dev --optimize-autoloader --quiet
             php artisan optimize:clear
             php artisan config:cache

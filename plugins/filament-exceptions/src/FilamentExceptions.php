@@ -6,7 +6,6 @@ use BezhanSalleh\FilamentExceptions\Models\Exception as ExceptionModel;
 use Illuminate\Contracts\Container\BindingResolutionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
-use Spatie\LaravelIgnition\Recorders\QueryRecorder\QueryRecorder;
 use Throwable;
 
 class FilamentExceptions
@@ -40,7 +39,9 @@ class FilamentExceptions
             'method' => request()->getMethod(),
             'ip' => implode(' ', json_decode(json_encode(request()->getClientIps()))),
             'path' => request()->path(),
-            'query' => app()->make(QueryRecorder::class)->getQueries(), //Arr::except(request()->all(), ['_pjax', '_token', '_method', '_previous_']),
+            'query' => class_exists(\Spatie\LaravelIgnition\Recorders\QueryRecorder\QueryRecorder::class)
+                ? app()->make(\Spatie\LaravelIgnition\Recorders\QueryRecorder\QueryRecorder::class)->getQueries()
+                : '[]',
             'body' => request()->getContent(),
             'cookies' => request()->cookies->all(),
             'headers' => Arr::except(request()->headers->all(), 'cookie'),
