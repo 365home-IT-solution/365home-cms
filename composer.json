@@ -109,7 +109,7 @@
     },
     "extra": {
         "laravel": {
-            "dont-discover": []
+            "dont-discover": ["spatie/laravel-ignition"]
         },
         "merge-plugin": {
             "include": [
