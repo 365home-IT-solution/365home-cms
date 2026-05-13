@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('override_room_prices')) {
+            return;
+        }
+
         Schema::create('override_room_prices', function (Blueprint $table) {
             $table->id();
             $table->char('room_id', 26);

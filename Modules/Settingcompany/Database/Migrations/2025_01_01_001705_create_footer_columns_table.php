@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('footer_columns')) {
+            return;
+        }
+
         Schema::create('footer_columns', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('footer_id')->nullable();

@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('user_branch_permissions')) {
+            return;
+        }
+
         Schema::create('user_branch_permissions', function (Blueprint $table) {
             $table->id();
             $table->char('user_id', 36);

@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('comp_pages')) {
+            return;
+        }
+
         Schema::create('comp_pages', function (Blueprint $table) {
             $table->id();
             $table->integer('order');

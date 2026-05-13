@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('menu_locations')) {
+            return;
+        }
+
         Schema::create('menu_locations', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('menu_id');

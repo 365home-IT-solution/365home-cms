@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('user_data_scopes')) {
+            return;
+        }
+
         Schema::create('user_data_scopes', function (Blueprint $table) {
             $table->id();
             $table->char('user_id', 36);

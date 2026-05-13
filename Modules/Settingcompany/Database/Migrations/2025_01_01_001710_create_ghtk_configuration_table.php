@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('ghtk_configuration')) {
+            return;
+        }
+
         Schema::create('ghtk_configuration', function (Blueprint $table) {
             $table->id();
             $table->string('api_token')->nullable();

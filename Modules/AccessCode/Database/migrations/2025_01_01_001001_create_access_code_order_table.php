@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('access_code_order')) {
+            return;
+        }
+
         Schema::create('access_code_order', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('access_code_id');

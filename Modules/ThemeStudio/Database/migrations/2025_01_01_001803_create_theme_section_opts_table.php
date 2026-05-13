@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('theme_section_opts')) {
+            return;
+        }
+
         Schema::create('theme_section_opts', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('theme_section_cfg_id');

@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('categorizables')) {
+            return;
+        }
+
         Schema::create('categorizables', function (Blueprint $table) {
             $table->id();
             $table->string('categorizable_type');

@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('taggables')) {
+            return;
+        }
+
         Schema::create('taggables', function (Blueprint $table) {
             $table->string('taggable_type');
             $table->char('taggable_id', 26);

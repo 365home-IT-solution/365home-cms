@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('form_submissions')) {
+            return;
+        }
+
         Schema::create('form_submissions', function (Blueprint $table) {
             $table->id();
             $table->boolean('is_viewed')->default(false);
