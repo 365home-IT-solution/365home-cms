@@ -30,6 +30,9 @@ jobs:
       - name: Generate app key
         run: php artisan key:generate --ansi
 
+      - name: Check PHP syntax
+        run: find app Modules database config -name "*.php" -print0 | xargs -0 php -l | grep -v "No syntax errors" || true
+
       - name: Check artisan boots
         run: php artisan --version
 
