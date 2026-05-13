@@ -2,8 +2,6 @@
     "name": "goldenbeeltd-vn/base-cms",
     "type": "project",
     "description": "Hệ thống chính",
-    "upgradge": "Update mail configuration page and settings, Modify user model and profile page, Update breezy session table, Update Vietnamese translations",
-    "version": "1.0.0",
     "license": "proprietary",
     "authors": [
         {
