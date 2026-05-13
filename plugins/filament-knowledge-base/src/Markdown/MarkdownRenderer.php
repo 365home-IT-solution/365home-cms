@@ -156,6 +156,10 @@ final class MarkdownRenderer
 
     public function convert(string $input): RenderedContentInterface
     {
+        if (! mb_check_encoding($input, 'UTF-8')) {
+            $input = mb_convert_encoding($input, 'UTF-8', mb_detect_encoding($input, 'UTF-8, ISO-8859-1, Windows-1252', true) ?: 'ISO-8859-1');
+        }
+
         $ttl = config('filament-knowledge-base.cache.ttl');
 
         if ($ttl === 'forever') {
