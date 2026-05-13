@@ -10,7 +10,7 @@ import "flowbite";
 import AOS from 'aos';
 import 'aos/dist/aos.css';
 import Scrollbar from 'smooth-scrollbar';
-import { CountUp } from "countup.js/dist/countUp.min.js";
+import { CountUp } from "countup.js";
 import { initTooltips } from 'flowbite';
 
 // Gán các thư viện vào window để sử dụng toàn cục
