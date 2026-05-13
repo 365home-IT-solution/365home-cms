@@ -52,22 +52,26 @@ function createRoutes(array $pages, string $prefix = ''): void
 }
 } // end if !function_exists('createRoutes')
 
-$menus = Menu::query()
-    ->with([
-        'menuItems' => function ($query) {
-            $query->whereNull('parent_id')
-                ->orderBy('order')
-                ->with(['children' => function ($query) {
-                    $query->orderBy('order')
-                        ->with(['children' => function ($query) {
-                            $query->orderBy('order');
-                        }]);
-                }]);
-        },
-        'locations'
-    ])
-    ->where('is_visible', true)
-    ->get();
+try {
+    $menus = Menu::query()
+        ->with([
+            'menuItems' => function ($query) {
+                $query->whereNull('parent_id')
+                    ->orderBy('order')
+                    ->with(['children' => function ($query) {
+                        $query->orderBy('order')
+                            ->with(['children' => function ($query) {
+                                $query->orderBy('order');
+                            }]);
+                    }]);
+            },
+            'locations'
+        ])
+        ->where('is_visible', true)
+        ->get();
+} catch (\Exception $e) {
+    $menus = collect();
+}
 
 if ($menus->isNotEmpty()) {
     foreach ($menus as $menu) {

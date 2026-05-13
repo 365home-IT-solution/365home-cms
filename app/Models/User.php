@@ -18,9 +18,7 @@ use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Spatie\Permission\Traits\HasRoles;
-use Jeffgreco13\FilamentBreezy\Traits\TwoFactorAuthenticatable;
 
-// ** khi nào chạy migrate xong thì mở ra
 class User extends Authenticatable implements FilamentUser, MustVerifyEmail, HasAvatar, HasName, HasMedia
 {
     use HasApiTokens,
@@ -34,10 +32,6 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail, Has
     protected static function boot()
     {
         parent::boot();
-
-        static::created(function ($user) {
-            $user->assignRole('panel_user');
-        }); 
     }
 
     /**
@@ -76,12 +70,7 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail, Has
         return $this->fullname ?? $this->email;
     }
 
-    public function canAccessPanel(Panel $panel): bool
-    {
-        return true;
-    }
-
-    public function getFilamentAvatarUrl(): ?string
+public function getFilamentAvatarUrl(): ?string
     {
         return $this->getMedia('avatars')?->first()?->getUrl() ?? $this->getMedia('avatars')?->first()?->getUrl('thumb') ?? null;
     }

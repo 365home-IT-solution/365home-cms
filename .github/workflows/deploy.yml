@@ -5,7 +5,36 @@ on:
     branches: [production]
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo, pdo_mysql, xml, bcmath, curl, zip
+          coverage: none
+
+      - name: Validate composer.json
+        run: composer validate --no-check-all --ansi
+
+      - name: Install dependencies
+        run: composer install --no-dev --optimize-autoloader --no-interaction --ansi
+
+      - name: Copy .env
+        run: cp .env.example .env
+
+      - name: Generate app key
+        run: php artisan key:generate --ansi
+
+      - name: Check artisan boots
+        run: php artisan --version
+
   deploy:
+    needs: check
     runs-on: ubuntu-latest
 
     steps:
@@ -21,7 +50,10 @@ jobs:
             cd /home/dev/www/365home
             git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/365home-IT-solution/365home-cms.git
             git pull origin production
-            composer install --no-dev --optimize-autoloader --quiet
+            rm -f bootstrap/cache/config.php bootstrap/cache/packages.php bootstrap/cache/services.php
+            composer install --no-dev --optimize-autoloader
+            php artisan optimize:clear
+            php artisan package:discover --ansi
             php artisan config:cache
             php artisan route:cache
             php artisan view:cache

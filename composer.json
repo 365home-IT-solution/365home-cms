@@ -55,6 +55,7 @@
         "spatie/laravel-permission": "^6.9",
         "spatie/laravel-settings": "^3.4",
         "spatie/laravel-tags": "^4.0",
+        "symfony/yaml": "^7.0",
         "thiktak/filament-simple-list-entry": "^1.0",
         "wikimedia/composer-merge-plugin": "2.1",
         "z3d0x/filament-logger": "^0.7.2"
@@ -92,14 +93,16 @@
     "scripts": {
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
-            "@php artisan package:discover --ansi",
-            "@php artisan filament:upgrade"
+            "@php -r \"@mkdir('storage/framework/views', 0755, true); @mkdir('storage/framework/cache/data', 0755, true); @mkdir('storage/framework/sessions', 0755, true); @mkdir('storage/logs', 0755, true); @mkdir('bootstrap/cache', 0755, true);\"",
+            "@php artisan package:discover --ansi || true",
+            "@php artisan filament:upgrade || true"
         ],
         "post-update-cmd": [
             "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
         ],
         "post-root-package-install": [
-            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
+            "@php -r \"@mkdir('storage/framework/views', 0755, true); @mkdir('storage/framework/cache/data', 0755, true); @mkdir('storage/framework/sessions', 0755, true); @mkdir('storage/logs', 0755, true); @mkdir('bootstrap/cache', 0755, true);\""
         ],
         "post-create-project-cmd": [
             "@php artisan key:generate --ansi"
@@ -107,7 +110,7 @@
     },
     "extra": {
         "laravel": {
-            "dont-discover": []
+            "dont-discover": ["spatie/laravel-ignition"]
         },
         "merge-plugin": {
             "include": [

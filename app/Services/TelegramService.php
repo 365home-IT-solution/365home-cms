@@ -5,8 +5,8 @@ use Illuminate\Support\Facades\Http;
 
 class TelegramService
 {
-    private string $token;
-    private string $chatId;
+    private ?string $token;
+    private ?string $chatId;
 
     public function __construct()
     {
@@ -14,20 +14,29 @@ class TelegramService
         $this->chatId = config('services.telegram.chat_id');
     }
 
-public function sendMessage(string $message, ?string $chatId = null): void
-{
-    $response = Http::withoutVerifying()
-        ->post("https://api.telegram.org/bot{$this->token}/sendMessage", [
-        'chat_id'    => $chatId ?? $this->chatId,
-        'text'       => $message,
-        'parse_mode' => 'HTML',
-    ]);
+    public function isConfigured(): bool
+    {
+        return ! empty($this->token) && ! empty($this->chatId);
+    }
 
-    \Log::info('Telegram API response', [
-        'status' => $response->status(),
-        'body'   => $response->json(),
-    ]);
-}
+    public function sendMessage(string $message, ?string $chatId = null): void
+    {
+        if (! $this->isConfigured()) {
+            return;
+        }
+
+        $response = Http::withoutVerifying()
+            ->post("https://api.telegram.org/bot{$this->token}/sendMessage", [
+                'chat_id'    => $chatId ?? $this->chatId,
+                'text'       => $message,
+                'parse_mode' => 'HTML',
+            ]);
+
+        \Log::info('Telegram API response', [
+            'status' => $response->status(),
+            'body'   => $response->json(),
+        ]);
+    }
 
 public function sendLockMessage(string $message): void
 {

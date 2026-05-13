@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('comp_page_values')) {
+            return;
+        }
+
         Schema::create('comp_page_values', function (Blueprint $table) {
             $table->id();
             $table->longText('value');

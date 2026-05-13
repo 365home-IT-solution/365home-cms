@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('comments')) {
+            return;
+        }
+
         Schema::create('comments', function (Blueprint $table) {
             $table->id();
             $table->string('name')->nullable();

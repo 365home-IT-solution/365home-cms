@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('social_media')) {
+            return;
+        }
+
         Schema::create('social_media', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('footer_column_id');

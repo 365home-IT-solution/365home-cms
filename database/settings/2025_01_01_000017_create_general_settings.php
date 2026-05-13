@@ -1,11 +1,16 @@
 <?php
 
+use Illuminate\Support\Facades\DB;
 use Spatie\LaravelSettings\Migrations\SettingsMigration;
 
 return new class extends SettingsMigration
 {
     public function up(): void
     {
+        if (DB::table('settings')->where('group', 'general')->where('name', 'brand_name')->exists()) {
+            return;
+        }
+
         $this->migrator->add('general.brand_name', 'Goldenbee');
         $this->migrator->add('general.brand_logo', '/images/logo-goldenbee.png');
         $this->migrator->add('general.brand_logo_light_version', '/images/logo-goldenbee-light-version.png');

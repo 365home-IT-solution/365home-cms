@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('header_contacts')) {
+            return;
+        }
+
         Schema::create('header_contacts', function (Blueprint $table) {
             $table->id();
             $table->string('icon')->nullable();
