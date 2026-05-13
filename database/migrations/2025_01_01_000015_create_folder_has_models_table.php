@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('folder_has_models')) {
+            return;
+        }
+
         Schema::create('folder_has_models', function (Blueprint $table) {
             $table->id();
             $table->string('model_type');

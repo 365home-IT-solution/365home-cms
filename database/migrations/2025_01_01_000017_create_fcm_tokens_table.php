@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('fcm_tokens')) {
+            return;
+        }
+
         Schema::create('fcm_tokens', function (Blueprint $table) {
             $table->id();
             $table->char('user_id', 36);
