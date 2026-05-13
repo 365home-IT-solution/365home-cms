@@ -93,8 +93,8 @@
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
             "@php -r \"@mkdir('storage/framework/views', 0755, true); @mkdir('storage/framework/cache/data', 0755, true); @mkdir('storage/framework/sessions', 0755, true); @mkdir('storage/logs', 0755, true); @mkdir('bootstrap/cache', 0755, true);\"",
-            "@php artisan package:discover --ansi",
-            "@php artisan filament:upgrade"
+            "@php artisan package:discover --ansi || true",
+            "@php artisan filament:upgrade || true"
         ],
         "post-update-cmd": [
             "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
