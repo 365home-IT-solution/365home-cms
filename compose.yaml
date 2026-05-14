@@ -14,7 +14,10 @@ services:
         env_file: .env
         networks:
             - app
+            - mariadb_default
 
 networks:
     app:
         driver: bridge
+    mariadb_default:
+        external: true
