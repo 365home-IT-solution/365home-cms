@@ -1,3 +1,10 @@
+# ─── Stage 0: PHP dependencies ───────────────────────────────────────────────
+FROM composer:2 AS vendor
+
+WORKDIR /app
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --no-scripts --optimize-autoloader --no-interaction
+
 # ─── Stage 1: Build frontend assets ──────────────────────────────────────────
 FROM node:20-alpine AS frontend
 
@@ -6,6 +13,9 @@ WORKDIR /app
 # Install root npm dependencies
 COPY package.json package-lock.json ./
 RUN npm ci
+
+# vendor needed for tailwind.config.js (imports filament preset)
+COPY --from=vendor /app/vendor ./vendor
 
 # Copy full source (modules read ../../.env relative to their directory)
 COPY . .
@@ -53,19 +63,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get autoremove -y && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Composer
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
-
 WORKDIR /var/www/html
 
-# Copy application source (node_modules, vendor, .env, public/build* excluded via .dockerignore)
+# Copy application source (node_modules, vendor, .env excluded via .dockerignore)
 COPY . .
 
-# Overwrite public/ with fully built assets from frontend stage
+# Copy built assets from frontend stage
 COPY --from=frontend /app/public /var/www/html/public
 
-# Install PHP dependencies (production only)
-RUN composer install --no-dev --optimize-autoloader --no-interaction --ansi
+# Copy vendor from composer stage (autoloader paths are relative, safe to copy)
+COPY --from=vendor /app/vendor /var/www/html/vendor
 
 # Nginx config
 RUN rm -f /etc/nginx/sites-enabled/default
