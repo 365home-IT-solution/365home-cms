@@ -9,8 +9,8 @@ mkdir -p /var/www/html/storage/framework/views \
          /var/www/html/storage/app/public
 
 # Fix storage permissions on every start (handles host-mounted storage/)
-chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
-chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
+chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache /var/www/html/resources
+chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache /var/www/html/resources
 
 # Create public/storage symlink so uploaded files are accessible via URL
 php artisan storage:link --force
