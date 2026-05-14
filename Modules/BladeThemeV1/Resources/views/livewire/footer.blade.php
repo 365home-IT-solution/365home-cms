@@ -58,7 +58,7 @@
                                                     <!-- Business Content -->
                                                     <div class="">
                                                         <a href="/">
-                                                            <img style="width: auto; max-width: 250px;" class="mb-6" src="{{ asset('/storage/'.$logo) }}" alt="Logo">
+                                                            <img style="width: auto; max-width: 250px; filter: brightness(0) invert(1);" class="mb-6" src="{{ asset('/storage/'.$logo) }}" alt="Logo">
                                                         </a>
 
                                                         <div class="flex flex-col">
