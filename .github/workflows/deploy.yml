@@ -58,7 +58,6 @@ jobs:
             git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/365home-IT-solution/365home-cms.git
             git fetch origin
             git checkout production
-            sudo chown -R $(whoami):$(whoami) storage || true
             git reset --hard origin/production
             docker compose up -d --build
             echo "Deploy $(date '+%Y-%m-%d %H:%M') OK"

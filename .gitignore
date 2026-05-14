@@ -10,6 +10,8 @@
 /storage/framework/cache
 /storage/framework/sessions
 /storage/framework/views
+/storage/framework/.gitignore
+/storage/app/public/.gitignore
 /vendor
 .env
 .env.backup
