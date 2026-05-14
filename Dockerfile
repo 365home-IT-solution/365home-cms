@@ -26,15 +26,11 @@ RUN cp .env.example .env
 # Build root assets (public/build)
 RUN npm run build
 
-# Build modules that have their own package-lock.json
-RUN find Modules -maxdepth 2 -name "package-lock.json" | sort | while read lock; do \
-      dir=$(dirname "$lock"); \
-      echo "▶ Building $dir" && \
-      cd "/app/$dir" && \
-      npm ci && \
-      npm run build && \
-      cd /app; \
-    done
+# Build BladeThemeV1 module assets (public/build-bladethemev1)
+RUN cd Modules/BladeThemeV1 && npm ci && npm run build
+
+# Build Post module assets (public/build-post)
+RUN cd Modules/Post && npm ci && npm run build
 
 # ─── Stage 2: PHP production runtime ─────────────────────────────────────────
 FROM ubuntu:24.04
