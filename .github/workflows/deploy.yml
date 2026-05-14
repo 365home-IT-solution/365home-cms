@@ -50,8 +50,14 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           script: |
             set -e
+            mkdir -p /home/dev/www
+            if [ ! -d /home/dev/www/365home.vn/.git ]; then
+              git clone https://x-access-token:${{ secrets.GH_PAT }}@github.com/365home-IT-solution/365home-cms.git /home/dev/www/365home.vn
+            fi
             cd /home/dev/www/365home.vn
             git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/365home-IT-solution/365home-cms.git
-            git pull origin production
+            git fetch origin
+            git checkout production
+            git reset --hard origin/production
             docker compose up -d --build
             echo "Deploy $(date '+%Y-%m-%d %H:%M') OK"
