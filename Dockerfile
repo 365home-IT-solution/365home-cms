@@ -27,10 +27,10 @@ RUN cp .env.example .env
 RUN npm run build
 
 # Build BladeThemeV1 module assets (public/build-bladethemev1)
-RUN cd Modules/BladeThemeV1 && npm ci && npm run build
+RUN cd Modules/BladeThemeV1 && npm install && npm run build
 
 # Build Post module assets (public/build-post)
-RUN cd Modules/Post && npm ci && npm run build
+RUN cd Modules/Post && npm install && npm run build
 
 # ─── Stage 2: PHP production runtime ─────────────────────────────────────────
 FROM ubuntu:24.04
