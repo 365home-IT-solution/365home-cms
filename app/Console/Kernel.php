@@ -22,8 +22,7 @@ class Kernel extends ConsoleKernel
         $schedule->command('orders:expire-pending')
             ->everyMinute()
             ->timezone('Asia/Ho_Chi_Minh')
-            ->withoutOverlapping()
-            ->runInBackground()
+            ->withoutOverlapping(1)
             ->appendOutputTo(storage_path('logs/expire-orders.log'));
     }
 
