@@ -43,7 +43,7 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # Install PHP 8.3 (Ondrej PPA) + Nginx + Supervisor
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      gnupg curl ca-certificates zip unzip git supervisor nginx \
+      gnupg curl ca-certificates zip unzip git supervisor nginx cron \
     && curl -sS 'https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xb8dc7e53946656efbce4c1dd71daeaab4ad4cab6' \
        | gpg --dearmor | tee /etc/apt/keyrings/ppa_ondrej_php.gpg > /dev/null \
     && echo "deb [signed-by=/etc/apt/keyrings/ppa_ondrej_php.gpg] https://ppa.launchpadcontent.net/ondrej/php/ubuntu noble main" \
@@ -73,6 +73,10 @@ COPY --from=vendor /app/vendor /var/www/html/vendor
 # Nginx config
 RUN rm -f /etc/nginx/sites-enabled/default
 COPY docker/nginx.conf /etc/nginx/sites-enabled/laravel
+
+# Laravel scheduler crontab
+COPY docker/laravel-cron /etc/cron.d/laravel
+RUN chmod 0644 /etc/cron.d/laravel
 
 # Supervisor config
 COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
