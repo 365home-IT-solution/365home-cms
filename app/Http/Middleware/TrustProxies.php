@@ -12,11 +12,7 @@ class TrustProxies extends Middleware
      *
      * @var array<int, string>|string|null
      */
-    protected $proxies = [
-        '127.0.0.1',
-        '::1',
-        // Thêm IP của load balancer / nginx reverse proxy thực tế tại đây
-    ];
+    protected $proxies = '*';
 
     /**
      * The headers that should be used to detect proxies.
