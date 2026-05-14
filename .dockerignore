@@ -9,3 +9,4 @@ storage/framework/views
 public/build
 public/build-*
 *.log
+bootstrap/cache/*.php
