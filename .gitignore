@@ -49,7 +49,7 @@ Thumbs.db
 /Modules/**/.env
 /Modules/**/.env.backup
 /Modules/**/composer.lock
-/Modules/**/package-lock.json
+# /Modules/**/package-lock.json  ← unlocked so Docker can use npm ci on VPS
 /Modules/**/yarn.lock
 /Modules/**/build
 /Modules/**/dist
