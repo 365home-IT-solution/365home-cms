@@ -3,7 +3,7 @@ FROM composer:2 AS vendor
 
 WORKDIR /app
 COPY composer.json composer.lock ./
-RUN composer install --no-dev --no-scripts --optimize-autoloader --no-interaction
+RUN composer install --no-dev --no-scripts --optimize-autoloader --no-interaction --ignore-platform-reqs
 
 # ─── Stage 1: Build frontend assets ──────────────────────────────────────────
 FROM node:20-alpine AS frontend
