@@ -26,9 +26,9 @@ RUN cp .env.example .env
 # Build root assets (public/build)
 RUN npm run build
 
-# Build every module that has its own vite.config.js
-RUN find Modules -maxdepth 2 -name "vite.config.js" | sort | while read cfg; do \
-      dir=$(dirname "$cfg"); \
+# Build modules that have their own package-lock.json
+RUN find Modules -maxdepth 2 -name "package-lock.json" | sort | while read lock; do \
+      dir=$(dirname "$lock"); \
       echo "▶ Building $dir" && \
       cd "/app/$dir" && \
       npm ci && \
