@@ -288,7 +288,7 @@
 
                 @if($featuredImage)
                     <img src="{{ $featuredImage }}" alt="{{ $post->title }}"
-                         class="w-full h-auto rounded-lg my-4 object-cover max-h-[480px]"
+                         class="w-full hidden h-auto rounded-lg my-4 object-cover max-h-[480px]"
                          loading="lazy">
                 @endif
 
