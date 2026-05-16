@@ -69,7 +69,7 @@
                     </figcaption>
                 </div>
 
-                <div class="mt-auto bg-gray-50 border-t border-gray-100">
+                <div class="mt-auto hidden bg-gray-50 border-t border-gray-100">
                     <div class="flex p-4 flex-wrap justify-between items-center gap-2">
                         <p class="text-xs text-gray-600 font-semibold flex items-center">
                             <i class="fas fa-user-circle mr-2 text-gray-500"></i>

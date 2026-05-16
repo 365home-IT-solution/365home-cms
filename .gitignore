@@ -15,6 +15,8 @@ Homestead.yaml
 auth.json
 npm-debug.log
 yarn-error.log
+# Firebase
+/public/firebase-test.html
 # Firebase service account credentials
 *adminsdk*.json
 ittriet-firebase-adminsdk-*.json
@@ -26,6 +28,7 @@ phpunit.xml
 *.zip
 .DS_Store
 Thumbs.db
+storage/app/firebase-credentials.json
 
 # Laravel Modules specific
 !Modules/
