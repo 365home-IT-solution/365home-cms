@@ -43,6 +43,8 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail, Has
         'email',
         'fullname',
         'password',
+        'phone',
+        'phone_verified_at',
     ];
 
     /**
@@ -61,8 +63,9 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail, Has
      * @var array<string, string>
      */
     protected $casts = [
-        'email_verified_at' => 'datetime',
-        'password' => 'hashed',
+        'email_verified_at'  => 'datetime',
+        'phone_verified_at'  => 'datetime',
+        'password'           => 'hashed',
     ];
 
     public function getFilamentName(): string

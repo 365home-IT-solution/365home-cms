@@ -25,11 +25,20 @@ class RouteServiceProvider extends ServiceProvider
     public function boot(): void
     {
         RateLimiter::for('api', function (Request $request) {
-            // TTLock callback endpoint không cần rate limit
             if ($request->is('api/lock/callback')) {
                 return Limit::none();
             }
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
+        });
+
+        // Tối đa 5 lần gửi OTP / IP / phút
+        RateLimiter::for('otp-send', function (Request $request) {
+            return Limit::perMinute(5)->by($request->ip());
+        });
+
+        // Tối đa 10 lần verify OTP / IP / phút
+        RateLimiter::for('otp-verify', function (Request $request) {
+            return Limit::perMinute(10)->by($request->ip());
         });
 
         $this->routes(function () {
