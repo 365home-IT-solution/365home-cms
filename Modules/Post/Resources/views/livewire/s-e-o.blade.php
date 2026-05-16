@@ -1,5 +1,9 @@
 <div>
-    <link rel="stylesheet" href="{{ asset('build-post/assets/poss.6cc9d075.css') }}">
+    @php
+        $manifest = json_decode(file_get_contents(public_path('build-post/manifest.json')), true);
+        $cssFile = $manifest['poss.css']['file'] ?? 'assets/poss.6cc9d075.css';
+    @endphp
+    <link rel="stylesheet" href="{{ asset('build-post/' . $cssFile) }}">
     <div class="v-w-full">
 
         <div class="v-mb-6">
