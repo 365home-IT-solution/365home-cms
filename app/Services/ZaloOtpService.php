@@ -60,9 +60,14 @@ class ZaloOtpService
 
     public function normalizePhone(string $phone): string
     {
-        // 0912345678 → +84912345678
+        // 0912345678 → 84912345678 (Zalo ZNS không chấp nhận dấu +)
         if (str_starts_with($phone, '0')) {
-            return '+84' . substr($phone, 1);
+            return '84' . substr($phone, 1);
+        }
+
+        // Bỏ dấu + nếu có: +84... → 84...
+        if (str_starts_with($phone, '+')) {
+            return substr($phone, 1);
         }
 
         return $phone;
