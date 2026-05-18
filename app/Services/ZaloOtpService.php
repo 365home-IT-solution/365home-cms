@@ -85,14 +85,17 @@ class ZaloOtpService
             return true;
         }
 
+        $accessToken = config('zalo.access_token');
+
         $response = Http::withHeaders([
-            'access_token' => config('zalo.access_token'),
+            'access_token' => $accessToken,
             'Content-Type' => 'application/json',
         ])->post(config('zalo.zns_url'), [
-            'phone'         => $phone,
-            'template_id'   => config('zalo.otp_template_id'),
-            'template_data' => ['otp' => $otp],
-            'tracking_id'   => 'otp_' . time(),
+            'phone'           => $phone,
+            'template_id'     => config('zalo.otp_template_id'),
+            'template_data'   => ['otp' => $otp],
+            'tracking_id'     => 'otp_' . time(),
+            'appsecret_proof' => hash_hmac('sha256', $accessToken, config('zalo.app_secret')),
         ]);
 
         if (! $response->successful() || ($response->json('error') !== 0)) {

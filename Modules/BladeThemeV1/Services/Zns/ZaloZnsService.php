@@ -222,10 +222,11 @@ class ZaloZnsService
                     'Content-Type' => 'application/json',
                 ])
                 ->post($this->apiUrl, [
-                    'phone' => $formattedPhone,
-                    'template_id' => $templateId,
-                    'template_data' => $templateData,
-                    'tracking_id' => (string) $orderId,
+                    'phone'           => $formattedPhone,
+                    'template_id'     => $templateId,
+                    'template_data'   => $templateData,
+                    'tracking_id'     => (string) $orderId,
+                    'appsecret_proof' => hash_hmac('sha256', $accessToken, $this->appSecret),
                 ]);
 
             $result = $response->json();
