@@ -243,7 +243,7 @@
                                     <span class="text-sm font-semibold text-gray-900">{{ $branchAddress }}</span>
                                 </div>
                             </div>
-                            <a href="https://www.google.com/maps/search/?q={{ urlencode($branchAddress) }}"
+                            <a href="https://maps.app.goo.gl/vREbkzagcBzi99Js9"
                                 target="_blank"
                                 class="shrink-0 text-xs font-semibold text-blue-600 underline hover:text-blue-800 transition-colors whitespace-nowrap">
                                 Xem bản đồ

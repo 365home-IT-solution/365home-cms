@@ -317,7 +317,7 @@
                                     chỉ chi nhánh</p>
                                 <p class="text-sm font-medium text-gray-900 leading-snug">{{ $branchAddress }}</p>
                             </div>
-                            <a href="https://www.google.com/maps/search/?q={{ urlencode($branchAddress) }}"
+                            <a href="https://maps.app.goo.gl/vREbkzagcBzi99Js9"
                                 target="_blank"
                                 class="shrink-0 text-xs font-semibold text-amber-600 underline whitespace-nowrap">
                                 Xem bản đồ
