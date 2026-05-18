@@ -85,17 +85,14 @@ class ZaloOtpService
             return true;
         }
 
-        $accessToken = config('zalo.access_token');
-
         $response = Http::withHeaders([
-            'access_token' => $accessToken,
+            'access_token' => $this->getAccessToken(),
             'Content-Type' => 'application/json',
         ])->post(config('zalo.zns_url'), [
-            'phone'           => $phone,
-            'template_id'     => config('zalo.otp_template_id'),
-            'template_data'   => ['otp' => $otp],
-            'tracking_id'     => 'otp_' . time(),
-            'appsecret_proof' => hash_hmac('sha256', $accessToken, config('zalo.app_secret')),
+            'phone'         => $phone,
+            'template_id'   => config('zalo.otp_template_id'),
+            'template_data' => ['otp' => $otp],
+            'tracking_id'   => 'otp_' . time(),
         ]);
 
         if (! $response->successful() || ($response->json('error') !== 0)) {
@@ -107,6 +104,39 @@ class ZaloOtpService
         }
 
         return true;
+    }
+
+    private function getAccessToken(): string
+    {
+        $cached = Cache::get('zalo_access_token');
+        if ($cached) {
+            return $cached;
+        }
+
+        $refreshToken = Cache::get('zalo_refresh_token') ?? config('zalo.refresh_token');
+
+        $response = Http::asForm()
+            ->withHeaders(['secret_key' => config('zalo.app_secret')])
+            ->post(config('zalo.oauth_url'), [
+                'app_id'        => config('zalo.app_id'),
+                'grant_type'    => 'refresh_token',
+                'refresh_token' => $refreshToken,
+            ]);
+
+        $data = $response->json();
+
+        if (! isset($data['access_token'])) {
+            Log::warning('Zalo token refresh failed, using static token', ['response' => $data]);
+            return config('zalo.access_token');
+        }
+
+        $expiresIn = $data['expires_in'] ?? 3600;
+        Cache::put('zalo_access_token', $data['access_token'], now()->addSeconds($expiresIn));
+        if (isset($data['refresh_token'])) {
+            Cache::put('zalo_refresh_token', $data['refresh_token'], now()->addMonths(3));
+        }
+
+        return $data['access_token'];
     }
 
     private function otpKey(string $phone): string
