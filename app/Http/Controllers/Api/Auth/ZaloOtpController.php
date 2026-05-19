@@ -34,7 +34,7 @@ class ZaloOtpController extends Controller
 
         if (! $sent) {
             return response()->json([
-                'message' => 'Không thể gửi OTP đến số này qua Zalo. Vui lòng kiểm tra số điện thoại đã đăng ký Zalo chưa, hoặc liên hệ hỗ trợ.',
+                'message' => 'Số điện thoại chưa đăng ký Zalo hoặc không thể gửi tin nhắn. Vui lòng kiểm tra lại.',
             ], 422);
         }
 
@@ -42,59 +42,12 @@ class ZaloOtpController extends Controller
     }
 
     /**
-     * Xác nhận OTP và trả về Sanctum token.
-     * Đăng ký: truyền thêm fullname + date_of_birth
-     * Đăng nhập: chỉ cần phone + otp
-     * Body: { phone, otp, fullname?, date_of_birth? }
-     */
-    public function verifyOtp(Request $request): JsonResponse
-    {
-        $request->validate([
-            'phone'         => ['required', 'string', 'regex:/^(0|\+84)[0-9]{9}$/'],
-            'otp'           => 'required|string|size:6',
-            'fullname'      => 'nullable|string|max:255',
-            'date_of_birth' => 'nullable|date_format:d-m-Y|before:today',
-        ]);
-
-        if (! $this->otp->verify($request->phone, $request->otp)) {
-            return response()->json(['message' => 'OTP không đúng hoặc đã hết hạn.'], 422);
-        }
-
-        $normalizedPhone = $this->otp->normalizePhone($request->phone);
-        $existing        = User::where('phone', $normalizedPhone)->first();
-        $isNewUser       = $existing === null;
-
-        $parsedDob = $request->date_of_birth
-            ? \Carbon\Carbon::createFromFormat('d-m-Y', $request->date_of_birth)->toDateString()
-            : null;
-
-        $user = User::updateOrCreate(
-            ['phone' => $normalizedPhone],
-            array_filter([
-                'phone_verified_at' => now(),
-                'fullname'          => $request->fullname ?? $existing?->fullname,
-                'date_of_birth'     => $parsedDob         ?? $existing?->date_of_birth?->toDateString(),
-            ], fn ($v) => $v !== null)
-        );
-
-        $user->tokens()->delete();
-        $expiresAt = now()->addDays(30);
-        $token     = $user->createToken('mobile', ['*'], $expiresAt)->plainTextToken;
-
-        return response()->json([
-            'token'       => $token,
-            'expires_at'  => $expiresAt->toIso8601String(),
-            'is_new_user' => $isNewUser,
-            'user'        => $this->userResource($user),
-        ]);
-    }
-
-    /**
-     * Bước 2 flow đăng ký: xác minh OTP lần đầu, trả về phone_token.
-     * Nếu SĐT đã tồn tại → báo redirect đăng nhập.
+     * Xác nhận OTP.
+     * - SĐT đã có tài khoản → đăng nhập, trả Sanctum token.
+     * - SĐT chưa có tài khoản → trả phone_token để tiếp tục đăng ký.
      * Body: { phone, otp }
      */
-    public function preVerify(Request $request): JsonResponse
+    public function verifyOtp(Request $request): JsonResponse
     {
         $request->validate([
             'phone' => ['required', 'string', 'regex:/^(0|\+84)[0-9]{9}$/'],
@@ -106,17 +59,28 @@ class ZaloOtpController extends Controller
         }
 
         $normalizedPhone = $this->otp->normalizePhone($request->phone);
+        $user            = User::where('phone', $normalizedPhone)->first();
 
-        if (User::where('phone', $normalizedPhone)->exists()) {
+        if ($user) {
+            $user->phone_verified_at = now();
+            $user->save();
+
+            $user->tokens()->delete();
+            $expiresAt = now()->addDays(30);
+            $token     = $user->createToken('mobile', ['*'], $expiresAt)->plainTextToken;
+
             return response()->json([
-                'message'  => 'Số điện thoại này đã có tài khoản. Vui lòng đăng nhập.',
-                'redirect' => 'login',
-            ], 409);
+                'is_new_user' => false,
+                'token'       => $token,
+                'expires_at'  => $expiresAt->toIso8601String(),
+                'user'        => $this->userResource($user),
+            ]);
         }
 
         $phoneToken = $this->otp->storePhoneToken($normalizedPhone);
 
         return response()->json([
+            'is_new_user' => true,
             'phone_token' => $phoneToken,
             'expires_in'  => 1800,
         ]);
