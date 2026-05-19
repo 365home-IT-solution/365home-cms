@@ -1174,7 +1174,7 @@
         </div>
 
         {{-- Mô tả phòng và Bình luận --}}
-        {{-- @include('bladethemev1::components.product-detail.description-comment') --}}
+        @include('bladethemev1::components.product-detail.description-comment')
 
     </div>
 </div>
