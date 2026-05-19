@@ -5,6 +5,7 @@ namespace App\Services;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class ZaloOtpService
 {
@@ -80,9 +81,16 @@ class ZaloOtpService
 
     private function sendViaZns(string $phone, string $otp): bool
     {
-        if (config('app.env') !== 'production' || ! config('zalo.otp_template_id')) {
-            Log::info('Zalo OTP [DEV MODE]', ['phone' => $phone, 'otp' => $otp]);
+        // Dev mode: log mà không gửi thật, KHÔNG log OTP plaintext
+        if (config('app.env') === 'local') {
+            Log::info('Zalo OTP [DEV MODE - NOT SENT]', ['phone' => $phone]);
             return true;
+        }
+
+        // Thiếu config trong production → fail rõ ràng, không giả vờ thành công
+        if (! config('zalo.otp_template_id')) {
+            Log::critical('Zalo OTP: ZALO_OTP_TEMPLATE_ID chưa được cấu hình trong production!');
+            return false;
         }
 
         $accessToken = $this->getAccessToken();
@@ -160,5 +168,24 @@ class ZaloOtpService
     private function dailyKey(string $phone): string
     {
         return 'zalo_otp_daily:' . now()->format('Y-m-d') . ':' . $phone;
+    }
+
+    // ── Phone token (dùng cho flow đăng ký) ──────────────────────────────
+
+    public function storePhoneToken(string $normalizedPhone): string
+    {
+        $token = Str::random(64);
+        Cache::put('pre_reg:' . $token, $normalizedPhone, now()->addMinutes(30));
+        return $token;
+    }
+
+    public function getPhoneByToken(string $token): ?string
+    {
+        return Cache::get('pre_reg:' . $token);
+    }
+
+    public function consumePhoneToken(string $token): void
+    {
+        Cache::forget('pre_reg:' . $token);
     }
 }

@@ -24,8 +24,13 @@ Route::post('lock/callback', [LockRecordCallbackController::class, 'handle'])
 |--------------------------------------------------------------------------
 */
 Route::prefix('auth')->name('api.auth.')->group(function () {
+    // Đăng nhập
     Route::post('send-otp',   [ZaloOtpController::class, 'sendOtp'])->name('send-otp')->middleware('throttle:otp-send');
     Route::post('verify-otp', [ZaloOtpController::class, 'verifyOtp'])->name('verify-otp')->middleware('throttle:otp-verify');
+
+    // Đăng ký
+    Route::post('pre-verify', [ZaloOtpController::class, 'preVerify'])->name('pre-verify')->middleware('throttle:otp-verify');
+    Route::post('register',   [ZaloOtpController::class, 'register'])->name('register')->middleware('throttle:register');
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('logout', [ZaloOtpController::class, 'logout'])->name('logout');

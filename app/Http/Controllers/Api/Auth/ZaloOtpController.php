@@ -33,22 +33,27 @@ class ZaloOtpController extends Controller
         $sent = $this->otp->send($request->phone);
 
         if (! $sent) {
-            return response()->json(['message' => 'Không thể gửi OTP qua Zalo. Vui lòng thử lại.'], 500);
+            return response()->json([
+                'message' => 'Không thể gửi OTP đến số này qua Zalo. Vui lòng kiểm tra số điện thoại đã đăng ký Zalo chưa, hoặc liên hệ hỗ trợ.',
+            ], 422);
         }
 
-        return response()->json(['message' => 'OTP đã được gửi đến Zalo của bạn.']);
+        return response()->json(['message' => 'OTP đã được gửi đến Zalo của bạn. Vui lòng kiểm tra ứng dụng Zalo.']);
     }
 
     /**
      * Xác nhận OTP và trả về Sanctum token.
-     * Body: { phone: "0912345678", otp: "123456", fullname?: "..." }
+     * Đăng ký: truyền thêm fullname + date_of_birth
+     * Đăng nhập: chỉ cần phone + otp
+     * Body: { phone, otp, fullname?, date_of_birth? }
      */
     public function verifyOtp(Request $request): JsonResponse
     {
         $request->validate([
-            'phone'    => ['required', 'string', 'regex:/^(0|\+84)[0-9]{9}$/'],
-            'otp'      => 'required|string|size:6',
-            'fullname' => 'nullable|string|max:255',
+            'phone'         => ['required', 'string', 'regex:/^(0|\+84)[0-9]{9}$/'],
+            'otp'           => 'required|string|size:6',
+            'fullname'      => 'nullable|string|max:255',
+            'date_of_birth' => 'nullable|date_format:d-m-Y|before:today',
         ]);
 
         if (! $this->otp->verify($request->phone, $request->otp)) {
@@ -57,22 +62,111 @@ class ZaloOtpController extends Controller
 
         $normalizedPhone = $this->otp->normalizePhone($request->phone);
         $existing        = User::where('phone', $normalizedPhone)->first();
+        $isNewUser       = $existing === null;
+
+        $parsedDob = $request->date_of_birth
+            ? \Carbon\Carbon::createFromFormat('d-m-Y', $request->date_of_birth)->toDateString()
+            : null;
 
         $user = User::updateOrCreate(
             ['phone' => $normalizedPhone],
-            [
+            array_filter([
                 'phone_verified_at' => now(),
                 'fullname'          => $request->fullname ?? $existing?->fullname,
-            ]
+                'date_of_birth'     => $parsedDob         ?? $existing?->date_of_birth?->toDateString(),
+            ], fn ($v) => $v !== null)
         );
 
         $user->tokens()->delete();
-        $token = $user->createToken('mobile')->plainTextToken;
+        $expiresAt = now()->addDays(30);
+        $token     = $user->createToken('mobile', ['*'], $expiresAt)->plainTextToken;
 
         return response()->json([
-            'token' => $token,
-            'user'  => $this->userResource($user),
+            'token'       => $token,
+            'expires_at'  => $expiresAt->toIso8601String(),
+            'is_new_user' => $isNewUser,
+            'user'        => $this->userResource($user),
         ]);
+    }
+
+    /**
+     * Bước 2 flow đăng ký: xác minh OTP lần đầu, trả về phone_token.
+     * Nếu SĐT đã tồn tại → báo redirect đăng nhập.
+     * Body: { phone, otp }
+     */
+    public function preVerify(Request $request): JsonResponse
+    {
+        $request->validate([
+            'phone' => ['required', 'string', 'regex:/^(0|\+84)[0-9]{9}$/'],
+            'otp'   => 'required|string|size:6',
+        ]);
+
+        if (! $this->otp->verify($request->phone, $request->otp)) {
+            return response()->json(['message' => 'OTP không đúng hoặc đã hết hạn.'], 422);
+        }
+
+        $normalizedPhone = $this->otp->normalizePhone($request->phone);
+
+        if (User::where('phone', $normalizedPhone)->exists()) {
+            return response()->json([
+                'message'  => 'Số điện thoại này đã có tài khoản. Vui lòng đăng nhập.',
+                'redirect' => 'login',
+            ], 409);
+        }
+
+        $phoneToken = $this->otp->storePhoneToken($normalizedPhone);
+
+        return response()->json([
+            'phone_token' => $phoneToken,
+            'expires_in'  => 1800,
+        ]);
+    }
+
+    /**
+     * Bước 4 flow đăng ký: tạo tài khoản sau khi điền thông tin.
+     * Body: { phone_token, fullname, date_of_birth }
+     */
+    public function register(Request $request): JsonResponse
+    {
+        $request->validate([
+            'phone_token'   => 'required|string|size:64',
+            'fullname'      => 'required|string|max:255',
+            'date_of_birth' => 'required|date_format:d-m-Y|before:today',
+        ]);
+
+        $normalizedPhone = $this->otp->getPhoneByToken($request->phone_token);
+
+        if (! $normalizedPhone) {
+            return response()->json([
+                'message' => 'Phiên đăng ký đã hết hạn (30 phút). Vui lòng thực hiện lại từ đầu.',
+            ], 422);
+        }
+
+        if (User::where('phone', $normalizedPhone)->exists()) {
+            return response()->json([
+                'message'  => 'Số điện thoại này đã có tài khoản. Vui lòng đăng nhập.',
+                'redirect' => 'login',
+            ], 409);
+        }
+
+        $this->otp->consumePhoneToken($request->phone_token);
+
+        $user = User::create([
+            'phone'             => $normalizedPhone,
+            'fullname'          => $request->fullname,
+            'date_of_birth'     => \Carbon\Carbon::createFromFormat('d-m-Y', $request->date_of_birth)->toDateString(),
+            'phone_verified_at' => now(),
+        ]);
+
+        $expiresAt = now()->addDays(30);
+        $token     = $user->createToken('mobile', ['*'], $expiresAt)->plainTextToken;
+
+        return response()->json([
+            'token'       => $token,
+            'expires_at'  => $expiresAt->toIso8601String(),
+            'is_new_user' => true,
+            'user'        => $this->userResource($user),
+        ], 201);
     }
 
     /**
@@ -98,6 +192,7 @@ class ZaloOtpController extends Controller
         return [
             'id'                => $user->id,
             'fullname'          => $user->fullname,
+            'date_of_birth'     => $user->date_of_birth?->toDateString(),
             'phone'             => $user->phone,
             'email'             => $user->email,
             'phone_verified_at' => $user->phone_verified_at?->toIso8601String(),

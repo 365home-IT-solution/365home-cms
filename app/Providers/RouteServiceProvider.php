@@ -31,14 +31,28 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
         });
 
-        // Tối đa 5 lần gửi OTP / IP / phút
+        // otp-send: 5/phút/IP  +  2/phút/số điện thoại (chặn VPN rotation spam)
         RateLimiter::for('otp-send', function (Request $request) {
-            return Limit::perMinute(5)->by($request->ip());
+            return [
+                Limit::perMinute(5)->by($request->ip()),
+                Limit::perMinute(2)->by('otp_send_phone:' . $request->input('phone', '')),
+            ];
         });
 
-        // Tối đa 10 lần verify OTP / IP / phút
+        // otp-verify: 10/phút/IP  +  5/phút/số điện thoại
         RateLimiter::for('otp-verify', function (Request $request) {
-            return Limit::perMinute(10)->by($request->ip());
+            return [
+                Limit::perMinute(10)->by($request->ip()),
+                Limit::perMinute(5)->by('otp_verify_phone:' . $request->input('phone', '')),
+            ];
+        });
+
+        // register: 5/phút/IP  +  3/giờ/IP (chặn tạo hàng loạt tài khoản)
+        RateLimiter::for('register', function (Request $request) {
+            return [
+                Limit::perMinute(5)->by($request->ip()),
+                Limit::perHour(3)->by('register_ip:' . $request->ip()),
+            ];
         });
 
         $this->routes(function () {
