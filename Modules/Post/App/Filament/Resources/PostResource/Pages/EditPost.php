@@ -28,16 +28,4 @@ class EditPost extends EditRecord
         return $data;
     }
 
-    protected function afterFill(): void
-    {
-        $data = $this->record->toArray();
-        $data['categories'] = $this->record->categories->map(function ($category) {
-            return [
-                'id' => $category->id,
-                'name' => $category->name,
-            ];
-        })->toArray();
-
-        $this->form->fill($data);
-    }
 }
