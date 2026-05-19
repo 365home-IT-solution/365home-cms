@@ -292,7 +292,7 @@
                          loading="lazy">
                 @endif
 
-                <div class="flex flex-wrap justify-between gap-4 md:gap-6 my-4 border-gray-300 py-3 border-b">
+                <div class="flex hidden flex-wrap justify-between gap-4 md:gap-6 my-4 border-gray-300 py-3 border-b">
                     <div class="flex flex-wrap items-center gap-4">
                         <!-- Author -->
                         <div class="flex items-center gap-2 text-gray-700">
