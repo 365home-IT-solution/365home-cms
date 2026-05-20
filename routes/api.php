@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Auth\ZaloOtpController;
 use App\Http\Controllers\Api\LockRecordCallbackController;
+use App\Http\Controllers\Api\RoomTypeController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -23,6 +24,14 @@ Route::post('lock/callback', [LockRecordCallbackController::class, 'handle'])
 | GET  /api/auth/me         → Thông tin user đang đăng nhập
 |--------------------------------------------------------------------------
 */
+/*
+|--------------------------------------------------------------------------
+| Room Types
+| GET /api/room-types → Danh sách danh mục phòng (dùng cho select/dropdown)
+|--------------------------------------------------------------------------
+*/
+Route::get('room-types', [RoomTypeController::class, 'index'])->name('api.room-types.index');
+
 Route::prefix('auth')->name('api.auth.')->group(function () {
     // Đăng nhập
     Route::post('send-otp',   [ZaloOtpController::class, 'sendOtp'])->name('send-otp')->middleware('throttle:otp-send');

@@ -55,6 +55,7 @@ class Product extends Model implements HasMedia, Resourceable
         'deposit_min_nights',
         'room_config',
         'setting_video_room',
+        'room_type_id',
     ];
 
     protected $casts = [
@@ -87,6 +88,11 @@ class Product extends Model implements HasMedia, Resourceable
         static::deleting(function ($product) {
             $product->comments()->delete();
         });
+    }
+
+    public function roomType()
+    {
+        return $this->belongsTo(RoomType::class);
     }
 
     public function roomTimeSlots()
