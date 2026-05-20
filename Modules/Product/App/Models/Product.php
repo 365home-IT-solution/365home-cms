@@ -56,19 +56,25 @@ class Product extends Model implements HasMedia, Resourceable
         'room_config',
         'setting_video_room',
         'room_type_id',
+        'thumbnail_color',
+        'price_unit',
+        'rating_score',
+        'badge',
     ];
 
     protected $casts = [
-        'price' => 'decimal:2',
-        'discount' => 'decimal:2',
-        'vat' => 'decimal:2',
-        'weight' => 'decimal:2',
-        'is_in_stock' => 'boolean',
+        'price'        => 'decimal:2',
+        'discount'     => 'decimal:2',
+        'vat'          => 'decimal:2',
+        'weight'       => 'decimal:2',
+        'rating_score' => 'decimal:1',
+        'is_in_stock'  => 'boolean',
         'is_activated' => 'boolean',
-        'is_shipped' => 'boolean',
-        'is_trend' => 'boolean',
-        'room_config' => 'array',
+        'is_shipped'   => 'boolean',
+        'is_trend'     => 'boolean',
+        'room_config'       => 'array',
         'setting_video_room' => 'array',
+        'badge'        => 'array',
     ];
 
     public function categories()

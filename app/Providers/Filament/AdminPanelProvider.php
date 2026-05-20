@@ -26,6 +26,7 @@ use JulioMotol\FilamentPasswordConfirmation\FilamentPasswordConfirmationPlugin;
 use Modules\Book\App\Filament\BookPlugin;
 use Modules\Comment\App\Filament\CommentPlugin;
 use Modules\Coupon\App\Filament\CouponPlugin;
+use Modules\AppPage\App\Filament\AppPagePlugin;
 use Modules\DataPermission\App\Filament\DataPermissionPlugin;
 use Modules\Form\App\Filament\FormPlugin;
 use Modules\Payment\App\Filament\PaymentPlugin;
@@ -157,6 +158,7 @@ class AdminPanelProvider extends PanelProvider
                 BookPlugin::make(),
                 CouponPlugin::make(),
                 DataPermissionPlugin::make(),
+                AppPagePlugin::make(),
             ])
             // ->spa()
             ->maxContentWidth('full')

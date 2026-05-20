@@ -1,0 +1,21 @@
+{
+    "name": "goldenbeeltd-vn/apppage-module",
+    "type": "laravel-module",
+    "description": "Module quản lý trang API cho mobile app",
+    "version": "1.0.0",
+    "license": "proprietary",
+    "autoload": {
+        "psr-4": {
+            "Modules\\AppPage\\": ""
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Modules\\AppPage\\App\\Providers\\AppPageServiceProvider"
+            ]
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

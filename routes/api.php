@@ -3,7 +3,9 @@
 use App\Http\Controllers\Api\Auth\ZaloOtpController;
 use App\Http\Controllers\Api\LockRecordCallbackController;
 use App\Http\Controllers\Api\RoomTypeController;
+use App\Http\Controllers\Api\WishlistController;
 use Illuminate\Support\Facades\Route;
+use Modules\AppPage\App\Http\Controllers\AppPageController;
 
 /*
 |--------------------------------------------------------------------------
@@ -32,6 +34,14 @@ Route::post('lock/callback', [LockRecordCallbackController::class, 'handle'])
 */
 Route::get('room-types', [RoomTypeController::class, 'index'])->name('api.room-types.index');
 
+/*
+|--------------------------------------------------------------------------
+| App Pages
+| GET /api/pages/{slug} → Nội dung trang theo slug (home, payment, ...)
+|--------------------------------------------------------------------------
+*/
+Route::get('pages/{slug}', [AppPageController::class, 'show'])->name('api.pages.show');
+
 Route::prefix('auth')->name('api.auth.')->group(function () {
     // Đăng nhập
     Route::post('send-otp',   [ZaloOtpController::class, 'sendOtp'])->name('send-otp')->middleware('throttle:otp-send');
@@ -44,5 +54,17 @@ Route::prefix('auth')->name('api.auth.')->group(function () {
         Route::post('logout', [ZaloOtpController::class, 'logout'])->name('logout');
         Route::get('me',      [ZaloOtpController::class, 'me'])->name('me');
     });
+});
+
+/*
+|--------------------------------------------------------------------------
+| Wishlist
+| GET  /api/wishlist                    → Danh sách phòng đã lưu
+| POST /api/wishlist/{product}/toggle   → Thêm / bỏ khỏi wishlist
+|--------------------------------------------------------------------------
+*/
+Route::middleware('auth:sanctum')->prefix('wishlist')->name('api.wishlist.')->group(function () {
+    Route::get('/',                      [WishlistController::class, 'index'])->name('index');
+    Route::post('{product}/toggle',      [WishlistController::class, 'toggle'])->name('toggle');
 });
 

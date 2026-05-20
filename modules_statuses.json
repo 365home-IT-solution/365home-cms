@@ -22,5 +22,6 @@
     "Zns": true,
     "Book": true,
     "Coupon": true,
-    "DataPermission": true
+    "DataPermission": true,
+    "AppPage": true
 }

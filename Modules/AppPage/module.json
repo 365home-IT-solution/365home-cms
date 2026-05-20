@@ -1,0 +1,11 @@
+{
+    "name": "AppPage",
+    "alias": "apppage",
+    "description": "Quản lý các trang API cho mobile app",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\AppPage\\App\\Providers\\AppPageServiceProvider"
+    ],
+    "files": []
+}

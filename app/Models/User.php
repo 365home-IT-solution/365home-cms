@@ -90,6 +90,11 @@ public function getFilamentAvatarUrl(): ?string
         return $this->hasRole(config('filament-shield.super_admin.name'));
     }
 
+    public function wishlists()
+    {
+        return $this->hasMany(Wishlist::class);
+    }
+
     public function branchPermissions()
     {
         return $this->hasMany(\Modules\DataPermission\Entities\UserBranchPermission::class);
