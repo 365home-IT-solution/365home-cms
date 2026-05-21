@@ -373,6 +373,13 @@
 </head>
 
 <body>
+    @if(!$order)
+    <div style="text-align:center;padding:60px 20px;font-family:sans-serif;">
+        <h2 style="color:#ff6b6b;">Không tìm thấy đơn hàng</h2>
+        <p style="color:#666;margin:15px 0;">{{ $error ?? 'Mã đơn hàng không hợp lệ hoặc đã bị xóa.' }}</p>
+        <a href="/" style="display:inline-block;margin-top:20px;padding:12px 30px;background:#ff6b6b;color:#fff;border-radius:8px;text-decoration:none;">Về trang chủ</a>
+    </div>
+    @else
     <div class="cancel-container">
         <!-- Header -->
         <div class="cancel-header">
@@ -570,6 +577,7 @@
             </a>
         </div>
     </div>
+    @endif
 </body>
 
 </html>

@@ -110,7 +110,7 @@ class PaymentService
         $data = [
             "orderCode" => (int) $order->order_code,
             "amount" => $totalAmount,
-            "description" => $order->description ?? 'Thanh toán đặt phòng',
+            "description" => mb_substr($order->description ?? 'Thanh toan dat phong', 0, 25),
             'returnUrl' => route('payment.success', ['orderCode' => $order->order_code]), // Sửa: dùng order_code
             'cancelUrl' => route('payment.cancel', ['orderCode' => $order->order_code]), // Sửa: dùng order_code
             "items" => $items,
