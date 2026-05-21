@@ -1218,7 +1218,8 @@
 
                 // Xuất ra file JPEG chất lượng 0.7 (giảm dung lượng ~10 lần)
                 canvas.toBlob(function (blob) {
-                    const compressedFile = new File([blob], file.name, { type: 'image/jpeg' });
+                    const safeFileName = file.name.replace(/\.[^/.]+$/, '') + '.jpg';
+                    const compressedFile = new File([blob], safeFileName, { type: 'image/jpeg' });
 
                     statusText.innerText = "Đang tải lên...";
 
