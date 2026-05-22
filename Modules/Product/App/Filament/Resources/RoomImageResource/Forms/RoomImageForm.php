@@ -78,7 +78,6 @@ class RoomImageForm
                         ->directory('room-images')
                         ->multiple()
                         ->maxFiles(1)
-                        ->imageEditor()
                         ->panelLayout('grid')
                         ->downloadable()
                         ->maxSize(5120)
