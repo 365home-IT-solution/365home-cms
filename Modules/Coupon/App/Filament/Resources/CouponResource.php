@@ -19,7 +19,7 @@ class CouponResource extends Resource
     protected static ?string $model = Coupon::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-qr-code';
-    protected static ?string $navigationGroup = 'Khuyến mãi';
+    protected static ?string $navigationGroup = 'Quản lý';
 
     public static function getNavigationLabel(): string
     {

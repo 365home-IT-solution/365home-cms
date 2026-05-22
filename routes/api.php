@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Auth\ZaloOtpController;
 use App\Http\Controllers\Api\LockRecordCallbackController;
+use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\RoomTypeController;
 use App\Http\Controllers\Api\WishlistController;
 use Illuminate\Support\Facades\Route;
@@ -41,6 +42,15 @@ Route::get('room-types', [RoomTypeController::class, 'index'])->name('api.room-t
 |--------------------------------------------------------------------------
 */
 Route::get('pages/{slug}', [AppPageController::class, 'show'])->name('api.pages.show');
+
+/*
+|--------------------------------------------------------------------------
+| Rooms
+| GET /api/rooms/{slug} → Chi tiết phòng (amenities, services, specials,
+|                          prices, promotions, coupons)
+|--------------------------------------------------------------------------
+*/
+Route::get('rooms/{slug}', [RoomController::class, 'show'])->name('api.rooms.show');
 
 Route::prefix('auth')->name('api.auth.')->group(function () {
     // Đăng nhập

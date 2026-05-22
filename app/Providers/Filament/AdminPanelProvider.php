@@ -73,13 +73,12 @@ class AdminPanelProvider extends PanelProvider
             ->colors(fn(GeneralSettings $settings) => array_filter($settings->site_theme, fn($c) => $c !== null))
             ->databaseNotifications()->databaseNotificationsPolling('10s')
             ->globalSearchKeyBindings(['command+k', 'ctrl+k'])
-            ->sidebarCollapsibleOnDesktop()
+            ->topNavigation()
             ->viteTheme('resources/css/filament/admin/theme.css')
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
             ->navigationGroups([
                 'Quản lý',
-                'Khuyến mãi',
                 'Cấu hình web',
                 'Biểu mẫu',
                 'Phân quyền',
@@ -162,7 +161,7 @@ class AdminPanelProvider extends PanelProvider
             ])
             // ->spa()
             ->maxContentWidth('full')
-            ->collapsibleNavigationGroups(true)
+            ->collapsibleNavigationGroups(false)
             ->maxContentWidth('full')
             ->globalSearchFieldSuffix(fn(): ?string => match (Platform::detect()) {
                 Platform::Windows, Platform::Linux => 'CTRL+K',
@@ -282,6 +281,48 @@ class AdminPanelProvider extends PanelProvider
 
         poll();
         setInterval(poll, 3000);
+    });
+})();
+</script>
+BLADE
+        );
+
+        // Hover-to-open for top nav group dropdowns
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::BODY_END,
+            fn (): string => <<<'BLADE'
+<script>
+(function () {
+    function patchTopNavHover() {
+        var topNav = document.querySelector('.fi-topbar nav');
+        if (!topNav) return;
+        topNav.querySelectorAll('.fi-dropdown').forEach(function (el) {
+            if (el._hoverNav) return;
+            el._hoverNav = true;
+            var timer;
+            el.addEventListener('mouseenter', function () {
+                clearTimeout(timer);
+                var data = window.Alpine && Alpine.$data(el);
+                if (!data) return;
+                if (typeof data.isOpen !== 'undefined') data.isOpen = true;
+                else if (typeof data.open !== 'undefined') data.open = true;
+            });
+            el.addEventListener('mouseleave', function () {
+                timer = setTimeout(function () {
+                    var data = window.Alpine && Alpine.$data(el);
+                    if (!data) return;
+                    if (typeof data.isOpen !== 'undefined') data.isOpen = false;
+                    else if (typeof data.open !== 'undefined') data.open = false;
+                }, 100);
+            });
+        });
+    }
+
+    document.addEventListener('alpine:initialized', function () {
+        patchTopNavHover();
+        document.addEventListener('livewire:navigated', function () {
+            setTimeout(patchTopNavHover, 300);
+        });
     });
 })();
 </script>

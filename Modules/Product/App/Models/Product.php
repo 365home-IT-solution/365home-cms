@@ -106,6 +106,44 @@ class Product extends Model implements HasMedia, Resourceable
         return $this->hasMany(RoomTimeSlot::class, 'room_id');
     }
 
+    public function amenities()
+    {
+        return $this->belongsToMany(RoomAmenity::class, 'room_amenity_assigns', 'room_id', 'amenity_id')
+            ->where('status', true)
+            ->orderBy('amenity_type')
+            ->orderBy('sort_order');
+    }
+
+    public function amenityAssigns()
+    {
+        return $this->hasMany(RoomAmenityAssign::class, 'room_id');
+    }
+
+    public function roomImages()
+    {
+        return $this->hasMany(RoomImage::class, 'room_id')->orderBy('sort_order');
+    }
+
+    public function mainImage()
+    {
+        return $this->hasOne(RoomImage::class, 'room_id')->where('type', 'main')->orderBy('sort_order');
+    }
+
+    public function galleryImages()
+    {
+        return $this->hasMany(RoomImage::class, 'room_id')->where('type', 'gallery')->orderBy('sort_order');
+    }
+
+    public function services()
+    {
+        return $this->hasMany(RoomService::class, 'product_id')->orderBy('sort_order');
+    }
+
+    public function specials()
+    {
+        return $this->hasMany(RoomSpecial::class, 'product_id')->orderBy('sort_order');
+    }
+
     public function orderItems()
     {
         return $this->hasMany(\Modules\Payment\Entities\OrderItem::class, 'product_id');

@@ -129,6 +129,11 @@
     @apply h-full overflow-y-auto px-2 py-0;
 }
 
+/* Top nav groups: show dropdown on hover instead of click */
+.fi-topbar nav .fi-dropdown:hover .fi-dropdown-panel {
+    display: block !important;
+}
+
 /* Filament Actions */
 .fi-btn.fi-btn-color-primary {
     @apply text-secondary-50;
@@ -156,4 +161,21 @@
     .basis-two {
         flex-basis: 100%;
     }
+}
+
+/* TinyMCE toolbar — fix dark hover/active background */
+.tox .tox-tbtn:hover,
+.tox .tox-tbtn:focus,
+.tox .tox-tbtn--enabled,
+.tox .tox-tbtn--active,
+.tox .tox-tbtn--enabled:hover {
+    background-color: #e5e7eb !important;
+    color: #111827 !important;
+}
+
+.tox .tox-tbtn svg,
+.tox .tox-tbtn:hover svg,
+.tox .tox-tbtn--enabled svg,
+.tox .tox-tbtn--active svg {
+    fill: #374151 !important;
 }

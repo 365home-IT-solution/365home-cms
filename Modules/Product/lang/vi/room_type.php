@@ -5,7 +5,7 @@ return [
         'navigation_label' => 'Danh mục Phòng',
         'model_label'      => 'Danh mục Phòng',
         'plural_model_label' => 'Danh mục Phòng',
-        'navigation_group' => 'Quản lý',
+        'navigation_group' => 'Quản lý API',
         'navigation_icon'  => 'heroicon-o-tag',
     ],
     'form' => [

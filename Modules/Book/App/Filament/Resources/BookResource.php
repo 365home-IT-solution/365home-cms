@@ -16,7 +16,7 @@ class BookResource extends Resource
 {
     protected static ?string $model = RoomTimeSlot::class;
     protected static ?string $navigationIcon = 'heroicon-o-wrench-screwdriver';
-    protected static ?string $navigationGroup = 'Khuyến mãi';
+    protected static ?string $navigationGroup = 'Quản lý';
 
     public static function getNavigationLabel(): string
     {

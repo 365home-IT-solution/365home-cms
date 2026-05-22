@@ -1,3 +1,24 @@
+/* Fix toolbar button hover/active in light mode */
+.tox .tox-tbtn:hover,
+.tox .tox-tbtn:focus {
+    background: #dee0e2 !important;
+    color: #222f3e !important;
+}
+
+.tox .tox-tbtn--enabled,
+.tox .tox-tbtn--active,
+.tox .tox-tbtn--enabled:hover {
+    background: #c5cdd4 !important;
+    color: #222f3e !important;
+}
+
+.tox .tox-tbtn svg,
+.tox .tox-tbtn:hover svg,
+.tox .tox-tbtn--enabled svg,
+.tox .tox-tbtn--active svg {
+    fill: #222f3e !important;
+}
+
 .tox[dir="rtl"] {
 	font-family: Shabnam,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Oxygen-Sans,Ubuntu,Cantarell,"Helvetica Neue",sans-serif !important;
 }

@@ -5,7 +5,7 @@ return [
         'navigation_label' => 'Ưu đãi',
         'model_label' => 'Ưu đãi',
         'plural_model_label' => 'Ưu đãi',
-        'navigation_group' => 'Khuyến mãi',
+        'navigation_group' => 'Quản lý',
         'navigation_icon' => 'heroicon-o-percent-badge',
     ],
     'form' => [
