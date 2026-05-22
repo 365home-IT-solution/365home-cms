@@ -8,12 +8,15 @@ use App\Http\Concerns\BuildsRoomCard;
 use App\Models\Wishlist;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Storage;
 use Modules\AppPage\App\Models\AppPage;
 use Modules\Product\App\Models\Product;
 
 class AppPageController extends Controller
 {
     use BuildsRoomCard;
+
+    private const SUPPORTED_BLOCKS = ['room_list', 'banner'];
 
     public function show(string $slug): JsonResponse
     {
@@ -30,9 +33,9 @@ class AppPageController extends Controller
             : null;
 
         $sections = collect($page->content ?? [])
-            ->filter(fn ($block) => ($block['type'] ?? '') === 'room_list')
+            ->filter(fn ($block) => in_array($block['type'] ?? '', self::SUPPORTED_BLOCKS))
             ->values()
-            ->map(fn ($block, $index) => $this->buildSection($block['data'] ?? [], $index, $wishlistedIds));
+            ->map(fn ($block, $index) => $this->buildBlock($block, $index, $wishlistedIds));
 
         return response()->json([
             $slug => [
@@ -41,16 +44,55 @@ class AppPageController extends Controller
         ]);
     }
 
-    private function buildSection(array $data, int $index, ?array $wishlistedIds): array
+    private function buildBlock(array $block, int $index, ?array $wishlistedIds): array
+    {
+        $type = $block['type'];
+        $data = $block['data'] ?? [];
+
+        return match ($type) {
+            'banner'    => $this->buildBanner($data, $index),
+            'room_list' => $this->buildRoomList($data, $index, $wishlistedIds),
+            default     => [],
+        };
+    }
+
+    // ─── Banner ──────────────────────────────────────────────────────────────
+
+    private function buildBanner(array $data, int $index): array
+    {
+        $disk    = $data['disk'] ?? 'public';
+        $storage = Storage::disk($disk);
+
+        $items = array_map(fn ($item) => [
+            'title'       => $item['title'] ?? null,
+            'description' => $item['description'] ?? null,
+            'image_url'   => ! empty($item['image']) ? $storage->url($item['image']) : null,
+            'url'         => $item['url'] ?? null,
+        ], $data['items'] ?? []);
+
+        return [
+            'type'        => 'banner',
+            'id'          => $index + 1,
+            'sort_order'  => $index + 1,
+            'title'       => $data['title'] ?? null,
+            'description' => $data['description'] ?? null,
+            'items'       => $items,
+        ];
+    }
+
+    // ─── Room list ───────────────────────────────────────────────────────────
+
+    private function buildRoomList(array $data, int $index, ?array $wishlistedIds): array
     {
         return [
+            'type'         => 'room_list',
             'id'           => $index + 1,
+            'sort_order'   => $index + 1,
             'title'        => $data['title'] ?? null,
             'subtitle'     => $data['subtitle'] ?? null,
             'view_all_url' => $data['view_all_url'] ?? null,
             'show_arrow'   => (bool) ($data['show_arrow'] ?? true),
             'layout'       => $data['layout'] ?? 'horizontal_scroll',
-            'sort_order'   => $index + 1,
             'badge'        => $this->buildSectionBadge($data),
             'rooms'        => $this->getRooms($data, $wishlistedIds),
         ];

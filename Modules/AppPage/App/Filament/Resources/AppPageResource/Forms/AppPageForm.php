@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace Modules\AppPage\App\Filament\Resources\AppPageResource\Forms;
 
 use Filament\Forms\Components\Builder;
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Grid;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
 use Illuminate\Support\Str;
 use Modules\Product\App\Models\Product;
 
@@ -64,6 +67,57 @@ class AppPageForm
                                 ->label('Nội dung tiêu đề')
                                 ->placeholder('VD: Phòng nổi bật tháng 5')
                                 ->required(),
+                        ]),
+
+                    Builder\Block::make('banner')
+                        ->label('Banner')
+                        ->icon('heroicon-o-photo')
+                        ->schema([
+                            Select::make('disk')
+                                ->label('Storage disk')
+                                ->options([
+                                    'public' => 'Public (local)',
+                                    's3'     => 'Amazon S3',
+                                    'r2'     => 'Cloudflare R2',
+                                ])
+                                ->default('public')
+                                ->required()
+                                ->live(),
+
+                            Repeater::make('items')
+                                ->label('Danh sách banner')
+                                ->schema([
+                                    Grid::make(2)->schema([
+                                        TextInput::make('title')
+                                            ->label('Tiêu đề')
+                                            ->maxLength(255),
+
+                                        TextInput::make('url')
+                                            ->label('URL điều hướng')
+                                            ->placeholder('VD: /rooms/phong-a')
+                                            ->maxLength(500),
+                                    ]),
+
+                                    TextInput::make('description')
+                                        ->label('Mô tả')
+                                        ->maxLength(500)
+                                        ->columnSpanFull(),
+
+                                    FileUpload::make('image')
+                                        ->label('Ảnh banner')
+                                        ->disk(fn (Get $get) => $get('../../disk') ?? 'public')
+                                        ->directory('banners')
+                                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp', 'image/avif'])
+                                        ->maxSize(5120)
+                                        ->columnSpanFull()
+                                        ->required(),
+                                ])
+                                ->grid(3)
+                                ->addActionLabel('+ Thêm banner')
+                                ->collapsible()
+                                ->collapsed()
+                                ->itemLabel(fn (array $state): ?string => $state['title'] ?? 'Banner chưa đặt tiêu đề')
+                                ->columnSpanFull(),
                         ]),
 
                     Builder\Block::make('room_list')
