@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Product\App\Filament\Resources\RoomImageResource\Pages;
 
+use Filament\Actions\Action;
 use Filament\Resources\Pages\CreateRecord;
 use Modules\Product\App\Filament\Resources\RoomImageResource;
 
@@ -14,8 +15,14 @@ class CreateRoomImage extends CreateRecord
     protected function getHeaderActions(): array
     {
         return [
-            $this->getCancelFormAction(),
-            $this->getCreateFormAction(),
+            Action::make('cancel')
+                ->label('Quay lại')
+                ->url(static::getResource()::getUrl('index'))
+                ->color('gray'),
+            Action::make('create')
+                ->label('Tạo')
+                ->action(fn () => $this->create())
+                ->color('primary'),
         ];
     }
 

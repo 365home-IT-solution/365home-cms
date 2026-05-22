@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Product\App\Filament\Resources\RoomImageResource\Pages;
 
+use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
 use Modules\Product\App\Filament\Resources\RoomImageResource;
@@ -15,8 +16,14 @@ class EditRoomImage extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            $this->getCancelFormAction(),
-            $this->getSaveFormAction(),
+            Action::make('cancel')
+                ->label('Quay lại')
+                ->url(static::getResource()::getUrl('index'))
+                ->color('gray'),
+            Action::make('save')
+                ->label('Lưu thay đổi')
+                ->action(fn () => $this->save())
+                ->color('primary'),
             DeleteAction::make(),
         ];
     }

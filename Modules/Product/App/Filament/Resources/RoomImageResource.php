@@ -16,10 +16,16 @@ class RoomImageResource extends Resource
 {
     protected static ?string $model = RoomImage::class;
 
-    public static function canViewAny(): bool
+    private static function isSuperAdmin(): bool
     {
         return auth()->user()?->hasRole('super_admin') ?? false;
     }
+
+    public static function canViewAny(): bool { return static::isSuperAdmin(); }
+    public static function canCreate(): bool { return static::isSuperAdmin(); }
+    public static function canEdit(\Illuminate\Database\Eloquent\Model $record): bool { return static::isSuperAdmin(); }
+    public static function canDelete(\Illuminate\Database\Eloquent\Model $record): bool { return static::isSuperAdmin(); }
+    public static function canDeleteAny(): bool { return static::isSuperAdmin(); }
 
     public static function getNavigationIcon(): string
     {
