@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Concerns;
 
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Storage;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\TimeSlot;
 
@@ -26,10 +27,9 @@ trait BuildsRoomCard
         }
 
         return [
-            'id'              => $room->id,
+            'slug'            => $room->slug,
             'name'            => $room->name,
-            'thumbnail_url'   => $room->getFirstMediaUrl('Ảnh bìa') ?: $room->getFirstMediaUrl() ?: null,
-            'thumbnail_color' => $room->thumbnail_color,
+            'thumbnail_url'   => $this->getMainImageUrl($room),
             'badge'           => $badge ? [
                 'label'      => $badge['label'] ?? null,
                 'type'       => $badge['type'] ?? null,
@@ -50,6 +50,15 @@ trait BuildsRoomCard
             'wishlist_status' => $wishlistStatus,
             'is_available'    => $room->is_in_stock,
         ];
+    }
+
+    private function getMainImageUrl(Product $room): ?string
+    {
+        $main = $room->mainImage;
+        if (! $main || empty($main->path)) return null;
+
+        $paths = array_values(array_filter((array) $main->path, 'is_string'));
+        return isset($paths[0]) ? Storage::disk($main->disk)->url($paths[0]) : null;
     }
 
     private function buildTimeSlots(Product $room): array

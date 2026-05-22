@@ -75,6 +75,6 @@ Route::prefix('auth')->name('api.auth.')->group(function () {
 */
 Route::middleware('auth:sanctum')->prefix('wishlist')->name('api.wishlist.')->group(function () {
     Route::get('/',                      [WishlistController::class, 'index'])->name('index');
-    Route::post('{product}/toggle',      [WishlistController::class, 'toggle'])->name('toggle');
+    Route::post('{slug}/toggle',          [WishlistController::class, 'toggle'])->name('toggle');
 });
 

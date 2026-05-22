@@ -97,7 +97,7 @@ class AppPageController extends Controller
         $limit = max(1, (int) ($data['limit'] ?? 10));
 
         return $query
-            ->with('roomTimeSlots.timeSlot')
+            ->with(['roomTimeSlots.timeSlot', 'mainImage'])
             ->limit($limit)
             ->get()
             ->map(function ($room) use ($wishlistedIds) {
