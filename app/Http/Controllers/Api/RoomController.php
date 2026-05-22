@@ -66,7 +66,7 @@ class RoomController extends Controller
             'is_available'      => $room->is_in_stock,
             'room_type'         => $room->roomType?->slug,
             'amenities'         => $this->buildAmenities($room),
-            'services'          => $this->buildServices($room),
+            'additional_services' => $this->buildServices($room),
             'specials'          => $this->buildSpecials($room),
             'prices'            => $this->buildPrices($room),
         ];

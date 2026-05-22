@@ -12,15 +12,8 @@ class EditAppPage extends EditRecord
 {
     protected static string $resource = AppPageResource::class;
 
-    protected static string $view = 'filament.resources.app-page.pages.edit';
-
     protected function getHeaderActions(): array
     {
         return [DeleteAction::make()];
-    }
-
-    protected function afterSave(): void
-    {
-        $this->dispatch('app-page-json-refresh');
     }
 }
