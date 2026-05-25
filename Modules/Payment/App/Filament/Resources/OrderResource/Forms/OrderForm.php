@@ -206,9 +206,9 @@ class OrderForm
                                                                 $user  = auth()->user();
                                                                 $query = Category::query()
                                                                     ->where('category_type', 'product')
-                                                                    ->whereNull('parent_id');
+                                                                    ->orderBy('name');
                                                                 if ($user && ! $user->isSuperAdmin()) {
-                                                                    $allowedIds = $user->allowedBranchIds();
+                                                                    $allowedIds = $user->allowedCategoryIds();
                                                                     if (empty($allowedIds)) return [];
                                                                     $query->whereIn('id', $allowedIds);
                                                                 }

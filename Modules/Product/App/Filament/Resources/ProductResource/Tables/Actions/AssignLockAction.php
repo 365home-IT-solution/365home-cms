@@ -28,9 +28,24 @@ class AssignLockAction
                 'lock_id_checkout' => $record->lock_id_checkout,
             ])
             ->form(function (Product $record): array {
-                /** @var TTLockService $ttlock */
-                $ttlock = app(TTLockService::class);
-                $locks  = $ttlock->getLockList();
+                $categoryId = $record->branch_category_id
+                    ?? $record->categories()->value('categories.id');
+                $ttlock = TTLockService::forCategory($categoryId);
+
+                $fields = [];
+
+                if (!$ttlock) {
+                    $fields[] = Placeholder::make('no_ttlock')
+                        ->label('')
+                        ->content(new HtmlString(
+                            '<div class="text-warning-600 bg-warning-50 rounded-lg p-3 text-sm">'
+                            . 'Chi nhánh này chưa có tài khoản TTLock. Vào <b>Cấu hình thông tin → Tài khoản TTLock</b> để thêm.'
+                            . '</div>'
+                        ));
+                    return $fields;
+                }
+
+                $locks = $ttlock->getLockList();
 
                 // Tạo options: lockId => "lockAlias (lockMac) 🔋X%"
                 $options = [];
@@ -42,14 +57,12 @@ class AssignLockAction
                     $options[$lock['lockId']] = "{$alias}{$group} • {$mac}{$battery}";
                 }
 
-                $fields = [];
-
                 if (empty($options)) {
                     $fields[] = Placeholder::make('no_locks')
                         ->label('')
                         ->content(new HtmlString(
                             '<div class="text-warning-600 bg-warning-50 rounded-lg p-3 text-sm">'
-                            . 'Không lấy được danh sách khóa. Kiểm tra lại TTLOCK credentials trong .env'
+                            . 'Không lấy được danh sách khóa từ TTLock API. Kiểm tra log để biết chi tiết.'
                             . '</div>'
                         ));
                 } else {

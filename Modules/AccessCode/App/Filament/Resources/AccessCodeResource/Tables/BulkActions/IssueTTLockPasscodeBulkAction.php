@@ -43,9 +43,6 @@ class IssueTTLockPasscodeBulkAction
                 $startMs = Carbon::parse($data['valid_from'])->getTimestampMs();
                 $endMs   = Carbon::parse($data['valid_until'])->getTimestampMs();
 
-                /** @var TTLockService $ttlock */
-                $ttlock = app(TTLockService::class);
-
                 $success = 0;
                 $failed  = [];
 
@@ -60,6 +57,13 @@ class IssueTTLockPasscodeBulkAction
 
                     if (!$product) {
                         $failed[] = "Mã #{$accessCode->id}: không tìm được phòng thuộc chi nhánh này";
+                        continue;
+                    }
+
+                    $ttlock = TTLockService::forCategory($accessCode->category_id);
+
+                    if (!$ttlock) {
+                        $failed[] = "{$product->name}: chi nhánh chưa có tài khoản TTLock";
                         continue;
                     }
 
