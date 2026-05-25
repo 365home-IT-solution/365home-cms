@@ -84,9 +84,6 @@ class GenerateTTLockPasscodesAction
                 $startMs = Carbon::parse($data['valid_from'])->getTimestampMs();
                 $endMs   = Carbon::parse($data['valid_until'])->getTimestampMs();
 
-                /** @var TTLockService $ttlock */
-                $ttlock = app(TTLockService::class);
-
                 $created = 0;
                 $failed  = [];
 
@@ -102,6 +99,13 @@ class GenerateTTLockPasscodesAction
 
                     if (!$categoryId) {
                         $failed[] = "{$product->name}: phòng chưa được gán chi nhánh (category)";
+                        continue;
+                    }
+
+                    $ttlock = TTLockService::forCategory($categoryId);
+
+                    if (!$ttlock) {
+                        $failed[] = "{$product->name}: chi nhánh chưa có tài khoản TTLock";
                         continue;
                     }
 

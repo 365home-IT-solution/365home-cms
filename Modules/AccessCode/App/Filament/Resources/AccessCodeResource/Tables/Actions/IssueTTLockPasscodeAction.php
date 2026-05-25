@@ -95,8 +95,17 @@ class IssueTTLockPasscodeAction
                 $endMs   = \Carbon\Carbon::parse($data['valid_until'])->getTimestampMs();
                 $name    = "365Home - {$product->name}";
 
-                /** @var TTLockService $ttlock */
-                $ttlock = app(TTLockService::class);
+                $categoryId = $product->branch_category_id
+                    ?? $product->categories()->value('categories.id');
+                $ttlock = TTLockService::forCategory($categoryId);
+
+                if (!$ttlock) {
+                    Notification::make()
+                        ->title('Chưa có tài khoản TTLock')
+                        ->body('Chi nhánh này chưa được cấu hình tài khoản TTLock.')
+                        ->warning()->send();
+                    return;
+                }
 
                 // Bước 1: Generate mã ngẫu nhiên từ khóa check-in (lock_id)
                 $checkinResult = $ttlock->generatePasscode(

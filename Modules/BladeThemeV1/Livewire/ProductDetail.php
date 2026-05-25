@@ -19,7 +19,6 @@ use Modules\Promotion\App\Models\Coupon;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
 use Modules\BladeThemeV1\App\Models\BlindBag;
-use Modules\BladeThemeV1\App\Models\AdditionService;
 
 use Modules\BladeThemeV1\Services\Payment\OrderHandlerService;
 use Modules\BladeThemeV1\Services\Payment\PaymentService;
@@ -147,7 +146,9 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             }
         }
         $this->blindBag = BlindBag::first();
-        $this->additionalServices = AdditionService::where('is_active', 1)->get();
+        $this->additionalServices = $this->product
+            ? $this->product->additionalServices()->where('additional_services.is_active', 1)->get()
+            : collect();
         $this->selectedServices = [];
     }
 
@@ -439,7 +440,9 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
     public function updatedSelectedSlots()
     {
         if (is_null($this->additionalServices) || $this->additionalServices->isEmpty()) {
-            $this->additionalServices = AdditionService::where('is_active', 1)->get();
+            $this->additionalServices = $this->product
+                ? $this->product->additionalServices()->where('additional_services.is_active', 1)->get()
+                : collect();
         }
         $this->isCalculating = true;
         $this->originalTotalAmount = 0;
@@ -587,7 +590,9 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         }
         $this->totalAmount = max(0, $totalAfterPromo + $this->extraFee + $serviceTotal);
         if (is_null($this->additionalServices) || $this->additionalServices->isEmpty()) {
-            $this->additionalServices = AdditionService::where('is_active', 1)->get();
+            $this->additionalServices = $this->product
+                ? $this->product->additionalServices()->where('additional_services.is_active', 1)->get()
+                : collect();
         }
         $this->isCalculating = false;
     }
@@ -1874,7 +1879,9 @@ public function confirmBooking()
     public function render()
     {
         if (is_null($this->additionalServices)) {
-            $this->additionalServices = AdditionService::where('is_active', 1)->get();
+            $this->additionalServices = $this->product
+                ? $this->product->additionalServices()->where('additional_services.is_active', 1)->get()
+                : collect();
         }
         if ($this->product) {
             $now = Carbon::now();

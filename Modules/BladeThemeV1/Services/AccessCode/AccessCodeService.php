@@ -108,8 +108,28 @@ class AccessCodeService
         // Tự sinh mã 6 chữ số để đảm bảo đồng nhất
         $generatedCode = str_pad((string) random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
 
+        $ttlock = \App\Services\TTLockService::forCategory($categoryId);
+
+        if (!$ttlock) {
+            Log::info('No TTLock account for category, falling back to manual pool', [
+                'order_id'    => $orderId,
+                'category_id' => $categoryId,
+            ]);
+            return DB::transaction(function () use ($orderId, $categoryId, $checkinDate, $checkoutDate) {
+                $code = $this->getValidCodeForBranch($categoryId, $checkinDate, $checkoutDate);
+                if (!$code) {
+                    throw new \Exception(
+                        "Chi nhánh này chưa được cấu hình tài khoản TTLock và không có mã dự phòng nào trong hệ thống."
+                    );
+                }
+                $code->assignToOrder($orderId);
+                $code->refresh();
+                return $code;
+            });
+        }
+
         // Cấp mã vào khóa checkin (lock_id)
-        $checkinResult = $this->ttlock->addCustomPasscode(
+        $checkinResult = $ttlock->addCustomPasscode(
             lockId:    (int) $product->lock_id,
             code:      $generatedCode,
             startDate: $startMs,
@@ -144,7 +164,7 @@ class AccessCodeService
         // Nếu có khóa checkout riêng → thêm cùng mã vào khóa đó
         $lockIdCheckout = $product->lock_id_checkout ?? null;
         if ($lockIdCheckout && (int) $lockIdCheckout !== (int) $product->lock_id) {
-            $checkoutResult = $this->ttlock->addCustomPasscode(
+            $checkoutResult = $ttlock->addCustomPasscode(
                 lockId:    (int) $lockIdCheckout,
                 code:      $generatedCode,
                 startDate: $startMs,

@@ -82,15 +82,23 @@ class OrderObserver
      */
     public function created(Order $order): void
     {
-        // Chỉ log khi admin tạo thủ công (auth user tồn tại)
-        // Đơn từ webhook PayOS: auth()->user() = null → AuditLogger tự bỏ qua
-        AuditLogger::log(
-            action: 'create',
-            module: 'Order',
-            record: $order,
-            new: $order->only(['order_code', 'buyer_name', 'buyer_phone', 'amount', 'status']),
-            label: "#{$order->order_code} — {$order->buyer_name}",
-        );
+        // Chỉ log khi admin tạo đơn trực tiếp từ admin panel.
+        // Admin panel và frontend dùng chung web guard nên phải kiểm tra qua Referer header:
+        //   - Admin panel: Referer chứa '/admin/'  → log
+        //   - Frontend (client hoặc admin test UI): Referer không chứa '/admin/' → bỏ qua
+        //   - Webhook PayOS: auth()->user() = null → bỏ qua
+        $user    = auth()->user();
+        $referer = request()->headers->get('referer', '');
+
+        if ($user && str_contains($referer, '/admin/')) {
+            AuditLogger::log(
+                action: 'create',
+                module: 'Order',
+                record: $order,
+                new: $order->only(['order_code', 'buyer_name', 'buyer_phone', 'amount', 'status']),
+                label: "#{$order->order_code} — {$order->buyer_name}",
+            );
+        }
 
         if ($order->status !== 'pending') {
             return;
@@ -108,14 +116,17 @@ class OrderObserver
         $tracked = array_intersect($changed, self::TRACKED_FIELDS);
 
         if (! empty($tracked)) {
-            AuditLogger::log(
-                action: 'update',
-                module: 'Order',
-                record: $order,
-                old: array_intersect_key($order->getOriginal(), array_flip($tracked)),
-                new: array_intersect_key($order->getChanges(), array_flip($tracked)),
-                label: "#{$order->order_code} — {$order->buyer_name}",
-            );
+            $referer = request()->headers->get('referer', '');
+            if (str_contains($referer, '/admin/')) {
+                AuditLogger::log(
+                    action: 'update',
+                    module: 'Order',
+                    record: $order,
+                    old: array_intersect_key($order->getOriginal(), array_flip($tracked)),
+                    new: array_intersect_key($order->getChanges(), array_flip($tracked)),
+                    label: "#{$order->order_code} — {$order->buyer_name}",
+                );
+            }
         }
 
         if (! $order->wasChanged('status')) {
