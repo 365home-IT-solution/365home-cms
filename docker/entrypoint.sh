@@ -20,8 +20,14 @@ php artisan package:discover --ansi
 
 # Run migrations and cache
 php artisan migrate --force --no-interaction
+
+# Seed idempotent data (insertOrIgnore — safe to run on every deploy)
+php artisan db:seed --class=RoomAdditionalServiceSeeder --force --no-interaction
+php artisan db:seed --class=AuditLogPermissionSeeder --force --no-interaction
+
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache
+php artisan filament:cache-components
 
 exec /usr/bin/supervisord -n -c /etc/supervisor/supervisord.conf

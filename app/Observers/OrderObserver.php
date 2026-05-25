@@ -6,12 +6,19 @@ use App\Models\User;
 use App\Services\FcmService;
 use Filament\Notifications\Notification;
 use Filament\Notifications\Actions\Action;
+use Modules\AuditLog\Services\AuditLogger;
 use Modules\Category\Entities\Category;
 use Modules\Payment\App\Filament\Resources\OrderResource;
 use Modules\Payment\Entities\Order;
 
 class OrderObserver
 {
+    private const TRACKED_FIELDS = [
+        'status', 'amount', 'full_amount', 'deposit_percent',
+        'buyer_name', 'buyer_phone', 'buyer_email',
+        'payment_method', 'note_for_admin', 'guest_count',
+        'checkin_date', 'checkout_date',
+    ];
     /**
      * Trả về danh sách user nhận thông báo cho một đơn hàng cụ thể:
      *  - super_admin → luôn nhận tất cả
@@ -75,6 +82,16 @@ class OrderObserver
      */
     public function created(Order $order): void
     {
+        // Chỉ log khi admin tạo thủ công (auth user tồn tại)
+        // Đơn từ webhook PayOS: auth()->user() = null → AuditLogger tự bỏ qua
+        AuditLogger::log(
+            action: 'create',
+            module: 'Order',
+            record: $order,
+            new: $order->only(['order_code', 'buyer_name', 'buyer_phone', 'amount', 'status']),
+            label: "#{$order->order_code} — {$order->buyer_name}",
+        );
+
         if ($order->status !== 'pending') {
             return;
         }
@@ -83,10 +100,24 @@ class OrderObserver
     }
 
     /**
-     * Notify khi trạng thái đơn thay đổi
+     * Notify khi trạng thái đơn thay đổi, audit mọi field nhạy cảm
      */
     public function updated(Order $order): void
     {
+        $changed = array_keys($order->getChanges());
+        $tracked = array_intersect($changed, self::TRACKED_FIELDS);
+
+        if (! empty($tracked)) {
+            AuditLogger::log(
+                action: 'update',
+                module: 'Order',
+                record: $order,
+                old: array_intersect_key($order->getOriginal(), array_flip($tracked)),
+                new: array_intersect_key($order->getChanges(), array_flip($tracked)),
+                label: "#{$order->order_code} — {$order->buyer_name}",
+            );
+        }
+
         if (! $order->wasChanged('status')) {
             return;
         }
@@ -122,5 +153,16 @@ class OrderObserver
 
         $cfg = $map[$newStatus];
         $this->send($order, $cfg['title'], $cfg['icon'], $cfg['color']);
+    }
+
+    public function deleted(Order $order): void
+    {
+        AuditLogger::log(
+            action: 'delete',
+            module: 'Order',
+            record: $order,
+            old: $order->only(['order_code', 'buyer_name', 'buyer_phone', 'amount', 'status']),
+            label: "#{$order->order_code} — {$order->buyer_name}",
+        );
     }
 }

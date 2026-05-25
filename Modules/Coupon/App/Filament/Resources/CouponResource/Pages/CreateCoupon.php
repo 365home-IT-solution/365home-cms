@@ -18,20 +18,19 @@ class CreateCoupon extends CreateRecord
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        // Uppercase code
         if (isset($data['code'])) {
             $data['code'] = strtoupper($data['code']);
         }
 
-        // Nếu không phải specific_slot, xóa room_time_slot_ids
         if (($data['apply_type'] ?? null) !== 'specific_slot') {
             unset($data['room_time_slot_ids']);
         }
 
-        // Nếu không phải specific_room hoặc specific_slot, xóa room_id
-        if (!in_array($data['apply_type'] ?? null, ['specific_room', 'specific_slot'])) {
+        if (! in_array($data['apply_type'] ?? null, ['specific_room', 'specific_slot'])) {
             $data['room_id'] = null;
         }
+
+        $data['created_by'] = auth()->id();
 
         return $data;
     }

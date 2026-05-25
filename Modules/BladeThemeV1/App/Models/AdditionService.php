@@ -20,7 +20,17 @@ class AdditionService extends Model
     ];
 
     protected $casts = [
-    'price'     => 'integer',
-    'is_active' => 'boolean',
+        'price'     => 'integer',
+        'is_active' => 'boolean',
     ];
+
+    public function products()
+    {
+        return $this->belongsToMany(
+            \Modules\Product\App\Models\Product::class,
+            'room_additional_service_assigns',
+            'additional_service_id',
+            'room_id'
+        );
+    }
 }

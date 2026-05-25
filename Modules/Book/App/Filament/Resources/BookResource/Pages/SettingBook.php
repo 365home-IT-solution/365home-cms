@@ -25,6 +25,7 @@ use Modules\Promotion\App\Models\Promotion;
 use Filament\Notifications\Notification;
 use Modules\Book\App\Filament\Traits\HasBookingHeaderActions;
 use Modules\Promotion\App\Models\Coupon;
+use Modules\DataPermission\Entities\UserBranchPermission;
 
 class SettingBook extends Page implements HasForms
 {
@@ -58,6 +59,23 @@ class SettingBook extends Page implements HasForms
             ->pluck('categorizable_id')
             ->map(fn ($id) => (string) $id)
             ->toArray();
+    }
+
+    private function allowedPromotionOptions(): array
+    {
+        $user  = auth()->user();
+        $query = Promotion::where('is_active', true);
+
+        if (! $user || $user->isSuperAdmin()) {
+            return $query->pluck('name', 'id')->toArray();
+        }
+
+        $branchIds          = UserBranchPermission::where('user_id', $user->id)->pluck('category_id');
+        $overlappingUserIds = UserBranchPermission::whereIn('category_id', $branchIds)->pluck('user_id');
+
+        return $query->where(function ($q) use ($overlappingUserIds) {
+            $q->whereNull('created_by')->orWhereIn('created_by', $overlappingUserIds);
+        })->pluck('name', 'id')->toArray();
     }
 
     private function scopedProductQuery(): \Illuminate\Database\Eloquent\Builder
@@ -166,7 +184,6 @@ class SettingBook extends Page implements HasForms
                                     Header::make('price')->label('Giá')->width('150px'),
                                     Header::make('promotions')->label('Khuyến mãi')->width('250px'),
                                     Header::make('over_night')->label('Qua đêm')->width('100px'),
-                                    Header::make('status')->label('Trạng thái')->width('100px'),
                                 ])
                                 ->schema([
                                     Hidden::make('id'),
@@ -202,7 +219,7 @@ class SettingBook extends Page implements HasForms
 
                                     Select::make('promotions')
                                         ->label('Khuyến mãi')
-                                        ->options(Promotion::where('is_active', true)->pluck('name', 'id'))
+                                        ->options(fn () => $this->allowedPromotionOptions())
                                         ->multiple()
                                         ->preload()
                                         ->searchable(),
@@ -211,19 +228,12 @@ class SettingBook extends Page implements HasForms
                                         ->label('Qua đêm')
                                         ->default(false),
 
-                                    Select::make('status')
-                                        ->label('Trạng thái')
-                                        ->options([
-                                            'available' => 'Còn trống',
-                                            'booked' => 'Đã đặt',
-                                            'selected' => 'Đang chọn',
-                                        ])
-                                        ->default('available')
-                                        ->required(),
+                                    Hidden::make('status')->default('available'),
                                 ])
                                 ->defaultItems(0)
-                                ->columns(5)
+                                ->columns(4)
                                 ->label('')
+                                ->emptyLabel('Chưa thiết lập cấu hình giá')
                                 ->reorderableWithButtons()
                                 ->reorderable(true)
                                 ->createItemButtonLabel('Thêm khung giờ')

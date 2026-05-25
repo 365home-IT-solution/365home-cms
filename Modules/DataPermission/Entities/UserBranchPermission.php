@@ -16,6 +16,7 @@ class UserBranchPermission extends Model
     protected $fillable = [
         'user_id',
         'category_id',
+        'created_by',
     ];
 
     public function user(): BelongsTo

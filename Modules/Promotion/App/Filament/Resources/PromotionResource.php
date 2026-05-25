@@ -90,11 +90,11 @@ class PromotionResource extends Resource
             ->distinct()
             ->pluck('promotion_id');
 
-        if ($promotionIds->isEmpty()) {
-            return $query->whereRaw('1 = 0');
-        }
-
-        return $query->whereIn('id', $promotionIds);
+        // Hiển thị: promotion gắn với chi nhánh được phép HOẶC do chính user tạo (chưa gắn room)
+        return $query->where(function (Builder $q) use ($promotionIds, $user) {
+            $q->whereIn('id', $promotionIds)
+                ->orWhere('created_by', $user->id);
+        });
     }
 
     public static function canViewAny(): bool

@@ -6,7 +6,6 @@ namespace Modules\User\App\Filament\Resources;
 
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
-use Modules\DataPermission\Entities\UserBranchPermission;
 use Modules\User\App\Filament\Resources\UserResource\Forms\UserForm;
 use Modules\User\App\Filament\Resources\UserResource\Tables\UserTable;
 use Modules\User\App\Filament\Resources\UserResource\Pages;
@@ -66,22 +65,7 @@ class UserResource extends Resource
             return $query;
         }
 
-        $allowedBranchIds = $user->allowedBranchIds();
-
-        if (empty($allowedBranchIds)) {
-            return $query->whereRaw('1 = 0');
-        }
-
-        // Chỉ hiển thị users đã được phân quyền vào các chi nhánh được phép
-        $userIds = UserBranchPermission::whereIn('category_id', $allowedBranchIds)
-            ->distinct()
-            ->pluck('user_id');
-
-        if ($userIds->isEmpty()) {
-            return $query->whereRaw('1 = 0');
-        }
-
-        return $query->whereIn('id', $userIds);
+        return $query->where('created_by', $user->id);
     }
 
     public static function form(Form $form): Form

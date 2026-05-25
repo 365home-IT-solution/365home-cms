@@ -23,7 +23,7 @@ class TagForm
                     TextInput::make('name')
                         ->label(__('tag::tag.form.label.name'))
                         ->placeholder(__('tag::tag.form.placeholder.name'))
-                        ->formatStateUsing(fn ($state) => is_array($state) ? ($state[app()->getLocale()] ?? '') : $state)
+                        ->formatStateUsing(fn ($state) => \is_array($state) ? ($state[app()->getLocale()] ?? '') : $state)
                         ->rules(['max:255', function (Get $get) {
                             $postId = $get('id');
                             return $postId
@@ -42,7 +42,7 @@ class TagForm
 
                     TextInput::make('slug')
                         ->label(__('tag::tag.form.label.slug'))
-                        ->formatStateUsing(fn ($state) => is_array($state) ? ($state[app()->getLocale()] ?? '') : $state)
+                        ->formatStateUsing(fn ($state) => \is_array($state) ? ($state[app()->getLocale()] ?? '') : $state)
                         ->placeholder(__('tag::tag.form.placeholder.slug'))
                         ->required()
                         ->rules([function (Get $get) {
@@ -62,14 +62,21 @@ class TagForm
                         ->nullable()
                         ->hint('Tải lên hình ảnh tiện nghi')
                         ->columnSpanFull()
-                       ->formatStateUsing(function ($state) {
-                            $locale = app()->getLocale();
-                            $path = is_array($state) ? ($state[$locale] ?? null) : $state;
-                            return $path ? [$path] : [];
+                        ->formatStateUsing(function ($state) {
+                            // Handle legacy JSON {"vi":"path"} and plain string formats
+                            if (\is_array($state)) {
+                                $state = $state[app()->getLocale()] ?? collect($state)->first();
+                            } elseif (is_string($state) && str_starts_with($state, '{')) {
+                                $decoded = json_decode($state, true);
+                                if (\is_array($decoded)) {
+                                    $state = $decoded[app()->getLocale()] ?? collect($decoded)->first();
+                                }
+                            }
+                            return $state ? [$state] : [];
                         })
                         ->dehydrateStateUsing(function ($state) {
-                            $path = is_array($state) ? (collect($state)->first() ?? null) : $state;
-                            return [app()->getLocale() => $path];
+                            // Save as plain string, not locale-wrapped array
+                            return \is_array($state) ? (collect($state)->first() ?? null) : $state;
                         })
                         ->multiple(false)
                 ])->columns(12)

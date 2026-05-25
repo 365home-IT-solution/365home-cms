@@ -19,19 +19,26 @@ class OrdersExport implements WithMultipleSheets
 {
     protected $filters;
     protected $orderIds;
+    protected $allowedBranchIds;
 
-    public function __construct($filters = null, $orderIds = null)
+    public function __construct($filters = null, $orderIds = null, ?array $allowedBranchIds = null)
     {
-        $this->filters  = $filters ?? [];
-        $this->orderIds = $orderIds;
+        $this->filters          = $filters ?? [];
+        $this->orderIds         = $orderIds;
+        $this->allowedBranchIds = $allowedBranchIds;
     }
 
     public function sheets(): array
     {
-        $categories = Category::with('children')
+        $query = Category::with('children')
             ->whereNull('parent_id')
-            ->where('category_type', 'product')
-            ->get();
+            ->where('category_type', 'product');
+
+        if ($this->allowedBranchIds !== null) {
+            $query->whereIn('id', $this->allowedBranchIds);
+        }
+
+        $categories = $query->get();
 
         // Luôn filter: chỉ tạo sheet cho danh mục có ít nhất 1 đơn khớp điều kiện
         $filters   = $this->filters;
@@ -66,11 +73,11 @@ class OrdersExport implements WithMultipleSheets
 
         $sheets = [];
         foreach ($categories as $category) {
-            $sheets[] = new OrdersSheetByCategory($category, $this->filters, $this->orderIds);
+            $sheets[] = new OrdersSheetByCategory($category, $this->filters, $this->orderIds, $this->allowedBranchIds);
         }
 
         if (empty($sheets)) {
-            $sheets[] = new OrdersSheetByCategory(null, $this->filters, $this->orderIds);
+            $sheets[] = new OrdersSheetByCategory(null, $this->filters, $this->orderIds, $this->allowedBranchIds);
         }
 
         return $sheets;
@@ -82,13 +89,15 @@ class OrdersSheetByCategory implements FromCollection, WithHeadings, WithMapping
     protected $category;
     protected $filters;
     protected $orderIds;
+    protected $allowedBranchIds;
     protected $rowNumber = 0;
 
-    public function __construct(?Category $category, $filters = [], $orderIds = null)
+    public function __construct(?Category $category, $filters = [], $orderIds = null, $allowedBranchIds = null)
     {
-        $this->category = $category;
-        $this->filters  = $filters ?? [];
-        $this->orderIds = $orderIds;
+        $this->category         = $category;
+        $this->filters          = $filters ?? [];
+        $this->orderIds         = $orderIds;
+        $this->allowedBranchIds = $allowedBranchIds;
     }
 
     public function title(): string
@@ -125,6 +134,20 @@ class OrdersSheetByCategory implements FromCollection, WithHeadings, WithMapping
             $query->whereHas('items.product.categories', function ($q) use ($categoryIds) {
                 $q->whereIn('categories.id', $categoryIds);
             });
+        } elseif ($this->allowedBranchIds !== null) {
+            // Fallback sheet: vẫn giới hạn theo chi nhánh được phân quyền
+            $allowedCategoryIds = Category::with('children')
+                ->whereIn('id', $this->allowedBranchIds)
+                ->get()
+                ->flatMap(fn ($cat) => $cat->children->pluck('id')->push($cat->id))
+                ->unique()
+                ->values()
+                ->toArray();
+            if (!empty($allowedCategoryIds)) {
+                $query->whereHas('items.product.categories', function ($q) use ($allowedCategoryIds) {
+                    $q->whereIn('categories.id', $allowedCategoryIds);
+                });
+            }
         }
 
         if (!empty($this->orderIds)) {

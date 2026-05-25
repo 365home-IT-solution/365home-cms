@@ -1,0 +1,11 @@
+{
+    "name": "AuditLog",
+    "alias": "auditlog",
+    "description": "Lịch sử thao tác nhạy cảm của hệ thống",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\AuditLog\\Providers\\AuditLogServiceProvider"
+    ],
+    "files": []
+}

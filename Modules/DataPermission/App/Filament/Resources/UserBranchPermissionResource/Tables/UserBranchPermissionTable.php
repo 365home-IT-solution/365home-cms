@@ -113,29 +113,42 @@ class UserBranchPermissionTable
                         CheckboxList::make('product_category_ids')
                             ->label('Chi nhánh Phòng được phép')
                             ->helperText('User sẽ thấy các phòng thuộc chi nhánh này.')
-                            ->options(fn () => Category::query()
-                                ->where('category_type', 'product')
-                                ->whereNull('parent_id')
-                                ->orderBy('name')
-                                ->pluck('name', 'id')
-                                ->toArray()
-                            )
+                            ->options(function () {
+                                $actor = auth()->user();
+                                $query = Category::query()
+                                    ->where('category_type', 'product')
+                                    ->whereNull('parent_id')
+                                    ->orderBy('name');
+
+                                if (! $actor?->hasRole(config('filament-shield.super_admin.name'))) {
+                                    $query->whereIn('id', $actor->allowedBranchIds());
+                                }
+
+                                return $query->pluck('name', 'id')->toArray();
+                            })
                             ->columns(2),
 
                         CheckboxList::make('post_category_ids')
                             ->label('Danh mục Bài viết được phép')
                             ->helperText('User sẽ thấy và tạo bài viết thuộc danh mục này.')
-                            ->options(fn () => Category::query()
-                                ->where('category_type', 'post')
-                                ->whereNull('parent_id')
-                                ->orderBy('name')
-                                ->pluck('name', 'id')
-                                ->toArray()
-                            )
+                            ->options(function () {
+                                $actor = auth()->user();
+                                $query = Category::query()
+                                    ->where('category_type', 'post')
+                                    ->whereNull('parent_id')
+                                    ->orderBy('name');
+
+                                if (! $actor?->hasRole(config('filament-shield.super_admin.name'))) {
+                                    $query->whereIn('id', $actor->allowedDirectPostRootIds());
+                                }
+
+                                return $query->pluck('name', 'id')->toArray();
+                            })
                             ->columns(2),
                     ])
                     ->action(function ($record, array $data): void {
                         $userId = $record->user_id;
+                        $createdBy = auth()->id();
 
                         $categoryIds = array_merge(
                             $data['product_category_ids'] ?? [],
@@ -148,6 +161,7 @@ class UserBranchPermissionTable
                             UserBranchPermission::create([
                                 'user_id'     => $userId,
                                 'category_id' => $categoryId,
+                                'created_by'  => $createdBy,
                             ]);
                         }
                     })

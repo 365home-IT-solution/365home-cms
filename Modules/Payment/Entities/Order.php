@@ -47,6 +47,7 @@ class Order extends Model implements Eventable
         'guest_count',
         'category_id',
         'user_id',
+        'money_deposit',
     ];
 
     protected $casts = [

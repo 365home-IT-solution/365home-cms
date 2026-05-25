@@ -2,12 +2,27 @@
 
 namespace App\Providers;
 
+use App\Models\User;
+use App\Observers\BranchObserver;
+use App\Observers\CouponObserver;
 use App\Observers\OrderObserver;
+use App\Observers\PostObserver;
+use App\Observers\ProductObserver;
+use App\Observers\PromotionObserver;
+use App\Observers\RoleObserver;
+use App\Observers\UserBranchPermissionObserver;
+use App\Observers\UserObserver;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
-use Illuminate\Support\Facades\Event;
+use Modules\DataPermission\Entities\UserBranchPermission;
 use Modules\Payment\Entities\Order;
+use Modules\Post\Entities\Post;
+use Modules\Product\App\Models\Product;
+use Modules\Promotion\App\Models\Coupon;
+use Modules\Promotion\App\Models\Promotion;
+use Modules\SettingCompany\Entities\Branch;
+use App\Models\Role;
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -28,6 +43,14 @@ class EventServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Order::observe(OrderObserver::class);
+        Role::observe(RoleObserver::class);
+        User::observe(UserObserver::class);
+        UserBranchPermission::observe(UserBranchPermissionObserver::class);
+        Post::observe(PostObserver::class);
+        Product::observe(ProductObserver::class);
+        Branch::observe(BranchObserver::class);
+        Coupon::observe(CouponObserver::class);
+        Promotion::observe(PromotionObserver::class);
     }
 
     /**

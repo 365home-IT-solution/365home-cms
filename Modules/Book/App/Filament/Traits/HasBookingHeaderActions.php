@@ -16,12 +16,22 @@ use Modules\Promotion\App\Models\Promotion;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
 use Filament\Forms\Get;
+use Modules\Category\Entities\Categorizable;
+use Modules\DataPermission\Entities\UserBranchPermission;
 
 trait HasBookingHeaderActions
 {
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('block_calendar')
+                ->label('Tô đen / Khóa lịch')
+                ->icon('heroicon-o-no-symbol')
+                ->color('danger')
+                ->action(function () {
+                    $this->dispatch('open-block-timeslot-modal');
+                }),
+
             Action::make('create_room')
                 ->label('Tạo phòng mới')
                 ->icon('heroicon-o-plus-circle')
@@ -120,7 +130,7 @@ trait HasBookingHeaderActions
 
                             Select::make('room_id')
                                 ->label('Chọn phòng')
-                                ->options(Product::where('is_activated', true)->pluck('name', 'id'))
+                                ->options(fn () => $this->allowedRoomOptions())
                                 ->searchable()
                                 ->preload()
                                 ->required()
@@ -193,19 +203,20 @@ trait HasBookingHeaderActions
                     try {
                         // Tạo coupon
                         $coupon = Coupon::create([
-                            'code' => strtoupper($data['code']),
-                            'name' => $data['name'],
-                            'description' => $data['description'] ?? null,
-                            'type' => $data['type'],
-                            'value' => $data['value'],
-                            'apply_type' => $data['apply_type'],
-                            'room_id' => $data['room_id'] ?? null,
+                            'code'            => strtoupper($data['code']),
+                            'name'            => $data['name'],
+                            'description'     => $data['description'] ?? null,
+                            'type'            => $data['type'],
+                            'value'           => $data['value'],
+                            'apply_type'      => $data['apply_type'],
+                            'room_id'         => $data['room_id'] ?? null,
                             'min_order_value' => $data['min_order_value'] ?? null,
-                            'max_discount' => $data['max_discount'] ?? null,
-                            'usage_limit' => $data['usage_limit'] ?? null,
-                            'start_at' => $data['start_at'],
-                            'end_at' => $data['end_at'] ?? null,
-                            'is_active' => $data['is_active'] ?? true,
+                            'max_discount'    => $data['max_discount'] ?? null,
+                            'usage_limit'     => $data['usage_limit'] ?? null,
+                            'start_at'        => $data['start_at'],
+                            'end_at'          => $data['end_at'] ?? null,
+                            'is_active'       => $data['is_active'] ?? true,
+                            'created_by'      => auth()->id(),
                         ]);
 
                         // Nếu là specific_slot, gắn các room_time_slot
@@ -322,6 +333,7 @@ trait HasBookingHeaderActions
                             'start_at'     => $data['start_at'],
                             'end_at'       => $data['end_at'],
                             'is_active'    => $data['is_active'] ?? true,
+                            'created_by'   => auth()->id(),
                         ]);
 
                         Notification::make()
@@ -339,11 +351,28 @@ trait HasBookingHeaderActions
                     }
                 }),
 
-            Action::make('view_bookings')
-                ->label('Xem danh sách Các Booking ở Phòng')
-                ->icon('heroicon-o-list-bullet')
-                ->url(fn () => route('filament.admin.resources.books.index'))
-                ->openUrlInNewTab(),
         ];
+    }
+
+    private function allowedRoomOptions(): array
+    {
+        $user  = auth()->user();
+        $query = Product::where('is_activated', true);
+
+        if (! $user || $user->isSuperAdmin()) {
+            return $query->pluck('name', 'id')->toArray();
+        }
+
+        $categoryIds = $user->allowedCategoryIds();
+        if (empty($categoryIds)) {
+            return [];
+        }
+
+        $allowedIds = Categorizable::where('categorizable_type', Product::class)
+            ->whereIn('category_id', $categoryIds)
+            ->distinct()
+            ->pluck('categorizable_id');
+
+        return $query->whereIn('id', $allowedIds)->pluck('name', 'id')->toArray();
     }
 }

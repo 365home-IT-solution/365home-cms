@@ -31,6 +31,8 @@ class CreateUserBranchPermission extends CreateRecord
             $data['post_category_ids']    ?? [],
         );
 
+        $createdBy = auth()->id();
+
         // Xóa quyền cũ rồi gán lại
         UserBranchPermission::where('user_id', $userId)->delete();
 
@@ -38,6 +40,7 @@ class CreateUserBranchPermission extends CreateRecord
             UserBranchPermission::create([
                 'user_id'     => $userId,
                 'category_id' => $categoryId,
+                'created_by'  => $createdBy,
             ]);
         }
 

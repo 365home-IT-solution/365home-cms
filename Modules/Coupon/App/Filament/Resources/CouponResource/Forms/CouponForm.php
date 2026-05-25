@@ -5,14 +5,16 @@ declare(strict_types=1);
 namespace Modules\Coupon\App\Filament\Resources\CouponResource\Forms;
 
 use Filament\Forms\Components\DateTimePicker;
+use Filament\Forms\Components\Grid;
+use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Split;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
-use Filament\Forms\Components\Section;
-use Filament\Forms\Components\Grid;
 use Filament\Forms\Get;
-use Filament\Forms\Components\TextInput;
+use Modules\DataPermission\Entities\UserBranchPermission;
 use Modules\Product\App\Models\Product;
 
 class CouponForm
@@ -21,142 +23,165 @@ class CouponForm
     {
         return $form
             ->schema([
-                Section::make('Thông tin cơ bản')
-                    ->schema([
-                        Grid::make(2)
-                            ->schema([
-                                TextInput::make('code')
-                                    ->label('Mã giảm giá')
-                                    ->required()
-                                    ->unique(ignoreRecord: true)
-                                    ->maxLength(50)
-                                    ->alphaNum(),
+                Split::make([
 
-                                TextInput::make('name')
-                                    ->label('Tên mã giảm giá')
-                                    ->required()
-                                    ->maxLength(255),
-                            ]),
+                    // ── CỘT 1: Thông tin cơ bản + Giá trị giảm giá ──────────
+                    Section::make('Thông tin mã giảm giá')
+                        ->schema([
+                            Grid::make(2)
+                                ->schema([
+                                    TextInput::make('code')
+                                        ->label('Mã giảm giá')
+                                        ->required()
+                                        ->unique(ignoreRecord: true)
+                                        ->maxLength(50)
+                                        ->alphaNum(),
 
-                        Textarea::make('description')
-                            ->label('Mô tả')
-                            ->rows(3)
-                            ->maxLength(500),
-                    ]),
+                                    TextInput::make('name')
+                                        ->label('Tên mã giảm giá')
+                                        ->required()
+                                        ->maxLength(255),
+                                ]),
 
-                Section::make('Giá trị giảm giá')
-                    ->schema([
-                        Grid::make(3)
-                            ->schema([
-                                Select::make('type')
-                                    ->label('Loại giảm giá')
-                                    ->required()
-                                    ->options([
-                                        'percentage' => 'Phần trăm (%)',
-                                        'fixed' => 'Số tiền cố định (VNĐ)',
-                                    ])
-                                    ->default('percentage')
-                                    ->live(),
+                            Textarea::make('description')
+                                ->label('Mô tả')
+                                ->rows(3)
+                                ->maxLength(500),
 
-                                TextInput::make('value')
-                                    ->label(fn (Get $get) => $get('type') === 'percentage' ? 'Giá trị (%)' : 'Giá trị (VNĐ)')
-                                    ->required()
-                                    ->numeric()
-                                    ->minValue(0)
-                                    ->maxValue(fn (Get $get) => $get('type') === 'percentage' ? 100 : null)
-                                    ->suffix(fn (Get $get) => $get('type') === 'percentage' ? '%' : 'VNĐ'),
+                            // 4 trường trên cùng 1 hàng
+                            Grid::make(4)
+                                ->schema([
+                                    Select::make('type')
+                                        ->label('Loại giảm giá')
+                                        ->required()
+                                        ->options([
+                                            'percentage' => 'Phần trăm (%)',
+                                            'fixed'      => 'Số tiền cố định (VNĐ)',
+                                        ])
+                                        ->default('percentage')
+                                        ->live(),
 
-                                TextInput::make('max_discount')
-                                    ->label('Giảm tối đa (VNĐ)')
-                                    ->numeric()
-                                    ->minValue(0)
-                                    ->suffix('VNĐ')
-                                    ->visible(fn (Get $get) => $get('type') === 'percentage'),
-                            ]),
+                                    TextInput::make('value')
+                                        ->label(fn (Get $get) => $get('type') === 'percentage' ? 'Giá trị (%)' : 'Giá trị (VNĐ)')
+                                        ->required()
+                                        ->numeric()
+                                        ->minValue(0)
+                                        ->maxValue(fn (Get $get) => $get('type') === 'percentage' ? 100 : null)
+                                        ->suffix(fn (Get $get) => $get('type') === 'percentage' ? '%' : 'VNĐ'),
 
-                        TextInput::make('min_order_value')
-                            ->label('Giá trị đơn hàng tối thiểu (VNĐ)')
-                            ->numeric()
-                            ->minValue(0)
-                            ->suffix('VNĐ'),
-                    ]),
+                                    TextInput::make('max_discount')
+                                        ->label('Giảm tối đa (VNĐ)')
+                                        ->numeric()
+                                        ->minValue(0)
+                                        ->suffix('VNĐ')
+                                        ->placeholder(fn (Get $get) => $get('type') !== 'percentage' ? 'Chỉ áp dụng cho %' : null)
+                                        ->disabled(fn (Get $get) => $get('type') !== 'percentage'),
 
-                Section::make('Phạm vi áp dụng')
-                    ->schema([
-                        Select::make('apply_type')
-                            ->label('Áp dụng cho')
-                            ->required()
-                            ->options([
-                                'all_rooms' => '🌐 Tất cả khung giờ của tất cả phòng',
-                                'specific_room' => '🏠 Tất cả khung giờ của 1 phòng cụ thể',
-                                'specific_slot' => '🎯 Các khung giờ cụ thể',
-                            ])
-                            ->default('all_rooms')
-                            ->live(),
+                                    TextInput::make('min_order_value')
+                                        ->label('Đơn hàng tối thiểu (VNĐ)')
+                                        ->numeric()
+                                        ->minValue(0)
+                                        ->suffix('VNĐ'),
+                                ]),
+                        ])
+                        ->grow(true),
 
-                        Select::make('room_id')
-                            ->label('Chọn phòng')
-                            ->options(Product::where('is_activated', true)->pluck('name', 'id'))
-                            ->searchable()
-                            ->preload()
-                            ->required()
-                            ->visible(fn (Get $get) => in_array($get('apply_type'), ['specific_room', 'specific_slot']))
-                            ->live(),
+                    // ── CỘT 2: Phạm vi áp dụng + Giới hạn & Thời gian ───────
+                    Section::make('Phạm vi áp dụng & Thời gian')
+                        ->schema([
+                            Select::make('apply_type')
+                                ->label('Áp dụng cho')
+                                ->required()
+                                ->options([
+                                    'all_rooms'     => 'Tất cả khung giờ của tất cả phòng',
+                                    'specific_room' => 'Tất cả khung giờ của 1 phòng cụ thể',
+                                    'specific_slot' => 'Các khung giờ cụ thể',
+                                ])
+                                ->default('all_rooms')
+                                ->live(),
 
-                        Select::make('room_time_slot_ids')
-                            ->label('Chọn khung giờ')
-                            ->multiple()
-                            ->searchable()
-                            ->preload()
-                            ->required()
-                            ->relationship(
-                                name: 'roomTimeSlots',
-                                titleAttribute: 'id',
-                                modifyQueryUsing: fn ($query, Get $get) =>
-                                $query->where('room_id', $get('room_id'))
-                                    ->with('timeSlot')
-                            )
-                            ->getOptionLabelFromRecordUsing(fn ($record) =>
-                                $record->timeSlot->label . ' - ' . number_format($record->price, 0, ',', '.') . ' VNĐ'
-                            )
-                            ->visible(fn (Get $get) => $get('apply_type') === 'specific_slot'),
-                    ]),
+                            Select::make('room_id')
+                                ->label('Chọn phòng')
+                                ->options(function () {
+                                    $user  = auth()->user();
+                                    $query = Product::where('is_activated', true);
 
-                Section::make('Giới hạn sử dụng & Thời gian')
-                    ->schema([
-                        Grid::make(2)
-                            ->schema([
-                                TextInput::make('usage_limit')
-                                    ->label('Giới hạn số lần sử dụng')
-                                    ->numeric()
-                                    ->minValue(1),
+                                    if (! $user?->hasRole('super_admin')) {
+                                        $branchIds = UserBranchPermission::where('user_id', $user?->id)
+                                            ->pluck('category_id');
+                                        $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $branchIds));
+                                    }
 
-                                TextInput::make('used_count')
-                                    ->label('Đã sử dụng')
-                                    ->numeric()
-                                    ->default(0)
-                                    ->disabled()
-                                    ->dehydrated(false),
-                            ]),
+                                    return $query->pluck('name', 'id');
+                                })
+                                ->searchable()
+                                ->preload()
+                                ->required()
+                                ->visible(fn (Get $get) => in_array($get('apply_type'), ['specific_room', 'specific_slot']))
+                                ->live(),
 
-                        Grid::make(2)
-                            ->schema([
-                                DateTimePicker::make('start_at')
-                                    ->label('Ngày bắt đầu')
-                                    ->required()
-                                    ->default(now())
-                                    ->seconds(false),
+                            Select::make('room_time_slot_ids')
+                                ->label('Chọn khung giờ')
+                                ->multiple()
+                                ->searchable()
+                                ->preload()
+                                ->required()
+                                ->relationship(
+                                    name: 'roomTimeSlots',
+                                    titleAttribute: 'id',
+                                    modifyQueryUsing: fn ($query, Get $get) =>
+                                        $query->where('room_id', $get('room_id'))
+                                            ->with('timeSlot')
+                                )
+                                ->getOptionLabelFromRecordUsing(fn ($record) =>
+                                    $record->timeSlot->label . ' - ' . number_format($record->price, 0, ',', '.') . ' VNĐ'
+                                )
+                                ->visible(fn (Get $get) => $get('apply_type') === 'specific_slot'),
 
-                                DateTimePicker::make('end_at')
-                                    ->label('Ngày kết thúc')
-                                    ->after('start_at')
-                                    ->seconds(false),
-                            ]),
+                            Grid::make(2)
+                                ->schema([
+                                    TextInput::make('usage_limit')
+                                        ->label('Giới hạn số lần sử dụng')
+                                        ->numeric()
+                                        ->minValue(1),
 
-                        Toggle::make('is_active')
-                            ->label('Kích hoạt')
-                            ->default(true),
-                    ]),
+                                    TextInput::make('used_count')
+                                        ->label('Đã sử dụng')
+                                        ->numeric()
+                                        ->default(0)
+                                        ->disabled()
+                                        ->dehydrated(false),
+                                ]),
+
+                            Grid::make(2)
+                                ->schema([
+                                    DateTimePicker::make('start_at')
+                                        ->label('Ngày bắt đầu')
+                                        ->required()
+                                        ->default(now())
+                                        ->native(false)
+                                        ->seconds(false)
+                                        ->timezone('Asia/Ho_Chi_Minh')
+                                        ->displayFormat('d/m/Y H:i'),
+
+                                    DateTimePicker::make('end_at')
+                                        ->label('Ngày kết thúc')
+                                        ->after('start_at')
+                                        ->native(false)
+                                        ->seconds(false)
+                                        ->timezone('Asia/Ho_Chi_Minh')
+                                        ->displayFormat('d/m/Y H:i'),
+                                ]),
+
+                            Toggle::make('is_active')
+                                ->label('Kích hoạt')
+                                ->default(true),
+                        ])
+                        ->grow(false),
+
+                ])
+                ->from('lg')
+                ->columnSpanFull(),
             ]);
     }
 }

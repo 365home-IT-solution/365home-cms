@@ -29,6 +29,8 @@ class CreateRole extends CreateRecord
 
     protected function afterCreate(): void
     {
+        $this->record->update(['created_by' => auth()->id()]);
+
         $permissionModels = collect();
         $this->permissions->each(function ($permission) use ($permissionModels) {
             $permissionModels->push(Utils::getPermissionModel()::firstOrCreate([

@@ -4,6 +4,7 @@ namespace Modules\Category\Entities;
 
 use Illuminate\Database\Eloquent\Model;
 use Modules\AccessCode\Entities\AccessCode;
+use Modules\DataPermission\Entities\UserBranchPermission;
 use Modules\Post\Entities\Post;
 use Modules\Product\App\Models\Product;
 use Modules\Payment\Entities\Order;
@@ -48,5 +49,15 @@ class Category extends Model
     public function orders()
     {
         return $this->hasMany(Order::class, 'category_id');
+    }
+
+    public function branchPermissions()
+    {
+        return $this->hasMany(UserBranchPermission::class, 'category_id');
+    }
+
+    public function isAssignedToUserPermission(): bool
+    {
+        return $this->branchPermissions()->exists();
     }
 }
