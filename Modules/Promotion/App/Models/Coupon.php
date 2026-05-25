@@ -2,6 +2,7 @@
 
 namespace Modules\Promotion\App\Models;
 
+use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Modules\Product\App\Models\RoomTimeSlot;
@@ -26,6 +27,7 @@ class Coupon extends Model
         'start_at',
         'end_at',
         'is_active',
+        'created_by',
     ];
 
     protected $casts = [
@@ -49,6 +51,11 @@ class Coupon extends Model
             'coupon_id',
             'room_time_slot_id'
         );
+    }
+
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 
     /**

@@ -2,7 +2,9 @@
 
 namespace Modules\Book\Livewire;
 
+use Livewire\Attributes\On;
 use Livewire\Component;
+use Modules\Category\Entities\Categorizable;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
 use Filament\Notifications\Notification;
@@ -20,6 +22,11 @@ class BlockTimeslotModal extends Component
     public bool $showModal = false;
     public bool $isStyle2  = false;
 
+    // ---- Confirmation state ----
+    public bool   $showConfirmClear  = false;
+    public ?int   $pendingRangeIndex = null;
+    public ?array $pendingDateItem   = null;
+
     // ---- Options ----
     public array $roomOptions     = [];
     public array $timeslotOptions = [];
@@ -30,20 +37,96 @@ class BlockTimeslotModal extends Component
 
     public function mount(): void
     {
-        $this->roomOptions = Product::where('is_activated', true)
-            ->pluck('name', 'id')
-            ->toArray();
+        $this->roomOptions = $this->buildRoomOptions();
     }
 
+    private function buildRoomOptions(): array
+    {
+        $user  = auth()->user();
+        $query = Product::where('is_activated', true);
+
+        if ($user && ! $user->isSuperAdmin()) {
+            $categoryIds = $user->allowedCategoryIds();
+            if (empty($categoryIds)) {
+                return [];
+            }
+            $allowedIds = Categorizable::where('categorizable_type', Product::class)
+                ->whereIn('category_id', $categoryIds)
+                ->distinct()
+                ->pluck('categorizable_id');
+            $query->whereIn('id', $allowedIds);
+        }
+
+        return $query->pluck('name', 'id')->toArray();
+    }
+
+    #[On('open-block-timeslot-modal')]
     public function openModal(): void
     {
-        $this->reset(['product_id', 'timeslot_ids', 'date_from', 'date_to', 'blockedList', 'timeslotOptions', 'isStyle2']);
+        $this->reset([
+            'product_id', 'timeslot_ids', 'date_from', 'date_to',
+            'blockedList', 'timeslotOptions', 'isStyle2',
+            'showConfirmClear', 'pendingRangeIndex', 'pendingDateItem',
+        ]);
         $this->showModal = true;
     }
 
     public function closeModal(): void
     {
         $this->showModal = false;
+    }
+
+    // ---- Xác nhận Filament-style ----
+
+    public function cancelConfirm(): void
+    {
+        $this->showConfirmClear  = false;
+        $this->pendingRangeIndex = null;
+        $this->pendingDateItem   = null;
+    }
+
+    public function confirmClear(): void
+    {
+        $this->pendingRangeIndex = null;
+        $this->pendingDateItem   = null;
+        $this->showConfirmClear  = true;
+    }
+
+    public function confirmDeleteRange(int $index): void
+    {
+        $this->showConfirmClear  = false;
+        $this->pendingDateItem   = null;
+        $this->pendingRangeIndex = $index;
+    }
+
+    public function confirmDeleteDate(int $rtsId, string $date): void
+    {
+        $this->showConfirmClear  = false;
+        $this->pendingRangeIndex = null;
+        $item = collect($this->blockedList)
+            ->first(fn ($i) => ($i['rts_id'] ?? null) === $rtsId && ($i['date'] ?? '') === $date);
+        $this->pendingDateItem = $item ?? [
+            'rts_id'       => $rtsId,
+            'date'         => $date,
+            'date_display' => Carbon::parse($date)->format('d/m/Y'),
+            'label'        => '',
+        ];
+    }
+
+    public function executeConfirmedAction(): void
+    {
+        if ($this->showConfirmClear) {
+            $this->showConfirmClear = false;
+            $this->clearAllBlocked();
+        } elseif ($this->pendingRangeIndex !== null) {
+            $index = $this->pendingRangeIndex;
+            $this->pendingRangeIndex = null;
+            $this->removeBlockedRange($index);
+        } elseif ($this->pendingDateItem !== null) {
+            $item = $this->pendingDateItem;
+            $this->pendingDateItem = null;
+            $this->removeBlockedDate($item['rts_id'], $item['date']);
+        }
     }
 
     // Reactive: chọn phòng → load khung giờ + blocked list
@@ -53,6 +136,7 @@ class BlockTimeslotModal extends Component
         $this->timeslotOptions = [];
         $this->blockedList     = [];
         $this->isStyle2        = false;
+        $this->cancelConfirm();
 
         if (!$this->product_id) return;
 
@@ -269,6 +353,37 @@ class BlockTimeslotModal extends Component
             $this->blockedList,
             fn ($a, $b) => [$a['date'], $a['label']] <=> [$b['date'], $b['label']]
         );
+    }
+
+    // Xóa tất cả khung giờ bị khóa của phòng đang chọn
+    public function clearAllBlocked(): void
+    {
+        if (!$this->product_id) return;
+
+        if ($this->isStyle2) {
+            $product = Product::find($this->product_id);
+            if (!$product) return;
+
+            $config = is_array($product->room_config) ? $product->room_config : [];
+            $config['blocked_ranges'] = [];
+            $product->update(['room_config' => $config]);
+        } else {
+            $slots = RoomTimeSlot::where('room_id', $this->product_id)->get();
+            foreach ($slots as $rts) {
+                $settings = is_array($rts->settings)
+                    ? $rts->settings
+                    : (json_decode($rts->settings, true) ?? []);
+                $settings['blocked_dates'] = [];
+                $rts->update(['settings' => json_encode($settings)]);
+            }
+        }
+
+        $this->refreshBlockedList();
+
+        Notification::make()
+            ->title('Đã xóa tất cả lịch bị khóa')
+            ->success()
+            ->send();
     }
 
     public function render()

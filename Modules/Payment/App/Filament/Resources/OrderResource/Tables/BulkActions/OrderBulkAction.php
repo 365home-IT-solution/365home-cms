@@ -17,9 +17,12 @@ class OrderBulkAction
                 ->icon('heroicon-o-arrow-down-tray')
                 ->color('success')
                 ->action(function ($records) {
-                    $orderIds = $records->pluck('id')->toArray();
+                    $orderIds         = $records->pluck('id')->toArray();
+                    $user             = auth()->user();
+                    $allowedBranchIds = ($user && ! $user->isSuperAdmin()) ? $user->allowedBranchIds() : null;
+
                     return Excel::download(
-                        new OrdersExport([], $orderIds),
+                        new OrdersExport([], $orderIds, $allowedBranchIds),
                         'don-hang-da-chon-' . now()->format('Ymd-His') . '.xlsx'
                     );
                 }),

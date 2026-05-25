@@ -56,6 +56,12 @@ class PromotionTable
 
                 ToggleColumn::make('is_active')
                     ->label('Kích hoạt'),
+
+                TextColumn::make('creator.fullname')
+                    ->label('Người tạo')
+                    ->placeholder('—')
+                    ->searchable()
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->defaultSort('created_at', 'desc')
             ->filters(PromotionFilter::filter())

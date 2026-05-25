@@ -14,6 +14,7 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
@@ -128,6 +129,11 @@ class RoleResource extends Resource implements HasShieldPermissions
             'view' => Pages\ViewRole::route('/{record}'),
             'edit' => Pages\EditRole::route('/{record}/edit'),
         ];
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->where('name', '!=', Utils::getPanelUserRoleName());
     }
 
     public static function getCluster(): ?string

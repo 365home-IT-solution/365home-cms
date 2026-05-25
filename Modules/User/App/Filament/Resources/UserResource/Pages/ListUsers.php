@@ -8,7 +8,6 @@ use Modules\User\App\Filament\Resources\UserResource;
 use Filament\Actions;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Pages\Concerns\ExposesTableToWidgets;
-use Filament\Resources\Components\Tab;
 use Illuminate\Database\Eloquent\Builder;
 use JoseEspinal\RecordNavigation\Traits\HasRecordsList;
 
@@ -31,33 +30,21 @@ class ListUsers extends ListRecords
         return static::$resource::getWidgets();
     }
 
-    public function getTabs(): array
-    {
-        $user = auth()->user();
-        $tabs = [
-            null => Tab::make('All'),
-            'admin' => Tab::make()->query(fn ($query) => $query->with('roles')->whereRelation('roles', 'name', '=', 'admin')),
-            'author' => Tab::make()->query(fn ($query) => $query->with('roles')->whereRelation('roles', 'name', '=', 'author')),
-        ];
-
-        if ($user->isSuperAdmin()) {
-            $tabs['superadmin'] = Tab::make()->query(fn ($query) => $query->with('roles')->whereRelation('roles', 'name', '=', config('filament-shield.super_admin.name')));
-        }
-
-        return $tabs;
-    }
-
     protected function getTableQuery(): Builder
     {
-        $user = auth()->user();
-        $model = (new (static::$resource::getModel()))->with('roles')->where('id', '!=', auth()->user()->id);
+        $user  = auth()->user();
+        $query = (new (static::$resource::getModel()))->with('roles')
+            ->where('id', '!=', $user->id);
 
-        if (!$user->isSuperAdmin()) {
-            $model = $model->whereDoesntHave('roles', function ($query) {
-                $query->where('name', '=', config('filament-shield.super_admin.name'));
-            });
+        if ($user->isSuperAdmin()) {
+            return $query;
         }
 
-        return $model;
+        // Nhân viên thấy toàn bộ cây con: NV2 do NV1 tạo, NV3 do NV2 tạo, ...
+        $descendantIds = $user->getAllDescendantIds();
+
+        return $query
+            ->whereIn('id', $descendantIds)
+            ->whereDoesntHave('roles', fn ($q) => $q->where('name', config('filament-shield.super_admin.name')));
     }
 }

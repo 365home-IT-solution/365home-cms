@@ -14,7 +14,9 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
 
@@ -34,6 +36,30 @@ class RoleResource extends Resource implements HasShieldPermissions
             'delete',
             'delete_any',
         ];
+    }
+
+    // Trả về null nếu super_admin (không giới hạn), hoặc Collection tên permissions của user hiện tại
+    private static function getAllowedPermissions(): ?Collection
+    {
+        $user = auth()->user();
+        if (! $user || $user->isSuperAdmin()) {
+            return null;
+        }
+
+        return $user->getAllPermissions()->pluck('name');
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery()
+            ->where('name', '!=', Utils::getPanelUserRoleName());
+
+        $user = auth()->user();
+        if (! $user || $user->isSuperAdmin()) {
+            return $query;
+        }
+
+        return $query->where('created_by', $user->id);
     }
 
     public static function form(Form $form): Form
@@ -198,10 +224,23 @@ class RoleResource extends Resource implements HasShieldPermissions
 
     public static function getResourceEntitiesSchema(): ?array
     {
+        $allowedPerms = static::getAllowedPermissions();
+
         return collect(FilamentShield::getResources())
             ->sortKeys()
-            ->map(function ($entity) {
-                $sectionLabel = strval(
+            ->filter(function ($entity) use ($allowedPerms) {
+                if ($allowedPerms === null) {
+                    return true;
+                }
+                $options = static::buildResourcePermissionOptions($entity);
+                return collect(array_keys($options))->intersect($allowedPerms)->isNotEmpty();
+            })
+            ->map(function ($entity) use ($allowedPerms) {
+                $labelOverrides = [
+                    'AdditionService' => 'Dịch vụ Bổ sung',
+                ];
+
+                $sectionLabel = $labelOverrides[$entity['model']] ?? strval(
                     static::shield()->hasLocalizedPermissionLabels()
                     ? FilamentShield::getLocalizedResourceLabel($entity['fqcn'])
                     : $entity['model']
@@ -211,7 +250,7 @@ class RoleResource extends Resource implements HasShieldPermissions
                     ->description(fn () => new HtmlString('<span style="word-break: break-word;">' . Utils::showModelPath($entity['fqcn']) . '</span>'))
                     ->compact()
                     ->schema([
-                        static::getCheckBoxListComponentForResource($entity),
+                        static::getCheckBoxListComponentForResource($entity, $allowedPerms),
                     ])
                     ->columnSpan(static::shield()->getSectionColumnSpan())
                     ->collapsible();
@@ -226,7 +265,8 @@ class RoleResource extends Resource implements HasShieldPermissions
             ->sum();
     }
 
-    public static function getResourcePermissionOptions(array $entity): array
+    // Xây dựng options không lọc — dùng nội bộ để kiểm tra entity có thuộc allowed perms không
+    private static function buildResourcePermissionOptions(array $entity): array
     {
         return collect(Utils::getResourcePermissionPrefixes($entity['fqcn']))
             ->flatMap(function ($permission) use ($entity) {
@@ -234,19 +274,28 @@ class RoleResource extends Resource implements HasShieldPermissions
                 $label = static::shield()->hasLocalizedPermissionLabels()
                     ? FilamentShield::getLocalizedResourcePermissionLabel($permission)
                     : $name;
-
-                return [
-                    $name => $label,
-                ];
+                return [$name => $label];
             })
+            ->toArray();
+    }
+
+    public static function getResourcePermissionOptions(array $entity): array
+    {
+        $options = static::buildResourcePermissionOptions($entity);
+        $allowedPerms = static::getAllowedPermissions();
+
+        if ($allowedPerms === null) {
+            return $options;
+        }
+
+        return collect($options)
+            ->filter(fn ($label, $name) => $allowedPerms->contains($name))
             ->toArray();
     }
 
     public static function setPermissionStateForRecordPermissions(Component $component, string $operation, array $permissions, ?Model $record): void
     {
-
         if (in_array($operation, ['edit', 'view'])) {
-
             if (blank($record)) {
                 return;
             }
@@ -264,32 +313,43 @@ class RoleResource extends Resource implements HasShieldPermissions
 
     public static function getPageOptions(): array
     {
+        $allowedPerms = static::getAllowedPermissions();
+
         return collect(FilamentShield::getPages())
             ->flatMap(fn ($page) => [
                 $page['permission'] => static::shield()->hasLocalizedPermissionLabels()
                     ? FilamentShield::getLocalizedPageLabel($page['class'])
                     : $page['permission'],
             ])
+            ->when($allowedPerms !== null, fn ($col) => $col->filter(fn ($label, $name) => $allowedPerms->contains($name)))
             ->toArray();
     }
 
     public static function getWidgetOptions(): array
     {
+        $allowedPerms = static::getAllowedPermissions();
+
         return collect(FilamentShield::getWidgets())
             ->flatMap(fn ($widget) => [
                 $widget['permission'] => static::shield()->hasLocalizedPermissionLabels()
                     ? FilamentShield::getLocalizedWidgetLabel($widget['class'])
                     : $widget['permission'],
             ])
+            ->when($allowedPerms !== null, fn ($col) => $col->filter(fn ($label, $name) => $allowedPerms->contains($name)))
             ->toArray();
     }
 
     public static function getCustomPermissionOptions(): ?array
     {
+        $allowedPerms = static::getAllowedPermissions();
+
         return FilamentShield::getCustomPermissions()
             ->mapWithKeys(fn ($customPermission) => [
-                $customPermission => static::shield()->hasLocalizedPermissionLabels() ? str($customPermission)->headline()->toString() : $customPermission,
+                $customPermission => static::shield()->hasLocalizedPermissionLabels()
+                    ? str($customPermission)->headline()->toString()
+                    : $customPermission,
             ])
+            ->when($allowedPerms !== null, fn ($col) => $col->filter(fn ($label, $name) => $allowedPerms->contains($name)))
             ->toArray();
     }
 
@@ -308,9 +368,15 @@ class RoleResource extends Resource implements HasShieldPermissions
                 ]);
     }
 
-    public static function getCheckBoxListComponentForResource(array $entity): Component
+    public static function getCheckBoxListComponentForResource(array $entity, ?Collection $allowedPerms = null): Component
     {
-        $permissionsArray = static::getResourcePermissionOptions($entity);
+        $permissionsArray = static::buildResourcePermissionOptions($entity);
+
+        if ($allowedPerms !== null) {
+            $permissionsArray = collect($permissionsArray)
+                ->filter(fn ($label, $name) => $allowedPerms->contains($name))
+                ->toArray();
+        }
 
         return static::getCheckboxListFormComponent($entity['resource'], $permissionsArray, false);
     }

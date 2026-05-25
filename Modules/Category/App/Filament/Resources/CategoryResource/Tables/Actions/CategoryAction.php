@@ -20,7 +20,7 @@ class CategoryAction
                     ->modalWidth(MaxWidth::Full),
                 EditAction::make()->label('Cập nhật')
                     ->modalWidth(MaxWidth::Full),
-                DeleteAction::make('Xóa')
+                DeleteAction::make()->label('Xóa')
             ])
         ];
     }

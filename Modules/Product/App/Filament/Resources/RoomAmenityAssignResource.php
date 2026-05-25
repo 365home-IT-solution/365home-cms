@@ -35,8 +35,28 @@ class RoomAmenityAssignResource extends Resource
         ];
     }
 
+    public static function canViewAny(): bool
+    {
+        return auth()->user()?->can('view_any_room::amenity::assign') ?? false;
+    }
+
     public static function canCreate(): bool
     {
         return false;
+    }
+
+    public static function canEdit($record): bool
+    {
+        return auth()->user()?->can('update_room::amenity::assign') ?? false;
+    }
+
+    public static function canDelete($record): bool
+    {
+        return auth()->user()?->can('delete_room::amenity::assign') ?? false;
+    }
+
+    public static function canDeleteAny(): bool
+    {
+        return auth()->user()?->can('delete_any_room::amenity::assign') ?? false;
     }
 }

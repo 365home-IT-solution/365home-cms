@@ -986,6 +986,11 @@ class ManageGeneral extends SettingsPage
         }
     }
 
+    public static function canAccess(): bool
+    {
+        return \Filament\Facades\Filament::auth()->user()?->hasRole('super_admin') ?? false;
+    }
+
     public static function getNavigationGroup(): ?string
     {
         return __("Cấu hình web");

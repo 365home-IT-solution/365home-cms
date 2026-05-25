@@ -7,7 +7,6 @@ use Filament\Models\Contracts\FilamentUser;
 use Filament\Models\Contracts\HasAvatar;
 use Filament\Models\Contracts\HasName;
 use Filament\Panel;
-use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -19,7 +18,7 @@ use Spatie\MediaLibrary\InteractsWithMedia;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Spatie\Permission\Traits\HasRoles;
 
-class User extends Authenticatable implements FilamentUser, MustVerifyEmail, HasAvatar, HasName, HasMedia
+class User extends Authenticatable implements FilamentUser, HasAvatar, HasName, HasMedia
 {
     use HasApiTokens,
         HasFactory,
@@ -46,6 +45,7 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail, Has
         'password',
         'phone',
         'phone_verified_at',
+        'created_by',
     ];
 
     /**
@@ -88,6 +88,24 @@ public function getFilamentAvatarUrl(): ?string
     public function isSuperAdmin(): bool
     {
         return $this->hasRole(config('filament-shield.super_admin.name'));
+    }
+
+    /**
+     * Trả về tất cả ID con cháu (đệ quy) của user này qua cột created_by.
+     * Nhân viên 1 → [NV2, NV3, NV4 (NV3 tạo), ...]
+     */
+    public function getAllDescendantIds(): array
+    {
+        $allIds    = [];
+        $parentIds = [$this->id];
+
+        while (! empty($parentIds)) {
+            $children  = static::whereIn('created_by', $parentIds)->pluck('id')->toArray();
+            $allIds    = array_merge($allIds, $children);
+            $parentIds = $children;
+        }
+
+        return $allIds;
     }
 
     public function wishlists()

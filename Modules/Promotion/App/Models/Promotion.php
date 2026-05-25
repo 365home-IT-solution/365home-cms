@@ -2,6 +2,7 @@
 
 namespace Modules\Promotion\App\Models;
 
+use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Modules\Product\App\Models\RoomTimeSlot;
@@ -21,6 +22,7 @@ class Promotion extends Model
         'lable_client',
         'image',
         'is_active',
+        'created_by',
     ];
 
     protected $casts = [
@@ -29,6 +31,11 @@ class Promotion extends Model
         'is_active' => 'boolean',
     ];
 
+
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
 
     public function roomTimeSlots()
     {

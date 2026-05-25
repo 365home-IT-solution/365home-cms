@@ -1,19 +1,35 @@
 @php
     use Modules\Promotion\App\Models\Promotion;
     use Modules\Promotion\App\Models\Coupon;
-    $promotionOptions         = Promotion::where('is_active', true)->pluck('name', 'id')->all();
-        // Danh sách KM (Giảm giá): percentage, fixed
+    use Modules\DataPermission\Entities\UserBranchPermission;
+
+    $authUser    = auth()->user();
+    $branchFilter = null;
+
+    if ($authUser && ! $authUser->isSuperAdmin()) {
+        $branchIds    = UserBranchPermission::where('user_id', $authUser->id)->pluck('category_id');
+        $branchFilter = UserBranchPermission::whereIn('category_id', $branchIds)->pluck('user_id');
+    }
+
+    $promotionOptions = Promotion::where('is_active', true)
+        ->when($branchFilter !== null, fn ($q) => $q->where(fn ($q2) => $q2->whereNull('created_by')->orWhereIn('created_by', $branchFilter)))
+        ->pluck('name', 'id')->all();
+
+    // Danh sách KM (Giảm giá): percentage, fixed
     $promotionDiscountOptions = Promotion::where('is_active', true)
         ->whereIn('type', ['percentage', 'fixed'])
-        ->pluck('name', 'id')
-        ->all();
+        ->when($branchFilter !== null, fn ($q) => $q->where(fn ($q2) => $q2->whereNull('created_by')->orWhereIn('created_by', $branchFilter)))
+        ->pluck('name', 'id')->all();
 
     // Danh sách Phụ thu (Tăng giá): increase_percentage, increase_fixed
     $promotionSurchargeOptions = Promotion::where('is_active', true)
         ->whereIn('type', ['increase_percentage', 'increase_fixed'])
-        ->pluck('name', 'id')
-        ->all();
-    $couponOptions    = Coupon::where('is_active', true)->pluck('name', 'id')->all();
+        ->when($branchFilter !== null, fn ($q) => $q->where(fn ($q2) => $q2->whereNull('created_by')->orWhereIn('created_by', $branchFilter)))
+        ->pluck('name', 'id')->all();
+
+    $couponOptions = Coupon::where('is_active', true)
+        ->when($branchFilter !== null, fn ($q) => $q->where(fn ($q2) => $q2->whereNull('created_by')->orWhereIn('created_by', $branchFilter)))
+        ->pluck('name', 'id')->all();
     $state            = $getState() ?? [];
     $statePath        = $getStatePath();
     $roomId           = $getRoomId();

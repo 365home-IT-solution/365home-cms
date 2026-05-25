@@ -34,6 +34,9 @@ class CustomerOrderCountExport implements WithMultipleSheets
         if (!empty($this->filters['date_to'])) {
             $query->where('created_at', '<=', Carbon::parse($this->filters['date_to']));
         }
+        if (!empty($this->filters['category_id'])) {
+            $query->where('category_id', $this->filters['category_id']);
+        }
 
         $years = $query
             ->groupBy('year')
@@ -94,6 +97,9 @@ class CustomerOrderCountSheet implements FromCollection, WithHeadings, WithMappi
         }
         if (!empty($this->filters['status'])) {
             $query->where('status', $this->filters['status']);
+        }
+        if (!empty($this->filters['category_id'])) {
+            $query->where('category_id', $this->filters['category_id']);
         }
 
         // Lọc theo năm nếu có

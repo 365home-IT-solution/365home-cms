@@ -24,6 +24,7 @@ use Filament\Forms\Components\Tabs;
 use Filament\Forms\Components\FileUpload;
 use Filament\Support\Colors\Color;
 use Modules\Category\Entities\Category;
+use Modules\Category\Entities\Categorizable;
 
 class OrderForm
 {
@@ -201,7 +202,18 @@ class OrderForm
                                                     ->schema([
                                                         Select::make('category_id')
                                                             ->label('Chi nhánh')
-                                                            ->options(Category::pluck('name', 'id'))
+                                                            ->options(function () {
+                                                                $user  = auth()->user();
+                                                                $query = Category::query()
+                                                                    ->where('category_type', 'product')
+                                                                    ->whereNull('parent_id');
+                                                                if ($user && ! $user->isSuperAdmin()) {
+                                                                    $allowedIds = $user->allowedBranchIds();
+                                                                    if (empty($allowedIds)) return [];
+                                                                    $query->whereIn('id', $allowedIds);
+                                                                }
+                                                                return $query->pluck('name', 'id');
+                                                            })
                                                             ->searchable()
                                                             ->required()
                                                             ->preload()
@@ -218,7 +230,20 @@ class OrderForm
                                                             ->schema([
                                                                 Select::make('product_id')
                                                                     ->label('Chọn phòng')
-                                                                    ->options(Product::query()->pluck('name', 'id'))
+                                                                    ->options(function () {
+                                                                        $user  = auth()->user();
+                                                                        $query = Product::query()->where('is_activated', true);
+                                                                        if ($user && ! $user->isSuperAdmin()) {
+                                                                            $categoryIds = $user->allowedCategoryIds();
+                                                                            if (empty($categoryIds)) return [];
+                                                                            $allowedIds = Categorizable::where('categorizable_type', Product::class)
+                                                                                ->whereIn('category_id', $categoryIds)
+                                                                                ->distinct()
+                                                                                ->pluck('categorizable_id');
+                                                                            $query->whereIn('id', $allowedIds);
+                                                                        }
+                                                                        return $query->pluck('name', 'id');
+                                                                    })
                                                                     ->searchable()
                                                                     ->preload()
                                                                     ->required()
@@ -791,6 +816,18 @@ class OrderForm
                                             Hidden::make('amount')
                                                 ->dehydrated(true),
                                         ]),
+
+                                        TextInput::make('money_deposit')
+                                            ->label('Số tiền đã đặt cọc')
+                                            ->placeholder('VD: 500000')
+                                            ->suffix('VNĐ')
+                                            ->numeric()
+                                            ->minValue(0)
+                                            ->hintIcon('heroicon-o-banknotes')
+                                            ->hintColor('warning')
+                                            ->hintIconTooltip('Số tiền khách đã đặt cọc thực tế')
+                                            ->visible(fn (Get $get) => $get('status') === 'deposit')
+                                            ->live(onBlur: true),
 
                                         Textarea::make('note_for_admin')
                                             ->label('Thông tin người dùng CCCD')

@@ -163,7 +163,7 @@ class OrderTable
                 OrderFilter::filter(), 
                 layout: FiltersLayout::AboveContent
             )
-            ->filtersFormColumns(4)
+            ->filtersFormColumns(['default' => 1, 'sm' => 2, 'lg' => 5])
             ->actions(array_merge(
                 [
                     // Action Thông tin thanh toán — chỉ hiện với styles=2

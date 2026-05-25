@@ -149,6 +149,16 @@ class Product extends Model implements HasMedia, Resourceable
         return $this->hasMany(\Modules\Payment\Entities\OrderItem::class, 'product_id');
     }
 
+    public function additionalServices()
+    {
+        return $this->belongsToMany(
+            \Modules\BladeThemeV1\App\Models\AdditionService::class,
+            'room_additional_service_assigns',
+            'room_id',
+            'additional_service_id'
+        );
+    }
+
     public function getMediaFileAttribute(): ?string
     {
         $media = $this->getFirstMedia('Ảnh bìa');

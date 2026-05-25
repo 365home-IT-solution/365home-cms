@@ -27,6 +27,18 @@ class TagTable
                 ImageColumn::make('image')
                     ->label(__('tag::tag.table.label.image'))
                     ->sortable()
+                    ->getStateUsing(function ($record) {
+                        $image = $record->getRawOriginal('image') ?? $record->image;
+                        if (is_array($image)) {
+                            $image = $image[app()->getLocale()] ?? collect($image)->first();
+                        } elseif (is_string($image) && str_starts_with($image, '{')) {
+                            $decoded = json_decode($image, true);
+                            if (is_array($decoded)) {
+                                $image = $decoded[app()->getLocale()] ?? collect($decoded)->first();
+                            }
+                        }
+                        return $image ?: null;
+                    })
                     ->defaultImageUrl(Storage::url('no-image.jpg')),
                 TextColumn::make('name')
                     ->label(__('tag::tag.table.label.name'))

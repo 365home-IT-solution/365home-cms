@@ -17,41 +17,6 @@ class UserBranchPermissionResource extends Resource
 {
     protected static ?string $model = UserBranchPermission::class;
 
-    public static function shouldRegisterNavigation(): bool
-    {
-        return auth()->user()?->isSuperAdmin() ?? false;
-    }
-
-    public static function canAccess(): bool
-    {
-        return auth()->user()?->isSuperAdmin() ?? false;
-    }
-
-    public static function canViewAny(): bool
-    {
-        return auth()->user()?->isSuperAdmin() ?? false;
-    }
-
-    public static function canCreate(): bool
-    {
-        return auth()->user()?->isSuperAdmin() ?? false;
-    }
-
-    public static function canEdit($record): bool
-    {
-        return auth()->user()?->isSuperAdmin() ?? false;
-    }
-
-    public static function canDelete($record): bool
-    {
-        return auth()->user()?->isSuperAdmin() ?? false;
-    }
-
-    public static function canDeleteAny(): bool
-    {
-        return auth()->user()?->isSuperAdmin() ?? false;
-    }
-
     public static function getNavigationIcon(): string
     {
         return 'heroicon-o-building-office-2';
@@ -79,16 +44,23 @@ class UserBranchPermissionResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        // Đếm số user duy nhất được gán chi nhánh
-        return (string) static::getModel()::distinct('user_id')->count('user_id');
+        return (string) static::getEloquentQuery()->distinct('user_id')->count('user_id');
     }
 
     /**
      * Chỉ lấy 1 dòng/user (dòng cũ nhất), để table hiển thị gọn 1 dòng mỗi user.
+     * Non-super_admin chỉ thấy bản ghi do chính họ tạo (created_by = auth id).
      */
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()
+        $query = parent::getEloquentQuery();
+
+        $user = auth()->user();
+        if (! $user?->hasRole('super_admin')) {
+            $query->where('created_by', $user?->id);
+        }
+
+        return $query
             ->selectRaw('MIN(id) as id, user_id, MIN(created_at) as created_at, MIN(updated_at) as updated_at')
             ->groupBy('user_id')
             ->with('user');
