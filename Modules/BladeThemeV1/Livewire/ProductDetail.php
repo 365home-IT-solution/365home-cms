@@ -551,17 +551,24 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             $slotCount = count($this->selectedSlots);
             $bulkDiscountRate = 0;
 
-            if ($slotCount === 2) {
-                $bulkDiscountRate = 0.05;
-            } elseif ($slotCount >= 3) {
-                $bulkDiscountRate = 0.10;
+            $rules = $this->product->bulk_discount_rules ?? [];
+            if (!empty($rules)) {
+                // Lấy rule có slots <= slotCount, ưu tiên rule cao nhất
+                $matched = collect($rules)
+                    ->filter(fn($r) => $slotCount >= (int)($r['slots'] ?? 0))
+                    ->sortByDesc('slots')
+                    ->first();
+
+                if ($matched) {
+                    $bulkDiscountRate = (float)($matched['discount'] ?? 0) / 100;
+                }
             }
 
             if ($bulkDiscountRate > 0) {
                 $this->bulkDiscountAmount  = $totalAfterPromo * $bulkDiscountRate;
                 $totalAfterPromo          -= $this->bulkDiscountAmount;
             } else {
-                $this->bulkDiscountAmount = 0; // ✅ reset rõ ràng
+                $this->bulkDiscountAmount = 0;
             }
 
             $loyaltyRate = $this->getLoyaltyDiscountRate();

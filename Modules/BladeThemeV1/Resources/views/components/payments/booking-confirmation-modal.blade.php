@@ -252,9 +252,18 @@
             </div>
 
             {{-- Bước 2: Giảm theo số khung giờ --}}
-            @if(!empty($selectedSlots) && count($selectedSlots) >= 2)
+            @if(!empty($selectedSlots) && count($selectedSlots) >= 2 && $bulkDiscountAmount > 0)
+                @php
+                    $slotCount = count($selectedSlots);
+                    $rules = $product->bulk_discount_rules ?? [];
+                    $matchedRule = collect($rules)
+                        ->filter(fn($r) => $slotCount >= (int)($r['slots'] ?? 0))
+                        ->sortByDesc('slots')
+                        ->first();
+                    $bulkRateLabel = $matchedRule ? $matchedRule['discount'] . '%' : '';
+                @endphp
                 <div class="flex justify-between text-green-700">
-                    <span>② Giảm {{ count($selectedSlots) >= 3 ? '10%' : '5%' }} khi book {{ count($selectedSlots) }} khung giờ
+                    <span>② {{ $bulkRateLabel ? "Giảm {$bulkRateLabel}" : 'Giảm' }} khi book {{ $slotCount }} khung giờ
                         <span class="text-gray-400 italic text-[11px]">(tính trên giá gốc)</span>
                     </span>
                     <span class="font-semibold">-{{ number_format($bulkDiscountAmount, 0, ',', '.') }}đ</span>

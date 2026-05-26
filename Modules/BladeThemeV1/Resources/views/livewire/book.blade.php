@@ -128,16 +128,22 @@
     },
 
     get discountRate() {
-        if (this.hasFullDayBooking) {
+        if (this.hasFullDayBooking || this.selectedSlots.length === 0) {
             return 0;
         }
 
-        if (this.selectedSlots.length === 2) {
-            return 0.05;
-        } else if (this.selectedSlots.length >= 3) {
-            return 0.10;
+        const rules = this.selectedSlots[0].bulkDiscountRules;
+        if (!rules || rules.length === 0) {
+            return 0;
         }
-        return 0;
+
+        const count = this.selectedSlots.length;
+        // Lấy rule có slots <= count, ưu tiên rule cao nhất
+        const matched = rules
+            .filter(r => count >= r.slots)
+            .sort((a, b) => b.slots - a.slots)[0];
+
+        return matched ? matched.discount / 100 : 0;
     },
 
     get discount() {
