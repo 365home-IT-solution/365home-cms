@@ -47,6 +47,7 @@ class Product extends Model implements HasMedia, Resourceable
         'address',
         'hotline',
         'full_booking_discount',
+        'bulk_discount_rules',
         'styles',
         'default_checkin',
         'default_checkout',
@@ -72,8 +73,9 @@ class Product extends Model implements HasMedia, Resourceable
         'is_activated' => 'boolean',
         'is_shipped'   => 'boolean',
         'is_trend'     => 'boolean',
-        'room_config'       => 'array',
-        'setting_video_room' => 'array',
+        'room_config'          => 'array',
+        'bulk_discount_rules'  => 'array',
+        'setting_video_room'   => 'array',
         'badge'        => 'array',
     ];
 

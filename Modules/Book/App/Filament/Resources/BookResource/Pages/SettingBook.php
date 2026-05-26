@@ -15,6 +15,7 @@ use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TimePicker;
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\Repeater;
 use Modules\Book\App\Filament\Forms\Components\DatePriceCalendarField;
 use Awcodes\TableRepeater\Components\TableRepeater;
 use Awcodes\TableRepeater\Header;
@@ -105,6 +106,7 @@ class SettingBook extends Page implements HasForms
                 'product_name'          => $product->name,
                 'price'                 => (float) $product->price,
                 'full_booking_discount' => $product->full_booking_discount,
+                'bulk_discount_rules'   => $product->bulk_discount_rules ?? [],
                 'is_in_stock'           => (bool) $product->is_in_stock,
                 'default_checkin'       => $product->default_checkin ?? '14:00',
                 'default_checkout'      => $product->default_checkout ?? '12:00',
@@ -173,6 +175,34 @@ class SettingBook extends Page implements HasForms
                                 ->placeholder('VD: 10% hoặc 50000')
                                 ->helperText('Nhập % (VD: 10%) hoặc số tiền cố định (VD: 50000)')
                                 ->maxLength(50),
+
+                            Repeater::make('room_' . $product->id . '.bulk_discount_rules')
+                                ->label('Giảm giá theo số khung giờ')
+                                ->helperText('Cấu hình % giảm khi khách chọn nhiều khung giờ. Ví dụ: 2 khung → 5%, 3 khung → 10%.')
+                                ->schema([
+                                    TextInput::make('slots')
+                                        ->label('Số khung giờ')
+                                        ->numeric()
+                                        ->minValue(2)
+                                        ->maxValue(99)
+                                        ->required()
+                                        ->suffix('khung')
+                                        ->extraInputAttributes(['inputmode' => 'numeric']),
+                                    TextInput::make('discount')
+                                        ->label('Giảm')
+                                        ->numeric()
+                                        ->minValue(0)
+                                        ->maxValue(100)
+                                        ->required()
+                                        ->suffix('%')
+                                        ->extraInputAttributes(['inputmode' => 'numeric']),
+                                ])
+                                ->columns(2)
+                                ->defaultItems(0)
+                                ->addActionLabel('Thêm mức giảm')
+                                ->reorderableWithButtons()
+                                ->orderColumn('slots')
+                                ->columnSpanFull(),
                         ])->columns(2),
 
                     Section::make('Khung giờ, giá, Thiết lập khuyến mãi')
@@ -393,9 +423,21 @@ class SettingBook extends Page implements HasForms
                     $productStyle = (int) ($product->styles ?? 1);
 
                     // Update product info
+                    $rawRules = $roomData['bulk_discount_rules'] ?? [];
+                    $bulkRules = collect($rawRules)
+                        ->filter(fn($r) => isset($r['slots'], $r['discount']))
+                        ->map(fn($r) => [
+                            'slots'    => (int) $r['slots'],
+                            'discount' => (float) $r['discount'],
+                        ])
+                        ->sortBy('slots')
+                        ->values()
+                        ->toArray();
+
                     $updateData = [
                         'full_booking_discount' => $roomData['full_booking_discount'] ?? null,
-                        'is_in_stock' => $roomData['is_in_stock'] ?? true,
+                        'bulk_discount_rules'   => $bulkRules ?: null,
+                        'is_in_stock'           => $roomData['is_in_stock'] ?? true,
                     ];
 
                     if ($productStyle === 2) {

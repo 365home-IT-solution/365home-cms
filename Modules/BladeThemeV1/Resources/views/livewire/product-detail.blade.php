@@ -1044,10 +1044,19 @@
                                             {{-- Ghi chú --}}
                                             <div class="mt-2 text-xs text-gray-600 italic">
                                                 @if(!$hasFullDayBooking)
+                                                    @php
+                                                        $bulkRules = $product->bulk_discount_rules ?? [];
+                                                        $bulkRuleText = collect($bulkRules)
+                                                            ->sortBy('slots')
+                                                            ->map(fn($r) => "{$r['discount']}% khi đặt {$r['slots']} khung giờ")
+                                                            ->implode(', ');
+                                                    @endphp
+                                                    @if($bulkRuleText)
                                                     <p class="flex items-center gap-1">
                                                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="8.01"/></svg>
-                                                        Giảm thêm 5% khi đặt 2 khung giờ, 10% khi đặt 3+ khung giờ
+                                                        Giảm thêm {{ $bulkRuleText }}
                                                     </p>
+                                                    @endif
                                                 @endif
                                                 @if($hasFullDayBooking)
                                                     <div>
@@ -1072,9 +1081,18 @@
                                         Chúc mừng! Bạn đã đặt FULL phòng và nhận được ưu đãi đặc biệt
                                         </p>
                                     @else
+                                        @php
+                                            $bulkRules = $product->bulk_discount_rules ?? [];
+                                            $bulkRuleHint = collect($bulkRules)
+                                                ->sortBy('slots')
+                                                ->map(fn($r) => "{$r['discount']}% khi chọn {$r['slots']} khung giờ")
+                                                ->implode(', ');
+                                        @endphp
+                                        @if($bulkRuleHint)
                                         <p class="text-red-600 text-sm italic">
-                                            ** Khách hàng được giảm thêm 5% khi chọn 2 khung giờ, 10% khi chọn từ 3 khung giờ trở lên
+                                            ** Khách hàng được giảm thêm {{ $bulkRuleHint }}
                                         </p>
+                                        @endif
                                     @endif
                                 </div>
 
