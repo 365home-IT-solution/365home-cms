@@ -496,7 +496,26 @@ class OrderForm
         Grid::make(3)->schema([
             Select::make('service_id')
                 ->label('Dịch vụ')
-                ->options(\Modules\BladeThemeV1\App\Models\AdditionService::where('is_active', 1)->pluck('name', 'id'))
+                ->options(function () {
+                    $user  = auth()->user();
+                    $query = \Modules\BladeThemeV1\App\Models\AdditionService::where('is_active', 1);
+
+                    if ($user && ! $user->isSuperAdmin()) {
+                        $allowedIds = $user->allowedCategoryIds() ?? [];
+                        if (empty($allowedIds)) {
+                            return [];
+                        }
+                        $productIds = \Modules\Product\App\Models\Product::whereHas(
+                            'categories',
+                            fn ($q) => $q->whereIn('categories.id', $allowedIds)
+                        )->pluck('id');
+
+                        $query->whereHas('products', fn ($q) => $q->whereIn('products.id', $productIds));
+                    }
+
+                    $options = $query->pluck('name', 'id');
+                    return $options->isNotEmpty() ? $options : [];
+                })
                 ->required()
                 ->searchable()
                 ->preload()

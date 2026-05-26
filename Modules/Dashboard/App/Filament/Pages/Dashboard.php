@@ -241,19 +241,21 @@ class Dashboard extends FilamentDashboard
             $user = auth()->user();
         }
         $year      = $year ?? Carbon::now()->year;
-        $prefix    = DB::getTablePrefix();
         $itemTable = (new OrderItem)->getTable();
         $ordTable  = (new Order)->getTable();
         $prodTable = (new Product)->getTable();
-        $rawItem   = $prefix . $itemTable;
-        $rawOrd    = $prefix . $ordTable;
-
-        $query = OrderItem::query()
-            ->join($ordTable, "{$itemTable}.order_id", '=', "{$ordTable}.id")
-            ->join($prodTable, "{$itemTable}.product_id", '=', "{$prodTable}.id")
-            ->where("{$ordTable}.status", 'paid')
-            ->whereIn("{$ordTable}.payment_method", ['PayOS', 'cod'])
-            ->whereYear("{$ordTable}.created_at", $year);
+        // Subquery: lấy cặp (order_id, product_id) duy nhất kèm orders.amount thực tế.
+        // Dùng orders.amount thay vì order_items.price*quantity vì slot bookings có thể lưu base price = 0
+        // trong khi orders.amount luôn là số tiền thực tế đã thanh toán.
+        $inner = DB::table("{$itemTable} as oi")
+            ->join("{$ordTable} as o", 'oi.order_id', '=', 'o.id')
+            ->join("{$prodTable} as p", 'oi.product_id', '=', 'p.id')
+            ->where('o.status', 'paid')
+            ->whereIn('o.payment_method', ['PayOS', 'cod'])
+            ->whereYear('o.created_at', $year)
+            ->whereNotNull('oi.product_id')
+            ->select('oi.product_id', 'p.name as product_name', 'o.id as order_id', 'o.amount as order_amount')
+            ->distinct();
 
         if ($user && ! $user->isSuperAdmin()) {
             $categoryIds = $user->allowedCategoryIds() ?? [];
@@ -266,17 +268,13 @@ class Dashboard extends FilamentDashboard
             if (empty($allowedProductIds)) {
                 return ['rooms' => [], 'total' => 0, 'year' => $year, 'available_years' => [$year]];
             }
-            $query->whereIn("{$itemTable}.product_id", $allowedProductIds);
+            $inner->whereIn('oi.product_id', $allowedProductIds);
         }
 
-        $rooms = $query
-            ->select(
-                "{$itemTable}.product_id",
-                "{$prodTable}.name as product_name",
-                DB::raw("SUM(`{$rawItem}`.`price` * `{$rawItem}`.`quantity`) as revenue"),
-                DB::raw("COUNT(DISTINCT `{$rawOrd}`.`id`) as order_count")
-            )
-            ->groupBy("{$itemTable}.product_id", "{$prodTable}.name")
+        $rooms = DB::table(DB::raw("({$inner->toSql()}) as sub"))
+            ->mergeBindings($inner)
+            ->selectRaw('product_id, product_name, SUM(order_amount) as revenue, COUNT(*) as order_count')
+            ->groupBy('product_id', 'product_name')
             ->orderByDesc('revenue')
             ->limit(10)
             ->get();
