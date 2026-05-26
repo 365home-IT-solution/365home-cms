@@ -25,6 +25,7 @@ class Header extends Component
     public array $navConfig = [];
     public array $actionConfig = [];
     public array $cartConfig = [];
+    public bool $authHeaderEnabled = false;
     public string $logo;
     public string $logoLightVersion;
     public ?Menu $menu;
@@ -35,6 +36,7 @@ class Header extends Component
     #[NoReturn] public function mount(): void
     {
         $this->generalSettings = new GeneralSettings();
+        $this->authHeaderEnabled = (bool) ($this->generalSettings->auth_header['enabled'] ?? false);
 
         $this->section = $this->getHeaderConfigs();
         $this->topbarConfig = $this->getChildSectionConfigs(HeaderSection::TOP_BAR->value);

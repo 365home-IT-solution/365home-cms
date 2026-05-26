@@ -110,6 +110,7 @@ Route::get('/api/check-domain', function (\Illuminate\Http\Request $request) {
     return $response->json();
 });
 Route::get('/thong-tin-dat-phong/{code}', [BladeThemeV1Controller::class, 'bookingDetail'])->name('booking.detail');
+Route::get('/tai-khoan', [BladeThemeV1Controller::class, 'accountPage'])->name('account.page');
 // routes/web.php
 Route::get('/theme.css', function () {
     $theme = app(\App\Settings\GeneralSettings::class)->site_theme;

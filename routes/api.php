@@ -52,6 +52,24 @@ Route::get('pages/{slug}', [AppPageController::class, 'show'])->name('api.pages.
 */
 Route::get('rooms/{slug}', [RoomController::class, 'show'])->name('api.rooms.show');
 
+/*
+|--------------------------------------------------------------------------
+| Dev / Test bypass — chỉ hoạt động khi OTP_BYPASS_ENABLED=true
+| GET /api/auth/dev-otp/{phone} → trả mã OTP hiện tại từ cache
+|--------------------------------------------------------------------------
+*/
+if (config('app.otp_bypass_enabled', false)) {
+    Route::get('auth/dev-otp/{phone}', function (string $phone) {
+        $service = app(\App\Services\ZaloOtpService::class);
+        $normalized = $service->normalizePhone($phone);
+        $otp = \Illuminate\Support\Facades\Cache::get('zalo_otp:' . $normalized);
+        if (! $otp) {
+            return response()->json(['message' => 'Không có OTP nào đang chờ cho số này.'], 404);
+        }
+        return response()->json(['phone' => $normalized, 'otp' => $otp]);
+    })->name('api.auth.dev-otp');
+}
+
 Route::prefix('auth')->name('api.auth.')->group(function () {
     // Đăng nhập
     Route::post('send-otp',   [ZaloOtpController::class, 'sendOtp'])->name('send-otp')->middleware('throttle:otp-send');

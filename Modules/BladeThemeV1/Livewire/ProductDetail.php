@@ -152,6 +152,50 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         $this->selectedServices = [];
     }
 
+    /**
+     * Gọi từ Alpine.js khi phát hiện auth token trong localStorage.
+     * Verify token server-side, set buyer info từ DB, đánh dấu isAuthUser.
+     * Nếu token rỗng (logout) → clear trạng thái auth.
+     */
+    public function prefillFromAuth(string $token): void
+    {
+        if (empty($token)) {
+            if ($this->isAuthUser) {
+                $this->buyerName  = '';
+                $this->buyerPhone = '';
+                $this->isAuthUser = false;
+                $this->authUserId = null;
+            }
+            return;
+        }
+
+        try {
+            $pat = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
+            if (!$pat || $pat->tokenable_type !== \App\Models\User::class) {
+                return;
+            }
+
+            /** @var \App\Models\User $user */
+            $user = $pat->tokenable;
+            if (!$user) {
+                return;
+            }
+
+            // DB lưu phone dạng 84xxxxxxxxx → hiển thị 0xxxxxxxxx
+            $phone = $user->phone ?? '';
+            if (str_starts_with($phone, '84') && strlen($phone) >= 11) {
+                $phone = '0' . substr($phone, 2);
+            }
+
+            $this->buyerName  = $user->fullname ?? '';
+            $this->buyerPhone = $phone;
+            $this->isAuthUser = true;
+            $this->authUserId = $user->id;
+        } catch (\Throwable) {
+            // Silent fail — user tiếp tục với form thường
+        }
+    }
+
     protected function initializeProductData()
     {
         $this->mediaSecond = $this->product->getMedia('Thư viện');
@@ -1034,6 +1078,25 @@ public function confirmBooking()
             $noteForAdmin = $this->ocrService->formatCccdInfo($this->cccdFrontText);
         }
 
+        // Security: nếu đặt phòng với tài khoản đã xác thực, re-fetch dữ liệu từ DB
+        // để chống price/identity manipulation qua Livewire snapshot.
+        $verifiedBuyerName  = $this->buyerName;
+        $verifiedBuyerPhone = $this->buyerPhone;
+        $verifiedUserId     = null;
+
+        if ($this->isAuthUser && $this->authUserId) {
+            $authUser = \App\Models\User::find($this->authUserId);
+            if ($authUser) {
+                $verifiedBuyerName = $authUser->fullname ?? $this->buyerName;
+                $rawPhone = $authUser->phone ?? '';
+                if (str_starts_with($rawPhone, '84') && strlen($rawPhone) >= 11) {
+                    $rawPhone = '0' . substr($rawPhone, 2);
+                }
+                $verifiedBuyerPhone = $rawPhone ?: $this->buyerPhone;
+                $verifiedUserId     = $authUser->id;
+            }
+        }
+
         // =====================================================================
         // Tính tiền cọc theo cấu hình phòng (style=2)
         // - 1 đêm  → % cọc = deposit_1_night  (mặc định 100%)
@@ -1068,7 +1131,7 @@ public function confirmBooking()
         // TRANSACTION: conflict check + order creation trong cùng 1 transaction
         // lockForUpdate ngăn 2 request đồng thời cùng tạo đơn trùng khung giờ
         // =====================================================================
-        $order = DB::transaction(function () use ($frontPath, $backPath, $extraFee, $categoryId, $orderTotal, $noteForAdmin, $paymentAmount, $depositPercent, $fullAmount) {
+        $order = DB::transaction(function () use ($frontPath, $backPath, $extraFee, $categoryId, $orderTotal, $noteForAdmin, $paymentAmount, $depositPercent, $fullAmount, $verifiedBuyerName, $verifiedBuyerPhone, $verifiedUserId) {
 
             // --- Kiểm tra xung đột (style 1) ---
             if ($this->bookingStyle == 1 && !empty($this->selectedSlots)) {
@@ -1089,8 +1152,9 @@ public function confirmBooking()
             // --- Tạo đơn hàng ---
             $order = Order::create([
                 'order_code'      => time() . rand(1000, 9999),
-                'buyer_name'      => $this->buyerName,
-                'buyer_phone'     => $this->buyerPhone,
+                'buyer_name'      => $verifiedBuyerName,
+                'buyer_phone'     => $verifiedBuyerPhone,
+                'user_id'         => $verifiedUserId,
                 'amount'          => $paymentAmount,
                 'full_amount'     => $fullAmount,
                 'deposit_percent' => $depositPercent < 100 ? $depositPercent : null,

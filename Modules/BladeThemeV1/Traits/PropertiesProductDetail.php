@@ -40,6 +40,10 @@ trait PropertiesProductDetail
     // 'deposit' = cọc theo %, 'full' = thanh toán 100%
     public string $paymentOption = 'deposit';
 
+    // Auth-prefill: set server-side via prefillFromAuth(), never trust client-set values
+    public bool $isAuthUser = false;
+    public ?int $authUserId = null;
+
     
     /** 
      * Kiểu hiển thị form đặt phòng:

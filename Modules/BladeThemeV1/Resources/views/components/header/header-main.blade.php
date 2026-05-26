@@ -1,6 +1,7 @@
 @props([
-    'data' => new \Modules\BladeThemeV1\Types\HeaderData('', '', [], [], [], [], false),
-    'menu' => null
+    'data'               => new \Modules\BladeThemeV1\Types\HeaderData('', '', [], [], [], [], false),
+    'menu'               => null,
+    'authHeaderEnabled'  => false,
 ])
 
 @php
@@ -106,6 +107,10 @@
                                 <x-bladethemev1::header.actions.search :searchButtonConfig="$searchButtonConfig"/>
                             @endif
 
+                            <!-- Auth Button Mobile -->
+                            @if($authHeaderEnabled)
+                                <x-bladethemev1::header.actions.auth-button />
+                            @endif
 
                             <!-- Mobile Menu Toggle -->
                             <button data-drawer-target="drawer-navigation" data-drawer-show="drawer-navigation"
@@ -152,7 +157,7 @@
                     </div>
 
                     <!-- Desktop Action buttons -->
-                    @if($searchButtonConfig['visible'] || $ctaButtonConfig['visible'])
+                    @if($searchButtonConfig['visible'] || $ctaButtonConfig['visible'] || $authHeaderEnabled)
                         <div class="hidden lg:block">
                             <div class="flex items-center gap-4">
                                 <!-- Search -->
@@ -163,6 +168,11 @@
                                 <!-- CTA Button -->
                                 @if($ctaButtonConfig['visible'])
                                     <x-bladethemev1::header.actions.cta-button :ctaButtonConfig="$ctaButtonConfig"/>
+                                @endif
+
+                                <!-- Auth Button -->
+                                @if($authHeaderEnabled)
+                                    <x-bladethemev1::header.actions.auth-button />
                                 @endif
                             </div>
                         </div>

@@ -437,4 +437,14 @@ class BladeThemeV1Controller extends Controller
         ]);
     }
 
+    public function accountPage()
+    {
+        return view('bladethemev1::pages.account.index', [
+            'primaryColor' => $this->primaryColor,
+            'primaryColorRgb' => $this->primaryColorRgb,
+            'heavyPrimaryColor' => $this->heavyPrimaryColor,
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+        ]);
+    }
+
 }

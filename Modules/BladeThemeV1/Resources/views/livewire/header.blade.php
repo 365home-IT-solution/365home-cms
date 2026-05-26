@@ -28,6 +28,7 @@
         )"
         :menu="$menu"
         :topbarConfig="$topbarConfig"
+        :authHeaderEnabled="$authHeaderEnabled"
     />
 </header>
 

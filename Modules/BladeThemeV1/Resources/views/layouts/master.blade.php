@@ -132,6 +132,7 @@
 
     @livewire('bladethemev1::bottom-sidebar')
     @livewire('bladethemev1::popup')
+    @livewire('bladethemev1::auth-modal')
     @stack('scripts')
     @livewireScripts
 </body>

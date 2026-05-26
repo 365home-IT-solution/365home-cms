@@ -1,9 +1,21 @@
 <div class="bg-white p-2 rounded-none lg:rounded-lg">
-    <h2 class="
-                            md:text-2xl text-start text-xl font-extrabold mb-2 text-gray-900 transition-all duration-300 hover:text-#ff566b-500
-                            ">
+    <h2 class="md:text-2xl text-start text-xl font-extrabold mb-2 text-gray-900 transition-all duration-300">
         Thông tin Đặt phòng
     </h2>
+
+    {{-- Alpine.js: tự động prefill từ localStorage khi đã đăng nhập --}}
+    <div
+        x-data="{}"
+        x-init="
+            const token = localStorage.getItem('auth_token');
+            if (token) $wire.prefillFromAuth(token);
+            window.addEventListener('auth-state-changed', () => {
+                const t = localStorage.getItem('auth_token');
+                $wire.prefillFromAuth(t || '');
+            });
+        "
+    ></div>
+
     <form wire:submit.prevent="datPhong" class="space-y-5">
         @csrf
 
@@ -356,24 +368,61 @@ $egc3 = max(0, (int)$guests - $mfg3);
 </div>
 @endif
 
+{{-- Họ và tên --}}
+@if($isAuthUser)
+<div class="w-full border border-green-300 bg-green-50 rounded-md p-[10px] flex items-center gap-2.5">
+    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-green-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
+    </svg>
+    <span class="text-gray-800 text-sm font-medium flex-1">{{ $buyerName }}</span>
+    <span class="text-xs font-medium text-green-700 flex items-center gap-1">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>
+        </svg>
+        Đã xác thực
+    </span>
+</div>
+@else
 <input
-                                        type="text"
-                                        id="buyerName"
-                                        wire:model="buyerName"
-                                        placeholder="Họ và tên"
-                                        class="w-full border rounded-md p-[10px] focus:ring-2 focus:ring-[#4e6b4c] focus:border-[#4e6b4c] focus:outline-none
-                                            {{ $errors->has('buyerName') ? 'border-2 border-red-600' : 'border-black' }}"
-                                />
+    type="text"
+    id="buyerName"
+    wire:model="buyerName"
+    placeholder="Họ và tên"
+    class="w-full border rounded-md p-[10px] focus:ring-2 focus:ring-[#4e6b4c] focus:border-[#4e6b4c] focus:outline-none {{ $errors->has('buyerName') ? 'border-2 border-red-600' : 'border-black' }}"
+/>
+@endif
 
+{{-- Số điện thoại --}}
 <div>
-    <input type="text" id="buyerPhone"
-                                           wire:model="buyerPhone"
-                                           placeholder="Số điện thoại"
-                                           class="w-full border rounded-md p-[10px] focus:ring-2 focus:ring-[#4e6b4c] focus:border-[#4e6b4c] focus:outline-none
-                                              {{ $errors->has('buyerPhone') ? 'border-2 border-red-600' : 'border-black' }}"
-                                    />
-    <p class="text-sm text-gray-500 mt-1 italic">* Bạn vui lòng nhập đúng số điện thoại, Home sẽ gửi thông tin check-in
-        qua Zalo ạ</p>
+    @if($isAuthUser)
+    <div class="w-full border border-green-300 bg-green-50 rounded-md p-[10px] flex items-center gap-2.5">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-green-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z"/>
+        </svg>
+        <span class="text-gray-800 text-sm font-medium flex-1">{{ $buyerPhone }}</span>
+        <span class="text-xs font-medium text-green-700 flex items-center gap-1">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>
+            </svg>
+            Đã xác thực
+        </span>
+    </div>
+    @else
+    <input
+        type="text"
+        id="buyerPhone"
+        wire:model="buyerPhone"
+        placeholder="Số điện thoại"
+        class="w-full border rounded-md p-[10px] focus:ring-2 focus:ring-[#4e6b4c] focus:border-[#4e6b4c] focus:outline-none {{ $errors->has('buyerPhone') ? 'border-2 border-red-600' : 'border-black' }}"
+    />
+    @endif
+    <p class="text-sm text-gray-500 mt-1 italic">
+        @if($isAuthUser)
+        * Thông tin được lấy từ tài khoản đã đăng nhập của bạn.
+        @else
+        * Bạn vui lòng nhập đúng số điện thoại, Home sẽ gửi thông tin check-in qua Zalo ạ
+        @endif
+    </p>
 </div>
 
 @php

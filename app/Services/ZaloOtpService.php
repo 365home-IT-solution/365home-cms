@@ -87,6 +87,12 @@ class ZaloOtpService
             return true;
         }
 
+        // Bypass mode: dùng khi test trên môi trường không phải local (vd: APP_ENV=production + domain .test)
+        if (config('app.otp_bypass_enabled', false)) {
+            Log::info('[OTP_BYPASS] Mã OTP để test: ' . $otp . ' - Phone: ' . $phone);
+            return true;
+        }
+
         // Thiếu config trong production → fail rõ ràng, không giả vờ thành công
         if (! config('zalo.otp_template_id')) {
             Log::critical('Zalo OTP: ZALO_OTP_TEMPLATE_ID chưa được cấu hình trong production!');

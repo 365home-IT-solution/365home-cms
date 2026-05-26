@@ -26,6 +26,10 @@ class UserTable
                 TextColumn::make('fullname')
                     ->label(__('user::user.table.label.fullname'))
                     ->searchable(),
+                TextColumn::make('phone')
+                    ->label('Số điện thoại')
+                    ->searchable()
+                    ->placeholder('—'),
                 TextColumn::make('roles.name')
                     ->label(__('user::user.table.label.roles'))
                     ->searchable()

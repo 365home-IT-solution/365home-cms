@@ -952,6 +952,22 @@ class ManageGeneral extends SettingsPage
                                     ])
                                     ->columnSpanFull(),
                             ]),
+
+                        // TAB ĐĂNG NHẬP / ĐĂNG KÝ
+                        Forms\Components\Tabs\Tab::make('Đăng nhập')
+                            ->icon('heroicon-o-user-circle')
+                            ->schema([
+                                Forms\Components\Section::make('Cài đặt Đăng nhập / Đăng ký')
+                                    ->description('Quản lý hiển thị nút đăng nhập và đăng ký trên header của website.')
+                                    ->schema([
+                                        Forms\Components\Toggle::make('auth_header.enabled')
+                                            ->label('Hiển thị nút Đăng nhập / Đăng ký trên header')
+                                            ->helperText('Bật để hiển thị nút Đăng nhập / Đăng ký ở thanh header phía client.')
+                                            ->default(false)
+                                            ->columnSpanFull(),
+                                    ])
+                                    ->columnSpanFull(),
+                            ]),
                     ])
                     ->persistTabInQueryString()
                     ->columnSpanFull(),
@@ -968,6 +984,10 @@ class ManageGeneral extends SettingsPage
 
             $settings = app(static::getSettings());
 
+            // Đọc trạng thái cũ TRƯỚC khi fill
+            $wasAuthEnabled  = (bool) ($settings->auth_header['enabled'] ?? false);
+            $willAuthEnabled = (bool) ($data['auth_header']['enabled'] ?? false);
+
             $settings->fill($data);
             $settings->save();
 
@@ -975,10 +995,23 @@ class ManageGeneral extends SettingsPage
             $fileService->writeFile($this->themePath, $data['theme-editor']);
             $fileService->writeFile($this->twConfigPath, $data['tw-config-editor']);
 
-            Notification::make()
-                ->title('Đã cập nhật cài đặt')
-                ->success()
-                ->send();
+            // Nếu vừa TẮT tính năng đăng nhập → revoke tất cả Sanctum token
+            if ($wasAuthEnabled && !$willAuthEnabled) {
+                \Laravel\Sanctum\PersonalAccessToken::whereHasMorph(
+                    'tokenable',
+                    [\App\Models\User::class]
+                )->delete();
+
+                Notification::make()
+                    ->title('Đã tắt đăng nhập — tất cả phiên đăng nhập đã bị thu hồi')
+                    ->warning()
+                    ->send();
+            } else {
+                Notification::make()
+                    ->title('Đã cập nhật cài đặt')
+                    ->success()
+                    ->send();
+            }
 
             $this->redirect(static::getUrl(), navigate: FilamentView::hasSpaMode() && is_app_url(static::getUrl()));
         } catch (\Throwable $th) {

@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Modules\User\App\Filament\Resources\UserResource\Pages;
 
+use App\Models\User;
 use Modules\User\App\Filament\Resources\UserResource;
 use Filament\Actions;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Resources\Pages\ListRecords\Tab;
 use Filament\Pages\Concerns\ExposesTableToWidgets;
 use Illuminate\Database\Eloquent\Builder;
 use JoseEspinal\RecordNavigation\Traits\HasRecordsList;
@@ -30,6 +32,32 @@ class ListUsers extends ListRecords
         return static::$resource::getWidgets();
     }
 
+    // Tabs chỉ hiện với super_admin
+    public function getTabs(): array
+    {
+        if (! auth()->user()?->isSuperAdmin()) {
+            return [];
+        }
+
+        $currentId = auth()->id();
+
+        $adminCount    = User::where('id', '!=', $currentId)->whereHas('roles')->count();
+        $customerCount = User::where('id', '!=', $currentId)->whereDoesntHave('roles')->count();
+
+        return [
+            'admins' => Tab::make('Quản trị viên')
+                ->icon('heroicon-o-shield-check')
+                ->badge($adminCount)
+                ->modifyQueryUsing(fn (Builder $query) => $query->whereHas('roles')),
+
+            'customers' => Tab::make('Khách hàng')
+                ->icon('heroicon-o-users')
+                ->badge($customerCount)
+                ->badgeColor('warning')
+                ->modifyQueryUsing(fn (Builder $query) => $query->whereDoesntHave('roles')),
+        ];
+    }
+
     protected function getTableQuery(): Builder
     {
         $user  = auth()->user();
@@ -45,6 +73,7 @@ class ListUsers extends ListRecords
 
         return $query
             ->whereIn('id', $descendantIds)
+            ->whereHas('roles')  // khách hàng không bao giờ hiển thị với non-super-admin
             ->whereDoesntHave('roles', fn ($q) => $q->where('name', config('filament-shield.super_admin.name')));
     }
 }

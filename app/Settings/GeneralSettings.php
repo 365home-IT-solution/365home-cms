@@ -35,6 +35,7 @@ class GeneralSettings extends Settings
     public array $site_theme;
     public ?array $color_product = null;
     public ?array $popup = null; // Lưu POPUP
+    public ?array $auth_header = null; // Lưu cài đặt Đăng nhập/Đăng ký header
 
     /**
      * Script injection properties
