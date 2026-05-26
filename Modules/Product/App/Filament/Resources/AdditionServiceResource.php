@@ -58,7 +58,11 @@ class AdditionServiceResource extends Resource
         $productTable = (new Product())->getTable();
 
         return parent::getEloquentQuery()
-            ->whereHas('products', fn (Builder $q) => $q->whereIn("{$productTable}.id", $roomIds));
+            ->where(function (Builder $q) use ($roomIds, $productTable) {
+                // Dịch vụ mới tạo chưa có phòng nào → vẫn phải hiện để edit được
+                $q->whereDoesntHave('products')
+                  ->orWhereHas('products', fn (Builder $q2) => $q2->whereIn("{$productTable}.id", $roomIds));
+            });
     }
 
     public static function getNavigationIcon(): string

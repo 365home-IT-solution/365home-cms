@@ -85,6 +85,15 @@ public function getFilamentAvatarUrl(): ?string
         return "{$this->fullname}";
     }
 
+    public function canAccessPanel(Panel $panel): bool
+    {
+        // Chỉ user có ít nhất 1 role thật (không phải panel_user) mới vào được admin panel
+        // Khách hàng đăng ký qua OTP không có role → không vào được
+        return $this->roles()
+            ->where('name', '!=', config('filament-shield.panel_user.name'))
+            ->exists();
+    }
+
     public function isSuperAdmin(): bool
     {
         return $this->hasRole(config('filament-shield.super_admin.name'));
