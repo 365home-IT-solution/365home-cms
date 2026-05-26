@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Services;
+namespace Modules\TTLock\App\Services;
 
-use App\Models\TtlockAccount;
+use Modules\TTLock\Entities\TtlockAccount;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -23,18 +23,18 @@ class TTLockService
     private string $cachePrefix;
 
     public function __construct(
-        string $clientId     = '',
-        string $clientSecret = '',
-        string $username     = '',
-        string $password     = '',
-        string $apiBase      = '',
-        string $cachePrefix  = 'ttlock_env'
+        string $clientId,
+        string $clientSecret,
+        string $username,
+        string $password,
+        string $apiBase      = 'https://euapi.ttlock.com',
+        string $cachePrefix  = 'ttlock_db'
     ) {
-        $this->clientId     = $clientId     ?: (config('services.ttlock.client_id') ?? '');
-        $this->clientSecret = $clientSecret ?: (config('services.ttlock.client_secret') ?? '');
-        $this->username     = $username     ?: (config('services.ttlock.username') ?? '');
-        $this->password     = $password     ?: (config('services.ttlock.password') ?? '');
-        $this->apiBase      = $apiBase      ?: (config('services.ttlock.api_base', 'https://euapi.ttlock.com'));
+        $this->clientId     = $clientId;
+        $this->clientSecret = $clientSecret;
+        $this->username     = $username;
+        $this->password     = $password;
+        $this->apiBase      = $apiBase;
         $this->cachePrefix  = $cachePrefix;
     }
 

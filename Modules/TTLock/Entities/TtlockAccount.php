@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Models;
+namespace Modules\TTLock\Entities;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;

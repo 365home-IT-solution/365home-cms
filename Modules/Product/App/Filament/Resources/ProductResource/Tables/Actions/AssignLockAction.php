@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Product\App\Filament\Resources\ProductResource\Tables\Actions;
 
-use App\Services\TTLockService;
+use Modules\TTLock\App\Services\TTLockService;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Placeholder;
 use Filament\Tables\Actions\Action;
