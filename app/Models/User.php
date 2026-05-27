@@ -161,13 +161,23 @@ public function getFilamentAvatarUrl(): ?string
             return [];
         }
 
-        return \Modules\Category\Entities\Category::query()
-            ->where(function ($q) use ($branchIds) {
-                $q->whereIn('id', $branchIds)
-                  ->orWhereIn('parent_id', $branchIds);
-            })
-            ->pluck('id')
-            ->toArray();
+        $allIds      = $branchIds;
+        $currentLevel = $branchIds;
+
+        while (! empty($currentLevel)) {
+            $children = \Modules\Category\Entities\Category::whereIn('parent_id', $currentLevel)
+                ->pluck('id')
+                ->toArray();
+
+            if (empty($children)) {
+                break;
+            }
+
+            $allIds       = array_merge($allIds, $children);
+            $currentLevel = $children;
+        }
+
+        return array_unique($allIds);
     }
 
     /**
@@ -180,16 +190,27 @@ public function getFilamentAvatarUrl(): ?string
     {
         $result = collect();
 
-        // 1. Danh mục post được gán trực tiếp + con của chúng
+        // 1. Danh mục post được gán trực tiếp + toàn bộ con cháu (đệ quy)
         $directPostIds = $this->allowedDirectPostRootIds();
         if (! empty($directPostIds)) {
-            $ids = \Modules\Category\Entities\Category::where('category_type', 'post')
-                ->where(function ($q) use ($directPostIds) {
-                    $q->whereIn('id', $directPostIds)
-                      ->orWhereIn('parent_id', $directPostIds);
-                })
-                ->pluck('id');
-            $result = $result->merge($ids);
+            $allPostIds   = $directPostIds;
+            $currentLevel = $directPostIds;
+
+            while (! empty($currentLevel)) {
+                $children = \Modules\Category\Entities\Category::where('category_type', 'post')
+                    ->whereIn('parent_id', $currentLevel)
+                    ->pluck('id')
+                    ->toArray();
+
+                if (empty($children)) {
+                    break;
+                }
+
+                $allPostIds   = array_merge($allPostIds, $children);
+                $currentLevel = $children;
+            }
+
+            $result = $result->merge($allPostIds);
         }
 
         // 2. Name-matching từ chi nhánh product
