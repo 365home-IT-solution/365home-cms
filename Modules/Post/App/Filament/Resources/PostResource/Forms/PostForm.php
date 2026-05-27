@@ -340,8 +340,10 @@ class PostForm
     {
         return DateTimePicker::make('published_at')
             ->label(__('post::post.form.label.published_at'))
+            ->native(false)
+            ->seconds(false)
             ->timezone('Asia/Ho_Chi_Minh')
-            ->displayFormat('d/M/yyyy HH:mm a')
+            ->displayFormat('d/m/Y H:i')
             ->rules(['date'])
             ->hidden(fn (Get $get): bool => $get('status') !== 'published')
             ->live();
