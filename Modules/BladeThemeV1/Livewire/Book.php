@@ -565,7 +565,7 @@ class Book extends Component
             return false;
         }
         $room = Product::with('roomTimeSlots')->find($roomId);
-        if (!$room) {
+        if (!$room || empty($room->full_booking_discount)) {
             return false;
         }
 
