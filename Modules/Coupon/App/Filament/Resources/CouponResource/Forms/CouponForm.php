@@ -14,7 +14,6 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
-use Modules\DataPermission\Entities\UserBranchPermission;
 use Modules\Product\App\Models\Product;
 
 class CouponForm
@@ -104,12 +103,15 @@ class CouponForm
                                 ->label('Chọn phòng')
                                 ->options(function () {
                                     $user  = auth()->user();
-                                    $query = Product::where('is_activated', true);
+                                    $query = Product::where('is_activated', true)->orderBy('name');
 
-                                    if (! $user?->hasRole('super_admin')) {
-                                        $branchIds = UserBranchPermission::where('user_id', $user?->id)
-                                            ->pluck('category_id');
-                                        $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $branchIds));
+                                    if ($user && ! $user->isSuperAdmin()) {
+                                        $allowedIds = $user->allowedCategoryIds();
+                                        if (! empty($allowedIds)) {
+                                            $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedIds));
+                                        } else {
+                                            $query->whereRaw('1 = 0');
+                                        }
                                     }
 
                                     return $query->pluck('name', 'id');
