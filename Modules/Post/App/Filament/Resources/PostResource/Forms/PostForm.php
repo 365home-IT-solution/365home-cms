@@ -194,7 +194,31 @@ class PostForm
     {
         return Select::make('author_id')
             ->label('Tác giả')
-            ->relationship('user', 'fullname')
+            ->relationship(
+                'user',
+                'fullname',
+                function ($query) {
+                    $actor = auth()->user();
+                    if (! $actor || $actor->isSuperAdmin()) {
+                        return $query;
+                    }
+
+                    $allowedBranchIds = $actor->allowedBranchIds();
+
+                    if (! empty($allowedBranchIds)) {
+                        $query->where(function ($q) use ($actor, $allowedBranchIds) {
+                            $q->where('id', $actor->id)
+                              ->orWhereHas('branchPermissions', fn ($bq) =>
+                                  $bq->whereIn('category_id', $allowedBranchIds)
+                              );
+                        });
+                    } else {
+                        $query->where('id', $actor->id);
+                    }
+
+                    return $query;
+                }
+            )
             ->getOptionLabelFromRecordUsing(fn ($record) => $record->fullname ?? $record->email ?? 'ID: ' . $record->id)
             ->searchable()
             ->preload()
