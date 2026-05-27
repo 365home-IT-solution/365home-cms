@@ -121,14 +121,17 @@ class CategoryForm
                 $user = auth()->user();
                 if ($user && ! $user->isSuperAdmin()) {
                     if ($categoryType === 'product') {
-                        $allowedIds = $user->allowedCategoryIds();
+                        $allowedIds = $user->allowedBranchIds();
                         if (! empty($allowedIds)) {
-                            $query->whereIn('id', $allowedIds);
+                            $query->where(function ($q) use ($allowedIds) {
+                                $q->whereIn('id', $allowedIds)
+                                  ->orWhereIn('parent_id', $allowedIds);
+                            });
                         } else {
                             $query->whereRaw('1 = 0');
                         }
                     } elseif ($categoryType === 'post') {
-                        $allowedPostIds = $user->allowedPostCategoryIds();
+                        $allowedPostIds = $user->allowedDirectPostRootIds();
                         if (! empty($allowedPostIds)) {
                             $query->where(function ($q) use ($allowedPostIds) {
                                 $q->whereIn('id', $allowedPostIds)
@@ -137,6 +140,9 @@ class CategoryForm
                         } else {
                             $query->whereRaw('1 = 0');
                         }
+                    } else {
+                        // category_type chưa chọn → ẩn hết để tránh lộ dữ liệu
+                        $query->whereRaw('1 = 0');
                     }
                 }
 
