@@ -69,13 +69,17 @@
         Object.entries(slotsByDate).forEach(([date, slots]) => {
             if (slots.length === totalSlotsInRoom) {
                 hasFullDay = true;
-                this.fullDayDates.push(date);
+                // Chỉ track fullDayDates nếu có cấu hình full_booking_discount
+                if (fullBookingDiscountValue) {
+                    this.fullDayDates.push(date);
+                }
             }
         });
 
-        this.hasFullDayBooking = hasFullDay;
+        // Chỉ kích hoạt full booking mode khi có cấu hình giảm giá
+        this.hasFullDayBooking = hasFullDay && !!fullBookingDiscountValue;
 
-        if (hasFullDay && fullBookingDiscountValue) {
+        if (this.hasFullDayBooking) {
             this.fullBookingDiscount = this.calculateDiscountValue(
                 this.totalPrice,
                 fullBookingDiscountValue

@@ -69,23 +69,20 @@ class CategoryResource extends Resource implements HasKnowledgeBase
             return $query;
         }
 
-        $allowedBranchIds = $user->allowedBranchIds();
+        $allowedProductCategoryIds = $user->allowedCategoryIds();
+        $allowedPostCategoryIds    = $user->allowedPostCategoryIds();
 
-        if (empty($allowedBranchIds)) {
+        if (empty($allowedProductCategoryIds) && empty($allowedPostCategoryIds)) {
             return $query->whereRaw('1 = 0');
         }
 
-        $allowedPostCategoryIds = $user->allowedPostCategoryIds();
-
-        // Hiển thị: (1) chi nhánh sản phẩm được phép + con của chúng,
-        //           (2) danh mục bài viết tương ứng + con của chúng
-        return $query->where(function (Builder $q) use ($allowedBranchIds, $allowedPostCategoryIds) {
-            $q->whereIn('id', $allowedBranchIds)
-              ->orWhereIn('parent_id', $allowedBranchIds);
+        return $query->where(function (Builder $q) use ($allowedProductCategoryIds, $allowedPostCategoryIds) {
+            if (! empty($allowedProductCategoryIds)) {
+                $q->whereIn('id', $allowedProductCategoryIds);
+            }
 
             if (! empty($allowedPostCategoryIds)) {
-                $q->orWhereIn('id', $allowedPostCategoryIds)
-                  ->orWhereIn('parent_id', $allowedPostCategoryIds);
+                $q->orWhereIn('id', $allowedPostCategoryIds);
             }
         });
     }

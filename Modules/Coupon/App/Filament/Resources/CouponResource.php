@@ -47,26 +47,26 @@ class CouponResource extends Resource
         $query = parent::getEloquentQuery();
         $user  = auth()->user();
 
-        if ($user?->hasRole('super_admin')) {
+        if (! $user || $user->isSuperAdmin()) {
             return $query;
         }
 
-        $branchIds = UserBranchPermission::where('user_id', $user?->id)->pluck('category_id');
+        // allowedCategoryIds() = root branch IDs + toàn bộ danh mục con (đệ quy)
+        $allowedCategoryIds = $user->allowedCategoryIds();
+        $allowedBranchIds   = $user->allowedBranchIds();
 
-        // Room IDs thuộc các chi nhánh được phân quyền
+        // Room IDs thuộc các chi nhánh (bao gồm cả danh mục con)
         $permittedRoomIds = Product::whereHas(
             'categories',
-            fn ($q) => $q->whereIn('categories.id', $branchIds)
+            fn ($q) => $q->whereIn('categories.id', $allowedCategoryIds)
         )->pluck('id');
 
-        // User IDs có ít nhất 1 chi nhánh trùng với người xem
-        $overlappingUserIds = UserBranchPermission::whereIn('category_id', $branchIds)
+        // User IDs có ít nhất 1 chi nhánh gốc trùng với người xem
+        $overlappingUserIds = UserBranchPermission::whereIn('category_id', $allowedBranchIds)
             ->pluck('user_id');
 
         return $query->where(function (Builder $q) use ($permittedRoomIds, $overlappingUserIds) {
-            // specific_room / specific_slot: lọc theo room thuộc chi nhánh
             $q->whereIn('room_id', $permittedRoomIds)
-                // all_rooms: chỉ hiển thị nếu người tạo không có hoặc có chi nhánh trùng
                 ->orWhere(function (Builder $q2) use ($overlappingUserIds) {
                     $q2->where('apply_type', 'all_rooms')
                         ->where(function (Builder $q3) use ($overlappingUserIds) {

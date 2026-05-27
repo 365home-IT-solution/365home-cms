@@ -657,6 +657,11 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             return false;
         }
 
+        // Chỉ kích hoạt full booking mode khi phòng có cấu hình giảm giá full
+        if (empty($this->product->full_booking_discount)) {
+            return false;
+        }
+
         // Lấy tổng số timeslot của phòng
         $totalTimeslots = count($this->timeSlots);
         if ($totalTimeslots === 0) {
