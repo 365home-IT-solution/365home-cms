@@ -23,5 +23,6 @@
     "Book": true,
     "Coupon": true,
     "DataPermission": true,
-    "AppPage": true
+    "AppPage": true,
+    "TTLock": true
 }

@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Services;
+namespace Modules\TTLock\App\Services;
 
-use App\Models\TtlockAccount;
+use Modules\TTLock\Entities\TtlockAccount;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
