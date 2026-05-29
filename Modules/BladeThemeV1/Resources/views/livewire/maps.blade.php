@@ -141,7 +141,7 @@
 </style>
 
 
-<div class="max-w-screen-xl mx-auto">
+<div class="md:px-8 px-4 mx-auto">
     <div class="container mx-auto">
         <div class="row">
             <div class="col-12">
@@ -163,7 +163,7 @@
     </div>
 
     <h1 class="archive-title text-xl sm:text-xl md:text-4xl lg:text-[48px] text-white">
-        Home – {{ $nameCate3->name ?? '' }}, {{ $nameCate2->name ?? ''}}
+        {{ $nameCate1->name ?? '' }} Home
     </h1>
 
 </div>
