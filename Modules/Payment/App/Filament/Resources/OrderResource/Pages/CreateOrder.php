@@ -20,8 +20,11 @@ class CreateOrder extends CreateRecord
     {
         $record = $this->record->fresh(['items.product']);
 
-        // Non-super_admin + amount >= 2000 → bắt buộc thanh toán qua PayOS
-        if (! auth()->user()->isSuperAdmin() && (int) $record->amount >= 2000) {
+        // Non-super_admin + PayOS + amount >= 2000 → bắt buộc thanh toán qua PayOS
+        if (! auth()->user()->isSuperAdmin()
+            && $record->payment_method === 'PayOS'
+            && (int) $record->amount >= 2000) {
+            $record->update(['status' => 'pending']);
             $this->createAdminPayosLink($record);
             return;
         }

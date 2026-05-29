@@ -19,18 +19,22 @@ class EditOrder extends EditRecord
     {
         parent::mount($record);
 
-        $status = request()->query('payment_status');
+        $paymentStatus = request()->query('payment_status');
 
-        if ($status === 'success') {
+        if ($paymentStatus === 'success') {
             Notification::make()
                 ->title('Thanh toán thành công')
                 ->body('Đơn hàng đang được xử lý. Trạng thái sẽ cập nhật tự động khi PayOS xác nhận.')
                 ->success()
                 ->send();
-        } elseif ($status === 'cancelled') {
+        } elseif ($paymentStatus === 'cancelled') {
+            // Webhook có thể chưa kịp fire — cập nhật trực tiếp khi admin quay lại
+            if ($this->record->status === 'pending') {
+                $this->record->update(['status' => 'failed']);
+            }
             Notification::make()
                 ->title('Thanh toán đã bị huỷ')
-                ->body('Đơn đã lưu nhưng chưa được thanh toán. Trạng thái vẫn là chờ xử lý.')
+                ->body('Đơn đã lưu nhưng chưa được thanh toán. Trạng thái: Hủy thanh toán.')
                 ->warning()
                 ->send();
         }
