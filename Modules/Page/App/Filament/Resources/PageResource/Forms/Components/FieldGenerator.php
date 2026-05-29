@@ -43,7 +43,10 @@ class FieldGenerator
 
     private function createField($config)
     {
-        if ($config->has_options) {
+        // has_options chỉ áp dụng cho SELECT generic (tĩnh, lấy từ comp_config_options).
+        // Các type động (DESTINATION, AREA, PRODUCT_SELECTION…) luôn dùng query riêng,
+        // không được override bởi has_options để tránh dropdown trống.
+        if ($config->has_options && $config->type_field === FieldInputType::SELECT->value) {
             return $this->selectFieldGenerator->createSelectFieldWithOptions($config);
         }
 
