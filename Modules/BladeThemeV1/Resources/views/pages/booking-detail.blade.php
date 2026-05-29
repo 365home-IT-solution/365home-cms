@@ -58,6 +58,7 @@
 
                 // Helper for product info (using first item's product for order-level defaults)
                 $firstProduct = $order->items->first() ? $order->items->first()->product : null;
+                $manualLockPassword = $firstProduct ? $firstProduct->manualLockPasswords->first() : null;
                 $branchAddress = $firstProduct ? $firstProduct->address : 'Địa chỉ chi nhánh không xác định';
                 $hotline = $firstProduct ? $firstProduct->hotline : '';
                 $wifi = $firstProduct ? $firstProduct->wifi : '...';
@@ -198,7 +199,34 @@
                                     <p class="text-xs text-gray-500 mt-0.5">Thanh toán phần còn lại để nhận mã cổng</p>
                                 </div>
                             </div>
+                            @elseif($firstProduct && $firstProduct->has_manual_lock)
+                            {{-- Phòng khóa thủ công: hiển thị pass cổng + pass phòng --}}
+                            <div class="flex items-start gap-3 flex-1 flex-wrap">
+                                <div
+                                    class="w-10 h-10 bg-white rounded-lg border border-gray-200 flex items-center justify-center text-gray-700 shadow-sm shrink-0">
+                                    <x-filament::icon-button icon="heroicon-m-key" color="black" size="sm" />
+                                </div>
+                                @if($manualLockPassword)
+                                <div class="flex gap-6 flex-wrap">
+                                    <div>
+                                        <p class="text-xs font-semibold uppercase tracking-wider text-gray-400">Pass Cổng</p>
+                                        <span class="text-lg font-bold font-mono tracking-widest text-gray-900">{{ $manualLockPassword->gate_password }}</span>
+                                    </div>
+                                    @if($manualLockPassword->room_password)
+                                    <div class="border-l border-dashed border-blue-400 pl-4">
+                                        <p class="text-xs font-semibold uppercase tracking-wider text-gray-400">Pass Phòng</p>
+                                        <span class="text-lg font-bold font-mono tracking-widest text-gray-900">{{ $manualLockPassword->room_password }}</span>
+                                    </div>
+                                    @endif
+                                </div>
+                                @else
+                                <div>
+                                    <p class="text-sm text-gray-500 mt-0.5">Vui lòng liên hệ để nhận mật khẩu phòng</p>
+                                </div>
+                                @endif
+                            </div>
                             @else
+                            {{-- TTLock: hiển thị mã cổng điện tử --}}
                             <div class="flex items-center gap-3">
                                 <div
                                     class="w-10 h-10 bg-white rounded-lg border border-gray-200 flex items-center justify-center text-gray-700 shadow-sm shrink-0">

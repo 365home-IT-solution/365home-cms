@@ -13,7 +13,6 @@ use Filament\Resources\Resource;
 use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Actions\DeleteBulkAction;
 use Filament\Tables\Actions\EditAction;
-use Filament\Tables\Columns\BadgeColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -42,31 +41,6 @@ class ManualLockPasswordResource extends Resource
     public static function getNavigationBadge(): ?string
     {
         return (string) static::getEloquentQuery()->count();
-    }
-
-    public static function canViewAny(): bool
-    {
-        return auth()->user()?->can('view_any_manual_lock_password') ?? false;
-    }
-
-    public static function canCreate(): bool
-    {
-        return auth()->user()?->can('create_manual_lock_password') ?? false;
-    }
-
-    public static function canEdit($record): bool
-    {
-        return auth()->user()?->can('update_manual_lock_password') ?? false;
-    }
-
-    public static function canDelete($record): bool
-    {
-        return auth()->user()?->can('delete_manual_lock_password') ?? false;
-    }
-
-    public static function canDeleteAny(): bool
-    {
-        return auth()->user()?->can('delete_any_manual_lock_password') ?? false;
     }
 
     public static function getEloquentQuery(): Builder

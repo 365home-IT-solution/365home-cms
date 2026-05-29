@@ -164,7 +164,7 @@ class BladeThemeV1Controller extends Controller
     public function bookingDetail(Request $request, $code)
     {
         // Tìm đơn hàng theo order_code, load kèm items và product
-        $order = Order::with(['items.product', 'accessCodes'])
+        $order = Order::with(['items.product.manualLockPasswords', 'accessCodes'])
             ->where('order_code', $code)
             ->firstOrFail();
 
