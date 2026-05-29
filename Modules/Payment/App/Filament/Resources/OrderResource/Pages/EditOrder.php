@@ -15,6 +15,27 @@ class EditOrder extends EditRecord
 {
     protected static string $resource = OrderResource::class;
 
+    public function mount(int|string $record): void
+    {
+        parent::mount($record);
+
+        $status = request()->query('payment_status');
+
+        if ($status === 'success') {
+            Notification::make()
+                ->title('Thanh toán thành công')
+                ->body('Đơn hàng đang được xử lý. Trạng thái sẽ cập nhật tự động khi PayOS xác nhận.')
+                ->success()
+                ->send();
+        } elseif ($status === 'cancelled') {
+            Notification::make()
+                ->title('Thanh toán đã bị huỷ')
+                ->body('Đơn đã lưu nhưng chưa được thanh toán. Trạng thái vẫn là chờ xử lý.')
+                ->warning()
+                ->send();
+        }
+    }
+
     protected function getHeaderActions(): array
     {
         return [

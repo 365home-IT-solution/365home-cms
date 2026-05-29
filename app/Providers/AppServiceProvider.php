@@ -15,6 +15,8 @@ use Guava\FilamentKnowledgeBase\Filament\Panels\KnowledgeBasePanel;
 use Illuminate\Support\Facades\View as ViewFacade;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Route;
+use Jeffgreco13\FilamentBreezy\Livewire\PersonalInfo;
+use Jeffgreco13\FilamentBreezy\Livewire\UpdatePassword;
 use Livewire\Livewire;
 use Symfony\Component\Mime\MimeTypes;
 use Symfony\Component\Mime\MimeTypeGuesserInterface;
@@ -91,6 +93,11 @@ class AppServiceProvider extends ServiceProvider
                 return null;
             }
         });
+
+        // Đảm bảo Breezy profile components luôn được đăng ký
+        // (BreezyCore::boot() chỉ chạy khi panel boot — không đủ cho Livewire update requests)
+        Livewire::component('personal_info', PersonalInfo::class);
+        Livewire::component('update_password', UpdatePassword::class);
 
         // Secure the Livewire update route with rate limiting + origin validation
         Livewire::setUpdateRoute(function ($handle) {
