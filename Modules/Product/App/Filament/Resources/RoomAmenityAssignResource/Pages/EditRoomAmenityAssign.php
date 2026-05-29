@@ -70,8 +70,8 @@ class EditRoomAmenityAssign extends EditRecord
 
         foreach ($amenitiesByGroup as $group => $items) {
             $key        = 'amenity_ids_' . Str::slug($group, '_');
-            $data[$key] = array_values(array_intersect($assignedIds, $items->pluck('id')->toArray()));
-        }
+            $data[$key] = array_values(array_map('strval', array_intersect($assignedIds, $items->pluck('id')->toArray()))); // mới
+            }
 
         $this->form->fill($data);
     }

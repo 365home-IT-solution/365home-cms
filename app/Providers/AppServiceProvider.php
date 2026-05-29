@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\View as ViewFacade;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Route;
 use Livewire\Livewire;
+use Symfony\Component\Mime\MimeTypes;
+use Symfony\Component\Mime\MimeTypeGuesserInterface;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -74,6 +76,21 @@ class AppServiceProvider extends ServiceProvider
         }
 
         ViewFacade::composer('*', ProductColorComposer::class);
+
+        // finfo on Windows does not detect AVIF as image/avif; register a signature-based guesser
+        MimeTypes::getDefault()->registerGuesser(new class implements MimeTypeGuesserInterface {
+            public function isGuesserSupported(): bool { return true; }
+            public function guessMimeType(string $path): ?string {
+                $handle = @fopen($path, 'rb');
+                if (!$handle) return null;
+                $header = fread($handle, 12);
+                fclose($handle);
+                if (strlen($header) >= 12 && substr($header, 4, 4) === 'ftyp' && in_array(substr($header, 8, 4), ['avif', 'avis'])) {
+                    return 'image/avif';
+                }
+                return null;
+            }
+        });
 
         // Secure the Livewire update route with rate limiting + origin validation
         Livewire::setUpdateRoute(function ($handle) {
