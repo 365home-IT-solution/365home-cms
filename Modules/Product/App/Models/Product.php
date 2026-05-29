@@ -44,6 +44,7 @@ class Product extends Model implements HasMedia, Resourceable
         'home_code',
         'lock_id',
         'lock_id_checkout',
+        'has_manual_lock',
         'address',
         'hotline',
         'full_booking_discount',
@@ -69,10 +70,11 @@ class Product extends Model implements HasMedia, Resourceable
         'vat'          => 'decimal:2',
         'weight'       => 'decimal:2',
         'rating_score' => 'decimal:1',
-        'is_in_stock'  => 'boolean',
-        'is_activated' => 'boolean',
-        'is_shipped'   => 'boolean',
-        'is_trend'     => 'boolean',
+        'is_in_stock'     => 'boolean',
+        'is_activated'    => 'boolean',
+        'is_shipped'      => 'boolean',
+        'is_trend'        => 'boolean',
+        'has_manual_lock' => 'boolean',
         'room_config'          => 'array',
         'bulk_discount_rules'  => 'array',
         'setting_video_room'   => 'array',
@@ -149,6 +151,16 @@ class Product extends Model implements HasMedia, Resourceable
     public function orderItems()
     {
         return $this->hasMany(\Modules\Payment\Entities\OrderItem::class, 'product_id');
+    }
+
+    public function manualLockPasswords()
+    {
+        return $this->belongsToMany(
+            ManualLockPassword::class,
+            'manual_lock_password_product',
+            'product_id',
+            'manual_lock_password_id'
+        );
     }
 
     public function additionalServices()

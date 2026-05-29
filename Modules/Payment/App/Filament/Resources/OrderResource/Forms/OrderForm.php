@@ -162,6 +162,78 @@ class OrderForm
                             ->badge(fn(Get $get) => self::getOrderInfoBadge($get))
                             ->badgeColor(fn(Get $get) => self::getOrderInfoBadgeColor($get))
                             ->schema([
+                                Section::make('Mật khẩu phòng thủ công')
+                                    ->icon('heroicon-o-key')
+                                    ->iconColor('warning')
+                                    ->description('Phòng này dùng khóa cơ, vui lòng cung cấp thông tin bên dưới cho khách.')
+                                    ->schema([
+                                        Placeholder::make('manual_lock_info')
+                                            ->label('')
+                                            ->content(function ($record) {
+                                                if (! $record) return '';
+
+                                                $record->load(['items.product.manualLockPasswords']);
+                                                $product = $record->items->sortBy('checkin_date')->first()?->product;
+
+                                                if (! $product) {
+                                                    return new \Illuminate\Support\HtmlString('<p class="text-gray-400 text-sm italic">Không tìm thấy thông tin phòng.</p>');
+                                                }
+
+                                                $entry = $product->manualLockPasswords->first();
+
+                                                if (! $entry) {
+                                                    return new \Illuminate\Support\HtmlString(
+                                                        '<div class="flex items-center gap-2 text-warning-600 font-medium">'
+                                                        . '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M12 3a9 9 0 100 18A9 9 0 0012 3z"/></svg>'
+                                                        . 'Phòng được đánh dấu khóa thủ công nhưng chưa có mật khẩu. Vui lòng cấu hình trong <strong>Mật khẩu khóa thủ công</strong>.'
+                                                        . '</div>'
+                                                    );
+                                                }
+
+                                                $rows = '';
+
+                                                $rows .= '
+                                                    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f3f4f6;">
+                                                        <div style="width:120px;font-size:13px;color:#6b7280;font-weight:500;">Pass Cổng</div>
+                                                        <div style="font-size:20px;font-weight:700;letter-spacing:4px;color:#111827;font-family:monospace;">'
+                                                    . e($entry->gate_password)
+                                                    . '</div>
+                                                    </div>';
+
+                                                if ($entry->room_password) {
+                                                    $rows .= '
+                                                        <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f3f4f6;">
+                                                            <div style="width:120px;font-size:13px;color:#6b7280;font-weight:500;">Pass Phòng</div>
+                                                            <div style="font-size:20px;font-weight:700;letter-spacing:4px;color:#111827;font-family:monospace;">'
+                                                        . e($entry->room_password)
+                                                        . '</div>
+                                                        </div>';
+                                                }
+
+                                                if ($entry->notes) {
+                                                    $rows .= '
+                                                        <div style="display:flex;align-items:flex-start;gap:12px;padding:10px 0;">
+                                                            <div style="width:120px;font-size:13px;color:#6b7280;font-weight:500;">Ghi chú</div>
+                                                            <div style="font-size:13px;color:#374151;">' . nl2br(e($entry->notes)) . '</div>
+                                                        </div>';
+                                                }
+
+                                                return new \Illuminate\Support\HtmlString(
+                                                    '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;">'
+                                                    . $rows
+                                                    . '</div>'
+                                                );
+                                            }),
+                                    ])
+                                    ->visible(function ($record) {
+                                        if (! $record || ! in_array($record->status, ['paid', 'deposit'])) {
+                                            return false;
+                                        }
+                                        $product = $record->items->sortBy('checkin_date')->first()?->product;
+                                        return $product?->has_manual_lock === true;
+                                    })
+                                    ->collapsible(),
+
                                 Section::make('Mã cổng')
                                     ->schema([
                                         Placeholder::make('access_code_info')
@@ -189,7 +261,7 @@ class OrderForm
                                             ]);
                                         }),
                                     ])
-                                    ->visible(fn($record) => $record && $record->status === 'paid')
+                                    ->visible(fn($record) => $record && $record->status === 'paid' && ! ($record->items->sortBy('checkin_date')->first()?->product?->has_manual_lock))
                                     ->collapsible(),
                                 Grid::make(2)
                                     ->schema([
