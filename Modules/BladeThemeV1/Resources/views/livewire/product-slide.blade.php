@@ -55,7 +55,7 @@
                 document.addEventListener('DOMContentLoaded', () => {
                     if (document.getElementById('{{ $uniqueId }}')) {
                         let swiperConfig = {
-                            loop: true,
+                            loop: {{ $products->count() > $this->calculateColumns()['lg'] ? 'true' : 'false' }},
                             slidesPerView: 1,
                             spaceBetween: {{ $breakpointConfig['space_between'] }},
                             pagination: {
@@ -84,7 +84,6 @@
                                 delay: {{ $breakpointConfig['autoplay_speed'] }},
                                 disableOnInteraction: false,
                             };
-                            swiperConfig.loop = true;
                         }
 
                         const swiper = new Swiper("#{{ $uniqueId }}", swiperConfig);

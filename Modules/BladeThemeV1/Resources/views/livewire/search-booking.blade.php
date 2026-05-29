@@ -124,6 +124,7 @@
                 $remainingAmount = $isDepositPaid ? max(0, $fullAmount - $paidAmount) : 0;
 
                 $firstProduct = $order->items->first() ? $order->items->first()->product : null;
+                $manualLockPassword = $firstProduct ? $firstProduct->manualLockPasswords->first() : null;
                 $branchAddress = $firstProduct ? $firstProduct->address : 'Địa chỉ chi nhánh không xác định';
                 $hotline = $firstProduct ? $firstProduct->hotline : '';
                 $wifi = $firstProduct ? $firstProduct->wifi : '...';
@@ -270,7 +271,35 @@
                                 </p>
                             </div>
                         </div>
+                        @elseif($firstProduct && $firstProduct->has_manual_lock)
+                        {{-- Phòng khóa thủ công: hiển thị pass cổng + pass phòng --}}
+                        <div
+                            class="mt-6 bg-slate-50/80 rounded-xl border border-dashed border-gray-300 p-4 flex items-start gap-3 flex-wrap">
+                            <div
+                                class="w-10 h-10 bg-white rounded-lg border border-gray-200 flex items-center justify-center text-gray-700 shadow-sm shrink-0">
+                                <i class="fa fa-key"></i>
+                            </div>
+                            @if($manualLockPassword)
+                            <div class="flex gap-6 flex-wrap">
+                                <div>
+                                    <p class="text-xs font-semibold uppercase tracking-wider text-gray-400">Pass Cổng</p>
+                                    <span class="text-lg font-bold font-mono tracking-widest text-gray-900">{{ $manualLockPassword->gate_password }}</span>
+                                </div>
+                                @if($manualLockPassword->room_password)
+                                <div class="border-l border-dashed border-blue-400 pl-4">
+                                    <p class="text-xs font-semibold uppercase tracking-wider text-gray-400">Pass Phòng</p>
+                                    <span class="text-lg font-bold font-mono tracking-widest text-gray-900">{{ $manualLockPassword->room_password }}</span>
+                                </div>
+                                @endif
+                            </div>
+                            @else
+                            <div>
+                                <p class="text-sm text-gray-500 mt-0.5">Vui lòng liên hệ để nhận mật khẩu phòng</p>
+                            </div>
+                            @endif
+                        </div>
                         @else
+                        {{-- TTLock: hiển thị mã cổng điện tử --}}
                         <div
                             class="mt-6 bg-slate-50/80 rounded-xl border border-dashed border-gray-300 p-4 flex sm:flex-col sm:flex-row gap-4 sm:items-center justify-between">
                             <div class="flex items-center gap-3">
