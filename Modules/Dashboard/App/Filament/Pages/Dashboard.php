@@ -252,6 +252,7 @@ class Dashboard extends FilamentDashboard
             ->join("{$prodTable} as p", 'oi.product_id', '=', 'p.id')
             ->where('o.status', 'paid')
             ->whereIn('o.payment_method', ['PayOS', 'cod'])
+            ->where('o.exclude_from_stats', false)
             ->whereYear('o.created_at', $year)
             ->whereNotNull('oi.product_id')
             ->select('oi.product_id', 'p.name as product_name', 'o.id as order_id', 'o.amount as order_amount')
@@ -303,6 +304,7 @@ class Dashboard extends FilamentDashboard
         }
         $year  = $year ?? Carbon::now()->year;
         $query = Order::query()
+            ->where('exclude_from_stats', false)
             ->where('status', 'paid')
             ->whereIn('payment_method', ['PayOS', 'cod'])
             ->whereYear('created_at', $year);
@@ -347,6 +349,7 @@ class Dashboard extends FilamentDashboard
             $user = auth()->user();
         }
         $query = Order::query()
+            ->where('exclude_from_stats', false)
             ->where('status', 'paid')
             ->whereIn('payment_method', ['PayOS', 'cod'])
             ->selectRaw('YEAR(created_at) as year')
@@ -376,7 +379,7 @@ class Dashboard extends FilamentDashboard
 
     private function baseQuery(): Builder
     {
-        $query = Order::query();
+        $query = Order::query()->where('exclude_from_stats', false);
         $user  = auth()->user();
         if (! $user || $user->isSuperAdmin()) {
             return $query;

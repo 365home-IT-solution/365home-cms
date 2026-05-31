@@ -74,7 +74,7 @@ class RoomCardsService
                 })
                 ->orWhereHas('order', fn ($q2) => $q2->where('status', 'pending'));
             })
-            ->whereHas('order', fn ($q) => $q->whereNotIn('status', ['cancelled', 'failed']))
+            ->whereHas('order', fn ($q) => $q->whereNotIn('status', ['cancelled', 'failed'])->where('exclude_from_stats', false))
             ->orderByDesc('created_at')
             ->get()
             ->groupBy('product_id');
