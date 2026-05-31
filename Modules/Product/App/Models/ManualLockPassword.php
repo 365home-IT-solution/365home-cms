@@ -108,4 +108,39 @@ class ManualLockPassword extends Model
     {
         $this->update(['is_active' => false]);
     }
+
+    /**
+     * Tìm bộ mật khẩu đang hoạt động cho một phòng tại thời điểm check-in cụ thể.
+     * Ưu tiên: trùng khoảng ngày → mới nhất theo valid_from → fallback bất kỳ active.
+     */
+    public static function getForProductAndDate(
+        Product $product,
+        ?\Carbon\Carbon $checkinDate = null
+    ): ?self {
+        $date = $checkinDate ?? now();
+
+        // 1. Tìm bản ghi có valid_from <= checkin <= valid_until (ưu tiên)
+        $match = static::active()
+            ->whereHas('products', fn ($q) => $q->where('products.id', $product->id))
+            ->where(function ($q) use ($date) {
+                $q->where(function ($inner) use ($date) {
+                    $inner->where('valid_from', '<=', $date)
+                          ->where('valid_until', '>=', $date);
+                })->orWhere(function ($inner) {
+                    $inner->whereNull('valid_from')->whereNull('valid_until');
+                });
+            })
+            ->orderByDesc('valid_from')
+            ->first();
+
+        if ($match) {
+            return $match;
+        }
+
+        // 2. Fallback: bộ mật khẩu active mới nhất cho phòng đó
+        return static::active()
+            ->whereHas('products', fn ($q) => $q->where('products.id', $product->id))
+            ->latest()
+            ->first();
+    }
 }

@@ -172,14 +172,22 @@ class OrderForm
                                             ->content(function ($record) {
                                                 if (! $record) return '';
 
-                                                $record->load(['items.product.manualLockPasswords']);
-                                                $product = $record->items->sortBy('checkin_date')->first()?->product;
+                                                $record->load(['items.product']);
+                                                $firstItem = $record->items->sortBy('checkin_date')->first();
+                                                $product   = $firstItem?->product;
 
                                                 if (! $product) {
                                                     return new \Illuminate\Support\HtmlString('<p class="text-gray-400 text-sm italic">Không tìm thấy thông tin phòng.</p>');
                                                 }
 
-                                                $entry = $product->manualLockPasswords->first();
+                                                $checkinDate = $firstItem?->checkin_date
+                                                    ? \Carbon\Carbon::parse($firstItem->checkin_date)
+                                                    : null;
+
+                                                $entry = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate(
+                                                    $product,
+                                                    $checkinDate
+                                                );
 
                                                 if (! $entry) {
                                                     return new \Illuminate\Support\HtmlString(

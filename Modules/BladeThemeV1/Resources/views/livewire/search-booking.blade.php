@@ -123,8 +123,12 @@
                 $paidAmount = $order->amount;
                 $remainingAmount = $isDepositPaid ? max(0, $fullAmount - $paidAmount) : 0;
 
-                $firstProduct = $order->items->first() ? $order->items->first()->product : null;
-                $manualLockPassword = $firstProduct ? $firstProduct->manualLockPasswords->first() : null;
+                $firstItem = $order->items->first();
+                $firstProduct = $firstItem ? $firstItem->product : null;
+                $checkinDate = $firstItem && $firstItem->checkin_date ? \Carbon\Carbon::parse($firstItem->checkin_date) : null;
+                $manualLockPassword = $firstProduct && $firstProduct->has_manual_lock
+                    ? \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($firstProduct, $checkinDate)
+                    : null;
                 $branchAddress = $firstProduct ? $firstProduct->address : 'Địa chỉ chi nhánh không xác định';
                 $hotline = $firstProduct ? $firstProduct->hotline : '';
                 $wifi = $firstProduct ? $firstProduct->wifi : '...';
