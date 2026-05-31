@@ -15,7 +15,7 @@ class KpiService
             $user = auth()->user();
         }
 
-        $query = Order::query();
+        $query = Order::query()->where('exclude_from_stats', false);
         if ($user && ! $user->isSuperAdmin()) {
             $allCategoryIds = $user->allowedCategoryIds();
             if (empty($allCategoryIds)) {

@@ -48,12 +48,14 @@ class Order extends Model implements Eventable
         'category_id',
         'user_id',
         'money_deposit',
+        'exclude_from_stats',
     ];
 
     protected $casts = [
-        'cccd_data'          => 'array',
-        'deposit_paid_at'    => 'datetime',
-        'remaining_paid_at'  => 'datetime',
+        'cccd_data'            => 'array',
+        'deposit_paid_at'      => 'datetime',
+        'remaining_paid_at'    => 'datetime',
+        'exclude_from_stats'   => 'boolean',
     ];
     protected $with = ['items'];
 

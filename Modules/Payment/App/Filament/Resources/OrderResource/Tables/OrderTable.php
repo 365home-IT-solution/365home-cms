@@ -6,6 +6,7 @@ use Filament\Notifications\Notification;
 use Filament\Support\Enums\FontWeight;
 use Filament\Tables\Actions\Action;
 use Filament\Tables\Columns\BadgeColumn;
+use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\ActionsPosition;
@@ -28,7 +29,12 @@ class OrderTable
     public static function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn ($query) => $query->with(['items.product', 'accessCodes']))
+            ->modifyQueryUsing(function ($query) {
+                $query->with(['items.product', 'accessCodes']);
+                if (! (auth()->user()?->isSuperAdmin() ?? false)) {
+                    $query->where('exclude_from_stats', false);
+                }
+            })
             ->columns([
                 TextColumn::make('order_code')
                     ->label(__('payment::order.table.label.order_code'))
@@ -156,6 +162,17 @@ class OrderTable
                     ->icon('heroicon-o-key')
                     ->badge()
                     ->color(fn($state) => $state ? 'success' : 'gray')
+                    ->toggleable(isToggledHiddenByDefault: false),
+
+                IconColumn::make('exclude_from_stats')
+                    ->label('Thống kê')
+                    ->boolean()
+                    ->trueIcon('heroicon-o-eye-slash')
+                    ->falseIcon('heroicon-o-chart-bar')
+                    ->trueColor('danger')
+                    ->falseColor('success')
+                    ->tooltip(fn ($record) => $record->exclude_from_stats ? 'Đang loại khỏi thống kê & xuất Excel' : 'Đang tính vào thống kê & xuất Excel')
+                    ->visible(fn () => auth()->user()?->isSuperAdmin() ?? false)
                     ->toggleable(isToggledHiddenByDefault: false),
             ])
             ->defaultSort('created_at', 'desc')
@@ -412,6 +429,24 @@ class OrderTable
 
                             return new HtmlString($html);
                         }),
+
+                Action::make('toggle_stats')
+                    ->label(fn ($record) => $record->exclude_from_stats ? 'Bật thống kê' : 'Tắt thống kê')
+                    ->icon(fn ($record) => $record->exclude_from_stats ? 'heroicon-o-chart-bar' : 'heroicon-o-eye-slash')
+                    ->color(fn ($record) => $record->exclude_from_stats ? 'success' : 'danger')
+                    ->visible(fn () => auth()->user()?->isSuperAdmin() ?? false)
+                    ->requiresConfirmation()
+                    ->modalHeading(fn ($record) => $record->exclude_from_stats ? 'Bật lại thống kê cho đơn này?' : 'Loại đơn này khỏi thống kê?')
+                    ->modalDescription(fn ($record) => $record->exclude_from_stats
+                        ? 'Đơn sẽ được tính lại vào dashboard và xuất Excel.'
+                        : 'Đơn sẽ không hiển thị trong dashboard và không có trong file Excel xuất ra.')
+                    ->action(function ($record) {
+                        $record->update(['exclude_from_stats' => ! $record->exclude_from_stats]);
+                        Notification::make()
+                            ->title($record->exclude_from_stats ? 'Đã loại khỏi thống kê' : 'Đã bật lại thống kê')
+                            ->success()
+                            ->send();
+                    }),
 
                 Action::make('view_services')
     ->label('Dịch vụ')
