@@ -24,6 +24,12 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping(1)
             ->appendOutputTo(storage_path('logs/expire-orders.log'));
+
+        $schedule->command('manual-lock-passwords:check-expired')
+            ->hourly()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/expire-manual-lock-passwords.log'));
     }
 
     /**
