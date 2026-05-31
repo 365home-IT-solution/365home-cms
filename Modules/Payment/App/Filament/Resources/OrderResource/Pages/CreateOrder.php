@@ -20,16 +20,21 @@ class CreateOrder extends CreateRecord
     {
         $record = $this->record->fresh(['items.product']);
 
-        // Non-super_admin + PayOS + amount >= 2000 → bắt buộc thanh toán qua PayOS
-        if (! auth()->user()->isSuperAdmin()
-            && $record->payment_method === 'PayOS'
-            && (int) $record->amount >= 2000) {
+        // PayOS (chuyển khoản) + amount >= 2000 → redirect sang QR thanh toán (tất cả roles)
+        if ($record->payment_method === 'PayOS' && (int) $record->amount >= 2000) {
             $record->update(['status' => 'pending']);
+
+            // Nếu đơn đã có checkout_url (được tạo trước) → dùng lại, không tạo mới
+            if (! empty($record->checkout_url)) {
+                $this->payosCheckoutUrl = $record->checkout_url;
+                return;
+            }
+
             $this->createAdminPayosLink($record);
             return;
         }
 
-        // Super admin hoặc amount < 2000 → luồng bình thường
+        // Tiền mặt hoặc amount < 2000 → luồng bình thường
         if ($record->status !== 'paid') {
             return;
         }
@@ -67,7 +72,7 @@ class CreateOrder extends CreateRecord
         }
     }
 
-    private function createAdminPayosLink($record): void
+    private function createAdminPayosLink(\Modules\Payment\Entities\Order $record): void
     {
         try {
             $clientId    = Config::get('payos.client_id');
@@ -94,7 +99,7 @@ class CreateOrder extends CreateRecord
                 'cancelUrl'   => $editUrl . '?payment_status=cancelled',
                 'buyerName'   => $record->buyer_name ?? '',
                 'buyerPhone'  => $record->buyer_phone ?? '',
-                'expiredAt'   => now()->addMinutes(30)->timestamp,
+                'expiredAt'   => now()->addMinutes(15)->timestamp,
                 'items'       => [[
                     'name'     => 'Dat phong - ' . ($record->items->first()?->name ?? 'Phong'),
                     'quantity' => 1,
@@ -111,6 +116,9 @@ class CreateOrder extends CreateRecord
                     ->send();
                 return;
             }
+
+            // Lưu vào DB để tránh tạo lại link khi admin reload
+            $record->update(['checkout_url' => $checkoutUrl]);
 
             Log::info('Admin PayOS link created', [
                 'order_id'   => $record->id,
