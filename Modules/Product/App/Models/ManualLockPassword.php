@@ -2,7 +2,6 @@
 
 namespace Modules\Product\App\Models;
 
-use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Modules\Category\Entities\Category;
@@ -58,6 +57,16 @@ class ManualLockPassword extends Model
         return $this->valid_until !== null && $this->valid_until->isPast();
     }
 
+    public function isExpiringSoon(): bool
+    {
+        if ($this->valid_until === null || $this->isExpired()) {
+            return false;
+        }
+
+        // "Sắp hết hạn" chỉ khi hết hạn trong ngày hôm nay
+        return $this->valid_until->isToday();
+    }
+
     public function getStatusLabelAttribute(): string
     {
         if (! $this->is_active) {
@@ -68,7 +77,7 @@ class ManualLockPassword extends Model
             return 'Đã hết hạn';
         }
 
-        if ($this->valid_until !== null && $this->valid_until->diffInDays(now()) <= 3) {
+        if ($this->isExpiringSoon()) {
             return 'Sắp hết hạn';
         }
 
@@ -85,7 +94,7 @@ class ManualLockPassword extends Model
             return 'danger';
         }
 
-        if ($this->valid_until !== null && Carbon::now()->diffInDays($this->valid_until, false) <= 3) {
+        if ($this->isExpiringSoon()) {
             return 'warning';
         }
 
