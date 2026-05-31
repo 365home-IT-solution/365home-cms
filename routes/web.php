@@ -122,6 +122,7 @@ Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group
                  AS total_revenue,
                  TIMESTAMPDIFF(MONTH, MIN(created_at), MAX(created_at)) + 1 AS active_months'
             )
+            ->where('exclude_from_stats', false)
             ->whereNotNull('buyer_phone')
             ->where('buyer_phone', '!=', '')
             ->whereYear('created_at', $year)
