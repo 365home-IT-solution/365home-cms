@@ -9,7 +9,7 @@ use Modules\Payment\Entities\Order;
 
 class KpiService
 {
-    public static function getData(string $period, $user = null, ?string $customStart = null, ?string $customEnd = null): array
+    public static function getData(string $period, $user = null, ?string $customStart = null, ?string $customEnd = null, ?array $branchCategoryIds = null): array
     {
         if ($user === null) {
             $user = auth()->user();
@@ -23,6 +23,10 @@ class KpiService
             } else {
                 $query->whereIn('category_id', $allCategoryIds);
             }
+        }
+
+        if ($branchCategoryIds !== null) {
+            $query->whereIn('category_id', $branchCategoryIds);
         }
 
         if ($period === 'custom') {

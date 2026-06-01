@@ -149,6 +149,19 @@ class Dashboard extends FilamentDashboard
         $roomRevenue    = static::getRoomRevenueData();
         $monthlyRevenue = static::getMonthlyRevenueData();
 
+        $user            = auth()->user();
+        $branchesQuery   = \Modules\Category\Entities\Category::whereNull('parent_id')
+            ->where('category_type', 'product')
+            ->orderBy('name');
+        if ($user && ! $user->isSuperAdmin()) {
+            $allowedIds = $user->allowedCategoryIds() ?? [];
+            if (! empty($allowedIds)) {
+                $branchesQuery->whereIn('id', $allowedIds)
+                    ->orWhereIn('id', \Modules\Category\Entities\Category::whereIn('id', $allowedIds)->pluck('parent_id')->filter()->toArray());
+            }
+        }
+        $branches = $branchesQuery->get(['id', 'name']);
+
         return compact(
             'total', 'totalDelta',
             'revenue', 'revenueDelta',
@@ -160,7 +173,8 @@ class Dashboard extends FilamentDashboard
             'sources', 'donutData',
             'trendDays', 'trendPending', 'trendPaid', 'trendCancel',
             'barData', 'dateRange', 'prevDateRange',
-            'roomCards', 'roomRevenue', 'monthlyRevenue'
+            'roomCards', 'roomRevenue', 'monthlyRevenue',
+            'branches'
         );
     }
 
@@ -235,7 +249,7 @@ class Dashboard extends FilamentDashboard
     }
 
     /** Doanh thu từng phòng trong năm chỉ định (top 10, status=paid, PayOS+cod) */
-    public static function getRoomRevenueData($user = null, ?int $year = null): array
+    public static function getRoomRevenueData($user = null, ?int $year = null, ?array $branchCategoryIds = null): array
     {
         if ($user === null) {
             $user = auth()->user();
@@ -272,6 +286,10 @@ class Dashboard extends FilamentDashboard
             $inner->whereIn('oi.product_id', $allowedProductIds);
         }
 
+        if ($branchCategoryIds !== null) {
+            $inner->whereIn('o.category_id', $branchCategoryIds);
+        }
+
         $rooms = DB::table(DB::raw("({$inner->toSql()}) as sub"))
             ->mergeBindings($inner)
             ->selectRaw('product_id, product_name, SUM(order_amount) as revenue, COUNT(*) as order_count')
@@ -297,7 +315,7 @@ class Dashboard extends FilamentDashboard
     }
 
     /** Doanh thu từng tháng trong năm chỉ định (mảng 12 phần tử, status=paid, PayOS+cod) */
-    public static function getMonthlyRevenueData($user = null, ?int $year = null): array
+    public static function getMonthlyRevenueData($user = null, ?int $year = null, ?array $branchCategoryIds = null): array
     {
         if ($user === null) {
             $user = auth()->user();
@@ -323,6 +341,10 @@ class Dashboard extends FilamentDashboard
             $query->whereHas('items', function ($q) use ($allowedProductIds) {
                 $q->whereIn('product_id', $allowedProductIds);
             });
+        }
+
+        if ($branchCategoryIds !== null) {
+            $query->whereIn('category_id', $branchCategoryIds);
         }
 
         $data = $query
