@@ -8,6 +8,7 @@ use App\Http\Concerns\BuildsRoomCard;
 use App\Models\Wishlist;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Storage;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
 
@@ -23,8 +24,8 @@ class RoomController extends Controller
                 'roomType',
                 'roomTimeSlots.timeSlot',
                 'roomTimeSlots.promotions',
-                'amenities',
-                'services',
+                'additionalServices',
+                'tags',
                 'specials',
                 'media',
             ])
@@ -88,26 +89,27 @@ class RoomController extends Controller
 
     private function buildGallery(Product $room): array
     {
-        return $room->getMedia('Ảnh bìa')
+        return $room->getMedia('Thư viện')
             ->map(fn ($m) => $m->getUrl())
             ->values()
             ->toArray();
     }
 
     // ─────────────────────────────────────────────
-    // AMENITIES — grouped by amenity_type
+    // AMENITIES — grouped by tag type
     // ─────────────────────────────────────────────
 
     private function buildAmenities(Product $room): array
     {
-        return $room->amenities
-            ->groupBy('amenity_type')
+        return $room->tags
+            ->groupBy('type')
             ->map(fn ($items, $type) => [
                 'type'  => $type,
-                'items' => $items->map(fn ($a) => [
-                    'id'   => $a->id,
-                    'icon' => $a->icon,
-                    'name' => $a->name,
+                'items' => $items->map(fn ($tag) => [
+                    'id'    => $tag->id,
+                    'name'  => $tag->name,
+                    'slug'  => $tag->slug,
+                    'image' => $tag->image,
                 ])->values()->toArray(),
             ])
             ->values()
@@ -115,18 +117,19 @@ class RoomController extends Controller
     }
 
     // ─────────────────────────────────────────────
-    // SERVICES
+    // SERVICES — room_additional_service_assigns
     // ─────────────────────────────────────────────
 
     private function buildServices(Product $room): array
     {
-        return $room->services->map(fn ($s) => [
-            'id'          => $s->id,
-            'name'        => $s->name,
-            'description' => $s->description,
-            'price'       => $s->price,
-            'unit'        => $s->unit,
-        ])->values()->toArray();
+        return $room->additionalServices
+            ->where('is_active', true)
+            ->map(fn ($s) => [
+                'id'    => $s->id,
+                'name'  => $s->name,
+                'price' => $s->price,
+                'image' => $s->image ? Storage::disk('public')->url($s->image) : null,
+            ])->values()->toArray();
     }
 
     // ─────────────────────────────────────────────

@@ -12,8 +12,10 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
 use Illuminate\Support\Str;
 use Modules\AppPage\App\Models\Banner;
+use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
 
 class AppPageForm
@@ -132,12 +134,31 @@ class AppPageForm
                                     ->placeholder('/rooms?type=deal'),
                             ]),
 
+                            Select::make('branch_id')
+                                ->label('Chọn chi nhánh')
+                                ->options(fn () => Category::whereNull('parent_id')
+                                    ->where('category_type', 'product')
+                                    ->orderBy('name')
+                                    ->pluck('name', 'id')
+                                    ->toArray())
+                                ->searchable()
+                                ->live()
+                                ->afterStateUpdated(fn (callable $set) => $set('product_ids', []))
+                                ->placeholder('Tất cả chi nhánh...'),
+
                             Select::make('product_ids')
                                 ->label('Chọn phòng')
                                 ->helperText('Để trống = hiển thị tất cả phòng. Tab lọc vẫn áp dụng theo loại phòng.')
                                 ->multiple()
                                 ->searchable()
-                                ->options(fn () => Product::where('is_activated', true)
+                                ->options(fn (Get $get) => Product::where('is_activated', true)
+                                    ->when(
+                                        $get('branch_id'),
+                                        fn ($q, $branchId) => $q->whereHas(
+                                            'categories',
+                                            fn ($cq) => $cq->where('category_id', $branchId)
+                                        )
+                                    )
                                     ->orderBy('name')
                                     ->pluck('name', 'id')
                                     ->toArray())
