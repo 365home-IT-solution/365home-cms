@@ -132,18 +132,16 @@ class HomeController extends Controller
             $query = Product::where('is_activated', true)
                 ->where('is_in_stock', true);
 
-            // Tab filter (room_type_id from request) takes priority over block's room_type_id
-            $roomTypeId = $tabRoomTypeId ?? ($data['room_type_id'] ? (int) $data['room_type_id'] : null);
-            if ($roomTypeId) {
-                $query->where('room_type_id', $roomTypeId);
-            }
-
             $orderBy = $data['order_by'] ?? 'latest';
             match ($orderBy) {
                 'price_asc'  => $query->orderBy('price'),
                 'price_desc' => $query->orderByDesc('price'),
                 default      => $query->latest(),
             };
+        }
+
+        if ($tabRoomTypeId !== null) {
+            $query->where('room_type_id', $tabRoomTypeId);
         }
 
         $limit = max(1, (int) ($data['limit'] ?? 10));

@@ -15,7 +15,6 @@ use Filament\Forms\Form;
 use Illuminate\Support\Str;
 use Modules\AppPage\App\Models\Banner;
 use Modules\Product\App\Models\Product;
-use Modules\Product\App\Models\RoomType;
 
 class AppPageForm
 {
@@ -133,25 +132,16 @@ class AppPageForm
                                     ->placeholder('/rooms?type=deal'),
                             ]),
 
-                            Select::make('room_type_id')
-                                ->label('Lọc theo loại phòng')
-                                ->options(fn () => RoomType::where('is_active', true)
-                                    ->orderBy('sort_order')
-                                    ->pluck('name', 'id')
-                                    ->toArray())
-                                ->placeholder('Tất cả loại phòng')
-                                ->searchable()
-                                ->nullable(),
-
                             Select::make('product_ids')
-                                ->label('Chọn phòng cụ thể (ghi đè lọc loại)')
+                                ->label('Chọn phòng')
+                                ->helperText('Để trống = hiển thị tất cả phòng. Tab lọc vẫn áp dụng theo loại phòng.')
                                 ->multiple()
                                 ->searchable()
                                 ->options(fn () => Product::where('is_activated', true)
                                     ->orderBy('name')
                                     ->pluck('name', 'id')
                                     ->toArray())
-                                ->placeholder('Tìm theo tên phòng...'),
+                                ->placeholder('Để trống để hiển thị tất cả phòng...'),
                         ]),
                 ]),
         ]);
