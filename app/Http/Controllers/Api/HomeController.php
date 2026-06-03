@@ -2,58 +2,71 @@
 
 declare(strict_types=1);
 
-namespace Modules\AppPage\App\Http\Controllers;
+namespace App\Http\Controllers\Api;
 
 use App\Http\Concerns\BuildsRoomCard;
 use App\Models\Wishlist;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Storage;
 use Modules\AppPage\App\Models\AppPage;
 use Modules\AppPage\App\Models\Banner;
 use Modules\Product\App\Models\Product;
 
-class AppPageController extends Controller
+class HomeController extends Controller
 {
     use BuildsRoomCard;
 
-    private const SUPPORTED_BLOCKS = ['room_list', 'banner'];
+    // tab_id → DB filter
+    private const TAB_MAP = [
+        '0' => ['type' => 'unit', 'value' => 'per_hour'],
+        '1' => ['type' => 'unit', 'value' => 'per_day'],
+        '2' => ['type' => 'unit', 'value' => 'per_night'],
+        '3' => ['type' => 'tag',  'value' => 'self_check_in'],
+        '4' => ['type' => 'tag',  'value' => 'couple'],
+        '5' => ['type' => 'tag',  'value' => 'chill'],
+        '6' => ['type' => 'tag',  'value' => 'family'],
+        '7' => ['type' => 'tag',  'value' => 'birthday'],
+    ];
 
-    public function show(string $slug): JsonResponse
+    public function __invoke(Request $request): JsonResponse
     {
-        $page = AppPage::where('slug', $slug)
+        $page = AppPage::where('slug', 'home')
             ->where('is_active', true)
             ->first();
 
         if (! $page) {
-            return response()->json(['message' => 'Page not found.'], 404);
+            return response()->json(['message' => 'Home page not found.'], 404);
         }
+
+        $tab = $request->query('tab');
+        $tabFilter = isset($tab) ? (self::TAB_MAP[(string) $tab] ?? null) : null;
 
         $wishlistedIds = auth()->check()
             ? Wishlist::where('user_id', auth()->id())->pluck('product_id')->toArray()
             : null;
 
         $sections = collect($page->content ?? [])
-            ->filter(fn ($block) => in_array($block['type'] ?? '', self::SUPPORTED_BLOCKS))
+            ->filter(fn ($block) => in_array($block['type'] ?? '', ['banner', 'room_list']))
             ->values()
-            ->map(fn ($block, $index) => $this->buildBlock($block, $index, $wishlistedIds));
+            ->map(fn ($block, $index) => $this->buildBlock($block, $index, $wishlistedIds, $tabFilter))
+            ->filter()
+            ->values();
 
         return response()->json([
-            $slug => [
+            'home' => [
                 'sections' => $sections,
             ],
         ]);
     }
 
-    private function buildBlock(array $block, int $index, ?array $wishlistedIds): array
+    private function buildBlock(array $block, int $index, ?array $wishlistedIds, ?array $tabFilter): ?array
     {
-        $type = $block['type'];
-        $data = $block['data'] ?? [];
-
-        return match ($type) {
-            'banner'    => $this->buildBanner($data, $index),
-            'room_list' => $this->buildRoomList($data, $index, $wishlistedIds),
-            default     => [],
+        return match ($block['type']) {
+            'banner'    => $this->buildBanner($block['data'] ?? [], $index),
+            'room_list' => $this->buildRoomList($block['data'] ?? [], $index, $wishlistedIds, $tabFilter),
+            default     => null,
         };
     }
 
@@ -78,7 +91,9 @@ class AppPageController extends Controller
             ->map(fn (Banner $banner) => [
                 'title'       => $banner->title,
                 'description' => $banner->description,
-                'image_url'   => $banner->image ? Storage::disk($banner->disk ?? 'public')->url($banner->image) : null,
+                'image_url'   => $banner->image
+                    ? Storage::disk($banner->disk ?? 'public')->url($banner->image)
+                    : null,
                 'url'         => $banner->url,
             ])
             ->values()
@@ -94,7 +109,7 @@ class AppPageController extends Controller
 
     // ─── Room list ───────────────────────────────────────────────────────────
 
-    private function buildRoomList(array $data, int $index, ?array $wishlistedIds): array
+    private function buildRoomList(array $data, int $index, ?array $wishlistedIds, ?array $tabFilter): array
     {
         return [
             'type'         => 'room_list',
@@ -105,26 +120,11 @@ class AppPageController extends Controller
             'view_all_url' => $data['view_all_url'] ?? null,
             'show_arrow'   => (bool) ($data['show_arrow'] ?? true),
             'layout'       => $data['layout'] ?? 'horizontal_scroll',
-            'badge'        => $this->buildSectionBadge($data),
-            'rooms'        => $this->getRooms($data, $wishlistedIds),
+            'rooms'        => $this->getRooms($data, $wishlistedIds, $tabFilter),
         ];
     }
 
-    private function buildSectionBadge(array $data): ?array
-    {
-        if (empty($data['badge_label'])) {
-            return null;
-        }
-
-        return [
-            'label'      => $data['badge_label'],
-            'type'       => $data['badge_type'] ?? null,
-            'bg_color'   => $data['badge_bg_color'] ?? '#FFFFFF',
-            'text_color' => $data['badge_text_color'] ?? '#1F2937',
-        ];
-    }
-
-    private function getRooms(array $data, ?array $wishlistedIds): array
+    private function getRooms(array $data, ?array $wishlistedIds, ?array $tabFilter): array
     {
         $productIds = $data['product_ids'] ?? [];
 
@@ -146,6 +146,15 @@ class AppPageController extends Controller
                 'price_desc' => $query->orderByDesc('price'),
                 default      => $query->latest(),
             };
+        }
+
+        // Apply tab filter
+        if ($tabFilter) {
+            if ($tabFilter['type'] === 'unit') {
+                $query->where('price_unit', $tabFilter['value']);
+            } elseif ($tabFilter['type'] === 'tag') {
+                $query->withAnyTags([$tabFilter['value']]);
+            }
         }
 
         $limit = max(1, (int) ($data['limit'] ?? 10));

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Auth\ZaloOtpController;
+use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\LockRecordCallbackController;
 use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\RoomTypeController;
@@ -34,6 +35,17 @@ Route::post('lock/callback', [LockRecordCallbackController::class, 'handle'])
 |--------------------------------------------------------------------------
 */
 Route::get('room-types', [RoomTypeController::class, 'index'])->name('api.room-types.index');
+
+/*
+|--------------------------------------------------------------------------
+| V1 — Home
+| GET /api/v1/home           → Full sections (banner + room_list)
+| GET /api/v1/home?tab={id}  → Banner + room_list lọc theo tab
+|--------------------------------------------------------------------------
+*/
+Route::prefix('v1')->name('api.v1.')->group(function () {
+    Route::get('home', HomeController::class)->name('home');
+});
 
 /*
 |--------------------------------------------------------------------------

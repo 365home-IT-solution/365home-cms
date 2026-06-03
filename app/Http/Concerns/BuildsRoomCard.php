@@ -26,10 +26,14 @@ trait BuildsRoomCard
             $baseUnit  = $room->price_unit;
         }
 
+        $roomType = $room->relationLoaded('roomType') ? $room->roomType : null;
+
         return [
             'slug'            => $room->slug,
             'name'            => $room->name,
             'thumbnail_url'   => $this->getMainImageUrl($room),
+            'room_type_id'    => $roomType?->id,
+            'room_type_slug'  => $roomType?->slug,
             'badge'           => $badge ? [
                 'label'      => $badge['label'] ?? null,
                 'type'       => $badge['type'] ?? null,
