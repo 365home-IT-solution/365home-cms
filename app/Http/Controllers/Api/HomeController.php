@@ -144,11 +144,8 @@ class HomeController extends Controller
             $query->where('room_type_id', $tabRoomTypeId);
         }
 
-        $limit = max(1, (int) ($data['limit'] ?? 10));
-
         return $query
             ->with(['roomTimeSlots.timeSlot', 'media', 'roomType'])
-            ->limit($limit)
             ->get()
             ->map(function ($room) use ($wishlistedIds) {
                 $status = $wishlistedIds === null ? null : \in_array($room->id, $wishlistedIds);

@@ -58,7 +58,7 @@ trait BuildsRoomCard
     private function getMainImageUrl(Product $room): ?string
     {
         $media = $room->getFirstMedia('Ảnh bìa')
-              ?? $room->getFirstMedia('Thư viện')
+              ?? $room->getFirstMedia('Ảnh chính')
               ?? $room->getFirstMedia();
 
         return $media?->getUrl();

@@ -88,7 +88,7 @@ class RoomController extends Controller
 
     private function buildGallery(Product $room): array
     {
-        return $room->getMedia('Thư viện')
+        return $room->getMedia('Ảnh chính')
             ->map(fn ($m) => $m->getUrl())
             ->values()
             ->toArray();
