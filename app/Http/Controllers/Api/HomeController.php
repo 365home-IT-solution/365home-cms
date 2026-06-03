@@ -147,7 +147,7 @@ class HomeController extends Controller
         $limit = max(1, (int) ($data['limit'] ?? 10));
 
         return $query
-            ->with(['roomTimeSlots.timeSlot', 'mainImage', 'roomType'])
+            ->with(['roomTimeSlots.timeSlot', 'media', 'roomType'])
             ->limit($limit)
             ->get()
             ->map(function ($room) use ($wishlistedIds) {

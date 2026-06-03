@@ -8,7 +8,6 @@ use App\Http\Concerns\BuildsRoomCard;
 use App\Models\Wishlist;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\Storage;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
 
@@ -27,8 +26,7 @@ class RoomController extends Controller
                 'amenities',
                 'services',
                 'specials',
-                'mainImage',
-                'galleryImages',
+                'media',
             ])
             ->first();
 
@@ -78,15 +76,10 @@ class RoomController extends Controller
 
     private function buildMainImages(Product $room): array
     {
-        $main = $room->mainImage;
-        if (! $main || empty($main->path)) return [];
-
-        $storage = Storage::disk($main->disk);
-
-        return array_values(array_map(
-            fn ($p) => is_string($p) ? $storage->url($p) : '',
-            array_filter($main->path, 'is_string')
-        ));
+        return $room->getMedia('Ảnh bìa')
+            ->map(fn ($m) => $m->getUrl())
+            ->values()
+            ->toArray();
     }
 
     // ─────────────────────────────────────────────
@@ -95,8 +88,8 @@ class RoomController extends Controller
 
     private function buildGallery(Product $room): array
     {
-        return $room->galleryImages
-            ->flatMap(fn ($img) => $img->sections)
+        return $room->getMedia('Thư viện')
+            ->map(fn ($m) => $m->getUrl())
             ->values()
             ->toArray();
     }

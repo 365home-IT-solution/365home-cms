@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Concerns;
 
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Storage;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\TimeSlot;
 
@@ -58,11 +57,11 @@ trait BuildsRoomCard
 
     private function getMainImageUrl(Product $room): ?string
     {
-        $main = $room->mainImage;
-        if (! $main || empty($main->path)) return null;
+        $media = $room->getFirstMedia('Ảnh bìa')
+              ?? $room->getFirstMedia('Thư viện')
+              ?? $room->getFirstMedia();
 
-        $paths = array_values(array_filter((array) $main->path, 'is_string'));
-        return isset($paths[0]) ? Storage::disk($main->disk)->url($paths[0]) : null;
+        return $media?->getUrl();
     }
 
     private function buildTimeSlots(Product $room): array
