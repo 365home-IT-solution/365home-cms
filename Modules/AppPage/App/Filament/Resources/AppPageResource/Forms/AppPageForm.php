@@ -151,17 +151,24 @@ class AppPageForm
                                 ->helperText('Để trống = hiển thị tất cả phòng. Tab lọc vẫn áp dụng theo loại phòng.')
                                 ->multiple()
                                 ->searchable()
-                                ->options(fn (Get $get) => Product::where('is_activated', true)
-                                    ->when(
-                                        $get('branch_id'),
-                                        fn ($q, $branchId) => $q->whereHas(
+                                ->options(function (Get $get) {
+                                    $query = Product::where('is_activated', true);
+
+                                    $branchId = $get('branch_id');
+                                    if ($branchId) {
+                                        $childIds = Category::where('parent_id', $branchId)
+                                            ->pluck('id');
+
+                                        $filterIds = $childIds->isNotEmpty() ? $childIds : collect([$branchId]);
+
+                                        $query->whereHas(
                                             'categories',
-                                            fn ($cq) => $cq->where('category_id', $branchId)
-                                        )
-                                    )
-                                    ->orderBy('name')
-                                    ->pluck('name', 'id')
-                                    ->toArray())
+                                            fn ($cq) => $cq->whereIn('category_id', $filterIds)
+                                        );
+                                    }
+
+                                    return $query->orderBy('name')->pluck('name', 'id')->toArray();
+                                })
                                 ->placeholder('Để trống để hiển thị tất cả phòng...'),
                         ]),
                 ]),
