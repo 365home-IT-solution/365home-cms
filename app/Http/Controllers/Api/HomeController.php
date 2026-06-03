@@ -13,22 +13,11 @@ use Illuminate\Support\Facades\Storage;
 use Modules\AppPage\App\Models\AppPage;
 use Modules\AppPage\App\Models\Banner;
 use Modules\Product\App\Models\Product;
+use Modules\Product\App\Models\RoomType;
 
 class HomeController extends Controller
 {
     use BuildsRoomCard;
-
-    // tab_id → DB filter
-    private const TAB_MAP = [
-        '0' => ['type' => 'unit', 'value' => 'per_hour'],
-        '1' => ['type' => 'unit', 'value' => 'per_day'],
-        '2' => ['type' => 'unit', 'value' => 'per_night'],
-        '3' => ['type' => 'tag',  'value' => 'self_check_in'],
-        '4' => ['type' => 'tag',  'value' => 'couple'],
-        '5' => ['type' => 'tag',  'value' => 'chill'],
-        '6' => ['type' => 'tag',  'value' => 'family'],
-        '7' => ['type' => 'tag',  'value' => 'birthday'],
-    ];
 
     public function __invoke(Request $request): JsonResponse
     {
@@ -40,8 +29,14 @@ class HomeController extends Controller
             return response()->json(['message' => 'Home page not found.'], 404);
         }
 
-        $tab = $request->query('tab');
-        $tabFilter = isset($tab) ? (self::TAB_MAP[(string) $tab] ?? null) : null;
+        $tabRoomTypeId = $request->query('tab') !== null
+            ? (int) $request->query('tab')
+            : null;
+
+        $roomTypes = RoomType::where('is_active', true)
+            ->orderBy('sort_order')
+            ->get(['id', 'slug', 'name', 'icon', 'icon_url'])
+            ->toArray();
 
         $wishlistedIds = auth()->check()
             ? Wishlist::where('user_id', auth()->id())->pluck('product_id')->toArray()
@@ -50,22 +45,23 @@ class HomeController extends Controller
         $sections = collect($page->content ?? [])
             ->filter(fn ($block) => in_array($block['type'] ?? '', ['banner', 'room_list']))
             ->values()
-            ->map(fn ($block, $index) => $this->buildBlock($block, $index, $wishlistedIds, $tabFilter))
+            ->map(fn ($block, $index) => $this->buildBlock($block, $index, $wishlistedIds, $tabRoomTypeId))
             ->filter()
             ->values();
 
         return response()->json([
             'home' => [
-                'sections' => $sections,
+                'room_types' => $roomTypes,
+                'sections'   => $sections,
             ],
         ]);
     }
 
-    private function buildBlock(array $block, int $index, ?array $wishlistedIds, ?array $tabFilter): ?array
+    private function buildBlock(array $block, int $index, ?array $wishlistedIds, ?int $tabRoomTypeId): ?array
     {
         return match ($block['type']) {
             'banner'    => $this->buildBanner($block['data'] ?? [], $index),
-            'room_list' => $this->buildRoomList($block['data'] ?? [], $index, $wishlistedIds, $tabFilter),
+            'room_list' => $this->buildRoomList($block['data'] ?? [], $index, $wishlistedIds, $tabRoomTypeId),
             default     => null,
         };
     }
@@ -109,7 +105,7 @@ class HomeController extends Controller
 
     // ─── Room list ───────────────────────────────────────────────────────────
 
-    private function buildRoomList(array $data, int $index, ?array $wishlistedIds, ?array $tabFilter): array
+    private function buildRoomList(array $data, int $index, ?array $wishlistedIds, ?int $tabRoomTypeId): array
     {
         return [
             'type'         => 'room_list',
@@ -120,11 +116,11 @@ class HomeController extends Controller
             'view_all_url' => $data['view_all_url'] ?? null,
             'show_arrow'   => (bool) ($data['show_arrow'] ?? true),
             'layout'       => $data['layout'] ?? 'horizontal_scroll',
-            'rooms'        => $this->getRooms($data, $wishlistedIds, $tabFilter),
+            'rooms'        => $this->getRooms($data, $wishlistedIds, $tabRoomTypeId),
         ];
     }
 
-    private function getRooms(array $data, ?array $wishlistedIds, ?array $tabFilter): array
+    private function getRooms(array $data, ?array $wishlistedIds, ?int $tabRoomTypeId): array
     {
         $productIds = $data['product_ids'] ?? [];
 
@@ -136,8 +132,10 @@ class HomeController extends Controller
             $query = Product::where('is_activated', true)
                 ->where('is_in_stock', true);
 
-            if (! empty($data['room_type_id'])) {
-                $query->where('room_type_id', $data['room_type_id']);
+            // Tab filter (room_type_id from request) takes priority over block's room_type_id
+            $roomTypeId = $tabRoomTypeId ?? ($data['room_type_id'] ? (int) $data['room_type_id'] : null);
+            if ($roomTypeId) {
+                $query->where('room_type_id', $roomTypeId);
             }
 
             $orderBy = $data['order_by'] ?? 'latest';
@@ -148,15 +146,6 @@ class HomeController extends Controller
             };
         }
 
-        // Apply tab filter
-        if ($tabFilter) {
-            if ($tabFilter['type'] === 'unit') {
-                $query->where('price_unit', $tabFilter['value']);
-            } elseif ($tabFilter['type'] === 'tag') {
-                $query->withAnyTags([$tabFilter['value']]);
-            }
-        }
-
         $limit = max(1, (int) ($data['limit'] ?? 10));
 
         return $query
@@ -164,7 +153,7 @@ class HomeController extends Controller
             ->limit($limit)
             ->get()
             ->map(function ($room) use ($wishlistedIds) {
-                $status = $wishlistedIds === null ? null : in_array($room->id, $wishlistedIds);
+                $status = $wishlistedIds === null ? null : \in_array($room->id, $wishlistedIds);
 
                 return $this->mapRoom($room, $status);
             })
