@@ -134,7 +134,7 @@ class RoomController extends Controller
             $basePrice = $slot['price'];
 
             // Blocked date check (from roomTimeSlot settings)
-            $isBlocked = $rts->isBlockedOnDate($dateStr);
+            $isBlocked = $rts->isBlockedOn($dateStr);
 
             // Promotions applicable to this slot on this date
             $slotStart = Carbon::parse("{$dateStr} {$slot['start_time']}");
