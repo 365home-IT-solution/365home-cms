@@ -71,10 +71,11 @@ class PostTable
                         'scheduled' => __('post::post.table.colors.status.scheduled'),
                         'archived' => __('post::post.table.colors.status.archived'),
                     }),
-                TextColumn::make('created_at')
-                    ->label(__('post::post.table.label.created_at'))
-                    ->dateTime()
-                    ->sortable(),
+                TextColumn::make('published_at')
+                    ->label('Ngày công khai')
+                    ->dateTime('d/m/Y H:i')
+                    ->sortable()
+                    ->placeholder('—'),
             ])
             ->defaultSort('created_at', 'desc')
             ->filters(PostFilter::filter())

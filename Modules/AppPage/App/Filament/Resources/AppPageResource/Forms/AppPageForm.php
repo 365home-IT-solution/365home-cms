@@ -134,13 +134,14 @@ class AppPageForm
                                     ->placeholder('/rooms?type=deal'),
                             ]),
 
-                            Select::make('branch_id')
+                            Select::make('branch_ids')
                                 ->label('Chọn chi nhánh')
                                 ->options(fn () => Category::whereNull('parent_id')
                                     ->where('category_type', 'product')
                                     ->orderBy('name')
                                     ->pluck('name', 'id')
                                     ->toArray())
+                                ->multiple()
                                 ->searchable()
                                 ->live()
                                 ->afterStateUpdated(fn (callable $set) => $set('product_ids', []))
@@ -154,12 +155,14 @@ class AppPageForm
                                 ->options(function (Get $get) {
                                     $query = Product::where('is_activated', true);
 
-                                    $branchId = $get('branch_id');
-                                    if ($branchId) {
-                                        $childIds = Category::where('parent_id', $branchId)
+                                    $branchIds = array_filter((array) ($get('branch_ids') ?? []));
+                                    if (! empty($branchIds)) {
+                                        $childIds = Category::whereIn('parent_id', $branchIds)
                                             ->pluck('id');
 
-                                        $filterIds = $childIds->isNotEmpty() ? $childIds : collect([$branchId]);
+                                        $filterIds = $childIds->isNotEmpty()
+                                            ? $childIds
+                                            : collect($branchIds);
 
                                         $query->whereHas(
                                             'categories',

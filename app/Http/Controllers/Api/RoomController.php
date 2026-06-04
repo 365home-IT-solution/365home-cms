@@ -59,6 +59,8 @@ class RoomController extends Controller
             'slug'              => $room->slug,
             'short_description' => $room->short_description,
             'description'       => $room->description,
+            'address'           => $room->address,
+            'map_url'           => $room->map_url,
             'main'              => $this->buildMainImages($room),
             'gallery'           => $this->buildGallery($room),
             'wishlist_status'   => $wishlistStatus,
