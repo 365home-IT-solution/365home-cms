@@ -160,11 +160,16 @@ class ProductForm
                 ->placeholder('Nhập địa chỉ chi nhánh')
                 ->inlineLabel(),
 
-            TextInput::make('map_url')
-                ->label('Địa chỉ đường dẫn Google Map')
-                ->maxLength(500)
-                ->placeholder('https://maps.app.goo.gl/...')
-                ->url()
+            TextInput::make('latitude')
+                ->label('Vĩ độ (Latitude)')
+                ->numeric()
+                ->placeholder('10.7769')
+                ->inlineLabel(),
+
+            TextInput::make('longitude')
+                ->label('Kinh độ (Longitude)')
+                ->numeric()
+                ->placeholder('106.7009')
                 ->inlineLabel(),
 
             TextInput::make('hotline')
