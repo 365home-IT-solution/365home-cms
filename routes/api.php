@@ -63,7 +63,7 @@ Route::get('pages/{slug}', [AppPageController::class, 'show'])->name('api.pages.
 |--------------------------------------------------------------------------
 */
 Route::get('rooms/{slug}', [RoomController::class, 'show'])->name('api.rooms.show');
-Route::get('rooms/{slug}/slots', [RoomController::class, 'slots'])->name('api.rooms.slots');
+Route::get('slots', [RoomController::class, 'slots'])->name('api.slots');
 
 /*
 |--------------------------------------------------------------------------

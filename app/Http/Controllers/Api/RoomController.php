@@ -50,12 +50,20 @@ class RoomController extends Controller
         ]);
     }
 
-    // GET /api/rooms/{slug}/slots?date=2026-06-04
-    public function slots(string $slug, Request $request): JsonResponse
+    // GET /api/slots?room_id=...&date=2026-06-04
+    public function slots(Request $request): JsonResponse
     {
-        $room = Product::where('slug', $slug)
+        $roomId = $request->query('room_id');
+        if (! $roomId) {
+            return response()->json(['message' => 'Thiếu tham số room_id.'], 422);
+        }
+
+        $room = Product::where('id', $roomId)
             ->where('is_activated', true)
-            ->with(['roomTimeSlots.timeSlot'])
+            ->with([
+                'roomTimeSlots.timeSlot',
+                'roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
+            ])
             ->first();
 
         if (! $room) {
@@ -73,15 +81,17 @@ class RoomController extends Controller
             return response()->json(['message' => 'Định dạng date không hợp lệ. Dùng YYYY-MM-DD.'], 422);
         }
 
-        // All template slots for this room
+        // All template slots for this room (keep $rts reference for promotions/blocked check)
         $templateSlots = $room->roomTimeSlots
             ->whereNull('date')
             ->map(function ($rts) {
                 $ts = $rts->timeSlot;
                 if (! $ts) return null;
                 return [
+                    'rts'         => $rts,
                     'timeslot_id' => $rts->timeslot_id,
                     'start_time'  => $ts->start_time,
+                    'end_time'    => $ts->end_time,
                     'time'        => substr($ts->start_time, 0, 5) . ' - ' . substr($ts->end_time, 0, 5),
                     'price'       => (int) $rts->price,
                     'over_night'  => (bool) $rts->over_night,
@@ -112,7 +122,6 @@ class RoomController extends Controller
                 $slotStart = Carbon::parse("{$dateStr} {$slot['start_time']}");
                 if ($slotStart->gte($checkin) && $slotStart->lt($checkout)) {
                     $id = $slot['timeslot_id'];
-                    // Paid/confirmed status takes priority over pending
                     if (! isset($bookedMap[$id]) || $orderStatus !== 'pending') {
                         $bookedMap[$id] = $orderStatus;
                     }
@@ -120,17 +129,73 @@ class RoomController extends Controller
             }
         }
 
-        $slots = $templateSlots->map(function ($slot) use ($bookedMap) {
-            $status = isset($bookedMap[$slot['timeslot_id']])
-                ? $bookedMap[$slot['timeslot_id']]
-                : null;
+        $slots = $templateSlots->map(function ($slot) use ($bookedMap, $dateStr) {
+            $rts       = $slot['rts'];
+            $basePrice = $slot['price'];
+
+            // Blocked date check (from roomTimeSlot settings)
+            $isBlocked = $rts->isBlockedOnDate($dateStr);
+
+            // Promotions applicable to this slot on this date
+            $slotStart = Carbon::parse("{$dateStr} {$slot['start_time']}");
+            $slotEnd   = Carbon::parse("{$dateStr} {$slot['end_time']}");
+            if ($slotEnd->lte($slotStart)) {
+                $slotEnd->addDay(); // overnight slot
+            }
+
+            $priceAfterIncrease = $basePrice;
+            $finalPrice         = $basePrice;
+            $activePromos       = [];
+
+            // Pass 1: apply increases first (same order as blade)
+            foreach ($rts->promotions as $promo) {
+                if (! $this->promotionOverlapsSlot($promo, $slotStart, $slotEnd)) continue;
+                if ($promo->type === 'increase_fixed') {
+                    $priceAfterIncrease += (float) $promo->value;
+                } elseif ($promo->type === 'increase_percentage') {
+                    $priceAfterIncrease += $basePrice * ($promo->value / 100);
+                } else {
+                    continue;
+                }
+                $finalPrice     = $priceAfterIncrease;
+                $activePromos[] = $promo;
+            }
+
+            // Pass 2: apply discounts
+            foreach ($rts->promotions as $promo) {
+                if (! $this->promotionOverlapsSlot($promo, $slotStart, $slotEnd)) continue;
+                if ($promo->type === 'fixed') {
+                    $finalPrice -= (float) $promo->value;
+                } elseif ($promo->type === 'percentage') {
+                    $finalPrice -= $priceAfterIncrease * ($promo->value / 100);
+                } else {
+                    continue;
+                }
+                if (! collect($activePromos)->contains('id', $promo->id)) {
+                    $activePromos[] = $promo;
+                }
+            }
+
+            $finalPrice = max(0, (int) $finalPrice);
+
+            $promotionData = collect($activePromos)->map(fn ($p) => [
+                'id'    => $p->id,
+                'name'  => $p->name,
+                'type'  => $p->type,
+                'value' => $p->value,
+                'label' => $p->lable_client,
+                'image' => $p->image ? Storage::disk('public')->url($p->image) : null,
+            ])->values()->toArray();
 
             return [
                 'timeslot_id'  => $slot['timeslot_id'],
                 'time'         => $slot['time'],
-                'price'        => $slot['price'],
+                'price'        => $basePrice,
+                'final_price'  => $finalPrice !== $basePrice ? $finalPrice : null,
                 'over_night'   => $slot['over_night'],
-                'order_status' => $status,
+                'is_blocked'   => $isBlocked,
+                'order_status' => $bookedMap[$slot['timeslot_id']] ?? null,
+                'promotions'   => $promotionData,
             ];
         })->values()->toArray();
 
@@ -330,5 +395,17 @@ class RoomController extends Controller
             ])
             ->values()
             ->toArray();
+    }
+
+    // ─────────────────────────────────────────────
+    // HELPERS
+    // ─────────────────────────────────────────────
+
+    private function promotionOverlapsSlot($promotion, Carbon $slotStart, Carbon $slotEnd): bool
+    {
+        if (! $promotion->start_at || ! $promotion->end_at) {
+            return false;
+        }
+        return $slotStart->lt($promotion->end_at) && $slotEnd->gt($promotion->start_at);
     }
 }
