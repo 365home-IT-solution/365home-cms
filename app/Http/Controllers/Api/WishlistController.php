@@ -43,6 +43,13 @@ class WishlistController extends Controller
             $status = true;
         }
 
-        return response()->json(['wishlist_status' => $status]);
+        return response()->json([
+            'customer_id'      => $user->id,
+            'room_id'          => $product->id,
+            'wishlist_status'  => $status,
+            'message'          => $status
+                ? 'Đã thêm vào danh sách yêu thích'
+                : 'Đã xoá khỏi danh sách yêu thích',
+        ]);
     }
 }
