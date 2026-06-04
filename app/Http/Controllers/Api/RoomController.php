@@ -6,9 +6,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Concerns\BuildsRoomCard;
 use App\Models\Wishlist;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Storage;
+use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
 
@@ -66,10 +68,11 @@ class RoomController extends Controller
             'wishlist_status'   => $wishlistStatus,
             'is_available'      => $room->is_in_stock,
             'room_type'         => $room->roomType?->slug,
-            'amenities'         => $this->buildAmenities($room),
+            'amenities'           => $this->buildAmenities($room),
             'additional_services' => $this->buildServices($room),
-            'specials'          => $this->buildSpecials($room),
-            'prices'            => $this->buildPrices($room),
+            'specials'            => $this->buildSpecials($room),
+            'prices'              => $this->buildPrices($room),
+            'status'              => $this->buildStatus($room),
         ];
     }
 
@@ -191,6 +194,85 @@ class RoomController extends Controller
             'default_checkout' => $room->default_checkout,
             'promotions'       => $this->buildDailyPromotions($room),
         ];
+    }
+
+    // ─────────────────────────────────────────────
+    // STATUS — booked slots by date
+    // ─────────────────────────────────────────────
+
+    private function buildStatus(Product $room): array
+    {
+        $activeItems = OrderItem::query()
+            ->where('product_id', $room->id)
+            ->whereNotNull('checkin_date')
+            ->whereNotNull('checkout_date')
+            ->where('checkout_date', '>', Carbon::now())
+            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped', 'confirmed']))
+            ->with('order:id,status')
+            ->get(['id', 'order_id', 'checkin_date', 'checkout_date']);
+
+        if ($activeItems->isEmpty()) {
+            return [];
+        }
+
+        // Template slots (date = null) — reuse already eager-loaded relation
+        $templateSlots = $room->roomTimeSlots
+            ->whereNull('date')
+            ->map(function ($rts) {
+                $ts = $rts->timeSlot;
+                if (! $ts) {
+                    return null;
+                }
+                return [
+                    'timeslot_id' => $rts->timeslot_id,
+                    'start_time'  => $ts->start_time, // "HH:MM:SS"
+                    'time'        => substr($ts->start_time, 0, 5) . ' - ' . substr($ts->end_time, 0, 5),
+                ];
+            })
+            ->filter()
+            ->values();
+
+        $statusByDate = [];
+
+        foreach ($activeItems as $item) {
+            $checkin      = Carbon::parse($item->checkin_date);
+            $checkout     = Carbon::parse($item->checkout_date);
+            $orderStatus  = $item->order?->status ?? 'pending';
+
+            // For overnight slots the checkout falls on the next day,
+            // so check slots on BOTH the checkin date and checkout date.
+            $datesToCheck = [$checkin->format('Y-m-d')];
+            if ($checkin->format('Y-m-d') !== $checkout->format('Y-m-d')) {
+                $datesToCheck[] = $checkout->format('Y-m-d');
+            }
+
+            foreach ($datesToCheck as $dateStr) {
+                foreach ($templateSlots as $slot) {
+                    $slotStart = Carbon::parse("{$dateStr} {$slot['start_time']}");
+
+                    // Slot is occupied when its start falls in [checkin, checkout)
+                    if ($slotStart->gte($checkin) && $slotStart->lt($checkout)) {
+                        if (! isset($statusByDate[$dateStr])) {
+                            $statusByDate[$dateStr] = [];
+                        }
+                        $alreadyAdded = collect($statusByDate[$dateStr])
+                            ->contains('timeslot_id', $slot['timeslot_id']);
+                        if (! $alreadyAdded) {
+                            $statusByDate[$dateStr][] = [
+                                'timeslot_id'  => $slot['timeslot_id'],
+                                'time'         => $slot['time'],
+                                'order_status' => $orderStatus,
+                            ];
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sort by date ascending
+        ksort($statusByDate);
+
+        return $statusByDate;
     }
 
     // ─────────────────────────────────────────────
