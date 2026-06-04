@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Concerns\BuildsRoomCard;
-use App\Models\Wishlist;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -38,8 +37,9 @@ class HomeController extends Controller
             ->get(['id', 'slug', 'name', 'icon', 'icon_url'])
             ->toArray();
 
-        $wishlistedIds = auth()->check()
-            ? Wishlist::where('user_id', auth()->id())->pluck('product_id')->toArray()
+        $authUser      = auth('sanctum')->user();
+        $wishlistedIds = $authUser
+            ? $authUser->wishlists()->pluck('product_id')->toArray()
             : null;
 
         $sections = collect($page->content ?? [])
