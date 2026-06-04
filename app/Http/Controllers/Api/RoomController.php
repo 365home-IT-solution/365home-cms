@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Concerns\BuildsRoomCard;
-use App\Models\Wishlist;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -38,12 +37,10 @@ class RoomController extends Controller
             return response()->json(['message' => 'Phòng không tồn tại.'], 404);
         }
 
-        $wishlistStatus = null;
-        if (auth()->check()) {
-            $wishlistStatus = Wishlist::where('user_id', auth()->id())
-                ->where('product_id', $room->id)
-                ->exists();
-        }
+        $authUser       = auth('sanctum')->user();
+        $wishlistStatus = $authUser
+            ? $authUser->wishlists()->where('product_id', $room->id)->exists()
+            : null;
 
         return response()->json([
             'data' => $this->buildRoomDetail($room, $wishlistStatus),
