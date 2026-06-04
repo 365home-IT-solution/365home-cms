@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api\Auth;
 
 use App\Http\Controllers\Controller;
-use App\Models\User;
+use App\Models\Customer;
 use App\Services\ZaloOtpService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class ZaloOtpController extends Controller
 {
@@ -59,21 +61,21 @@ class ZaloOtpController extends Controller
         }
 
         $normalizedPhone = $this->otp->normalizePhone($request->phone);
-        $user            = User::where('phone', $normalizedPhone)->first();
+        $customer        = Customer::where('phone', $normalizedPhone)->first();
 
-        if ($user) {
-            $user->phone_verified_at = now();
-            $user->save();
+        if ($customer) {
+            $customer->phone_verified_at = now();
+            $customer->save();
 
-            $user->tokens()->delete();
+            $customer->tokens()->delete();
             $expiresAt = now()->addDays(30);
-            $token     = $user->createToken('mobile', ['*'], $expiresAt)->plainTextToken;
+            $token     = $customer->createToken('mobile', ['*'], $expiresAt)->plainTextToken;
 
             return response()->json([
                 'is_new_user' => false,
                 'token'       => $token,
                 'expires_at'  => $expiresAt->toIso8601String(),
-                'user'        => $this->userResource($user),
+                'user'        => $this->customerResource($customer),
             ]);
         }
 
@@ -87,7 +89,7 @@ class ZaloOtpController extends Controller
     }
 
     /**
-     * Bước 4 flow đăng ký: tạo tài khoản sau khi điền thông tin.
+     * Tạo tài khoản khách hàng sau khi xác thực OTP.
      * Body: { phone_token, fullname, date_of_birth }
      */
     public function register(Request $request): JsonResponse
@@ -106,7 +108,7 @@ class ZaloOtpController extends Controller
             ], 422);
         }
 
-        if (User::where('phone', $normalizedPhone)->exists()) {
+        if (Customer::where('phone', $normalizedPhone)->exists()) {
             return response()->json([
                 'message'  => 'Số điện thoại này đã có tài khoản. Vui lòng đăng nhập.',
                 'redirect' => 'login',
@@ -115,21 +117,21 @@ class ZaloOtpController extends Controller
 
         $this->otp->consumePhoneToken($request->phone_token);
 
-        $user = User::create([
+        $customer = Customer::create([
             'phone'             => $normalizedPhone,
             'fullname'          => $request->fullname,
-            'date_of_birth'     => \Carbon\Carbon::createFromFormat('d-m-Y', $request->date_of_birth)->toDateString(),
+            'date_of_birth'     => Carbon::createFromFormat('d-m-Y', $request->date_of_birth)->toDateString(),
             'phone_verified_at' => now(),
         ]);
 
         $expiresAt = now()->addDays(30);
-        $token     = $user->createToken('mobile', ['*'], $expiresAt)->plainTextToken;
+        $token     = $customer->createToken('mobile', ['*'], $expiresAt)->plainTextToken;
 
         return response()->json([
             'token'       => $token,
             'expires_at'  => $expiresAt->toIso8601String(),
             'is_new_user' => true,
-            'user'        => $this->userResource($user),
+            'user'        => $this->customerResource($customer),
         ], 201);
     }
 
@@ -144,23 +146,73 @@ class ZaloOtpController extends Controller
     }
 
     /**
-     * Thông tin user đang đăng nhập.
+     * Thông tin khách hàng đang đăng nhập.
      */
     public function me(Request $request): JsonResponse
     {
-        return response()->json($this->userResource($request->user()));
+        return response()->json($this->customerResource($request->user()));
     }
 
-    private function userResource(User $user): array
+    /**
+     * Cập nhật thông tin khách hàng (yêu cầu token).
+     * Body (multipart/form-data): fullname?, date_of_birth?, cccd_front?, cccd_back?
+     */
+    public function update(Request $request): JsonResponse
+    {
+        $request->validate([
+            'fullname'      => 'sometimes|string|max:255',
+            'date_of_birth' => 'sometimes|date_format:d-m-Y|before:today',
+            'cccd_front'    => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'cccd_back'     => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
+        ]);
+
+        $customer = $request->user();
+        $data     = [];
+
+        if ($request->filled('fullname')) {
+            $data['fullname'] = $request->fullname;
+        }
+
+        if ($request->filled('date_of_birth')) {
+            $data['date_of_birth'] = Carbon::createFromFormat('d-m-Y', $request->date_of_birth)->toDateString();
+        }
+
+        if ($request->hasFile('cccd_front')) {
+            if ($customer->cccd_front) {
+                Storage::disk('public')->delete($customer->cccd_front);
+            }
+            $data['cccd_front'] = $request->file('cccd_front')->store('cccd', 'public');
+        }
+
+        if ($request->hasFile('cccd_back')) {
+            if ($customer->cccd_back) {
+                Storage::disk('public')->delete($customer->cccd_back);
+            }
+            $data['cccd_back'] = $request->file('cccd_back')->store('cccd', 'public');
+        }
+
+        if (! empty($data)) {
+            $customer->update($data);
+            $customer->refresh();
+        }
+
+        return response()->json($this->customerResource($customer));
+    }
+
+    private function customerResource(Customer $customer): array
     {
         return [
-            'id'                => $user->id,
-            'fullname'          => $user->fullname,
-            'date_of_birth'     => $user->date_of_birth?->toDateString(),
-            'phone'             => $user->phone,
-            'email'             => $user->email,
-            'phone_verified_at' => $user->phone_verified_at?->toIso8601String(),
-            'avatar'            => $user->getFilamentAvatarUrl(),
+            'id'                => $customer->id,
+            'fullname'          => $customer->fullname,
+            'date_of_birth'     => $customer->date_of_birth?->toDateString(),
+            'phone'             => $customer->phone,
+            'phone_verified_at' => $customer->phone_verified_at?->toIso8601String(),
+            'cccd_front'        => $customer->cccd_front
+                ? Storage::disk('public')->url($customer->cccd_front)
+                : null,
+            'cccd_back'         => $customer->cccd_back
+                ? Storage::disk('public')->url($customer->cccd_back)
+                : null,
         ];
     }
 }

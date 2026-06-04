@@ -10,13 +10,18 @@ use Modules\Product\App\Models\Product;
 
 class Wishlist extends Model
 {
-    protected $fillable = ['user_id', 'product_id'];
+    protected $fillable = ['user_id', 'customer_id', 'product_id'];
 
     protected $casts = ['product_id' => 'string'];
 
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function customer(): BelongsTo
+    {
+        return $this->belongsTo(Customer::class);
     }
 
     public function product(): BelongsTo

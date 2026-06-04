@@ -8,6 +8,10 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasColumn('orders', 'exclude_from_stats')) {
+            return;
+        }
+
         Schema::table('orders', function (Blueprint $table) {
             $table->boolean('exclude_from_stats')->default(false)->after('money_deposit');
         });
