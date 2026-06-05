@@ -981,6 +981,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
     /**
      * Re-fetch giá từ DB cho style 1 để chống price manipulation từ client.
      * Ghi đè $this->selectedSlots với giá thực từ RoomTimeSlot + promotions.
+     * Dùng PromotionCalculator để đảm bảo logic giống API 100%.
      */
     protected function recalculateSlotPricesFromDB(): void
     {
@@ -988,54 +989,35 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             return;
         }
 
-        $nowDt = now();
         $this->product->loadMissing(['roomTimeSlots.timeSlot', 'roomTimeSlots.promotions']);
 
         $basePrice     = (float) ($this->product->price ?? 0);
         $productDisc   = (float) ($this->product->discount ?? 0);
         $effectiveBase = $productDisc > 0 ? round($basePrice * (1 - $productDisc / 100)) : $basePrice;
 
-        $rtsMap    = collect($this->product->roomTimeSlots)->keyBy('timeslot_id');
-        $sanitized = [];
+        $calculator = new \App\Services\PromotionCalculator();
+        $rtsMap     = collect($this->product->roomTimeSlots)->keyBy('timeslot_id');
+        $sanitized  = [];
 
         foreach ($this->selectedSlots as $slot) {
-            $timeslotId = $slot['timeslotId'] ?? null;
-            $rts        = $timeslotId ? $rtsMap->get($timeslotId) : null;
+            $timeslotId  = $slot['timeslotId'] ?? null;
+            $bookingDate = $slot['date'] ?? null;
+            $rts         = $timeslotId ? $rtsMap->get($timeslotId) : null;
 
-            $dbBasePrice     = ($rts && $rts->price !== null) ? (float) $rts->price : $effectiveBase;
+            $dbBasePrice = ($rts && $rts->price !== null) ? (float) $rts->price : $effectiveBase;
+
             $increaseAmount  = 0;
             $promoDiscount   = 0;
             $priceAfterPromo = $dbBasePrice;
 
-            if ($rts) {
-                foreach ($rts->promotions as $promo) {
-                    if (!$promo->is_active) continue;
-                    if ($promo->start_at && $promo->start_at > $nowDt) continue;
-                    if ($promo->end_at   && $promo->end_at   < $nowDt) continue;
+            if ($rts && $bookingDate && $rts->timeSlot) {
+                // Tạm gán price gốc để calculator dùng đúng base
+                $rts->price = $dbBasePrice;
 
-                    $v = (float) $promo->value;
-                    switch ($promo->type) {
-                        case 'percentage':
-                            $disc = round($priceAfterPromo * $v / 100);
-                            $promoDiscount  += $disc;
-                            $priceAfterPromo -= $disc;
-                            break;
-                        case 'fixed':
-                            $disc = min((float) $priceAfterPromo, $v);
-                            $promoDiscount  += $disc;
-                            $priceAfterPromo = max(0, $priceAfterPromo - $v);
-                            break;
-                        case 'increase_percentage':
-                            $inc = round($priceAfterPromo * $v / 100);
-                            $increaseAmount  += $inc;
-                            $priceAfterPromo += $inc;
-                            break;
-                        case 'increase_fixed':
-                            $increaseAmount  += $v;
-                            $priceAfterPromo += $v;
-                            break;
-                    }
-                }
+                $result          = $calculator->calculate($rts, $bookingDate);
+                $increaseAmount  = $result['increase_amount'];
+                $promoDiscount   = $result['promo_discount'];
+                $priceAfterPromo = $result['final_price'];
             }
 
             $slot['basePrice']      = $dbBasePrice;

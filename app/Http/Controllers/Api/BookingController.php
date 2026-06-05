@@ -17,6 +17,7 @@ use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
+use App\Services\PromotionCalculator;
 use Modules\Promotion\App\Models\Coupon;
 use PayOS\PayOS;
 
@@ -498,57 +499,39 @@ class BookingController extends Controller
 
     private function applyPromotions(Collection $rtsCollection, float $orderAmount, array $slotSummary = []): array
     {
-        // Build map timeslot_id => booking date để kiểm tra overlap đúng ngày đặt
+        $calculator  = new PromotionCalculator();
         $slotDateMap = collect($slotSummary)->pluck('date', 'timeslot_id');
-
-        $promotions = collect();
-        foreach ($rtsCollection as $rts) {
-            $bookingDate = $slotDateMap->get($rts->timeslot_id);
-
-            $rts->promotions
-                ->filter(function ($p) use ($rts, $bookingDate) {
-                    if (! $p->start_at || ! $p->end_at) {
-                        return false;
-                    }
-                    if (! $bookingDate || ! $rts->timeSlot) {
-                        return false;
-                    }
-                    // Kiểm tra overlap giữa thời gian slot đặt và khoảng thời gian promotion
-                    // (giống promotionOverlapsSlot() của RoomController)
-                    $slotStart = Carbon::parse("{$bookingDate} {$rts->timeSlot->start_time}");
-                    $slotEnd   = Carbon::parse("{$bookingDate} {$rts->timeSlot->end_time}");
-                    if ($slotEnd->lte($slotStart)) {
-                        $slotEnd->addDay();
-                    }
-                    return $slotStart->lt($p->end_at) && $slotEnd->gt($p->start_at);
-                })
-                ->each(function ($p) use ($promotions) {
-                    if (! $promotions->contains('id', $p->id)) {
-                        $promotions->push($p);
-                    }
-                });
-        }
 
         $totalDiscount = 0;
         $applied       = [];
 
-        foreach ($promotions as $promotion) {
-            $discount = $promotion->type === 'percentage'
-                ? ($orderAmount * (float) $promotion->value) / 100
-                : (float) $promotion->value;
-
-            $discount = min($discount, $orderAmount - $totalDiscount);
-            if ($discount <= 0) {
+        foreach ($rtsCollection as $rts) {
+            $bookingDate = $slotDateMap->get($rts->timeslot_id);
+            if (! $bookingDate || ! $rts->timeSlot) {
                 continue;
             }
 
-            $totalDiscount += $discount;
-            $applied[] = [
-                'name'            => $promotion->name,
-                'type'            => $promotion->type,
-                'value'           => $promotion->value,
-                'discount_amount' => (int) $discount,
-            ];
+            $result = $calculator->calculate($rts, $bookingDate);
+
+            $totalDiscount += $result['promo_discount'];
+
+            foreach ($result['applied'] as $entry) {
+                // Gộp các promotion trùng id (nhiều slot cùng promo)
+                $existing = null;
+                foreach ($applied as &$a) {
+                    if ($a['id'] === $entry['id']) {
+                        $existing = &$a;
+                        break;
+                    }
+                }
+                unset($a);
+
+                if ($existing) {
+                    $existing['discount_amount'] += $entry['discount_amount'];
+                } else {
+                    $applied[] = $entry;
+                }
+            }
         }
 
         return [(int) $totalDiscount, $applied];
