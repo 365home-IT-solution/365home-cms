@@ -2,6 +2,7 @@
 
 namespace Modules\Payment\Entities;
 
+use App\Models\Customer;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -49,6 +50,7 @@ class Order extends Model implements Eventable
         'user_id',
         'money_deposit',
         'exclude_from_stats',
+        'customer_id',
     ];
 
     protected $casts = [
@@ -114,6 +116,11 @@ class Order extends Model implements Eventable
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function customer()
+    {
+        return $this->belongsTo(Customer::class);
     }
 
     /**

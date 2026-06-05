@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Auth\ZaloOtpController;
+use App\Http\Controllers\Api\BookingController;
 use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\LockRecordCallbackController;
 use App\Http\Controllers\Api\RoomController;
@@ -97,6 +98,16 @@ Route::prefix('auth')->name('api.auth.')->group(function () {
         Route::patch('me',     [ZaloOtpController::class, 'update'])->name('me.update');
     });
 });
+
+/*
+|--------------------------------------------------------------------------
+| Orders / Booking
+| POST /api/orders → Tạo đơn đặt phòng (slot hoặc monthly)
+|                    - Nếu có token Sanctum: lấy buyer từ customer
+|                    - Nếu không có token:  bắt buộc buyer_name + buyer_phone
+|--------------------------------------------------------------------------
+*/
+Route::post('orders', [BookingController::class, 'store'])->name('api.orders.store');
 
 /*
 |--------------------------------------------------------------------------
