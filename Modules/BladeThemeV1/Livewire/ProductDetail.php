@@ -611,11 +611,9 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         }
 
         // ========== COUPON: luôn áp dụng được, kể cả khi full booking ==========
+        // Tính trên $totalAfterPromo (giá sau các discount trước đó) — không dùng giá gốc
         if ($this->appliedCoupon) {
-            $applicableSlots  = $this->getApplicableSlots($this->appliedCoupon);
-            $applicableAmount = collect($applicableSlots)->sum('price');
-
-            $this->couponDiscountAmount = $this->appliedCoupon->calculateDiscount($applicableAmount);
+            $this->couponDiscountAmount = $this->appliedCoupon->calculateDiscount($totalAfterPromo);
             $totalAfterPromo           -= $this->couponDiscountAmount;
         }
 

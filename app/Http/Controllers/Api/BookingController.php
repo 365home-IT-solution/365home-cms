@@ -104,7 +104,7 @@ class BookingController extends Controller
             // Full booking: áp discount trên basePrice, KHÔNG promotion/bulk
             [$systemDiscount, $appliedSystemDiscount] = $this->applyFullBookingDiscount($basePrice, $room);
 
-            // Coupon vẫn áp được sau full_booking_discount
+            // Coupon tính trên giá sau full_booking_discount
             if ($request->filled('coupon_code')) {
                 [$couponDiscount, $appliedCoupon] = $this->applyCoupon(
                     $request->coupon_code,
