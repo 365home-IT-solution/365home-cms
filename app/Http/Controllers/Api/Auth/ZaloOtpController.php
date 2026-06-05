@@ -201,10 +201,11 @@ class ZaloOtpController extends Controller
 
         if (! empty($data)) {
             $customer->update($data);
-            $customer->refresh();
         }
 
-        return response()->json($this->customerResource($customer));
+        return response()->json($this->customerResource(
+            Customer::find($customer->id) ?? $customer
+        ));
     }
 
     private function customerResource(Customer $customer): array
