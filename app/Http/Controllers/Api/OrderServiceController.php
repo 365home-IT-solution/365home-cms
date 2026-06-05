@@ -84,24 +84,24 @@ class OrderServiceController extends Controller
             $order->services()->create($svc);
         }
 
-        // Cập nhật lại amount và full_amount
-        $roomPrice  = (int) $order->items->sum('price');
-        $fullAmount = $roomPrice + $addedTotal;
-        $discount   = max(0, (int) $order->full_amount - (int) $order->amount);
-        $amount     = max(0, $fullAmount - $discount);
+        // Cập nhật lại amount (giá gốc) và full_amount (giá thực tế sau giảm giá)
+        $roomPrice   = (int) $order->items->sum('price');
+        $newSubtotal = $roomPrice + $addedTotal;
+        $discount    = max(0, (int) $order->amount - (int) $order->full_amount);
+        $newFinal    = max(0, $newSubtotal - $discount);
 
         $order->update([
-            'full_amount' => $fullAmount,
-            'amount'      => $amount,
+            'amount'      => $newSubtotal,
+            'full_amount' => $newFinal,
         ]);
 
         $order->refresh();
 
         return response()->json([
             'order_code'      => $order->order_code,
-            'full_amount'     => (int) $order->full_amount,
+            'subtotal'        => (int) $order->amount,
             'discount_amount' => $discount,
-            'amount'          => (int) $order->amount,
+            'final_amount'    => (int) $order->full_amount,
             'services'        => $servicesData,
         ]);
     }
