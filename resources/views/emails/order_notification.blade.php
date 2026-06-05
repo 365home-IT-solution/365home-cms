@@ -328,7 +328,7 @@
                         <tr style="border-top: 2px solid #2c3e50;">
                             <td style="text-align: right; padding-top: 15px; font-weight: 600; color: #2c3e50;">Tổng tiền:</td>
                             <td style="text-align: right; padding-top: 15px;">
-                                <strong style="font-size: 20px; color: #2c3e50;">{{ number_format($order->amount, 0, ',', '.') }} ₫</strong>
+                                <strong style="font-size: 20px; color: #2c3e50;">{{ number_format($order->full_amount, 0, ',', '.') }} ₫</strong>
                             </td>
                         </tr>
                     </tbody>

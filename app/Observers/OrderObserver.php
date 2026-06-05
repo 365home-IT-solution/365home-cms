@@ -52,7 +52,7 @@ class OrderObserver
 
     private function send(Order $order, string $title, string $icon, string $color): void
     {
-        $body  = "#{$order->order_code} · {$order->buyer_name} · " . number_format($order->amount) . ' VNĐ';
+        $body  = "#{$order->order_code} · {$order->buyer_name} · " . number_format($order->full_amount) . ' VNĐ';
         $users = $this->adminUsers($order);
 
         Notification::make()
