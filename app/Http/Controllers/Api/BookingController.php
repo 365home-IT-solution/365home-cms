@@ -58,7 +58,12 @@ class BookingController extends Controller
         // ── 3. Load phòng ─────────────────────────────────────────────────────
         $room = Product::where('id', $request->input('room_id'))
             ->where('is_activated', true)
-            ->with(['roomType', 'roomTimeSlots.timeSlot', 'additionalServices'])
+            ->with([
+                'roomType',
+                'additionalServices',
+                'roomTimeSlots.timeSlot',
+                'roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
+            ])
             ->first();
 
         if (! $room) {
@@ -495,13 +500,14 @@ class BookingController extends Controller
     {
         $now = now();
 
+        // Dùng relation đã eager-load, lọc date trong PHP
         $promotions = collect();
         foreach ($rtsCollection as $rts) {
-            $rts->promotions()
-                ->where('is_active', true)
-                ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', $now))
-                ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', $now))
-                ->get()
+            $rts->promotions
+                ->filter(fn ($p) =>
+                    (is_null($p->start_at) || $p->start_at <= $now) &&
+                    (is_null($p->end_at)   || $p->end_at   >= $now)
+                )
                 ->each(function ($p) use ($promotions) {
                     if (! $promotions->contains('id', $p->id)) {
                         $promotions->push($p);
