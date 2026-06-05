@@ -107,7 +107,7 @@ Route::prefix('auth')->name('api.auth.')->group(function () {
 |                    - Nếu không có token:  bắt buộc buyer_name + buyer_phone
 |--------------------------------------------------------------------------
 */
-Route::post('orders', [BookingController::class, 'store'])->name('api.orders.store');
+Route::middleware('auth:sanctum')->post('orders', [BookingController::class, 'store'])->name('api.orders.store');
 
 /*
 |--------------------------------------------------------------------------

@@ -11,7 +11,6 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
@@ -21,14 +20,11 @@ use PayOS\PayOS;
 class BookingController extends Controller
 {
     /**
-     * POST /api/orders
+     * POST /api/orders  [auth:sanctum required]
      *
      * Tạo đơn đặt phòng theo 2 loại:
      *   - slot:    đặt theo khung giờ (cần timeslot_id + date)
      *   - monthly: đặt theo tháng    (cần checkin_date + checkout_date)
-     *
-     * Nếu có token Sanctum → lấy buyer_name/buyer_phone từ customer.
-     * Nếu không có token   → bắt buộc truyền buyer_name + buyer_phone.
      */
     public function store(Request $request): JsonResponse
     {
@@ -38,10 +34,6 @@ class BookingController extends Controller
             'room_id'        => 'required|string',
             'guest_count'    => 'required|integer|min:1',
             'payment_method' => 'sometimes|in:PayOS,cash',
-            'buyer_name'     => 'sometimes|nullable|string|max:255',
-            'buyer_phone'    => 'sometimes|nullable|string|max:20',
-            'cccd_front'     => 'sometimes|file|image|max:5120',
-            'cccd_back'      => 'sometimes|file|image|max:5120',
         ];
 
         if ($request->input('type') === 'slot') {
@@ -54,26 +46,16 @@ class BookingController extends Controller
 
         $request->validate($baseRules);
 
-        // ── 2. Xác định thông tin khách ──────────────────────────────────────
+        // ── 2. Lấy thông tin khách từ token (bắt buộc đăng nhập) ───────────────
+        /** @var \App\Models\Customer $customer */
         $customer   = auth('sanctum')->user();
-        $buyerName  = $customer ? $customer->fullname : $request->buyer_name;
-        $buyerPhone = $customer ? $customer->phone    : $request->buyer_phone;
-
-        if (! $customer && (! $buyerName || ! $buyerPhone)) {
-            throw ValidationException::withMessages([
-                'buyer_name'  => ! $buyerName  ? ['Trường này là bắt buộc khi chưa đăng nhập.'] : [],
-                'buyer_phone' => ! $buyerPhone ? ['Trường này là bắt buộc khi chưa đăng nhập.'] : [],
-            ]);
-        }
+        $buyerName  = $customer->fullname;
+        $buyerPhone = $customer->phone;
 
         // ── 3. Load phòng ────────────────────────────────────────────────────
-        $room = Product::where('id', $request->room_id)
+        $room = Product::where('id', $request->input('room_id'))
             ->where('is_activated', true)
-            ->with([
-                'roomType',
-                'roomTimeSlots.timeSlot',
-                'roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
-            ])
+            ->with(['roomType', 'roomTimeSlots.timeSlot'])
             ->first();
 
         if (! $room) {
@@ -89,11 +71,11 @@ class BookingController extends Controller
 
         // ── 5. Upload CCCD ───────────────────────────────────────────────────
         $cccdFront = $request->hasFile('cccd_front')
-            ? Storage::disk('public')->putFile('cccd/front', $request->file('cccd_front'))
+            ? $request->file('cccd_front')->store('cccd/front', 'public')
             : null;
 
         $cccdBack = $request->hasFile('cccd_back')
-            ? Storage::disk('public')->putFile('cccd/back', $request->file('cccd_back'))
+            ? $request->file('cccd_back')->store('cccd/back', 'public')
             : null;
 
         // ── 6. Lấy category từ phòng ────────────────────────────────────────
