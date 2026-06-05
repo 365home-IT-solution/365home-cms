@@ -35,6 +35,12 @@ class Customer extends Authenticatable
         'date_of_birth'     => 'date',
     ];
 
+    // Filament gọi $user->name — map về fullname để tránh TypeError
+    public function getNameAttribute(): string
+    {
+        return $this->fullname ?? '';
+    }
+
     protected static function boot(): void
     {
         parent::boot();
