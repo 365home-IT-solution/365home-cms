@@ -95,7 +95,7 @@ Route::prefix('auth')->name('api.auth.')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('logout',  [ZaloOtpController::class, 'logout'])->name('logout');
         Route::get('me',       [ZaloOtpController::class, 'me'])->name('me');
-        Route::patch('me',     [ZaloOtpController::class, 'update'])->name('me.update');
+        Route::post('me',      [ZaloOtpController::class, 'update'])->name('me.update');
     });
 });
 

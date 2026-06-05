@@ -12,28 +12,29 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Modules\BladeThemeV1\App\Models\AdditionService;
+use Modules\Payment\App\Models\OrderService;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
+use Modules\Product\App\Models\RoomTimeSlot;
+use Modules\Promotion\App\Models\Coupon;
 use PayOS\PayOS;
 
 class BookingController extends Controller
 {
-    /**
-     * POST /api/orders  [auth:sanctum required]
-     *
-     * Tạo đơn đặt phòng theo 2 loại:
-     *   - slot:    đặt theo khung giờ (cần timeslot_id + date)
-     *   - monthly: đặt theo tháng    (cần checkin_date + checkout_date)
-     */
     public function store(Request $request): JsonResponse
     {
-        // ── 1. Validate đầu vào ──────────────────────────────────────────────
+        // ── 1. Validate ──────────────────────────────────────────────────────
         $baseRules = [
-            'type'           => 'required|in:slot,monthly',
-            'room_id'        => 'required|string',
-            'guest_count'    => 'required|integer|min:1',
-            'payment_method' => 'sometimes|in:PayOS,cash',
+            'type'                    => 'required|in:slot,monthly',
+            'room_id'                 => 'required|string',
+            'guest_count'             => 'required|integer|min:1',
+            'payment_method'          => 'sometimes|in:PayOS,cash',
+            'coupon_code'             => 'sometimes|nullable|string',
+            'services'                => 'sometimes|nullable|array',
+            'services.*.service_id'   => 'required_with:services|integer',
+            'services.*.quantity'     => 'required_with:services|integer|min:1',
         ];
 
         if ($request->input('type') === 'slot') {
@@ -46,58 +47,75 @@ class BookingController extends Controller
 
         $request->validate($baseRules);
 
-        // ── 2. Lấy thông tin khách từ token (bắt buộc đăng nhập) ───────────────
+        // ── 2. Khách hàng từ token ────────────────────────────────────────────
         /** @var \App\Models\Customer $customer */
         $customer   = auth('sanctum')->user();
         $buyerName  = $customer->fullname;
         $buyerPhone = $customer->phone;
 
-        // ── 3. Load phòng ────────────────────────────────────────────────────
+        // ── 3. Load phòng + dịch vụ bổ sung ─────────────────────────────────
         $room = Product::where('id', $request->input('room_id'))
             ->where('is_activated', true)
-            ->with(['roomType', 'roomTimeSlots.timeSlot'])
+            ->with(['roomType', 'roomTimeSlots.timeSlot', 'additionalServices'])
             ->first();
 
         if (! $room) {
             return response()->json(['message' => 'Phòng không tồn tại hoặc đã ngừng hoạt động.'], 404);
         }
 
-        // ── 4. Xây dựng dữ liệu đặt phòng theo loại ────────────────────────
+        // ── 4. Xây dựng item đặt phòng ───────────────────────────────────────
+        $rts = null;
         if ($request->type === 'slot') {
-            [$amount, $itemName, $itemData] = $this->buildSlotItem($request, $room);
+            [$basePrice, $itemName, $itemData, $rts] = $this->buildSlotItem($request, $room);
         } else {
-            [$amount, $itemName, $itemData] = $this->buildMonthlyItem($request, $room);
+            [$basePrice, $itemName, $itemData] = $this->buildMonthlyItem($request, $room);
         }
 
-        // ── 5. Upload CCCD ───────────────────────────────────────────────────
-        $cccdFront = $request->hasFile('cccd_front')
-            ? $request->file('cccd_front')->store('cccd/front', 'public')
-            : null;
+        // ── 5. Dịch vụ bổ sung ──────────────────────────────────────────────
+        [$servicesTotal, $servicesData] = $this->buildServices($request, $room);
 
-        $cccdBack = $request->hasFile('cccd_back')
-            ? $request->file('cccd_back')->store('cccd/back', 'public')
-            : null;
+        $subtotalBeforeDiscount = $basePrice + $servicesTotal;
 
-        // ── 6. Lấy category từ phòng ────────────────────────────────────────
+        // ── 6. Auto-apply promotions (chỉ với slot) ──────────────────────────
+        $appliedPromotions = [];
+        $promotionDiscount = 0;
+        if ($rts !== null) {
+            [$promotionDiscount, $appliedPromotions] = $this->applyPromotions($rts, $subtotalBeforeDiscount);
+        }
+
+        // ── 7. Mã giảm giá ──────────────────────────────────────────────────
+        $appliedCoupon  = null;
+        $couponDiscount = 0;
+        if ($request->filled('coupon_code')) {
+            [$couponDiscount, $appliedCoupon] = $this->applyCoupon(
+                $request->coupon_code,
+                $subtotalBeforeDiscount - $promotionDiscount,
+                $room,
+                $rts
+            );
+        }
+
+        $fullAmount     = $subtotalBeforeDiscount;
+        $discountAmount = $promotionDiscount + $couponDiscount;
+        $amount         = max(0, $fullAmount - $discountAmount);
+
         $category      = $room->categories()->first();
         $paymentMethod = $request->input('payment_method', 'PayOS');
 
-        // ── 7. Tạo đơn hàng + item trong transaction ────────────────────────
+        // ── 8. Tạo đơn + items + services trong transaction ──────────────────
         $order = DB::transaction(function () use (
-            $room, $amount, $buyerName, $buyerPhone,
-            $customer, $cccdFront, $cccdBack, $category,
-            $itemData, $paymentMethod, $request
+            $room, $amount, $fullAmount, $buyerName, $buyerPhone,
+            $customer, $category, $itemData, $servicesData,
+            $paymentMethod, $request, $appliedCoupon
         ) {
             $order = Order::create([
                 'amount'         => $amount,
-                'full_amount'    => $amount,
+                'full_amount'    => $fullAmount,
                 'description'    => 'Đặt phòng - ' . $room->name,
                 'buyer_name'     => $buyerName,
                 'buyer_phone'    => $buyerPhone,
                 'payment_method' => $paymentMethod,
                 'status'         => 'pending',
-                'cccd_front'     => $cccdFront,
-                'cccd_back'      => $cccdBack,
                 'guest_count'    => $request->guest_count,
                 'category_id'    => $category?->id,
                 'customer_id'    => $customer?->id,
@@ -105,10 +123,24 @@ class BookingController extends Controller
 
             $order->items()->create($itemData);
 
+            foreach ($servicesData as $svc) {
+                $order->services()->create([
+                    'service_id'   => $svc['service_id'],
+                    'service_name' => $svc['service_name'],
+                    'price'        => $svc['price'],
+                    'quantity'     => $svc['quantity'],
+                    'subtotal'     => $svc['subtotal'],
+                ]);
+            }
+
+            if ($appliedCoupon) {
+                $appliedCoupon->incrementUsage();
+            }
+
             return $order;
         });
 
-        // ── 8. Tạo link PayOS (nếu thanh toán qua PayOS) ────────────────────
+        // ── 9. Tạo link PayOS ────────────────────────────────────────────────
         if ($paymentMethod === 'PayOS' && $amount >= 2000) {
             $this->createPayOSLink($order, $itemName);
         }
@@ -118,29 +150,38 @@ class BookingController extends Controller
         return response()->json([
             'success' => true,
             'order'   => [
-                'id'             => $order->id,
-                'order_code'     => $order->order_code,
-                'amount'         => $order->amount,
-                'full_amount'    => $order->full_amount,
-                'description'    => $order->description,
-                'buyer_name'     => $order->buyer_name,
-                'buyer_phone'    => $order->buyer_phone,
-                'payment_method' => $order->payment_method,
-                'status'         => $order->status,
-                'expired_at'     => $order->expired_at,
-                'checkout_url'   => $order->checkout_url,
+                'id'              => $order->id,
+                'order_code'      => $order->order_code,
+                'full_amount'     => (int) $order->full_amount,
+                'discount_amount' => $discountAmount,
+                'amount'          => (int) $order->amount,
+                'description'     => $order->description,
+                'buyer_name'      => $order->buyer_name,
+                'buyer_phone'     => $order->buyer_phone,
+                'payment_method'  => $order->payment_method,
+                'status'          => $order->status,
+                'expired_at'      => $order->expired_at,
+                'checkout_url'    => $order->checkout_url,
+                'services'        => $servicesData,
+                'promotions'      => $appliedPromotions,
+                'coupon'          => $appliedCoupon ? [
+                    'code'            => $appliedCoupon->code,
+                    'name'            => $appliedCoupon->name,
+                    'type'            => $appliedCoupon->type,
+                    'value'           => $appliedCoupon->value,
+                    'discount_amount' => $couponDiscount,
+                ] : null,
             ],
         ], 201);
     }
 
-    // ── SLOT: Đặt theo khung giờ ─────────────────────────────────────────────
+    // ── Slot ─────────────────────────────────────────────────────────────────
 
     private function buildSlotItem(Request $request, Product $room): array
     {
         $timeslotId = (int) $request->timeslot_id;
         $dateStr    = $request->date;
 
-        // Tìm template RoomTimeSlot (date IS NULL) của phòng với timeslot_id tương ứng
         $rts = $room->roomTimeSlots
             ->filter(fn ($s) => is_null($s->date))
             ->where('timeslot_id', $timeslotId)
@@ -152,7 +193,6 @@ class BookingController extends Controller
             ]);
         }
 
-        // Kiểm tra slot có bị block không
         if ($rts->isBlockedOn($dateStr)) {
             throw ValidationException::withMessages([
                 'date' => ['Khung giờ này đã bị chặn vào ngày bạn chọn.'],
@@ -162,13 +202,10 @@ class BookingController extends Controller
         $timeSlot = $rts->timeSlot;
         $checkin  = Carbon::parse("{$dateStr} {$timeSlot->start_time}");
         $checkout = Carbon::parse("{$dateStr} {$timeSlot->end_time}");
-
-        // Qua đêm: end_time <= start_time → checkout sang ngày hôm sau
         if ($checkout->lte($checkin)) {
             $checkout->addDay();
         }
 
-        // Kiểm tra conflict với đơn hàng đã tồn tại
         $conflict = OrderItem::where('product_id', $room->id)
             ->whereNotNull('checkin_date')
             ->whereNotNull('checkout_date')
@@ -183,11 +220,11 @@ class BookingController extends Controller
             ]);
         }
 
-        $startLabel = substr($timeSlot->start_time, 0, 5);
-        $endLabel   = substr($timeSlot->end_time, 0, 5);
+        $startLabel  = substr($timeSlot->start_time, 0, 5);
+        $endLabel    = substr($timeSlot->end_time, 0, 5);
         $isOvernight = (bool) $rts->over_night;
-        $itemName   = $room->name . ' - ' . $startLabel . ' - ' . $endLabel . ($isOvernight ? ' (Qua đêm)' : '');
-        $price      = (int) $rts->price;
+        $itemName    = $room->name . ' - ' . $startLabel . ' - ' . $endLabel . ($isOvernight ? ' (Qua đêm)' : '');
+        $price       = (int) $rts->price;
 
         return [$price, $itemName, [
             'product_id'    => $room->id,
@@ -199,17 +236,16 @@ class BookingController extends Controller
             'checkout_date' => $checkout,
             'extra_fee'     => 0,
             'guest_count'   => $request->guest_count,
-        ]];
+        ], $rts];
     }
 
-    // ── MONTHLY: Đặt theo tháng ──────────────────────────────────────────────
+    // ── Monthly ───────────────────────────────────────────────────────────────
 
     private function buildMonthlyItem(Request $request, Product $room): array
     {
         $checkin  = Carbon::parse($request->checkin_date);
         $checkout = Carbon::parse($request->checkout_date);
 
-        // Kiểm tra conflict
         $conflict = OrderItem::where('product_id', $room->id)
             ->whereNotNull('checkin_date')
             ->whereNotNull('checkout_date')
@@ -241,7 +277,136 @@ class BookingController extends Controller
         ]];
     }
 
-    // ── Tạo link thanh toán PayOS ─────────────────────────────────────────────
+    // ── Additional services ───────────────────────────────────────────────────
+
+    private function buildServices(Request $request, Product $room): array
+    {
+        $requested = collect($request->input('services', []));
+        if ($requested->isEmpty()) {
+            return [0, []];
+        }
+
+        $availableServices = $room->additionalServices->keyBy('id');
+
+        $total = 0;
+        $data  = [];
+
+        foreach ($requested as $index => $entry) {
+            $serviceId = (int) $entry['service_id'];
+            $quantity  = (int) $entry['quantity'];
+            $service   = $availableServices->get($serviceId);
+
+            if (! $service || ! $service->is_active) {
+                throw ValidationException::withMessages([
+                    "services.{$index}.service_id" => ["Dịch vụ #{$serviceId} không tồn tại hoặc không khả dụng cho phòng này."],
+                ]);
+            }
+
+            $subtotal = $service->price * $quantity;
+            $total   += $subtotal;
+
+            $data[] = [
+                'service_id'   => $service->id,
+                'service_name' => $service->name,
+                'price'        => (int) $service->price,
+                'quantity'     => $quantity,
+                'subtotal'     => (int) $subtotal,
+            ];
+        }
+
+        return [$total, $data];
+    }
+
+    // ── Promotions (auto-apply từ slot) ───────────────────────────────────────
+
+    private function applyPromotions(RoomTimeSlot $rts, float $orderAmount): array
+    {
+        $now = now();
+
+        $promotions = $rts->promotions()
+            ->where('is_active', true)
+            ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', $now))
+            ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', $now))
+            ->get();
+
+        $totalDiscount = 0;
+        $applied       = [];
+
+        foreach ($promotions as $promotion) {
+            $discount = $promotion->type === 'percentage'
+                ? ($orderAmount * (float) $promotion->value) / 100
+                : (float) $promotion->value;
+
+            $discount = min($discount, $orderAmount - $totalDiscount);
+            if ($discount <= 0) {
+                continue;
+            }
+
+            $totalDiscount += $discount;
+            $applied[] = [
+                'name'            => $promotion->name,
+                'type'            => $promotion->type,
+                'value'           => $promotion->value,
+                'discount_amount' => (int) $discount,
+            ];
+        }
+
+        return [(int) $totalDiscount, $applied];
+    }
+
+    // ── Coupon ────────────────────────────────────────────────────────────────
+
+    private function applyCoupon(
+        string $code,
+        float $orderAmount,
+        Product $room,
+        ?RoomTimeSlot $rts
+    ): array {
+        $coupon = Coupon::where('code', strtoupper($code))
+            ->where('is_active', true)
+            ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', now()))
+            ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', now()))
+            ->first();
+
+        if (! $coupon) {
+            throw ValidationException::withMessages([
+                'coupon_code' => ['Mã giảm giá không tồn tại hoặc đã hết hạn.'],
+            ]);
+        }
+
+        if ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {
+            throw ValidationException::withMessages([
+                'coupon_code' => ['Mã giảm giá đã hết lượt sử dụng.'],
+            ]);
+        }
+
+        if ($coupon->min_order_value && $orderAmount < (float) $coupon->min_order_value) {
+            throw ValidationException::withMessages([
+                'coupon_code' => [
+                    'Đơn hàng chưa đạt giá trị tối thiểu ' . number_format((float) $coupon->min_order_value) . 'đ để áp dụng mã này.',
+                ],
+            ]);
+        }
+
+        $applicable = match ($coupon->apply_type) {
+            'all_rooms'     => true,
+            'specific_room' => $coupon->room_id === $room->id,
+            'specific_slot' => $rts !== null && $coupon->isApplicableToSlot($rts),
+            default         => false,
+        };
+
+        if (! $applicable) {
+            throw ValidationException::withMessages([
+                'coupon_code' => ['Mã giảm giá không áp dụng cho phòng hoặc khung giờ này.'],
+            ]);
+        }
+
+        $discount = (int) $coupon->calculateDiscount($orderAmount);
+
+        return [$discount, $coupon];
+    }
+
+    // ── PayOS ─────────────────────────────────────────────────────────────────
 
     private function createPayOSLink(Order $order, string $itemName): void
     {
@@ -251,7 +416,6 @@ class BookingController extends Controller
             $checksumKey = Config::get('payos.checksum_key');
 
             if (! $clientId || ! $apiKey || ! $checksumKey) {
-                Log::warning('PayOS chưa được cấu hình', ['order_id' => $order->id]);
                 return;
             }
 
@@ -267,27 +431,14 @@ class BookingController extends Controller
                 'buyerName'   => $order->buyer_name ?? '',
                 'buyerPhone'  => $order->buyer_phone ?? '',
                 'expiredAt'   => $expiredAt->timestamp,
-                'items'       => [[
-                    'name'     => $itemName,
-                    'quantity' => 1,
-                    'price'    => (int) $order->amount,
-                ]],
+                'items'       => [['name' => $itemName, 'quantity' => 1, 'price' => (int) $order->amount]],
             ]);
 
-            $checkoutUrl = $response['checkoutUrl'] ?? null;
-
-            if ($checkoutUrl) {
-                $order->update([
-                    'checkout_url' => $checkoutUrl,
-                    'expired_at'   => $expiredAt,
-                ]);
+            if ($checkoutUrl = $response['checkoutUrl'] ?? null) {
+                $order->update(['checkout_url' => $checkoutUrl, 'expired_at' => $expiredAt]);
             }
         } catch (\Throwable $e) {
-            Log::error('PayOS link creation error', [
-                'order_id' => $order->id,
-                'error'    => $e->getMessage(),
-            ]);
-            // Không ném exception — đơn hàng đã được tạo, chỉ thiếu link thanh toán
+            Log::error('PayOS link creation error', ['order_id' => $order->id, 'error' => $e->getMessage()]);
         }
     }
 }
