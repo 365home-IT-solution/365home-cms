@@ -176,6 +176,24 @@ class SettingBook extends Page implements HasForms
                                 ->helperText('Nhập % (VD: 10%) hoặc số tiền cố định (VD: 50000)')
                                 ->maxLength(50),
 
+                            TextInput::make('room_' . $product->id . '.room_config_max_free_guests')
+                                ->label('Số khách tối đa không phụ thu')
+                                ->numeric()
+                                ->default(2)
+                                ->minValue(1)
+                                ->suffix('người')
+                                ->helperText('Từ người thứ (N+1) trở đi sẽ tính phụ thu.')
+                                ->extraInputAttributes(['inputmode' => 'numeric']),
+
+                            TextInput::make('room_' . $product->id . '.room_config_extra_guest_fee')
+                                ->label('Phụ thu mỗi người vượt ngưỡng')
+                                ->numeric()
+                                ->default(0)
+                                ->minValue(0)
+                                ->suffix('đ/người')
+                                ->helperText('0 = không phụ thu. Chỉ áp dụng cho đặt theo giờ.')
+                                ->extraInputAttributes(['inputmode' => 'numeric']),
+
                             Repeater::make('room_' . $product->id . '.bulk_discount_rules')
                                 ->label('Giảm giá theo số khung giờ')
                                 ->helperText('Cấu hình % giảm khi khách chọn nhiều khung giờ. Ví dụ: 2 khung → 5%, 3 khung → 10%.')
@@ -439,6 +457,13 @@ class SettingBook extends Page implements HasForms
                         'bulk_discount_rules'   => $bulkRules ?: null,
                         'is_in_stock'           => $roomData['is_in_stock'] ?? true,
                     ];
+
+                    if ($productStyle === 1) {
+                        $updateData['room_config'] = [
+                            'max_free_guests' => (int) ($roomData['room_config_max_free_guests'] ?? 2),
+                            'extra_guest_fee' => (int) preg_replace('/[^0-9]/', '', (string) ($roomData['room_config_extra_guest_fee'] ?? '0')),
+                        ];
+                    }
 
                     if ($productStyle === 2) {
                         $updateData['price']                = $roomData['price'] ?? 0;

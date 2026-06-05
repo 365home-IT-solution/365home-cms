@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Auth\ZaloOtpController;
 use App\Http\Controllers\Api\BookingController;
 use App\Http\Controllers\Api\CouponController;
+use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\OrderServiceController;
 use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\LockRecordCallbackController;
@@ -110,6 +111,8 @@ Route::prefix('auth')->name('api.auth.')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware('auth:sanctum')->group(function () {
+    Route::get('orders',                        [OrderController::class,       'index'])->name('api.orders.index');
+    Route::get('orders/{order_code}',           [OrderController::class,       'show'])->name('api.orders.show');
     Route::post('orders',                       [BookingController::class,    'store'])->name('api.orders.store');
     Route::post('orders/{order}/services',      [OrderServiceController::class, 'store'])->name('api.orders.services.store');
     Route::post('coupons/validate',             [CouponController::class,    'validate'])->name('api.coupons.validate');

@@ -84,7 +84,10 @@ class BookingController extends Controller
         // ── 5. Dịch vụ bổ sung ───────────────────────────────────────────────
         [$servicesTotal, $servicesData] = $this->buildServices($request, $room);
 
-        $subtotal = $basePrice + $servicesTotal;
+        // ── 5.5 Phụ thu số lượng người (chỉ slot + theo_gio) ─────────────────
+        [$guestSurcharge, $guestSurchargeInfo] = $this->buildGuestSurcharge($request, $room, $slotSummary);
+
+        $subtotal = $basePrice + $servicesTotal + $guestSurcharge;
 
         // ── 6. Áp dụng discount theo thứ tự ưu tiên ─────────────────────────
         //
@@ -122,7 +125,7 @@ class BookingController extends Controller
         } else {
             // Promotion → bulk → coupon, tất cả tính trên basePrice
             if ($rtsCollection->isNotEmpty()) {
-                [$promotionDiscount, $appliedPromotions] = $this->applyPromotions($rtsCollection, $basePrice, $slotSummary);
+                [$promotionDiscount, $appliedPromotions] = $this->applyPromotions($rtsCollection, $slotSummary);
             }
 
             if (! empty($slotSummary)) {
@@ -143,10 +146,10 @@ class BookingController extends Controller
             }
         }
 
-        // Services cộng vào SAU khi trừ hết discount trên slot
+        // Services + phụ thu cộng vào SAU khi trừ hết discount trên slot
         $discountAmount = $promotionDiscount + $systemDiscount + $couponDiscount;
         $slotFinalPrice = max(0, $basePrice - $discountAmount);
-        $finalAmount    = $slotFinalPrice + $servicesTotal;
+        $finalAmount    = $slotFinalPrice + $servicesTotal + $guestSurcharge;
 
         $category      = $room->categories()->first();
         $paymentMethod = $request->input('payment_method', 'PayOS');
@@ -207,11 +210,12 @@ class BookingController extends Controller
                 'id'   => $room->id,
                 'name' => $room->name,
             ],
-            'slots'           => $slotSummary,
-            'services'        => $servicesData,
-            'promotions'      => $appliedPromotions,
-            'system_discount' => $appliedSystemDiscount,
-            'coupon'          => $appliedCoupon ? [
+            'slots'            => $slotSummary,
+            'services'         => $servicesData,
+            'guest_surcharge'  => $guestSurchargeInfo,
+            'promotions'       => $appliedPromotions,
+            'system_discount'  => $appliedSystemDiscount,
+            'coupon'           => $appliedCoupon ? [
                 'code'            => $appliedCoupon->code,
                 'name'            => $appliedCoupon->name,
                 'type'            => $appliedCoupon->type,
@@ -225,6 +229,7 @@ class BookingController extends Controller
                 'coupon_discount'    => $couponDiscount,
                 'discount_amount'    => $discountAmount,
                 'slots_final'        => $slotFinalPrice,
+                'guest_surcharge'    => $guestSurcharge,
                 'services_total'     => $servicesTotal,
                 'final_amount'       => (int) $order->full_amount,
             ],
@@ -497,7 +502,7 @@ class BookingController extends Controller
 
     // ── Promotions (auto-apply, gộp từ tất cả slot) ──────────────────────────
 
-    private function applyPromotions(Collection $rtsCollection, float $orderAmount, array $slotSummary = []): array
+    private function applyPromotions(Collection $rtsCollection, array $slotSummary = []): array
     {
         $calculator  = new PromotionCalculator();
         $slotDateMap = collect($slotSummary)->pluck('date', 'timeslot_id');
@@ -584,6 +589,37 @@ class BookingController extends Controller
         $discount = (int) $coupon->calculateDiscount($orderAmount);
 
         return [$discount, $coupon];
+    }
+
+    // ── Phụ thu số lượng người ───────────────────────────────────────────────
+
+    private function buildGuestSurcharge(Request $request, Product $room, array $slotSummary): array
+    {
+        // Chỉ áp dụng cho đặt slot và phòng theo giờ
+        if (empty($slotSummary) || $room->roomType?->slug !== 'theo_gio') {
+            return [0, null];
+        }
+
+        $config    = $room->room_config ?? [];
+        $fee       = (int) ($config['extra_guest_fee'] ?? 0);
+        $threshold = (int) ($config['max_free_guests'] ?? 2);
+        $guests    = (int) $request->guest_count;
+
+        if ($fee <= 0 || $guests <= $threshold) {
+            return [0, null];
+        }
+
+        $extraGuests = $guests - $threshold;
+        $total       = $extraGuests * $fee;
+
+        return [$total, [
+            'guest_count'    => $guests,
+            'threshold'      => $threshold,
+            'extra_guests'   => $extraGuests,
+            'fee_per_person' => $fee,
+            'total'          => $total,
+            'label'          => "Phụ thu {$extraGuests} người (trên {$threshold} người)",
+        ]];
     }
 
     // ── PayOS ─────────────────────────────────────────────────────────────────
