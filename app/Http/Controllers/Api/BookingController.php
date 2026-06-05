@@ -130,7 +130,6 @@ class BookingController extends Controller
                 'expired_at'     => $order->expired_at,
                 'checkout_url'   => $order->checkout_url,
             ],
-            'checkout_url' => $order->checkout_url,
         ], 201);
     }
 

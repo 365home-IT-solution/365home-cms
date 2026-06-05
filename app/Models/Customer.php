@@ -26,6 +26,7 @@ class Customer extends Authenticatable
         'phone_verified_at',
         'cccd_front',
         'cccd_back',
+        'avatar',
     ];
 
     protected $hidden = [];

@@ -162,6 +162,7 @@ class ZaloOtpController extends Controller
         $request->validate([
             'fullname'      => 'sometimes|string|max:255',
             'date_of_birth' => 'sometimes|date_format:d-m-Y|before:today',
+            'avatar'        => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
             'cccd_front'    => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
             'cccd_back'     => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
@@ -175,6 +176,13 @@ class ZaloOtpController extends Controller
 
         if ($request->filled('date_of_birth')) {
             $data['date_of_birth'] = Carbon::createFromFormat('d-m-Y', $request->date_of_birth)->toDateString();
+        }
+
+        if ($request->hasFile('avatar')) {
+            if ($customer->avatar) {
+                Storage::disk('public')->delete($customer->avatar);
+            }
+            $data['avatar'] = $request->file('avatar')->store('avatars', 'public');
         }
 
         if ($request->hasFile('cccd_front')) {
@@ -207,6 +215,9 @@ class ZaloOtpController extends Controller
             'date_of_birth'     => $customer->date_of_birth?->toDateString(),
             'phone'             => $customer->phone,
             'phone_verified_at' => $customer->phone_verified_at?->toIso8601String(),
+            'avatar'            => $customer->avatar
+                ? Storage::disk('public')->url($customer->avatar)
+                : null,
             'cccd_front'        => $customer->cccd_front
                 ? Storage::disk('public')->url($customer->cccd_front)
                 : null,
