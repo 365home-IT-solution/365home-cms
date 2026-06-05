@@ -12,8 +12,6 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
-use Modules\BladeThemeV1\App\Models\AdditionService;
-use Modules\Payment\App\Models\OrderService;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
@@ -148,8 +146,7 @@ class BookingController extends Controller
         $order->refresh();
 
         return response()->json([
-            'success' => true,
-            'order'   => [
+            'order' => [
                 'id'              => $order->id,
                 'order_code'      => $order->order_code,
                 'full_amount'     => (int) $order->full_amount,

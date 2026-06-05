@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Auth\ZaloOtpController;
 use App\Http\Controllers\Api\BookingController;
+use App\Http\Controllers\Api\CouponController;
 use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\LockRecordCallbackController;
 use App\Http\Controllers\Api\RoomController;
@@ -107,7 +108,10 @@ Route::prefix('auth')->name('api.auth.')->group(function () {
 |                    - Nếu không có token:  bắt buộc buyer_name + buyer_phone
 |--------------------------------------------------------------------------
 */
-Route::middleware('auth:sanctum')->post('orders', [BookingController::class, 'store'])->name('api.orders.store');
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('orders', [BookingController::class, 'store'])->name('api.orders.store');
+    Route::post('coupons/validate', [CouponController::class, 'validate'])->name('api.coupons.validate');
+});
 
 /*
 |--------------------------------------------------------------------------
