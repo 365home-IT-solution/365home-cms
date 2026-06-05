@@ -578,26 +578,13 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             // ❌ KHÔNG áp dụng bulk discount khi có full booking
             $this->bulkDiscountAmount = 0;
 
-            // ❌ KHÔNG áp dụng coupon khi có full booking
-            $this->couponDiscountAmount = 0;
-
         } else {
-            // ========== TÍNH GIẢM GIÁ TỪ COUPON (chỉ khi KHÔNG full booking) ==========
-            if ($this->appliedCoupon) {
-                $applicableSlots = $this->getApplicableSlots($this->appliedCoupon);
-                $applicableAmount = collect($applicableSlots)->sum('price');
-
-                $this->couponDiscountAmount = $this->appliedCoupon->calculateDiscount($applicableAmount);
-                $totalAfterPromo -= $this->couponDiscountAmount;
-            }
-
             // ========== GIẢM GIÁ BULK (chỉ khi KHÔNG full booking) ==========
             $slotCount = count($this->selectedSlots);
             $bulkDiscountRate = 0;
 
             $rules = $this->product->bulk_discount_rules ?? [];
             if (!empty($rules)) {
-                // Lấy rule có slots <= slotCount, ưu tiên rule cao nhất
                 $matched = collect($rules)
                     ->filter(fn($r) => $slotCount >= (int)($r['slots'] ?? 0))
                     ->sortByDesc('slots')
@@ -621,6 +608,15 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
                 $this->bulkDiscountAmount += $loyaltyDiscount;
                 $totalAfterPromo          -= $loyaltyDiscount;
             }
+        }
+
+        // ========== COUPON: luôn áp dụng được, kể cả khi full booking ==========
+        if ($this->appliedCoupon) {
+            $applicableSlots  = $this->getApplicableSlots($this->appliedCoupon);
+            $applicableAmount = collect($applicableSlots)->sum('price');
+
+            $this->couponDiscountAmount = $this->appliedCoupon->calculateDiscount($applicableAmount);
+            $totalAfterPromo           -= $this->couponDiscountAmount;
         }
 
         // Tính phụ phí theo cấu hình phòng

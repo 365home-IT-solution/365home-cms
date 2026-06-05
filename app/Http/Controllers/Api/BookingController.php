@@ -82,11 +82,14 @@ class BookingController extends Controller
 
         // ── 6. Áp dụng discount theo thứ tự ưu tiên ─────────────────────────
         //
+        //  Discount CHỈ tính trên giá slot (basePrice).
+        //  Services được cộng vào SAU khi đã trừ hết discount.
+        //
         //  Full booking (chọn hết slot trong ngày)
-        //    → áp full_booking_discount, BỎ QUA promotion + bulk + coupon
+        //    → full_booking_discount + coupon, BỎ QUA promotion + bulk
         //
         //  Không full booking
-        //    → promotion (auto, từ RTS) → bulk discount → coupon
+        //    → promotion → bulk → coupon
         //
         $appliedPromotions     = [];
         $promotionDiscount     = 0;
@@ -98,35 +101,46 @@ class BookingController extends Controller
         $hasFullBooking = ! empty($slotSummary) && $this->checkFullDayBooking($slotSummary, $room);
 
         if ($hasFullBooking) {
-            [$systemDiscount, $appliedSystemDiscount] = $this->applyFullBookingDiscount($subtotal, $room);
+            // Full booking: áp discount trên basePrice, KHÔNG promotion/bulk
+            [$systemDiscount, $appliedSystemDiscount] = $this->applyFullBookingDiscount($basePrice, $room);
+
+            // Coupon vẫn áp được sau full_booking_discount
+            if ($request->filled('coupon_code')) {
+                [$couponDiscount, $appliedCoupon] = $this->applyCoupon(
+                    $request->coupon_code,
+                    $basePrice - $systemDiscount,
+                    $room,
+                    $rtsCollection
+                );
+            }
         } else {
-            // Promotion (auto-apply từ RTS)
+            // Promotion → bulk → coupon, tất cả tính trên basePrice
             if ($rtsCollection->isNotEmpty()) {
-                [$promotionDiscount, $appliedPromotions] = $this->applyPromotions($rtsCollection, $subtotal);
+                [$promotionDiscount, $appliedPromotions] = $this->applyPromotions($rtsCollection, $basePrice);
             }
 
-            // Bulk discount (dựa vào số lượng slot)
             if (! empty($slotSummary)) {
                 [$systemDiscount, $appliedSystemDiscount] = $this->applyBulkDiscount(
                     count($slotSummary),
                     $room,
-                    $subtotal - $promotionDiscount
+                    $basePrice - $promotionDiscount
                 );
             }
 
-            // Coupon
             if ($request->filled('coupon_code')) {
                 [$couponDiscount, $appliedCoupon] = $this->applyCoupon(
                     $request->coupon_code,
-                    $subtotal - $promotionDiscount - $systemDiscount,
+                    $basePrice - $promotionDiscount - $systemDiscount,
                     $room,
                     $rtsCollection
                 );
             }
         }
 
+        // Services cộng vào SAU khi trừ hết discount trên slot
         $discountAmount = $promotionDiscount + $systemDiscount + $couponDiscount;
-        $finalAmount    = max(0, $subtotal - $discountAmount);
+        $slotFinalPrice = max(0, $basePrice - $discountAmount);
+        $finalAmount    = $slotFinalPrice + $servicesTotal;
 
         $category      = $room->categories()->first();
         $paymentMethod = $request->input('payment_method', 'PayOS');
@@ -200,12 +214,12 @@ class BookingController extends Controller
             ] : null,
             'summary' => [
                 'slots_total'        => $basePrice,
-                'services_total'     => $servicesTotal,
-                'subtotal'           => $subtotal,
                 'promotion_discount' => $promotionDiscount,
                 'system_discount'    => $systemDiscount,
                 'coupon_discount'    => $couponDiscount,
                 'discount_amount'    => $discountAmount,
+                'slots_final'        => $slotFinalPrice,
+                'services_total'     => $servicesTotal,
                 'final_amount'       => (int) $order->full_amount,
             ],
         ], 201);
