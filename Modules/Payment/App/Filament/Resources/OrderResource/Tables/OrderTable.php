@@ -50,7 +50,7 @@ class OrderTable
                     ->color('primary')
                     ->icon('heroicon-m-building-office-2'),
 
-                TextColumn::make('amount')
+                TextColumn::make('full_amount')
                     ->label('Tổng tiền')
                     ->weight(FontWeight::Bold)
                     ->money('VND'),

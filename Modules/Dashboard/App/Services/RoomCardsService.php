@@ -136,7 +136,7 @@ class RoomCardsService
                     'status_color' => $statusColors[$status] ?? '#94a3b8',
                     'checkin'      => $checkinLabel,
                     'checkout'     => $checkoutLabel,
-                    'amount'       => $order->amount ?? 0,
+                    'amount'       => $order->full_amount ?? 0,
                     'created_at'     => $order->created_at ? $order->created_at->diffForHumans() : '',
                     'created_at_fmt' => $order->created_at ? $order->created_at->format('d/m/Y H:i') : '',
                     'is_new'         => $order->created_at !== null && $order->created_at >= $newThreshold,

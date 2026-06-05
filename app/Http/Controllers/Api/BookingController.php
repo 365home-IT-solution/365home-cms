@@ -37,8 +37,7 @@ class BookingController extends Controller
         ];
 
         if ($request->input('type') === 'slot') {
-            // date có thể đặt ở ngoài (dùng chung cho tất cả slot)
-            // hoặc đặt trong từng slot (linh hoạt đặt nhiều ngày)
+            // date có thể đặt ở ngoài (dùng chung) hoặc trong từng slot (nhiều ngày)
             $baseRules['date']                = 'sometimes|date_format:Y-m-d|after_or_equal:today';
             $baseRules['slots']               = 'required|array|min:1';
             $baseRules['slots.*.timeslot_id'] = 'required|integer';
@@ -56,7 +55,7 @@ class BookingController extends Controller
         $buyerName  = $customer->fullname;
         $buyerPhone = $customer->phone;
 
-        // ── 3. Load phòng + dịch vụ bổ sung ─────────────────────────────────
+        // ── 3. Load phòng ─────────────────────────────────────────────────────
         $room = Product::where('id', $request->input('room_id'))
             ->where('is_activated', true)
             ->with(['roomType', 'roomTimeSlots.timeSlot', 'additionalServices'])
@@ -81,32 +80,58 @@ class BookingController extends Controller
 
         $subtotal = $basePrice + $servicesTotal;
 
-        // ── 6. Auto-apply promotions (chỉ với slot) ──────────────────────────
-        $appliedPromotions = [];
-        $promotionDiscount = 0;
-        if ($rtsCollection->isNotEmpty()) {
-            [$promotionDiscount, $appliedPromotions] = $this->applyPromotions($rtsCollection, $subtotal);
+        // ── 6. Áp dụng discount theo thứ tự ưu tiên ─────────────────────────
+        //
+        //  Full booking (chọn hết slot trong ngày)
+        //    → áp full_booking_discount, BỎ QUA promotion + bulk + coupon
+        //
+        //  Không full booking
+        //    → promotion (auto, từ RTS) → bulk discount → coupon
+        //
+        $appliedPromotions     = [];
+        $promotionDiscount     = 0;
+        $appliedSystemDiscount = null; // full_booking hoặc bulk
+        $systemDiscount        = 0;
+        $appliedCoupon         = null;
+        $couponDiscount        = 0;
+
+        $hasFullBooking = ! empty($slotSummary) && $this->checkFullDayBooking($slotSummary, $room);
+
+        if ($hasFullBooking) {
+            [$systemDiscount, $appliedSystemDiscount] = $this->applyFullBookingDiscount($subtotal, $room);
+        } else {
+            // Promotion (auto-apply từ RTS)
+            if ($rtsCollection->isNotEmpty()) {
+                [$promotionDiscount, $appliedPromotions] = $this->applyPromotions($rtsCollection, $subtotal);
+            }
+
+            // Bulk discount (dựa vào số lượng slot)
+            if (! empty($slotSummary)) {
+                [$systemDiscount, $appliedSystemDiscount] = $this->applyBulkDiscount(
+                    count($slotSummary),
+                    $room,
+                    $subtotal - $promotionDiscount
+                );
+            }
+
+            // Coupon
+            if ($request->filled('coupon_code')) {
+                [$couponDiscount, $appliedCoupon] = $this->applyCoupon(
+                    $request->coupon_code,
+                    $subtotal - $promotionDiscount - $systemDiscount,
+                    $room,
+                    $rtsCollection
+                );
+            }
         }
 
-        // ── 7. Mã giảm giá ──────────────────────────────────────────────────
-        $appliedCoupon  = null;
-        $couponDiscount = 0;
-        if ($request->filled('coupon_code')) {
-            [$couponDiscount, $appliedCoupon] = $this->applyCoupon(
-                $request->coupon_code,
-                $subtotal - $promotionDiscount,
-                $room,
-                $rtsCollection
-            );
-        }
-
-        $discountAmount = $promotionDiscount + $couponDiscount;
+        $discountAmount = $promotionDiscount + $systemDiscount + $couponDiscount;
         $finalAmount    = max(0, $subtotal - $discountAmount);
 
         $category      = $room->categories()->first();
         $paymentMethod = $request->input('payment_method', 'PayOS');
 
-        // ── 8. Tạo đơn + items + services trong transaction ──────────────────
+        // ── 7. Tạo đơn + items + services trong transaction ──────────────────
         $order = DB::transaction(function () use (
             $room, $finalAmount, $subtotal, $buyerName, $buyerPhone,
             $customer, $category, $itemsData, $servicesData,
@@ -140,7 +165,7 @@ class BookingController extends Controller
             return $order;
         });
 
-        // ── 9. Tạo link PayOS ────────────────────────────────────────────────
+        // ── 8. Tạo link PayOS ────────────────────────────────────────────────
         if ($paymentMethod === 'PayOS' && $finalAmount >= 2000) {
             $this->createPayOSLink($order, $summaryName);
         }
@@ -162,10 +187,11 @@ class BookingController extends Controller
                 'id'   => $room->id,
                 'name' => $room->name,
             ],
-            'slots'      => $slotSummary,
-            'services'   => $servicesData,
-            'promotions' => $appliedPromotions,
-            'coupon'     => $appliedCoupon ? [
+            'slots'           => $slotSummary,
+            'services'        => $servicesData,
+            'promotions'      => $appliedPromotions,
+            'system_discount' => $appliedSystemDiscount,
+            'coupon'          => $appliedCoupon ? [
                 'code'            => $appliedCoupon->code,
                 'name'            => $appliedCoupon->name,
                 'type'            => $appliedCoupon->type,
@@ -173,11 +199,14 @@ class BookingController extends Controller
                 'discount_amount' => $couponDiscount,
             ] : null,
             'summary' => [
-                'slots_total'     => $basePrice,
-                'services_total'  => $servicesTotal,
-                'subtotal'        => $subtotal,
-                'discount_amount' => $discountAmount,
-                'final_amount'    => (int) $order->full_amount,
+                'slots_total'        => $basePrice,
+                'services_total'     => $servicesTotal,
+                'subtotal'           => $subtotal,
+                'promotion_discount' => $promotionDiscount,
+                'system_discount'    => $systemDiscount,
+                'coupon_discount'    => $couponDiscount,
+                'discount_amount'    => $discountAmount,
+                'final_amount'       => (int) $order->full_amount,
             ],
         ], 201);
     }
@@ -187,7 +216,7 @@ class BookingController extends Controller
     private function buildSlotItems(Request $request, Product $room): array
     {
         $slots         = $request->input('slots');
-        $defaultDate   = $request->input('date'); // date chung cho tất cả slot
+        $defaultDate   = $request->input('date');
         $totalPrice    = 0;
         $itemsData     = [];
         $slotSummary   = [];
@@ -354,6 +383,98 @@ class BookingController extends Controller
         return [$total, $data];
     }
 
+    // ── Full booking check ────────────────────────────────────────────────────
+
+    private function checkFullDayBooking(array $slotSummary, Product $room): bool
+    {
+        if (empty($room->full_booking_discount)) {
+            return false;
+        }
+
+        // Tổng số template slot của phòng (date IS NULL)
+        $totalSlots = $room->roomTimeSlots
+            ->filter(fn ($s) => is_null($s->date))
+            ->count();
+
+        if ($totalSlots === 0) {
+            return false;
+        }
+
+        // Nhóm các slot đã chọn theo ngày
+        $slotsByDate = collect($slotSummary)->groupBy('date');
+
+        // Full booking = bất kỳ ngày nào có đủ tất cả slot
+        foreach ($slotsByDate as $dateSlots) {
+            if ($dateSlots->count() === $totalSlots) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // ── Full booking discount ─────────────────────────────────────────────────
+
+    private function applyFullBookingDiscount(float $amount, Product $room): array
+    {
+        $rule     = $room->full_booking_discount;
+        $discount = (int) $this->parseDiscountRule($amount, $rule);
+
+        $info = [
+            'type'            => 'full_booking',
+            'label'           => 'Đặt cả ngày',
+            'rule'            => $rule,
+            'discount_amount' => $discount,
+        ];
+
+        return [$discount, $info];
+    }
+
+    // ── Bulk discount ─────────────────────────────────────────────────────────
+
+    private function applyBulkDiscount(int $slotCount, Product $room, float $amount): array
+    {
+        $rules = $room->bulk_discount_rules ?? [];
+
+        if (empty($rules)) {
+            return [0, null];
+        }
+
+        $matched = collect($rules)
+            ->filter(fn ($r) => $slotCount >= (int) ($r['slots'] ?? 0))
+            ->sortByDesc('slots')
+            ->first();
+
+        if (! $matched) {
+            return [0, null];
+        }
+
+        $rate     = (float) ($matched['discount'] ?? 0) / 100;
+        $discount = (int) ($amount * $rate);
+
+        $info = [
+            'type'            => 'bulk',
+            'label'           => "Đặt {$slotCount} khung giờ ({$matched['discount']}%)",
+            'slots_required'  => (int) $matched['slots'],
+            'discount_rate'   => $matched['discount'],
+            'discount_amount' => $discount,
+        ];
+
+        return [$discount, $info];
+    }
+
+    // ── Helper: parse "10%" hoặc "50000" ─────────────────────────────────────
+
+    private function parseDiscountRule(float $amount, string $rule): float
+    {
+        if (str_contains($rule, '%')) {
+            $pct = (float) str_replace('%', '', $rule);
+            return $amount * ($pct / 100);
+        }
+
+        return (float) str_replace(['.', ','], '', $rule);
+    }
+
     // ── Promotions (auto-apply, gộp từ tất cả slot) ──────────────────────────
 
     private function applyPromotions(Collection $rtsCollection, float $orderAmount): array
@@ -476,7 +597,7 @@ class BookingController extends Controller
                 'buyerName'   => $order->buyer_name ?? '',
                 'buyerPhone'  => $order->buyer_phone ?? '',
                 'expiredAt'   => $expiredAt->timestamp,
-                'items'       => [['name' => $itemName, 'quantity' => 1, 'price' => (int) $order->amount]],
+                'items'       => [['name' => $itemName, 'quantity' => 1, 'price' => (int) $order->full_amount]],
             ]);
 
             if ($checkoutUrl = $response['checkoutUrl'] ?? null) {
