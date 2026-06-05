@@ -517,18 +517,15 @@ class BookingController extends Controller
 
             foreach ($result['applied'] as $entry) {
                 // Gộp các promotion trùng id (nhiều slot cùng promo)
-                $existing = null;
-                foreach ($applied as &$a) {
+                $found = false;
+                foreach ($applied as $i => $a) {
                     if ($a['id'] === $entry['id']) {
-                        $existing = &$a;
+                        $applied[$i]['discount_amount'] += $entry['discount_amount'];
+                        $found = true;
                         break;
                     }
                 }
-                unset($a);
-
-                if ($existing) {
-                    $existing['discount_amount'] += $entry['discount_amount'];
-                } else {
+                if (! $found) {
                     $applied[] = $entry;
                 }
             }
