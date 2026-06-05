@@ -121,7 +121,7 @@ class BookingController extends Controller
         } else {
             // Promotion → bulk → coupon, tất cả tính trên basePrice
             if ($rtsCollection->isNotEmpty()) {
-                [$promotionDiscount, $appliedPromotions] = $this->applyPromotions($rtsCollection, $basePrice);
+                [$promotionDiscount, $appliedPromotions] = $this->applyPromotions($rtsCollection, $basePrice, $slotSummary);
             }
 
             if (! empty($slotSummary)) {
@@ -496,18 +496,32 @@ class BookingController extends Controller
 
     // ── Promotions (auto-apply, gộp từ tất cả slot) ──────────────────────────
 
-    private function applyPromotions(Collection $rtsCollection, float $orderAmount): array
+    private function applyPromotions(Collection $rtsCollection, float $orderAmount, array $slotSummary = []): array
     {
-        $now = now();
+        // Build map timeslot_id => booking date để kiểm tra overlap đúng ngày đặt
+        $slotDateMap = collect($slotSummary)->pluck('date', 'timeslot_id');
 
-        // Dùng relation đã eager-load, lọc date trong PHP
         $promotions = collect();
         foreach ($rtsCollection as $rts) {
+            $bookingDate = $slotDateMap->get($rts->timeslot_id);
+
             $rts->promotions
-                ->filter(fn ($p) =>
-                    (is_null($p->start_at) || $p->start_at <= $now) &&
-                    (is_null($p->end_at)   || $p->end_at   >= $now)
-                )
+                ->filter(function ($p) use ($rts, $bookingDate) {
+                    if (! $p->start_at || ! $p->end_at) {
+                        return false;
+                    }
+                    if (! $bookingDate || ! $rts->timeSlot) {
+                        return false;
+                    }
+                    // Kiểm tra overlap giữa thời gian slot đặt và khoảng thời gian promotion
+                    // (giống promotionOverlapsSlot() của RoomController)
+                    $slotStart = Carbon::parse("{$bookingDate} {$rts->timeSlot->start_time}");
+                    $slotEnd   = Carbon::parse("{$bookingDate} {$rts->timeSlot->end_time}");
+                    if ($slotEnd->lte($slotStart)) {
+                        $slotEnd->addDay();
+                    }
+                    return $slotStart->lt($p->end_at) && $slotEnd->gt($p->start_at);
+                })
                 ->each(function ($p) use ($promotions) {
                     if (! $promotions->contains('id', $p->id)) {
                         $promotions->push($p);
