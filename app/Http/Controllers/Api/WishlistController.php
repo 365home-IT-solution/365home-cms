@@ -28,9 +28,9 @@ class WishlistController extends Controller
         return response()->json(['data' => $rooms]);
     }
 
-    public function toggle(Request $request, string $slug): JsonResponse
+    public function toggle(Request $request, string $id): JsonResponse
     {
-        $product = Product::where('slug', $slug)->where('is_activated', true)->firstOrFail();
+        $product = Product::where('id', $id)->where('is_activated', true)->firstOrFail();
 
         $user   = $request->user();
         $exists = $user->wishlists()->where('product_id', $product->id)->exists();

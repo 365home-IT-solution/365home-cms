@@ -18,9 +18,9 @@ class RoomController extends Controller
 {
     use BuildsRoomCard;
 
-    public function show(string $slug): JsonResponse
+    public function show(string $id): JsonResponse
     {
-        $room = Product::where('slug', $slug)
+        $room = Product::where('id', $id)
             ->where('is_activated', true)
             ->with([
                 'roomType',

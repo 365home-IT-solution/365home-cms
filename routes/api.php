@@ -66,7 +66,7 @@ Route::get('pages/{slug}', [AppPageController::class, 'show'])->name('api.pages.
 |                          prices, promotions, coupons)
 |--------------------------------------------------------------------------
 */
-Route::get('rooms/{ulid}', [RoomController::class, 'show'])->name('api.rooms.show');
+Route::get('rooms/{id}', [RoomController::class, 'show'])->name('api.rooms.show');
 Route::get('slots', [RoomController::class, 'slots'])->name('api.slots');
 
 /*
@@ -127,6 +127,6 @@ Route::middleware('auth:sanctum')->group(function () {
 */
 Route::middleware('auth:sanctum')->prefix('wishlist')->name('api.wishlist.')->group(function () {
     Route::get('/',                      [WishlistController::class, 'index'])->name('index');
-    Route::post('{ulid}/toggle',          [WishlistController::class, 'toggle'])->name('toggle');
+    Route::post('{id}/toggle',          [WishlistController::class, 'toggle'])->name('toggle');
 });
 
