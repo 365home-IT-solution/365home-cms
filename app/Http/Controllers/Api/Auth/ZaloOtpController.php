@@ -65,6 +65,12 @@ class ZaloOtpController extends Controller
         $customer        = Customer::where('phone', $normalizedPhone)->first();
 
         if ($customer) {
+            if ($customer->status === Customer::STATUS_INACTIVE) {
+                return response()->json([
+                    'message' => 'Tài khoản của bạn đã bị vô hiệu hóa. Vui lòng liên hệ hỗ trợ để được kích hoạt lại.',
+                ], 403);
+            }
+
             $customer->phone_verified_at = now();
             $customer->save();
 
@@ -91,14 +97,16 @@ class ZaloOtpController extends Controller
 
     /**
      * Tạo tài khoản khách hàng sau khi xác thực OTP.
-     * Body: { phone_token, fullname, date_of_birth }
+     * Body: { phone_token, fullname, date_of_birth, password, password_confirmation }
      */
     public function register(Request $request): JsonResponse
     {
         $request->validate([
-            'phone_token'   => 'required|string|size:64',
-            'fullname'      => 'required|string|max:255',
-            'date_of_birth' => 'required|date_format:d-m-Y|before:today',
+            'phone_token'          => 'required|string|size:64',
+            'fullname'             => 'required|string|max:255',
+            'date_of_birth'        => 'required|date_format:d-m-Y|before:today',
+            'password'             => 'required|string|min:8|confirmed',
+            'password_confirmation'=> 'required|string',
         ]);
 
         $normalizedPhone = $this->otp->getPhoneByToken($request->phone_token);
@@ -118,11 +126,15 @@ class ZaloOtpController extends Controller
 
         $this->otp->consumePhoneToken($request->phone_token);
 
+        $now      = now();
         $customer = Customer::create([
-            'phone'             => $normalizedPhone,
-            'fullname'          => $request->fullname,
-            'date_of_birth'     => Carbon::createFromFormat('d-m-Y', $request->date_of_birth)->toDateString(),
-            'phone_verified_at' => now(),
+            'phone'               => $normalizedPhone,
+            'fullname'            => $request->fullname,
+            'date_of_birth'       => Carbon::createFromFormat('d-m-Y', $request->date_of_birth)->toDateString(),
+            'phone_verified_at'   => $now,
+            'status'              => Customer::STATUS_ACTIVE,
+            'password'            => $request->password,
+            'password_updated_at' => $now,
         ]);
 
         $expiresAt = now()->addDays(30);
@@ -152,6 +164,49 @@ class ZaloOtpController extends Controller
     public function me(Request $request): JsonResponse
     {
         return response()->json($this->customerResource($request->user()));
+    }
+
+    /**
+     * Đổi mật khẩu.
+     * Body: { current_password, password, password_confirmation }
+     */
+    public function changePassword(Request $request): JsonResponse
+    {
+        $request->validate([
+            'current_password' => 'required|string',
+            'password'         => 'required|string|min:8|confirmed|different:current_password',
+            'password_confirmation' => 'required|string',
+        ]);
+
+        $customer = $request->user();
+
+        if (! $customer->password || ! password_verify($request->current_password, $customer->password)) {
+            return response()->json([
+                'message' => 'Mật khẩu hiện tại không đúng.',
+                'errors'  => ['current_password' => ['Mật khẩu hiện tại không đúng.']],
+            ], 422);
+        }
+
+        $customer->update([
+            'password'            => $request->password,
+            'password_updated_at' => now(),
+        ]);
+
+        return response()->json(['message' => 'Đổi mật khẩu thành công.']);
+    }
+
+    /**
+     * Vô hiệu hóa tài khoản — do khách tự yêu cầu.
+     * Xoá toàn bộ token, đặt status = inactive.
+     */
+    public function deactivate(Request $request): JsonResponse
+    {
+        $customer = $request->user();
+
+        $customer->tokens()->delete();
+        $customer->update(['status' => Customer::STATUS_INACTIVE]);
+
+        return response()->json(['message' => 'Tài khoản đã được vô hiệu hóa.']);
     }
 
     /**
@@ -248,6 +303,7 @@ class ZaloOtpController extends Controller
             'fullname'          => $customer->fullname,
             'date_of_birth'     => $customer->date_of_birth?->toDateString(),
             'phone'             => $customer->phone,
+            'status'            => $customer->status,
             'phone_verified_at' => $customer->phone_verified_at?->toIso8601String(),
             'avatar'            => $customer->avatar
                 ? Storage::disk('public')->url($customer->avatar)

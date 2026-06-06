@@ -16,6 +16,9 @@ class Customer extends Authenticatable
 {
     use HasApiTokens, HasFactory, SoftDeletes;
 
+    public const STATUS_ACTIVE   = 'active';
+    public const STATUS_INACTIVE = 'inactive';
+
     protected $keyType    = 'string';
     public    $incrementing = false;
 
@@ -24,18 +27,25 @@ class Customer extends Authenticatable
         'date_of_birth',
         'phone',
         'phone_verified_at',
+        'status',
+        'password',
+        'password_updated_at',
         'cccd_front',
         'cccd_back',
         'cccd_data',
         'avatar',
     ];
 
-    protected $hidden = [];
+    protected $hidden = [
+        'password',
+    ];
 
     protected $casts = [
-        'phone_verified_at' => 'datetime',
-        'date_of_birth'     => 'date',
-        'cccd_data'         => 'array',
+        'phone_verified_at'  => 'datetime',
+        'date_of_birth'      => 'date',
+        'password'           => 'hashed',
+        'password_updated_at'=> 'datetime',
+        'cccd_data'          => 'array',
     ];
 
     // Filament gọi $user->name — map về fullname để tránh TypeError
@@ -51,6 +61,12 @@ class Customer extends Authenticatable
         static::creating(function (self $model): void {
             if (empty($model->id)) {
                 $model->id = Str::uuid()->toString();
+            }
+        });
+
+        static::updating(function (self $model): void {
+            if ($model->isDirty('status') && $model->status === self::STATUS_INACTIVE) {
+                $model->tokens()->delete();
             }
         });
     }

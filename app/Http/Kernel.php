@@ -66,7 +66,8 @@ class Kernel extends HttpKernel
         'signed' => \App\Http\Middleware\ValidateSignature::class,
         'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
-        'livewire.secure' => \App\Http\Middleware\SecureLivewireRequests::class,
+        'livewire.secure'   => \App\Http\Middleware\SecureLivewireRequests::class,
+        'customer.active'   => \App\Http\Middleware\EnsureCustomerIsActive::class,
 //        'api.key' => \Modules\ApiConfig\App\Http\Middleware\ValidateApiKey::class,
     ];
 }

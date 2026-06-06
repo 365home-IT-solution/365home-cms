@@ -96,9 +96,15 @@ Route::prefix('auth')->name('api.auth.')->group(function () {
     Route::post('register', [ZaloOtpController::class, 'register'])->name('register')->middleware('throttle:register');
 
     Route::middleware('auth:sanctum')->group(function () {
-        Route::post('logout',  [ZaloOtpController::class, 'logout'])->name('logout');
-        Route::get('me',       [ZaloOtpController::class, 'me'])->name('me');
-        Route::post('me',      [ZaloOtpController::class, 'update'])->name('me.update');
+        Route::post('logout',     [ZaloOtpController::class, 'logout'])->name('logout');
+        Route::get('me',          [ZaloOtpController::class, 'me'])->name('me');
+
+        // Các route sau chặn nếu tài khoản bị vô hiệu hóa
+        Route::middleware('customer.active')->group(function () {
+            Route::post('me',              [ZaloOtpController::class, 'update'])->name('me.update');
+            Route::post('change-password', [ZaloOtpController::class, 'changePassword'])->name('change-password');
+            Route::post('deactivate',      [ZaloOtpController::class, 'deactivate'])->name('deactivate');
+        });
     });
 });
 
@@ -111,11 +117,15 @@ Route::prefix('auth')->name('api.auth.')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware('auth:sanctum')->group(function () {
-    Route::get('orders',                        [OrderController::class,       'index'])->name('api.orders.index');
-    Route::get('orders/{order_code}',           [OrderController::class,       'show'])->name('api.orders.show');
-    Route::post('orders',                       [BookingController::class,    'store'])->name('api.orders.store');
-    Route::post('orders/{order}/services',      [OrderServiceController::class, 'store'])->name('api.orders.services.store');
-    Route::post('coupons/validate',             [CouponController::class,    'validate'])->name('api.coupons.validate');
+    Route::get('orders',             [OrderController::class,        'index'])->name('api.orders.index');
+    Route::get('orders/{order_code}',[OrderController::class,        'show'])->name('api.orders.show');
+
+    // Các route sau chặn nếu tài khoản bị vô hiệu hóa
+    Route::middleware('customer.active')->group(function () {
+        Route::post('orders',                  [BookingController::class,     'store'])->name('api.orders.store');
+        Route::post('orders/{order}/services', [OrderServiceController::class,'store'])->name('api.orders.services.store');
+        Route::post('coupons/validate',        [CouponController::class,     'validate'])->name('api.coupons.validate');
+    });
 });
 
 /*
@@ -125,8 +135,8 @@ Route::middleware('auth:sanctum')->group(function () {
 | POST /api/wishlist/{product}/toggle   → Thêm / bỏ khỏi wishlist
 |--------------------------------------------------------------------------
 */
-Route::middleware('auth:sanctum')->prefix('wishlist')->name('api.wishlist.')->group(function () {
-    Route::get('/',                      [WishlistController::class, 'index'])->name('index');
-    Route::post('{id}/toggle',          [WishlistController::class, 'toggle'])->name('toggle');
+Route::middleware(['auth:sanctum', 'customer.active'])->prefix('wishlist')->name('api.wishlist.')->group(function () {
+    Route::get('/',            [WishlistController::class, 'index'])->name('index');
+    Route::post('{id}/toggle', [WishlistController::class, 'toggle'])->name('toggle');
 });
 

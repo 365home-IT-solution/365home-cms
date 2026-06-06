@@ -20,6 +20,7 @@ use Filament\Tables\Actions\ForceDeleteAction;
 use Filament\Tables\Actions\RestoreAction;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -78,6 +79,17 @@ class CustomerResource extends Resource
                     ->offIcon('heroicon-o-x-mark')
                     ->formatStateUsing(fn ($record) => ! is_null($record?->phone_verified_at))
                     ->dehydrated(false)
+                    ->inlineLabel(),
+
+                Toggle::make('status')
+                    ->label('Hoạt động')
+                    ->onIcon('heroicon-o-check')
+                    ->offIcon('heroicon-o-x-mark')
+                    ->onColor('success')
+                    ->offColor('danger')
+                    ->formatStateUsing(fn ($state) => $state !== 'inactive')
+                    ->dehydrateStateUsing(fn (bool $state) => $state ? 'active' : 'inactive')
+                    ->default(true)
                     ->inlineLabel(),
             ])->columns(1),
 
@@ -140,6 +152,20 @@ class CustomerResource extends Resource
                     ->label('CCCD')
                     ->boolean()
                     ->getStateUsing(fn ($record) => ! is_null($record->cccd_front)),
+
+                ToggleColumn::make('status')
+                    ->label('Hoạt động')
+                    ->onIcon('heroicon-o-check-circle')
+                    ->offIcon('heroicon-o-x-circle')
+                    ->onColor('success')
+                    ->offColor('danger')
+                    ->getStateUsing(fn ($record) => $record->status === 'active')
+                    ->updateStateUsing(function ($record, bool $state): void {
+                        $record->update(['status' => $state ? 'active' : 'inactive']);
+                        if (! $state) {
+                            $record->tokens()->delete();
+                        }
+                    }),
 
                 TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
