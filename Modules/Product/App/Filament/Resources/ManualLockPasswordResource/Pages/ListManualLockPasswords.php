@@ -104,7 +104,7 @@ class ListManualLockPasswords extends ListRecords
                                 ->label('Hết hạn lúc')
                                 ->default('12:00')
                                 ->seconds(false)
-                                ->helperText('Giờ hết hạn trong ngày của cột đó'),
+                                ->helperText('Giờ hết hạn ngày hôm sau của cột đó'),
                         ]),
                     ]),
 

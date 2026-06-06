@@ -93,7 +93,7 @@ class ManualLockPasswordExcelImport
                 if ($gatePassword === '') continue;
 
                 $validFrom  = $date->copy()->setTime($fromH, $fromM);
-                $validUntil = $date->copy()->setTime($untilH, $untilM);
+                $validUntil = $date->copy()->addDay()->setTime($untilH, $untilM);
 
                 if ($this->skipExisting && $this->recordExists($gatePassword, $validFrom, $product)) {
                     $skipped++;
