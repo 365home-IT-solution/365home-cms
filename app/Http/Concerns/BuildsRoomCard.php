@@ -28,6 +28,7 @@ trait BuildsRoomCard
         $roomType = $room->relationLoaded('roomType') ? $room->roomType : null;
 
         return [
+            'id'              => $room->id,
             'slug'            => $room->slug,
             'name'            => $room->name,
             'thumbnail_url'   => $this->getMainImageUrl($room),
