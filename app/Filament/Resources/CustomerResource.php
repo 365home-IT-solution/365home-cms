@@ -46,16 +46,6 @@ class CustomerResource extends Resource
     {
         return $form->schema([
             Section::make('Thông tin cơ bản')->schema([
-                FileUpload::make('avatar')
-                    ->label('Ảnh đại diện')
-                    ->image()
-                    ->disk('public')
-                    ->directory('avatars')
-                    ->maxSize(5120)
-                    ->imagePreviewHeight('120')
-                    ->avatar()
-                    ->inlineLabel(),
-
                 TextInput::make('fullname')
                     ->label('Họ và tên')
                     ->maxLength(255)

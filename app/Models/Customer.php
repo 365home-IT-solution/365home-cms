@@ -33,7 +33,6 @@ class Customer extends Authenticatable
         'cccd_front',
         'cccd_back',
         'cccd_data',
-        'avatar',
     ];
 
     protected $hidden = [

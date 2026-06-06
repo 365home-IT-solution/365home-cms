@@ -62,9 +62,16 @@ class ZaloOtpController extends Controller
         }
 
         $normalizedPhone = $this->otp->normalizePhone($request->phone);
-        $customer        = Customer::where('phone', $normalizedPhone)->first();
+        $customer        = Customer::withTrashed()->where('phone', $normalizedPhone)->first();
 
         if ($customer) {
+            // Tài khoản bị xoá vĩnh viễn hoặc soft-delete → không cho đăng nhập/đăng ký lại
+            if ($customer->trashed()) {
+                return response()->json([
+                    'message' => 'Tài khoản này đã bị xoá. Vui lòng liên hệ hỗ trợ.',
+                ], 403);
+            }
+
             if ($customer->status === Customer::STATUS_INACTIVE) {
                 return response()->json([
                     'message' => 'Tài khoản của bạn đã bị vô hiệu hóa. Vui lòng liên hệ hỗ trợ để được kích hoạt lại.',
@@ -92,6 +99,50 @@ class ZaloOtpController extends Controller
             'is_new_user' => true,
             'phone_token' => $phoneToken,
             'expires_in'  => 1800,
+        ]);
+    }
+
+    /**
+     * Đăng nhập bằng số điện thoại + mật khẩu.
+     * Body: { phone, password }
+     */
+    public function login(Request $request): JsonResponse
+    {
+        $request->validate([
+            'phone'    => ['required', 'string', 'regex:/^(0|\+84)[0-9]{9}$/'],
+            'password' => 'required|string',
+        ]);
+
+        $normalizedPhone = $this->otp->normalizePhone($request->phone);
+        $customer        = Customer::where('phone', $normalizedPhone)->first();
+
+        if (! $customer || ! $customer->password) {
+            return response()->json([
+                'message' => 'Số điện thoại hoặc mật khẩu không đúng.',
+            ], 401);
+        }
+
+        if ($customer->status === Customer::STATUS_INACTIVE) {
+            return response()->json([
+                'message' => 'Tài khoản của bạn đã bị vô hiệu hóa. Vui lòng liên hệ hỗ trợ để được kích hoạt lại.',
+            ], 403);
+        }
+
+        if (! password_verify($request->password, $customer->password)) {
+            return response()->json([
+                'message' => 'Số điện thoại hoặc mật khẩu không đúng.',
+            ], 401);
+        }
+
+        $customer->tokens()->delete();
+        $expiresAt = now()->addDays(30);
+        $token     = $customer->createToken('mobile', ['*'], $expiresAt)->plainTextToken;
+
+        return response()->json([
+            'is_new_user' => false,
+            'token'       => $token,
+            'expires_at'  => $expiresAt->toIso8601String(),
+            'user'        => $this->customerResource($customer),
         ]);
     }
 
@@ -173,8 +224,8 @@ class ZaloOtpController extends Controller
     public function changePassword(Request $request): JsonResponse
     {
         $request->validate([
-            'current_password' => 'required|string',
-            'password'         => 'required|string|min:8|confirmed|different:current_password',
+            'current_password'      => 'required|string',
+            'password'              => 'required|string|min:8|confirmed',
             'password_confirmation' => 'required|string',
         ]);
 
@@ -184,6 +235,13 @@ class ZaloOtpController extends Controller
             return response()->json([
                 'message' => 'Mật khẩu hiện tại không đúng.',
                 'errors'  => ['current_password' => ['Mật khẩu hiện tại không đúng.']],
+            ], 422);
+        }
+
+        if ($request->current_password === $request->password) {
+            return response()->json([
+                'message' => 'Mật khẩu mới phải khác mật khẩu hiện tại.',
+                'errors'  => ['password' => ['Mật khẩu mới phải khác mật khẩu hiện tại.']],
             ], 422);
         }
 
@@ -218,7 +276,6 @@ class ZaloOtpController extends Controller
         $request->validate([
             'fullname'      => 'sometimes|string|max:255',
             'date_of_birth' => 'sometimes|date_format:d-m-Y|before:today',
-            'avatar'        => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
             'cccd_front'    => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
             'cccd_back'     => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
@@ -232,13 +289,6 @@ class ZaloOtpController extends Controller
 
         if ($request->filled('date_of_birth')) {
             $data['date_of_birth'] = Carbon::createFromFormat('d-m-Y', $request->date_of_birth)->toDateString();
-        }
-
-        if ($request->hasFile('avatar')) {
-            if ($customer->avatar) {
-                Storage::disk('public')->delete($customer->avatar);
-            }
-            $data['avatar'] = $request->file('avatar')->store('avatars', 'public');
         }
 
         // Lưu path file cũ để xoá sau khi xác nhận QR hợp lệ
@@ -305,9 +355,6 @@ class ZaloOtpController extends Controller
             'phone'             => $customer->phone,
             'status'            => $customer->status,
             'phone_verified_at' => $customer->phone_verified_at?->toIso8601String(),
-            'avatar'            => $customer->avatar
-                ? Storage::disk('public')->url($customer->avatar)
-                : null,
             'cccd_front'        => $customer->cccd_front
                 ? Storage::disk('public')->url($customer->cccd_front)
                 : null,

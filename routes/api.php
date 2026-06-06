@@ -91,6 +91,7 @@ Route::prefix('auth')->name('api.auth.')->group(function () {
     // Đăng nhập
     Route::post('send-otp',   [ZaloOtpController::class, 'sendOtp'])->name('send-otp')->middleware('throttle:otp-send');
     Route::post('verify-otp', [ZaloOtpController::class, 'verifyOtp'])->name('verify-otp')->middleware('throttle:otp-verify');
+    Route::post('login',      [ZaloOtpController::class, 'login'])->name('login')->middleware('throttle:6,1');
 
     // Đăng ký
     Route::post('register', [ZaloOtpController::class, 'register'])->name('register')->middleware('throttle:register');
