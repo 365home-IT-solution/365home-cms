@@ -8,6 +8,7 @@ use App\Filament\Resources\CustomerResource\Pages;
 use App\Models\Customer;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\KeyValue;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -86,17 +87,25 @@ class CustomerResource extends Resource
                     ->image()
                     ->disk('public')
                     ->directory('cccd')
-                    ->maxSize(5120)
-                    ->imagePreviewHeight('160')
-                    ->inlineLabel(),
+                    ->maxSize(10240)
+                    ->imagePreviewHeight('300')
+                    ->helperText('Upload ảnh gốc không crop/resize để quét QR được. Tối đa 10MB.'),
 
                 FileUpload::make('cccd_back')
                     ->label('Mặt sau CCCD')
                     ->image()
                     ->disk('public')
                     ->directory('cccd')
-                    ->maxSize(5120)
-                    ->imagePreviewHeight('160')
+                    ->maxSize(10240)
+                    ->imagePreviewHeight('300')
+                    ->helperText('Upload ảnh gốc không crop/resize để quét QR được. Tối đa 10MB.'),
+
+                KeyValue::make('cccd_data')
+                    ->label('Dữ liệu CCCD (sau khi quét)')
+                    ->keyLabel('Trường')
+                    ->valueLabel('Giá trị')
+                    ->disabled()
+                    ->hidden(fn ($record) => blank($record?->cccd_data))
                     ->inlineLabel(),
             ])->columns(1),
         ]);

@@ -9,6 +9,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Modules\Payment\App\Services\CccdScannerService;
 
 class ZaloOtpController extends Controller
 {
@@ -185,18 +186,50 @@ class ZaloOtpController extends Controller
             $data['avatar'] = $request->file('avatar')->store('avatars', 'public');
         }
 
+        // Lưu path file cũ để xoá sau khi xác nhận QR hợp lệ
+        $oldCccdFront = $customer->cccd_front;
+        $oldCccdBack  = $customer->cccd_back;
+
         if ($request->hasFile('cccd_front')) {
-            if ($customer->cccd_front) {
-                Storage::disk('public')->delete($customer->cccd_front);
-            }
             $data['cccd_front'] = $request->file('cccd_front')->store('cccd', 'public');
         }
 
         if ($request->hasFile('cccd_back')) {
-            if ($customer->cccd_back) {
-                Storage::disk('public')->delete($customer->cccd_back);
-            }
             $data['cccd_back'] = $request->file('cccd_back')->store('cccd', 'public');
+        }
+
+        // Nếu có upload CCCD thì bắt buộc quét QR xác thực
+        if (isset($data['cccd_front']) || isset($data['cccd_back'])) {
+            $tempCustomer = new Customer([
+                'cccd_front' => $data['cccd_front'] ?? $customer->cccd_front,
+                'cccd_back'  => $data['cccd_back']  ?? $customer->cccd_back,
+            ]);
+
+            $cccdData = app(CccdScannerService::class)->scanCustomer($tempCustomer);
+
+            if (! $cccdData) {
+                // QR không đọc được — xoá file mới, giữ nguyên file cũ
+                if (isset($data['cccd_front'])) {
+                    Storage::disk('public')->delete($data['cccd_front']);
+                }
+                if (isset($data['cccd_back'])) {
+                    Storage::disk('public')->delete($data['cccd_back']);
+                }
+
+                return response()->json([
+                    'message' => 'Không đọc được QR trên ảnh CCCD. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.',
+                ], 422);
+            }
+
+            // QR hợp lệ — xoá file cũ và lưu dữ liệu
+            if (isset($data['cccd_front']) && $oldCccdFront) {
+                Storage::disk('public')->delete($oldCccdFront);
+            }
+            if (isset($data['cccd_back']) && $oldCccdBack) {
+                Storage::disk('public')->delete($oldCccdBack);
+            }
+
+            $data['cccd_data'] = $cccdData;
         }
 
         if (! empty($data)) {
@@ -225,6 +258,7 @@ class ZaloOtpController extends Controller
             'cccd_back'         => $customer->cccd_back
                 ? Storage::disk('public')->url($customer->cccd_back)
                 : null,
+            'cccd_data'         => $customer->cccd_data,
         ];
     }
 }

@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Storage;
 use Modules\BladeThemeV1\Services\AccessCode\AccessCodeService;
 use Modules\BladeThemeV1\Services\Zns\ZaloZnsService;
 use Modules\BladeThemeV1\Services\OcrSpaceService;
+use Modules\Payment\App\Services\CccdScannerService;
 
 class EditOrder extends EditRecord
 {
@@ -220,6 +221,55 @@ class EditOrder extends EditRecord
                             ->danger()
                             ->send();
                     }
+                }),
+
+            Actions\Action::make('scanCccdQr')
+                ->label('[TEST] Quét QR CCCD')
+                ->icon('heroicon-m-qr-code')
+                ->color('gray')
+                ->visible(fn () => (bool) ($this->record->cccd_front || $this->record->cccd_back))
+                ->action(function () {
+                    $record = $this->record->fresh();
+                    $data   = app(CccdScannerService::class)->scanOrder($record);
+
+                    if (! $data) {
+                        Notification::make()
+                            ->title('Không đọc được QR CCCD')
+                            ->body('Ảnh quá nhỏ hoặc QR bị mờ. Vui lòng upload lại ảnh gốc chất lượng cao (không resize).')
+                            ->warning()
+                            ->send();
+                        return;
+                    }
+
+                    $note = implode("\n", array_filter([
+                        $data['cccd']        ? "Số CCCD:   {$data['cccd']}"        : null,
+                        $data['full_name']   ? "Họ và tên: {$data['full_name']}"   : null,
+                        $data['dob']         ? "Ngày sinh: {$data['dob']}"         : null,
+                        $data['gender']      ? "Giới tính: {$data['gender']}"      : null,
+                        $data['address']     ? "Địa chỉ:   {$data['address']}"     : null,
+                    ]));
+
+                    $updateFields = [
+                        'cccd_data'      => $data,
+                        'note_for_admin' => $note,
+                    ];
+
+                    if (! empty($data['full_name'])) {
+                        $updateFields['buyer_name'] = $data['full_name'];
+                    }
+                    if (! empty($data['address'])) {
+                        $updateFields['buyer_address'] = $data['address'];
+                    }
+
+                    $record->update($updateFields);
+
+                    $this->refreshFormData(['note_for_admin', 'cccd_data', 'buyer_name', 'buyer_address']);
+
+                    Notification::make()
+                        ->title('Quét CCCD thành công')
+                        ->body($note)
+                        ->success()
+                        ->send();
                 }),
 
             Actions\Action::make('retryOcr')

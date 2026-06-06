@@ -113,9 +113,8 @@ class OrderForm
                                         Grid::make(2)->schema([
                                             FileUpload::make('cccd_front')
                                                 ->label('CCCD/CMND mặt trước')
-                                                ->helperText('Kích thước tối đa: 12MB. Định dạng: JPG, PNG')
+                                                ->helperText('Kích thước tối đa: 10MB. Upload ảnh gốc không crop/resize để quét QR được.')
                                                 ->image()
-                                                ->imageEditor()
                                                 ->directory('cccd')
                                                 ->imagePreviewHeight('250')
                                                 ->loadingIndicatorPosition('center')
@@ -125,18 +124,13 @@ class OrderForm
                                                 ->uploadButtonPosition('center')
                                                 ->uploadProgressIndicatorPosition('center')
                                                 ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg'])
-                                                ->maxSize(5120) // 5MB
-                                                ->nullable()
-                                                ->imageResizeMode('cover')
-                                                ->imageCropAspectRatio('16:10')
-                                                ->imageResizeTargetWidth('800')
-                                                ->imageResizeTargetHeight('500'),
+                                                ->maxSize(10240) // 10MB — giữ nguyên chất lượng để quét QR
+                                                ->nullable(),
 
                                             FileUpload::make('cccd_back')
                                                 ->label('CCCD/CMND mặt sau')
-                                                ->helperText('Kích thước tối đa: 12MB. Định dạng: JPG, PNG')
+                                                ->helperText('Kích thước tối đa: 10MB. Upload ảnh gốc không crop/resize để quét QR được.')
                                                 ->image()
-                                                ->imageEditor()
                                                 ->directory('cccd')
                                                 ->imagePreviewHeight('250')
                                                 ->loadingIndicatorPosition('center')
@@ -146,12 +140,8 @@ class OrderForm
                                                 ->uploadButtonPosition('center')
                                                 ->uploadProgressIndicatorPosition('center')
                                                 ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg'])
-                                                ->maxSize(5120) // 5MB
-                                                ->nullable()
-                                                ->imageResizeMode('cover')
-                                                ->imageCropAspectRatio('16:10')
-                                                ->imageResizeTargetWidth('800')
-                                                ->imageResizeTargetHeight('500'),
+                                                ->maxSize(10240) // 10MB — giữ nguyên chất lượng để quét QR
+                                                ->nullable(),
                                         ]),
                                     ]),
                             ]),

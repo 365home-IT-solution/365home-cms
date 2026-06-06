@@ -2,6 +2,7 @@
 
 namespace Modules\Payment\App\Services;
 
+use App\Models\Customer;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Modules\Payment\Entities\Order;
@@ -43,11 +44,33 @@ class CccdScannerService
             }
         }
 
-        // Fallback OCR mặt trước
-        if ($order->cccd_front) {
-            $path = Storage::disk('public')->path($order->cccd_front);
+        return null;
+    }
+
+    /**
+     * Quét và trả về mảng cccd_data cho khách hàng, hoặc null nếu không đọc được.
+     */
+    public function scanCustomer(Customer $customer): ?array
+    {
+        // Ưu tiên mặt sau
+        if ($customer->cccd_back) {
+            $path = Storage::disk('public')->path($customer->cccd_back);
             if (file_exists($path)) {
-                return $this->tryOcrFrontside($path);
+                $data = $this->tryQrScan($path);
+                if ($data) {
+                    return $data;
+                }
+            }
+        }
+
+        // Thử mặt trước
+        if ($customer->cccd_front) {
+            $path = Storage::disk('public')->path($customer->cccd_front);
+            if (file_exists($path)) {
+                $data = $this->tryQrScan($path);
+                if ($data) {
+                    return $data;
+                }
             }
         }
 
@@ -56,31 +79,288 @@ class CccdScannerService
 
     /**
      * Quét QR từ file ảnh cục bộ.
-     * Dùng khanamiryan/qrcode-detector-decoder (PHP port của ZXing).
+     * Thứ tự ưu tiên: Node.js jsQR → zbarimg CLI → khanamiryan
      */
     protected function tryQrScan(string $imagePath): ?array
     {
-        if (! class_exists(\QrReader::class)) {
-            Log::debug('[CccdScanner] QrReader class không tồn tại — gói khanamiryan/qrcode-detector-decoder chưa được cài.');
+        // Chiến lược 1: Node.js jsQR — xử lý tốt nhất với ảnh JPEG chất lượng thấp
+        $data = $this->tryNodeJsQR($imagePath);
+        if ($data) {
+            return $data;
+        }
+
+        // Chiến lược 2: zbarimg CLI
+        $data = $this->tryZbarimg($imagePath);
+        if ($data) {
+            return $data;
+        }
+
+        // Chiến lược 3: khanamiryan PHP ZXing
+        return $this->tryKhanamiryan($imagePath);
+    }
+
+    /**
+     * Dùng Node.js + jsQR — xử lý ảnh JPEG nén tốt hơn ZBar/ZXing.
+     * Script qr_scan.cjs phải ở root dự án.
+     */
+    protected function tryNodeJsQR(string $imagePath): ?array
+    {
+        $scriptPath = base_path('qr_scan.cjs');
+        if (! file_exists($scriptPath)) {
             return null;
         }
 
-        try {
-            $qr   = new \QrReader($imagePath);
-            $text = $qr->text();
+        $nodeCmd = PHP_OS_FAMILY === 'Windows' ? 'node' : 'node';
+        $found = PHP_OS_FAMILY === 'Windows'
+            ? @shell_exec('where node 2>NUL')
+            : @shell_exec('which node 2>/dev/null');
+        if (! $found) {
+            return null;
+        }
 
-            if ($text && $this->isCccdQr($text)) {
-                Log::debug('[CccdScanner] QR thành công', ['path' => basename($imagePath)]);
-                return $this->parseQrData($text);
+        $realPath = realpath($imagePath) ?: str_replace('/', DIRECTORY_SEPARATOR, $imagePath);
+
+        try {
+            $argv    = [$nodeCmd, $scriptPath, $realPath];
+            $process = proc_open($argv, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+            if (! is_resource($process)) {
+                return null;
+            }
+
+            $stdout   = stream_get_contents($pipes[1]);
+            $stderr   = stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            $exitCode = proc_close($process);
+
+            $text = $stdout ? trim($stdout) : null;
+            Log::debug('[CccdScanner] jsQR result', [
+                'exit'   => $exitCode,
+                'stdout' => $text ? substr($text, 0, 80) : null,
+                'stderr' => trim((string) $stderr),
+            ]);
+
+            if ($text && $exitCode === 0) {
+                if (class_exists(\Normalizer::class)) {
+                    $text = \Normalizer::normalize($text, \Normalizer::FORM_C) ?: $text;
+                }
+                if ($this->isCccdQr($text)) {
+                    Log::debug('[CccdScanner] jsQR thành công');
+                    return $this->parseQrData($text);
+                }
             }
         } catch (\Throwable $e) {
-            Log::debug('[CccdScanner] QR thất bại', [
-                'path'  => basename($imagePath),
-                'error' => $e->getMessage(),
-            ]);
+            Log::debug('[CccdScanner] jsQR exception', ['error' => $e->getMessage()]);
         }
 
         return null;
+    }
+
+    /**
+     * Dùng zbarimg CLI nếu có — không bị lỗi encoding Vietnamese.
+     */
+    protected function tryZbarimg(string $imagePath): ?array
+    {
+        $candidates = PHP_OS_FAMILY === 'Windows'
+            ? [
+                'C:\\Program Files (x86)\\ZBar\\bin\\zbarimg.exe',
+                'C:\\Program Files\\ZBar\\bin\\zbarimg.exe',
+                'zbarimg',
+            ]
+            : ['/usr/bin/zbarimg', '/usr/local/bin/zbarimg', 'zbarimg'];
+
+        $bin = null;
+        foreach ($candidates as $c) {
+            $isAbsolute = str_contains($c, DIRECTORY_SEPARATOR) || str_contains($c, '/');
+            if ($isAbsolute) {
+                if (file_exists($c)) { $bin = $c; break; }
+            } else {
+                $found = PHP_OS_FAMILY === 'Windows'
+                    ? @shell_exec('where ' . escapeshellarg($c) . ' 2>NUL')
+                    : @shell_exec('which ' . escapeshellarg($c) . ' 2>/dev/null');
+                if ($found) { $bin = $c; break; }
+            }
+        }
+
+        Log::debug('[CccdScanner] zbarimg binary', ['bin' => $bin]);
+        if (! $bin) { return null; }
+
+        // Normalize path: Storage::disk()->path() trả về mixed slashes trên Windows
+        $realPath = realpath($imagePath) ?: str_replace('/', DIRECTORY_SEPARATOR, $imagePath);
+
+        // Ảnh 800x500 thường quá nhỏ cho ZBar — thử trên ảnh đã upscale+preprocess
+        $prePath = $this->preprocessImageForQr($realPath ?: $imagePath);
+
+        $pathsToTry = array_filter([$realPath ?: $imagePath, $prePath]);
+
+        foreach ($pathsToTry as $tryPath) {
+            // ZBar 0.10 không có --symbology; dùng -S để giới hạn QR, fallback tất cả
+            $argSets = [
+                [$bin, '--raw', '-Senable=0', '-Sqrcode.enable=1', '-q', $tryPath],
+                [$bin, '--raw', '-q', $tryPath],
+            ];
+
+            foreach ($argSets as $argv) {
+                try {
+                    $process = proc_open($argv, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+                    if (! is_resource($process)) { continue; }
+
+                    $stdout   = stream_get_contents($pipes[1]);
+                    $stderr   = stream_get_contents($pipes[2]);
+                    fclose($pipes[1]);
+                    fclose($pipes[2]);
+                    $exitCode = proc_close($process);
+
+                    $text = $stdout ? trim($stdout) : null;
+                    Log::debug('[CccdScanner] zbarimg result', [
+                        'img'    => basename($tryPath),
+                        'flags'  => implode(' ', array_slice($argv, 1, 3)),
+                        'exit'   => $exitCode,
+                        'stdout' => $text,
+                        'stderr' => trim((string) $stderr),
+                    ]);
+
+                    if ($text) {
+                        if (class_exists(\Normalizer::class)) {
+                            $text = \Normalizer::normalize($text, \Normalizer::FORM_C) ?: $text;
+                        }
+                        if ($this->isCccdQr($text)) {
+                            Log::debug('[CccdScanner] zbarimg thành công', ['img' => basename($tryPath)]);
+                            if ($prePath && file_exists($prePath)) { @unlink($prePath); }
+                            return $this->parseQrData($text);
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    Log::debug('[CccdScanner] zbarimg exception', ['error' => $e->getMessage()]);
+                }
+            }
+        }
+
+        if ($prePath && file_exists($prePath)) { @unlink($prePath); }
+        return null;
+    }
+
+    /**
+     * Dùng khanamiryan/qrcode-detector-decoder.
+     * Thử ảnh gốc trước, nếu fail thì thử phiên bản grayscale+contrast.
+     */
+    protected function tryKhanamiryan(string $imagePath): ?array
+    {
+        if (! class_exists(\Zxing\QrReader::class)) {
+            Log::debug('[CccdScanner] Zxing\QrReader class không tồn tại.');
+            return null;
+        }
+
+        $paths   = [$imagePath];
+        $tmpPath = $this->preprocessImageForQr($imagePath);
+        if ($tmpPath) {
+            $paths[] = $tmpPath;
+        }
+
+        // khanamiryan cần ~10 byte RAM / pixel; giới hạn 1.8M pixel để tránh OOM
+        $maxPixels = 1_800_000;
+
+        foreach ($paths as $path) {
+            try {
+                $imgInfo = @getimagesize($path);
+                if ($imgInfo && ($imgInfo[0] * $imgInfo[1]) > $maxPixels) {
+                    Log::debug('[CccdScanner] khanamiryan skip (quá lớn)', [
+                        'path' => basename($path),
+                        'pixels' => $imgInfo[0] * $imgInfo[1],
+                    ]);
+                    continue;
+                }
+
+                $qr   = new \Zxing\QrReader($path);
+                $text = $qr->text();
+
+                if (! $text) {
+                    continue;
+                }
+
+                if (! mb_check_encoding($text, 'UTF-8')) {
+                    $text = mb_convert_encoding($text, 'UTF-8', 'ISO-8859-1');
+                }
+
+                Log::debug('[CccdScanner] khanamiryan raw', [
+                    'path' => basename($path),
+                    'text' => $text,
+                    'hex'  => bin2hex(mb_substr($text, 0, 50)),
+                ]);
+
+                if ($this->isCccdQr($text)) {
+                    Log::debug('[CccdScanner] khanamiryan thành công', ['path' => basename($path)]);
+                    return $this->parseQrData($text);
+                }
+            } catch (\Throwable $e) {
+                Log::debug('[CccdScanner] khanamiryan thất bại', ['error' => $e->getMessage()]);
+            }
+        }
+
+        if ($tmpPath && file_exists($tmpPath)) {
+            @unlink($tmpPath);
+        }
+
+        return null;
+    }
+
+    /**
+     * Tiền xử lý ảnh: upscale nếu nhỏ + grayscale + contrast + sharpen.
+     * Ảnh CCCD upload thường bị resize về 800x500 — QR chỉ ~150-200px,
+     * cần upscale 2-3x để ZBar/ZXing decode được.
+     */
+    protected function preprocessImageForQr(string $imagePath): ?string
+    {
+        if (! extension_loaded('gd')) {
+            return null;
+        }
+
+        $ext = strtolower(pathinfo($imagePath, PATHINFO_EXTENSION));
+
+        $src = match ($ext) {
+            'jpg', 'jpeg' => @imagecreatefromjpeg($imagePath),
+            'png'         => @imagecreatefrompng($imagePath),
+            'webp'        => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($imagePath) : null,
+            default       => null,
+        };
+
+        if (! $src) {
+            return null;
+        }
+
+        $w = imagesx($src);
+        $h = imagesy($src);
+
+        // Upscale ảnh nhỏ (< 1500px) lên 1.5x — đủ để QR decode, không OOM
+        // Downscale ảnh quá lớn (> 3000px) để tránh dùng quá nhiều RAM
+        $targetW = $w;
+        $targetH = $h;
+        if ($w < 1500) {
+            $targetW = (int) ($w * 1.5);
+            $targetH = (int) ($h * 1.5);
+        } elseif ($w > 3000 || $h > 3000) {
+            $scale   = min(3000 / $w, 3000 / $h);
+            $targetW = (int) ($w * $scale);
+            $targetH = (int) ($h * $scale);
+        }
+
+        if ($targetW !== $w || $targetH !== $h) {
+            $resized = imagecreatetruecolor($targetW, $targetH);
+            imagecopyresampled($resized, $src, 0, 0, 0, 0, $targetW, $targetH, $w, $h);
+            imagedestroy($src);
+            $src = $resized;
+        }
+
+        // Grayscale + tăng contrast mạnh + sharpen
+        imagefilter($src, IMG_FILTER_GRAYSCALE);
+        imagefilter($src, IMG_FILTER_CONTRAST, -50);
+        imageconvolution($src, [[0, -1, 0], [-1, 5, -1], [0, -1, 0]], 1, 0);
+
+        $tmpPath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'cccd_pre_' . uniqid() . '.jpg';
+        imagejpeg($src, $tmpPath, 95);
+        imagedestroy($src);
+
+        return $tmpPath;
     }
 
     /**
@@ -174,7 +454,10 @@ class CccdScannerService
 
             // Họ và tên
             if (! $fullName && preg_match('/(?:Họ và tên|Full name)[:\s\/\\\\]+(.+)/ui', $line, $m)) {
-                $val      = trim($m[1]);
+                $val = trim($m[1]);
+                // Strip bilingual prefix còn sót lại: "Full name: ..." hoặc "Full name / ..."
+                $val = preg_replace('/^Full\s*name\s*[:\s\/\\\\]+/iu', '', $val);
+                $val = trim($val);
                 $fullName = (strlen($val) > 2 && ! preg_match('/^(?:Full name|\/|\\\\)$/i', $val))
                     ? $val
                     : trim($lines[$i + 1] ?? '');
@@ -199,7 +482,10 @@ class CccdScannerService
 
             // Nơi thường trú
             if (! $address && preg_match('/(?:Nơi thường trú|Place of residence)[:\s\/\\\\]+(.+)/ui', $line, $m)) {
-                $val       = trim($m[1]);
+                $val = trim($m[1]);
+                // Strip bilingual prefix còn sót lại: "Place of residence: ..."
+                $val = preg_replace('/^Place\s*of\s*residence\s*[:\s\/\\\\]+/iu', '', $val);
+                $val = trim($val);
                 $addrLines = [];
                 if (strlen($val) > 2 && ! preg_match('/^(?:Place of residence|\/|\\\\)$/i', $val)) {
                     $addrLines[] = $val;

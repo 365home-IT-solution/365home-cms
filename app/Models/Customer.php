@@ -26,6 +26,7 @@ class Customer extends Authenticatable
         'phone_verified_at',
         'cccd_front',
         'cccd_back',
+        'cccd_data',
         'avatar',
     ];
 
@@ -34,6 +35,7 @@ class Customer extends Authenticatable
     protected $casts = [
         'phone_verified_at' => 'datetime',
         'date_of_birth'     => 'date',
+        'cccd_data'         => 'array',
     ];
 
     // Filament gọi $user->name — map về fullname để tránh TypeError
