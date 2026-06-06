@@ -18,7 +18,7 @@ class OrderController extends Controller
         /** @var \App\Models\Customer $customer */
         $customer = auth('sanctum')->user();
 
-        $orders = Order::with(['items.product', 'services'])
+        $orders = Order::with(['items.product.media', 'services'])
             ->where('customer_id', $customer->id)
             ->orderByDesc('created_at')
             ->paginate(10);
@@ -41,6 +41,7 @@ class OrderController extends Controller
         $customer = auth('sanctum')->user();
 
         $order = Order::with([
+            'items.product.media',
             'items.product.roomTimeSlots.timeSlot',
             'items.product.roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
             'services',
@@ -71,9 +72,10 @@ class OrderController extends Controller
             'order_code'   => $order->order_code,
             'created_at'   => $order->created_at->format('Y-m-d H:i:s'),
             'status'       => $order->status,
-            'room_id'      => $firstItem?->product?->id,
-            'room_slug'    => $firstItem?->product?->slug,
-            'room_name'    => $roomName,
+            'room_id'        => $firstItem?->product?->id,
+            'room_slug'      => $firstItem?->product?->slug,
+            'room_name'      => $roomName,
+            'room_thumbnail' => $this->getRoomThumbnail($firstItem?->product),
             'checkin'      => $firstItem?->checkin_date?->format('Y-m-d H:i'),
             'checkout'     => $lastItem?->checkout_date?->format('Y-m-d H:i'),
             'final_amount' => (int) $order->full_amount,
@@ -146,9 +148,10 @@ class OrderController extends Controller
                 'buyer_phone'    => $order->buyer_phone,
             ],
             'room' => [
-                'id'   => $product?->id,
-                'slug' => $product?->slug,
-                'name' => $product?->name,
+                'id'        => $product?->id,
+                'slug'      => $product?->slug,
+                'name'      => $product?->name,
+                'thumbnail' => $this->getRoomThumbnail($product),
             ],
             'slots'    => $slots,
             'services' => $services,
@@ -207,5 +210,18 @@ class OrderController extends Controller
         }
 
         return [$applied, $totalDiscount];
+    }
+
+    private function getRoomThumbnail(?\Modules\Product\App\Models\Product $product): ?string
+    {
+        if (! $product) {
+            return null;
+        }
+
+        $media = $product->getFirstMedia('Ảnh bìa')
+              ?? $product->getFirstMedia('Ảnh chính')
+              ?? $product->getFirstMedia();
+
+        return $media?->getUrl();
     }
 }
