@@ -71,6 +71,7 @@ class OrderController extends Controller
             'order_code'   => $order->order_code,
             'created_at'   => $order->created_at->format('Y-m-d H:i:s'),
             'status'       => $order->status,
+            'room_slug'    => $firstItem?->product?->slug,
             'room_name'    => $roomName,
             'checkin'      => $firstItem?->checkin_date?->format('Y-m-d H:i'),
             'checkout'     => $lastItem?->checkout_date?->format('Y-m-d H:i'),
@@ -144,7 +145,7 @@ class OrderController extends Controller
                 'buyer_phone'    => $order->buyer_phone,
             ],
             'room' => [
-                'id'   => $product?->id,
+                'slug' => $product?->slug,
                 'name' => $product?->name,
             ],
             'slots'    => $slots,
