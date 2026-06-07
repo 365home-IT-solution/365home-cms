@@ -24,6 +24,13 @@ class RouteServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        RateLimiter::for('livewire-upload', function (Request $request) {
+            if ($request->user()) {
+                return Limit::perMinute(200)->by('livewire_upload_user:' . $request->user()->id);
+            }
+            return Limit::perMinute(30)->by($request->ip());
+        });
+
         RateLimiter::for('api', function (Request $request) {
             if ($request->is('api/lock/callback')) {
                 return Limit::none();
