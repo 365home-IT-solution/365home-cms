@@ -68,7 +68,7 @@ return [
         // Block PHP/script files from being uploaded via Livewire file upload endpoint
         'rules' => ['file', 'max:12288', 'mimes:jpg,jpeg,png,gif,bmp,webp,svg,avif,pdf,doc,docx,xls,xlsx,csv,txt,zip,mp4,mp3,wav,mov,avi'],
         'directory' => null,   // Example: 'tmp'                      | Default: 'livewire-tmp'
-        'middleware' => 'throttle:30,1',  // Max 30 uploads/min per IP
+        'middleware' => 'throttle:100,1',  // Max 100 uploads/min per IP
         'preview_mimes' => [   // Supported file types for temporary pre-signed file URLs...
             'png', 'gif', 'bmp', 'svg', 'wav', 'mp4',
             'mov', 'avi', 'wmv', 'mp3', 'm4a',
