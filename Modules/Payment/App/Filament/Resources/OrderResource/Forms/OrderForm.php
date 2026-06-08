@@ -124,7 +124,8 @@ class OrderForm
                                                 ->uploadButtonPosition('center')
                                                 ->uploadProgressIndicatorPosition('center')
                                                 ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg'])
-                                                ->maxSize(10240) // 10MB — giữ nguyên chất lượng để quét QR
+                                                ->maxSize(10240)
+                                                ->downloadable()
                                                 ->nullable(),
 
                                             FileUpload::make('cccd_back')
@@ -140,7 +141,8 @@ class OrderForm
                                                 ->uploadButtonPosition('center')
                                                 ->uploadProgressIndicatorPosition('center')
                                                 ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg'])
-                                                ->maxSize(10240) // 10MB — giữ nguyên chất lượng để quét QR
+                                                ->maxSize(10240)
+                                                ->downloadable()
                                                 ->nullable(),
                                         ]),
                                     ]),
