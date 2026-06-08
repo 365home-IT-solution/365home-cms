@@ -66,7 +66,7 @@ return [
     'temporary_file_upload' => [
         'disk' => null,        // Example: 'local', 's3'              | Default: 'default'
         // Block PHP/script files from being uploaded via Livewire file upload endpoint
-        'rules' => ['file', 'max:12288', 'mimetypes:image/jpeg,image/png,image/gif,image/bmp,image/webp,image/svg+xml,image/avif,image/x-avif,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/plain,application/zip,video/mp4,audio/mpeg,audio/wav,audio/x-wav,video/quicktime,video/x-msvideo'],
+        'rules' => ['file', 'max:12288', 'extensions:jpg,jpeg,png,gif,bmp,webp,svg,avif,pdf,doc,docx,xls,xlsx,csv,txt,zip,mp4,mp3,wav,mov,avi'],
         'directory' => null,   // Example: 'tmp'                      | Default: 'livewire-tmp'
         'middleware' => 'throttle:livewire-upload',
         'preview_mimes' => [   // Supported file types for temporary pre-signed file URLs...
