@@ -8,6 +8,8 @@ use App\Filament\Resources\NotificationFcmResource\Pages;
 use App\Filament\Resources\NotificationFcmResource\RelationManagers;
 use App\Models\Customer;
 use App\Models\NotificationFcm;
+use Filament\Forms\Components\DateTimePicker;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -19,7 +21,6 @@ use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Filament\Tables\Actions\ViewAction;
-use Filament\Tables\Columns\BadgeColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 
@@ -94,8 +95,7 @@ class NotificationFcmResource extends Resource
                     ->loadingMessage('Đang tìm kiếm...')
                     ->placeholder('Tìm theo tên hoặc số điện thoại...'),
 
-                // Nút "Chọn tất cả" — helper text giải thích
-                \Filament\Forms\Components\Placeholder::make('all_hint')
+                Placeholder::make('all_hint')
                     ->label('')
                     ->content(function (): string {
                         $count = Customer::whereNotNull('token_device')
@@ -104,6 +104,18 @@ class NotificationFcmResource extends Resource
 
                         return "Hiện có {$count} khách hàng đang có token thiết bị.";
                     }),
+            ]),
+
+            Section::make('Lịch gửi')->schema([
+                DateTimePicker::make('scheduled_at')
+                    ->label('Gửi vào lúc')
+                    ->helperText('Để trống nếu muốn gửi ngay. Chọn thời điểm trong tương lai để lên lịch.')
+                    ->nullable()
+                    ->minDate(now())
+                    ->seconds(false)
+                    ->native(false)
+                    ->displayFormat('d/m/Y H:i')
+                    ->timezone(config('app.timezone', 'Asia/Ho_Chi_Minh')),
             ]),
         ]);
     }
@@ -128,31 +140,63 @@ class NotificationFcmResource extends Resource
                     ->tooltip(fn ($record) => $record->body)
                     ->color('gray'),
 
+                TextColumn::make('delivery_status')
+                    ->label('Trạng thái')
+                    ->badge()
+                    ->getStateUsing(function (NotificationFcm $record): string {
+                        if ($record->isPending()) {
+                            return 'scheduled';
+                        }
+
+                        return $record->fail_count > 0 && $record->sent_count === 0
+                            ? 'failed'
+                            : 'sent';
+                    })
+                    ->formatStateUsing(fn (string $state) => match ($state) {
+                        'scheduled' => 'Đã lên lịch',
+                        'failed'    => 'Thất bại',
+                        default     => 'Đã gửi',
+                    })
+                    ->color(fn (string $state) => match ($state) {
+                        'scheduled' => 'warning',
+                        'failed'    => 'danger',
+                        default     => 'success',
+                    }),
+
                 TextColumn::make('total_recipients')
                     ->label('Người nhận')
                     ->getStateUsing(fn (NotificationFcm $record) => $record->sent_count + $record->fail_count)
                     ->suffix(' thiết bị')
                     ->alignCenter(),
 
-                BadgeColumn::make('sent_count')
+                TextColumn::make('sent_count')
                     ->label('Đã gửi')
+                    ->badge()
                     ->color('success')
-                    ->suffix(' ✓')
                     ->alignCenter(),
 
-                BadgeColumn::make('fail_count')
+                TextColumn::make('fail_count')
                     ->label('Thất bại')
+                    ->badge()
                     ->color(fn (int $state) => $state > 0 ? 'danger' : 'gray')
                     ->alignCenter(),
+
+                TextColumn::make('scheduled_at')
+                    ->label('Lịch gửi')
+                    ->dateTime('d/m/Y H:i')
+                    ->placeholder('Gửi ngay')
+                    ->color('warning')
+                    ->sortable(),
 
                 TextColumn::make('creator.name')
                     ->label('Người gửi')
                     ->sortable(),
 
                 TextColumn::make('created_at')
-                    ->label('Thời gian gửi')
+                    ->label('Thời gian tạo')
                     ->dateTime('d/m/Y H:i')
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->defaultSort('created_at', 'desc')
             ->actions([
@@ -192,9 +236,13 @@ class NotificationFcmResource extends Resource
                         ->formatStateUsing(fn (int $state) => "{$state} thiết bị"),
                 ]),
 
-                Grid::make(2)->schema([
+                Grid::make(3)->schema([
                     TextEntry::make('creator.name')->label('Người gửi'),
-                    TextEntry::make('created_at')->label('Thời gian gửi')->dateTime('d/m/Y H:i'),
+                    TextEntry::make('scheduled_at')
+                        ->label('Lịch gửi')
+                        ->dateTime('d/m/Y H:i')
+                        ->placeholder('Gửi ngay'),
+                    TextEntry::make('created_at')->label('Thời gian tạo')->dateTime('d/m/Y H:i'),
                 ]),
             ]),
         ]);

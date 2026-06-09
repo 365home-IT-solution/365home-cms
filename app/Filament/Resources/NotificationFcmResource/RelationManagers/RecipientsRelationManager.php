@@ -32,20 +32,35 @@ class RecipientsRelationManager extends RelationManager
                     ->fontFamily('mono')
                     ->color('gray'),
 
-                Tables\Columns\BadgeColumn::make('status')
-                    ->label('Trạng thái')
-                    ->colors([
-                        'success' => 'sent',
-                        'danger'  => 'failed',
-                    ])
+                Tables\Columns\TextColumn::make('status')
+                    ->label('Trạng thái gửi')
+                    ->badge()
                     ->formatStateUsing(fn (string $state) => match ($state) {
                         'sent'   => 'Đã gửi',
                         'failed' => 'Thất bại',
                         default  => $state,
+                    })
+                    ->color(fn (string $state) => match ($state) {
+                        'sent'   => 'success',
+                        'failed' => 'danger',
+                        default  => 'gray',
                     }),
 
+                Tables\Columns\TextColumn::make('read_status')
+                    ->label('Đã xem')
+                    ->badge()
+                    ->getStateUsing(fn ($record) => $record->read_at ? 'read' : 'unread')
+                    ->formatStateUsing(fn (string $state) => $state === 'read' ? 'Đã xem' : 'Chưa xem')
+                    ->color(fn (string $state) => $state === 'read' ? 'success' : 'gray'),
+
+                Tables\Columns\TextColumn::make('read_at')
+                    ->label('Thời gian xem')
+                    ->dateTime('d/m/Y H:i')
+                    ->placeholder('—')
+                    ->sortable(),
+
                 Tables\Columns\TextColumn::make('created_at')
-                    ->label('Thời gian')
+                    ->label('Thời gian gửi')
                     ->dateTime('d/m/Y H:i')
                     ->sortable(),
             ])

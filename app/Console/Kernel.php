@@ -30,6 +30,12 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping()
             ->appendOutputTo(storage_path('logs/expire-manual-lock-passwords.log'));
+
+        $schedule->command('notifications:send-scheduled')
+            ->everyMinute()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping(2)
+            ->appendOutputTo(storage_path('logs/scheduled-notifications.log'));
     }
 
     /**

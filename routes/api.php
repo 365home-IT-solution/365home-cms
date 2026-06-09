@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\LockRecordCallbackController;
 use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\RoomTypeController;
 use App\Http\Controllers\Api\DeviceTokenController;
+use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\WishlistController;
 use Illuminate\Support\Facades\Route;
 use Modules\AppPage\App\Http\Controllers\AppPageController;
@@ -140,6 +141,20 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('orders/{order}/services', [OrderServiceController::class,'store'])->name('api.orders.services.store');
         Route::post('coupons/validate',        [CouponController::class,     'validate'])->name('api.coupons.validate');
     });
+});
+
+/*
+|--------------------------------------------------------------------------
+| Notifications
+| GET  /api/notifications           → Danh sách thông báo đã nhận (có is_read)
+| POST /api/notifications/{id}/read → Đánh dấu 1 thông báo đã xem
+| POST /api/notifications/read-all  → Đánh dấu tất cả đã xem
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum'])->prefix('notifications')->name('api.notifications.')->group(function () {
+    Route::get('/',          [NotificationController::class, 'index'])->name('index');
+    Route::post('read-all',  [NotificationController::class, 'markAllRead'])->name('read-all');
+    Route::post('{id}/read', [NotificationController::class, 'markRead'])->name('read');
 });
 
 /*

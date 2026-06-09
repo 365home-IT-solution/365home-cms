@@ -14,6 +14,11 @@ class NotificationFcmRecipient extends Model
         'customer_id',
         'fcm_token',
         'status',
+        'read_at',
+    ];
+
+    protected $casts = [
+        'read_at' => 'datetime',
     ];
 
     public function notification(): BelongsTo

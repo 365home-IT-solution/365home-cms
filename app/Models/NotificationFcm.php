@@ -13,15 +13,26 @@ class NotificationFcm extends Model
     protected $fillable = [
         'title',
         'body',
+        'scheduled_at',
+        'sent_at',
+        'recipient_ids',
         'created_by',
         'sent_count',
         'fail_count',
     ];
 
     protected $casts = [
-        'sent_count' => 'integer',
-        'fail_count' => 'integer',
+        'sent_count'    => 'integer',
+        'fail_count'    => 'integer',
+        'scheduled_at'  => 'datetime',
+        'sent_at'       => 'datetime',
+        'recipient_ids' => 'array',
     ];
+
+    public function isPending(): bool
+    {
+        return $this->scheduled_at !== null && $this->sent_at === null;
+    }
 
     public function creator(): BelongsTo
     {
