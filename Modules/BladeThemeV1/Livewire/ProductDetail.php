@@ -1083,7 +1083,7 @@ public function confirmBooking()
         $verifiedUserId     = null;
 
         if ($this->isAuthUser && $this->authUserId) {
-            $authUser = \App\Models\User::find($this->authUserId);
+            $authUser = \App\Models\Customer::find($this->authUserId);
             if ($authUser) {
                 $verifiedBuyerName = $authUser->fullname ?? $this->buyerName;
                 $rawPhone = $authUser->phone ?? '';
