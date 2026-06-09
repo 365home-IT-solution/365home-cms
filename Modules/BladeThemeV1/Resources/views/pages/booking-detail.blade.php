@@ -64,6 +64,7 @@
                     ? \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($firstProduct, $checkinDate)
                     : null;
                 $branchAddress = $firstProduct ? $firstProduct->address : 'Địa chỉ chi nhánh không xác định';
+                $mapUrl = $firstProduct && $firstProduct->map_url ? $firstProduct->map_url : 'https://www.google.com/maps/search/?q=' . urlencode($branchAddress);
                 $hotline = $firstProduct ? $firstProduct->hotline : '';
                 $wifi = $firstProduct ? $firstProduct->wifi : '...';
 
@@ -275,7 +276,7 @@
                                     <span class="text-sm font-semibold text-gray-900">{{ $branchAddress }}</span>
                                 </div>
                             </div>
-                            <a href="https://maps.app.goo.gl/vREbkzagcBzi99Js9"
+                            <a href="{{ $mapUrl }}"
                                 target="_blank"
                                 class="shrink-0 text-xs font-semibold text-blue-600 underline hover:text-blue-800 transition-colors whitespace-nowrap">
                                 Xem bản đồ
@@ -421,7 +422,7 @@
                     </div>
 
                     <div class="bg-gray-50 px-6 py-4 flex gap-3 border-t border-gray-200">
-                        <a href="https://www.google.com/maps/search/?q={{ urlencode($branchAddress) }}" target="_blank"
+                        <a href="{{ $mapUrl }}" target="_blank"
                             class="flex-1 bg-white border border-gray-200 text-red-600 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-900 font-medium py-2.5 rounded-lg text-sm transition-all shadow-sm flex items-center justify-center gap-2">
                             <x-filament::icon-button icon="heroicon-m-map-pin" x-on:click="open = !open"
                                 :tooltip="trans('menu::menu-builder.items.expand')" color="red"

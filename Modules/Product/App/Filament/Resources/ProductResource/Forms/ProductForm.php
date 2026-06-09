@@ -172,6 +172,14 @@ class ProductForm
                 ->placeholder('106.7009')
                 ->inlineLabel(),
 
+            TextInput::make('map_url')
+                ->label('Link Google Maps')
+                ->url()
+                ->maxLength(500)
+                ->placeholder('https://maps.app.goo.gl/...')
+                ->helperText('Link Google Maps trực tiếp đến địa chỉ phòng')
+                ->inlineLabel(),
+
             TextInput::make('hotline')
                 ->label('Hotline chi nhánh')
                 ->maxLength(255)

@@ -48,6 +48,7 @@ class Product extends Model implements HasMedia, Resourceable
         'address',
         'latitude',
         'longitude',
+        'map_url',
         'hotline',
         'full_booking_discount',
         'bulk_discount_rules',
