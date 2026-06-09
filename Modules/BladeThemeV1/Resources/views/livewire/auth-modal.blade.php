@@ -8,6 +8,9 @@
         otp: '',
         fullname: '',
         date_of_birth: '',
+        password: '',
+        password_confirmation: '',
+        showPassword: false,
         phoneToken: '',
         loading: false,
         error: '',
@@ -20,14 +23,17 @@
         },
 
         reset() {
-            this.step         = 'phone';
-            this.phone        = '';
-            this.otp          = '';
-            this.fullname     = '';
-            this.date_of_birth = '';
-            this.phoneToken   = '';
-            this.error        = '';
-            this.loading      = false;
+            this.step                 = 'phone';
+            this.phone                = '';
+            this.otp                  = '';
+            this.fullname             = '';
+            this.date_of_birth        = '';
+            this.password             = '';
+            this.password_confirmation = '';
+            this.showPassword         = false;
+            this.phoneToken           = '';
+            this.error                = '';
+            this.loading              = false;
         },
 
         async sendOtp() {
@@ -76,18 +82,36 @@
         async registerUser() {
             this.loading = true;
             this.error   = '';
+            // Validate password nếu có nhập
+            if (this.password) {
+                if (this.password.length < 8) {
+                    this.error   = 'Mật khẩu phải có ít nhất 8 ký tự.';
+                    this.loading = false;
+                    return;
+                }
+                if (this.password !== this.password_confirmation) {
+                    this.error   = 'Xác nhận mật khẩu không khớp.';
+                    this.loading = false;
+                    return;
+                }
+            }
             try {
                 const dob = this.date_of_birth
                     ? this.date_of_birth.split('-').reverse().join('-')
                     : '';
+                const payload = {
+                    phone_token:   this.phoneToken,
+                    fullname:      this.fullname,
+                    date_of_birth: dob,
+                };
+                if (this.password) {
+                    payload.password              = this.password;
+                    payload.password_confirmation = this.password_confirmation;
+                }
                 const res  = await fetch('/api/auth/register', {
                     method:  'POST',
                     headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                    body:    JSON.stringify({
-                        phone_token:   this.phoneToken,
-                        fullname:      this.fullname,
-                        date_of_birth: dob,
-                    }),
+                    body:    JSON.stringify(payload),
                 });
                 const data = await res.json();
                 if (!res.ok) { this.error = data.message; return; }
@@ -253,7 +277,7 @@
                             >
                         </div>
 
-                        <div class="mb-4">
+                        <div class="mb-3">
                             <label class="block text-xs font-medium text-gray-500 mb-1.5 uppercase tracking-wide">Ngày sinh</label>
                             <input
                                 x-model="date_of_birth"
@@ -261,6 +285,47 @@
                                 class="w-full rounded-lg px-3 py-2.5 text-gray-900 text-sm bg-gray-50 border border-gray-200 focus:outline-none transition-all"
                             >
                         </div>
+
+                        {{-- Mật khẩu (tuỳ chọn) --}}
+                        <details class="mb-4 group">
+                            <summary class="flex items-center gap-1.5 text-xs font-medium text-gray-500 uppercase tracking-wide cursor-pointer select-none list-none">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                                </svg>
+                                Đặt mật khẩu (không bắt buộc)
+                            </summary>
+                            <div class="mt-3 space-y-3">
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5 uppercase tracking-wide">Mật khẩu</label>
+                                    <div class="relative">
+                                        <input
+                                            x-model="password"
+                                            :type="showPassword ? 'text' : 'password'"
+                                            placeholder="Ít nhất 8 ký tự"
+                                            class="w-full rounded-lg px-3 py-2.5 pr-10 text-gray-900 text-sm bg-gray-50 border border-gray-200 focus:outline-none transition-all"
+                                        >
+                                        <button type="button" @click="showPassword = !showPassword" class="absolute inset-y-0 right-3 flex items-center text-gray-400 hover:text-gray-600">
+                                            <svg x-show="!showPassword" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                            </svg>
+                                            <svg x-show="showPassword" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88"/>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div x-show="password" x-cloak>
+                                    <label class="block text-xs font-medium text-gray-500 mb-1.5 uppercase tracking-wide">Xác nhận mật khẩu</label>
+                                    <input
+                                        x-model="password_confirmation"
+                                        :type="showPassword ? 'text' : 'password'"
+                                        placeholder="Nhập lại mật khẩu"
+                                        class="w-full rounded-lg px-3 py-2.5 text-gray-900 text-sm bg-gray-50 border border-gray-200 focus:outline-none transition-all"
+                                    >
+                                </div>
+                                <p class="text-xs text-gray-400">Đặt mật khẩu để có thể đăng nhập bằng SĐT + mật khẩu sau này.</p>
+                            </div>
+                        </details>
 
                         <div x-show="error" x-cloak class="mb-3 text-sm text-red-500 flex items-center gap-1.5">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

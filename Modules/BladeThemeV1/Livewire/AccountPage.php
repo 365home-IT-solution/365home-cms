@@ -2,8 +2,9 @@
 
 namespace Modules\BladeThemeV1\Livewire;
 
-use App\Models\User;
+use App\Models\Customer;
 use App\Settings\GeneralSettings;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Laravel\Sanctum\PersonalAccessToken;
 use Livewire\Component;
@@ -24,12 +25,17 @@ class AccountPage extends Component
     public int $paidOrders    = 0;
     public int $pendingOrders = 0;
 
+    // CCCD status
+    public ?string $cccdFrontUrl = null;
+    public ?string $cccdBackUrl  = null;
+    public bool    $hasCccd      = false;
+
     // Đơn của trang hiện tại
     public array $orders = [];
 
     // Pagination
-    public ?int $userId      = null; // lưu sau khi verify token, signed bởi Livewire
-    public string $phone84   = '';   // dạng 84xxx để query
+    public ?string $customerId = null; // UUID của customer đã xác thực
+    public string $phone84     = '';   // dạng 84xxx để query
     public int $currentPage  = 1;
     public int $perPage      = 5;
     public int $totalCount   = 0;   // tổng số đơn theo filter hiện tại (cho pagination)
@@ -81,33 +87,42 @@ class AccountPage extends Component
             return;
         }
 
-        if (!$pat || $pat->tokenable_type !== User::class) {
+        if (!$pat || $pat->tokenable_type !== Customer::class) {
             $this->resetUserState();
             $this->isLoading = false;
             $this->dispatch('auth-force-logout');
             return;
         }
 
-        $user = $pat->tokenable;
-        if (!$user) {
+        /** @var Customer $customer */
+        $customer = $pat->tokenable;
+        if (!$customer || $customer->status !== Customer::STATUS_ACTIVE) {
             $this->resetUserState();
             $this->isLoading = false;
             $this->dispatch('auth-force-logout');
             return;
         }
 
-        // ── Bước 2: Điền thông tin user (auth đã xác nhận) ────────────────
-        $this->isLoggedIn = true;
-        $this->userId     = (int) $user->id;
-        $this->fullname   = $user->fullname ?? 'Khách hàng';
-        $this->dob        = $user->date_of_birth?->format('d-m-Y') ?? '';
+        // ── Bước 2: Điền thông tin customer (auth đã xác nhận) ────────────────
+        $this->isLoggedIn  = true;
+        $this->customerId  = $customer->id;
+        $this->fullname    = $customer->fullname ?? 'Khách hàng';
+        $this->dob         = $customer->date_of_birth?->format('d-m-Y') ?? '';
 
-        $raw = $user->phone ?? '';
-        if (str_starts_with($raw, '84') && \strlen($raw) >= 11) {
+        $raw = $customer->phone ?? '';
+        if (str_starts_with($raw, '84') && strlen($raw) >= 11) {
             $raw = '0' . substr($raw, 2);
         }
         $this->phone   = $raw;
         $this->phone84 = '84' . substr($this->phone, 1);
+
+        $this->cccdFrontUrl = $customer->cccd_front
+            ? Storage::disk('public')->url($customer->cccd_front)
+            : null;
+        $this->cccdBackUrl = $customer->cccd_back
+            ? Storage::disk('public')->url($customer->cccd_back)
+            : null;
+        $this->hasCccd = !empty($customer->cccd_front) && !empty($customer->cccd_back);
 
         // ── Bước 3: Load đơn hàng (nếu lỗi → giữ isLoggedIn = true, orders rỗng) ──
         try {
@@ -158,15 +173,19 @@ class AccountPage extends Component
         $this->fetchPage();
     }
 
-    // ── Query chỉ theo số điện thoại (dùng cho stats tổng) ───────────────────
+    // ── Query theo SĐT và/hoặc customer_id ───────────────────────────────────
     private function phoneQuery()
     {
-        $phone   = $this->phone;
-        $phone84 = $this->phone84;
+        $phone      = $this->phone;
+        $phone84    = $this->phone84;
+        $customerId = $this->customerId;
 
-        return Order::where(function ($q) use ($phone, $phone84) {
+        return Order::where(function ($q) use ($phone, $phone84, $customerId) {
             $q->where('buyer_phone', $phone)
               ->orWhere('buyer_phone', $phone84);
+            if ($customerId) {
+                $q->orWhere('user_id', $customerId);
+            }
         });
     }
 
@@ -222,20 +241,23 @@ class AccountPage extends Component
 
     private function resetUserState(): void
     {
-        $this->isLoggedIn       = false;
-        $this->userId           = null;
-        $this->orders           = [];
-        $this->fullname         = '';
-        $this->phone            = '';
-        $this->phone84          = '';
-        $this->dob              = '';
-        $this->totalOrders      = 0;
-        $this->paidOrders       = 0;
-        $this->pendingOrders    = 0;
-        $this->totalCount       = 0;
-        $this->currentPage      = 1;
-        $this->branches         = [];
-        $this->selectedBranchId = null;
+        $this->isLoggedIn        = false;
+        $this->customerId        = null;
+        $this->orders            = [];
+        $this->fullname          = '';
+        $this->phone             = '';
+        $this->phone84           = '';
+        $this->dob               = '';
+        $this->cccdFrontUrl      = null;
+        $this->cccdBackUrl       = null;
+        $this->hasCccd           = false;
+        $this->totalOrders       = 0;
+        $this->paidOrders        = 0;
+        $this->pendingOrders     = 0;
+        $this->totalCount        = 0;
+        $this->currentPage       = 1;
+        $this->branches          = [];
+        $this->selectedBranchId  = null;
     }
 
     public function render(): View

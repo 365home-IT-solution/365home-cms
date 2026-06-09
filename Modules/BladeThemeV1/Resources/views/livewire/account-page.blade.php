@@ -16,6 +16,138 @@
         openModal() {
             window.dispatchEvent(new CustomEvent('open-auth-modal'));
         },
+
+        // ── Profile Edit ───────────────────────────────────────────────────────
+        editOpen: false,
+        editLoading: false,
+        editError: '',
+        editSuccess: '',
+        editFullname: '',
+        editDob: '',
+
+        // CCCD upload state
+        cccdFrontFile: null,
+        cccdBackFile: null,
+        cccdFrontPreview: null,
+        cccdBackPreview: null,
+        cccdLoading: false,
+        cccdError: '',
+        cccdSuccess: '',
+
+        openEdit() {
+            const user = JSON.parse(localStorage.getItem('auth_user') || '{}');
+            this.editFullname = user.fullname || '';
+            // Convert DOB: 'YYYY-MM-DD' → 'YYYY-MM-DD' (input[type=date] dùng YYYY-MM-DD)
+            if (user.date_of_birth) {
+                const parts = user.date_of_birth.split('-');
+                this.editDob = parts.length === 3 ? parts[0] + '-' + parts[1] + '-' + parts[2] : '';
+            } else {
+                this.editDob = '';
+            }
+            this.editError = '';
+            this.editSuccess = '';
+            this.cccdError = '';
+            this.cccdSuccess = '';
+            this.cccdFrontFile = null;
+            this.cccdBackFile = null;
+            this.cccdFrontPreview = null;
+            this.cccdBackPreview = null;
+            this.editOpen = true;
+        },
+
+        onCccdPick(event, side) {
+            const file = event.target.files[0];
+            if (!file) return;
+            // Validate type & size (5MB)
+            const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+            if (!allowed.includes(file.type)) {
+                this.cccdError = 'Chỉ chấp nhận ảnh JPG, PNG, WEBP.';
+                event.target.value = '';
+                return;
+            }
+            if (file.size > 5 * 1024 * 1024) {
+                this.cccdError = 'Ảnh không được vượt quá 5MB.';
+                event.target.value = '';
+                return;
+            }
+            this.cccdError = '';
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                if (side === 'front') { this.cccdFrontPreview = e.target.result; this.cccdFrontFile = file; }
+                else                  { this.cccdBackPreview  = e.target.result; this.cccdBackFile  = file; }
+            };
+            reader.readAsDataURL(file);
+        },
+
+        async saveProfile() {
+            this.editLoading = true;
+            this.editError = '';
+            this.editSuccess = '';
+            const token = localStorage.getItem('auth_token');
+            if (!token) { this.editLoading = false; return; }
+
+            try {
+                const fd = new FormData();
+                if (this.editFullname.trim()) fd.append('fullname', this.editFullname.trim());
+                if (this.editDob) {
+                    // Convert YYYY-MM-DD → DD-MM-YYYY for API
+                    const [y, m, d] = this.editDob.split('-');
+                    fd.append('date_of_birth', d + '-' + m + '-' + y);
+                }
+
+                const res  = await fetch('/api/auth/me', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
+                    body: fd,
+                });
+                const data = await res.json();
+                if (!res.ok) { this.editError = data.message || 'Có lỗi xảy ra.'; return; }
+
+                localStorage.setItem('auth_user', JSON.stringify(data));
+                this.editSuccess = 'Cập nhật thông tin thành công!';
+                window.dispatchEvent(new CustomEvent('auth-state-changed'));
+                setTimeout(() => { this.editOpen = false; }, 1200);
+            } catch {
+                this.editError = 'Lỗi kết nối. Vui lòng thử lại.';
+            } finally {
+                this.editLoading = false;
+            }
+        },
+
+        async saveCccd() {
+            if (!this.cccdFrontFile && !this.cccdBackFile) {
+                this.cccdError = 'Vui lòng chọn ít nhất một ảnh CCCD.';
+                return;
+            }
+            this.cccdLoading = true;
+            this.cccdError   = '';
+            this.cccdSuccess = '';
+            const token = localStorage.getItem('auth_token');
+            if (!token) { this.cccdLoading = false; return; }
+
+            try {
+                const fd = new FormData();
+                if (this.cccdFrontFile) fd.append('cccd_front', this.cccdFrontFile);
+                if (this.cccdBackFile)  fd.append('cccd_back',  this.cccdBackFile);
+
+                const res  = await fetch('/api/auth/me', {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
+                    body: fd,
+                });
+                const data = await res.json();
+                if (!res.ok) { this.cccdError = data.message || 'Lỗi tải CCCD.'; return; }
+
+                localStorage.setItem('auth_user', JSON.stringify(data));
+                this.cccdSuccess = 'Cập nhật CCCD thành công!';
+                window.dispatchEvent(new CustomEvent('auth-state-changed'));
+                setTimeout(() => { this.editOpen = false; }, 1200);
+            } catch {
+                this.cccdError = 'Lỗi kết nối. Vui lòng thử lại.';
+            } finally {
+                this.cccdLoading = false;
+            }
+        },
     }"
     x-init="
         $nextTick(() => {
@@ -93,7 +225,16 @@
 
             {{-- Info --}}
             <div class="flex-1 min-w-0 sm:mb-1">
-                <h1 class="text-xl font-bold text-gray-900 truncate">{{ $fullname }}</h1>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <h1 class="text-xl font-bold text-gray-900 truncate">{{ $fullname }}</h1>
+                    <button @click="openEdit()"
+                        class="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg border border-gray-200 text-gray-500 hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125"/>
+                        </svg>
+                        Chỉnh sửa
+                    </button>
+                </div>
                 <div class="flex flex-wrap items-center gap-3 mt-1.5">
                     @if($phone)
                     <span class="flex items-center gap-1.5 text-sm text-gray-500">
@@ -110,6 +251,23 @@
                         </svg>
                         {{ \Carbon\Carbon::parse($dob)->format('d/m/Y') }}
                     </span>
+                    @endif
+                    {{-- CCCD status badge --}}
+                    @if($hasCccd)
+                    <span class="flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                        </svg>
+                        CCCD đã xác minh
+                    </span>
+                    @else
+                    <button @click="openEdit()"
+                        class="flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full hover:bg-amber-100 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                        </svg>
+                        Chưa có CCCD
+                    </button>
                     @endif
                 </div>
             </div>
@@ -348,6 +506,181 @@
             </div>
         </button>
     </div>
+
+    {{-- ── EDIT PROFILE MODAL ── --}}
+    <template x-teleport="body">
+        <div
+            x-show="editOpen"
+            x-transition:enter="transition ease-out duration-200"
+            x-transition:enter-start="opacity-0"
+            x-transition:enter-end="opacity-100"
+            x-transition:leave="transition ease-in duration-150"
+            x-transition:leave-start="opacity-100"
+            x-transition:leave-end="opacity-0"
+            class="fixed inset-0 z-[9999] flex items-center justify-center px-4 py-6"
+            style="display:none;"
+            @keydown.escape.window="editOpen = false"
+        >
+            {{-- Backdrop --}}
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="editOpen = false"></div>
+
+            {{-- Dialog --}}
+            <div
+                x-show="editOpen"
+                x-transition:enter="transition ease-out duration-200"
+                x-transition:enter-start="opacity-0 scale-95"
+                x-transition:enter-end="opacity-100 scale-100"
+                x-transition:leave="transition ease-in duration-150"
+                x-transition:leave-start="opacity-100 scale-100"
+                x-transition:leave-end="opacity-0 scale-95"
+                class="relative w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden"
+                @click.stop
+            >
+                {{-- Header --}}
+                <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                    <h2 class="text-base font-semibold text-gray-900">Chỉnh sửa hồ sơ</h2>
+                    <button @click="editOpen = false"
+                        class="p-1.5 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="p-5 space-y-5 overflow-y-auto max-h-[70vh]">
+
+                    {{-- Thông tin cơ bản --}}
+                    <div class="space-y-3">
+                        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Thông tin cá nhân</h3>
+
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500 mb-1">Họ và tên</label>
+                            <input x-model="editFullname" type="text" placeholder="Nguyễn Văn A"
+                                class="w-full rounded-lg px-3 py-2.5 text-sm text-gray-900 bg-gray-50 border border-gray-200 focus:outline-none focus:ring-2 focus:border-transparent transition-all"
+                                style="--tw-ring-color: {{ $primaryHex }}40;">
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500 mb-1">Ngày sinh</label>
+                            <input x-model="editDob" type="date"
+                                class="w-full rounded-lg px-3 py-2.5 text-sm text-gray-900 bg-gray-50 border border-gray-200 focus:outline-none focus:ring-2 focus:border-transparent transition-all"
+                                style="--tw-ring-color: {{ $primaryHex }}40;">
+                        </div>
+
+                        <div x-show="editError" x-cloak class="text-sm text-red-500 flex items-center gap-1.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+                            </svg>
+                            <span x-text="editError"></span>
+                        </div>
+                        <div x-show="editSuccess" x-cloak class="text-sm text-green-600 flex items-center gap-1.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            <span x-text="editSuccess"></span>
+                        </div>
+
+                        <button @click="saveProfile()" :disabled="editLoading"
+                            class="w-full rounded-lg py-2.5 text-sm font-semibold flex items-center justify-center gap-2 transition-opacity hover:opacity-85 disabled:opacity-50 disabled:cursor-not-allowed"
+                            style="background-color: {{ $primaryHex }}; color: {{ $textOnPrimary }};">
+                            <svg x-show="editLoading" class="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+                            </svg>
+                            <span x-text="editLoading ? 'Đang lưu...' : 'Lưu thông tin'"></span>
+                        </button>
+                    </div>
+
+                    <hr class="border-gray-100">
+
+                    {{-- CCCD Upload --}}
+                    <div class="space-y-3">
+                        <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide flex items-center gap-2">
+                            Căn cước công dân
+                            @if($hasCccd)
+                            <span class="text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">Đã có</span>
+                            @else
+                            <span class="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">Chưa có</span>
+                            @endif
+                        </h3>
+
+                        @if($hasCccd)
+                        <div class="flex gap-2">
+                            <div class="flex-1 rounded-xl overflow-hidden border border-gray-200 aspect-video">
+                                <img src="{{ $cccdFrontUrl }}" alt="Mặt trước" class="w-full h-full object-cover">
+                            </div>
+                            <div class="flex-1 rounded-xl overflow-hidden border border-gray-200 aspect-video">
+                                <img src="{{ $cccdBackUrl }}" alt="Mặt sau" class="w-full h-full object-cover">
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-500">Muốn cập nhật CCCD? Chọn ảnh mới bên dưới.</p>
+                        @endif
+
+                        {{-- Upload areas --}}
+                        <div class="grid grid-cols-2 gap-3">
+                            @foreach(['front' => 'Mặt trước', 'back' => 'Mặt sau'] as $side => $label)
+                            <label class="relative flex flex-col items-center justify-center h-28 rounded-xl border-2 border-dashed border-gray-300 cursor-pointer overflow-hidden hover:border-gray-400 hover:bg-gray-50 transition-all">
+                                <input type="file" class="hidden" accept="image/jpeg,image/png,image/webp"
+                                    @change="onCccdPick($event, '{{ $side }}')">
+
+                                {{-- Preview --}}
+                                <template x-if="{{ $side === 'front' ? 'cccdFrontPreview' : 'cccdBackPreview' }}">
+                                    <img :src="{{ $side === 'front' ? 'cccdFrontPreview' : 'cccdBackPreview' }}"
+                                        class="absolute inset-0 w-full h-full object-cover rounded-xl">
+                                </template>
+
+                                {{-- Placeholder --}}
+                                <template x-if="!{{ $side === 'front' ? 'cccdFrontPreview' : 'cccdBackPreview' }}">
+                                    <div class="flex flex-col items-center gap-1 text-gray-400 pointer-events-none">
+                                        <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+                                        </svg>
+                                        <span class="text-xs font-medium">{{ $label }}</span>
+                                    </div>
+                                </template>
+
+                                {{-- Hover overlay when has preview --}}
+                                <template x-if="{{ $side === 'front' ? 'cccdFrontPreview' : 'cccdBackPreview' }}">
+                                    <div class="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                                        <span class="text-white text-xs font-semibold">Đổi ảnh</span>
+                                    </div>
+                                </template>
+                            </label>
+                            @endforeach
+                        </div>
+
+                        <div x-show="cccdError" x-cloak class="text-sm text-red-500 flex items-center gap-1.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+                            </svg>
+                            <span x-text="cccdError"></span>
+                        </div>
+                        <div x-show="cccdSuccess" x-cloak class="text-sm text-green-600 flex items-center gap-1.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            <span x-text="cccdSuccess"></span>
+                        </div>
+
+                        <p class="text-xs text-gray-400 leading-relaxed">
+                            * Ảnh CCCD phải rõ nét, có mã QR đọc được. Chấp nhận JPG, PNG, WEBP (tối đa 5MB mỗi ảnh).
+                        </p>
+
+                        <button @click="saveCccd()" :disabled="cccdLoading || (!cccdFrontFile && !cccdBackFile)"
+                            class="w-full rounded-lg py-2.5 text-sm font-semibold flex items-center justify-center gap-2 transition-opacity hover:opacity-85 disabled:opacity-40 disabled:cursor-not-allowed border-2"
+                            style="border-color: {{ $primaryHex }}; color: {{ $primaryHex }};">
+                            <svg x-show="cccdLoading" class="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+                            </svg>
+                            <span x-text="cccdLoading ? 'Đang tải lên...' : 'Cập nhật CCCD'"></span>
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </template>
 
     @endif
 </div>

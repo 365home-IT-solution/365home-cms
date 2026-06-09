@@ -161,36 +161,41 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
     {
         if (empty($token)) {
             if ($this->isAuthUser) {
-                $this->buyerName  = '';
-                $this->buyerPhone = '';
-                $this->isAuthUser = false;
-                $this->authUserId = null;
+                $this->buyerName    = '';
+                $this->buyerPhone   = '';
+                $this->isAuthUser   = false;
+                $this->authUserId   = null;
+                $this->authCccdFront = '';
+                $this->authCccdBack  = '';
             }
             return;
         }
 
         try {
             $pat = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
-            if (!$pat || $pat->tokenable_type !== \App\Models\User::class) {
+            if (!$pat || $pat->tokenable_type !== \App\Models\Customer::class) {
                 return;
             }
 
-            /** @var \App\Models\User $user */
-            $user = $pat->tokenable;
-            if (!$user) {
+            /** @var \App\Models\Customer $customer */
+            $customer = $pat->tokenable;
+            if (!$customer || $customer->status !== \App\Models\Customer::STATUS_ACTIVE) {
                 return;
             }
 
             // DB lưu phone dạng 84xxxxxxxxx → hiển thị 0xxxxxxxxx
-            $phone = $user->phone ?? '';
+            $phone = $customer->phone ?? '';
             if (str_starts_with($phone, '84') && strlen($phone) >= 11) {
                 $phone = '0' . substr($phone, 2);
             }
 
-            $this->buyerName  = $user->fullname ?? '';
-            $this->buyerPhone = $phone;
-            $this->isAuthUser = true;
-            $this->authUserId = $user->id;
+            $this->buyerName     = $customer->fullname ?? '';
+            $this->buyerPhone    = $phone;
+            $this->isAuthUser    = true;
+            $this->authUserId    = $customer->id;
+            // Lưu path CCCD từ profile để dùng khi đặt phòng (không cần upload lại)
+            $this->authCccdFront = $customer->cccd_front ?? '';
+            $this->authCccdBack  = $customer->cccd_back  ?? '';
         } catch (\Throwable) {
             // Silent fail — user tiếp tục với form thường
         }
@@ -1035,8 +1040,19 @@ public function confirmBooking()
 {
     try {
         // Upload file TRƯỚC transaction (không thể rollback file)
-        $frontPath = $this->cccd_front ? $this->cccd_front->store('cccd/front', 'public') : null;
-        $backPath  = $this->cccd_back  ? $this->cccd_back->store('cccd/back', 'public')   : null;
+        // Nếu auth user đã có CCCD trong profile → dùng lại, không bắt upload lại
+        $frontPath = null;
+        $backPath  = null;
+        if ($this->cccd_front) {
+            $frontPath = $this->cccd_front->store('cccd/front', 'public');
+        } elseif ($this->isAuthUser && !empty($this->authCccdFront)) {
+            $frontPath = $this->authCccdFront;
+        }
+        if ($this->cccd_back) {
+            $backPath = $this->cccd_back->store('cccd/back', 'public');
+        } elseif ($this->isAuthUser && !empty($this->authCccdBack)) {
+            $backPath = $this->authCccdBack;
+        }
 
         $roomConfig   = $this->product ? ($this->product->room_config ?? []) : [];
         $maxFreeGuests = (int) ($roomConfig['max_free_guests'] ?? 2);

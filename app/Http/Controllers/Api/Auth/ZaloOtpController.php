@@ -156,8 +156,8 @@ class ZaloOtpController extends Controller
             'phone_token'          => 'required|string|size:64',
             'fullname'             => 'required|string|max:255',
             'date_of_birth'        => 'required|date_format:d-m-Y|before:today',
-            'password'             => 'required|string|min:8|confirmed',
-            'password_confirmation'=> 'required|string',
+            'password'             => 'sometimes|nullable|string|min:8|confirmed',
+            'password_confirmation'=> 'sometimes|nullable|string',
         ]);
 
         $normalizedPhone = $this->otp->getPhoneByToken($request->phone_token);
@@ -178,14 +178,15 @@ class ZaloOtpController extends Controller
         $this->otp->consumePhoneToken($request->phone_token);
 
         $now      = now();
+        $hasPassword = filled($request->password);
         $customer = Customer::create([
             'phone'               => $normalizedPhone,
             'fullname'            => $request->fullname,
             'date_of_birth'       => Carbon::createFromFormat('d-m-Y', $request->date_of_birth)->toDateString(),
             'phone_verified_at'   => $now,
             'status'              => Customer::STATUS_ACTIVE,
-            'password'            => $request->password,
-            'password_updated_at' => $now,
+            'password'            => $hasPassword ? $request->password : null,
+            'password_updated_at' => $hasPassword ? $now : null,
         ]);
 
         $expiresAt = now()->addDays(30);
