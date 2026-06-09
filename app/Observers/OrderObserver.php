@@ -2,6 +2,7 @@
 
 namespace App\Observers;
 
+use App\Models\Customer;
 use App\Models\User;
 use App\Services\FcmService;
 use Filament\Notifications\Notification;
@@ -68,11 +69,33 @@ class OrderObserver
             ])
             ->sendToDatabase($users);
 
-        // Push notification đến thiết bị di động (kể cả khi đóng trình duyệt)
+        // Push notification đến thiết bị di động admin (kể cả khi đóng trình duyệt)
         try {
             app(FcmService::class)->sendToUsers($users, $title, $body);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('FCM push failed: ' . $e->getMessage());
+        }
+    }
+
+    private function sendToCustomer(Order $order, string $title, string $body): void
+    {
+        if (! $order->customer_id) {
+            return;
+        }
+
+        $customer = Customer::find($order->customer_id);
+
+        if (! $customer) {
+            return;
+        }
+
+        try {
+            app(FcmService::class)->sendToCustomer($customer, $title, $body, [
+                'order_code' => (string) $order->order_code,
+                'type'       => 'order',
+            ]);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('FCM customer push failed: ' . $e->getMessage());
         }
     }
 
@@ -105,6 +128,12 @@ class OrderObserver
         }
 
         $this->send($order, 'Đơn đặt phòng mới', 'heroicon-o-shopping-bag', 'info');
+
+        $this->sendToCustomer(
+            $order,
+            'Đặt phòng thành công',
+            "Đơn #{$order->order_code} đang chờ thanh toán. Vui lòng hoàn tất để xác nhận."
+        );
     }
 
     /**
@@ -142,12 +171,22 @@ class OrderObserver
 
         // pending → paid: đã có thông báo "Đơn đặt phòng mới", không gửi thêm
         if ($newStatus === 'paid' && $oldStatus === 'pending') {
+            $this->sendToCustomer(
+                $order,
+                'Thanh toán thành công',
+                "Đơn #{$order->order_code} đã được xác nhận. Chúc bạn có trải nghiệm tốt!"
+            );
             return;
         }
 
         // Phân biệt thanh toán lần 2 (deposit → paid) với thanh toán đủ ngay
         if ($newStatus === 'paid' && $oldStatus === 'deposit') {
             $this->send($order, 'Đã thanh toán phần còn lại', 'heroicon-o-check-circle', 'success');
+            $this->sendToCustomer(
+                $order,
+                'Thanh toán hoàn tất',
+                "Đơn #{$order->order_code} đã được thanh toán đầy đủ."
+            );
             return;
         }
 
@@ -164,6 +203,17 @@ class OrderObserver
 
         $cfg = $map[$newStatus];
         $this->send($order, $cfg['title'], $cfg['icon'], $cfg['color']);
+
+        $customerMessages = [
+            'deposit'   => ['Đơn đã cọc thành công',   "Đơn #{$order->order_code} đã nhận cọc. Vui lòng thanh toán phần còn lại khi check-in."],
+            'shipped'   => ['Đơn đang được xử lý',     "Đơn #{$order->order_code} đang được xử lý bởi nhân viên."],
+            'cancelled' => ['Đơn bị hủy',              "Đơn #{$order->order_code} đã bị hủy. Liên hệ hỗ trợ nếu cần thêm thông tin."],
+        ];
+
+        if (isset($customerMessages[$newStatus])) {
+            [$customerTitle, $customerBody] = $customerMessages[$newStatus];
+            $this->sendToCustomer($order, $customerTitle, $customerBody);
+        }
     }
 
     public function deleted(Order $order): void

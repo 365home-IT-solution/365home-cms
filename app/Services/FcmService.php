@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Customer;
 use App\Models\FcmToken;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
@@ -39,6 +40,55 @@ class FcmService
 
         foreach ($tokens as $token) {
             $this->send($accessToken, $token, $title, $body, $data);
+        }
+    }
+
+    /**
+     * Gửi push notification đến thiết bị di động của một khách hàng.
+     */
+    public function sendToCustomer(Customer $customer, string $title, string $body, array $data = []): void
+    {
+        if (empty($customer->token_device)) {
+            return;
+        }
+
+        $this->sendMobile($this->getAccessToken(), $customer->token_device, $title, $body, $data);
+    }
+
+    private function sendMobile(string $accessToken, string $token, string $title, string $body, array $data): void
+    {
+        $url = "https://fcm.googleapis.com/v1/projects/{$this->projectId}/messages:send";
+
+        $payload = [
+            'message' => [
+                'token'        => $token,
+                'notification' => ['title' => $title, 'body' => $body],
+                'android'      => [
+                    'notification' => ['sound' => 'default'],
+                ],
+                'apns' => [
+                    'payload' => ['aps' => ['sound' => 'default', 'badge' => 1]],
+                ],
+                'data' => empty($data) ? new \stdClass() : array_map('strval', $data),
+            ],
+        ];
+
+        try {
+            $response = Http::withToken($accessToken)
+                ->timeout(10)
+                ->post($url, $payload);
+
+            if ($response->failed()) {
+                $error = $response->json('error.details.0.errorCode') ?? $response->body();
+
+                if (in_array($error, ['UNREGISTERED', 'INVALID_ARGUMENT'])) {
+                    Customer::where('token_device', $token)->update(['token_device' => null]);
+                } else {
+                    Log::warning('FCM mobile send failed', ['error' => $error, 'token_prefix' => substr($token, 0, 20)]);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::error('FCM mobile exception', ['message' => $e->getMessage()]);
         }
     }
 

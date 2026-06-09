@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\LockRecordCallbackController;
 use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\RoomTypeController;
+use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\WishlistController;
 use Illuminate\Support\Facades\Route;
 use Modules\AppPage\App\Http\Controllers\AppPageController;
@@ -106,6 +107,18 @@ Route::prefix('auth')->name('api.auth.')->group(function () {
             Route::post('change-password', [ZaloOtpController::class, 'changePassword'])->name('change-password');
             Route::post('deactivate',      [ZaloOtpController::class, 'deactivate'])->name('deactivate');
         });
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Device Token (FCM)
+    | POST   /api/auth/device-token → Lưu token thiết bị (sau đăng nhập / token mới)
+    | DELETE /api/auth/device-token → Xóa token (đăng xuất / tắt thông báo)
+    |--------------------------------------------------------------------------
+    */
+    Route::middleware(['auth:sanctum', 'customer.active'])->group(function () {
+        Route::post('device-token',   [DeviceTokenController::class, 'store'])->name('device-token.store');
+        Route::delete('device-token', [DeviceTokenController::class, 'destroy'])->name('device-token.destroy');
     });
 });
 

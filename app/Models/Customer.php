@@ -30,6 +30,7 @@ class Customer extends Authenticatable
         'status',
         'password',
         'password_updated_at',
+        'token_device',
         'cccd_front',
         'cccd_back',
         'cccd_data',
