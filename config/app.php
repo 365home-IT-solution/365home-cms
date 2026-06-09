@@ -45,6 +45,7 @@ return [
     'debug' => (bool) env('APP_DEBUG', false),
 
     'otp_bypass_enabled' => (bool) env('OTP_BYPASS_ENABLED', false),
+    'fcm_bypass_enabled' => (bool) env('FCM_BYPASS_ENABLED', false),
 
     /*
     |--------------------------------------------------------------------------

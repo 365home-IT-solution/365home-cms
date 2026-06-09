@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\FcmService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -20,12 +21,21 @@ class DeviceTokenController extends Controller
     public function store(Request $request): JsonResponse
     {
         $request->validate([
-            'token' => 'required|string|max:512',
+            'token' => ['required', 'string', 'max:512'],
         ]);
+
+        $token = $request->input('token');
+
+        if (! config('app.fcm_bypass_enabled', false) && ! app(FcmService::class)->validateToken($token)) {
+            return response()->json([
+                'message' => 'Token không hợp lệ hoặc không được Firebase xác nhận.',
+                'errors'  => ['token' => ['Token không hợp lệ.']],
+            ], 422);
+        }
 
         /** @var \App\Models\Customer $customer */
         $customer = $request->user();
-        $customer->update(['token_device' => $request->input('token')]);
+        $customer->update(['token_device' => $token]);
 
         return response()->json(['message' => 'Token đã được lưu.']);
     }

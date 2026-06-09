@@ -44,6 +44,39 @@ class FcmService
     }
 
     /**
+     * Xác thực token bằng cách gửi dry-run message đến Firebase.
+     * Trả về true nếu token hợp lệ, false nếu Firebase từ chối.
+     */
+    public function validateToken(string $token): bool
+    {
+        $url = "https://fcm.googleapis.com/v1/projects/{$this->projectId}/messages:send";
+
+        $payload = [
+            'validate_only' => true,
+            'message'       => [
+                'token' => $token,
+                'data'  => ['ping' => '1'],
+            ],
+        ];
+
+        try {
+            $response = Http::withToken($this->getAccessToken())
+                ->timeout(5)
+                ->post($url, $payload);
+
+            if ($response->successful()) {
+                return true;
+            }
+
+            $errorCode = $response->json('error.details.0.errorCode') ?? '';
+
+            return ! in_array($errorCode, ['UNREGISTERED', 'INVALID_ARGUMENT']);
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /**
      * Gửi push notification đến thiết bị di động của một khách hàng.
      */
     public function sendToCustomer(Customer $customer, string $title, string $body, array $data = []): void
