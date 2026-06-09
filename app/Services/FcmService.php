@@ -44,10 +44,20 @@ class FcmService
     }
 
     /**
-     * Xác thực token bằng cách gửi dry-run message đến Firebase.
-     * Trả về true nếu token hợp lệ, false nếu Firebase từ chối.
+     * Xác thực token trước khi lưu vào DB.
+     * - Expo token → validate bằng regex (không cần gọi API)
+     * - FCM token  → gửi dry-run đến Firebase
      */
     public function validateToken(string $token): bool
+    {
+        if ($this->isExpoToken($token)) {
+            return (bool) preg_match('/^ExponentPushToken\[[A-Za-z0-9_\-]+\]$/', $token);
+        }
+
+        return $this->validateFcmToken($token);
+    }
+
+    private function validateFcmToken(string $token): bool
     {
         $url = "https://fcm.googleapis.com/v1/projects/{$this->projectId}/messages:send";
 
@@ -77,7 +87,8 @@ class FcmService
     }
 
     /**
-     * Gửi push notification đến thiết bị di động của một khách hàng.
+     * Gửi push notification đến thiết bị của khách hàng.
+     * Tự detect Expo token hay FCM token để gửi đúng API.
      */
     public function sendToCustomer(Customer $customer, string $title, string $body, array $data = []): void
     {
@@ -85,7 +96,51 @@ class FcmService
             return;
         }
 
-        $this->sendMobile($this->getAccessToken(), $customer->token_device, $title, $body, $data);
+        if ($this->isExpoToken($customer->token_device)) {
+            $this->sendViaExpo($customer->token_device, $title, $body, $data);
+        } else {
+            $this->sendMobile($this->getAccessToken(), $customer->token_device, $title, $body, $data);
+        }
+    }
+
+    private function isExpoToken(string $token): bool
+    {
+        return str_starts_with($token, 'ExponentPushToken[');
+    }
+
+    private function sendViaExpo(string $token, string $title, string $body, array $data): void
+    {
+        $payload = [
+            'to'    => $token,
+            'title' => $title,
+            'body'  => $body,
+            'sound' => 'default',
+            'data'  => $data,
+        ];
+
+        try {
+            $response = Http::withHeaders([
+                'Accept'       => 'application/json',
+                'Content-Type' => 'application/json',
+            ])
+                ->timeout(10)
+                ->post('https://exp.host/--/api/v2/push/send', $payload);
+
+            $result = $response->json('data');
+            $status = $result['status'] ?? '';
+
+            if ($status === 'error') {
+                $errorCode = $result['details']['error'] ?? '';
+
+                if ($errorCode === 'DeviceNotRegistered') {
+                    Customer::where('token_device', $token)->update(['token_device' => null]);
+                } else {
+                    Log::warning('Expo push failed', ['error' => $errorCode, 'token_prefix' => substr($token, 0, 30)]);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::error('Expo push exception', ['message' => $e->getMessage()]);
+        }
     }
 
     private function sendMobile(string $accessToken, string $token, string $title, string $body, array $data): void
