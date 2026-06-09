@@ -893,14 +893,15 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             return;
         }
 
-        $requiredFields = [
-            'buyerName',
-            'buyerPhone',
-            'guests',
-            'cccd_front',
-            'cccd_back',
-            'accept1',
-        ];
+        $requiredFields = ['buyerName', 'buyerPhone', 'guests', 'accept1'];
+
+        // CCCD chỉ bắt buộc upload nếu auth user chưa có sẵn trong profile
+        if (!($this->isAuthUser && !empty($this->authCccdFront))) {
+            $requiredFields[] = 'cccd_front';
+        }
+        if (!($this->isAuthUser && !empty($this->authCccdBack))) {
+            $requiredFields[] = 'cccd_back';
+        }
 
         $hasSelectedSlots = !empty($this->selectedSlots);
         $hasDateRange     = $this->bookingStyle == 2 && !empty($this->startTime) && !empty($this->endTime);
