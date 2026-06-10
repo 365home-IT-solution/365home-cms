@@ -94,8 +94,8 @@ app.post('/internal/slot-update', (req, res) => {
     }
 
     const { room_id, date, slot_ids, status } = req.body;
-    if (!room_id || !date || !Array.isArray(slot_ids)) {
-        return res.status(422).json({ error: 'Missing room_id, date, or slot_ids' });
+    if (!room_id || !date) {
+        return res.status(422).json({ error: 'Missing room_id or date' });
     }
 
     const channel = `room:${room_id}:${date}`;

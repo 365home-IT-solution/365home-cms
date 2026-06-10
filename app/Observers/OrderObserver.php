@@ -6,6 +6,7 @@ use App\Models\Customer;
 use App\Models\User;
 use App\Services\FcmService;
 use App\Services\NotificationFcmService;
+use App\Services\SlotRealtimeService;
 use Filament\Notifications\Notification;
 use Filament\Notifications\Actions\Action;
 use Modules\AuditLog\Services\AuditLogger;
@@ -197,6 +198,12 @@ class OrderObserver
             'cancelled' => ['title' => 'Đơn bị hủy',            'icon' => 'heroicon-o-x-circle',     'color' => 'danger'],
         ];
 
+        // Slot giải phóng khi đơn bị hủy/hết hạn → broadcast để FE re-fetch
+        $releasedStatuses = ['cancelled_payment', 'failed', 'cancelled'];
+        if (in_array($newStatus, $releasedStatuses) && ! in_array($oldStatus, $releasedStatuses)) {
+            $this->broadcastSlotRelease($order);
+        }
+
         if (! isset($map[$newStatus])) {
             return;
         }
@@ -213,6 +220,22 @@ class OrderObserver
         if (isset($customerMessages[$newStatus])) {
             [$customerTitle, $customerBody] = $customerMessages[$newStatus];
             $this->sendToCustomer($order, $customerTitle, $customerBody);
+        }
+    }
+
+    private function broadcastSlotRelease(Order $order): void
+    {
+        $order->loadMissing('items');
+        $service = app(SlotRealtimeService::class);
+
+        foreach ($order->items as $item) {
+            if (! $item->checkin_date || ! $item->product_id) {
+                continue;
+            }
+            $service->broadcastReleased(
+                (string) $item->product_id,
+                $item->checkin_date->format('Y-m-d'),
+            );
         }
     }
 

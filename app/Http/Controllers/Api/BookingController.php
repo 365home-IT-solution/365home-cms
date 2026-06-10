@@ -219,7 +219,15 @@ class BookingController extends Controller
 
         // ── 9. Realtime: cập nhật trạng thái slot cho các client đang xem ────
         if (! empty($slotSummary)) {
-            $this->pushSlotUpdate($room->id, $slotSummary);
+            $service = app(\App\Services\SlotRealtimeService::class);
+            $byDate  = collect($slotSummary)->groupBy('date');
+            foreach ($byDate as $date => $slots) {
+                $service->broadcastBooked(
+                    $room->id,
+                    $date,
+                    $slots->pluck('timeslot_id')->values()->toArray()
+                );
+            }
         }
 
         $order->refresh();
@@ -649,35 +657,6 @@ class BookingController extends Controller
             'total'          => $total,
             'label'          => "Phụ thu {$extraGuests} người (trên {$threshold} người)",
         ]];
-    }
-
-    // ── Realtime slot update ──────────────────────────────────────────────────
-
-    private function pushSlotUpdate(string $roomId, array $slotSummary): void
-    {
-        $url = rtrim(config('services.websocket.url', 'http://localhost:3001'), '/');
-        $key = config('services.websocket.internal_key', '');
-
-        if (empty($url)) {
-            return;
-        }
-
-        $byDate = collect($slotSummary)->groupBy('date');
-
-        foreach ($byDate as $date => $slots) {
-            try {
-                Http::withHeaders(['x-internal-key' => $key])
-                    ->timeout(2)
-                    ->post("{$url}/internal/slot-update", [
-                        'room_id'  => $roomId,
-                        'date'     => $date,
-                        'slot_ids' => $slots->pluck('timeslot_id')->values()->toArray(),
-                        'status'   => 'pending',
-                    ]);
-            } catch (\Throwable $e) {
-                Log::warning('WS slot push failed', ['room_id' => $roomId, 'error' => $e->getMessage()]);
-            }
-        }
     }
 
     // ── PayOS ─────────────────────────────────────────────────────────────────
