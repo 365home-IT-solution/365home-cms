@@ -96,4 +96,9 @@ return [
     'ocr_space' => [
         'api_key' => env('OCR_SPACE_API_KEY'),
     ],
+
+    'websocket' => [
+        'url'          => env('WS_SERVER_URL', 'http://localhost:3001'),
+        'internal_key' => env('WS_INTERNAL_KEY', ''),
+    ],
 ];

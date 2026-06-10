@@ -14,24 +14,31 @@ class NotificationController extends Controller
     /**
      * GET /api/notifications
      * Danh sách thông báo đã nhận của customer.
+     * Query: ?since=2026-06-10T10:00:00Z  → chỉ lấy thông báo mới hơn timestamp này
      */
     public function index(Request $request): JsonResponse
     {
-        $items = NotificationFcmRecipient::with('notification')
+        $query = NotificationFcmRecipient::with('notification')
             ->where('customer_id', $request->user()->id)
             ->where('status', 'sent')
             ->whereHas('notification', fn ($q) => $q->whereNotNull('sent_count'))
-            ->orderByDesc('created_at')
-            ->paginate(20);
+            ->orderByDesc('created_at');
+
+        if ($since = $request->query('since')) {
+            $query->where('created_at', '>', $since);
+        }
+
+        $items = $query->paginate(20);
 
         $data = $items->map(function (NotificationFcmRecipient $r) {
             return [
-                'id'         => $r->notification->id,
-                'title'      => $r->notification->title,
-                'body'       => $r->notification->body,
-                'is_read'    => $r->read_at !== null,
-                'read_at'    => $r->read_at?->toIso8601String(),
-                'sent_at'    => $r->created_at->toIso8601String(),
+                'id'      => $r->notification->id,
+                'title'   => $r->notification->title,
+                'body'    => $r->notification->body,
+                'type'    => $r->notification->type,
+                'is_read' => $r->read_at !== null,
+                'read_at' => $r->read_at?->toIso8601String(),
+                'sent_at' => $r->created_at->toIso8601String(),
             ];
         })->values();
 
@@ -40,11 +47,27 @@ class NotificationController extends Controller
             'current_page' => $items->currentPage(),
             'last_page'    => $items->lastPage(),
             'total'        => $items->total(),
-            'unread_count' => NotificationFcmRecipient::where('customer_id', $request->user()->id)
-                ->where('status', 'sent')
-                ->whereNull('read_at')
-                ->count(),
+            'unread_count' => $this->countUnread($request->user()->id),
         ]);
+    }
+
+    /**
+     * GET /api/notifications/unread-count
+     * Endpoint nhẹ cho app poll mỗi 30s để biết có thông báo mới không.
+     */
+    public function unreadCount(Request $request): JsonResponse
+    {
+        return response()->json([
+            'unread_count' => $this->countUnread($request->user()->id),
+        ]);
+    }
+
+    private function countUnread(string $customerId): int
+    {
+        return NotificationFcmRecipient::where('customer_id', $customerId)
+            ->where('status', 'sent')
+            ->whereNull('read_at')
+            ->count();
     }
 
     /**

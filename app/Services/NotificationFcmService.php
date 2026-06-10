@@ -7,11 +7,13 @@ namespace App\Services;
 use App\Models\Customer;
 use App\Models\NotificationFcm;
 use App\Models\NotificationFcmRecipient;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
  * Gửi push notification cho customer VÀ lưu vào DB
  * để hiển thị trong GET /api/notifications.
+ * Sau khi lưu DB, đẩy realtime qua Node WS server (PM2).
  */
 class NotificationFcmService
 {
@@ -27,28 +29,32 @@ class NotificationFcmService
         string $type = 'manual',
         array $extra = [],
     ): void {
-        if (! $customer->token_device) {
-            return;
-        }
-
         $notification = NotificationFcm::create([
-            'title'     => $title,
-            'body'      => $body,
-            'type'      => $type,
-            'sent_for'  => 'users',
-            'sent_at'   => now(),
+            'title'    => $title,
+            'body'     => $body,
+            'type'     => $type,
+            'sent_for' => 'users',
+            'sent_at'  => now(),
         ]);
 
-        $status = 'sent';
+        $status      = 'sent';
+        $unreadCount = $this->getUnreadCount($customer->id) + 1;
 
-        try {
-            $this->fcm->sendToCustomer($customer, $title, $body, $extra);
-        } catch (\Throwable $e) {
-            $status = 'failed';
-            Log::warning("NotificationFcmService: FCM failed [{$type}]", [
-                'customer_id' => $customer->id,
-                'error'       => $e->getMessage(),
-            ]);
+        // FCM push (chỉ gửi nếu có token)
+        if ($customer->token_device) {
+            try {
+                $this->fcm->sendToCustomer($customer, $title, $body, array_merge($extra, [
+                    'notification_id' => (string) $notification->id,
+                    'type'            => $type,
+                    'unread_count'    => (string) $unreadCount,
+                ]));
+            } catch (\Throwable $e) {
+                $status = 'failed';
+                Log::warning("NotificationFcmService: FCM failed [{$type}]", [
+                    'customer_id' => $customer->id,
+                    'error'       => $e->getMessage(),
+                ]);
+            }
         }
 
         NotificationFcmRecipient::create([
@@ -61,6 +67,18 @@ class NotificationFcmService
         $notification->update([
             'sent_count' => $status === 'sent' ? 1 : 0,
             'fail_count' => $status === 'failed' ? 1 : 0,
+        ]);
+
+        // WebSocket realtime (app đang mở nhận ngay)
+        $this->pushToWebSocket($customer->id, [
+            'id'           => $notification->id,
+            'title'        => $title,
+            'body'         => $body,
+            'type'         => $type,
+            'is_read'      => false,
+            'read_at'      => null,
+            'sent_at'      => now()->toIso8601String(),
+            'unread_count' => $unreadCount,
         ]);
     }
 
@@ -78,31 +96,34 @@ class NotificationFcmService
         array $extra = [],
     ): NotificationFcm {
         $notification = NotificationFcm::create([
-            'title'     => $title,
-            'body'      => $body,
-            'type'      => $type,
-            'sent_for'  => $sentFor,
-            'sent_at'   => now(),
+            'title'    => $title,
+            'body'     => $body,
+            'type'     => $type,
+            'sent_for' => $sentFor,
+            'sent_at'  => now(),
         ]);
 
         $sentCount = 0;
         $failCount = 0;
 
         foreach ($customers as $customer) {
-            if (! $customer->token_device) {
-                continue;
-            }
+            $status      = 'sent';
+            $unreadCount = $this->getUnreadCount($customer->id) + 1;
 
-            $status = 'sent';
-
-            try {
-                $this->fcm->sendToCustomer($customer, $title, $body, $extra);
-            } catch (\Throwable $e) {
-                $status = 'failed';
-                Log::warning("NotificationFcmService: FCM failed [{$type}]", [
-                    'customer_id' => $customer->id,
-                    'error'       => $e->getMessage(),
-                ]);
+            if ($customer->token_device) {
+                try {
+                    $this->fcm->sendToCustomer($customer, $title, $body, array_merge($extra, [
+                        'notification_id' => (string) $notification->id,
+                        'type'            => $type,
+                        'unread_count'    => (string) $unreadCount,
+                    ]));
+                } catch (\Throwable $e) {
+                    $status = 'failed';
+                    Log::warning("NotificationFcmService: FCM failed [{$type}]", [
+                        'customer_id' => $customer->id,
+                        'error'       => $e->getMessage(),
+                    ]);
+                }
             }
 
             NotificationFcmRecipient::create([
@@ -110,6 +131,18 @@ class NotificationFcmService
                 'customer_id'         => $customer->id,
                 'fcm_token'           => $customer->token_device,
                 'status'              => $status,
+            ]);
+
+            // WebSocket realtime cho từng customer
+            $this->pushToWebSocket($customer->id, [
+                'id'           => $notification->id,
+                'title'        => $title,
+                'body'         => $body,
+                'type'         => $type,
+                'is_read'      => false,
+                'read_at'      => null,
+                'sent_at'      => now()->toIso8601String(),
+                'unread_count' => $unreadCount,
             ]);
 
             $status === 'sent' ? $sentCount++ : $failCount++;
@@ -121,5 +154,38 @@ class NotificationFcmService
         ]);
 
         return $notification;
+    }
+
+    /**
+     * Gọi Node WS server để đẩy realtime đến customer đang kết nối.
+     * Fire-and-forget: lỗi chỉ log, không throw.
+     */
+    private function pushToWebSocket(string $customerId, array $notification): void
+    {
+        $url = rtrim(config('services.websocket.url', 'http://localhost:3001'), '/');
+        $key = config('services.websocket.internal_key', '');
+
+        if (empty($url)) {
+            return;
+        }
+
+        try {
+            Http::withHeaders(['x-internal-key' => $key])
+                ->timeout(2)
+                ->post("{$url}/internal/notify", [
+                    'customer_id'  => $customerId,
+                    'notification' => $notification,
+                ]);
+        } catch (\Throwable $e) {
+            Log::warning('WS push failed', ['customer_id' => $customerId, 'error' => $e->getMessage()]);
+        }
+    }
+
+    private function getUnreadCount(string $customerId): int
+    {
+        return NotificationFcmRecipient::where('customer_id', $customerId)
+            ->where('status', 'sent')
+            ->whereNull('read_at')
+            ->count();
     }
 }
