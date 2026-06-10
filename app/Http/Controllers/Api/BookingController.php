@@ -11,6 +11,7 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Modules\Payment\Entities\Order;
@@ -160,6 +161,29 @@ class BookingController extends Controller
             $customer, $category, $itemsData, $servicesData,
             $paymentMethod, $request, $appliedCoupon
         ) {
+            // Lock room row: serialize concurrent bookings cho cùng phòng
+            Product::where('id', $room->id)->lockForUpdate()->first();
+
+            // Re-check conflict dưới lock (ngăn double booking khi 2 user click cùng lúc)
+            foreach ($itemsData as $itemData) {
+                if (empty($itemData['checkin_date'])) {
+                    continue;
+                }
+                $conflict = OrderItem::where('product_id', $room->id)
+                    ->whereNotNull('checkin_date')
+                    ->whereNotNull('checkout_date')
+                    ->where('checkin_date', '<', $itemData['checkout_date'])
+                    ->where('checkout_date', '>', $itemData['checkin_date'])
+                    ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped']))
+                    ->exists();
+
+                if ($conflict) {
+                    throw ValidationException::withMessages([
+                        'slots' => ['Khung giờ vừa được người khác đặt. Vui lòng chọn khung giờ khác.'],
+                    ]);
+                }
+            }
+
             $order = Order::create([
                 'amount'         => $subtotal,    // giá gốc: slots + services (trước giảm giá)
                 'full_amount'    => $finalAmount, // giá thực tế phải trả (sau giảm giá)
@@ -191,6 +215,11 @@ class BookingController extends Controller
         // ── 8. Tạo link PayOS ────────────────────────────────────────────────
         if ($paymentMethod === 'PayOS' && $finalAmount >= 2000) {
             $this->createPayOSLink($order, $summaryName);
+        }
+
+        // ── 9. Realtime: cập nhật trạng thái slot cho các client đang xem ────
+        if (! empty($slotSummary)) {
+            $this->pushSlotUpdate($room->id, $slotSummary);
         }
 
         $order->refresh();
@@ -620,6 +649,35 @@ class BookingController extends Controller
             'total'          => $total,
             'label'          => "Phụ thu {$extraGuests} người (trên {$threshold} người)",
         ]];
+    }
+
+    // ── Realtime slot update ──────────────────────────────────────────────────
+
+    private function pushSlotUpdate(string $roomId, array $slotSummary): void
+    {
+        $url = rtrim(config('services.websocket.url', 'http://localhost:3001'), '/');
+        $key = config('services.websocket.internal_key', '');
+
+        if (empty($url)) {
+            return;
+        }
+
+        $byDate = collect($slotSummary)->groupBy('date');
+
+        foreach ($byDate as $date => $slots) {
+            try {
+                Http::withHeaders(['x-internal-key' => $key])
+                    ->timeout(2)
+                    ->post("{$url}/internal/slot-update", [
+                        'room_id'  => $roomId,
+                        'date'     => $date,
+                        'slot_ids' => $slots->pluck('timeslot_id')->values()->toArray(),
+                        'status'   => 'pending',
+                    ]);
+            } catch (\Throwable $e) {
+                Log::warning('WS slot push failed', ['room_id' => $roomId, 'error' => $e->getMessage()]);
+            }
+        }
     }
 
     // ── PayOS ─────────────────────────────────────────────────────────────────

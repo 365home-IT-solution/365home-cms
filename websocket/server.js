@@ -25,25 +25,39 @@ const connections = new Map();
 io.on('connection', (socket) => {
     const customerId = socket.handshake.auth.customer_id;
 
-    if (!customerId) {
-        socket.disconnect(true);
-        return;
+    // Authenticated: register for personal notifications
+    if (customerId) {
+        if (!connections.has(customerId)) {
+            connections.set(customerId, new Set());
+        }
+        connections.get(customerId).add(socket);
+        console.log(`[WS] Connected: customer=${customerId} total=${io.engine.clientsCount}`);
+    } else {
+        console.log(`[WS] Connected: guest total=${io.engine.clientsCount}`);
     }
 
-    if (!connections.has(customerId)) {
-        connections.set(customerId, new Set());
-    }
-    connections.get(customerId).add(socket);
+    // Subscribe to slot availability for a room+date (no auth required)
+    socket.on('subscribe:room', ({ room_id, date }) => {
+        if (room_id && date) {
+            socket.join(`room:${room_id}:${date}`);
+        }
+    });
 
-    console.log(`[WS] Connected: customer=${customerId} total=${io.engine.clientsCount}`);
+    socket.on('unsubscribe:room', ({ room_id, date }) => {
+        if (room_id && date) {
+            socket.leave(`room:${room_id}:${date}`);
+        }
+    });
 
     socket.on('disconnect', () => {
-        const sockets = connections.get(customerId);
-        if (sockets) {
-            sockets.delete(socket);
-            if (sockets.size === 0) connections.delete(customerId);
+        if (customerId) {
+            const sockets = connections.get(customerId);
+            if (sockets) {
+                sockets.delete(socket);
+                if (sockets.size === 0) connections.delete(customerId);
+            }
         }
-        console.log(`[WS] Disconnected: customer=${customerId}`);
+        console.log(`[WS] Disconnected: customer=${customerId || 'guest'}`);
     });
 });
 
@@ -70,6 +84,25 @@ app.post('/internal/notify', (req, res) => {
     }
 
     return res.json({ ok: true, delivered: sockets ? sockets.size : 0 });
+});
+
+// ── Slot availability update — broadcast to room+date channel ────────────────
+app.post('/internal/slot-update', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { room_id, date, slot_ids, status } = req.body;
+    if (!room_id || !date || !Array.isArray(slot_ids)) {
+        return res.status(422).json({ error: 'Missing room_id, date, or slot_ids' });
+    }
+
+    const channel = `room:${room_id}:${date}`;
+    io.to(channel).emit('slot.updated', { room_id, date, slot_ids, status: status || 'pending' });
+    console.log(`[WS] Slot update: room=${room_id} date=${date} slots=[${slot_ids}] → ${channel}`);
+
+    return res.json({ ok: true });
 });
 
 // ── Broadcast đến tất cả customer đang kết nối ───────────────────────────────
