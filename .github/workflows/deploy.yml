@@ -48,6 +48,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
+          request_pty: true
           script: |
             set -e
             mkdir -p /home/dev/www
@@ -58,9 +59,10 @@ jobs:
             git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/365home-IT-solution/365home-cms.git
             git fetch origin
             git checkout production
-            sudo chown -R $(whoami):$(whoami) /home/dev/www/365home.vn/storage/ /home/dev/www/365home.vn/bootstrap/cache/ 2>/dev/null || true
-            git reset --hard origin/production
-            sudo chown -R www-data:www-data /home/dev/www/365home.vn/storage/ /home/dev/www/365home.vn/bootstrap/cache/ 2>/dev/null || true
-            sudo chmod -R 775 /home/dev/www/365home.vn/storage/ /home/dev/www/365home.vn/bootstrap/cache/ 2>/dev/null || true
+            sudo git reset --hard origin/production
+            sudo chown -R www-data:www-data /home/dev/www/365home.vn/storage/ /home/dev/www/365home.vn/bootstrap/cache/
+            sudo chmod -R 775 /home/dev/www/365home.vn/storage/ /home/dev/www/365home.vn/bootstrap/cache/
             docker compose up -d --build
+            pm2 reload 365home-ws || pm2 start /home/dev/www/365home.vn/websocket/ecosystem.config.js
+            pm2 save
             echo "Deploy $(date '+%Y-%m-%d %H:%M') OK"
