@@ -2,26 +2,23 @@
 
 namespace App\Console\Commands;
 
-use App\Services\FcmService;
+use App\Models\Customer;
+use App\Services\NotificationFcmService;
 use App\Services\TelegramService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
-use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
-use Carbon\Carbon;
 
 /**
- * Gửi thông báo Telegram khi gần hết giờ / hết giờ đặt phòng
- *
- * Chạy mỗi 5 phút qua scheduler:
- *   $schedule->command('lock:notify-expiry')->everyFiveMinutes();
+ * Gửi thông báo Telegram (admin) + FCM (customer) khi gần hết / hết giờ đặt phòng.
+ * Chạy mỗi 5 phút qua scheduler.
  */
 class NotifyBookingExpiryCommand extends Command
 {
     protected $signature   = 'lock:notify-expiry';
     protected $description = 'Gửi Telegram khi đặt phòng sắp hết giờ hoặc đã hết giờ';
 
-    public function handle(TelegramService $telegram, FcmService $fcm): int
+    public function handle(TelegramService $telegram, NotificationFcmService $notifier): int
     {
         $now = now();
 
@@ -34,7 +31,7 @@ class NotifyBookingExpiryCommand extends Command
             ->get();
 
         foreach ($soonItems as $item) {
-            $this->sendExpiryWarning($telegram, $fcm, $item, 15);
+            $this->sendExpiryWarning($telegram, $notifier, $item, 15);
             $item->update(['expiry_notified' => true]);
         }
 
@@ -47,17 +44,18 @@ class NotifyBookingExpiryCommand extends Command
             ->get();
 
         foreach ($expiredItems as $item) {
-            $this->sendExpiredNotice($telegram, $fcm, $item);
+            $this->sendExpiredNotice($telegram, $notifier, $item);
             $item->update(['checkout_notified' => true]);
         }
 
         $this->info("Đã xử lý: {$soonItems->count()} cảnh báo + {$expiredItems->count()} hết giờ");
+
         return self::SUCCESS;
     }
 
     // ── Sắp hết giờ ─────────────────────────────────────────────────────────
 
-    private function sendExpiryWarning(TelegramService $telegram, FcmService $fcm, OrderItem $item, int $minutesLeft): void
+    private function sendExpiryWarning(TelegramService $telegram, NotificationFcmService $notifier, OrderItem $item, int $minutesLeft): void
     {
         $order    = $item->order;
         $product  = $item->product;
@@ -78,26 +76,20 @@ class NotifyBookingExpiryCommand extends Command
             Log::error('Booking expiry warning failed', ['error' => $e->getMessage()]);
         }
 
-        if ($order->customer_id) {
-            $customer = \App\Models\Customer::find($order->customer_id);
-            if ($customer) {
-                try {
-                    $fcm->sendToCustomer(
-                        $customer,
-                        'Sắp hết giờ phòng',
-                        "Phòng {$product->name} sẽ hết giờ lúc {$checkout} ({$minutesLeft} phút nữa).",
-                        ['order_code' => (string) $order->order_code, 'type' => 'expiry_warning']
-                    );
-                } catch (\Throwable $e) {
-                    Log::warning('FCM expiry warning failed', ['error' => $e->getMessage()]);
-                }
-            }
+        if ($order->customer_id && $customer = Customer::find($order->customer_id)) {
+            $notifier->sendToCustomer(
+                $customer,
+                'Sắp hết giờ phòng',
+                "Phòng {$product->name} sẽ hết giờ lúc {$checkout} ({$minutesLeft} phút nữa).",
+                'checkout_warning',
+                ['order_code' => (string) $order->order_code],
+            );
         }
     }
 
     // ── Đã hết giờ ──────────────────────────────────────────────────────────
 
-    private function sendExpiredNotice(TelegramService $telegram, FcmService $fcm, OrderItem $item): void
+    private function sendExpiredNotice(TelegramService $telegram, NotificationFcmService $notifier, OrderItem $item): void
     {
         $order    = $item->order;
         $product  = $item->product;
@@ -116,20 +108,14 @@ class NotifyBookingExpiryCommand extends Command
             Log::error('Booking expired notice failed', ['error' => $e->getMessage()]);
         }
 
-        if ($order->customer_id) {
-            $customer = \App\Models\Customer::find($order->customer_id);
-            if ($customer) {
-                try {
-                    $fcm->sendToCustomer(
-                        $customer,
-                        'Đã hết giờ phòng',
-                        "Phòng {$product->name} đã hết giờ lúc {$checkout}. Cảm ơn bạn đã sử dụng dịch vụ!",
-                        ['order_code' => (string) $order->order_code, 'type' => 'expired']
-                    );
-                } catch (\Throwable $e) {
-                    Log::warning('FCM expired notice failed', ['error' => $e->getMessage()]);
-                }
-            }
+        if ($order->customer_id && $customer = Customer::find($order->customer_id)) {
+            $notifier->sendToCustomer(
+                $customer,
+                'Đã hết giờ phòng',
+                "Phòng {$product->name} đã hết giờ lúc {$checkout}. Cảm ơn bạn đã sử dụng dịch vụ!",
+                'checkout_warning',
+                ['order_code' => (string) $order->order_code],
+            );
         }
     }
 }

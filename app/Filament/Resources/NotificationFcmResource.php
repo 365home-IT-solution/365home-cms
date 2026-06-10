@@ -10,11 +10,13 @@ use App\Models\Customer;
 use App\Models\NotificationFcm;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Placeholder;
+use Filament\Forms\Components\Radio;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
 use Filament\Infolists\Components\Grid;
 use Filament\Infolists\Components\Section as InfoSection;
 use Filament\Infolists\Components\TextEntry;
@@ -63,12 +65,35 @@ class NotificationFcmResource extends Resource
             ]),
 
             Section::make('Người nhận')->schema([
+                Radio::make('sent_for')
+                    ->label('Gửi đến')
+                    ->options([
+                        'all'   => 'Tất cả khách hàng (có token)',
+                        'users' => 'Chọn từng người',
+                    ])
+                    ->default('users')
+                    ->inline()
+                    ->live()
+                    ->required(),
+
+                Placeholder::make('all_count_hint')
+                    ->label('')
+                    ->content(function (): string {
+                        $count = Customer::whereNotNull('token_device')
+                            ->where('status', Customer::STATUS_ACTIVE)
+                            ->count();
+
+                        return "Sẽ gửi đến {$count} khách hàng đang có token thiết bị.";
+                    })
+                    ->visible(fn (Get $get): bool => $get('sent_for') === 'all'),
+
                 Select::make('customer_ids')
                     ->label('Chọn khách hàng')
                     ->helperText('Chỉ hiển thị khách hàng đã đăng nhập trên thiết bị di động (có token).')
                     ->multiple()
                     ->searchable()
                     ->required()
+                    ->visible(fn (Get $get): bool => $get('sent_for') === 'users')
                     ->getSearchResultsUsing(function (string $search): array {
                         return Customer::whereNotNull('token_device')
                             ->where('status', Customer::STATUS_ACTIVE)
@@ -94,16 +119,6 @@ class NotificationFcmResource extends Resource
                     ->noSearchResultsMessage('Không tìm thấy khách hàng có token thiết bị.')
                     ->loadingMessage('Đang tìm kiếm...')
                     ->placeholder('Tìm theo tên hoặc số điện thoại...'),
-
-                Placeholder::make('all_hint')
-                    ->label('')
-                    ->content(function (): string {
-                        $count = Customer::whereNotNull('token_device')
-                            ->where('status', Customer::STATUS_ACTIVE)
-                            ->count();
-
-                        return "Hiện có {$count} khách hàng đang có token thiết bị.";
-                    }),
             ]),
 
             Section::make('Lịch gửi')->schema([

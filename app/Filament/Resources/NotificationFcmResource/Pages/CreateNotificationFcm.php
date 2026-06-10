@@ -31,7 +31,18 @@ class CreateNotificationFcm extends CreateRecord
     protected function handleRecordCreation(array $data): Model
     {
         $customerIds = $data['customer_ids'] ?? [];
+        $sentFor     = $data['sent_for'] ?? 'users';
         unset($data['customer_ids']);
+
+        // Gửi tất cả → lấy toàn bộ customer có token
+        if ($sentFor === 'all') {
+            $customerIds = Customer::whereNotNull('token_device')
+                ->where('status', Customer::STATUS_ACTIVE)
+                ->pluck('id')
+                ->toArray();
+        }
+
+        $data['type'] = 'manual';
 
         $scheduledAt = isset($data['scheduled_at'])
             ? Carbon::parse($data['scheduled_at'])
@@ -40,7 +51,6 @@ class CreateNotificationFcm extends CreateRecord
         $isScheduled = $scheduledAt && $scheduledAt->isFuture();
 
         if ($isScheduled) {
-            // Lưu danh sách người nhận để command dùng khi đến giờ
             $data['recipient_ids'] = $customerIds;
         }
 

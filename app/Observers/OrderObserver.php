@@ -5,6 +5,7 @@ namespace App\Observers;
 use App\Models\Customer;
 use App\Models\User;
 use App\Services\FcmService;
+use App\Services\NotificationFcmService;
 use Filament\Notifications\Notification;
 use Filament\Notifications\Actions\Action;
 use Modules\AuditLog\Services\AuditLogger;
@@ -89,14 +90,13 @@ class OrderObserver
             return;
         }
 
-        try {
-            app(FcmService::class)->sendToCustomer($customer, $title, $body, [
-                'order_code' => (string) $order->order_code,
-                'type'       => 'order',
-            ]);
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('FCM customer push failed: ' . $e->getMessage());
-        }
+        app(NotificationFcmService::class)->sendToCustomer(
+            $customer,
+            $title,
+            $body,
+            'booking',
+            ['order_code' => (string) $order->order_code, 'type' => 'order'],
+        );
     }
 
     /**

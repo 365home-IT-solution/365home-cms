@@ -36,6 +36,12 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping(2)
             ->appendOutputTo(storage_path('logs/scheduled-notifications.log'));
+
+        $schedule->command('notifications:checkin-reminder')
+            ->everyFiveMinutes()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping(2)
+            ->appendOutputTo(storage_path('logs/checkin-reminders.log'));
     }
 
     /**
