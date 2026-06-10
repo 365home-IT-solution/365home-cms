@@ -58,7 +58,9 @@ jobs:
             git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/365home-IT-solution/365home-cms.git
             git fetch origin
             git checkout production
-            sudo chown -R $(whoami):$(whoami) /home/dev/www/365home.vn/storage/ 2>/dev/null || true
+            sudo chown -R $(whoami):$(whoami) /home/dev/www/365home.vn/storage/ /home/dev/www/365home.vn/bootstrap/cache/ 2>/dev/null || true
             git reset --hard origin/production
+            sudo chown -R www-data:www-data /home/dev/www/365home.vn/storage/ /home/dev/www/365home.vn/bootstrap/cache/ 2>/dev/null || true
+            sudo chmod -R 775 /home/dev/www/365home.vn/storage/ /home/dev/www/365home.vn/bootstrap/cache/ 2>/dev/null || true
             docker compose up -d --build
             echo "Deploy $(date '+%Y-%m-%d %H:%M') OK"
