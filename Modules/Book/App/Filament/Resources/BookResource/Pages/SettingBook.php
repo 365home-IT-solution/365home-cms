@@ -650,10 +650,18 @@ class SettingBook extends Page implements HasForms
     public function saveSingleDate(
         string  $roomId,
         string  $date,
-        int     $price,
+        ?int    $price,
         ?string $checkin,
-        ?string $checkout
+        ?string $checkout,
+        array   $promoIds     = [],
+        array   $surchargeIds = [],
+        array   $couponIds    = []
     ): void {
+        $hasData = $price !== null || !empty($promoIds) || !empty($surchargeIds) || !empty($couponIds);
+        if (! $hasData) {
+            return;
+        }
+
         $dateLabel = \Carbon\Carbon::parse($date)->format('Y-m-d');
 
         $timeSlot = TimeSlot::firstOrCreate(
@@ -661,13 +669,18 @@ class SettingBook extends Page implements HasForms
             ['start_time' => null, 'end_time' => null]
         );
 
-        // Dùng updateOrCreate theo room_id + timeslot_id để tránh lỗi FK khi update sai slot
         $slotModel = RoomTimeSlot::updateOrCreate(
             ['room_id' => $roomId, 'timeslot_id' => $timeSlot->id],
             ['price' => $price, 'status' => 'available', 'checkin' => $checkin, 'checkout' => $checkout]
         );
 
-        // Reload để calendar phản ánh ngay
+        $allPromoIds = array_merge(
+            array_map('intval', $promoIds),
+            array_map('intval', $surchargeIds)
+        );
+        $slotModel->promotions()->sync($allPromoIds);
+        $slotModel->coupons()->sync(array_map('intval', $couponIds));
+
         $this->mount();
 
         Notification::make()

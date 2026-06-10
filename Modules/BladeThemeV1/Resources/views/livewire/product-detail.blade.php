@@ -1105,6 +1105,7 @@
                             @elseif(!$fromBookingPage && $bookingStyle == 2)
                             {{-- Style 2: Daterange picker hiển thị ngay dưới ảnh/tiện ích --}}
                             @php
+                                $product->loadMissing(['roomTimeSlots.timeSlot', 'roomTimeSlots.promotions']);
                                 $pricePerNight   = $product->price ?? 0;
                                 $productDiscount = (int)($product->discount ?? 0);
                                 $bookedRanges = \Modules\Payment\Entities\OrderItem::where('product_id', $product->id)
