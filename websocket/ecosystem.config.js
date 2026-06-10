@@ -5,6 +5,7 @@ module.exports = {
             script: 'server.js',
             cwd: '/home/dev/www/365home.vn/websocket',
             instances: 1,
+            exec_mode: 'fork',
             autorestart: true,
             watch: false,
             max_memory_restart: '200M',
