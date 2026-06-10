@@ -178,6 +178,78 @@ class PromotionCalculator
         ];
     }
 
+    /**
+     * Tính promotion cho phòng theo ngày (daily room) — không có start/end time.
+     *
+     * @return array{final_price: float, applied: list<array>}
+     */
+    public function calculateForDate(?RoomTimeSlot $rts, float $basePrice, string $date): array
+    {
+        if (! $rts || $rts->promotions->isEmpty()) {
+            return ['final_price' => $basePrice, 'applied' => []];
+        }
+
+        $dayStart = Carbon::parse($date)->startOfDay();
+        $dayEnd   = Carbon::parse($date)->endOfDay();
+
+        $priceAfterInc = $basePrice;
+        $finalPrice    = $basePrice;
+        $applied       = [];
+
+        foreach ($rts->promotions as $promo) {
+            if (! $this->isApplicableForDate($promo, $dayStart, $dayEnd, $date)) continue;
+            $v = (float) $promo->value;
+            if ($promo->type === 'increase_fixed') {
+                $inc = $v;
+            } elseif ($promo->type === 'increase_percentage') {
+                $inc = round($priceAfterInc * $v / 100);
+            } else {
+                continue;
+            }
+            $priceAfterInc += $inc;
+            $finalPrice    += $inc;
+            $applied[]      = $this->entry($promo, $inc);
+        }
+
+        foreach ($rts->promotions as $promo) {
+            if (! $this->isApplicableForDate($promo, $dayStart, $dayEnd, $date)) continue;
+            $v = (float) $promo->value;
+            if ($promo->type === 'fixed') {
+                $disc = min($finalPrice, $v);
+                $finalPrice -= $disc;
+            } elseif ($promo->type === 'percentage') {
+                $disc = round($priceAfterInc * $v / 100);
+                $finalPrice -= $disc;
+            } else {
+                continue;
+            }
+            if (! $this->alreadyApplied($applied, $promo->id)) {
+                $applied[] = $this->entry($promo, $disc);
+            }
+        }
+
+        return ['final_price' => max(0.0, $finalPrice), 'applied' => $applied];
+    }
+
+    private function isApplicableForDate($promo, Carbon $dayStart, Carbon $dayEnd, string $date): bool
+    {
+        if (! $promo->is_active || ! $promo->start_at || ! $promo->end_at) return false;
+        if (! ($dayStart->lt($promo->end_at) && $dayEnd->gt($promo->start_at))) return false;
+
+        $excludedDates = $promo->excluded_dates ?? [];
+        if (is_string($excludedDates)) $excludedDates = json_decode($excludedDates, true) ?? [];
+        foreach ($excludedDates as $ex) {
+            $exDate = is_array($ex) ? ($ex['date'] ?? null) : $ex;
+            if ($exDate && Carbon::parse($exDate)->format('Y-m-d') === $date) return false;
+        }
+
+        $applicableDays = $promo->applicable_days_of_week ?? [];
+        if (is_string($applicableDays)) $applicableDays = json_decode($applicableDays, true) ?? [];
+        if (! empty($applicableDays) && ! in_array($dayStart->dayOfWeek, $applicableDays)) return false;
+
+        return true;
+    }
+
     private function alreadyApplied(array $applied, int $id): bool
     {
         foreach ($applied as $a) {

@@ -28,7 +28,7 @@ class BookingController extends Controller
     {
         // ── 1. Validate ──────────────────────────────────────────────────────
         $baseRules = [
-            'type'                    => 'required|in:slot,monthly',
+            'type'                    => 'required|in:slot,monthly,daily',
             'room_id'                 => 'required|string',
             'guest_count'             => 'required|integer|min:1',
             'payment_method'          => 'sometimes|in:PayOS,cash',
@@ -47,6 +47,12 @@ class BookingController extends Controller
         } else {
             $baseRules['checkin_date']  = 'required|date|after_or_equal:today';
             $baseRules['checkout_date'] = 'required|date|after:checkin_date';
+        }
+
+        // Daily: cần load thêm room_time_slots theo date
+        if ($request->input('type') === 'daily') {
+            $baseRules['checkin_date']  = 'required|date_format:Y-m-d|after_or_equal:today';
+            $baseRules['checkout_date'] = 'required|date_format:Y-m-d|after:checkin_date';
         }
 
         $request->validate($baseRules);
@@ -78,6 +84,8 @@ class BookingController extends Controller
 
         if ($request->input('type') === 'slot') {
             [$basePrice, $summaryName, $itemsData, $rtsCollection, $slotSummary] = $this->buildSlotItems($request, $room);
+        } elseif ($request->input('type') === 'daily') {
+            [$basePrice, $summaryName, $itemsData, $rtsCollection, $slotSummary] = $this->buildDailyItems($request, $room);
         } else {
             [$basePrice, $summaryName, $itemsData] = $this->buildMonthlyItem($request, $room);
         }
@@ -126,7 +134,11 @@ class BookingController extends Controller
         } else {
             // Promotion → bulk → coupon, tất cả tính trên basePrice
             if ($rtsCollection->isNotEmpty()) {
-                [$promotionDiscount, $appliedPromotions] = $this->applyPromotions($rtsCollection, $slotSummary);
+                if ($request->input('type') === 'daily') {
+                    [$promotionDiscount, $appliedPromotions] = $this->applyDailyPromotions($rtsCollection, $slotSummary);
+                } else {
+                    [$promotionDiscount, $appliedPromotions] = $this->applyPromotions($rtsCollection, $slotSummary);
+                }
             }
 
             if (! empty($slotSummary)) {
@@ -370,6 +382,124 @@ class BookingController extends Controller
     }
 
     // ── Monthly ───────────────────────────────────────────────────────────────
+
+    // ── Daily (phòng theo ngày) ───────────────────────────────────────────────
+
+    private function buildDailyItems(Request $request, Product $room): array
+    {
+        $checkin  = Carbon::parse($request->checkin_date)->startOfDay();
+        $checkout = Carbon::parse($request->checkout_date)->startOfDay();
+        $nights   = (int) $checkin->diffInDays($checkout);
+
+        if ($nights < 1) {
+            throw ValidationException::withMessages([
+                'checkout_date' => ['Phải đặt tối thiểu 1 đêm.'],
+            ]);
+        }
+
+        $conflict = OrderItem::where('product_id', $room->id)
+            ->whereNotNull('checkin_date')
+            ->whereNotNull('checkout_date')
+            ->where('checkin_date', '<', $checkout)
+            ->where('checkout_date', '>', $checkin)
+            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped', 'confirmed']))
+            ->exists();
+
+        if ($conflict) {
+            throw ValidationException::withMessages([
+                'checkin_date' => ['Phòng đã được đặt trong khoảng thời gian này.'],
+            ]);
+        }
+
+        $slotsByDate = $room->roomTimeSlots
+            ->filter(fn ($rts) => $rts->timeSlot?->type === 'date')
+            ->keyBy(fn ($rts) => $rts->timeSlot?->label);
+
+        $basePrice   = (float) $room->price;
+        $defCheckin  = $room->default_checkin  ?? '14:00';
+        $defCheckout = $room->default_checkout ?? '12:00';
+
+        $totalPrice    = 0;
+        $itemsData     = [];
+        $nightSummary  = [];
+        $rtsCollection = collect();
+
+        $current = $checkin->copy();
+        while ($current->lt($checkout)) {
+            $dateStr = $current->format('Y-m-d');
+            $rts     = $slotsByDate->get($dateStr);
+
+            $nightPrice      = $rts?->price !== null ? (float) $rts->price : $basePrice;
+            $checkinTime     = $rts?->checkin  ?? $defCheckin;
+            $checkoutTime    = $rts?->checkout ?? $defCheckout;
+            $nextDate        = $current->copy()->addDay()->format('Y-m-d');
+            $checkinDt       = Carbon::parse("{$dateStr} {$checkinTime}");
+            $checkoutDt      = Carbon::parse("{$nextDate} {$checkoutTime}");
+
+            $totalPrice += $nightPrice;
+
+            $itemsData[] = [
+                'product_id'    => $room->id,
+                'name'          => $room->name . ' - ' . $current->format('d/m/Y'),
+                'price'         => (int) $nightPrice,
+                'quantity'      => 1,
+                'is_shipped'    => true,
+                'checkin_date'  => $checkinDt,
+                'checkout_date' => $checkoutDt,
+                'extra_fee'     => 0,
+                'guest_count'   => $request->guest_count,
+            ];
+
+            $nightSummary[] = [
+                'date'  => $dateStr,
+                'price' => (int) $nightPrice,
+            ];
+
+            if ($rts) $rtsCollection->push($rts);
+
+            $current->addDay();
+        }
+
+        $summaryName = $room->name . ' - ' . $nights . ' đêm ('
+            . $checkin->format('d/m') . ' → ' . $checkout->format('d/m/Y') . ')';
+
+        return [(int) $totalPrice, $summaryName, $itemsData, $rtsCollection, $nightSummary];
+    }
+
+    private function applyDailyPromotions(Collection $rtsCollection, array $nightSummary): array
+    {
+        $calculator  = new PromotionCalculator();
+        $dateMap     = collect($nightSummary)->pluck('date', 'date');
+
+        $totalDiscount = 0;
+        $applied       = [];
+
+        foreach ($rtsCollection as $rts) {
+            $date = $rts->timeSlot?->label;
+            if (! $date || ! $dateMap->has($date)) continue;
+
+            $price  = $rts->price !== null ? (float) $rts->price : 0;
+            $result = $calculator->calculateForDate($rts, $price, $date);
+            $disc   = $price - $result['final_price'];
+            $totalDiscount += $disc;
+
+            foreach ($result['applied'] as $entry) {
+                $found = false;
+                foreach ($applied as $i => $a) {
+                    if ($a['id'] === $entry['id']) {
+                        $applied[$i]['discount_amount'] += $entry['discount_amount'];
+                        $found = true;
+                        break;
+                    }
+                }
+                if (! $found) {
+                    $applied[] = $entry;
+                }
+            }
+        }
+
+        return [(int) $totalDiscount, $applied];
+    }
 
     private function buildMonthlyItem(Request $request, Product $room): array
     {

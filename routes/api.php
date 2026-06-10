@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\OrderServiceController;
 use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\LockRecordCallbackController;
+use App\Http\Controllers\Api\DailyRoomController;
 use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\RoomTypeController;
 use App\Http\Controllers\Api\DeviceTokenController;
@@ -70,6 +71,16 @@ Route::get('pages/{slug}', [AppPageController::class, 'show'])->name('api.pages.
 */
 Route::get('rooms/{id}', [RoomController::class, 'show'])->name('api.rooms.show');
 Route::get('slots', [RoomController::class, 'slots'])->name('api.slots');
+
+/*
+|--------------------------------------------------------------------------
+| Daily Rooms (phòng theo ngày — styles=2)
+| GET /api/rooms/{id}/dates?month=YYYY-MM          → Lịch tháng
+| GET /api/rooms/{id}/price-preview?checkin=&checkout= → Preview giá
+|--------------------------------------------------------------------------
+*/
+Route::get('rooms/{id}/dates',         [DailyRoomController::class, 'dates'])->name('api.rooms.daily.dates');
+Route::get('rooms/{id}/price-preview', [DailyRoomController::class, 'pricePreview'])->name('api.rooms.daily.price-preview');
 
 /*
 |--------------------------------------------------------------------------
