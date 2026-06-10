@@ -83,6 +83,65 @@ class NotificationFcmService
     }
 
     /**
+     * Gửi cho nhiều customer dựa trên NotificationFcm record đã tạo sẵn.
+     * Dùng khi Filament tạo record trước rồi mới gửi.
+     *
+     * @param  Customer[]|\Illuminate\Support\Collection  $customers
+     */
+    public function sendToExisting(NotificationFcm $notification, iterable $customers): void
+    {
+        $sentCount = 0;
+        $failCount = 0;
+
+        foreach ($customers as $customer) {
+            $status      = 'sent';
+            $unreadCount = $this->getUnreadCount($customer->id) + 1;
+
+            if ($customer->token_device) {
+                try {
+                    $this->fcm->sendToCustomer($customer, $notification->title, $notification->body, [
+                        'notification_id' => (string) $notification->id,
+                        'type'            => $notification->type,
+                        'unread_count'    => (string) $unreadCount,
+                    ]);
+                } catch (\Throwable $e) {
+                    $status = 'failed';
+                    Log::warning("NotificationFcmService: FCM failed [{$notification->type}]", [
+                        'customer_id' => $customer->id,
+                        'error'       => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            NotificationFcmRecipient::create([
+                'notification_fcm_id' => $notification->id,
+                'customer_id'         => $customer->id,
+                'fcm_token'           => $customer->token_device,
+                'status'              => $status,
+            ]);
+
+            $this->pushToWebSocket($customer->id, [
+                'id'           => $notification->id,
+                'title'        => $notification->title,
+                'body'         => $notification->body,
+                'type'         => $notification->type,
+                'is_read'      => false,
+                'read_at'      => null,
+                'sent_at'      => now()->toIso8601String(),
+                'unread_count' => $unreadCount,
+            ]);
+
+            $status === 'sent' ? $sentCount++ : $failCount++;
+        }
+
+        $notification->update([
+            'sent_count' => $sentCount,
+            'fail_count' => $failCount,
+            'sent_at'    => now(),
+        ]);
+    }
+
+    /**
      * Gửi cho nhiều customer cùng lúc (1 notification record, nhiều recipients).
      *
      * @param  Customer[]|\Illuminate\Support\Collection  $customers

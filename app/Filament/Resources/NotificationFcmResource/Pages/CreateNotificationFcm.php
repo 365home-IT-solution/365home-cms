@@ -6,7 +6,7 @@ use App\Filament\Resources\NotificationFcmResource;
 use App\Models\Customer;
 use App\Models\NotificationFcm;
 use App\Models\NotificationFcmRecipient;
-use App\Services\FcmService;
+use App\Services\NotificationFcmService;
 use Carbon\Carbon;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
@@ -56,48 +56,15 @@ class CreateNotificationFcm extends CreateRecord
 
         $record = static::getModel()::create($data);
 
-        if (! $isScheduled && ! empty($customerIds)) {
-            $this->sendToCustomers($record, $customerIds);
+        if (! $isScheduled) {
+            $customers = Customer::whereIn('id', $customerIds)
+                ->where('status', Customer::STATUS_ACTIVE)
+                ->get();
+
+            app(NotificationFcmService::class)->sendToExisting($record, $customers);
         }
 
         return $record;
-    }
-
-    private function sendToCustomers(NotificationFcm $record, array $customerIds): void
-    {
-        $customers = Customer::whereIn('id', $customerIds)
-            ->whereNotNull('token_device')
-            ->where('status', Customer::STATUS_ACTIVE)
-            ->get();
-
-        $fcmService = app(FcmService::class);
-        $sentCount  = 0;
-        $failCount  = 0;
-
-        foreach ($customers as $customer) {
-            $status = 'sent';
-
-            try {
-                $fcmService->sendToCustomer($customer, $record->title, $record->body);
-            } catch (\Throwable) {
-                $status = 'failed';
-            }
-
-            NotificationFcmRecipient::create([
-                'notification_fcm_id' => $record->id,
-                'customer_id'         => $customer->id,
-                'fcm_token'           => $customer->token_device,
-                'status'              => $status,
-            ]);
-
-            $status === 'sent' ? $sentCount++ : $failCount++;
-        }
-
-        $record->update([
-            'sent_count' => $sentCount,
-            'fail_count' => $failCount,
-            'sent_at'    => now(),
-        ]);
     }
 
     protected function afterCreate(): void
