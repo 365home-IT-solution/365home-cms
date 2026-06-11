@@ -23,6 +23,7 @@ use Modules\BladeThemeV1\App\Models\BlindBag;
 use Modules\BladeThemeV1\Services\Payment\OrderHandlerService;
 use Modules\BladeThemeV1\Services\Payment\PaymentService;
 use Modules\BladeThemeV1\Services\OcrSpaceService;
+use App\Services\PromotionCalculator;
 
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Session;
@@ -764,86 +765,60 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             return;
         }
 
+        $nights = (int) $checkin->diffInDays($checkout);
+
         $dayPriceMap = ['mon'=>1,'tue'=>2,'wed'=>3,'thu'=>4,'fri'=>5,'sat'=>6,'sun'=>0];
         $dayPrices = [];
         foreach ($this->product->day_prices ?? [] as $k => $v) {
             if (isset($dayPriceMap[$k]) && (int)$v > 0) $dayPrices[$dayPriceMap[$k]] = (int)$v;
         }
 
-        $dateConfigs = [];
-        $promoEffects = []; // ['type' => ..., 'value' => ...][]
-        $nowDt = now();
         $this->product->load(['roomTimeSlots.timeSlot', 'roomTimeSlots.promotions']);
+
+        $slotsByDate = [];
+        $dateConfigs = [];
         foreach ($this->product->roomTimeSlots as $rts) {
             if ($rts->timeSlot && ($rts->timeSlot->type ?? '') === 'date' && !empty($rts->timeSlot->label)) {
                 $dk = $rts->timeSlot->label;
-                $dateConfigs[$dk] = [
-                    'price' => $rts->price !== null ? (float) $rts->price : null,
-                    'checkin' => $rts->checkin,
-                    'checkout' => $rts->checkout,
-                ];
-                foreach ($rts->promotions as $promo) {
-                    if ($promo->is_active
-                        && (!$promo->start_at || $promo->start_at <= $nowDt)
-                        && (!$promo->end_at   || $promo->end_at   >= $nowDt)
-                    ) {
-                        $promoEffects[$dk][] = ['type' => $promo->type, 'value' => (float) $promo->value];
-                    }
-                }
+                $slotsByDate[$dk] = $rts;
+                $dateConfigs[$dk] = ['checkin' => $rts->checkin, 'checkout' => $rts->checkout];
             }
         }
 
-        $basePrice   = (float)($this->product->price ?? 0);
-        $productDisc = (float)($this->product->discount ?? 0);
+        $calculator  = app(PromotionCalculator::class);
+        $basePrice   = (float) ($this->product->price ?? 0);
+        $productDisc = (float) ($this->product->discount ?? 0);
         $effectiveBase = $productDisc > 0 ? round($basePrice * (1 - $productDisc / 100)) : $basePrice;
 
         $totalBeforePromo = 0;
         $totalAfterPromo  = 0;
         $totalIncrease    = 0;
         $totalDiscount    = 0;
+
         $current = $checkin->copy();
         while ($current->lt($checkout)) {
             $iso = $current->format('Y-m-d');
-            $nightBase = $effectiveBase;
+            $rts = $slotsByDate[$iso] ?? null;
 
-            if (isset($dateConfigs[$iso]) && $dateConfigs[$iso]['price'] !== null) {
-                $nightBase = (float) $dateConfigs[$iso]['price'];
+            $nightBase = $effectiveBase;
+            if ($rts && $rts->price !== null) {
+                $nightBase = (float) $rts->price;
             } elseif (isset($dayPrices[$current->dayOfWeek])) {
                 $nightBase = (float) $dayPrices[$current->dayOfWeek];
             }
 
-            $nightAfterPromo = $nightBase;
-            $nightIncrease   = 0;
-            $nightDiscount   = 0;
-            foreach ($promoEffects[$iso] ?? [] as $effect) {
-                $v = $effect['value'];
-                switch ($effect['type']) {
-                    case 'percentage':
-                        $disc = round($nightAfterPromo * $v / 100);
-                        $nightDiscount  += $disc;
-                        $nightAfterPromo -= $disc;
-                        break;
-                    case 'fixed':
-                        $disc = min((float) $nightAfterPromo, (float) $v);
-                        $nightDiscount  += $disc;
-                        $nightAfterPromo = max(0, $nightAfterPromo - $v);
-                        break;
-                    case 'increase_percentage':
-                        $inc = round($nightAfterPromo * $v / 100);
-                        $nightIncrease   += $inc;
-                        $nightAfterPromo  = round($nightAfterPromo * (1 + $v / 100));
-                        break;
-                    case 'increase_fixed':
-                        $nightIncrease   += $v;
-                        $nightAfterPromo  += $v;
-                        break;
+            $promos = $calculator->calculateForDate($rts, $nightBase, $iso);
+
+            foreach ($promos['applied'] as $entry) {
+                if (in_array($entry['type'], ['increase_fixed', 'increase_percentage'])) {
+                    $totalIncrease += $entry['discount_amount'];
+                } else {
+                    $totalDiscount += $entry['discount_amount'];
                 }
             }
 
             $totalBeforePromo += $nightBase;
-            $totalAfterPromo  += $nightAfterPromo;
-            $totalIncrease    += $nightIncrease;
-            $totalDiscount    += $nightDiscount;
+            $totalAfterPromo  += $promos['final_price'];
             $current->addDay();
         }
 
@@ -858,15 +833,18 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             $totalAfterPromo -= $this->couponDiscountAmount;
         }
 
-        $resolvedCheckin = $dateConfigs[$checkin->format('Y-m-d')]['checkin'] ?? null;
-        $lastNightDate = $checkout->copy()->subDay()->format('Y-m-d');
+        $resolvedCheckin  = $dateConfigs[$checkin->format('Y-m-d')]['checkin'] ?? null;
+        $lastNightDate    = $checkout->copy()->subDay()->format('Y-m-d');
         $resolvedCheckout = $dateConfigs[$lastNightDate]['checkout'] ?? null;
-        $this->style2CheckinTime = !empty($resolvedCheckin) ? substr((string) $resolvedCheckin, 0, 5) : '14:00';
+        $this->style2CheckinTime  = !empty($resolvedCheckin)  ? substr((string) $resolvedCheckin,  0, 5) : '14:00';
         $this->style2CheckoutTime = !empty($resolvedCheckout) ? substr((string) $resolvedCheckout, 0, 5) : '12:00';
 
-        $cfg2 = $this->product ? ($this->product->room_config ?? []) : [];
-        $this->extraFee = $this->guests > (int)($cfg2['max_free_guests'] ?? 2)
-            ? ($this->guests - (int)($cfg2['max_free_guests'] ?? 2)) * (int)($cfg2['extra_guest_fee'] ?? 50000)
+        // Phụ thu khách — nhân theo số đêm (đồng bộ API)
+        $cfg2    = $this->product ? ($this->product->room_config ?? []) : [];
+        $maxFree = (int) ($cfg2['max_free_guests'] ?? 2);
+        $feePer  = (int) ($cfg2['extra_guest_fee'] ?? 50000);
+        $this->extraFee = $this->guests > $maxFree
+            ? ($this->guests - $maxFree) * $feePer * $nights
             : 0;
 
         $serviceTotal = 0;
@@ -1123,7 +1101,7 @@ public function confirmBooking()
 
         $paymentAmount = ($depositPercent >= 100)
             ? $orderTotal
-            : (int) round($fullAmount * $depositPercent / 100);
+            : (int) ceil($fullAmount * $depositPercent / 100);
 
         // =====================================================================
         // TRANSACTION: conflict check + order creation trong cùng 1 transaction
