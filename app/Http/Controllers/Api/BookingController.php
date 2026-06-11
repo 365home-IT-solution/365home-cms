@@ -32,6 +32,7 @@ class BookingController extends Controller
             'room_id'                 => 'required|string',
             'guest_count'             => 'required|integer|min:1',
             'payment_method'          => 'sometimes|in:PayOS,cash',
+            'payment_type'            => 'sometimes|in:full,deposit',
             'coupon_code'             => 'sometimes|nullable|string',
             'services'                => 'sometimes|nullable|array',
             'services.*.service_id'   => 'required_with:services|integer',
@@ -164,12 +165,41 @@ class BookingController extends Controller
         $slotFinalPrice = max(0, $basePrice - $discountAmount);
         $finalAmount    = $slotFinalPrice + $servicesTotal + $guestSurcharge;
 
+        // ── Deposit (chỉ daily) ───────────────────────────────────────────────
+        $amountDue   = $finalAmount;
+        $depositInfo = null;
+
+        if ($request->input('type') === 'daily') {
+            $depositMin  = (int) ($room->deposit_min_nights  ?? 0);
+            $depositPct  = (int) ($room->deposit_multi_night ?? 50);
+            $paymentType = $request->input('payment_type', 'full');
+
+            if ($paymentType === 'deposit') {
+                $nights = count($slotSummary);
+                if ($depositMin > 0 && $nights >= $depositMin && $depositPct < 100) {
+                    $amountDue   = (int) ceil($finalAmount * $depositPct / 100);
+                    $depositInfo = [
+                        'type'             => 'deposit',
+                        'percentage'       => $depositPct,
+                        'deposit_amount'   => $amountDue,
+                        'remaining_amount' => $finalAmount - $amountDue,
+                    ];
+                } else {
+                    throw ValidationException::withMessages([
+                        'payment_type' => [
+                            'Đặt cọc không áp dụng' . ($depositMin > 0 ? " (cần tối thiểu {$depositMin} đêm)" : '') . '.',
+                        ],
+                    ]);
+                }
+            }
+        }
+
         $category      = $room->categories()->first();
         $paymentMethod = $request->input('payment_method', 'PayOS');
 
         // ── 7. Tạo đơn + items + services trong transaction ──────────────────
         $order = DB::transaction(function () use (
-            $room, $finalAmount, $subtotal, $buyerName, $buyerPhone,
+            $room, $amountDue, $finalAmount, $subtotal, $buyerName, $buyerPhone,
             $customer, $category, $itemsData, $servicesData,
             $paymentMethod, $request, $appliedCoupon
         ) {
@@ -197,8 +227,8 @@ class BookingController extends Controller
             }
 
             $order = Order::create([
-                'amount'         => $subtotal,    // giá gốc: slots + services (trước giảm giá)
-                'full_amount'    => $finalAmount, // giá thực tế phải trả (sau giảm giá)
+                'amount'         => $subtotal,   // giá gốc: slots + services (trước giảm giá)
+                'full_amount'    => $amountDue,  // số tiền thanh toán ngay (deposit hoặc toàn bộ)
                 'description'    => 'Đặt phòng - ' . $room->name,
                 'buyer_name'     => $buyerName,
                 'buyer_phone'    => $buyerPhone,
@@ -225,7 +255,7 @@ class BookingController extends Controller
         });
 
         // ── 8. Tạo link PayOS ────────────────────────────────────────────────
-        if ($paymentMethod === 'PayOS' && $finalAmount >= 2000) {
+        if ($paymentMethod === 'PayOS' && $amountDue >= 2000) {
             $this->createPayOSLink($order, $summaryName);
         }
 
@@ -271,16 +301,18 @@ class BookingController extends Controller
                 'value'           => $appliedCoupon->value,
                 'discount_amount' => $couponDiscount,
             ] : null,
+            'deposit' => $depositInfo,
             'summary' => [
-                'slots_total'        => $basePrice,
-                'promotion_discount' => $promotionDiscount,
-                'system_discount'    => $systemDiscount,
-                'coupon_discount'    => $couponDiscount,
-                'discount_amount'    => $discountAmount,
-                'slots_final'        => $slotFinalPrice,
-                'guest_surcharge'    => $guestSurcharge,
-                'services_total'     => $servicesTotal,
-                'final_amount'       => (int) $order->full_amount,
+                'slots_total'          => $basePrice,
+                'promotion_discount'   => $promotionDiscount,
+                'system_discount'      => $systemDiscount,
+                'coupon_discount'      => $couponDiscount,
+                'discount_amount'      => $discountAmount,
+                'slots_final'          => $slotFinalPrice,
+                'guest_surcharge'      => $guestSurcharge,
+                'services_total'       => $servicesTotal,
+                'total_after_discount' => (int) $finalAmount,
+                'final_amount'         => (int) $order->full_amount,
             ],
         ], 201);
     }
@@ -762,8 +794,14 @@ class BookingController extends Controller
 
     private function buildGuestSurcharge(Request $request, Product $room, array $slotSummary): array
     {
-        // Chỉ áp dụng cho đặt slot và phòng theo giờ
-        if (empty($slotSummary) || $room->roomType?->slug !== 'theo_gio') {
+        if (empty($slotSummary)) {
+            return [0, null];
+        }
+
+        $type = $request->input('type');
+
+        // Slot: chỉ áp dụng cho phòng theo giờ
+        if ($type === 'slot' && $room->roomType?->slug !== 'theo_gio') {
             return [0, null];
         }
 
@@ -777,15 +815,23 @@ class BookingController extends Controller
         }
 
         $extraGuests = $guests - $threshold;
-        $total       = $extraGuests * $fee;
+        // Daily: nhân theo số đêm; slot: tính một lần cho cả booking
+        $nights      = $type === 'daily' ? count($slotSummary) : 1;
+        $total       = $extraGuests * $fee * $nights;
+
+        $label = "Phụ thu {$extraGuests} người (trên {$threshold} người)";
+        if ($nights > 1) {
+            $label .= " × {$nights} đêm";
+        }
 
         return [$total, [
             'guest_count'    => $guests,
             'threshold'      => $threshold,
             'extra_guests'   => $extraGuests,
             'fee_per_person' => $fee,
+            'nights'         => $nights,
             'total'          => $total,
-            'label'          => "Phụ thu {$extraGuests} người (trên {$threshold} người)",
+            'label'          => $label,
         ]];
     }
 

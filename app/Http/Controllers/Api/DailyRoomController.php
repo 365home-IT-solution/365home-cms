@@ -149,8 +149,14 @@ class DailyRoomController extends Controller
             $current->addDay();
         }
 
-        $firstRts = $slotsByDate->get($checkin->format('Y-m-d'));
-        $lastRts  = $slotsByDate->get($checkout->copy()->subDay()->format('Y-m-d'));
+        $firstRts        = $slotsByDate->get($checkin->format('Y-m-d'));
+        $lastRts         = $slotsByDate->get($checkout->copy()->subDay()->format('Y-m-d'));
+        $totalAfterPromo = (int) max(0, $subtotal - $totalPromoDiscount);
+
+        $depositMin = (int) ($room->deposit_min_nights  ?? 0);
+        $depositPct = (int) ($room->deposit_multi_night ?? 50);
+        $canDeposit = $depositMin > 0 && $nights >= $depositMin && $depositPct < 100;
+        $depositAmt = $canDeposit ? (int) ceil($totalAfterPromo * $depositPct / 100) : null;
 
         return response()->json([
             'nights'             => $nights,
@@ -161,7 +167,17 @@ class DailyRoomController extends Controller
             'nights_breakdown'   => $breakdown,
             'subtotal'           => (int) $subtotal,
             'promotion_discount' => (int) $totalPromoDiscount,
-            'total_after_promo'  => (int) max(0, $subtotal - $totalPromoDiscount),
+            'total_after_promo'  => $totalAfterPromo,
+            'deposit' => $canDeposit ? [
+                'eligible'         => true,
+                'min_nights'       => $depositMin,
+                'percentage'       => $depositPct,
+                'deposit_amount'   => $depositAmt,
+                'remaining_amount' => $totalAfterPromo - $depositAmt,
+            ] : [
+                'eligible'   => false,
+                'min_nights' => $depositMin,
+            ],
         ]);
     }
 
