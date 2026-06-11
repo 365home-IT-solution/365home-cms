@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\OrderServiceController;
 use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\LockRecordCallbackController;
 use App\Http\Controllers\Api\DailyRoomController;
+use App\Http\Controllers\Api\DailyRoomHoldController;
 use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\RoomTypeController;
 use App\Http\Controllers\Api\DeviceTokenController;
@@ -75,12 +76,16 @@ Route::get('slots', [RoomController::class, 'slots'])->name('api.slots');
 /*
 |--------------------------------------------------------------------------
 | Daily Rooms (phòng theo ngày — styles=2)
-| GET /api/rooms/{id}/dates?month=YYYY-MM          → Lịch tháng
-| GET /api/rooms/{id}/price-preview?checkin=&checkout= → Preview giá
+| GET /api/rooms/{id}/dates?month=YYYY-MM
+|     → Lịch tháng: giá, availability, promotion từng ngày (dùng cho calendar)
+| GET /api/rooms/{id}/price-preview?checkin=YYYY-MM-DD&checkout=YYYY-MM-DD
+|     → Tính giá tạm tính: per-night breakdown, availability, tổng, deposit
 |--------------------------------------------------------------------------
 */
 Route::get('rooms/{id}/dates',         [DailyRoomController::class, 'dates'])->name('api.rooms.daily.dates');
 Route::get('rooms/{id}/price-preview', [DailyRoomController::class, 'pricePreview'])->name('api.rooms.daily.price-preview');
+Route::post('rooms/{id}/hold',         [DailyRoomHoldController::class, 'hold'])->name('api.rooms.daily.hold');
+Route::delete('rooms/{id}/hold',       [DailyRoomHoldController::class, 'release'])->name('api.rooms.daily.hold.release');
 
 /*
 |--------------------------------------------------------------------------

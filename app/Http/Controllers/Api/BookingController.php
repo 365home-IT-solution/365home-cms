@@ -260,11 +260,16 @@ class BookingController extends Controller
         }
 
         // ── 9. Realtime: cập nhật trạng thái slot cho các client đang xem ────
-        if (! empty($slotSummary)) {
-            $service = app(\App\Services\SlotRealtimeService::class);
-            $byDate  = collect($slotSummary)->groupBy('date');
+        $realtimeService = app(\App\Services\SlotRealtimeService::class);
+
+        if ($request->input('type') === 'daily' && ! empty($slotSummary)) {
+            $checkinStr  = $request->input('checkin_date');
+            $checkoutStr = $request->input('checkout_date');
+            $realtimeService->broadcastDailyBooked($room->id, $checkinStr, $checkoutStr);
+        } elseif (! empty($slotSummary)) {
+            $byDate = collect($slotSummary)->groupBy('date');
             foreach ($byDate as $date => $slots) {
-                $service->broadcastBooked(
+                $realtimeService->broadcastBooked(
                     $room->id,
                     $date,
                     $slots->pluck('timeslot_id')->values()->toArray()

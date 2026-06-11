@@ -49,6 +49,19 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Subscribe to daily room hold events (no auth required)
+    socket.on('subscribe:daily-room', ({ room_id }) => {
+        if (room_id) {
+            socket.join(`daily:${room_id}`);
+        }
+    });
+
+    socket.on('unsubscribe:daily-room', ({ room_id }) => {
+        if (room_id) {
+            socket.leave(`daily:${room_id}`);
+        }
+    });
+
     socket.on('disconnect', () => {
         if (customerId) {
             const sockets = connections.get(customerId);
@@ -101,6 +114,44 @@ app.post('/internal/slot-update', (req, res) => {
     const channel = `room:${room_id}:${date}`;
     io.to(channel).emit('slot.updated', { room_id, date, slot_ids, status: status || 'pending' });
     console.log(`[WS] Slot update: room=${room_id} date=${date} slots=[${slot_ids}] → ${channel}`);
+
+    return res.json({ ok: true });
+});
+
+// ── Daily room booked — broadcast khi booking confirmed ──────────────────────
+app.post('/internal/daily-booked', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { room_id, checkin, checkout } = req.body;
+    if (!room_id || !checkin || !checkout) {
+        return res.status(422).json({ error: 'Missing room_id, checkin or checkout' });
+    }
+
+    const channel = `daily:${room_id}`;
+    io.to(channel).emit('daily.booked', { room_id, checkin, checkout });
+    console.log(`[WS] Daily booked: room=${room_id} ${checkin}→${checkout} → ${channel}`);
+
+    return res.json({ ok: true });
+});
+
+// ── Daily room hold update — broadcast đến clients đang xem phòng ────────────
+app.post('/internal/daily-hold-update', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { room_id, holds } = req.body;
+    if (!room_id) {
+        return res.status(422).json({ error: 'Missing room_id' });
+    }
+
+    const channel = `daily:${room_id}`;
+    io.to(channel).emit('daily.hold.updated', { room_id, holds: holds || [] });
+    console.log(`[WS] Daily hold: room=${room_id} holds=${(holds || []).length} → ${channel}`);
 
     return res.json({ ok: true });
 });
