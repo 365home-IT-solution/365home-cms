@@ -67,7 +67,14 @@
                             {{ $selectedConversation['customer']['phone'] }}
                         </div>
                     </div>
-                    @if ($selectedOrderInfo)
+                    @if ($selectedOrderId === '__general__')
+                        <div class="flex-shrink-0">
+                            <span class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-lg border border-gray-200 dark:border-gray-600">
+                                <x-heroicon-o-chat-bubble-left-ellipsis class="w-3.5 h-3.5" />
+                                Tin nhắn chung
+                            </span>
+                        </div>
+                    @elseif ($selectedOrderInfo)
                         <div class="flex-shrink-0">
                             <span class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 rounded-lg border border-primary-200 dark:border-primary-700">
                                 <x-heroicon-o-document-text class="w-3.5 h-3.5" />
@@ -185,6 +192,21 @@
 
             {{-- Danh sách đơn (scrollable) --}}
             <div class="{{ $selectedOrderInfo ? 'max-h-60' : 'flex-1' }} overflow-y-auto divide-y divide-gray-100 dark:divide-gray-800 flex-shrink-0">
+
+                {{-- Tin nhắn chung (không gắn đơn) --}}
+                <button
+                    wire:click="selectOrder('__general__')"
+                    wire:loading.class="opacity-50"
+                    wire:target="selectOrder('__general__')"
+                    class="w-full p-3 text-left transition-colors {{ $selectedOrderId === '__general__' ? 'bg-primary-50 dark:bg-primary-900/20 border-l-2 border-l-primary-500' : 'hover:bg-gray-50 dark:hover:bg-gray-800/60' }}"
+                >
+                    <div class="flex items-center gap-2">
+                        <x-heroicon-o-chat-bubble-left-ellipsis class="w-4 h-4 text-gray-400 flex-shrink-0" />
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Tin nhắn chung</span>
+                    </div>
+                    <div class="text-xs text-gray-400 dark:text-gray-500 mt-0.5 pl-6">Không gắn với đơn hàng</div>
+                </button>
+
                 @forelse ($customerOrders as $order)
                     @php $st = $statusMap[$order['status']] ?? ['label' => $order['status'], 'color' => 'text-gray-600 bg-gray-100 border-gray-200']; @endphp
                     <button

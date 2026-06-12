@@ -114,12 +114,24 @@ class CustomerChat extends Page
             return;
         }
 
-        $this->selectedOrderId = $orderId;
+        $this->selectedOrderId   = $orderId;
+        $this->selectedOrderInfo = null;
+
+        if ($orderId === '__general__') {
+            $this->messages = ChatMessage::where('conversation_id', $this->selectedId)
+                ->whereNull('order_id')
+                ->orderBy('id')
+                ->get()
+                ->map(fn ($m) => $this->formatMsg($m))
+                ->toArray();
+
+            $this->dispatch('scrollToBottom');
+            return;
+        }
 
         $order = Order::with(['items.product', 'services'])->find($orderId);
         if (! $order) {
-            $this->selectedOrderInfo = null;
-            $this->messages          = [];
+            $this->messages = [];
             return;
         }
 
@@ -150,7 +162,7 @@ class CustomerChat extends Page
         $admin = Auth::user();
         $msg   = ChatMessage::create([
             'conversation_id' => $conv->id,
-            'order_id'        => $this->selectedOrderId,
+            'order_id'        => ($this->selectedOrderId && $this->selectedOrderId !== '__general__') ? $this->selectedOrderId : null,
             'sender_type'     => 'admin',
             'sender_id'       => $admin->id,
             'body'            => $body,
@@ -225,7 +237,12 @@ class CustomerChat extends Page
         }
 
         $msgOrderId = $message['order_id'] ?? null;
-        if ($msgOrderId !== $this->selectedOrderId) {
+        $isGeneral  = $this->selectedOrderId === '__general__';
+
+        if ($isGeneral && $msgOrderId !== null) {
+            return;
+        }
+        if (! $isGeneral && $msgOrderId !== $this->selectedOrderId) {
             return;
         }
 
