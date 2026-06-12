@@ -181,17 +181,34 @@ class OrderController extends Controller
             'subtotal'     => (int) $s->subtotal,
         ])->values()->toArray();
 
-        $discount = max(0, (int) $order->amount - (int) $order->full_amount);
+        $roomPrice     = (int) $order->items->sum('price');
+        $svcTotal      = array_sum(array_column($servicesResult, 'subtotal'));
+        $subtotal      = (int) $order->amount;   // room + services (trước giảm)
+        $finalAmount   = (int) $order->full_amount;
+        $discount      = max(0, $subtotal - $finalAmount);
+
+        $depositPercent = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
+        $depositAmount  = $depositPercent !== null
+            ? (int) ceil($finalAmount * $depositPercent / 100)
+            : null;
 
         return response()->json([
-            'order_code'      => $order->order_code,
-            'guest_count'     => $order->guest_count,
-            'note_for_admin'  => $order->note_for_admin,
-            'subtotal'        => (int) $order->amount,
-            'discount_amount' => $discount,
-            'final_amount'    => (int) $order->full_amount,
-            'checkout_url'    => $order->checkout_url,
-            'services'        => $servicesResult,
+            'order_code'     => $order->order_code,
+            'status'         => $order->status,
+            'guest_count'    => $order->guest_count,
+            'note_for_admin' => $order->note_for_admin,
+            'pricing' => [
+                'room_price'      => $roomPrice,
+                'services_total'  => $svcTotal,
+                'subtotal'        => $subtotal,
+                'discount_amount' => $discount,
+                'final_amount'    => $finalAmount,
+                'deposit_percent' => $depositPercent,
+                'deposit_amount'  => $depositAmount,
+            ],
+            'checkout_url' => $order->checkout_url,
+            'expired_at'   => $order->expired_at,
+            'services'     => $servicesResult,
         ]);
     }
 
