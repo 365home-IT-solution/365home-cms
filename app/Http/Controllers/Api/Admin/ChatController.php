@@ -132,6 +132,7 @@ class ChatController extends Controller
 
         $msg = ChatMessage::create([
             'conversation_id' => $conv->id,
+            'order_id'        => $conv->order_id,
             'sender_type'     => 'admin',
             'sender_id'       => $admin->id,
             'body'            => $body,

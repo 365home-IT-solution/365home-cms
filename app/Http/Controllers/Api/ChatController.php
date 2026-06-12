@@ -86,7 +86,7 @@ class ChatController extends Controller
         );
 
         // Gắn đơn vào conversation nếu chưa có hoặc khác đơn cũ
-        if ($conv->order_id !== $order->id) {
+        if ((int) $conv->order_id !== $order->id) {
             $conv->order_id = $order->id;
             $conv->save();
         }
@@ -104,8 +104,11 @@ class ChatController extends Controller
             $this->realtime->broadcastRead($conv->id, 'customer');
         }
 
-        $total    = ChatMessage::where('conversation_id', $conv->id)->count();
-        $messages = ChatMessage::where('conversation_id', $conv->id)
+        $baseQuery = ChatMessage::where('conversation_id', $conv->id)
+            ->where('order_id', $order->id);
+
+        $total    = (clone $baseQuery)->count();
+        $messages = (clone $baseQuery)
             ->orderBy('id', 'desc')
             ->limit(20)
             ->get()
@@ -142,6 +145,17 @@ class ChatController extends Controller
         $beforeId = $request->query('before_id');
 
         $query = ChatMessage::where('conversation_id', $conv->id);
+
+        // Lọc theo đơn nếu có order_code (dùng khi phân trang trong context đơn)
+        if ($orderCode = $request->query('order_code')) {
+            $order = Order::where('order_code', $orderCode)
+                ->where('customer_id', $customer->id)
+                ->first();
+            if ($order) {
+                $query->where('order_id', $order->id);
+            }
+        }
+
         if ($beforeId) {
             $query->where('id', '<', $beforeId);
         }
@@ -174,18 +188,23 @@ class ChatController extends Controller
             ['status' => 'open']
         );
 
-        // Gắn đơn hàng vào conversation nếu có order_code
+        // Gắn đơn hàng vào conversation và tag tin nhắn nếu có order_code
+        $messageOrderId = null;
         if ($orderCode = $request->input('order_code')) {
             $order = Order::where('order_code', $orderCode)
                 ->where('customer_id', $customer->id)
                 ->first();
-            if ($order && (int) $conv->order_id !== $order->id) {
-                $conv->order_id = $order->id;
+            if ($order) {
+                $messageOrderId = $order->id;
+                if ((int) $conv->order_id !== $order->id) {
+                    $conv->order_id = $order->id;
+                }
             }
         }
 
         $msg = ChatMessage::create([
             'conversation_id' => $conv->id,
+            'order_id'        => $messageOrderId,
             'sender_type'     => 'customer',
             'sender_id'       => $customer->id,
             'body'            => $body,

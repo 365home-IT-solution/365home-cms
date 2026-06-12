@@ -127,6 +127,7 @@ class CustomerChat extends Page
         $admin = Auth::user();
         $msg   = ChatMessage::create([
             'conversation_id' => $conv->id,
+            'order_id'        => $conv->order_id,
             'sender_type'     => 'admin',
             'sender_id'       => $admin->id,
             'body'            => $body,

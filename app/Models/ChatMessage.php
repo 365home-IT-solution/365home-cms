@@ -7,6 +7,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Modules\Payment\Entities\Order;
 
 class ChatMessage extends Model
 {
@@ -14,6 +15,7 @@ class ChatMessage extends Model
 
     protected $fillable = [
         'conversation_id',
+        'order_id',
         'sender_type',
         'sender_id',
         'body',
@@ -27,5 +29,10 @@ class ChatMessage extends Model
     public function conversation(): BelongsTo
     {
         return $this->belongsTo(ChatConversation::class, 'conversation_id');
+    }
+
+    public function order(): BelongsTo
+    {
+        return $this->belongsTo(Order::class, 'order_id');
     }
 }
