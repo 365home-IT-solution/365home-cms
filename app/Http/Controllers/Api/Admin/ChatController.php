@@ -13,6 +13,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
+use Modules\Payment\Entities\Order;
 
 class ChatController extends Controller
 {
@@ -58,7 +59,7 @@ class ChatController extends Controller
      */
     public function show(Request $request, string $id): JsonResponse
     {
-        $conv = ChatConversation::with('customer:id,fullname,phone')->find($id);
+        $conv = ChatConversation::with(['customer:id,fullname,phone', 'order.items.product', 'order.services'])->find($id);
 
         if (! $conv) {
             return response()->json(['message' => 'Không tìm thấy cuộc trò chuyện.'], 404);
@@ -106,6 +107,7 @@ class ChatController extends Controller
             ],
             'messages'     => $messages,
             'has_more'     => $hasMore,
+            'order'        => $conv->order ? $this->buildOrderInfo($conv->order) : null,
         ]);
     }
 
@@ -219,6 +221,69 @@ class ChatController extends Controller
             'body'        => $msg->body,
             'read_at'     => $msg->read_at?->toIso8601String(),
             'created_at'  => $msg->created_at->toIso8601String(),
+        ];
+    }
+
+    private function buildOrderInfo(Order $order): array
+    {
+        $firstItem = $order->items->first();
+        $product   = $firstItem?->product;
+
+        $slots = $order->items->map(fn ($item) => [
+            'date'  => $item->checkin_date?->format('Y-m-d'),
+            'price' => (int) $item->price,
+        ])->values()->toArray();
+
+        $services = $order->services->map(fn ($s) => [
+            'service_id'   => $s->service_id,
+            'service_name' => $s->service_name,
+            'price'        => $s->price,
+            'quantity'     => $s->quantity,
+            'subtotal'     => $s->subtotal,
+        ])->values()->toArray();
+
+        $slotsTotal    = (int) $order->items->sum('price');
+        $servicesTotal = (int) $order->services->sum('subtotal');
+        $depositPct    = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
+
+        if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
+            $realFinal     = (int) round((int) $order->full_amount * 100 / $depositPct);
+            $totalDiscount = max(0, (int) $order->amount - $realFinal);
+        } else {
+            $realFinal     = (int) $order->full_amount;
+            $totalDiscount = max(0, (int) $order->amount - (int) $order->full_amount);
+        }
+
+        return [
+            'order' => [
+                'id'             => $order->id,
+                'order_code'     => $order->order_code,
+                'status'         => $order->status,
+                'payment_method' => $order->payment_method,
+                'checkout_url'   => $order->checkout_url,
+                'expired_at'     => $order->expired_at,
+                'buyer_name'     => $order->buyer_name,
+                'buyer_phone'    => $order->buyer_phone,
+            ],
+            'room' => [
+                'id'   => $product?->id,
+                'name' => $product?->name,
+            ],
+            'slots'    => $slots,
+            'services' => $services,
+            'summary'  => [
+                'slots_total'          => $slotsTotal,
+                'discount_amount'      => $totalDiscount,
+                'slots_final'          => max(0, $slotsTotal - $totalDiscount),
+                'services_total'       => $servicesTotal,
+                'total_after_discount' => $realFinal,
+                'final_amount'         => (int) $order->full_amount,
+            ],
+            'deposit' => $depositPct !== null ? [
+                'percentage'       => $depositPct,
+                'deposit_amount'   => (int) $order->full_amount,
+                'remaining_amount' => max(0, $realFinal - (int) $order->full_amount),
+            ] : null,
         ];
     }
 }

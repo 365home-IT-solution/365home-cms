@@ -235,6 +235,14 @@ class OrderController extends Controller
 
         // Tạo lại link PayOS nếu giá vừa thay đổi hoặc chưa có link
         $priceChanged = (int) $order->full_amount !== $originalFullAmount;
+        Log::info('order.update payos-check', [
+            'order_code'     => $order->order_code,
+            'payment_method' => $order->payment_method,
+            'price_changed'  => $priceChanged,
+            'original_amt'   => $originalFullAmount,
+            'new_amt'        => (int) $order->full_amount,
+            'has_url'        => (bool) $order->checkout_url,
+        ]);
         if (
             $order->payment_method === 'PayOS' &&
             ($priceChanged || ! $order->checkout_url) &&
@@ -631,7 +639,18 @@ class OrderController extends Controller
             // Huỷ link cũ trên PayOS (nếu còn PENDING) trước khi tạo link mới cùng orderCode
             try {
                 $payOS->cancelPaymentLink((int) $order->order_code);
-            } catch (\Throwable) {}
+                Log::info('buildPayOSLink: cancel ok', ['order_code' => $order->order_code]);
+            } catch (\Throwable $e) {
+                Log::info('buildPayOSLink: cancel skipped', [
+                    'order_code' => $order->order_code,
+                    'reason'     => $e->getMessage(),
+                ]);
+            }
+
+            Log::info('buildPayOSLink: creating', [
+                'order_code' => $order->order_code,
+                'amount'     => (int) $order->full_amount,
+            ]);
 
             $response = $payOS->createPaymentLink([
                 'orderCode'   => (int) $order->order_code,
@@ -646,6 +665,12 @@ class OrderController extends Controller
             ]);
 
             $checkoutUrl = $response['checkoutUrl'] ?? null;
+
+            Log::info('buildPayOSLink: result', [
+                'order_code'   => $order->order_code,
+                'checkout_url' => $checkoutUrl,
+                'response_keys' => array_keys((array) $response),
+            ]);
 
             if ($checkoutUrl) {
                 $order->update(['checkout_url' => $checkoutUrl, 'expired_at' => $expiredAt]);

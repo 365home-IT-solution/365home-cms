@@ -11,6 +11,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Modules\Payment\Entities\Order;
 
 class ChatController extends Controller
 {
@@ -99,7 +100,8 @@ class ChatController extends Controller
     public function send(Request $request): JsonResponse
     {
         $request->validate([
-            'body' => 'required|string|max:2000',
+            'body'       => 'required|string|max:2000',
+            'order_code' => 'nullable|string',
         ]);
 
         $customer = $request->user();
@@ -109,6 +111,16 @@ class ChatController extends Controller
             ['customer_id' => $customer->id],
             ['status' => 'open']
         );
+
+        // Gắn đơn hàng vào conversation nếu có order_code
+        if ($orderCode = $request->input('order_code')) {
+            $order = Order::where('order_code', $orderCode)
+                ->where('customer_id', $customer->id)
+                ->first();
+            if ($order && $conv->order_id !== $order->id) {
+                $conv->order_id = $order->id;
+            }
+        }
 
         $msg = ChatMessage::create([
             'conversation_id' => $conv->id,

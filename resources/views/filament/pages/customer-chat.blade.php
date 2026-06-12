@@ -130,6 +130,113 @@
 
             @endif
         </div>
+
+        {{-- ── Right: Thông tin đơn hàng (sidebar) ──────────────────── --}}
+        @if ($selectedConversation && $orderInfo)
+        <div class="w-72 flex-shrink-0 flex flex-col bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-y-auto">
+
+            {{-- Header --}}
+            <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                <div class="flex items-center gap-2">
+                    <x-heroicon-o-document-text class="w-4 h-4 text-primary-600" />
+                    <span class="font-semibold text-sm text-gray-900 dark:text-white">Đơn #{{ $orderInfo['order_code'] }}</span>
+                </div>
+                @php
+                    $statusMap = [
+                        'pending'   => ['label' => 'Chờ thanh toán', 'color' => 'text-yellow-600 bg-yellow-50'],
+                        'paid'      => ['label' => 'Đã thanh toán',  'color' => 'text-green-600 bg-green-50'],
+                        'confirmed' => ['label' => 'Đã xác nhận',    'color' => 'text-blue-600 bg-blue-50'],
+                        'cancelled' => ['label' => 'Đã huỷ',         'color' => 'text-red-600 bg-red-50'],
+                        'completed' => ['label' => 'Hoàn thành',     'color' => 'text-gray-600 bg-gray-100'],
+                    ];
+                    $st = $statusMap[$orderInfo['status']] ?? ['label' => $orderInfo['status'], 'color' => 'text-gray-600 bg-gray-100'];
+                @endphp
+                <span class="inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full {{ $st['color'] }}">{{ $st['label'] }}</span>
+            </div>
+
+            <div class="px-4 py-3 space-y-4 text-sm">
+
+                {{-- Phòng --}}
+                @if ($orderInfo['room_name'])
+                <div>
+                    <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Phòng</p>
+                    <p class="text-gray-900 dark:text-white font-medium">{{ $orderInfo['room_name'] }}</p>
+                </div>
+                @endif
+
+                {{-- Ngày --}}
+                @if (count($orderInfo['slots']))
+                <div>
+                    <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Ngày thuê ({{ count($orderInfo['slots']) }} đêm)</p>
+                    <div class="space-y-0.5">
+                        @foreach ($orderInfo['slots'] as $slot)
+                        <div class="flex justify-between text-gray-700 dark:text-gray-300">
+                            <span>{{ $slot['date'] }}</span>
+                            <span>{{ number_format($slot['price']) }}đ</span>
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+                @endif
+
+                {{-- Dịch vụ --}}
+                @if (count($orderInfo['services']))
+                <div>
+                    <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Dịch vụ</p>
+                    <div class="space-y-0.5">
+                        @foreach ($orderInfo['services'] as $svc)
+                        <div class="flex justify-between text-gray-700 dark:text-gray-300">
+                            <span>{{ $svc['service_name'] }} ×{{ $svc['quantity'] }}</span>
+                            <span>{{ number_format($svc['subtotal']) }}đ</span>
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+                @endif
+
+                {{-- Tổng --}}
+                <div class="border-t border-gray-100 dark:border-gray-700 pt-3 space-y-1">
+                    @if ($orderInfo['discount'] > 0)
+                    <div class="flex justify-between text-gray-500 dark:text-gray-400">
+                        <span>Giảm giá</span>
+                        <span class="text-green-600">-{{ number_format($orderInfo['discount']) }}đ</span>
+                    </div>
+                    @endif
+                    @if ($orderInfo['services_total'] > 0)
+                    <div class="flex justify-between text-gray-500 dark:text-gray-400">
+                        <span>Dịch vụ</span>
+                        <span>{{ number_format($orderInfo['services_total']) }}đ</span>
+                    </div>
+                    @endif
+                    <div class="flex justify-between font-semibold text-gray-900 dark:text-white">
+                        <span>Tổng cộng</span>
+                        <span>{{ number_format($orderInfo['total']) }}đ</span>
+                    </div>
+                    @if ($orderInfo['deposit_pct'])
+                    <div class="flex justify-between text-primary-600 dark:text-primary-400 text-xs">
+                        <span>Cọc {{ $orderInfo['deposit_pct'] }}%</span>
+                        <span>{{ number_format($orderInfo['deposit_amount']) }}đ</span>
+                    </div>
+                    @if ($orderInfo['remaining'] > 0)
+                    <div class="flex justify-between text-gray-500 dark:text-gray-400 text-xs">
+                        <span>Còn lại</span>
+                        <span>{{ number_format($orderInfo['remaining']) }}đ</span>
+                    </div>
+                    @endif
+                    @endif
+                </div>
+
+                {{-- Khách hàng --}}
+                <div class="border-t border-gray-100 dark:border-gray-700 pt-3">
+                    <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Người đặt</p>
+                    <p class="text-gray-900 dark:text-white">{{ $orderInfo['buyer_name'] }}</p>
+                    <p class="text-gray-500 dark:text-gray-400 text-xs">{{ $orderInfo['buyer_phone'] }}</p>
+                </div>
+
+            </div>
+        </div>
+        @endif
+
     </div>
 
     @script

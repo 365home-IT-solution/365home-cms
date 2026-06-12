@@ -13,6 +13,7 @@ use Filament\Pages\Page;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\On;
+use Modules\Payment\Entities\Order;
 
 class CustomerChat extends Page
 {
@@ -27,6 +28,7 @@ class CustomerChat extends Page
     public ?array  $selectedConversation = null;
     public array   $conversations        = [];
     public array   $messages             = [];
+    public ?array  $orderInfo            = null;
     public string  $draft                = '';
 
     public static function canAccess(): bool
@@ -63,7 +65,7 @@ class CustomerChat extends Page
         $this->selectedId = $id;
         $this->draft      = '';
 
-        $conv = ChatConversation::with('customer:id,fullname,phone')->find($id);
+        $conv = ChatConversation::with(['customer:id,fullname,phone', 'order.items.product', 'order.services'])->find($id);
         if (! $conv) {
             return;
         }
@@ -77,6 +79,8 @@ class CustomerChat extends Page
                 'phone'    => $conv->customer?->phone ?? '',
             ],
         ];
+
+        $this->orderInfo = $conv->order ? $this->buildOrderInfo($conv->order) : null;
 
         $this->messages = ChatMessage::where('conversation_id', $id)
             ->orderBy('id')
@@ -230,6 +234,53 @@ class CustomerChat extends Page
             'read_at'     => $msg->read_at?->toIso8601String(),
             'time'        => $msg->created_at->format('H:i'),
             'created_at'  => $msg->created_at->toIso8601String(),
+        ];
+    }
+
+    private function buildOrderInfo(Order $order): array
+    {
+        $firstItem = $order->items->first();
+        $product   = $firstItem?->product;
+
+        $slots = $order->items->map(fn ($item) => [
+            'date'  => $item->checkin_date?->format('Y-m-d'),
+            'price' => (int) $item->price,
+        ])->values()->toArray();
+
+        $services = $order->services->map(fn ($s) => [
+            'service_name' => $s->service_name,
+            'quantity'     => $s->quantity,
+            'subtotal'     => $s->subtotal,
+        ])->values()->toArray();
+
+        $slotsTotal    = (int) $order->items->sum('price');
+        $servicesTotal = (int) $order->services->sum('subtotal');
+        $depositPct    = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
+
+        if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
+            $realFinal     = (int) round((int) $order->full_amount * 100 / $depositPct);
+            $totalDiscount = max(0, (int) $order->amount - $realFinal);
+        } else {
+            $realFinal     = (int) $order->full_amount;
+            $totalDiscount = max(0, (int) $order->amount - (int) $order->full_amount);
+        }
+
+        return [
+            'order_code'     => $order->order_code,
+            'status'         => $order->status,
+            'payment_method' => $order->payment_method,
+            'buyer_name'     => $order->buyer_name,
+            'buyer_phone'    => $order->buyer_phone,
+            'room_name'      => $product?->name,
+            'slots'          => $slots,
+            'services'       => $services,
+            'deposit_pct'    => $depositPct,
+            'deposit_amount' => $depositPct ? (int) $order->full_amount : null,
+            'remaining'      => $depositPct ? max(0, $realFinal - (int) $order->full_amount) : null,
+            'total'          => $realFinal,
+            'final_amount'   => (int) $order->full_amount,
+            'discount'       => $totalDiscount,
+            'services_total' => $servicesTotal,
         ];
     }
 }

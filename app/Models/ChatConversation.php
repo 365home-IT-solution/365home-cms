@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Modules\Payment\Entities\Order;
 
 class ChatConversation extends Model
 {
@@ -16,6 +17,7 @@ class ChatConversation extends Model
 
     protected $fillable = [
         'customer_id',
+        'order_id',
         'status',
         'last_message_preview',
         'last_message_at',
@@ -32,6 +34,11 @@ class ChatConversation extends Model
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class, 'customer_id');
+    }
+
+    public function order(): BelongsTo
+    {
+        return $this->belongsTo(Order::class, 'order_id');
     }
 
     public function messages(): HasMany
