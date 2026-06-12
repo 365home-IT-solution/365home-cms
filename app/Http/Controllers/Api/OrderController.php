@@ -94,7 +94,9 @@ class OrderController extends Controller
             'services.*.quantity'     => 'required_with:services|integer|min:1',
         ]);
 
-        $updates = [];
+        $updates             = [];
+        $originalFullAmount  = (int) $order->full_amount;
+
         foreach (['guest_count', 'note_for_admin'] as $field) {
             if ($request->has($field)) {
                 $updates[$field] = $request->input($field);
@@ -131,6 +133,12 @@ class OrderController extends Controller
                     } else {
                         $origDiscount = max(0, (int) $order->amount - (int) $order->full_amount);
                         $updates['full_amount'] = max(0, $newAmtWithSurcharge - $origDiscount);
+                    }
+
+                    // Giá thay đổi → link PayOS cũ không còn hợp lệ
+                    if ($order->checkout_url) {
+                        $updates['checkout_url'] = null;
+                        $updates['expired_at']   = null;
                     }
                 }
             }
@@ -225,10 +233,11 @@ class OrderController extends Controller
             $order->refresh();
         }
 
-        // Tạo lại link PayOS nếu chưa có (giá vừa thay đổi hoặc lần đầu thêm dịch vụ)
+        // Tạo lại link PayOS nếu giá vừa thay đổi hoặc chưa có link
+        $priceChanged = (int) $order->full_amount !== $originalFullAmount;
         if (
             $order->payment_method === 'PayOS' &&
-            ! $order->checkout_url &&
+            ($priceChanged || ! $order->checkout_url) &&
             (int) $order->full_amount >= 2000
         ) {
             $itemName = $order->items->first()?->name ?? 'Đặt phòng';
