@@ -245,49 +245,121 @@ class OrderController extends Controller
             $order->refresh();
         }
 
-        // Nếu không cập nhật services, trả về services hiện tại
-        $servicesResult ??= $order->services->map(fn ($s) => [
+        // Load thêm relationships cần cho response đầy đủ
+        $order->load([
+            'items.product.roomTimeSlots.timeSlot',
+            'items.product.roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
+        ]);
+
+        $firstItem = $order->items->first();
+        $product   = $firstItem?->product;
+
+        // ── Slots ──
+        $slots = $order->items->map(fn ($item) => [
+            'date'  => $item->checkin_date?->format('Y-m-d'),
+            'price' => (int) $item->price,
+        ])->values()->toArray();
+
+        // ── Services (dùng từ DB sau khi đã refresh) ──
+        $servicesResult = $order->services->map(fn ($s) => [
             'service_id'   => $s->service_id,
             'service_name' => $s->service_name,
             'price'        => (int) $s->price,
             'quantity'     => $s->quantity,
             'subtotal'     => (int) $s->subtotal,
         ])->values()->toArray();
+        $servicesTotal = array_sum(array_column($servicesResult, 'subtotal'));
 
-        $svcTotal       = array_sum(array_column($servicesResult, 'subtotal'));
-        $newSubtotalAmt = (int) $order->amount;
+        // ── Guest surcharge ──
+        $guestSurchargeInfo  = null;
+        $guestSurchargeTotal = 0;
+        if ($product) {
+            $guestConfig    = $product->room_config ?? [];
+            $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
+            $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
+            $nights         = max(1, $order->items->count());
+            $guestCount     = (int) $order->guest_count;
+            $extraGuests    = max(0, $guestCount - $guestThreshold);
+            $guestSurchargeTotal = $extraGuests * $guestFee * $nights;
+
+            if ($guestFee > 0) {
+                $guestSurchargeInfo = [
+                    'guest_count'    => $guestCount,
+                    'threshold'      => $guestThreshold,
+                    'extra_guests'   => $extraGuests,
+                    'fee_per_person' => $guestFee,
+                    'nights'         => $nights,
+                    'total'          => $guestSurchargeTotal,
+                    'label'          => "Phụ thu {$extraGuests} người (trên {$guestThreshold} người) × {$nights} đêm",
+                ];
+            }
+        }
+
+        // ── Promotions (recompute từ config phòng hiện tại) ──
+        $rtsMap = collect();
+        if ($product) {
+            $rtsMap = $product->roomTimeSlots
+                ->whereNull('date')
+                ->keyBy(fn ($rts) => $rts->timeSlot?->start_time);
+        }
+        [$promotions, $promotionDiscount] = $this->recomputePromotions($order->items, $rtsMap);
+
+        // ── Tính discount ──
+        $slotsTotal     = (int) $order->items->sum('price');
         $newFullAmt     = (int) $order->full_amount;
         $depositPctResp = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
 
         if ($depositPctResp !== null && $depositPctResp > 0 && $depositPctResp < 100) {
-            // Đơn cọc: full_amount = tiền cọc → reconstruct tổng thật
             $realFinalAmount = (int) round($newFullAmt * 100 / $depositPctResp);
-            $discountDisplay = max(0, $newSubtotalAmt - $realFinalAmount);
+            $totalDiscount   = max(0, (int) $order->amount - $realFinalAmount);
         } else {
             $realFinalAmount = $newFullAmt;
-            $discountDisplay = max(0, $newSubtotalAmt - $newFullAmt);
+            $totalDiscount   = max(0, (int) $order->amount - $newFullAmt);
         }
 
+        $otherDiscount = max(0, $totalDiscount - $promotionDiscount);
+        $slotsFinal    = max(0, $slotsTotal - $totalDiscount);
+
         return response()->json([
-            'order_code'     => $order->order_code,
-            'status'         => $order->status,
-            'payment_method' => $order->payment_method,
-            'guest_count'    => $order->guest_count,
-            'note_for_admin' => $order->note_for_admin,
-            'pricing' => [
-                'room_subtotal'        => max(0, $newSubtotalAmt - $svcTotal),
-                'services_total'       => $svcTotal,
-                'subtotal'             => $newSubtotalAmt,
-                'discount_amount'      => $discountDisplay,
+            'order' => [
+                'id'             => $order->id,
+                'order_code'     => $order->order_code,
+                'status'         => $order->status,
+                'payment_method' => $order->payment_method,
+                'checkout_url'   => $order->checkout_url,
+                'expired_at'     => $order->expired_at,
+                'buyer_name'     => $order->buyer_name,
+                'buyer_phone'    => $order->buyer_phone,
+                'note_for_admin' => $order->note_for_admin,
+            ],
+            'room' => [
+                'id'   => $product?->id,
+                'name' => $product?->name,
+            ],
+            'slots'           => $slots,
+            'services'        => $servicesResult,
+            'guest_surcharge' => $guestSurchargeInfo,
+            'promotions'      => $promotions,
+            'system_discount' => $otherDiscount > 0 ? ['discount_amount' => $otherDiscount] : null,
+            'coupon'          => null,
+            'deposit'         => $depositPctResp !== null ? [
+                'type'             => 'deposit',
+                'percentage'       => $depositPctResp,
+                'deposit_amount'   => $newFullAmt,
+                'remaining_amount' => max(0, $realFinalAmount - $newFullAmt),
+            ] : null,
+            'summary' => [
+                'slots_total'          => $slotsTotal,
+                'promotion_discount'   => $promotionDiscount,
+                'system_discount'      => $otherDiscount,
+                'coupon_discount'      => 0,
+                'discount_amount'      => $totalDiscount,
+                'slots_final'          => $slotsFinal,
+                'guest_surcharge'      => $guestSurchargeTotal,
+                'services_total'       => $servicesTotal,
                 'total_after_discount' => $realFinalAmount,
                 'final_amount'         => $newFullAmt,
-                'deposit_percent'      => $depositPctResp,
-                'deposit_amount'       => $depositPctResp !== null ? $newFullAmt : null,
-                'pay_now'              => $newFullAmt,
             ],
-            'checkout_url' => $order->checkout_url,
-            'expired_at'   => $order->expired_at,
-            'services'     => $servicesResult,
         ]);
     }
 
