@@ -271,6 +271,7 @@ class ChatController extends Controller
     {
         return [
             'id'          => $msg->id,
+            'order_id'    => $msg->order_id,
             'sender_type' => $msg->sender_type,
             'sender_id'   => $msg->sender_id,
             'sender_name' => $senderName,
