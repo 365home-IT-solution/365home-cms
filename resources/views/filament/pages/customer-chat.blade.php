@@ -200,8 +200,11 @@
             $wire.$on('subscribeToConversation', ({ id }) => {
                 const socket = window._adminChatSocket;
                 if (!socket) return;
-                socket.emit('unsubscribe:chat-admin'); // không cần bỏ, nhưng rõ ràng
-                socket.emit('subscribe:chat-admin');
+                const prev = window._adminChatPrevConvId;
+                if (prev && prev !== id) {
+                    socket.emit('unsubscribe:chat', { conversation_id: prev });
+                }
+                window._adminChatPrevConvId = id;
                 socket.emit('subscribe:chat', { conversation_id: id });
             });
 
