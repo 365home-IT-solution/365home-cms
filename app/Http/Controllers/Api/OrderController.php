@@ -266,14 +266,15 @@ class OrderController extends Controller
             'guest_count'    => $order->guest_count,
             'note_for_admin' => $order->note_for_admin,
             'pricing' => [
-                'room_subtotal'   => max(0, $newSubtotalAmt - $svcTotal),
-                'services_total'  => $svcTotal,
-                'subtotal'        => $newSubtotalAmt,
-                'discount_amount' => $discountDisplay,
-                'final_amount'    => $realFinalAmount,
-                'deposit_percent' => $depositPctResp,
-                'deposit_amount'  => $depositPctResp !== null ? $newFullAmt : null,
-                'pay_now'         => $newFullAmt,
+                'room_subtotal'        => max(0, $newSubtotalAmt - $svcTotal),
+                'services_total'       => $svcTotal,
+                'subtotal'             => $newSubtotalAmt,
+                'discount_amount'      => $discountDisplay,
+                'total_after_discount' => $realFinalAmount,
+                'final_amount'         => $newFullAmt,
+                'deposit_percent'      => $depositPctResp,
+                'deposit_amount'       => $depositPctResp !== null ? $newFullAmt : null,
+                'pay_now'              => $newFullAmt,
             ],
             'checkout_url' => $order->checkout_url,
             'expired_at'   => $order->expired_at,
@@ -648,9 +649,16 @@ class OrderController extends Controller
         $slotsTotal    = (int) $order->items->sum('price');
         $servicesTotal = (int) $order->services->sum('subtotal');
 
-        // amount = subtotal (slots + services trước discount)
-        // full_amount = sau discount
-        $totalDiscount = (int) $order->amount - (int) $order->full_amount;
+        // amount = subtotal (slots + services + phụ thu, trước discount)
+        // full_amount = với đơn cọc: tiền cọc; với đơn thường: số tiền sau discount
+        $depositPctDetail = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
+        if ($depositPctDetail !== null && $depositPctDetail > 0 && $depositPctDetail < 100) {
+            $realFinalDetail = (int) round((int) $order->full_amount * 100 / $depositPctDetail);
+            $totalDiscount   = max(0, (int) $order->amount - $realFinalDetail);
+        } else {
+            $realFinalDetail = (int) $order->full_amount;
+            $totalDiscount   = max(0, (int) $order->amount - (int) $order->full_amount);
+        }
 
         // Phần discount không phải promotion: có thể là bulk/full_booking và/hoặc coupon
         $otherDiscount = max(0, $totalDiscount - $promotionDiscount);
@@ -683,15 +691,23 @@ class OrderController extends Controller
             'system_discount' => $otherDiscount > 0 ? ['discount_amount' => $otherDiscount] : null,
             'coupon'          => null,
 
+            'deposit' => $depositPctDetail !== null ? [
+                'type'             => 'deposit',
+                'percentage'       => $depositPctDetail,
+                'deposit_amount'   => (int) $order->full_amount,
+                'remaining_amount' => max(0, $realFinalDetail - (int) $order->full_amount),
+            ] : null,
+
             'summary' => [
-                'slots_total'        => $slotsTotal,
-                'promotion_discount' => $promotionDiscount,
-                'system_discount'    => $otherDiscount,
-                'coupon_discount'    => 0,
-                'discount_amount'    => $totalDiscount,
-                'slots_final'        => $slotsFinal,
-                'services_total'     => $servicesTotal,
-                'final_amount'       => (int) $order->full_amount,
+                'slots_total'          => $slotsTotal,
+                'promotion_discount'   => $promotionDiscount,
+                'system_discount'      => $otherDiscount,
+                'coupon_discount'      => 0,
+                'discount_amount'      => $totalDiscount,
+                'slots_final'          => $slotsFinal,
+                'services_total'       => $servicesTotal,
+                'total_after_discount' => $realFinalDetail,
+                'final_amount'         => (int) $order->full_amount,
             ],
         ];
     }
