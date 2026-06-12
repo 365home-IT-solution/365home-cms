@@ -179,7 +179,7 @@ class ChatController extends Controller
             $order = Order::where('order_code', $orderCode)
                 ->where('customer_id', $customer->id)
                 ->first();
-            if ($order && $conv->order_id !== $order->id) {
+            if ($order && (int) $conv->order_id !== $order->id) {
                 $conv->order_id = $order->id;
             }
         }
