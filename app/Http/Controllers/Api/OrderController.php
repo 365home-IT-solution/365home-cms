@@ -509,6 +509,11 @@ class OrderController extends Controller
             $payOS     = new PayOS($clientId, $apiKey, $checksumKey);
             $expiredAt = now()->addMinutes(15);
 
+            // Huỷ link cũ trên PayOS (nếu còn PENDING) trước khi tạo link mới cùng orderCode
+            try {
+                $payOS->cancelPaymentLink((int) $order->order_code);
+            } catch (\Throwable) {}
+
             $response = $payOS->createPaymentLink([
                 'orderCode'   => (int) $order->order_code,
                 'amount'      => (int) $order->full_amount,
