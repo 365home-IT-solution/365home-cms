@@ -101,6 +101,41 @@ class OrderController extends Controller
             }
         }
 
+        // Đồng bộ guest_count xuống từng OrderItem + tính lại phụ thu khách nếu có cấu hình
+        if ($request->has('guest_count')) {
+            $newGuestCount = (int) $request->input('guest_count');
+            $order->items()->update(['guest_count' => $newGuestCount]);
+
+            $productId = $order->items->first()?->product_id;
+            $guestRoom = $productId ? \Modules\Product\App\Models\Product::find($productId) : null;
+            $guestConfig    = $guestRoom?->room_config ?? [];
+            $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
+            $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
+
+            if ($guestFee > 0) {
+                $itemsSum       = (int) $order->items->sum('price');
+                $oldServicesSum = (int) $order->services->sum('subtotal');
+                $oldSurcharge   = max(0, (int) $order->amount - $itemsSum - $oldServicesSum);
+                $nights         = max(1, $order->items->count());
+                $newSurcharge   = max(0, $newGuestCount - $guestThreshold) * $guestFee * $nights;
+
+                if ($newSurcharge !== $oldSurcharge) {
+                    $newAmtWithSurcharge = max(0, (int) $order->amount - $oldSurcharge + $newSurcharge);
+                    $updates['amount']   = $newAmtWithSurcharge;
+
+                    $depositPct = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
+                    if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
+                        $origFinal    = (int) round((int) $order->full_amount * 100 / $depositPct);
+                        $origDiscount = max(0, (int) $order->amount - $origFinal);
+                        $updates['full_amount'] = (int) ceil(max(0, $newAmtWithSurcharge - $origDiscount) * $depositPct / 100);
+                    } else {
+                        $origDiscount = max(0, (int) $order->amount - (int) $order->full_amount);
+                        $updates['full_amount'] = max(0, $newAmtWithSurcharge - $origDiscount);
+                    }
+                }
+            }
+        }
+
         // Thay thế toàn bộ services nếu key được gửi lên
         $servicesResult = null;
         if ($request->has('services')) {
@@ -153,8 +188,9 @@ class OrderController extends Controller
             }
 
             // Tính lại amount / full_amount
-            // Giá phòng (bao gồm phụ thu) = amount hiện tại trừ dịch vụ cũ
-            $roomBaseAmount = max(0, (int) $order->amount - $oldServicesTotal);
+            // Nếu guest_count cũng vừa thay đổi thì dùng amount đã cập nhật phụ thu, không dùng DB cũ
+            $currentAmountBase = isset($updates['amount']) ? (int) $updates['amount'] : (int) $order->amount;
+            $roomBaseAmount    = max(0, $currentAmountBase - $oldServicesTotal);
             $newSubtotal    = $roomBaseAmount + $addedTotal;
 
             // Xử lý đơn cọc và đơn thường riêng biệt:
@@ -226,6 +262,7 @@ class OrderController extends Controller
         return response()->json([
             'order_code'     => $order->order_code,
             'status'         => $order->status,
+            'payment_method' => $order->payment_method,
             'guest_count'    => $order->guest_count,
             'note_for_admin' => $order->note_for_admin,
             'pricing' => [

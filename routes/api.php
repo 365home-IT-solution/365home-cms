@@ -156,7 +156,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Các route sau chặn nếu tài khoản bị vô hiệu hóa
     Route::middleware('customer.active')->group(function () {
         Route::post('orders',                                   [BookingController::class,     'store'])->name('api.orders.store');
-        Route::patch('orders/{order_code}',                 [OrderController::class,       'update'])->name('api.orders.update');
+        Route::patch('orders/{order_code}',                  [OrderController::class,       'update'])->name('api.orders.update');
         Route::post('orders/{order_code}/retry-payment',    [OrderController::class,       'retryPayment'])->name('api.orders.retry-payment');
         Route::post('orders/{order_code}/remaining-payment',[OrderController::class,       'remainingPayment'])->name('api.orders.remaining-payment');
         Route::post('orders/{order}/services',              [OrderServiceController::class,'store'])->name('api.orders.services.store');
