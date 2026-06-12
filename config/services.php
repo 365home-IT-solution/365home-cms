@@ -99,6 +99,7 @@ return [
 
     'websocket' => [
         'url'          => env('WS_SERVER_URL', 'http://localhost:3001'),
+        'public_url'   => env('WS_PUBLIC_URL', env('WS_SERVER_URL', 'http://localhost:3001')),
         'internal_key' => env('WS_INTERNAL_KEY', ''),
     ],
 ];

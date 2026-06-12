@@ -1,0 +1,185 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Controllers\Api;
+
+use App\Models\ChatConversation;
+use App\Models\ChatMessage;
+use App\Services\ChatRealtimeService;
+use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Routing\Controller;
+
+class ChatController extends Controller
+{
+    public function __construct(private ChatRealtimeService $realtime) {}
+
+    /**
+     * GET /api/chat
+     * Lấy hoặc tạo conversation + 20 tin nhắn gần nhất. Tự động đánh dấu đã đọc.
+     */
+    public function show(Request $request): JsonResponse
+    {
+        $customer = $request->user();
+
+        $conv = ChatConversation::firstOrCreate(
+            ['customer_id' => $customer->id],
+            ['status' => 'open']
+        );
+
+        // Đánh dấu khách đã đọc tất cả tin từ admin
+        if ($conv->customer_unread > 0) {
+            $conv->customer_unread = 0;
+            $conv->save();
+
+            ChatMessage::where('conversation_id', $conv->id)
+                ->where('sender_type', 'admin')
+                ->whereNull('read_at')
+                ->update(['read_at' => Carbon::now()]);
+
+            $this->realtime->broadcastRead($conv->id, 'customer');
+        }
+
+        $total    = ChatMessage::where('conversation_id', $conv->id)->count();
+        $messages = ChatMessage::where('conversation_id', $conv->id)
+            ->orderBy('id', 'desc')
+            ->limit(20)
+            ->get()
+            ->reverse()
+            ->values();
+
+        return response()->json([
+            'conversation' => [
+                'id'              => $conv->id,
+                'status'          => $conv->status,
+                'customer_unread' => 0,
+                'last_message_at' => $conv->last_message_at?->toIso8601String(),
+            ],
+            'messages'     => $messages->map(fn ($m) => $this->formatMessage($m)),
+            'has_more'     => $total > 20,
+        ]);
+    }
+
+    /**
+     * GET /api/chat/messages?before_id=&limit=
+     * Tải thêm tin nhắn cũ hơn (cuộn lên).
+     */
+    public function messages(Request $request): JsonResponse
+    {
+        $customer = $request->user();
+        $conv     = ChatConversation::where('customer_id', $customer->id)->first();
+
+        if (! $conv) {
+            return response()->json(['messages' => [], 'has_more' => false]);
+        }
+
+        $limit    = min((int) $request->query('limit', 20), 50);
+        $beforeId = $request->query('before_id');
+
+        $query = ChatMessage::where('conversation_id', $conv->id);
+        if ($beforeId) {
+            $query->where('id', '<', $beforeId);
+        }
+
+        $rows    = $query->orderBy('id', 'desc')->limit($limit + 1)->get();
+        $hasMore = $rows->count() > $limit;
+
+        return response()->json([
+            'messages' => $rows->take($limit)->reverse()->values()->map(fn ($m) => $this->formatMessage($m)),
+            'has_more' => $hasMore,
+        ]);
+    }
+
+    /**
+     * POST /api/chat/messages
+     * Khách gửi tin nhắn.
+     */
+    public function send(Request $request): JsonResponse
+    {
+        $request->validate([
+            'body' => 'required|string|max:2000',
+        ]);
+
+        $customer = $request->user();
+        $body     = trim($request->input('body'));
+
+        $conv = ChatConversation::firstOrCreate(
+            ['customer_id' => $customer->id],
+            ['status' => 'open']
+        );
+
+        $msg = ChatMessage::create([
+            'conversation_id' => $conv->id,
+            'sender_type'     => 'customer',
+            'sender_id'       => $customer->id,
+            'body'            => $body,
+        ]);
+
+        $newAdminUnread = $conv->admin_unread + 1;
+        $preview        = mb_substr($body, 0, 100);
+
+        $conv->update([
+            'last_message_preview' => $preview,
+            'last_message_at'      => $msg->created_at,
+            'admin_unread'         => $newAdminUnread,
+        ]);
+
+        $payload = $this->formatMessage($msg, $customer->fullname);
+
+        // Broadcast tin nhắn vào conversation channel (admin đang xem conv sẽ nhận)
+        $this->realtime->broadcastMessage($conv->id, $payload);
+
+        // Broadcast cập nhật danh sách cho admin (admin đang xem list sẽ nhận)
+        $this->realtime->notifyAdminList(
+            $conv->id,
+            $preview,
+            $msg->created_at->toIso8601String(),
+            $newAdminUnread,
+            ['id' => $customer->id, 'fullname' => $customer->fullname, 'phone' => $customer->phone]
+        );
+
+        return response()->json(['message' => $payload], 201);
+    }
+
+    /**
+     * POST /api/chat/read
+     * Đánh dấu tất cả tin nhắn từ admin là đã đọc.
+     */
+    public function read(Request $request): JsonResponse
+    {
+        $customer = $request->user();
+        $conv     = ChatConversation::where('customer_id', $customer->id)->first();
+
+        if (! $conv) {
+            return response()->json(['ok' => true]);
+        }
+
+        $conv->customer_unread = 0;
+        $conv->save();
+
+        ChatMessage::where('conversation_id', $conv->id)
+            ->where('sender_type', 'admin')
+            ->whereNull('read_at')
+            ->update(['read_at' => Carbon::now()]);
+
+        // Báo cho admin biết khách đã đọc
+        $this->realtime->broadcastRead($conv->id, 'customer');
+
+        return response()->json(['ok' => true]);
+    }
+
+    private function formatMessage(ChatMessage $msg, ?string $senderName = null): array
+    {
+        return [
+            'id'          => $msg->id,
+            'sender_type' => $msg->sender_type,
+            'sender_id'   => $msg->sender_id,
+            'sender_name' => $senderName,
+            'body'        => $msg->body,
+            'read_at'     => $msg->read_at?->toIso8601String(),
+            'created_at'  => $msg->created_at->toIso8601String(),
+        ];
+    }
+}

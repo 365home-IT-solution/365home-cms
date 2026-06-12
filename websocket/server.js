@@ -62,6 +62,28 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Subscribe to a specific conversation (customer + admin đang xem conv đó)
+    socket.on('subscribe:chat', ({ conversation_id }) => {
+        if (conversation_id) {
+            socket.join(`chat:${conversation_id}`);
+        }
+    });
+
+    socket.on('unsubscribe:chat', ({ conversation_id }) => {
+        if (conversation_id) {
+            socket.leave(`chat:${conversation_id}`);
+        }
+    });
+
+    // Subscribe to admin-wide chat notifications (admin đang xem danh sách chat)
+    socket.on('subscribe:chat-admin', () => {
+        socket.join('chat:admin');
+    });
+
+    socket.on('unsubscribe:chat-admin', () => {
+        socket.leave('chat:admin');
+    });
+
     socket.on('disconnect', () => {
         if (customerId) {
             const sockets = connections.get(customerId);
@@ -152,6 +174,68 @@ app.post('/internal/daily-hold-update', (req, res) => {
     const channel = `daily:${room_id}`;
     io.to(channel).emit('daily.hold.updated', { room_id, holds: holds || [] });
     console.log(`[WS] Daily hold: room=${room_id} holds=${(holds || []).length} → ${channel}`);
+
+    return res.json({ ok: true });
+});
+
+// ── Chat message — broadcast đến cả khách và admin đang xem conversation ─────
+app.post('/internal/chat-message', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { conversation_id, message } = req.body;
+    if (!conversation_id || !message) {
+        return res.status(422).json({ error: 'Missing conversation_id or message' });
+    }
+
+    const channel = `chat:${conversation_id}`;
+    io.to(channel).emit('chat.message', { conversation_id, message });
+    console.log(`[WS] Chat message: conv=${conversation_id} sender=${message.sender_type} → ${channel}`);
+
+    return res.json({ ok: true });
+});
+
+// ── Chat: cập nhật danh sách conversation cho admin ──────────────────────────
+app.post('/internal/chat-list-update', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { conversation_id, last_message_preview, last_message_at, admin_unread, customer } = req.body;
+    if (!conversation_id) {
+        return res.status(422).json({ error: 'Missing conversation_id' });
+    }
+
+    io.to('chat:admin').emit('chat.list_update', {
+        conversation_id,
+        last_message_preview,
+        last_message_at,
+        admin_unread,
+        customer,
+    });
+    console.log(`[WS] Chat list update: conv=${conversation_id} admin_unread=${admin_unread}`);
+
+    return res.json({ ok: true });
+});
+
+// ── Chat: read receipt ────────────────────────────────────────────────────────
+app.post('/internal/chat-read', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { conversation_id, read_by } = req.body;
+    if (!conversation_id || !read_by) {
+        return res.status(422).json({ error: 'Missing conversation_id or read_by' });
+    }
+
+    const channel = `chat:${conversation_id}`;
+    io.to(channel).emit('chat.read', { conversation_id, read_by });
+    console.log(`[WS] Chat read: conv=${conversation_id} read_by=${read_by}`);
 
     return res.json({ ok: true });
 });

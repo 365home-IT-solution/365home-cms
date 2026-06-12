@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\Auth\ZaloOtpController;
+use App\Http\Controllers\Api\ChatController;
+use App\Http\Controllers\Api\Admin\ChatController as AdminChatController;
 use App\Http\Controllers\Api\BookingController;
 use App\Http\Controllers\Api\CouponController;
 use App\Http\Controllers\Api\OrderController;
@@ -153,8 +155,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Các route sau chặn nếu tài khoản bị vô hiệu hóa
     Route::middleware('customer.active')->group(function () {
-        Route::post('orders',                  [BookingController::class,     'store'])->name('api.orders.store');
-        Route::post('orders/{order}/services', [OrderServiceController::class,'store'])->name('api.orders.services.store');
+        Route::post('orders',                                   [BookingController::class,     'store'])->name('api.orders.store');
+        Route::patch('orders/{order_code}',                 [OrderController::class,       'update'])->name('api.orders.update');
+        Route::post('orders/{order_code}/retry-payment',    [OrderController::class,       'retryPayment'])->name('api.orders.retry-payment');
+        Route::post('orders/{order_code}/remaining-payment',[OrderController::class,       'remainingPayment'])->name('api.orders.remaining-payment');
+        Route::post('orders/{order}/services',              [OrderServiceController::class,'store'])->name('api.orders.services.store');
         Route::post('coupons/validate',        [CouponController::class,     'validate'])->name('api.coupons.validate');
     });
 });
@@ -171,6 +176,34 @@ Route::middleware(['auth:sanctum'])->prefix('notifications')->name('api.notifica
     Route::get('/',          [NotificationController::class, 'index'])->name('index');
     Route::post('read-all',  [NotificationController::class, 'markAllRead'])->name('read-all');
     Route::post('{id}/read', [NotificationController::class, 'markRead'])->name('read');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Chat — Tin nhắn giữa khách và admin
+| GET    /api/chat                        → Lấy / tạo conversation + 20 tin nhắn mới nhất
+| GET    /api/chat/messages               → Load thêm tin cũ (?before_id=&limit=)
+| POST   /api/chat/messages               → Khách gửi tin nhắn
+| POST   /api/chat/read                   → Đánh dấu tất cả tin từ admin là đã đọc
+|
+| GET    /api/admin/chat                  → Danh sách conversation (admin)
+| GET    /api/admin/chat/{id}             → Chi tiết + tin nhắn (admin)
+| POST   /api/admin/chat/{id}/messages    → Admin gửi tin nhắn
+| POST   /api/admin/chat/{id}/read        → Admin đánh dấu đã đọc
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'customer.active'])->prefix('chat')->name('api.chat.')->group(function () {
+    Route::get('/',         [ChatController::class, 'show'])->name('show');
+    Route::get('/messages', [ChatController::class, 'messages'])->name('messages');
+    Route::post('/messages',[ChatController::class, 'send'])->name('send');
+    Route::post('/read',    [ChatController::class, 'read'])->name('read');
+});
+
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/chat')->name('api.admin.chat.')->group(function () {
+    Route::get('/',                       [AdminChatController::class, 'index'])->name('index');
+    Route::get('/{id}',                   [AdminChatController::class, 'show'])->name('show');
+    Route::post('/{id}/messages',         [AdminChatController::class, 'send'])->name('send');
+    Route::post('/{id}/read',             [AdminChatController::class, 'read'])->name('read');
 });
 
 /*

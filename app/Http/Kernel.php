@@ -69,6 +69,7 @@ class Kernel extends HttpKernel
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'livewire.secure'   => \App\Http\Middleware\SecureLivewireRequests::class,
         'customer.active'   => \App\Http\Middleware\EnsureCustomerIsActive::class,
+        'admin.api'         => \App\Http\Middleware\AdminApiAuth::class,
 //        'api.key' => \Modules\ApiConfig\App\Http\Middleware\ValidateApiKey::class,
     ];
 }
