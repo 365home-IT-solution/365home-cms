@@ -64,6 +64,68 @@ class ChatController extends Controller
     }
 
     /**
+     * GET /api/chat/order/{order_code}
+     * Lấy conversation theo đơn hàng + 20 tin nhắn gần nhất.
+     * Tự động gắn order_id vào conversation và đánh dấu đã đọc.
+     */
+    public function showByOrder(Request $request, string $orderCode): JsonResponse
+    {
+        $customer = $request->user();
+
+        $order = Order::where('order_code', $orderCode)
+            ->where('customer_id', $customer->id)
+            ->first();
+
+        if (! $order) {
+            return response()->json(['message' => 'Đơn hàng không tồn tại.'], 404);
+        }
+
+        $conv = ChatConversation::firstOrCreate(
+            ['customer_id' => $customer->id],
+            ['status' => 'open', 'order_id' => $order->id]
+        );
+
+        // Gắn đơn vào conversation nếu chưa có hoặc khác đơn cũ
+        if ($conv->order_id !== $order->id) {
+            $conv->order_id = $order->id;
+            $conv->save();
+        }
+
+        // Đánh dấu khách đã đọc
+        if ($conv->customer_unread > 0) {
+            $conv->customer_unread = 0;
+            $conv->save();
+
+            ChatMessage::where('conversation_id', $conv->id)
+                ->where('sender_type', 'admin')
+                ->whereNull('read_at')
+                ->update(['read_at' => Carbon::now()]);
+
+            $this->realtime->broadcastRead($conv->id, 'customer');
+        }
+
+        $total    = ChatMessage::where('conversation_id', $conv->id)->count();
+        $messages = ChatMessage::where('conversation_id', $conv->id)
+            ->orderBy('id', 'desc')
+            ->limit(20)
+            ->get()
+            ->reverse()
+            ->values();
+
+        return response()->json([
+            'conversation' => [
+                'id'              => $conv->id,
+                'status'          => $conv->status,
+                'customer_unread' => 0,
+                'last_message_at' => $conv->last_message_at?->toIso8601String(),
+                'order_code'      => $order->order_code,
+            ],
+            'messages' => $messages->map(fn ($m) => $this->formatMessage($m)),
+            'has_more' => $total > 20,
+        ]);
+    }
+
+    /**
      * GET /api/chat/messages?before_id=&limit=
      * Tải thêm tin nhắn cũ hơn (cuộn lên).
      */

@@ -193,10 +193,11 @@ Route::middleware(['auth:sanctum'])->prefix('notifications')->name('api.notifica
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'customer.active'])->prefix('chat')->name('api.chat.')->group(function () {
-    Route::get('/',         [ChatController::class, 'show'])->name('show');
-    Route::get('/messages', [ChatController::class, 'messages'])->name('messages');
-    Route::post('/messages',[ChatController::class, 'send'])->name('send');
-    Route::post('/read',    [ChatController::class, 'read'])->name('read');
+    Route::get('/',                        [ChatController::class, 'show'])->name('show');
+    Route::get('/order/{order_code}',      [ChatController::class, 'showByOrder'])->name('order');
+    Route::get('/messages',                [ChatController::class, 'messages'])->name('messages');
+    Route::post('/messages',               [ChatController::class, 'send'])->name('send');
+    Route::post('/read',                   [ChatController::class, 'read'])->name('read');
 });
 
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/chat')->name('api.admin.chat.')->group(function () {
