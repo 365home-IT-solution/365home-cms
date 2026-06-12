@@ -636,24 +636,30 @@ class OrderController extends Controller
             $payOS     = new PayOS($clientId, $apiKey, $checksumKey);
             $expiredAt = now()->addMinutes(15);
 
-            // Huỷ link cũ trên PayOS (nếu còn PENDING) trước khi tạo link mới cùng orderCode
+            // Huỷ link cũ trên PayOS (dùng current_payos_code nếu đã có, fallback về order_code)
+            $oldPayosCode = $order->current_payos_code ?? (int) $order->order_code;
             try {
-                $payOS->cancelPaymentLink((int) $order->order_code);
-                Log::info('buildPayOSLink: cancel ok', ['order_code' => $order->order_code]);
+                $payOS->cancelPaymentLink((int) $oldPayosCode);
+                Log::info('buildPayOSLink: cancel ok', ['order_code' => $order->order_code, 'payos_code' => $oldPayosCode]);
             } catch (\Throwable $e) {
                 Log::info('buildPayOSLink: cancel skipped', [
                     'order_code' => $order->order_code,
+                    'payos_code' => $oldPayosCode,
                     'reason'     => $e->getMessage(),
                 ]);
             }
 
+            // PayOS không cho tạo lại với cùng orderCode → dùng unique code mới mỗi lần
+            $newPayosCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
+
             Log::info('buildPayOSLink: creating', [
-                'order_code' => $order->order_code,
-                'amount'     => (int) $order->full_amount,
+                'order_code'    => $order->order_code,
+                'new_payos_code' => $newPayosCode,
+                'amount'        => (int) $order->full_amount,
             ]);
 
             $response = $payOS->createPaymentLink([
-                'orderCode'   => (int) $order->order_code,
+                'orderCode'   => $newPayosCode,
                 'amount'      => (int) $order->full_amount,
                 'description' => 'TT don ' . $order->order_code,
                 'returnUrl'   => route('payment.success') . '?orderCode=' . $order->order_code,
@@ -667,13 +673,17 @@ class OrderController extends Controller
             $checkoutUrl = $response['checkoutUrl'] ?? null;
 
             Log::info('buildPayOSLink: result', [
-                'order_code'   => $order->order_code,
-                'checkout_url' => $checkoutUrl,
-                'response_keys' => array_keys((array) $response),
+                'order_code'    => $order->order_code,
+                'new_payos_code' => $newPayosCode,
+                'checkout_url'  => $checkoutUrl,
             ]);
 
             if ($checkoutUrl) {
-                $order->update(['checkout_url' => $checkoutUrl, 'expired_at' => $expiredAt]);
+                $order->update([
+                    'checkout_url'       => $checkoutUrl,
+                    'expired_at'         => $expiredAt,
+                    'current_payos_code' => $newPayosCode,
+                ]);
             }
 
             return $checkoutUrl;

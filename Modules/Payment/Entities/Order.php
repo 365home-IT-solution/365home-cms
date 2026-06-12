@@ -26,6 +26,7 @@ class Order extends Model implements Eventable
         'remaining_paid_at',
         'remaining_payos_code',
         'remaining_checkout_url',
+        'current_payos_code',
         'description',
         'buyer_name',
         'buyer_email',

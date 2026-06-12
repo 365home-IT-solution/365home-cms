@@ -374,6 +374,11 @@ private function buildTelegramMessage(Order $order, string $status): string
 
             $order = Order::with('items')->where('order_code', $orderCode)->first();
 
+            // Tìm theo current_payos_code (retry / update đơn hàng dùng code mới)
+            if (!$order) {
+                $order = Order::with('items')->where('current_payos_code', $orderCode)->first();
+            }
+
             // Kiểm tra xem đây có phải thanh toán còn lại không
             if (!$order) {
                 $parentOrder = Order::with('items')
