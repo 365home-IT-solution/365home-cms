@@ -29,6 +29,11 @@ class CustomerChat extends Page
     public array   $messages             = [];
     public string  $draft                = '';
 
+    public static function canAccess(): bool
+    {
+        return \Filament\Facades\Filament::auth()->user()?->hasRole('super_admin') ?? false;
+    }
+
     public function mount(): void
     {
         $this->loadConversations();

@@ -143,6 +143,9 @@ class OrderController extends Controller
                 ];
             }
 
+            // Lưu tổng dịch vụ cũ TRƯỚC khi xoá để tính lại giá phòng (giữ phụ thu, không dùng items->sum('price'))
+            $oldServicesTotal = (int) $order->services->sum('subtotal');
+
             // Xoá cũ, thêm mới
             $order->services()->delete();
             foreach ($servicesData as $svc) {
@@ -150,16 +153,30 @@ class OrderController extends Controller
             }
 
             // Tính lại amount / full_amount
-            $roomPrice     = (int) $order->items->sum('price');
-            $newSubtotal   = $roomPrice + $addedTotal;
-            $discount      = max(0, (int) $order->amount - (int) $order->full_amount);
-            $newFinalAmount = max(0, $newSubtotal - $discount);
+            // Giá phòng (bao gồm phụ thu) = amount hiện tại trừ dịch vụ cũ
+            $roomBaseAmount = max(0, (int) $order->amount - $oldServicesTotal);
+            $newSubtotal    = $roomBaseAmount + $addedTotal;
+
+            // Xử lý đơn cọc và đơn thường riêng biệt:
+            // - Đơn thường: full_amount = finalAmount → discount = amount - full_amount
+            // - Đơn cọc:   full_amount = deposit portion → phải reconstruct finalAmount thật trước
+            $depositPct = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
+            if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
+                $origFinalAmount = (int) round((int) $order->full_amount * 100 / $depositPct);
+                $origDiscount    = max(0, (int) $order->amount - $origFinalAmount);
+                $newRealFinal    = max(0, $newSubtotal - $origDiscount);
+                $newFullAmount   = (int) ceil($newRealFinal * $depositPct / 100);
+            } else {
+                $origDiscount  = max(0, (int) $order->amount - (int) $order->full_amount);
+                $newRealFinal  = max(0, $newSubtotal - $origDiscount);
+                $newFullAmount = $newRealFinal;
+            }
 
             $updates['amount']      = $newSubtotal;
-            $updates['full_amount'] = $newFinalAmount;
+            $updates['full_amount'] = $newFullAmount;
 
             // Link PayOS cũ tạo với giá cũ → vô hiệu hoá nếu giá thay đổi
-            if ($newFinalAmount !== (int) $order->full_amount && $order->checkout_url) {
+            if ($newFullAmount !== (int) $order->full_amount && $order->checkout_url) {
                 $updates['checkout_url'] = null;
                 $updates['expired_at']   = null;
             }
@@ -181,16 +198,19 @@ class OrderController extends Controller
             'subtotal'     => (int) $s->subtotal,
         ])->values()->toArray();
 
-        $roomPrice     = (int) $order->items->sum('price');
-        $svcTotal      = array_sum(array_column($servicesResult, 'subtotal'));
-        $subtotal      = (int) $order->amount;   // room + services (trước giảm)
-        $finalAmount   = (int) $order->full_amount;
-        $discount      = max(0, $subtotal - $finalAmount);
+        $svcTotal       = array_sum(array_column($servicesResult, 'subtotal'));
+        $newSubtotalAmt = (int) $order->amount;
+        $newFullAmt     = (int) $order->full_amount;
+        $depositPctResp = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
 
-        $depositPercent = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
-        $depositAmount  = $depositPercent !== null
-            ? (int) ceil($finalAmount * $depositPercent / 100)
-            : null;
+        if ($depositPctResp !== null && $depositPctResp > 0 && $depositPctResp < 100) {
+            // Đơn cọc: full_amount = tiền cọc → reconstruct tổng thật
+            $realFinalAmount = (int) round($newFullAmt * 100 / $depositPctResp);
+            $discountDisplay = max(0, $newSubtotalAmt - $realFinalAmount);
+        } else {
+            $realFinalAmount = $newFullAmt;
+            $discountDisplay = max(0, $newSubtotalAmt - $newFullAmt);
+        }
 
         return response()->json([
             'order_code'     => $order->order_code,
@@ -198,13 +218,14 @@ class OrderController extends Controller
             'guest_count'    => $order->guest_count,
             'note_for_admin' => $order->note_for_admin,
             'pricing' => [
-                'room_price'      => $roomPrice,
+                'room_subtotal'   => max(0, $newSubtotalAmt - $svcTotal),
                 'services_total'  => $svcTotal,
-                'subtotal'        => $subtotal,
-                'discount_amount' => $discount,
-                'final_amount'    => $finalAmount,
-                'deposit_percent' => $depositPercent,
-                'deposit_amount'  => $depositAmount,
+                'subtotal'        => $newSubtotalAmt,
+                'discount_amount' => $discountDisplay,
+                'final_amount'    => $realFinalAmount,
+                'deposit_percent' => $depositPctResp,
+                'deposit_amount'  => $depositPctResp !== null ? $newFullAmt : null,
+                'pay_now'         => $newFullAmt,
             ],
             'checkout_url' => $order->checkout_url,
             'expired_at'   => $order->expired_at,
