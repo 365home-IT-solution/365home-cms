@@ -28,7 +28,9 @@ class CustomerChat extends Page
     public ?array  $selectedConversation = null;
     public array   $conversations        = [];
     public array   $messages             = [];
-    public ?array  $orderInfo            = null;
+    public array   $customerOrders       = [];
+    public ?string $selectedOrderId      = null;
+    public ?array  $selectedOrderInfo    = null;
     public string  $draft                = '';
 
     public static function canAccess(): bool
@@ -62,10 +64,13 @@ class CustomerChat extends Page
 
     public function selectConversation(string $id): void
     {
-        $this->selectedId = $id;
-        $this->draft      = '';
+        $this->selectedId        = $id;
+        $this->draft             = '';
+        $this->messages          = [];
+        $this->selectedOrderId   = null;
+        $this->selectedOrderInfo = null;
 
-        $conv = ChatConversation::with(['customer:id,fullname,phone', 'order.items.product', 'order.services'])->find($id);
+        $conv = ChatConversation::with(['customer:id,fullname,phone'])->find($id);
         if (! $conv) {
             return;
         }
@@ -80,13 +85,7 @@ class CustomerChat extends Page
             ],
         ];
 
-        $this->orderInfo = $conv->order ? $this->buildOrderInfo($conv->order) : null;
-
-        $this->messages = ChatMessage::where('conversation_id', $id)
-            ->orderBy('id')
-            ->get()
-            ->map(fn ($m) => $this->formatMsg($m))
-            ->toArray();
+        $this->loadCustomerOrders($conv->customer?->id);
 
         if ($conv->admin_unread > 0) {
             $conv->admin_unread = 0;
@@ -100,15 +99,39 @@ class CustomerChat extends Page
             app(ChatRealtimeService::class)->broadcastRead($id, 'admin');
         }
 
-        // Cập nhật unread trong list local
         foreach ($this->conversations as &$c) {
             if ($c['id'] === $id) {
                 $c['unread'] = 0;
             }
         }
 
-        // Báo JS subscribe vào conversation channel
         $this->dispatch('subscribeToConversation', id: $id);
+    }
+
+    public function selectOrder(string $orderId): void
+    {
+        if (! $this->selectedId) {
+            return;
+        }
+
+        $this->selectedOrderId = $orderId;
+
+        $order = Order::with(['items.product', 'services'])->find($orderId);
+        if (! $order) {
+            $this->selectedOrderInfo = null;
+            $this->messages          = [];
+            return;
+        }
+
+        $this->selectedOrderInfo = $this->buildOrderInfo($order);
+
+        $this->messages = ChatMessage::where('conversation_id', $this->selectedId)
+            ->where('order_id', $orderId)
+            ->orderBy('id')
+            ->get()
+            ->map(fn ($m) => $this->formatMsg($m))
+            ->toArray();
+
         $this->dispatch('scrollToBottom');
     }
 
@@ -127,7 +150,7 @@ class CustomerChat extends Page
         $admin = Auth::user();
         $msg   = ChatMessage::create([
             'conversation_id' => $conv->id,
-            'order_id'        => $conv->order_id,
+            'order_id'        => $this->selectedOrderId,
             'sender_type'     => 'admin',
             'sender_id'       => $admin->id,
             'body'            => $body,
@@ -197,16 +220,20 @@ class CustomerChat extends Page
     #[On('newChatMessage')]
     public function newChatMessage(array $message, string $conversationId): void
     {
-        if ($conversationId !== $this->selectedId) {
+        if ($conversationId !== $this->selectedId || ! $this->selectedOrderId) {
+            return;
+        }
+
+        $msgOrderId = $message['order_id'] ?? null;
+        if ($msgOrderId !== $this->selectedOrderId) {
             return;
         }
 
         $ids = array_column($this->messages, 'id');
         if (in_array($message['id'], $ids, true)) {
-            return; // Đã có, bỏ qua
+            return;
         }
 
-        // Thêm time nếu thiếu (từ API customer không có field này)
         if (! isset($message['time'])) {
             $message['time'] = Carbon::parse($message['created_at'])->format('H:i');
         }
@@ -228,6 +255,7 @@ class CustomerChat extends Page
     {
         return [
             'id'          => $msg->id,
+            'order_id'    => $msg->order_id,
             'sender_type' => $msg->sender_type,
             'sender_id'   => $msg->sender_id,
             'sender_name' => $senderName,
@@ -236,6 +264,27 @@ class CustomerChat extends Page
             'time'        => $msg->created_at->format('H:i'),
             'created_at'  => $msg->created_at->toIso8601String(),
         ];
+    }
+
+    private function loadCustomerOrders(?string $customerId): void
+    {
+        if (! $customerId) {
+            $this->customerOrders = [];
+            return;
+        }
+
+        $this->customerOrders = Order::where('customer_id', $customerId)
+            ->with(['items.product'])
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(fn ($o) => [
+                'id'         => (string) $o->id,
+                'order_code' => $o->order_code,
+                'status'     => $o->status,
+                'room_name'  => $o->items->first()?->product?->name,
+                'created_at' => $o->created_at?->format('d/m/Y'),
+            ])
+            ->toArray();
     }
 
     private function buildOrderInfo(Order $order): array

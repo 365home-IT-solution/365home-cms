@@ -43,8 +43,9 @@ class ChatController extends Controller
             $this->realtime->broadcastRead($conv->id, 'customer');
         }
 
-        $total    = ChatMessage::where('conversation_id', $conv->id)->count();
+        $total    = ChatMessage::where('conversation_id', $conv->id)->whereNull('order_id')->count();
         $messages = ChatMessage::where('conversation_id', $conv->id)
+            ->whereNull('order_id')
             ->orderBy('id', 'desc')
             ->limit(20)
             ->get()
@@ -146,14 +147,17 @@ class ChatController extends Controller
 
         $query = ChatMessage::where('conversation_id', $conv->id);
 
-        // Lọc theo đơn nếu có order_code (dùng khi phân trang trong context đơn)
         if ($orderCode = $request->query('order_code')) {
+            // Phân trang trong context đơn → chỉ tin của đơn đó
             $order = Order::where('order_code', $orderCode)
                 ->where('customer_id', $customer->id)
                 ->first();
             if ($order) {
                 $query->where('order_id', $order->id);
             }
+        } else {
+            // Phân trang chat tổng quát → chỉ tin không gắn đơn
+            $query->whereNull('order_id');
         }
 
         if ($beforeId) {
