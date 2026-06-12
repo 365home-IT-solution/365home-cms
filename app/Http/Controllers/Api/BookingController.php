@@ -197,11 +197,14 @@ class BookingController extends Controller
         $category      = $room->categories()->first();
         $paymentMethod = $request->input('payment_method', 'PayOS');
 
+        // Lưu lại deposit_percent để ghi vào đơn (dùng cho PATCH recalculation sau này)
+        $depositPercentToSave = $depositInfo !== null ? (int) ($depositInfo['percentage']) : null;
+
         // ── 7. Tạo đơn + items + services trong transaction ──────────────────
         $order = DB::transaction(function () use (
             $room, $amountDue, $finalAmount, $subtotal, $buyerName, $buyerPhone,
             $customer, $category, $itemsData, $servicesData,
-            $paymentMethod, $request, $appliedCoupon
+            $paymentMethod, $request, $appliedCoupon, $depositPercentToSave
         ) {
             // Lock room row: serialize concurrent bookings cho cùng phòng
             Product::where('id', $room->id)->lockForUpdate()->first();
@@ -227,16 +230,17 @@ class BookingController extends Controller
             }
 
             $order = Order::create([
-                'amount'         => $subtotal,   // giá gốc: slots + services (trước giảm giá)
-                'full_amount'    => $amountDue,  // số tiền thanh toán ngay (deposit hoặc toàn bộ)
-                'description'    => 'Đặt phòng - ' . $room->name,
-                'buyer_name'     => $buyerName,
-                'buyer_phone'    => $buyerPhone,
-                'payment_method' => $paymentMethod,
-                'status'         => 'pending',
-                'guest_count'    => $request->guest_count,
-                'category_id'    => $category?->id,
-                'customer_id'    => $customer?->id,
+                'amount'          => $subtotal,              // giá gốc: slots + services + phụ thu (trước giảm giá)
+                'full_amount'     => $amountDue,             // số tiền thanh toán ngay (deposit hoặc toàn bộ sau giảm)
+                'deposit_percent' => $depositPercentToSave,  // % cọc — cần thiết để PATCH tính lại đúng
+                'description'     => 'Đặt phòng - ' . $room->name,
+                'buyer_name'      => $buyerName,
+                'buyer_phone'     => $buyerPhone,
+                'payment_method'  => $paymentMethod,
+                'status'          => 'pending',
+                'guest_count'     => $request->guest_count,
+                'category_id'     => $category?->id,
+                'customer_id'     => $customer?->id,
             ]);
 
             foreach ($itemsData as $itemData) {
