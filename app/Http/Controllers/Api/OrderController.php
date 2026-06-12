@@ -189,6 +189,17 @@ class OrderController extends Controller
             $order->refresh();
         }
 
+        // Tạo lại link PayOS nếu chưa có (giá vừa thay đổi hoặc lần đầu thêm dịch vụ)
+        if (
+            $order->payment_method === 'PayOS' &&
+            ! $order->checkout_url &&
+            (int) $order->full_amount >= 2000
+        ) {
+            $itemName = $order->items->first()?->name ?? 'Đặt phòng';
+            $this->buildPayOSLink($order, $itemName);
+            $order->refresh();
+        }
+
         // Nếu không cập nhật services, trả về services hiện tại
         $servicesResult ??= $order->services->map(fn ($s) => [
             'service_id'   => $s->service_id,
