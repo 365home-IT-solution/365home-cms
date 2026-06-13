@@ -61,6 +61,16 @@ class CustomerChat extends Page
                 ],
             ])
             ->toArray();
+
+        // Admin đang xem conversation này → badge luôn = 0 trên sidebar trái
+        if ($this->selectedId) {
+            foreach ($this->conversations as &$c) {
+                if ($c['id'] === $this->selectedId) {
+                    $c['unread'] = 0;
+                    break;
+                }
+            }
+        }
     }
 
     public function selectConversation(string $id): void
@@ -343,6 +353,16 @@ class CustomerChat extends Page
                 $markQuery->where('order_id', $this->selectedOrderId);
             }
             $markQuery->update(['read_at' => Carbon::now()]);
+
+            // Reset admin_unread trên conversation nếu không còn tin chưa đọc nào
+            $remainingUnread = ChatMessage::where('conversation_id', $this->selectedId)
+                ->where('sender_type', 'customer')
+                ->whereNull('read_at')
+                ->count();
+            if ($remainingUnread === 0) {
+                ChatConversation::where('id', $this->selectedId)
+                    ->update(['admin_unread' => 0]);
+            }
 
             $this->loadConversations();
 
