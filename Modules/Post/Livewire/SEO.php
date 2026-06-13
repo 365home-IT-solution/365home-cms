@@ -1073,6 +1073,33 @@ class SEO extends Component
 
 
 
+    protected function fieldContainsKeyword(string $field, string $keyword): bool
+    {
+        if (empty($keyword) || empty($field)) {
+            return false;
+        }
+
+        $normalizedField = $this->cleanText($field, [
+            'decode_entities'     => true,
+            'normalize_whitespace' => true,
+            'lowercase'           => true,
+            'normalize_unicode'   => true,
+        ]);
+
+        $normalizedKeyword = $this->cleanText($keyword, [
+            'decode_entities'     => true,
+            'normalize_whitespace' => true,
+            'lowercase'           => true,
+            'normalize_unicode'   => true,
+        ]);
+
+        return str_contains($normalizedField, $normalizedKeyword)
+            || str_contains(
+                $this->removeVietnameseTones($normalizedField),
+                $this->removeVietnameseTones($normalizedKeyword)
+            );
+    }
+
     protected function analyzeSecondaryKeywords(): void
     {
         $this->secondaryKeywordAnalyses = [];
@@ -1082,8 +1109,14 @@ class SEO extends Component
             return;
         }
 
-        $plainContent = strip_tags($this->content ?? '');
-        $wordCount = str_word_count($plainContent);
+        // Decode entities và strip tags giống như containsKeyword() làm với primary
+        $plainContent = html_entity_decode(strip_tags($this->content ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        // str_word_count() không đếm được tiếng Việt, dùng regex Unicode thay thế
+        preg_match_all('/\S+/u', $plainContent, $wMatches);
+        $wordCount = count($wMatches[0]);
+
+        $plainContentLower = mb_strtolower($plainContent, 'UTF-8');
 
         foreach ($secondaryKeywords as $keyword) {
             $keyword = trim($keyword);
@@ -1091,37 +1124,36 @@ class SEO extends Component
                 continue;
             }
 
-            $kwLower = mb_strtolower($keyword, 'UTF-8');
-            $titleLower = mb_strtolower($this->title ?? '', 'UTF-8');
-            $descLower = mb_strtolower($this->description ?? '', 'UTF-8');
-            $contentLower = mb_strtolower($plainContent, 'UTF-8');
-            $slugKw = $this->slugify($keyword);
+            $inTitle       = $this->fieldContainsKeyword($this->title ?? '', $keyword);
+            $inDescription = $this->fieldContainsKeyword($this->description ?? '', $keyword);
+            $inContent     = $this->fieldContainsKeyword($plainContent, $keyword);
+            $inUrl         = $this->slug !== '' && str_contains($this->slug, $this->slugify($keyword));
 
-            $inTitle = $titleLower !== '' && str_contains($titleLower, $kwLower);
-            $inDescription = $descLower !== '' && str_contains($descLower, $kwLower);
-            $inContent = $contentLower !== '' && str_contains($contentLower, $kwLower);
-            $inUrl = $this->slug !== '' && str_contains($this->slug, $slugKw);
-
-            $count = $wordCount > 0 ? substr_count($contentLower, $kwLower) : 0;
+            $kwNorm  = mb_strtolower(
+                $this->removeVietnameseTones($this->cleanText($keyword, ['lowercase' => true, 'normalize_unicode' => true])),
+                'UTF-8'
+            );
+            $contentNorm = mb_strtolower($this->removeVietnameseTones($plainContentLower), 'UTF-8');
+            $count   = substr_count($contentNorm, $kwNorm);
             $density = $wordCount > 0 ? round(($count / $wordCount) * 100, 2) : 0.0;
 
             if ($inContent && ($inTitle || $inDescription)) {
                 $status = 'success';
-                $parts = array_filter([
+                $parts  = array_filter([
                     $inTitle ? 'tiêu đề' : null,
                     $inDescription ? 'mô tả' : null,
                     'nội dung',
                 ]);
                 $message = 'Xuất hiện trong ' . implode(', ', $parts);
-                $score = 100;
+                $score   = 100;
             } elseif ($inContent) {
-                $status = 'warning';
+                $status  = 'warning';
                 $message = 'Có trong nội dung nhưng thiếu trong tiêu đề và mô tả';
-                $score = 50;
+                $score   = 50;
             } else {
-                $status = 'error';
+                $status  = 'error';
                 $message = 'Chưa xuất hiện trong nội dung';
-                $score = 0;
+                $score   = 0;
             }
 
             $this->secondaryKeywordAnalyses[$keyword] = [
