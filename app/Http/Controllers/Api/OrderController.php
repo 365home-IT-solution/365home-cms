@@ -73,7 +73,12 @@ class OrderController extends Controller
         /** @var \App\Models\Customer $customer */
         $customer = auth('sanctum')->user();
 
-        $order = Order::with(['items.product', 'services'])
+        $order = Order::with([
+            'items.product.roomType',
+            'items.product.roomTimeSlots.timeSlot',
+            'items.product.roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
+            'services',
+        ])
             ->where('order_code', $orderCode)
             ->where('customer_id', $customer->id)
             ->first();
@@ -109,7 +114,8 @@ class OrderController extends Controller
             $order->items()->update(['guest_count' => $newGuestCount]);
 
             $productId = $order->items->first()?->product_id;
-            $guestRoom = $productId ? \Modules\Product\App\Models\Product::with('roomType')->find($productId) : null;
+            // Dùng luôn product đã eager-load (có roomType, roomTimeSlots, promotions)
+            $guestRoom = $order->items->first()?->product;
             $guestConfig    = $guestRoom?->room_config ?? [];
             $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
             $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
@@ -127,14 +133,27 @@ class OrderController extends Controller
                     $newAmtWithSurcharge = max(0, (int) $order->amount - $oldSurcharge + $newSurcharge);
                     $updates['amount']   = $newAmtWithSurcharge;
 
+                    // Tính lại promotion từ RTS hiện tại
+                    $gcPromoRtsMap = collect();
+                    if ($guestRoom) {
+                        $gcPromoRtsMap = $guestRoom->roomTimeSlots
+                            ->whereNull('date')
+                            ->keyBy(fn ($rts) => $rts->timeSlot?->start_time);
+                    }
+                    [, $gcRecomputedPromo] = $this->recomputePromotions($order->items, $gcPromoRtsMap);
+
                     $depositPct = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
                     if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
-                        $origFinal    = (int) round((int) $order->full_amount * 100 / $depositPct);
-                        $origDiscount = max(0, (int) $order->amount - $origFinal);
-                        $updates['full_amount'] = (int) ceil(max(0, $newAmtWithSurcharge - $origDiscount) * $depositPct / 100);
+                        $origFinal          = (int) round((int) $order->full_amount * 100 / $depositPct);
+                        $origTotalDiscount  = max(0, (int) $order->amount - $origFinal);
+                        $gcCouponDiscount   = max(0, $origTotalDiscount - $gcRecomputedPromo);
+                        $gcTotalDiscount    = $gcRecomputedPromo + $gcCouponDiscount;
+                        $updates['full_amount'] = (int) ceil(max(0, $newAmtWithSurcharge - $gcTotalDiscount) * $depositPct / 100);
                     } else {
-                        $origDiscount = max(0, (int) $order->amount - (int) $order->full_amount);
-                        $updates['full_amount'] = max(0, $newAmtWithSurcharge - $origDiscount);
+                        $origTotalDiscount  = max(0, (int) $order->amount - (int) $order->full_amount);
+                        $gcCouponDiscount   = max(0, $origTotalDiscount - $gcRecomputedPromo);
+                        $gcTotalDiscount    = $gcRecomputedPromo + $gcCouponDiscount;
+                        $updates['full_amount'] = max(0, $newAmtWithSurcharge - $gcTotalDiscount);
                     }
 
                     Log::info('order.update guest-surcharge', [
@@ -146,7 +165,10 @@ class OrderController extends Controller
                         'old_surcharge'       => $oldSurcharge,
                         'new_surcharge'       => $newSurcharge,
                         'new_amt_w_surcharge' => $newAmtWithSurcharge,
-                        'orig_discount'       => $origDiscount,
+                        'recomputed_promo'    => $gcRecomputedPromo,
+                        'orig_total_discount' => $origTotalDiscount,
+                        'coupon_discount'     => $gcCouponDiscount,
+                        'total_discount'      => $gcTotalDiscount,
                         'new_full_amount'     => $updates['full_amount'],
                     ]);
 
@@ -216,33 +238,51 @@ class OrderController extends Controller
             $roomBaseAmount    = max(0, $currentAmountBase - $oldServicesTotal);
             $newSubtotal    = $roomBaseAmount + $addedTotal;
 
+            // Tính lại promotion discount từ RTS hiện tại (items không đổi khi update services/guest)
+            $promoRtsMap = collect();
+            $promoProduct = $order->items->first()?->product;
+            if ($promoProduct) {
+                $promoRtsMap = $promoProduct->roomTimeSlots
+                    ->whereNull('date')
+                    ->keyBy(fn ($rts) => $rts->timeSlot?->start_time);
+            }
+            [, $recomputedPromoDiscount] = $this->recomputePromotions($order->items, $promoRtsMap);
+
             // Xử lý đơn cọc và đơn thường riêng biệt:
             // - Đơn thường: full_amount = finalAmount → discount = amount - full_amount
             // - Đơn cọc:   full_amount = deposit portion → phải reconstruct finalAmount thật trước
             $depositPct = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
             if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
-                $origFinalAmount = (int) round((int) $order->full_amount * 100 / $depositPct);
-                $origDiscount    = max(0, (int) $order->amount - $origFinalAmount);
-                $newRealFinal    = max(0, $newSubtotal - $origDiscount);
-                $newFullAmount   = (int) ceil($newRealFinal * $depositPct / 100);
+                $origFinalAmount    = (int) round((int) $order->full_amount * 100 / $depositPct);
+                $origTotalDiscount  = max(0, (int) $order->amount - $origFinalAmount);
+                // Tách coupon = tổng discount cũ - promotion cũ (promotion cũ ≈ promotion hiện tại vì items không đổi)
+                $couponDiscount     = max(0, $origTotalDiscount - $recomputedPromoDiscount);
+                $totalNewDiscount   = $recomputedPromoDiscount + $couponDiscount;
+                $newRealFinal       = max(0, $newSubtotal - $totalNewDiscount);
+                $newFullAmount      = (int) ceil($newRealFinal * $depositPct / 100);
             } else {
-                $origDiscount  = max(0, (int) $order->amount - (int) $order->full_amount);
-                $newRealFinal  = max(0, $newSubtotal - $origDiscount);
-                $newFullAmount = $newRealFinal;
+                $origTotalDiscount  = max(0, (int) $order->amount - (int) $order->full_amount);
+                $couponDiscount     = max(0, $origTotalDiscount - $recomputedPromoDiscount);
+                $totalNewDiscount   = $recomputedPromoDiscount + $couponDiscount;
+                $newRealFinal       = max(0, $newSubtotal - $totalNewDiscount);
+                $newFullAmount      = $newRealFinal;
             }
 
             Log::info('order.update services-recalc', [
-                'order_code'        => $order->order_code,
-                'db_amount'         => (int) $order->amount,
-                'db_full_amount'    => (int) $order->full_amount,
-                'deposit_pct'       => $depositPct,
-                'current_amt_base'  => $currentAmountBase,
-                'old_services'      => $oldServicesTotal,
-                'added_total'       => $addedTotal,
-                'new_subtotal'      => $newSubtotal,
-                'orig_discount'     => $origDiscount,
-                'new_real_final'    => $newRealFinal,
-                'new_full_amount'   => $newFullAmount,
+                'order_code'             => $order->order_code,
+                'db_amount'              => (int) $order->amount,
+                'db_full_amount'         => (int) $order->full_amount,
+                'deposit_pct'            => $depositPct,
+                'current_amt_base'       => $currentAmountBase,
+                'old_services'           => $oldServicesTotal,
+                'added_total'            => $addedTotal,
+                'new_subtotal'           => $newSubtotal,
+                'recomputed_promo'       => $recomputedPromoDiscount,
+                'orig_total_discount'    => $origTotalDiscount,
+                'coupon_discount'        => $couponDiscount,
+                'total_new_discount'     => $totalNewDiscount,
+                'new_real_final'         => $newRealFinal,
+                'new_full_amount'        => $newFullAmount,
             ]);
 
             $updates['amount']      = $newSubtotal;
