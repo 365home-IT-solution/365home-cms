@@ -203,7 +203,45 @@ class RoomCardsService
                     ->values()
                     ->toArray();
             } else {
-                $orders = $productItems->map(fn ($item) => $buildEntry($item))->filter()->values()->toArray();
+                // Daily/monthly: nhóm theo order_id, hiển thị 1 card per đơn
+                $orders = $productItems
+                    ->filter(fn ($item) => $item->order && $item->product_id !== null)
+                    ->groupBy(fn ($item) => $item->order_id)
+                    ->map(function ($groupItems) use ($buildEntry, $now) {
+                        // Sắp xếp theo checkin để lấy đúng first/last
+                        $sorted = $groupItems->sortBy(fn ($i) => $i->checkin_date?->timestamp ?? 0);
+                        $first  = $sorted->first();
+                        $last   = $sorted->last();
+
+                        // Dùng item tổng hợp: checkin từ item đầu, checkout từ item cuối
+                        $proxy = clone $first;
+                        $proxy->checkout_date = $last->checkout_date;
+
+                        $entry = $buildEntry($proxy);
+                        if ($entry) {
+                            // Segment dựa trên toàn bộ group
+                            $anyActive = $groupItems->contains(
+                                fn ($i) => $i->checkin_date && $i->checkout_date
+                                    && $i->checkin_date->lte($now) && $i->checkout_date->gte($now)
+                            );
+                            $allOverdue = $groupItems->every(
+                                fn ($i) => $i->checkout_date && $i->checkout_date->lt($now)
+                            );
+                            if ($anyActive) {
+                                $entry['segment'] = 'active';
+                            } elseif (! $allOverdue) {
+                                $anyToday = $groupItems->contains(
+                                    fn ($i) => $i->checkin_date && $i->checkin_date->isToday()
+                                );
+                                $entry['segment'] = $anyToday ? 'today' : 'upcoming';
+                            }
+                            $entry['amount'] = (int)($first->order?->full_amount ?? 0);
+                        }
+                        return $entry;
+                    })
+                    ->filter()
+                    ->values()
+                    ->toArray();
             }
 
             $segOrd = ['active' => 0, 'today' => 1, 'upcoming' => 2, 'overdue' => 3];
