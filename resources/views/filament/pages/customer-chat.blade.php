@@ -369,14 +369,11 @@
             });
 
             socket.on('chat.message', (data) => {
-                $wire.dispatch('newChatMessage', {
-                    message:        data.message,
-                    conversationId: data.conversation_id,
-                });
+                $wire.newChatMessage(data.message, data.conversation_id);
             });
 
             socket.on('chat.list_update', () => {
-                $wire.dispatch('refreshConversationList');
+                $wire.refreshConversationList();
             });
 
             socket.on('chat.read', (data) => {

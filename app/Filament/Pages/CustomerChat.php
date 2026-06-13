@@ -226,10 +226,6 @@ class CustomerChat extends Page
         $this->dispatch('scrollToBottom');
     }
 
-    /**
-     * Nhận tin nhắn mới qua WebSocket (dispatch từ JS).
-     */
-    #[On('newChatMessage')]
     public function newChatMessage(array $message, string $conversationId): void
     {
         if ($conversationId !== $this->selectedId || ! $this->selectedOrderId) {
