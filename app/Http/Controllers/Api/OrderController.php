@@ -137,6 +137,19 @@ class OrderController extends Controller
                         $updates['full_amount'] = max(0, $newAmtWithSurcharge - $origDiscount);
                     }
 
+                    Log::info('order.update guest-surcharge', [
+                        'order_code'          => $order->order_code,
+                        'db_amount'           => (int) $order->amount,
+                        'db_full_amount'      => (int) $order->full_amount,
+                        'items_sum'           => $itemsSum,
+                        'old_services_sum'    => $oldServicesSum,
+                        'old_surcharge'       => $oldSurcharge,
+                        'new_surcharge'       => $newSurcharge,
+                        'new_amt_w_surcharge' => $newAmtWithSurcharge,
+                        'orig_discount'       => $origDiscount,
+                        'new_full_amount'     => $updates['full_amount'],
+                    ]);
+
                     // Giá thay đổi → link PayOS cũ không còn hợp lệ
                     if ($order->checkout_url) {
                         $updates['checkout_url'] = null;
@@ -217,6 +230,20 @@ class OrderController extends Controller
                 $newRealFinal  = max(0, $newSubtotal - $origDiscount);
                 $newFullAmount = $newRealFinal;
             }
+
+            Log::info('order.update services-recalc', [
+                'order_code'        => $order->order_code,
+                'db_amount'         => (int) $order->amount,
+                'db_full_amount'    => (int) $order->full_amount,
+                'deposit_pct'       => $depositPct,
+                'current_amt_base'  => $currentAmountBase,
+                'old_services'      => $oldServicesTotal,
+                'added_total'       => $addedTotal,
+                'new_subtotal'      => $newSubtotal,
+                'orig_discount'     => $origDiscount,
+                'new_real_final'    => $newRealFinal,
+                'new_full_amount'   => $newFullAmount,
+            ]);
 
             $updates['amount']      = $newSubtotal;
             $updates['full_amount'] = $newFullAmount;
@@ -840,19 +867,8 @@ class OrderController extends Controller
         $applied       = [];
         $totalDiscount = 0;
 
-        foreach ($items as $item) {
-            $startTime = $item->checkin_date?->format('H:i:s');
-            $rts       = $startTime ? $rtsMap->get($startTime) : null;
-            $date      = $item->checkin_date?->format('Y-m-d');
-
-            if (! $rts || ! $date || ! $rts->timeSlot) {
-                continue;
-            }
-
-            $result        = $calculator->calculate($rts, $date);
-            $totalDiscount += $result['promo_discount'];
-
-            foreach ($result['applied'] as $entry) {
+        $mergeApplied = function (array &$applied, array $entries): void {
+            foreach ($entries as $entry) {
                 $found = false;
                 foreach ($applied as $i => $a) {
                     if ($a['id'] === $entry['id']) {
@@ -865,6 +881,42 @@ class OrderController extends Controller
                     $applied[] = $entry;
                 }
             }
+        };
+
+        // Daily rooms: slot-based rtsMap (null-date RTS) sẽ rỗng → dùng date-keyed RTS
+        $product = $items->first()?->product;
+        if ($rtsMap->isEmpty() && $product) {
+            $dateRtsMap = $product->roomTimeSlots
+                ->whereNotNull('date')
+                ->keyBy(fn ($rts) => $rts->timeSlot?->label);
+
+            foreach ($items as $item) {
+                $date  = $item->checkin_date?->format('Y-m-d');
+                $rts   = $date ? $dateRtsMap->get($date) : null;
+                $price = (float) $item->price;
+
+                $result = $calculator->calculateForDate($rts, $price, $date ?? '');
+                $disc   = (int) ($price - $result['final_price']);
+                $totalDiscount += $disc;
+                $mergeApplied($applied, $result['applied']);
+            }
+
+            return [$applied, (int) $totalDiscount];
+        }
+
+        // Slot rooms: tra cứu RTS theo start_time
+        foreach ($items as $item) {
+            $startTime = $item->checkin_date?->format('H:i:s');
+            $rts       = $startTime ? $rtsMap->get($startTime) : null;
+            $date      = $item->checkin_date?->format('Y-m-d');
+
+            if (! $rts || ! $date || ! $rts->timeSlot) {
+                continue;
+            }
+
+            $result        = $calculator->calculate($rts, $date);
+            $totalDiscount += $result['promo_discount'];
+            $mergeApplied($applied, $result['applied']);
         }
 
         return [$applied, $totalDiscount];
