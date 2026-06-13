@@ -109,7 +109,7 @@ class OrderController extends Controller
             $order->items()->update(['guest_count' => $newGuestCount]);
 
             $productId = $order->items->first()?->product_id;
-            $guestRoom = $productId ? \Modules\Product\App\Models\Product::find($productId) : null;
+            $guestRoom = $productId ? \Modules\Product\App\Models\Product::with('roomType')->find($productId) : null;
             $guestConfig    = $guestRoom?->room_config ?? [];
             $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
             $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
@@ -118,7 +118,9 @@ class OrderController extends Controller
                 $itemsSum       = (int) $order->items->sum('price');
                 $oldServicesSum = (int) $order->services->sum('subtotal');
                 $oldSurcharge   = max(0, (int) $order->amount - $itemsSum - $oldServicesSum);
-                $nights         = max(1, $order->items->count());
+                // Slot (theo_gio): phụ thu tính 1 lần duy nhất, không nhân theo số slot
+                $isSlotType   = $guestRoom?->roomType?->slug === 'theo_gio';
+                $nights         = $isSlotType ? 1 : max(1, $order->items->count());
                 $newSurcharge   = max(0, $newGuestCount - $guestThreshold) * $guestFee * $nights;
 
                 if ($newSurcharge !== $oldSurcharge) {
@@ -255,6 +257,7 @@ class OrderController extends Controller
 
         // Load thêm relationships cần cho response đầy đủ
         $order->load([
+            'items.product.roomType',
             'items.product.roomTimeSlots.timeSlot',
             'items.product.roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
         ]);
@@ -285,12 +288,15 @@ class OrderController extends Controller
             $guestConfig    = $product->room_config ?? [];
             $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
             $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
-            $nights         = max(1, $order->items->count());
+            // Slot (theo_gio): phụ thu tính 1 lần duy nhất, không nhân theo số slot
+            $isSlotType  = $product->roomType?->slug === 'theo_gio';
+            $nights         = $isSlotType ? 1 : max(1, $order->items->count());
             $guestCount     = (int) $order->guest_count;
             $extraGuests    = max(0, $guestCount - $guestThreshold);
             $guestSurchargeTotal = $extraGuests * $guestFee * $nights;
 
             if ($guestFee > 0) {
+                $nightsLabel = (! $isSlotType && $nights > 1) ? " × {$nights} đêm" : '';
                 $guestSurchargeInfo = [
                     'guest_count'    => $guestCount,
                     'threshold'      => $guestThreshold,
@@ -298,7 +304,7 @@ class OrderController extends Controller
                     'fee_per_person' => $guestFee,
                     'nights'         => $nights,
                     'total'          => $guestSurchargeTotal,
-                    'label'          => "Phụ thu {$extraGuests} người (trên {$guestThreshold} người) × {$nights} đêm",
+                    'label'          => "Phụ thu {$extraGuests} người (trên {$guestThreshold} người){$nightsLabel}",
                 ];
             }
         }

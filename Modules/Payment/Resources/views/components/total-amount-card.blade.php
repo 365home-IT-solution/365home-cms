@@ -1,5 +1,6 @@
 @php
-    $slotCount = is_array($items) ? count($items) : 0;
+    $slotCount      = is_array($items) ? count($items) : 0;
+    $guestCountUsed = (int)($guestCount ?? 1); // Order-level guest count (passed from Placeholder)
 
     // Phát hiện style=2 (đặt theo ngày)
     $isStyle2 = false;
@@ -34,16 +35,18 @@
         }
     }
 
-    // Tính tổng áp dụng bulk_discount_rules từ cài đặt sản phẩm
-    $originalTotal     = 0;
-    $totalExtraFee     = 0;
-    $totalBulkDiscount = 0;
-    $bulkDiscountDetails = [];
+    // Tính tổng áp dụng bulk_discount_rules và phụ thu khách (order-level, 1 lần)
+    $originalTotal       = 0;
+    $totalBulkDiscount   = 0;
+    $totalGuestSurcharge = 0;
+    $bulkDiscountDetails   = [];
+    $guestSurchargeDetails = [];
 
     foreach ($itemsByProduct as $pid => $groupItems) {
         $prod    = $productCache[$pid] ?? null;
         $cfg     = $prod ? ($prod->room_config ?? []) : [];
         $maxFree = (int)($cfg['max_free_guests'] ?? 2);
+        $feeEach = (int)($cfg['extra_guest_fee'] ?? 0);
 
         $groupSlotCount  = count($groupItems);
         $bulkDiscountPct = 0;
@@ -62,7 +65,6 @@
         $groupOriginal = 0;
         foreach ($groupItems as $item) {
             $groupOriginal += (float)($item['price'] ?? 0);
-            $totalExtraFee += (float)($item['extra_fee'] ?? 0);
         }
         $originalTotal += $groupOriginal;
 
@@ -73,6 +75,19 @@
                 'slots'  => $groupSlotCount,
                 'pct'    => $bulkDiscountPct,
                 'amount' => $groupDiscount,
+            ];
+        }
+
+        // Phụ thu khách: tính 1 lần per product, dùng guest_count cấp order (matching API)
+        if (!$isStyle2 && $feeEach > 0 && $guestCountUsed > $maxFree) {
+            $extraGuests = $guestCountUsed - $maxFree;
+            $surcharge   = $extraGuests * $feeEach;
+            $totalGuestSurcharge += $surcharge;
+            $guestSurchargeDetails[] = [
+                'extra_guests' => $extraGuests,
+                'max_free'     => $maxFree,
+                'fee_each'     => $feeEach,
+                'total'        => $surcharge,
             ];
         }
     }
@@ -111,7 +126,7 @@
         $serviceTotal = $serviceItems->sum('subtotal');
     }
 
-    $finalTotal = $totalAfterBulk + ($isStyle2 ? 0 : $totalExtraFee) + $serviceTotal;
+    $finalTotal = $totalAfterBulk + $totalGuestSurcharge + $serviceTotal;
 
     // Thu thập tất cả mức giảm giá duy nhất để hiển thị ghi chú
     $allDiscountRulesSummary = [];
@@ -151,12 +166,10 @@
             @foreach($items as $item)
                 @if(isset($item['name'], $item['price']))
                 @php
-                    $itemStyle  = (int)($item['product_style'] ?? 1);
-                    $extraFee   = (float)($item['extra_fee'] ?? 0);
-                    $guestCount = (int)($item['guest_count'] ?? 1);
-                    $itemPid    = $item['product_id'] ?? null;
-                    $itemProd   = $itemPid ? ($productCache[$itemPid] ?? null) : null;
-                    $itemCfg    = $itemProd ? ($itemProd->room_config ?? []) : [];
+                    $itemStyle   = (int)($item['product_style'] ?? 1);
+                    $itemPid     = $item['product_id'] ?? null;
+                    $itemProd    = $itemPid ? ($productCache[$itemPid] ?? null) : null;
+                    $itemCfg     = $itemProd ? ($itemProd->room_config ?? []) : [];
                     $maxFreeItem = (int)($itemCfg['max_free_guests'] ?? 2);
                 @endphp
                 <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:0.5rem; padding:0.6rem 0.75rem; margin-bottom:0.4rem;">
@@ -212,18 +225,13 @@
                         </div>
                     @endif
 
-                    {{-- Khách + phụ phí --}}
-                    @if($guestCount > 0 || $extraFee > 0)
+                    {{-- Số khách (hiển thị order-level guest count) --}}
+                    @if(!$isStyle2 && $guestCountUsed > 0)
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.35rem; padding-top:0.35rem; border-top:1px dashed #e2e8f0;">
                         <span style="font-size:0.7rem; color:#64748b; display:flex; align-items:center; gap:0.3rem;">
                             <x-heroicon-o-users style="width:0.75rem; height:0.75rem;" />
-                            {{ $guestCount }} khách{{ $guestCount > $maxFreeItem ? ' (phụ thu ' . ($guestCount - $maxFreeItem) . ' người)' : '' }}
+                            {{ $guestCountUsed }} khách{{ $guestCountUsed > $maxFreeItem ? ' (phụ thu ' . ($guestCountUsed - $maxFreeItem) . ' người)' : '' }}
                         </span>
-                        @if($extraFee > 0)
-                        <span style="font-size:0.7rem; color:#ea580c; font-weight:600; white-space:nowrap;">
-                            +{{ number_format($extraFee, 0, ',', '.') }} đ
-                        </span>
-                        @endif
                     </div>
                     @endif
                 </div>
@@ -291,16 +299,18 @@
             @endforeach
             @endif
 
-            @if(!$isStyle2 && $totalExtraFee > 0)
+            @if(!$isStyle2 && $totalGuestSurcharge > 0)
+            @foreach($guestSurchargeDetails as $detail)
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem;">
                 <span style="font-size:0.75rem; color:#6b7280; display:flex; align-items:center; gap:0.3rem;">
                     <x-heroicon-o-user-plus style="width:0.75rem; height:0.75rem;" />
-                    Phụ phí khách thêm
+                    Phụ thu {{ $detail['extra_guests'] }} người (trên {{ $detail['max_free'] }} miễn phí)
                 </span>
                 <span style="font-size:0.75rem; font-weight:600; color:#ea580c;">
-                    +{{ number_format($totalExtraFee, 0, ',', '.') }} đ
+                    +{{ number_format($detail['total'], 0, ',', '.') }} đ
                 </span>
             </div>
+            @endforeach
             @endif
 
             @if($serviceTotal > 0)
@@ -406,6 +416,16 @@
                 @foreach($allDiscountRulesSummary as $ruleSlots => $ruleDiscount)
                     Giảm {{ $ruleDiscount }}% khi đặt {{ $ruleSlots }} khung{{ !$loop->last ? ' · ' : '' }}
                 @endforeach
+            </span>
+        </div>
+        @endif
+
+        {{-- Ghi chú: promotion và coupon không được tính ở đây --}}
+        @if(!$isStyle2)
+        <div style="margin-top:0.5rem; background:#fef9c3; border:1px solid #fde047; border-radius:0.375rem; padding:0.4rem 0.6rem; display:flex; align-items:flex-start; gap:0.35rem;">
+            <x-heroicon-o-exclamation-triangle style="width:0.875rem; height:0.875rem; color:#ca8a04; flex-shrink:0; margin-top:0.05rem;" />
+            <span style="font-size:0.7rem; color:#854d0e; line-height:1.4;">
+                Ước tính chưa bao gồm: <strong>khuyến mãi khung giờ</strong> và <strong>coupon</strong>. Giá thực tế có thể thấp hơn khi đặt qua API.
             </span>
         </div>
         @endif
