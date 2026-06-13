@@ -201,9 +201,16 @@
                     wire:target="selectOrder('__general__')"
                     class="w-full p-3 text-left transition-colors {{ $selectedOrderId === '__general__' ? 'bg-primary-50 dark:bg-primary-900/20 border-l-2 border-l-primary-500' : 'hover:bg-gray-50 dark:hover:bg-gray-800/60' }}"
                 >
-                    <div class="flex items-center gap-2">
-                        <x-heroicon-o-chat-bubble-left-ellipsis class="w-4 h-4 text-gray-400 flex-shrink-0" />
-                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Tin nhắn chung</span>
+                    <div class="flex items-center justify-between gap-2">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <x-heroicon-o-chat-bubble-left-ellipsis class="w-4 h-4 text-gray-400 flex-shrink-0" />
+                            <span class="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">Tin nhắn chung</span>
+                        </div>
+                        @if ($generalUnread > 0)
+                            <span class="flex-shrink-0 inline-flex items-center justify-center min-w-[1.2rem] h-5 px-1 text-xs font-bold bg-red-500 text-white rounded-full">
+                                {{ min($generalUnread, 99) }}
+                            </span>
+                        @endif
                     </div>
                     <div class="text-xs text-gray-400 dark:text-gray-500 mt-0.5 pl-6">Không gắn với đơn hàng</div>
                 </button>
@@ -217,10 +224,17 @@
                         class="w-full p-3 text-left transition-colors {{ $selectedOrderId === $order['id'] ? 'bg-primary-50 dark:bg-primary-900/20 border-l-2 border-l-primary-500' : 'hover:bg-gray-50 dark:hover:bg-gray-800/60' }}"
                     >
                         <div class="flex items-center justify-between gap-1 mb-1">
-                            <span class="text-sm font-semibold text-gray-900 dark:text-white">
-                                #{{ $order['order_code'] }}
-                            </span>
-                            <span class="inline-block px-1.5 py-0.5 text-xs font-medium rounded border {{ $st['color'] }}">
+                            <div class="flex items-center gap-1.5 min-w-0">
+                                <span class="text-sm font-semibold text-gray-900 dark:text-white">
+                                    #{{ $order['order_code'] }}
+                                </span>
+                                @if (($order['unread'] ?? 0) > 0)
+                                    <span class="flex-shrink-0 inline-flex items-center justify-center min-w-[1.2rem] h-5 px-1 text-xs font-bold bg-red-500 text-white rounded-full">
+                                        {{ min($order['unread'], 99) }}
+                                    </span>
+                                @endif
+                            </div>
+                            <span class="flex-shrink-0 inline-block px-1.5 py-0.5 text-xs font-medium rounded border {{ $st['color'] }}">
                                 {{ $st['label'] }}
                             </span>
                         </div>

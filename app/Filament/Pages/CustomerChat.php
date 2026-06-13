@@ -29,6 +29,7 @@ class CustomerChat extends Page
     public array   $conversations        = [];
     public array   $messages             = [];
     public array   $customerOrders       = [];
+    public int     $generalUnread        = 0;
     public ?string $selectedOrderId      = null;
     public ?array  $selectedOrderInfo    = null;
     public string  $draft                = '';
@@ -84,14 +85,8 @@ class CustomerChat extends Page
             ],
         ];
 
-        $this->loadCustomerOrders($conv->customer?->id);
-
-        $this->messages = ChatMessage::where('conversation_id', $id)
-            ->whereNull('order_id')
-            ->orderBy('id')
-            ->get()
-            ->map(fn ($m) => $this->formatMsg($m))
-            ->toArray();
+        // Tính unread per order TRƯỚC khi mark as read để hiển thị badge sidebar
+        $this->loadCustomerOrders($conv->customer?->id, $conv->id);
 
         if ($conv->admin_unread > 0) {
             $conv->admin_unread = 0;
@@ -104,6 +99,13 @@ class CustomerChat extends Page
 
             app(ChatRealtimeService::class)->broadcastRead($id, 'admin');
         }
+
+        $this->messages = ChatMessage::where('conversation_id', $id)
+            ->whereNull('order_id')
+            ->orderBy('id')
+            ->get()
+            ->map(fn ($m) => $this->formatMsg($m))
+            ->toArray();
 
         foreach ($this->conversations as &$c) {
             if ($c['id'] === $id) {
@@ -304,6 +306,14 @@ class CustomerChat extends Page
             }
             $this->dispatch('scrollToBottom');
             $this->loadConversations();
+
+            // Refresh unread badges cho sidebar đơn hàng
+            if ($this->selectedConversation) {
+                $this->loadCustomerOrders(
+                    $this->selectedConversation['customer']['id'],
+                    $this->selectedId
+                );
+            }
         }
     }
 
@@ -322,11 +332,32 @@ class CustomerChat extends Page
         ];
     }
 
-    private function loadCustomerOrders(?string $customerId): void
+    private function loadCustomerOrders(?string $customerId, ?string $conversationId = null): void
     {
         if (! $customerId) {
             $this->customerOrders = [];
+            $this->generalUnread  = 0;
             return;
+        }
+
+        // Tính unread per order_id từ chat_messages
+        $unreadMap          = [];
+        $this->generalUnread = 0;
+
+        if ($conversationId) {
+            ChatMessage::where('conversation_id', $conversationId)
+                ->where('sender_type', 'customer')
+                ->whereNull('read_at')
+                ->selectRaw('order_id, COUNT(*) as cnt')
+                ->groupBy('order_id')
+                ->get()
+                ->each(function ($row) use (&$unreadMap) {
+                    if ($row->order_id === null) {
+                        $this->generalUnread = (int) $row->cnt;
+                    } else {
+                        $unreadMap[(string) $row->order_id] = (int) $row->cnt;
+                    }
+                });
         }
 
         $this->customerOrders = Order::where('customer_id', $customerId)
@@ -339,7 +370,10 @@ class CustomerChat extends Page
                 'status'     => $o->status,
                 'room_name'  => $o->items->first()?->product?->name,
                 'created_at' => $o->created_at?->format('d/m/Y'),
+                'unread'     => $unreadMap[(string) $o->id] ?? 0,
             ])
+            ->sortByDesc('unread')
+            ->values()
             ->toArray();
     }
 
