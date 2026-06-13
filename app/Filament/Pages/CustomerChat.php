@@ -271,6 +271,42 @@ class CustomerChat extends Page
         $this->loadConversations();
     }
 
+    public function checkNewMessages(): void
+    {
+        if (! $this->selectedId || ! $this->selectedOrderId) {
+            return;
+        }
+
+        $lastId = ! empty($this->messages)
+            ? $this->messages[array_key_last($this->messages)]['id']
+            : null;
+
+        $query = ChatMessage::where('conversation_id', $this->selectedId);
+
+        if ($this->selectedOrderId === '__general__') {
+            $query->whereNull('order_id');
+        } else {
+            $query->where('order_id', $this->selectedOrderId);
+        }
+
+        if ($lastId) {
+            $query->where('id', '>', $lastId);
+        }
+
+        $newMessages = $query->orderBy('id')
+            ->get()
+            ->map(fn ($m) => $this->formatMsg($m))
+            ->toArray();
+
+        if (! empty($newMessages)) {
+            foreach ($newMessages as $msg) {
+                $this->messages[] = $msg;
+            }
+            $this->dispatch('scrollToBottom');
+            $this->loadConversations();
+        }
+    }
+
     private function formatMsg(ChatMessage $msg, ?string $senderName = null): array
     {
         return [

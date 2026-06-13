@@ -16,7 +16,7 @@
             </div>
 
             {{-- List --}}
-            <div class="flex-1 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-800">
+            <div wire:poll.8000ms="loadConversations" class="flex-1 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-800">
                 @forelse ($conversations as $conv)
                     <button
                         wire:click="selectConversation('{{ $conv['id'] }}')"
@@ -88,6 +88,7 @@
 
                     {{-- Messages --}}
                     <div
+                        wire:poll.3000ms="checkNewMessages"
                         id="chat-messages-scroll"
                         x-init="$el.scrollTop = $el.scrollHeight"
                         x-on:scrolltobottom.window="setTimeout(() => $el.scrollTop = $el.scrollHeight, 60)"
