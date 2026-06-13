@@ -19,6 +19,7 @@ class SEO extends Component
     public $analyses = [];
     public $advancedAnalyses = [];
     public $readabilityAnalyses = [];
+    public $secondaryKeywordAnalyses = [];
     public $style = '';
 
     public function mount($initialData = null, $record = null)
@@ -36,6 +37,7 @@ class SEO extends Component
         $this->analyses = $this->getDefaultAnalyses();
         $this->advancedAnalyses = $this->getDefaultAdvancedAnalyses();
         $this->readabilityAnalyses = $this->getDefaultReadabilityAnalyses();
+        $this->secondaryKeywordAnalyses = [];
     }
 
     protected function getDefaultAnalyses()
@@ -124,6 +126,9 @@ class SEO extends Component
 
         // Readability
         $this->analyzeReadability();
+
+        // Secondary keywords
+        $this->analyzeSecondaryKeywords();
 
         // Calculate overall score
         $this->score = $this->calculateOverallScore();
@@ -550,17 +555,6 @@ class SEO extends Component
         $primaryCount = substr_count(strtolower($plainContent), strtolower($primaryKeyword));
         $primaryDensity = $wordCount > 0 ? ($primaryCount / $wordCount) * 100 : 0;
 
-        // Phân tích từ khóa phụ
-        $secondaryAnalysis = [];
-        foreach ($this->getSecondaryKeywords() as $keyword) {
-            $count = substr_count(strtolower($plainContent), strtolower($keyword));
-            $density = $wordCount > 0 ? ($count / $wordCount) * 100 : 0;
-            $secondaryAnalysis[$keyword] = [
-                'count' => $count,
-                'density' => round($density, 2)
-            ];
-        }
-
         // Đánh giá mật độ từ khóa chính
         if ($primaryDensity < 0.5) {
             $status = 'error';
@@ -955,17 +949,6 @@ class SEO extends Component
             ->where('seo_keywords', 'like', '%' . $primaryKeyword . '%')
             ->exists();
 
-        $existingSecondary = false;
-        foreach ($this->getSecondaryKeywords() as $keyword) {
-            if (Post::where('id', '!=', $currentRecordId)
-                ->where('seo_keywords', 'like', '%' . $keyword . '%')
-                ->exists()
-            ) {
-                $existingSecondary = true;
-                break;
-            }
-        }
-
         if ($existingPrimary) {
             $score = 0;
             $message = 'Từ khóa chính đã được sử dụng trong các bài viết khác.';
@@ -1090,14 +1073,81 @@ class SEO extends Component
 
 
 
+    protected function analyzeSecondaryKeywords(): void
+    {
+        $this->secondaryKeywordAnalyses = [];
+        $secondaryKeywords = $this->getSecondaryKeywords();
+
+        if (empty($secondaryKeywords)) {
+            return;
+        }
+
+        $plainContent = strip_tags($this->content ?? '');
+        $wordCount = str_word_count($plainContent);
+
+        foreach ($secondaryKeywords as $keyword) {
+            $keyword = trim($keyword);
+            if ($keyword === '') {
+                continue;
+            }
+
+            $kwLower = mb_strtolower($keyword, 'UTF-8');
+            $titleLower = mb_strtolower($this->title ?? '', 'UTF-8');
+            $descLower = mb_strtolower($this->description ?? '', 'UTF-8');
+            $contentLower = mb_strtolower($plainContent, 'UTF-8');
+            $slugKw = $this->slugify($keyword);
+
+            $inTitle = $titleLower !== '' && str_contains($titleLower, $kwLower);
+            $inDescription = $descLower !== '' && str_contains($descLower, $kwLower);
+            $inContent = $contentLower !== '' && str_contains($contentLower, $kwLower);
+            $inUrl = $this->slug !== '' && str_contains($this->slug, $slugKw);
+
+            $count = $wordCount > 0 ? substr_count($contentLower, $kwLower) : 0;
+            $density = $wordCount > 0 ? round(($count / $wordCount) * 100, 2) : 0.0;
+
+            if ($inContent && ($inTitle || $inDescription)) {
+                $status = 'success';
+                $parts = array_filter([
+                    $inTitle ? 'tiêu đề' : null,
+                    $inDescription ? 'mô tả' : null,
+                    'nội dung',
+                ]);
+                $message = 'Xuất hiện trong ' . implode(', ', $parts);
+                $score = 100;
+            } elseif ($inContent) {
+                $status = 'warning';
+                $message = 'Có trong nội dung nhưng thiếu trong tiêu đề và mô tả';
+                $score = 50;
+            } else {
+                $status = 'error';
+                $message = 'Chưa xuất hiện trong nội dung';
+                $score = 0;
+            }
+
+            $this->secondaryKeywordAnalyses[$keyword] = [
+                'keyword'       => $keyword,
+                'score'         => $score,
+                'status'        => $status,
+                'message'       => $message,
+                'inTitle'       => $inTitle,
+                'inDescription' => $inDescription,
+                'inContent'     => $inContent,
+                'inUrl'         => $inUrl,
+                'density'       => $density,
+                'count'         => $count,
+            ];
+        }
+    }
+
     public function render()
     {
         return view('post::livewire.s-e-o', [
-            'score' => $this->score,
-            'analyses' => $this->analyses,
-            'advancedAnalyses' => $this->advancedAnalyses,
-            'readabilityAnalyses' => $this->readabilityAnalyses,
-            'style' => $this->style,
+            'score'                    => $this->score,
+            'analyses'                 => $this->analyses,
+            'advancedAnalyses'         => $this->advancedAnalyses,
+            'readabilityAnalyses'      => $this->readabilityAnalyses,
+            'secondaryKeywordAnalyses' => $this->secondaryKeywordAnalyses,
+            'style'                    => $this->style,
         ]);
     }
 }

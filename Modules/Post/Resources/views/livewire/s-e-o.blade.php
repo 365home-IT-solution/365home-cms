@@ -273,6 +273,76 @@
             </div>
         </div>
 
+        @if (!empty($secondaryKeywordAnalyses))
+        <div x-data="{ openSecondary: false }" class="v-border v-rounded-lg v-mt-2">
+            <button type="button" @click="openSecondary = !openSecondary"
+                class="v-w-full v-px-4 v-py-2 v-flex v-items-center v-justify-between hover:v-bg-gray-100 hover:v-rounded-lg dark:hover:v-bg-white/10 dark:v-ring-white/20">
+                <div class="v-flex v-items-center v-gap-3">
+                    <h4 class="v-text-sm v-font-medium">Từ khóa phụ</h4>
+                    @php
+                        $secErrCount = count(array_filter($secondaryKeywordAnalyses, fn($a) => $a['status'] === 'error'));
+                        $secWarnCount = count(array_filter($secondaryKeywordAnalyses, fn($a) => $a['status'] === 'warning'));
+                        $secOkCount = count(array_filter($secondaryKeywordAnalyses, fn($a) => $a['status'] === 'success'));
+                    @endphp
+                    @if ($secErrCount > 0)
+                        <span class="v-px-2 v-py-1 v-text-xs v-font-medium v-rounded-full v-bg-red-100 v-text-red-700">
+                            {{ $secErrCount }} chưa dùng
+                        </span>
+                    @endif
+                    @if ($secWarnCount > 0)
+                        <span class="v-px-2 v-py-1 v-text-xs v-font-medium v-rounded-full v-bg-yellow-100 v-text-yellow-700">
+                            {{ $secWarnCount }} thiếu vị trí
+                        </span>
+                    @endif
+                    @if ($secOkCount === count($secondaryKeywordAnalyses))
+                        <span class="v-px-2 v-py-1 v-text-xs v-font-medium v-rounded-full v-bg-green-100 v-text-green-700">
+                            Tốt
+                        </span>
+                    @endif
+                </div>
+                <svg class="v-w-5 v-h-5 v-transform v-transition-transform" :class="{ 'v-rotate-180': openSecondary }"
+                    fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+            </button>
+
+            <div x-show="openSecondary" x-collapse class="v-border-t">
+                <div class="v-p-4 v-space-y-3">
+                    @foreach ($secondaryKeywordAnalyses as $analysis)
+                        <div class="v-border v-rounded-lg v-p-3
+                            {{ $analysis['status'] === 'success'
+                                ? 'v-border-green-200 v-bg-green-50'
+                                : ($analysis['status'] === 'warning'
+                                    ? 'v-border-yellow-200 v-bg-yellow-50'
+                                    : 'v-border-red-200 v-bg-red-50') }}">
+                            <div class="v-flex v-items-center v-justify-between v-mb-2">
+                                <span class="v-text-sm v-font-semibold">{{ $analysis['keyword'] }}</span>
+                                <span class="v-text-xs v-text-gray-500">
+                                    Mật độ: {{ $analysis['density'] }}% ({{ $analysis['count'] }} lần)
+                                </span>
+                            </div>
+                            <div class="v-flex v-flex-wrap v-gap-x-4 v-gap-y-1 v-text-xs v-mb-2">
+                                <span class="{{ $analysis['inTitle'] ? 'v-text-green-700' : 'v-text-red-600' }}">
+                                    {{ $analysis['inTitle'] ? '✓' : '✗' }} Tiêu đề
+                                </span>
+                                <span class="{{ $analysis['inDescription'] ? 'v-text-green-700' : 'v-text-red-600' }}">
+                                    {{ $analysis['inDescription'] ? '✓' : '✗' }} Mô tả
+                                </span>
+                                <span class="{{ $analysis['inContent'] ? 'v-text-green-700' : 'v-text-red-600' }}">
+                                    {{ $analysis['inContent'] ? '✓' : '✗' }} Nội dung
+                                </span>
+                                <span class="{{ $analysis['inUrl'] ? 'v-text-green-700' : 'v-text-red-600' }}">
+                                    {{ $analysis['inUrl'] ? '✓' : '✗' }} URL
+                                </span>
+                            </div>
+                            <p class="v-text-xs v-text-gray-600">{{ $analysis['message'] }}</p>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+        </div>
+        @endif
+
         <div x-data="{ openReadability: false }" class="v-border v-rounded-lg v-mt-2">
             <button type="button" @click="openReadability = !openReadability"
                 class="v-w-full v-px-4 v-py-2 v-flex v-items-center v-justify-between hover:v-bg-gray-100 hover:v-rounded-lg dark:hover:v-bg-white/10 dark:v-ring-white/20">
