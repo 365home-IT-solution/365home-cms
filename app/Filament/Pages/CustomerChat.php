@@ -134,24 +134,40 @@ class CustomerChat extends Page
                 ->map(fn ($m) => $this->formatMsg($m))
                 ->toArray();
 
-            $this->dispatch('scrollToBottom');
-            return;
+            ChatMessage::where('conversation_id', $this->selectedId)
+                ->whereNull('order_id')
+                ->where('sender_type', 'customer')
+                ->whereNull('read_at')
+                ->update(['read_at' => Carbon::now()]);
+        } else {
+            $order = Order::with(['items.product', 'services'])->find($orderId);
+            if (! $order) {
+                $this->messages = [];
+                return;
+            }
+
+            $this->selectedOrderInfo = $this->buildOrderInfo($order);
+
+            $this->messages = ChatMessage::where('conversation_id', $this->selectedId)
+                ->where('order_id', $orderId)
+                ->orderBy('id')
+                ->get()
+                ->map(fn ($m) => $this->formatMsg($m))
+                ->toArray();
+
+            ChatMessage::where('conversation_id', $this->selectedId)
+                ->where('order_id', $orderId)
+                ->where('sender_type', 'customer')
+                ->whereNull('read_at')
+                ->update(['read_at' => Carbon::now()]);
         }
 
-        $order = Order::with(['items.product', 'services'])->find($orderId);
-        if (! $order) {
-            $this->messages = [];
-            return;
+        if ($this->selectedConversation) {
+            $this->loadCustomerOrders(
+                $this->selectedConversation['customer']['id'],
+                $this->selectedId
+            );
         }
-
-        $this->selectedOrderInfo = $this->buildOrderInfo($order);
-
-        $this->messages = ChatMessage::where('conversation_id', $this->selectedId)
-            ->where('order_id', $orderId)
-            ->orderBy('id')
-            ->get()
-            ->map(fn ($m) => $this->formatMsg($m))
-            ->toArray();
 
         $this->dispatch('scrollToBottom');
     }
@@ -305,9 +321,21 @@ class CustomerChat extends Page
                 $this->messages[] = $msg;
             }
             $this->dispatch('scrollToBottom');
+
+            // Admin đang xem → mark read ngay
+            $markQuery = ChatMessage::where('conversation_id', $this->selectedId)
+                ->where('sender_type', 'customer')
+                ->whereNull('read_at');
+
+            if ($this->selectedOrderId === '__general__') {
+                $markQuery->whereNull('order_id');
+            } else {
+                $markQuery->where('order_id', $this->selectedOrderId);
+            }
+            $markQuery->update(['read_at' => Carbon::now()]);
+
             $this->loadConversations();
 
-            // Refresh unread badges cho sidebar đơn hàng
             if ($this->selectedConversation) {
                 $this->loadCustomerOrders(
                     $this->selectedConversation['customer']['id'],
