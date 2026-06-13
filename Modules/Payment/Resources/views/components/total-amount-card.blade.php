@@ -96,8 +96,19 @@
         $originalTotal += (float)($item['price'] ?? 0);
     }
 
-    $totalAfterBulk = $originalTotal - $totalBulkDiscount;
-    $hasDiscount    = $totalBulkDiscount > 0;
+    // Khi edit đơn đã tồn tại: dùng discount thực tế từ DB (bao gồm KM khung giờ)
+    // record->amount - record->full_amount = tổng giảm giá trên slot (bất biến dù service thay đổi)
+    $hasRecord         = isset($record) && $record && $record->id;
+    $actualSlotDiscount = 0;
+    $useActualDiscount  = false;
+    if ($hasRecord && (int)($record->amount ?? 0) > 0) {
+        $actualSlotDiscount = max(0, (int)$record->amount - (int)$record->full_amount);
+        if ($actualSlotDiscount > 0) { $useActualDiscount = true; }
+    }
+
+    $effectiveDiscount = $useActualDiscount ? $actualSlotDiscount : $totalBulkDiscount;
+    $totalAfterBulk    = max(0, $originalTotal - $effectiveDiscount);
+    $hasDiscount       = $effectiveDiscount > 0;
 
     // Dịch vụ: ưu tiên form state (live), fallback DB
     $serviceItems    = collect();
@@ -286,6 +297,17 @@
                     {{ number_format($originalTotal, 0, ',', '.') }} đ
                 </span>
             </div>
+            @if($useActualDiscount)
+            <div style="display:flex; justify-content:space-between; align-items:center; background:#eff6ff; border-radius:0.375rem; padding:0.3rem 0.5rem; margin-bottom:0.3rem;">
+                <span style="font-size:0.75rem; color:#1d4ed8; display:flex; align-items:center; gap:0.3rem;">
+                    <x-heroicon-o-receipt-percent style="width:0.75rem; height:0.75rem;" />
+                    Giảm (KM + chiết khấu thực tế)
+                </span>
+                <span style="font-size:0.75rem; font-weight:600; color:#1d4ed8;">
+                    -{{ number_format($effectiveDiscount, 0, ',', '.') }} đ
+                </span>
+            </div>
+            @else
             @foreach($bulkDiscountDetails as $detail)
             <div style="display:flex; justify-content:space-between; align-items:center; background:#eff6ff; border-radius:0.375rem; padding:0.3rem 0.5rem; margin-bottom:0.3rem;">
                 <span style="font-size:0.75rem; color:#1d4ed8; display:flex; align-items:center; gap:0.3rem;">
@@ -297,6 +319,7 @@
                 </span>
             </div>
             @endforeach
+            @endif
             @endif
 
             @if(!$isStyle2 && $totalGuestSurcharge > 0)
@@ -420,14 +443,23 @@
         </div>
         @endif
 
-        {{-- Ghi chú: promotion và coupon không được tính ở đây --}}
+        {{-- Ghi chú: tổng từ DB hay ước tính --}}
         @if(!$isStyle2)
+        @if($useActualDiscount)
+        <div style="margin-top:0.5rem; background:#f0fdf4; border:1px solid #86efac; border-radius:0.375rem; padding:0.4rem 0.6rem; display:flex; align-items:flex-start; gap:0.35rem;">
+            <x-heroicon-o-check-circle style="width:0.875rem; height:0.875rem; color:#16a34a; flex-shrink:0; margin-top:0.05rem;" />
+            <span style="font-size:0.7rem; color:#15803d; line-height:1.4;">
+                Tổng tính từ dữ liệu thực tế của đơn hàng (bao gồm KM và chiết khấu đã áp dụng).
+            </span>
+        </div>
+        @else
         <div style="margin-top:0.5rem; background:#fef9c3; border:1px solid #fde047; border-radius:0.375rem; padding:0.4rem 0.6rem; display:flex; align-items:flex-start; gap:0.35rem;">
             <x-heroicon-o-exclamation-triangle style="width:0.875rem; height:0.875rem; color:#ca8a04; flex-shrink:0; margin-top:0.05rem;" />
             <span style="font-size:0.7rem; color:#854d0e; line-height:1.4;">
                 Ước tính chưa bao gồm: <strong>khuyến mãi khung giờ</strong> và <strong>coupon</strong>. Giá thực tế có thể thấp hơn khi đặt qua API.
             </span>
         </div>
+        @endif
         @endif
 
     @endif

@@ -194,8 +194,8 @@ class RoomCardsService
                                 ])
                                 ->values()
                                 ->toArray();
-                            // Tính lại số tiền từ items với bulk_discount_rules của phòng
-                            $entry['amount'] = static::computeSlotAmount($groupItems, $product);
+                            // Lấy full_amount thực tế từ DB (đã gồm KM + chiết khấu + phụ thu)
+                            $entry['amount'] = (int)($first->order?->full_amount ?? 0);
                         }
                         return $entry;
                     })

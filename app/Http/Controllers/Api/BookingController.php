@@ -509,17 +509,18 @@ class BookingController extends Controller
 
     private function applyDailyPromotions(Collection $rtsCollection, array $nightSummary): array
     {
-        $calculator  = new PromotionCalculator();
-        $dateMap     = collect($nightSummary)->pluck('date', 'date');
+        $calculator    = new PromotionCalculator();
+        // Dùng giá đêm thực từ nightSummary (đã fallback về room->price nếu rts->price = null)
+        $nightPriceMap = collect($nightSummary)->pluck('price', 'date');
 
         $totalDiscount = 0;
         $applied       = [];
 
         foreach ($rtsCollection as $rts) {
             $date = $rts->timeSlot?->label;
-            if (! $date || ! $dateMap->has($date)) continue;
+            if (! $date || ! $nightPriceMap->has($date)) continue;
 
-            $price  = $rts->price !== null ? (float) $rts->price : 0;
+            $price  = (float) $nightPriceMap->get($date);
             $result = $calculator->calculateForDate($rts, $price, $date);
             $disc   = $price - $result['final_price'];
             $totalDiscount += $disc;

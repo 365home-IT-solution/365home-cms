@@ -555,56 +555,14 @@ class OrderTable
      */
     private static function computeOrderTotal(Order $record): int
     {
-        $record->loadMissing(['items.product', 'services']);
-
-        $itemsByProduct = $record->items
-            ->filter(fn ($i) => $i->product_id)
-            ->groupBy('product_id');
-
-        $total = 0;
-
-        foreach ($itemsByProduct as $productId => $groupItems) {
-            $product = $groupItems->first()?->product;
-            $cfg     = $product ? ($product->room_config ?? []) : [];
-            $maxFree = (int)($cfg['max_free_guests'] ?? 2);
-            $feeEach = (int)($cfg['extra_guest_fee'] ?? 0);
-
-            $slotCount       = $groupItems->count();
-            $bulkDiscountPct = 0;
-
-            if ($product && $slotCount >= 2) {
-                $rules = $product->bulk_discount_rules ?? [];
-                usort($rules, fn ($a, $b) => (int)($b['slots'] ?? 0) - (int)($a['slots'] ?? 0));
-                foreach ($rules as $rule) {
-                    if ($slotCount >= (int)($rule['slots'] ?? 0)) {
-                        $bulkDiscountPct = (float)($rule['discount'] ?? 0);
-                        break;
-                    }
-                }
-            }
-
-            foreach ($groupItems as $item) {
-                $basePrice = (float)($item->price ?? 0);
-                if ($bulkDiscountPct > 0) {
-                    $basePrice = round($basePrice * (1 - $bulkDiscountPct / 100));
-                }
-                $guestCount = (int)($item->guest_count ?? 1);
-                $extraFee   = $guestCount > $maxFree ? ($guestCount - $maxFree) * $feeEach : 0;
-                if ((float)($item->extra_fee ?? 0) > $extraFee) {
-                    $extraFee = (float)$item->extra_fee;
-                }
-                $total += $basePrice + $extraFee;
-            }
+        // Đơn đặt cọc: full_amount = tiền cọc → reconstruct tổng thực
+        $depositPct = $record->deposit_percent !== null ? (int)$record->deposit_percent : null;
+        if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
+            return (int) round((int)$record->full_amount * 100 / $depositPct);
         }
 
-        // Items không có product_id
-        foreach ($record->items->filter(fn ($i) => !$i->product_id) as $item) {
-            $total += (float)($item->price ?? 0);
-        }
-
-        $total += $record->services->sum('subtotal');
-
-        return (int)$total;
+        // Đơn thường: full_amount là số tiền thực sau tất cả discount/coupon/KM
+        return (int)($record->full_amount ?? $record->amount ?? 0);
     }
 
     /**
