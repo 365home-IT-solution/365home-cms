@@ -78,15 +78,17 @@
             ];
         }
 
-        // Phụ thu khách: tính 1 lần per product, dùng guest_count cấp order (matching API)
-        if (!$isStyle2 && $feeEach > 0 && $guestCountUsed > $maxFree) {
-            $extraGuests = $guestCountUsed - $maxFree;
-            $surcharge   = $extraGuests * $feeEach;
+        // Phụ thu khách: slot → × 1, daily → × số đêm (matching API)
+        if ($feeEach > 0 && $guestCountUsed > $maxFree) {
+            $extraGuests      = $guestCountUsed - $maxFree;
+            $surchargeNights  = $isStyle2 ? $groupSlotCount : 1;
+            $surcharge        = $extraGuests * $feeEach * $surchargeNights;
             $totalGuestSurcharge += $surcharge;
             $guestSurchargeDetails[] = [
                 'extra_guests' => $extraGuests,
                 'max_free'     => $maxFree,
                 'fee_each'     => $feeEach,
+                'nights'       => $surchargeNights,
                 'total'        => $surcharge,
             ];
         }
@@ -322,12 +324,12 @@
             @endif
             @endif
 
-            @if(!$isStyle2 && $totalGuestSurcharge > 0)
+            @if($totalGuestSurcharge > 0)
             @foreach($guestSurchargeDetails as $detail)
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem;">
                 <span style="font-size:0.75rem; color:#6b7280; display:flex; align-items:center; gap:0.3rem;">
                     <x-heroicon-o-user-plus style="width:0.75rem; height:0.75rem;" />
-                    Phụ thu {{ $detail['extra_guests'] }} người (trên {{ $detail['max_free'] }} miễn phí)
+                    Phụ thu {{ $detail['extra_guests'] }} người (trên {{ $detail['max_free'] }} miễn phí){{ ($detail['nights'] ?? 1) > 1 ? ' × ' . $detail['nights'] . ' đêm' : '' }}
                 </span>
                 <span style="font-size:0.75rem; font-weight:600; color:#ea580c;">
                     +{{ number_format($detail['total'], 0, ',', '.') }} đ
