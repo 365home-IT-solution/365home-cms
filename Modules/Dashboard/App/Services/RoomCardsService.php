@@ -152,7 +152,7 @@ class RoomCardsService
                 $orders = $productItems
                     ->filter(fn ($item) => $item->order && $item->product_id !== null)
                     ->groupBy(fn ($item) => $item->order_id)
-                    ->map(function ($groupItems) use ($buildEntry, $now) {
+                    ->map(function ($groupItems) use ($buildEntry, $now, $product) {
                         $first     = $groupItems->first();
                         $slotCount = $groupItems->count();
                         $slotLabels = $groupItems
@@ -194,6 +194,8 @@ class RoomCardsService
                                 ])
                                 ->values()
                                 ->toArray();
+                            // Tính lại số tiền từ items với bulk_discount_rules của phòng
+                            $entry['amount'] = static::computeSlotAmount($groupItems, $product);
                         }
                         return $entry;
                     })
@@ -279,5 +281,46 @@ class RoomCardsService
             'total_upcoming' => array_sum(array_column($rooms, 'upcoming_count')),
             'total_overdue'  => array_sum(array_column($rooms, 'overdue_count')),
         ];
+    }
+
+    /**
+     * Tính tổng tiền cho nhóm khung giờ của 1 phòng trong 1 đơn hàng,
+     * áp dụng bulk_discount_rules và phụ thu từ room_config.
+     */
+    private static function computeSlotAmount($groupItems, Product $product): int
+    {
+        $cfg     = $product->room_config ?? [];
+        $maxFree = (int)($cfg['max_free_guests'] ?? 2);
+        $feeEach = (int)($cfg['extra_guest_fee'] ?? 0);
+
+        $slotCount       = $groupItems->count();
+        $bulkDiscountPct = 0;
+
+        if ($slotCount >= 2) {
+            $rules = $product->bulk_discount_rules ?? [];
+            usort($rules, fn ($a, $b) => (int)($b['slots'] ?? 0) - (int)($a['slots'] ?? 0));
+            foreach ($rules as $rule) {
+                if ($slotCount >= (int)($rule['slots'] ?? 0)) {
+                    $bulkDiscountPct = (float)($rule['discount'] ?? 0);
+                    break;
+                }
+            }
+        }
+
+        $total = 0;
+        foreach ($groupItems as $item) {
+            $basePrice = (float)($item->price ?? 0);
+            if ($bulkDiscountPct > 0) {
+                $basePrice = round($basePrice * (1 - $bulkDiscountPct / 100));
+            }
+            $guestCount = (int)($item->guest_count ?? 1);
+            $extraFee   = $guestCount > $maxFree ? ($guestCount - $maxFree) * $feeEach : 0;
+            if ((float)($item->extra_fee ?? 0) > $extraFee) {
+                $extraFee = (float)$item->extra_fee;
+            }
+            $total += $basePrice + $extraFee;
+        }
+
+        return (int)$total;
     }
 }

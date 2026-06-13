@@ -3,38 +3,90 @@
 
     // Phát hiện style=2 (đặt theo ngày)
     $isStyle2 = false;
+
+    // Load tất cả sản phẩm duy nhất để lấy bulk_discount_rules và room_config
+    $productCache = [];
     if (is_array($items)) {
         foreach ($items as $item) {
-            if ((int)($item['product_style'] ?? 0) === 2) { $isStyle2 = true; break; }
-            if (!empty($item['product_id'])) {
-                $prod = \Modules\Product\App\Models\Product::find($item['product_id']);
-                if ($prod && (int)($prod->styles ?? 1) === 2) { $isStyle2 = true; break; }
+            if ((int)($item['product_style'] ?? 0) === 2) { $isStyle2 = true; }
+            $pid = $item['product_id'] ?? null;
+            if ($pid && !isset($productCache[$pid])) {
+                $prod = \Modules\Product\App\Models\Product::find($pid);
+                if ($prod) {
+                    $productCache[$pid] = $prod;
+                    if ((int)($prod->styles ?? 1) === 2) { $isStyle2 = true; }
+                }
             }
         }
     }
 
-    // Tính giá gốc + phụ phí phòng
-    $originalTotal = 0;
-    $totalExtraFee = 0;
-    if (is_array($items) && $slotCount > 0) {
+    // Nhóm items theo product_id (mỗi item = 1 khung giờ)
+    $itemsByProduct = [];
+    $noProductItems = [];
+    if (is_array($items)) {
         foreach ($items as $item) {
-            $originalTotal += isset($item['price']) ? (float)$item['price'] : 0;
-            $totalExtraFee += isset($item['extra_fee']) ? (float)$item['extra_fee'] : 0;
+            $pid = $item['product_id'] ?? null;
+            if ($pid) {
+                $itemsByProduct[$pid][] = $item;
+            } else {
+                $noProductItems[] = $item;
+            }
         }
     }
 
-    // Giảm giá bulk (style=1 only)
-    $bulkDiscountRate = 0;
-    if (!$isStyle2) {
-        if ($slotCount === 2) $bulkDiscountRate = 0.05;
-        elseif ($slotCount >= 3) $bulkDiscountRate = 0.10;
+    // Tính tổng áp dụng bulk_discount_rules từ cài đặt sản phẩm
+    $originalTotal     = 0;
+    $totalExtraFee     = 0;
+    $totalBulkDiscount = 0;
+    $bulkDiscountDetails = [];
+
+    foreach ($itemsByProduct as $pid => $groupItems) {
+        $prod    = $productCache[$pid] ?? null;
+        $cfg     = $prod ? ($prod->room_config ?? []) : [];
+        $maxFree = (int)($cfg['max_free_guests'] ?? 2);
+
+        $groupSlotCount  = count($groupItems);
+        $bulkDiscountPct = 0;
+
+        if ($prod && $groupSlotCount >= 2) {
+            $rules = $prod->bulk_discount_rules ?? [];
+            usort($rules, fn($a, $b) => (int)($b['slots'] ?? 0) - (int)($a['slots'] ?? 0));
+            foreach ($rules as $rule) {
+                if ($groupSlotCount >= (int)($rule['slots'] ?? 0)) {
+                    $bulkDiscountPct = (float)($rule['discount'] ?? 0);
+                    break;
+                }
+            }
+        }
+
+        $groupOriginal = 0;
+        foreach ($groupItems as $item) {
+            $groupOriginal += (float)($item['price'] ?? 0);
+            $totalExtraFee += (float)($item['extra_fee'] ?? 0);
+        }
+        $originalTotal += $groupOriginal;
+
+        if ($bulkDiscountPct > 0) {
+            $groupDiscount = round($groupOriginal * $bulkDiscountPct / 100);
+            $totalBulkDiscount += $groupDiscount;
+            $bulkDiscountDetails[] = [
+                'slots'  => $groupSlotCount,
+                'pct'    => $bulkDiscountPct,
+                'amount' => $groupDiscount,
+            ];
+        }
     }
-    $bulkDiscount = $originalTotal * $bulkDiscountRate;
-    $totalAfterBulk = $originalTotal - $bulkDiscount;
+
+    foreach ($noProductItems as $item) {
+        $originalTotal += (float)($item['price'] ?? 0);
+    }
+
+    $totalAfterBulk = $originalTotal - $totalBulkDiscount;
+    $hasDiscount    = $totalBulkDiscount > 0;
 
     // Dịch vụ: ưu tiên form state (live), fallback DB
-    $serviceItems   = collect();
-    $serviceTotal   = 0;
+    $serviceItems    = collect();
+    $serviceTotal    = 0;
     $useFormServices = isset($servicesFormState) && is_array($servicesFormState) && count($servicesFormState) > 0;
 
     if ($useFormServices) {
@@ -61,12 +113,19 @@
 
     $finalTotal = $totalAfterBulk + ($isStyle2 ? 0 : $totalExtraFee) + $serviceTotal;
 
-    // Khi xem/sửa đơn đã lưu: dùng amount thực tế trong DB (tránh cộng thêm dịch vụ thêm sau)
-    if (isset($record) && $record && (int)($record->full_amount ?? $record->amount ?? 0) > 0) {
-        $finalTotal = (int)($record->full_amount ?? $record->amount);
+    // Thu thập tất cả mức giảm giá duy nhất để hiển thị ghi chú
+    $allDiscountRulesSummary = [];
+    if (!$isStyle2) {
+        foreach ($productCache as $prod) {
+            foreach ($prod->bulk_discount_rules ?? [] as $rule) {
+                $key = (int)($rule['slots'] ?? 0);
+                if ($key >= 2 && !isset($allDiscountRulesSummary[$key])) {
+                    $allDiscountRulesSummary[$key] = (float)($rule['discount'] ?? 0);
+                }
+            }
+        }
+        ksort($allDiscountRulesSummary);
     }
-
-    $hasDiscount = $bulkDiscount > 0;
 @endphp
 
 <div style="font-family: inherit;">
@@ -92,9 +151,13 @@
             @foreach($items as $item)
                 @if(isset($item['name'], $item['price']))
                 @php
-                    $itemStyle = (int)($item['product_style'] ?? 1);
-                    $extraFee  = (float)($item['extra_fee'] ?? 0);
+                    $itemStyle  = (int)($item['product_style'] ?? 1);
+                    $extraFee   = (float)($item['extra_fee'] ?? 0);
                     $guestCount = (int)($item['guest_count'] ?? 1);
+                    $itemPid    = $item['product_id'] ?? null;
+                    $itemProd   = $itemPid ? ($productCache[$itemPid] ?? null) : null;
+                    $itemCfg    = $itemProd ? ($itemProd->room_config ?? []) : [];
+                    $maxFreeItem = (int)($itemCfg['max_free_guests'] ?? 2);
                 @endphp
                 <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:0.5rem; padding:0.6rem 0.75rem; margin-bottom:0.4rem;">
                     {{-- Room name + price --}}
@@ -154,7 +217,7 @@
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.35rem; padding-top:0.35rem; border-top:1px dashed #e2e8f0;">
                         <span style="font-size:0.7rem; color:#64748b; display:flex; align-items:center; gap:0.3rem;">
                             <x-heroicon-o-users style="width:0.75rem; height:0.75rem;" />
-                            {{ $guestCount }} khách{{ $guestCount > 2 ? ' (phụ thu ' . ($guestCount - 2) . ' người)' : '' }}
+                            {{ $guestCount }} khách{{ $guestCount > $maxFreeItem ? ' (phụ thu ' . ($guestCount - $maxFreeItem) . ' người)' : '' }}
                         </span>
                         @if($extraFee > 0)
                         <span style="font-size:0.7rem; color:#ea580c; font-weight:600; white-space:nowrap;">
@@ -215,15 +278,17 @@
                     {{ number_format($originalTotal, 0, ',', '.') }} đ
                 </span>
             </div>
+            @foreach($bulkDiscountDetails as $detail)
             <div style="display:flex; justify-content:space-between; align-items:center; background:#eff6ff; border-radius:0.375rem; padding:0.3rem 0.5rem; margin-bottom:0.3rem;">
                 <span style="font-size:0.75rem; color:#1d4ed8; display:flex; align-items:center; gap:0.3rem;">
                     <x-heroicon-o-receipt-percent style="width:0.75rem; height:0.75rem;" />
-                    Giảm {{ $slotCount }} khung ({{ $bulkDiscountRate * 100 }}%)
+                    Giảm {{ $detail['slots'] }} khung ({{ $detail['pct'] }}%)
                 </span>
                 <span style="font-size:0.75rem; font-weight:600; color:#1d4ed8;">
-                    -{{ number_format($bulkDiscount, 0, ',', '.') }} đ
+                    -{{ number_format($detail['amount'], 0, ',', '.') }} đ
                 </span>
             </div>
+            @endforeach
             @endif
 
             @if(!$isStyle2 && $totalExtraFee > 0)
@@ -333,12 +398,14 @@
         </div>
         @endif
 
-        {{-- Ghi chú ưu đãi --}}
-        @if(!$isStyle2 && $slotCount >= 2)
+        {{-- Ghi chú mức giảm giá từ cài đặt --}}
+        @if(!$isStyle2 && $slotCount >= 2 && count($allDiscountRulesSummary) > 0)
         <div style="margin-top:0.5rem; background:#f0f9ff; border:1px solid #bae6fd; border-radius:0.375rem; padding:0.4rem 0.6rem; display:flex; align-items:flex-start; gap:0.35rem;">
             <x-heroicon-o-information-circle style="width:0.875rem; height:0.875rem; color:#0284c7; flex-shrink:0; margin-top:0.05rem;" />
             <span style="font-size:0.7rem; color:#0369a1; line-height:1.4;">
-                Giảm 5% khi đặt 2 khung, giảm 10% từ 3 khung trở lên
+                @foreach($allDiscountRulesSummary as $ruleSlots => $ruleDiscount)
+                    Giảm {{ $ruleDiscount }}% khi đặt {{ $ruleSlots }} khung{{ !$loop->last ? ' · ' : '' }}
+                @endforeach
             </span>
         </div>
         @endif

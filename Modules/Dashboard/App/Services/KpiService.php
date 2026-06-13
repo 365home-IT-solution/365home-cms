@@ -67,18 +67,18 @@ class KpiService
         $prevTotal = (clone $previousQuery)->count();
         $totalDelta = $prevTotal > 0 ? round((($total - $prevTotal) / $prevTotal) * 100, 1) : 0;
 
-        $revenue     = (clone $currentQuery)->where('status', 'paid')->sum('amount')
+        $revenue     = static::sumOrderAmount((clone $currentQuery)->where('status', 'paid'))
                      + (clone $currentQuery)->where('status', 'deposit')->whereNotNull('money_deposit')->sum('money_deposit');
-        $prevRevenue = (clone $previousQuery)->where('status', 'paid')->sum('amount')
+        $prevRevenue = static::sumOrderAmount((clone $previousQuery)->where('status', 'paid'))
                      + (clone $previousQuery)->where('status', 'deposit')->whereNotNull('money_deposit')->sum('money_deposit');
         $revenueDelta = $prevRevenue > 0 ? round((($revenue - $prevRevenue) / $prevRevenue) * 100, 1) : 0;
 
-        $revenuePayos     = (clone $currentQuery)->where('status', 'paid')->where('payment_method', 'PayOS')->sum('amount');
-        $prevRevenuePayos = (clone $previousQuery)->where('status', 'paid')->where('payment_method', 'PayOS')->sum('amount');
+        $revenuePayos     = static::sumOrderAmount((clone $currentQuery)->where('status', 'paid')->where('payment_method', 'PayOS'));
+        $prevRevenuePayos = static::sumOrderAmount((clone $previousQuery)->where('status', 'paid')->where('payment_method', 'PayOS'));
         $revenuePayosDelta = $prevRevenuePayos > 0 ? round((($revenuePayos - $prevRevenuePayos) / $prevRevenuePayos) * 100, 1) : 0;
 
-        $revenueCod     = (clone $currentQuery)->where('status', 'paid')->where('payment_method', 'cod')->sum('amount');
-        $prevRevenueCod = (clone $previousQuery)->where('status', 'paid')->where('payment_method', 'cod')->sum('amount');
+        $revenueCod     = static::sumOrderAmount((clone $currentQuery)->where('status', 'paid')->where('payment_method', 'cod'));
+        $prevRevenueCod = static::sumOrderAmount((clone $previousQuery)->where('status', 'paid')->where('payment_method', 'cod'));
         $revenueCodDelta = $prevRevenueCod > 0 ? round((($revenueCod - $prevRevenueCod) / $prevRevenueCod) * 100, 1) : 0;
 
         $revenueDepositPayos     = (clone $currentQuery)->where('status', 'deposit')->where('payment_method', 'PayOS')->sum('money_deposit');
@@ -103,5 +103,11 @@ class KpiService
             'paidCount', 'paidDelta',
             'dateRange', 'prevDateRange'
         );
+    }
+
+    /** Tổng tiền đơn paid: ưu tiên full_amount (tổng thực tế), fallback amount */
+    private static function sumOrderAmount($query): int
+    {
+        return (int) ($query->selectRaw('SUM(COALESCE(full_amount, amount)) as total')->value('total') ?? 0);
     }
 }

@@ -380,7 +380,10 @@ class OrderForm
                                                                     ->hintIcon('heroicon-c-currency-dollar')
                                                                     ->hintColor('primary')
                                                                     ->hintIconTooltip('Giá phòng')
-                                                                    ->afterStateUpdated(fn ($state, Set $set) => $set('price', preg_replace('/[^0-9]/', '', $state))),
+                                                                    ->afterStateUpdated(function ($state, Get $get, Set $set) {
+                                                                        $set('price', preg_replace('/[^0-9]/', '', $state));
+                                                                        self::calculateTotal($get, $set);
+                                                                    }),
 
                                                             // Style 2: hiển thị tổng tính tự động
                                                             Placeholder::make('price_nights_summary')
@@ -1054,30 +1057,64 @@ class OrderForm
     {
         $items = $get('../../orderItems') ?? $get('orderItems') ?? [];
 
-        $total = collect($items)->sum(function ($item) {
-            $priceToUse = isset($item['discount']) && $item['discount'] > 0
-                ? (float)$item['discount']
-                : (float)($item['price'] ?? 0);
-
-            $quantity = isset($item['quantity']) ? (int)$item['quantity'] : 1;
-            $guestCount = isset($item['guest_count']) ? (int)$item['guest_count'] : 1;
-
-            // Phụ thu theo cấu hình phòng (room_config)
+        // Nhóm items theo product_id để tính giảm giá theo số khung giờ
+        $itemsByProduct = [];
+        $noProductItems = [];
+        foreach ($items as $item) {
             $productId = $item['product_id'] ?? null;
-            $product   = $productId ? \Modules\Product\App\Models\Product::find($productId) : null;
-            $cfg       = $product ? ($product->room_config ?? []) : [];
-            $maxFree   = (int)($cfg['max_free_guests'] ?? 2);
-            $feeEach   = (int)($cfg['extra_guest_fee'] ?? 50000);
-            $extraFee  = $guestCount > $maxFree ? ($guestCount - $maxFree) * $feeEach : 0;
+            if ($productId) {
+                $itemsByProduct[$productId][] = $item;
+            } else {
+                $noProductItems[] = $item;
+            }
+        }
 
-            if (isset($item['extra_fee'])) {
-                $extraFee = max($extraFee, (float)$item['extra_fee']);
+        $total = 0;
+
+        foreach ($itemsByProduct as $productId => $productItems) {
+            $product = \Modules\Product\App\Models\Product::find($productId);
+            $cfg     = $product ? ($product->room_config ?? []) : [];
+            $maxFree = (int)($cfg['max_free_guests'] ?? 2);
+            $feeEach = (int)($cfg['extra_guest_fee'] ?? 0);
+
+            // Mỗi item = 1 khung giờ; tìm mức giảm phù hợp từ bulk_discount_rules
+            $slotCount = count($productItems);
+            $bulkDiscountPct = 0;
+
+            if ($product && $slotCount >= 2) {
+                $rules = $product->bulk_discount_rules ?? [];
+                usort($rules, fn($a, $b) => (int)($b['slots'] ?? 0) - (int)($a['slots'] ?? 0));
+                foreach ($rules as $rule) {
+                    if ($slotCount >= (int)($rule['slots'] ?? 0)) {
+                        $bulkDiscountPct = (float)($rule['discount'] ?? 0);
+                        break;
+                    }
+                }
             }
 
-            $base = $quantity * $priceToUse;
+            foreach ($productItems as $item) {
+                $basePrice = (float)($item['price'] ?? 0);
 
-            return $base + $extraFee;
-        });
+                if ($bulkDiscountPct > 0) {
+                    $basePrice = round($basePrice * (1 - $bulkDiscountPct / 100));
+                }
+
+                $guestCount = isset($item['guest_count']) ? (int)$item['guest_count'] : 1;
+                $extraFee   = $guestCount > $maxFree ? ($guestCount - $maxFree) * $feeEach : 0;
+
+                // Admin có thể override extra_fee thủ công (lấy giá trị cao hơn)
+                if (isset($item['extra_fee']) && (float)$item['extra_fee'] > $extraFee) {
+                    $extraFee = (float)$item['extra_fee'];
+                }
+
+                $total += $basePrice + $extraFee;
+            }
+        }
+
+        // Items không có product_id
+        foreach ($noProductItems as $item) {
+            $total += (float)($item['price'] ?? 0);
+        }
 
         // Cộng dịch vụ thêm
         $services = $get('../../orderServices') ?? $get('orderServices') ?? [];

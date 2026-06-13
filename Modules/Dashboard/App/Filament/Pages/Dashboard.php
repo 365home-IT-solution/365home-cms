@@ -59,18 +59,18 @@ class Dashboard extends FilamentDashboard
         $prevTotal = (clone $previousQuery)->count();
         $totalDelta = $prevTotal > 0 ? round((($total - $prevTotal) / $prevTotal) * 100, 1) : 0;
 
-        $revenue = (clone $currentQuery)->where('status', 'paid')->sum('amount')
+        $revenue = static::sumOrderAmount((clone $currentQuery)->where('status', 'paid'))
                  + (clone $currentQuery)->where('status', 'deposit')->whereNotNull('money_deposit')->sum('money_deposit');
-        $prevRevenue = (clone $previousQuery)->where('status', 'paid')->sum('amount')
-                    + (clone $previousQuery)->where('status', 'deposit')->whereNotNull('money_deposit')->sum('money_deposit');
+        $prevRevenue = static::sumOrderAmount((clone $previousQuery)->where('status', 'paid'))
+                     + (clone $previousQuery)->where('status', 'deposit')->whereNotNull('money_deposit')->sum('money_deposit');
         $revenueDelta = $prevRevenue > 0 ? round((($revenue - $prevRevenue) / $prevRevenue) * 100, 1) : 0;
 
-        $revenuePayos = (clone $currentQuery)->where('status', 'paid')->where('payment_method', 'PayOS')->sum('amount');
-        $prevRevenuePayos = (clone $previousQuery)->where('status', 'paid')->where('payment_method', 'PayOS')->sum('amount');
+        $revenuePayos = static::sumOrderAmount((clone $currentQuery)->where('status', 'paid')->where('payment_method', 'PayOS'));
+        $prevRevenuePayos = static::sumOrderAmount((clone $previousQuery)->where('status', 'paid')->where('payment_method', 'PayOS'));
         $revenuePayosDelta = $prevRevenuePayos > 0 ? round((($revenuePayos - $prevRevenuePayos) / $prevRevenuePayos) * 100, 1) : 0;
 
-        $revenueCod = (clone $currentQuery)->where('status', 'paid')->where('payment_method', 'cod')->sum('amount');
-        $prevRevenueCod = (clone $previousQuery)->where('status', 'paid')->where('payment_method', 'cod')->sum('amount');
+        $revenueCod = static::sumOrderAmount((clone $currentQuery)->where('status', 'paid')->where('payment_method', 'cod'));
+        $prevRevenueCod = static::sumOrderAmount((clone $previousQuery)->where('status', 'paid')->where('payment_method', 'cod'));
         $revenueCodDelta = $prevRevenueCod > 0 ? round((($revenueCod - $prevRevenueCod) / $prevRevenueCod) * 100, 1) : 0;
 
         $revenueDepositPayos = (clone $currentQuery)->where('status', 'deposit')->where('payment_method', 'PayOS')->sum('money_deposit');
@@ -261,6 +261,7 @@ class Dashboard extends FilamentDashboard
         // Subquery: lấy cặp (order_id, product_id) duy nhất kèm orders.amount thực tế.
         // Dùng orders.amount thay vì order_items.price*quantity vì slot bookings có thể lưu base price = 0
         // trong khi orders.amount luôn là số tiền thực tế đã thanh toán.
+        $prefix = DB::getTablePrefix();
         $inner = DB::table("{$itemTable} as oi")
             ->join("{$ordTable} as o", 'oi.order_id', '=', 'o.id')
             ->join("{$prodTable} as p", 'oi.product_id', '=', 'p.id')
@@ -269,7 +270,7 @@ class Dashboard extends FilamentDashboard
             ->where('o.exclude_from_stats', false)
             ->whereYear('o.created_at', $year)
             ->whereNotNull('oi.product_id')
-            ->select('oi.product_id', 'p.name as product_name', 'o.id as order_id', 'o.amount as order_amount')
+            ->selectRaw("{$prefix}oi.product_id, {$prefix}p.name as product_name, {$prefix}o.id as order_id, COALESCE({$prefix}o.full_amount, {$prefix}o.amount) as order_amount")
             ->distinct();
 
         if ($user && ! $user->isSuperAdmin()) {
@@ -348,7 +349,7 @@ class Dashboard extends FilamentDashboard
         }
 
         $data = $query
-            ->selectRaw('MONTH(created_at) as month, SUM(amount) as revenue')
+            ->selectRaw('MONTH(created_at) as month, SUM(COALESCE(full_amount, amount)) as revenue')
             ->groupByRaw('MONTH(created_at)')
             ->pluck('revenue', 'month');
 
@@ -411,5 +412,11 @@ class Dashboard extends FilamentDashboard
             return $query->whereRaw('1 = 0');
         }
         return $query->whereIn('category_id', $allCategoryIds);
+    }
+
+    /** Tổng tiền đơn đã thanh toán: ưu tiên full_amount (tổng thực tế), fallback amount */
+    private static function sumOrderAmount($query): int
+    {
+        return (int) ($query->selectRaw('SUM(COALESCE(full_amount, amount)) as total')->value('total') ?? 0);
     }
 }

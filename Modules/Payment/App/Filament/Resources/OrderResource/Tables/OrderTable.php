@@ -30,7 +30,7 @@ class OrderTable
     {
         return $table
             ->modifyQueryUsing(function ($query) {
-                $query->with(['items.product', 'accessCodes']);
+                $query->with(['items.product', 'services', 'accessCodes']);
                 if (! (auth()->user()?->isSuperAdmin() ?? false)) {
                     $query->where('exclude_from_stats', false);
                 }
@@ -50,10 +50,12 @@ class OrderTable
                     ->color('primary')
                     ->icon('heroicon-m-building-office-2'),
 
-                TextColumn::make('full_amount')
+                TextColumn::make('computed_total')
                     ->label('Tổng tiền')
                     ->weight(FontWeight::Bold)
-                    ->money('VND'),
+                    ->getStateUsing(fn ($record) => static::computeOrderTotal($record))
+                    ->formatStateUsing(fn ($state) => number_format((int)$state, 0, ',', '.') . ' ₫')
+                    ->sortable(false),
 
                 TextColumn::make('created_at')
                     ->label(__('payment::order.table.label.created_at'))
@@ -356,14 +358,17 @@ class OrderTable
                         ->modalCancelActionLabel('Đóng')
                         ->modalWidth('2xl')
                         ->modalContent(function ($record) {
-                            $record->load('items');
+                            $record->loadMissing(['items.product', 'services']);
                             $items = $record->items;
 
                             if ($items->isEmpty()) {
                                 return new HtmlString('<p class="text-gray-500 text-sm py-4 text-center">Không có khung giờ nào.</p>');
                             }
 
-                            $rows = $items->map(function ($item, $index) {
+                            // Tính bulk discount per product group
+                            $bulkData = static::computeItemsBulkData($items);
+
+                            $rows = $items->map(function ($item, $index) use ($bulkData) {
                                 $checkin  = $item->checkin_date
                                     ? \Carbon\Carbon::parse($item->checkin_date)->format('d/m/Y H:i')
                                     : '—';
@@ -371,12 +376,20 @@ class OrderTable
                                     ? \Carbon\Carbon::parse($item->checkout_date)->format('d/m/Y H:i')
                                     : '—';
 
-                                $price    = number_format($item->price ?? 0, 0, ',', '.') . ' đ';
-                                $extraFee = ($item->extra_fee ?? 0) > 0
-                                    ? '<span class="text-orange-500 text-xs ml-1">(+' . number_format($item->extra_fee, 0, ',', '.') . ' đ phụ thu)</span>'
-                                    : '';
+                                $basePrice     = (float)($item->price ?? 0);
+                                $discountPct   = $bulkData['item_discount_pct'][$item->id] ?? 0;
+                                $discountedPrice = $discountPct > 0 ? round($basePrice * (1 - $discountPct / 100)) : $basePrice;
+                                $extraFee      = (float)($item->extra_fee ?? 0);
 
-                                $total = number_format(($item->price ?? 0) + ($item->extra_fee ?? 0), 0, ',', '.') . ' đ';
+                                $priceHtml = $discountPct > 0
+                                    ? '<span class="line-through text-gray-400 text-xs">' . number_format($basePrice, 0, ',', '.') . 'đ</span> '
+                                      . '<span class="font-semibold text-blue-700">' . number_format($discountedPrice, 0, ',', '.') . 'đ</span>'
+                                      . ' <span class="text-xs text-blue-500">(-' . $discountPct . '%)</span>'
+                                    : '<span class="font-semibold">' . number_format($basePrice, 0, ',', '.') . 'đ</span>';
+
+                                $extraHtml = $extraFee > 0
+                                    ? '<span class="text-orange-500 text-xs ml-1">(+' . number_format($extraFee, 0, ',', '.') . 'đ phụ thu)</span>'
+                                    : '';
 
                                 return '
                                     <tr class="border-b last:border-0 hover:bg-gray-50">
@@ -393,17 +406,44 @@ class OrderTable
                                             </div>
                                         </td>
                                         <td class="py-3 px-4 text-sm text-right">
-                                            <div class="font-semibold">' . $price . $extraFee . '</div>
-                                            <div class="text-xs text-gray-400">Tổng: ' . $total . '</div>
+                                            <div>' . $priceHtml . $extraHtml . '</div>
                                         </td>
                                     </tr>
                                 ';
                             })->join('');
 
-                            $grandTotal = number_format(
-                                $items->sum(fn ($i) => ($i->price ?? 0) + ($i->extra_fee ?? 0)),
-                                0, ',', '.'
-                            ) . ' đ';
+                            $grandTotal    = static::computeOrderTotal($record);
+                            $totalExtraFee = $items->sum(fn ($i) => (float)($i->extra_fee ?? 0));
+                            $serviceTotal  = $record->services->sum('subtotal');
+                            $discountTotal = $bulkData['total_discount'];
+
+                            $footerRows = '';
+                            if ($discountTotal > 0) {
+                                $footerRows .= '
+                                    <tr>
+                                        <td colspan="3" class="py-2 px-4 text-sm text-blue-600 text-right">Giảm giá đặt nhiều khung:</td>
+                                        <td class="py-2 px-4 text-sm font-semibold text-blue-600 text-right">-' . number_format($discountTotal, 0, ',', '.') . 'đ</td>
+                                    </tr>';
+                            }
+                            if ($totalExtraFee > 0) {
+                                $footerRows .= '
+                                    <tr>
+                                        <td colspan="3" class="py-2 px-4 text-sm text-orange-500 text-right">Phụ thu khách thêm:</td>
+                                        <td class="py-2 px-4 text-sm font-semibold text-orange-500 text-right">+' . number_format($totalExtraFee, 0, ',', '.') . 'đ</td>
+                                    </tr>';
+                            }
+                            if ($serviceTotal > 0) {
+                                $footerRows .= '
+                                    <tr>
+                                        <td colspan="3" class="py-2 px-4 text-sm text-orange-400 text-right">Dịch vụ thêm:</td>
+                                        <td class="py-2 px-4 text-sm font-semibold text-orange-400 text-right">+' . number_format($serviceTotal, 0, ',', '.') . 'đ</td>
+                                    </tr>';
+                            }
+                            $footerRows .= '
+                                <tr class="bg-blue-50">
+                                    <td colspan="3" class="py-3 px-4 text-sm font-bold text-gray-700 text-right">Tổng thanh toán:</td>
+                                    <td class="py-3 px-4 text-sm font-bold text-primary-600 text-right">' . number_format($grandTotal, 0, ',', '.') . 'đ</td>
+                                </tr>';
 
                             $html = '
                                 <div class="overflow-hidden rounded-lg border border-gray-200">
@@ -417,12 +457,7 @@ class OrderTable
                                             </tr>
                                         </thead>
                                         <tbody>' . $rows . '</tbody>
-                                        <tfoot class="bg-gray-50 border-t border-gray-200">
-                                            <tr>
-                                                <td colspan="3" class="py-3 px-4 text-sm font-bold text-gray-700 text-right">Tổng cộng:</td>
-                                                <td class="py-3 px-4 text-sm font-bold text-primary-600 text-right">' . $grandTotal . '</td>
-                                            </tr>
-                                        </tfoot>
+                                        <tfoot class="bg-gray-50 border-t border-gray-200">' . $footerRows . '</tfoot>
                                     </table>
                                 </div>
                             ';
@@ -512,5 +547,107 @@ class OrderTable
                 OrderAction::action()
             ), position: ActionsPosition::BeforeCells)
             ->bulkActions(OrderBulkAction::bulkActions());
+    }
+
+    /**
+     * Tính tổng đơn hàng áp dụng bulk_discount_rules từ cài đặt phòng.
+     * Mỗi order item = 1 khung giờ; số lượng items cùng product_id xác định mức giảm.
+     */
+    private static function computeOrderTotal(Order $record): int
+    {
+        $record->loadMissing(['items.product', 'services']);
+
+        $itemsByProduct = $record->items
+            ->filter(fn ($i) => $i->product_id)
+            ->groupBy('product_id');
+
+        $total = 0;
+
+        foreach ($itemsByProduct as $productId => $groupItems) {
+            $product = $groupItems->first()?->product;
+            $cfg     = $product ? ($product->room_config ?? []) : [];
+            $maxFree = (int)($cfg['max_free_guests'] ?? 2);
+            $feeEach = (int)($cfg['extra_guest_fee'] ?? 0);
+
+            $slotCount       = $groupItems->count();
+            $bulkDiscountPct = 0;
+
+            if ($product && $slotCount >= 2) {
+                $rules = $product->bulk_discount_rules ?? [];
+                usort($rules, fn ($a, $b) => (int)($b['slots'] ?? 0) - (int)($a['slots'] ?? 0));
+                foreach ($rules as $rule) {
+                    if ($slotCount >= (int)($rule['slots'] ?? 0)) {
+                        $bulkDiscountPct = (float)($rule['discount'] ?? 0);
+                        break;
+                    }
+                }
+            }
+
+            foreach ($groupItems as $item) {
+                $basePrice = (float)($item->price ?? 0);
+                if ($bulkDiscountPct > 0) {
+                    $basePrice = round($basePrice * (1 - $bulkDiscountPct / 100));
+                }
+                $guestCount = (int)($item->guest_count ?? 1);
+                $extraFee   = $guestCount > $maxFree ? ($guestCount - $maxFree) * $feeEach : 0;
+                if ((float)($item->extra_fee ?? 0) > $extraFee) {
+                    $extraFee = (float)$item->extra_fee;
+                }
+                $total += $basePrice + $extraFee;
+            }
+        }
+
+        // Items không có product_id
+        foreach ($record->items->filter(fn ($i) => !$i->product_id) as $item) {
+            $total += (float)($item->price ?? 0);
+        }
+
+        $total += $record->services->sum('subtotal');
+
+        return (int)$total;
+    }
+
+    /**
+     * Trả về mảng thông tin bulk discount cho từng item (dùng trong modal).
+     * ['item_discount_pct' => [item_id => pct], 'total_discount' => int]
+     */
+    private static function computeItemsBulkData($items): array
+    {
+        $itemDiscountPct = [];
+        $totalDiscount   = 0;
+
+        $itemsByProduct = $items
+            ->filter(fn ($i) => $i->product_id)
+            ->groupBy('product_id');
+
+        foreach ($itemsByProduct as $productId => $groupItems) {
+            $product = $groupItems->first()?->product;
+
+            $slotCount       = $groupItems->count();
+            $bulkDiscountPct = 0;
+
+            if ($product && $slotCount >= 2) {
+                $rules = $product->bulk_discount_rules ?? [];
+                usort($rules, fn ($a, $b) => (int)($b['slots'] ?? 0) - (int)($a['slots'] ?? 0));
+                foreach ($rules as $rule) {
+                    if ($slotCount >= (int)($rule['slots'] ?? 0)) {
+                        $bulkDiscountPct = (float)($rule['discount'] ?? 0);
+                        break;
+                    }
+                }
+            }
+
+            foreach ($groupItems as $item) {
+                $itemDiscountPct[$item->id] = $bulkDiscountPct;
+                if ($bulkDiscountPct > 0) {
+                    $totalDiscount += (int)round((float)($item->price ?? 0) * $bulkDiscountPct / 100);
+                }
+            }
+        }
+
+        return [
+            'item_discount_pct' => $itemDiscountPct,
+            'total_discount'    => $totalDiscount,
+        ];
     }
 }
