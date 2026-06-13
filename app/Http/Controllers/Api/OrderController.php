@@ -401,6 +401,26 @@ class OrderController extends Controller
         $otherDiscount = max(0, $totalDiscount - $promotionDiscount);
         $slotsFinal    = max(0, $slotsTotal - $totalDiscount);
 
+        // Phân biệt coupon vs system_discount dựa vào coupon_code lưu trên đơn
+        $couponInfo     = null;
+        $couponDiscount = 0;
+        $sysDelta       = $otherDiscount;
+
+        if ($order->coupon_code) {
+            $coupon = \Modules\Promotion\App\Models\Coupon::where('code', $order->coupon_code)->first();
+            if ($coupon) {
+                $couponDiscount = min($otherDiscount, (int) $coupon->calculateDiscount($slotsTotal - $promotionDiscount));
+                $couponInfo = [
+                    'code'            => $coupon->code,
+                    'name'            => $coupon->name,
+                    'type'            => $coupon->type,
+                    'value'           => $coupon->value,
+                    'discount_amount' => $couponDiscount,
+                ];
+                $sysDelta = max(0, $otherDiscount - $couponDiscount);
+            }
+        }
+
         return response()->json([
             'order' => [
                 'id'             => $order->id,
@@ -421,8 +441,8 @@ class OrderController extends Controller
             'services'        => $servicesResult,
             'guest_surcharge' => $guestSurchargeInfo,
             'promotions'      => $promotions,
-            'system_discount' => $otherDiscount > 0 ? ['discount_amount' => $otherDiscount] : null,
-            'coupon'          => null,
+            'system_discount' => $sysDelta > 0 ? ['discount_amount' => $sysDelta] : null,
+            'coupon'          => $couponInfo,
             'deposit'         => $depositPctResp !== null ? [
                 'type'             => 'deposit',
                 'percentage'       => $depositPctResp,
@@ -432,8 +452,8 @@ class OrderController extends Controller
             'summary' => [
                 'slots_total'          => $slotsTotal,
                 'promotion_discount'   => $promotionDiscount,
-                'system_discount'      => $otherDiscount,
-                'coupon_discount'      => 0,
+                'system_discount'      => $sysDelta,
+                'coupon_discount'      => $couponDiscount,
                 'discount_amount'      => $totalDiscount,
                 'slots_final'          => $slotsFinal,
                 'guest_surcharge'      => $guestSurchargeTotal,
@@ -928,7 +948,7 @@ class OrderController extends Controller
         if ($rtsMap->isEmpty() && $product) {
             $dateRtsMap = $product->roomTimeSlots
                 ->whereNotNull('date')
-                ->keyBy(fn ($rts) => $rts->timeSlot?->label);
+                ->keyBy('date');
 
             foreach ($items as $item) {
                 $date  = $item->checkin_date?->format('Y-m-d');

@@ -22,6 +22,7 @@ class Order extends Model implements Eventable
         'amount',
         'full_amount',
         'deposit_percent',
+        'coupon_code',
         'deposit_paid_at',
         'remaining_paid_at',
         'remaining_payos_code',

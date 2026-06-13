@@ -233,6 +233,7 @@ class BookingController extends Controller
                 'amount'          => $subtotal,              // giá gốc: slots + services + phụ thu (trước giảm giá)
                 'full_amount'     => $amountDue,             // số tiền thanh toán ngay (deposit hoặc toàn bộ sau giảm)
                 'deposit_percent' => $depositPercentToSave,  // % cọc — cần thiết để PATCH tính lại đúng
+                'coupon_code'     => $appliedCoupon?->code,
                 'description'     => 'Đặt phòng - ' . $room->name,
                 'buyer_name'      => $buyerName,
                 'buyer_phone'     => $buyerPhone,
