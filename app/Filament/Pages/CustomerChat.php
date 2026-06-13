@@ -289,6 +289,16 @@ class CustomerChat extends Page
         $this->loadConversations();
     }
 
+    public function refreshOrderBadges(): void
+    {
+        if ($this->selectedConversation) {
+            $this->loadCustomerOrders(
+                $this->selectedConversation['customer']['id'],
+                $this->selectedId
+            );
+        }
+    }
+
     public function checkNewMessages(): void
     {
         if (! $this->selectedId || ! $this->selectedOrderId) {

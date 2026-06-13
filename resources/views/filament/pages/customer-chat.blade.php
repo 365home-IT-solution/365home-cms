@@ -192,7 +192,7 @@
             @endphp
 
             {{-- Danh sách đơn (scrollable) --}}
-            <div class="{{ $selectedOrderInfo ? 'max-h-60' : 'flex-1' }} overflow-y-auto divide-y divide-gray-100 dark:divide-gray-800 flex-shrink-0">
+            <div wire:poll.5000ms="refreshOrderBadges" class="{{ $selectedOrderInfo ? 'max-h-60' : 'flex-1' }} overflow-y-auto divide-y divide-gray-100 dark:divide-gray-800 flex-shrink-0">
 
                 {{-- Tin nhắn chung (không gắn đơn) --}}
                 <button
@@ -385,6 +385,10 @@
 
             socket.on('chat.message', (data) => {
                 $wire.newChatMessage(data.message, data.conversation_id);
+                // Tin nhắn cùng conversation nhưng khác đơn → refresh badge ngay
+                if (data.conversation_id === $wire.selectedId) {
+                    $wire.refreshOrderBadges();
+                }
             });
 
             socket.on('chat.list_update', () => {
