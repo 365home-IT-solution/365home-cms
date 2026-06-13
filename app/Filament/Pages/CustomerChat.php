@@ -66,8 +66,7 @@ class CustomerChat extends Page
     {
         $this->selectedId        = $id;
         $this->draft             = '';
-        $this->messages          = [];
-        $this->selectedOrderId   = null;
+        $this->selectedOrderId   = '__general__';
         $this->selectedOrderInfo = null;
 
         $conv = ChatConversation::with(['customer:id,fullname,phone'])->find($id);
@@ -86,6 +85,13 @@ class CustomerChat extends Page
         ];
 
         $this->loadCustomerOrders($conv->customer?->id);
+
+        $this->messages = ChatMessage::where('conversation_id', $id)
+            ->whereNull('order_id')
+            ->orderBy('id')
+            ->get()
+            ->map(fn ($m) => $this->formatMsg($m))
+            ->toArray();
 
         if ($conv->admin_unread > 0) {
             $conv->admin_unread = 0;
@@ -106,6 +112,7 @@ class CustomerChat extends Page
         }
 
         $this->dispatch('subscribeToConversation', id: $id);
+        $this->dispatch('scrollToBottom');
     }
 
     public function selectOrder(string $orderId): void
