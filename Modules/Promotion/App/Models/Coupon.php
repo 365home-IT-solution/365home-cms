@@ -2,6 +2,7 @@
 
 namespace Modules\Promotion\App\Models;
 
+use App\Models\Customer;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -28,6 +29,7 @@ class Coupon extends Model
         'end_at',
         'is_active',
         'created_by',
+        'customer_id',
     ];
 
     protected $casts = [
@@ -56,6 +58,16 @@ class Coupon extends Model
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function customer()
+    {
+        return $this->belongsTo(Customer::class, 'customer_id');
+    }
+
+    public function isPersonal(): bool
+    {
+        return $this->customer_id !== null;
     }
 
     /**

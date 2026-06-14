@@ -34,10 +34,16 @@ class CouponController extends Controller
             return response()->json(['message' => 'Phòng không tồn tại hoặc đã ngừng hoạt động.'], 404);
         }
 
+        $customer = auth('sanctum')->user();
+
         $coupon = Coupon::where('code', strtoupper($request->input('coupon_code')))
             ->where('is_active', true)
             ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', now()))
             ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', now()))
+            ->where(fn ($q) => $q
+                ->whereNull('customer_id')
+                ->orWhere('customer_id', $customer?->id)
+            )
             ->first();
 
         if (! $coupon) {

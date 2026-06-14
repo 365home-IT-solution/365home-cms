@@ -5,6 +5,7 @@ namespace App\Observers;
 use App\Models\Customer;
 use App\Models\User;
 use App\Services\FcmService;
+use App\Services\MembershipService;
 use App\Services\NotificationFcmService;
 use App\Services\SlotRealtimeService;
 use Filament\Notifications\Notification;
@@ -172,6 +173,7 @@ class OrderObserver
 
         // pending → paid: đã có thông báo "Đơn đặt phòng mới", không gửi thêm
         if ($newStatus === 'paid' && $oldStatus === 'pending') {
+            $this->accumulateMembershipSpending($order);
             $this->sendToCustomer(
                 $order,
                 'Thanh toán thành công',
@@ -182,6 +184,7 @@ class OrderObserver
 
         // Phân biệt thanh toán lần 2 (deposit → paid) với thanh toán đủ ngay
         if ($newStatus === 'paid' && $oldStatus === 'deposit') {
+            $this->accumulateMembershipSpending($order);
             $this->send($order, 'Đã thanh toán phần còn lại', 'heroicon-o-check-circle', 'success');
             $this->sendToCustomer(
                 $order,
@@ -248,5 +251,28 @@ class OrderObserver
             old: $order->only(['order_code', 'buyer_name', 'buyer_phone', 'amount', 'status']),
             label: "#{$order->order_code} — {$order->buyer_name}",
         );
+    }
+
+    private function accumulateMembershipSpending(Order $order): void
+    {
+        if (! $order->customer_id || $order->exclude_from_stats) {
+            return;
+        }
+
+        $customer = Customer::find($order->customer_id);
+        if (! $customer) {
+            return;
+        }
+
+        $amount = (float) ($order->full_amount ?? $order->amount ?? 0);
+        if ($amount <= 0) {
+            return;
+        }
+
+        try {
+            app(MembershipService::class)->addSpending($customer, $amount);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('MembershipService::addSpending failed: ' . $e->getMessage());
+        }
     }
 }

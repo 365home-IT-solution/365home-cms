@@ -2,9 +2,11 @@
 
 namespace App\Providers;
 
+use App\Models\Customer;
 use App\Models\User;
 use App\Observers\BranchObserver;
 use App\Observers\CouponObserver;
+use App\Observers\CustomerObserver;
 use App\Observers\OrderObserver;
 use App\Observers\PostObserver;
 use App\Observers\ProductObserver;
@@ -42,6 +44,7 @@ class EventServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Customer::observe(CustomerObserver::class);
         Order::observe(OrderObserver::class);
         Role::observe(RoleObserver::class);
         User::observe(UserObserver::class);

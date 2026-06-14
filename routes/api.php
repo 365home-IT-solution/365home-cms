@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Auth\ZaloOtpController;
+use App\Http\Controllers\Api\MembershipController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\Admin\ChatController as AdminChatController;
 use App\Http\Controllers\Api\BookingController;
@@ -205,6 +206,19 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/chat')->name('ap
     Route::get('/{id}',                   [AdminChatController::class, 'show'])->name('show');
     Route::post('/{id}/messages',         [AdminChatController::class, 'send'])->name('send');
     Route::post('/{id}/read',             [AdminChatController::class, 'read'])->name('read');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Membership — Hạng thành viên
+| GET /api/membership/tiers       → Danh sách hạng (public)
+| GET /api/membership             → Hạng + coupon cá nhân của customer (auth)
+|--------------------------------------------------------------------------
+*/
+Route::get('membership/tiers', [MembershipController::class, 'tiers'])->name('api.membership.tiers');
+
+Route::middleware(['auth:sanctum', 'customer.active'])->group(function () {
+    Route::get('membership', [MembershipController::class, 'show'])->name('api.membership.show');
 });
 
 /*

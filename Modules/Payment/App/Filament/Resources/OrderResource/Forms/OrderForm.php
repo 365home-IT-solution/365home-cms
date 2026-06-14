@@ -126,7 +126,7 @@ class OrderForm
                                                 ->removeUploadedFileButtonPosition('top-right')
                                                 ->uploadButtonPosition('center')
                                                 ->uploadProgressIndicatorPosition('center')
-                                                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg'])
+                                                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
                                                 ->maxSize(10240)
                                                 ->downloadable()
                                                 ->nullable(),
@@ -143,7 +143,7 @@ class OrderForm
                                                 ->removeUploadedFileButtonPosition('top-right')
                                                 ->uploadButtonPosition('center')
                                                 ->uploadProgressIndicatorPosition('center')
-                                                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg'])
+                                                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
                                                 ->maxSize(10240)
                                                 ->downloadable()
                                                 ->nullable(),

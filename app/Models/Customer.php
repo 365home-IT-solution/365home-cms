@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Payment\Entities\Order;
+use Modules\Promotion\App\Models\Coupon;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
@@ -34,6 +36,9 @@ class Customer extends Authenticatable
         'cccd_front',
         'cccd_back',
         'cccd_data',
+        'membership_tier_id',
+        'total_spending',
+        'welcome_coupon_sent_at',
     ];
 
     protected $hidden = [
@@ -41,11 +46,13 @@ class Customer extends Authenticatable
     ];
 
     protected $casts = [
-        'phone_verified_at'  => 'datetime',
-        'date_of_birth'      => 'date',
-        'password'           => 'hashed',
-        'password_updated_at'=> 'datetime',
-        'cccd_data'          => 'array',
+        'phone_verified_at'      => 'datetime',
+        'date_of_birth'          => 'date',
+        'password'               => 'hashed',
+        'password_updated_at'    => 'datetime',
+        'cccd_data'              => 'array',
+        'total_spending'         => 'decimal:2',
+        'welcome_coupon_sent_at' => 'datetime',
     ];
 
     // Filament gọi $user->name — map về fullname để tránh TypeError
@@ -69,6 +76,21 @@ class Customer extends Authenticatable
                 $model->tokens()->delete();
             }
         });
+    }
+
+    public function membershipTier(): BelongsTo
+    {
+        return $this->belongsTo(MembershipTier::class, 'membership_tier_id');
+    }
+
+    public function membershipLogs(): HasMany
+    {
+        return $this->hasMany(CustomerMembershipLog::class, 'customer_id');
+    }
+
+    public function personalCoupons(): HasMany
+    {
+        return $this->hasMany(Coupon::class, 'customer_id');
     }
 
     public function wishlists(): HasMany

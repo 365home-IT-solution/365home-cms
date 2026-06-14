@@ -5,19 +5,25 @@ declare(strict_types=1);
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\CustomerResource\Pages;
+use App\Filament\Resources\CustomerResource\RelationManagers\MembershipLogsRelationManager;
+use App\Filament\Resources\CustomerResource\RelationManagers\PersonalCouponsRelationManager;
 use App\Models\Customer;
+use App\Models\MembershipTier;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\KeyValue;
 use Filament\Forms\Components\Section;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
+use Filament\Tables\Actions\Action;
 use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Actions\ForceDeleteAction;
 use Filament\Tables\Actions\RestoreAction;
+use Filament\Tables\Actions\ViewAction;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ToggleColumn;
@@ -83,6 +89,35 @@ class CustomerResource extends Resource
                     ->inlineLabel(),
             ])->columns(1),
 
+            Section::make('Hạng thành viên')->schema([
+                Select::make('membership_tier_id')
+                    ->label('Hạng')
+                    ->options(MembershipTier::where('is_active', true)->orderBy('sort_order')->pluck('name', 'id'))
+                    ->searchable()
+                    ->placeholder('— Chưa có hạng —')
+                    ->inlineLabel()
+                    ->afterStateUpdated(function ($state, $record) {
+                        if (! $record || ! $state) {
+                            return;
+                        }
+                        // Ghi log khi admin đổi hạng thủ công
+                        \App\Models\CustomerMembershipLog::create([
+                            'customer_id'        => $record->id,
+                            'from_tier_id'       => $record->getOriginal('membership_tier_id'),
+                            'to_tier_id'         => $state,
+                            'reason'             => 'manual',
+                            'spending_at_change' => $record->total_spending ?? 0,
+                        ]);
+                    })
+                    ->live(),
+
+                TextInput::make('total_spending')
+                    ->label('Tổng chi tiêu (VNĐ)')
+                    ->numeric()
+                    ->suffix('VNĐ')
+                    ->inlineLabel(),
+            ])->columns(1)->visibleOn('edit'),
+
             Section::make('CCCD / CMND')->schema([
                 FileUpload::make('cccd_front')
                     ->label('Mặt trước CCCD')
@@ -91,6 +126,7 @@ class CustomerResource extends Resource
                     ->directory('cccd')
                     ->maxSize(10240)
                     ->imagePreviewHeight('300')
+                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
                     ->helperText('Upload ảnh gốc không crop/resize để quét QR được. Tối đa 10MB.'),
 
                 FileUpload::make('cccd_back')
@@ -100,6 +136,7 @@ class CustomerResource extends Resource
                     ->directory('cccd')
                     ->maxSize(10240)
                     ->imagePreviewHeight('300')
+                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
                     ->helperText('Upload ảnh gốc không crop/resize để quét QR được. Tối đa 10MB.'),
 
                 KeyValue::make('cccd_data')
@@ -157,6 +194,17 @@ class CustomerResource extends Resource
                         }
                     }),
 
+                TextColumn::make('membershipTier.name')
+                    ->label('Hạng thành viên')
+                    ->badge()
+                    ->color(fn ($record) => $record->membershipTier?->color ?? 'gray')
+                    ->placeholder('—'),
+
+                TextColumn::make('total_spending')
+                    ->label('Chi tiêu')
+                    ->money('VND')
+                    ->sortable(),
+
                 TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
                     ->dateTime('d/m/Y H:i')
@@ -173,6 +221,39 @@ class CustomerResource extends Resource
                 TrashedFilter::make(),
             ])
             ->actions([
+                ViewAction::make()->label('Chi tiết'),
+                Action::make('assign_tier')
+                    ->label('Gán hạng')
+                    ->icon('heroicon-o-trophy')
+                    ->color('warning')
+                    ->form([
+                        Select::make('membership_tier_id')
+                            ->label('Hạng thành viên')
+                            ->options(MembershipTier::where('is_active', true)->orderBy('sort_order')->pluck('name', 'id'))
+                            ->required()
+                            ->searchable(),
+                    ])
+                    ->fillForm(fn (Customer $record) => ['membership_tier_id' => $record->membership_tier_id])
+                    ->action(function (Customer $record, array $data): void {
+                        $from = $record->membership_tier_id;
+                        $to   = $data['membership_tier_id'];
+
+                        if ($from === $to) {
+                            return;
+                        }
+
+                        $record->update(['membership_tier_id' => $to]);
+
+                        \App\Models\CustomerMembershipLog::create([
+                            'customer_id'        => $record->id,
+                            'from_tier_id'       => $from,
+                            'to_tier_id'         => $to,
+                            'reason'             => 'manual',
+                            'spending_at_change' => $record->total_spending ?? 0,
+                        ]);
+                    })
+                    ->modalHeading('Gán hạng thành viên')
+                    ->modalSubmitActionLabel('Lưu'),
                 EditAction::make()->label('Sửa'),
                 DeleteAction::make()->label('Xoá'),
                 RestoreAction::make()->label('Khôi phục'),
@@ -187,12 +268,21 @@ class CustomerResource extends Resource
             ->withoutGlobalScopes([SoftDeletingScope::class]);
     }
 
+    public static function getRelationManagers(): array
+    {
+        return [
+            MembershipLogsRelationManager::class,
+            PersonalCouponsRelationManager::class,
+        ];
+    }
+
     public static function getPages(): array
     {
         return [
             'index'  => Pages\ListCustomers::route('/'),
             'create' => Pages\CreateCustomer::route('/create'),
             'edit'   => Pages\EditCustomer::route('/{record}/edit'),
+            'view'   => Pages\ViewCustomer::route('/{record}'),
         ];
     }
 }
