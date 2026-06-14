@@ -745,12 +745,19 @@ class OrderForm
                                                     $remainingDone = $record->status === 'paid' && $record->deposit_percent !== null;
                                                     $remainingTime = $record->remaining_paid_at ? $fmt($record->remaining_paid_at) : null;
                                                     $qrCreated     = ! empty($record->remaining_checkout_url);
+                                                    $payMethod     = $record->remaining_payment_method ?? null;
 
-                                                    $remainingLabel = $remainingDone
-                                                        ? ($qrCreated
-                                                            ? 'Khách thanh toán qua QR/PayOS'
-                                                            : 'Admin xác nhận thu tiền mặt')
-                                                        : 'Chờ thanh toán phần còn lại';
+                                                    if ($remainingDone) {
+                                                        if ($payMethod === 'cash') {
+                                                            $remainingLabel = 'Admin thu tiền mặt';
+                                                        } elseif ($payMethod === 'payos') {
+                                                            $remainingLabel = 'Khách thanh toán qua PayOS';
+                                                        } else {
+                                                            $remainingLabel = $qrCreated ? 'Khách thanh toán qua QR/PayOS' : 'Admin xác nhận thu tiền mặt';
+                                                        }
+                                                    } else {
+                                                        $remainingLabel = 'Chờ thanh toán phần còn lại';
+                                                    }
 
                                                     $steps = [
                                                         [
@@ -770,7 +777,7 @@ class OrderForm
                                                             'sub'       => null,
                                                         ],
                                                         [
-                                                            'icon_type' => 'check',
+                                                            'icon_type' => $payMethod === 'cash' ? 'banknote' : 'check',
                                                             'label'     => $remainingLabel,
                                                             'time'      => $remainingTime,
                                                             'done'      => $remainingDone,
@@ -854,89 +861,91 @@ class OrderForm
                                     ->iconColor('warning')
                                     ->visible(fn ($record) => $record && $record->status === 'deposit' && $record->deposit_percent !== null)
                                     ->schema([
-                                        Placeholder::make('remaining_qr_status')
-                                            ->label('Trạng thái QR')
+                                        TextInput::make('full_amount')
+                                            ->label('Số tiền đã cọc (full_amount)')
+                                            ->helperText('Chỉnh sửa nếu cần điều chỉnh số tiền cọc đã thu. Số tiền còn lại QR = tổng item - số tiền này.')
+                                            ->numeric()
+                                            ->suffix('VNĐ')
+                                            ->dehydrateStateUsing(fn ($state) => (int) $state),
+
+                                        Placeholder::make('remaining_qr_preview')
+                                            ->label('Số tiền còn lại (dự kiến)')
                                             ->content(function ($record) {
                                                 if (! $record) return new \Illuminate\Support\HtmlString('');
-                                                if ($record->remaining_checkout_url) {
-                                                    return new \Illuminate\Support\HtmlString(
-                                                        '<span style="display:inline-flex;align-items:center;gap:6px;background:#fef9c3;color:#854d0e;padding:5px 12px;border-radius:999px;font-size:13px;font-weight:600;">'
-                                                        . '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>'
-                                                        . 'Đã tạo QR — bấm "Mở trang QR" để xem</span>'
-                                                    );
-                                                }
+                                                $record->loadMissing('items');
+                                                $itemTotal   = (int) round($record->items->sum(fn($i) => (float)($i->price ?? 0) + (float)($i->extra_fee ?? 0)));
+                                                $depositPaid = (int) $record->full_amount;
+                                                $remaining   = max(0, $itemTotal - $depositPaid);
+                                                $color       = $remaining < 1000 ? '#dc2626' : '#15803d';
                                                 return new \Illuminate\Support\HtmlString(
-                                                    '<span style="color:#9ca3af;font-size:13px;font-style:italic;">Chưa có QR — bấm "Tạo QR còn lại" bên dưới</span>'
+                                                    '<span style="font-size:15px;font-weight:700;color:' . $color . ';">'
+                                                    . number_format($remaining, 0, ',', '.') . 'đ</span>'
+                                                    . '<span style="font-size:12px;color:#6b7280;margin-left:8px;">= ' . number_format($itemTotal, 0, ',', '.') . ' (tổng item) − ' . number_format($depositPaid, 0, ',', '.') . ' (đã cọc)</span>'
                                                 );
                                             }),
 
                                         \Filament\Forms\Components\Actions::make([
                                             \Filament\Forms\Components\Actions\Action::make('tao_qr_con_lai_form')
-                                                ->label(fn ($record) => ($record && $record->remaining_checkout_url) ? 'Mở trang QR' : 'Tạo QR còn lại')
+                                                ->label('Tạo QR còn lại')
                                                 ->color('warning')
                                                 ->icon('heroicon-o-qr-code')
-                                                ->requiresConfirmation(fn ($record) => ! ($record && $record->remaining_checkout_url))
+                                                ->requiresConfirmation()
                                                 ->modalHeading('Tạo link QR thanh toán còn lại')
-                                                ->modalDescription('Tạo link PayOS để khách quét QR thanh toán phần còn lại.')
+                                                ->modalDescription('Mỗi lần bấm sẽ tạo link PayOS mới. Link cũ (nếu có) sẽ bị thay thế.')
                                                 ->modalSubmitActionLabel('Tạo và mở trang QR')
                                                 ->action(function ($record) {
                                                     if (! $record) return;
+                                                    try {
+                                                        $record->load('items');
+                                                        $itemTotal   = (int) round($record->items->sum(fn($i) => (float)($i->price ?? 0) + (float)($i->extra_fee ?? 0)));
+                                                        $depositPaid = (int) $record->full_amount;
+                                                        $remaining   = max(0, $itemTotal - $depositPaid);
 
-                                                    if (! $record->remaining_checkout_url) {
-                                                        try {
-                                                            $depositPct  = (int) $record->deposit_percent;
-                                                            $depositPaid = (int) $record->full_amount;
-                                                            $realTotal   = $depositPct > 0 ? (int) round($depositPaid * 100 / $depositPct) : $depositPaid;
-                                                            $remaining   = $realTotal - $depositPaid;
-
-                                                            if ($remaining < 1000) {
-                                                                Notification::make()->warning()->title('Số tiền còn lại quá nhỏ')->send();
-                                                                return;
-                                                            }
-
-                                                            $payos = new PayOS(
-                                                                config('payos.client_id'),
-                                                                config('payos.api_key'),
-                                                                config('payos.checksum_key')
-                                                            );
-
-                                                            $record->loadMissing('items');
-                                                            $orderCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
-                                                            $expiredAt = now()->addMinutes(30);
-                                                            $response  = $payos->createPaymentLink([
-                                                                'orderCode'   => $orderCode,
-                                                                'amount'      => $remaining,
-                                                                'description' => 'Tt con lai - ' . $record->order_code,
-                                                                'returnUrl'   => config('app.url') . '/payment/success?orderCode=' . $record->order_code . '&remaining=1',
-                                                                'cancelUrl'   => config('app.url') . '/payment/cancel?orderCode=' . $record->order_code,
-                                                                'buyerName'   => $record->buyer_name ?? '',
-                                                                'buyerPhone'  => $record->buyer_phone ?? '',
-                                                                'expiredAt'   => $expiredAt->timestamp,
-                                                                'items'       => [[
-                                                                    'name'     => 'Tiền còn lại - ' . ($record->items->first()?->name ?? 'Phòng'),
-                                                                    'quantity' => 1,
-                                                                    'price'    => $remaining,
-                                                                ]],
-                                                            ]);
-
-                                                            $checkoutUrl = $response['checkoutUrl'] ?? null;
-                                                            if (! $checkoutUrl) {
-                                                                Notification::make()->danger()->title('Không thể tạo link thanh toán')->send();
-                                                                return;
-                                                            }
-
-                                                            $record->update([
-                                                                'remaining_payos_code'   => (string) $orderCode,
-                                                                'remaining_checkout_url' => $checkoutUrl,
-                                                            ]);
-
-                                                        } catch (\Throwable $e) {
-                                                            Notification::make()->danger()->title('Lỗi: ' . $e->getMessage())->send();
+                                                        if ($remaining < 1000) {
+                                                            Notification::make()->warning()->title('Số tiền còn lại quá nhỏ hoặc đã trả đủ')->send();
                                                             return;
                                                         }
-                                                    }
 
-                                                    return redirect()->away($record->remaining_checkout_url);
+                                                        $payos = new PayOS(
+                                                            config('payos.client_id'),
+                                                            config('payos.api_key'),
+                                                            config('payos.checksum_key')
+                                                        );
+
+                                                        $orderCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
+                                                        $expiredAt = now()->addMinutes(30);
+                                                        $response  = $payos->createPaymentLink([
+                                                            'orderCode'   => $orderCode,
+                                                            'amount'      => $remaining,
+                                                            'description' => 'Tt con lai - ' . $record->order_code,
+                                                            'returnUrl'   => \Modules\Payment\App\Filament\Resources\OrderResource::getUrl('edit', ['record' => $record->id]) . '?remaining_done=1',
+                                                            'cancelUrl'   => \Modules\Payment\App\Filament\Resources\OrderResource::getUrl('edit', ['record' => $record->id]) . '?remaining_cancelled=1',
+                                                            'buyerName'   => $record->buyer_name ?? '',
+                                                            'buyerPhone'  => $record->buyer_phone ?? '',
+                                                            'expiredAt'   => $expiredAt->timestamp,
+                                                            'items'       => [[
+                                                                'name'     => 'Tiền còn lại - ' . ($record->items->first()?->name ?? 'Phòng'),
+                                                                'quantity' => 1,
+                                                                'price'    => $remaining,
+                                                            ]],
+                                                        ]);
+
+                                                        $checkoutUrl = $response['checkoutUrl'] ?? null;
+                                                        if (! $checkoutUrl) {
+                                                            Notification::make()->danger()->title('Không thể tạo link thanh toán')->send();
+                                                            return;
+                                                        }
+
+                                                        $record->update([
+                                                            'remaining_payos_code'   => (string) $orderCode,
+                                                            'remaining_checkout_url' => $checkoutUrl,
+                                                        ]);
+
+                                                        return redirect()->away($checkoutUrl);
+
+                                                    } catch (\Throwable $e) {
+                                                        Notification::make()->danger()->title('Lỗi: ' . $e->getMessage())->send();
+                                                    }
                                                 }),
 
                                             \Filament\Forms\Components\Actions\Action::make('xac_nhan_thu_tien_form')
@@ -951,8 +960,9 @@ class OrderForm
                                                     if (! $record) return;
                                                     try {
                                                         $record->update([
-                                                            'status'            => 'paid',
-                                                            'remaining_paid_at' => now(),
+                                                            'status'                   => 'paid',
+                                                            'remaining_paid_at'        => now(),
+                                                            'remaining_payment_method' => 'cash',
                                                         ]);
 
                                                         $record->load('items.product');

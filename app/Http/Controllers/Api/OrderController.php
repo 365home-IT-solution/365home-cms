@@ -669,8 +669,9 @@ class OrderController extends Controller
                 case 'PAID':
                     if ($isRemaining) {
                         $order->update([
-                            'status'            => 'paid',
-                            'remaining_paid_at' => now(),
+                            'status'                   => 'paid',
+                            'remaining_paid_at'        => now(),
+                            'remaining_payment_method' => 'payos',
                         ]);
                         // Cấp mã cổng tự động sau khi khách thanh toán phần còn lại
                         try {
