@@ -15,6 +15,7 @@ use Filament\Tables\Table;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\HtmlString;
+use Modules\AuditLog\Services\AuditLogger;
 use Modules\Payment\Traits\GHNServiceTrait;
 use Modules\Payment\Traits\GHTKServiceTrait;
 use Modules\Payment\App\Filament\Resources\OrderResource\Tables\Actions\OrderAction;
@@ -436,11 +437,12 @@ class OrderTable
                                                 'remaining_checkout_url' => $checkoutUrl,
                                             ]);
 
-                                            activity('order')
-                                                ->performedOn($record)
-                                                ->causedBy(auth()->user())
-                                                ->withProperties(['amount' => $remaining, 'payos_code' => $orderCode])
-                                                ->log('Admin tạo QR thanh toán còn lại — ' . number_format($remaining, 0, ',', '.') . 'đ');
+                                            AuditLogger::log(
+                                                'update', 'Order', $record,
+                                                [],
+                                                ['Tạo QR' => number_format($remaining, 0, ',', '.') . 'đ', 'Mã PayOS' => (string) $orderCode],
+                                                'Đơn #' . $record->order_code
+                                            );
 
                                             return redirect()->away($checkoutUrl);
 
@@ -476,10 +478,12 @@ class OrderTable
                                                     ->assignCodeToOrder($record->id, $record->category_id, $checkinDate, $checkoutDate, $product);
                                             }
 
-                                            activity('order')
-                                                ->performedOn($record)
-                                                ->causedBy(auth()->user())
-                                                ->log('Admin xác nhận thu tiền mặt phần còn lại — đơn chuyển sang Đã thanh toán đầy đủ');
+                                            AuditLogger::log(
+                                                'update', 'Order', $record,
+                                                ['status' => 'deposit', 'remaining_payment_method' => null],
+                                                ['status' => 'paid', 'remaining_payment_method' => 'cash'],
+                                                'Đơn #' . $record->order_code
+                                            );
 
                                             Notification::make()
                                                 ->success()

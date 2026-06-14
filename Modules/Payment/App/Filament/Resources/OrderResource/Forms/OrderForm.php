@@ -20,6 +20,8 @@ use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
 use Filament\Notifications\Notification;
+use Modules\AuditLog\Entities\AuditLog;
+use Modules\AuditLog\Services\AuditLogger;
 use PayOS\PayOS;
 use Modules\Product\App\Models\Product;
 use Filament\Forms\Components\Tabs;
@@ -941,11 +943,12 @@ class OrderForm
                                                             'remaining_checkout_url' => $checkoutUrl,
                                                         ]);
 
-                                                        activity('order')
-                                                            ->performedOn($record)
-                                                            ->causedBy(auth()->user())
-                                                            ->withProperties(['amount' => $remaining, 'payos_code' => $orderCode])
-                                                            ->log('Admin tạo QR thanh toán còn lại — ' . number_format($remaining, 0, ',', '.') . 'đ');
+                                                        AuditLogger::log(
+                                                            'update', 'Order', $record,
+                                                            [],
+                                                            ['Tạo QR' => number_format($remaining, 0, ',', '.') . 'đ', 'Mã PayOS' => (string) $orderCode],
+                                                            'Đơn #' . $record->order_code
+                                                        );
 
                                                         return redirect()->away($checkoutUrl);
 
@@ -982,10 +985,12 @@ class OrderForm
                                                                 ->assignCodeToOrder($record->id, $record->category_id, $checkinDate, $checkoutDate, $product);
                                                         }
 
-                                                        activity('order')
-                                                            ->performedOn($record)
-                                                            ->causedBy(auth()->user())
-                                                            ->log('Admin xác nhận thu tiền mặt phần còn lại — đơn chuyển sang Đã thanh toán đầy đủ');
+                                                        AuditLogger::log(
+                                                            'update', 'Order', $record,
+                                                            ['status' => 'deposit', 'remaining_payment_method' => null],
+                                                            ['status' => 'paid', 'remaining_payment_method' => 'cash'],
+                                                            'Đơn #' . $record->order_code
+                                                        );
 
                                                         Notification::make()
                                                             ->success()
@@ -1036,18 +1041,12 @@ class OrderForm
                                                         $prevStatus = $record->status;
                                                         $record->update(['status' => $state]);
 
-                                                        $statusLabel = [
-                                                            'pending'           => 'Chờ thanh toán',
-                                                            'paid'              => 'Đã thanh toán đầy đủ',
-                                                            'deposit'           => 'Đã đặt cọc',
-                                                            'failed'            => 'Thất bại',
-                                                            'cancelled_payment' => 'Hủy QR',
-                                                        ];
-                                                        activity('order')
-                                                            ->performedOn($record)
-                                                            ->causedBy(auth()->user())
-                                                            ->withProperties(['from' => $prevStatus, 'to' => $state])
-                                                            ->log('Admin đổi trạng thái: ' . ($statusLabel[$prevStatus] ?? $prevStatus) . ' → ' . ($statusLabel[$state] ?? $state));
+                                                        AuditLogger::log(
+                                                            'update', 'Order', $record,
+                                                            ['status' => $prevStatus],
+                                                            ['status' => $state],
+                                                            'Đơn #' . $record->order_code
+                                                        );
 
                                                         if ($state === 'paid' && !$record->hasAccessCode()) {
                                                             try {
@@ -1123,93 +1122,88 @@ class OrderForm
                                                     return new \Illuminate\Support\HtmlString('<p class="text-gray-400 text-sm italic">Chưa có lịch sử</p>');
                                                 }
 
-                                                $activities = \Spatie\Activitylog\Models\Activity::query()
-                                                    ->where('subject_type', \Modules\Payment\Entities\Order::class)
-                                                    ->where('subject_id', $record->id)
+                                                $activities = AuditLog::query()
+                                                    ->where('module', 'Order')
+                                                    ->where('target_id', (string) $record->id)
                                                     ->orderByDesc('created_at')
                                                     ->limit(50)
                                                     ->get();
 
                                                 if ($activities->isEmpty()) {
-                                                    return new \Illuminate\Support\HtmlString('<p class="text-gray-400 text-sm italic">Chưa có lịch sử thao tác</p>');
+                                                    return new \Illuminate\Support\HtmlString('<p style="color:#9ca3af;font-size:13px;font-style:italic;">Chưa có lịch sử thao tác</p>');
                                                 }
 
-                                                $html = '<div class="space-y-2">';
-                                                foreach ($activities as $activity) {
-                                                    $causer    = $activity->causer;
-                                                    $causerName = $causer ? ($causer->name ?? $causer->email ?? 'Admin') : 'Hệ thống';
-                                                    $time      = $activity->created_at->format('d/m/Y H:i:s');
-                                                    $desc      = e($activity->description);
-                                                    $props     = $activity->properties?->toArray() ?? [];
+                                                $actionColors = [
+                                                    'create' => ['bg' => '#dcfce7', 'color' => '#166534', 'label' => 'Tạo mới'],
+                                                    'update' => ['bg' => '#fef9c3', 'color' => '#854d0e', 'label' => 'Cập nhật'],
+                                                    'delete' => ['bg' => '#fee2e2', 'color' => '#991b1b', 'label' => 'Xóa'],
+                                                ];
+                                                $fieldLabels = [
+                                                    'status'                   => 'Trạng thái',
+                                                    'amount'                   => 'Tổng tiền',
+                                                    'full_amount'              => 'Tiền cọc',
+                                                    'payment_method'           => 'Phương thức TT',
+                                                    'deposit_percent'          => 'Phần trăm cọc',
+                                                    'remaining_payment_method' => 'Thanh toán còn lại',
+                                                    'Tạo QR'                   => 'Tạo QR',
+                                                    'Mã PayOS'                 => 'Mã PayOS',
+                                                ];
 
-                                                    // Badge màu theo loại event
-                                                    $isUpdate = str_contains($desc, 'Cập nhật') || $activity->event === 'updated';
-                                                    $isCreate = str_contains($desc, 'Tạo') || $activity->event === 'created';
-                                                    $isCash   = str_contains($desc, 'tiền mặt');
-                                                    $isQR     = str_contains($desc, 'QR');
+                                                $html = '<div>';
+                                                foreach ($activities as $log) {
+                                                    $ac       = $actionColors[$log->action] ?? ['bg' => '#f3f4f6', 'color' => '#374151', 'label' => $log->action];
+                                                    $time     = $log->created_at?->format('d/m/Y H:i:s') ?? '—';
+                                                    $userName = e($log->user_name ?? 'Hệ thống');
+                                                    $isQR     = isset($log->new_values['Tạo QR']);
+                                                    $isCash   = ($log->new_values['remaining_payment_method'] ?? null) === 'cash';
 
-                                                    $badgeBg  = $isCash ? '#dcfce7' : ($isQR ? '#fef9c3' : ($isCreate ? '#dbeafe' : '#f3f4f6'));
-                                                    $badgeClr = $isCash ? '#166534' : ($isQR ? '#854d0e' : ($isCreate ? '#1e40af' : '#374151'));
-
-                                                    // Hiển thị thay đổi thuộc tính
-                                                    $changesHtml = '';
-                                                    if (! empty($props['attributes']) && ! empty($props['old'])) {
-                                                        $labels = [
-                                                            'status'             => 'Trạng thái',
-                                                            'amount'             => 'Tổng tiền',
-                                                            'full_amount'        => 'Tiền cọc',
-                                                            'payment_method'     => 'Phương thức',
-                                                            'deposit_percent'    => 'Phần trăm cọc',
-                                                            'remaining_paid_at'  => 'Thanh toán còn lại lúc',
-                                                        ];
-                                                        $changes = [];
-                                                        foreach ($props['attributes'] as $key => $newVal) {
-                                                            $oldVal = $props['old'][$key] ?? null;
-                                                            if ($oldVal !== $newVal) {
-                                                                $label    = $labels[$key] ?? $key;
-                                                                $oldStr   = is_numeric($oldVal) && strlen((string)$oldVal) > 4 ? number_format((float)$oldVal, 0, ',', '.') . 'đ' : e((string)($oldVal ?? '—'));
-                                                                $newStr   = is_numeric($newVal) && strlen((string)$newVal) > 4 ? number_format((float)$newVal, 0, ',', '.') . 'đ' : e((string)($newVal ?? '—'));
-                                                                $changes[] = '<span style="color:#6b7280;">' . $label . ':</span> <span style="text-decoration:line-through;color:#9ca3af;">' . $oldStr . '</span> → <strong>' . $newStr . '</strong>';
-                                                            }
-                                                        }
-                                                        if ($changes) {
-                                                            $changesHtml = '<div style="margin-top:4px;font-size:11px;padding-left:8px;border-left:2px solid #e5e7eb;">' . implode('<br>', $changes) . '</div>';
-                                                        }
-                                                    }
-
-                                                    // Extra properties (QR amount, etc.)
-                                                    $extraHtml = '';
-                                                    if (isset($props['amount']) && ! isset($props['attributes'])) {
-                                                        $extraHtml = '<span style="font-size:11px;background:#f3f4f6;color:#374151;padding:1px 6px;border-radius:999px;margin-left:6px;">' . number_format((int)$props['amount'], 0, ',', '.') . 'đ</span>';
-                                                    }
-
-                                                    $iconColor = $isCash ? '#166534' : ($isQR ? '#854d0e' : ($isCreate ? '#1e40af' : '#374151'));
-                                                    $iconBg    = $isCash ? '#dcfce7' : ($isQR ? '#fef9c3' : ($isCreate ? '#dbeafe' : '#f3f4f6'));
-                                                    if ($isCash) {
-                                                        $iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="' . $iconColor . '" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z"/></svg>';
-                                                    } elseif ($isQR) {
-                                                        $iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="' . $iconColor . '" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 3.75 9.375v-4.5ZM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5ZM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 13.5 9.375v-4.5Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75ZM6.75 16.5h.75v.75h-.75v-.75ZM16.5 6.75h.75v.75h-.75v-.75ZM13.5 13.5h.75v.75h-.75v-.75ZM13.5 19.5h.75v.75h-.75v-.75ZM19.5 13.5h.75v.75h-.75v-.75ZM19.5 19.5h.75v.75h-.75v-.75ZM16.5 16.5h.75v.75h-.75v-.75Z"/></svg>';
-                                                    } elseif ($isCreate) {
-                                                        $iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="' . $iconColor . '" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/></svg>';
+                                                    if ($isQR) {
+                                                        $iconClr = '#854d0e'; $iconBg = '#fef9c3';
+                                                        $iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="' . $iconClr . '" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 3.75 9.375v-4.5ZM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5ZM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 13.5 9.375v-4.5Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75ZM6.75 16.5h.75v.75h-.75v-.75ZM16.5 6.75h.75v.75h-.75v-.75ZM13.5 13.5h.75v.75h-.75v-.75ZM13.5 19.5h.75v.75h-.75v-.75ZM19.5 13.5h.75v.75h-.75v-.75ZM19.5 19.5h.75v.75h-.75v-.75ZM16.5 16.5h.75v.75h-.75v-.75Z"/></svg>';
+                                                    } elseif ($isCash) {
+                                                        $iconClr = '#166534'; $iconBg = '#dcfce7';
+                                                        $iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="' . $iconClr . '" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z"/></svg>';
+                                                    } elseif ($log->action === 'create') {
+                                                        $iconClr = '#1e40af'; $iconBg = '#dbeafe';
+                                                        $iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="' . $iconClr . '" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/></svg>';
                                                     } else {
-                                                        $iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="' . $iconColor . '" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>';
+                                                        $iconClr = '#374151'; $iconBg = '#f3f4f6';
+                                                        $iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="' . $iconClr . '" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>';
+                                                    }
+
+                                                    // Dòng thay đổi
+                                                    $changesHtml = '';
+                                                    $old = $log->old_values ?? [];
+                                                    $new = $log->new_values ?? [];
+                                                    $allKeys = array_unique(array_merge(array_keys($old), array_keys($new)));
+                                                    $rows = '';
+                                                    foreach ($allKeys as $key) {
+                                                        $label  = $fieldLabels[$key] ?? $key;
+                                                        $oldVal = array_key_exists($key, $old) ? (string)($old[$key] ?? '—') : null;
+                                                        $newVal = array_key_exists($key, $new) ? (string)($new[$key] ?? '—') : null;
+                                                        if ($oldVal === null && $newVal !== null) {
+                                                            $rows .= '<tr><td style="padding:3px 8px;font-size:11px;color:#6b7280;">' . e($label) . '</td><td style="padding:3px 8px;font-size:11px;color:#166534;">' . e($newVal) . '</td></tr>';
+                                                        } elseif ($oldVal !== $newVal) {
+                                                            $rows .= '<tr><td style="padding:3px 8px;font-size:11px;color:#6b7280;">' . e($label) . '</td><td style="padding:3px 8px;font-size:11px;"><span style="text-decoration:line-through;color:#9ca3af;">' . e($oldVal) . '</span> → <span style="color:#166534;font-weight:600;">' . e($newVal) . '</span></td></tr>';
+                                                        }
+                                                    }
+                                                    if ($rows) {
+                                                        $changesHtml = '<table style="margin-top:6px;border-collapse:collapse;width:100%;">' . $rows . '</table>';
                                                     }
 
                                                     $html .= '
                                                         <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid #f3f4f6;">
-                                                            <div style="flex-shrink:0;width:36px;height:36px;border-radius:50%;background:' . $iconBg . ';display:flex;align-items:center;justify-content:center;">
-                                                                ' . $iconSvg . '
-                                                            </div>
+                                                            <div style="flex-shrink:0;width:34px;height:34px;border-radius:50%;background:' . $iconBg . ';display:flex;align-items:center;justify-content:center;">' . $iconSvg . '</div>
                                                             <div style="flex:1;min-width:0;">
                                                                 <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-                                                                    <span style="font-size:13px;font-weight:600;color:#111827;">' . $desc . $extraHtml . '</span>
-                                                                    <span style="font-size:11px;background:' . $badgeBg . ';color:' . $badgeClr . ';padding:1px 7px;border-radius:999px;">' . e($causerName) . '</span>
+                                                                    <span style="font-size:12px;font-weight:700;background:' . $ac['bg'] . ';color:' . $ac['color'] . ';padding:1px 8px;border-radius:999px;">' . $ac['label'] . '</span>
+                                                                    <span style="font-size:13px;font-weight:600;color:#111827;">' . e($log->target_label ?? '') . '</span>
+                                                                    <span style="font-size:11px;color:#6b7280;">bởi ' . $userName . '</span>
                                                                 </div>
                                                                 <div style="font-size:11px;color:#9ca3af;margin-top:2px;">' . $time . '</div>
                                                                 ' . $changesHtml . '
                                                             </div>
-                                                        </div>
-                                                    ';
+                                                        </div>';
                                                 }
                                                 $html .= '</div>';
 
