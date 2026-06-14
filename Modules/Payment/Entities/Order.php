@@ -12,10 +12,26 @@ use Modules\Zns\App\Models\ZnsNotification;
 use Guava\Calendar\Contracts\Eventable;
 use Guava\Calendar\ValueObjects\CalendarEvent;
 use Modules\Payment\App\Models\OrderService;
+use Spatie\Activitylog\Traits\LogsActivity;
+use Spatie\Activitylog\LogOptions;
 
 class Order extends Model implements Eventable
 {
-    use HasFactory;
+    use HasFactory, LogsActivity;
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logOnly([
+                'status', 'amount', 'full_amount', 'deposit_percent',
+                'payment_method', 'buyer_name', 'buyer_phone',
+                'remaining_paid_at', 'remaining_payment_method',
+                'exclude_from_stats',
+            ])
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs()
+            ->useLogName('order');
+    }
 
     protected $fillable = [
         'order_code',

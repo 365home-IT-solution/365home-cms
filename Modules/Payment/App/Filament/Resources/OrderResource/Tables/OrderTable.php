@@ -396,8 +396,8 @@ class OrderTable
                                             $depositPaid = (int) $record->full_amount;
                                             $remaining   = max(0, $itemTotal - $depositPaid);
 
-                                            if ($remaining < 1000) {
-                                                Notification::make()->warning()->title('Số tiền còn lại quá nhỏ hoặc đã trả đủ')->send();
+                                            if ($remaining <= 0) {
+                                                Notification::make()->warning()->title('Đơn đã được thanh toán đủ, không cần tạo QR')->send();
                                                 return;
                                             }
 
@@ -436,6 +436,12 @@ class OrderTable
                                                 'remaining_checkout_url' => $checkoutUrl,
                                             ]);
 
+                                            activity('order')
+                                                ->performedOn($record)
+                                                ->causedBy(auth()->user())
+                                                ->withProperties(['amount' => $remaining, 'payos_code' => $orderCode])
+                                                ->log('Admin tạo QR thanh toán còn lại — ' . number_format($remaining, 0, ',', '.') . 'đ');
+
                                             return redirect()->away($checkoutUrl);
 
                                         } catch (\Throwable $e) {
@@ -469,6 +475,11 @@ class OrderTable
                                                 app(\Modules\BladeThemeV1\Services\AccessCode\AccessCodeService::class)
                                                     ->assignCodeToOrder($record->id, $record->category_id, $checkinDate, $checkoutDate, $product);
                                             }
+
+                                            activity('order')
+                                                ->performedOn($record)
+                                                ->causedBy(auth()->user())
+                                                ->log('Admin xác nhận thu tiền mặt phần còn lại — đơn chuyển sang Đã thanh toán đầy đủ');
 
                                             Notification::make()
                                                 ->success()
