@@ -22,6 +22,8 @@ class CccdScannerService
      */
     public function scanOrder(Order $order): ?array
     {
+        ini_set('memory_limit', '256M');
+
         // Ưu tiên mặt sau (chip QR thường nằm ở đây)
         if ($order->cccd_back) {
             $path = Storage::disk('public')->path($order->cccd_back);
@@ -52,6 +54,8 @@ class CccdScannerService
      */
     public function scanCustomer(Customer $customer): ?array
     {
+        ini_set('memory_limit', '256M');
+
         // Ưu tiên mặt sau
         if ($customer->cccd_back) {
             $path = Storage::disk('public')->path($customer->cccd_back);
@@ -145,6 +149,21 @@ class CccdScannerService
 
         if (! $src) {
             return null;
+        }
+
+        // Downscale xuống ≤1.4M px TRƯỚC khi rotate để tránh giữ 2 bản full-res
+        // đồng thời trong bộ nhớ (21MB × 2 = 42MB với ảnh điện thoại 2976×1879)
+        $w = imagesx($src);
+        $h = imagesy($src);
+        $maxPixels = 1_400_000;
+        if ($w * $h > $maxPixels) {
+            $scale = sqrt($maxPixels / ($w * $h));
+            $tw    = (int) ($w * $scale);
+            $th    = (int) ($h * $scale);
+            $small = imagecreatetruecolor($tw, $th);
+            imagecopyresampled($small, $src, 0, 0, 0, 0, $tw, $th, $w, $h);
+            imagedestroy($src);
+            $src = $small;
         }
 
         $rotated = imagerotate($src, $angle, 0);
