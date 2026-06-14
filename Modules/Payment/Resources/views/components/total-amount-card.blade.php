@@ -104,7 +104,15 @@
     $actualSlotDiscount = 0;
     $useActualDiscount  = false;
     if ($hasRecord && (int)($record->amount ?? 0) > 0) {
-        $actualSlotDiscount = max(0, (int)$record->amount - (int)$record->full_amount);
+        $recordDepositPct = $record->deposit_percent !== null ? (int)$record->deposit_percent : null;
+        if ($recordDepositPct !== null && $recordDepositPct > 0 && $recordDepositPct < 100) {
+            // Đơn cọc: full_amount = tiền cọc, phải reconstruct tổng thực trước khi tính discount
+            $recordRealTotal    = (int) round((int)$record->full_amount * 100 / $recordDepositPct);
+            $actualSlotDiscount = max(0, (int)$record->amount - $recordRealTotal);
+        } else {
+            // Đơn thường (100%): discount = amount - full_amount
+            $actualSlotDiscount = max(0, (int)$record->amount - (int)$record->full_amount);
+        }
         if ($actualSlotDiscount > 0) { $useActualDiscount = true; }
     }
 

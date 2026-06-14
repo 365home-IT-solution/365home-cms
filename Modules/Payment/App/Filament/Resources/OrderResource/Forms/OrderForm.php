@@ -713,12 +713,17 @@ class OrderForm
                                                     return new \Illuminate\Support\HtmlString('<p class="text-gray-400 text-sm italic">Chưa có dữ liệu</p>');
                                                 }
 
-                                                $isDeposit = $record->deposit_percent !== null;
-                                                $fullAmt = (int)($record->full_amount ?? $record->amount);
-                                                $depositAmt = $fullAmt > 0 && $isDeposit
-                                                    ? (int)round($fullAmt * $record->deposit_percent / 100)
-                                                    : null;
-                                                $remainingAmt = $depositAmt ? $fullAmt - $depositAmt : null;
+                                                $isDeposit   = $record->deposit_percent !== null;
+                                                $fullAmt     = (int)($record->full_amount ?? $record->amount);
+                                                $depositPctF = $isDeposit ? (int)$record->deposit_percent : 0;
+                                                if ($isDeposit && $depositPctF > 0) {
+                                                    // full_amount với đơn cọc = tiền cọc
+                                                    $depositAmt   = $fullAmt;
+                                                    $remainingAmt = (int) round($fullAmt * 100 / $depositPctF) - $depositAmt;
+                                                } else {
+                                                    $depositAmt   = null;
+                                                    $remainingAmt = null;
+                                                }
 
                                                 $fmt = fn($dt) => $dt ? \Carbon\Carbon::parse($dt)->format('d/m/Y H:i') : null;
 

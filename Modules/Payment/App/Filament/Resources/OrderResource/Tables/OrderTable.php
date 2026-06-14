@@ -195,10 +195,19 @@ class OrderTable
                         ->modalCancelActionLabel('Đóng')
                         ->modalWidth('lg')
                         ->modalContent(function ($record) {
-                            $isDeposit = $record->deposit_percent !== null;
-                            $fullAmt   = (int)($record->full_amount ?? $record->amount);
-                            $depositAmt   = ($isDeposit && $fullAmt > 0) ? (int)round($fullAmt * $record->deposit_percent / 100) : null;
-                            $remainingAmt = $depositAmt ? $fullAmt - $depositAmt : null;
+                            $isDeposit   = $record->deposit_percent !== null;
+                            $fullAmt     = (int)($record->full_amount ?? $record->amount);
+                            $depositPctV = $isDeposit ? (int)$record->deposit_percent : 0;
+                            if ($isDeposit && $depositPctV > 0) {
+                                // full_amount với đơn cọc = tiền cọc, phải reconstruct tổng
+                                $depositAmt   = $fullAmt;
+                                $realTotalV   = (int) round($fullAmt * 100 / $depositPctV);
+                                $remainingAmt = $realTotalV - $depositAmt;
+                            } else {
+                                $depositAmt   = null;
+                                $realTotalV   = $fullAmt;
+                                $remainingAmt = null;
+                            }
 
                             $fmt = fn($dt) => $dt ? \Carbon\Carbon::parse($dt)->format('d/m/Y H:i') : null;
 
@@ -232,7 +241,7 @@ class OrderTable
                                         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
                                             <div style="text-align:center;background:#fff;border-radius:8px;padding:10px;border:1px solid #e0e7ff;">
                                                 <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">Tổng đơn</div>
-                                                <div style="font-weight:700;font-size:15px;color:#111827;">' . number_format($fullAmt, 0, ',', '.') . 'đ</div>
+                                                <div style="font-weight:700;font-size:15px;color:#111827;">' . number_format($realTotalV, 0, ',', '.') . 'đ</div>
                                             </div>
                                             <div style="text-align:center;background:#fff;border-radius:8px;padding:10px;border:1px solid #fef08a;">
                                                 <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">Tiền cọc (' . $record->deposit_percent . '%)</div>
