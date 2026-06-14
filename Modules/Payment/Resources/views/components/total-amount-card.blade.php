@@ -415,9 +415,13 @@
                     <div style="font-size:0.65rem; color:#6b7280; margin-bottom:0.2rem;">Tiền cọc ({{ $depPct }}%)</div>
                     <div style="font-size:0.875rem; font-weight:700; color:#d97706;">{{ number_format($depositAmt, 0, ',', '.') }}đ</div>
                 </div>
-                <div style="background:#fef2f2; border:1px solid #fca5a5; border-radius:0.5rem; padding:0.5rem 0.6rem; text-align:center;">
+                <div style="background:{{ $isFullPaid ? '#f0fdf4' : '#fef2f2' }}; border:1px solid {{ $isFullPaid ? '#86efac' : '#fca5a5' }}; border-radius:0.5rem; padding:0.5rem 0.6rem; text-align:center;">
                     <div style="font-size:0.65rem; color:#6b7280; margin-bottom:0.2rem;">Còn lại khi nhận phòng</div>
-                    <div style="font-size:0.875rem; font-weight:700; color:#dc2626;">{{ number_format($remain2, 0, ',', '.') }}đ</div>
+                    @if($isFullPaid)
+                        <div style="font-size:0.875rem; font-weight:700; color:#15803d;">Đã trả đủ</div>
+                    @else
+                        <div style="font-size:0.875rem; font-weight:700; color:#dc2626;">{{ number_format($remain2, 0, ',', '.') }}đ</div>
+                    @endif
                 </div>
             </div>
             {{-- Note --}}
