@@ -113,6 +113,52 @@ class OrderForm
                                     ->collapsible(false)
                                     ->collapsed()
                                     ->schema([
+                                        Placeholder::make('cccd_download_links')
+                                            ->label('')
+                                            ->hiddenLabel()
+                                            ->content(function ($record) {
+                                                if (! $record || (! $record->cccd_front && ! $record->cccd_back)) {
+                                                    return '';
+                                                }
+
+                                                $btnStyle = fn(string $bg, string $border, string $color) =>
+                                                    "display:inline-flex;align-items:center;gap:.375rem;padding:.4rem .875rem;" .
+                                                    "background:{$bg};border:1px solid {$border};color:{$color};" .
+                                                    "border-radius:.5rem;font-size:.8125rem;font-weight:600;text-decoration:none;" .
+                                                    "transition:background .15s;";
+
+                                                $icon = '<svg xmlns="http://www.w3.org/2000/svg" style="width:.875rem;height:.875rem;flex-shrink:0;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">'
+                                                    . '<path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>'
+                                                    . '</svg>';
+
+                                                $html = '<div style="display:flex;gap:.625rem;flex-wrap:wrap;padding:.25rem 0;">';
+
+                                                if ($record->cccd_front) {
+                                                    $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($record->cccd_front);
+                                                    $name = 'CCCD_mat_truoc_' . ($record->order_code ?? $record->id) . '.jpg';
+                                                    $html .= '<a href="' . e($url) . '" download="' . e($name) . '" target="_blank"'
+                                                        . ' style="' . $btnStyle('#eff6ff', '#bfdbfe', '#1d4ed8') . '"'
+                                                        . ' onmouseenter="this.style.background=\'#dbeafe\'"'
+                                                        . ' onmouseleave="this.style.background=\'#eff6ff\'">'
+                                                        . $icon . ' Tải mặt trước</a>';
+                                                }
+
+                                                if ($record->cccd_back) {
+                                                    $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($record->cccd_back);
+                                                    $name = 'CCCD_mat_sau_' . ($record->order_code ?? $record->id) . '.jpg';
+                                                    $html .= '<a href="' . e($url) . '" download="' . e($name) . '" target="_blank"'
+                                                        . ' style="' . $btnStyle('#f0fdf4', '#bbf7d0', '#15803d') . '"'
+                                                        . ' onmouseenter="this.style.background=\'#dcfce7\'"'
+                                                        . ' onmouseleave="this.style.background=\'#f0fdf4\'">'
+                                                        . $icon . ' Tải mặt sau</a>';
+                                                }
+
+                                                $html .= '</div>';
+                                                return new \Illuminate\Support\HtmlString($html);
+                                            })
+                                            ->visible(fn ($record) => (auth()->user()?->isSuperAdmin() ?? false)
+                                                && $record && ($record->cccd_front || $record->cccd_back)),
+
                                         Grid::make(2)->schema([
                                             FileUpload::make('cccd_front')
                                                 ->label('CCCD/CMND mặt trước')
@@ -129,6 +175,7 @@ class OrderForm
                                                 ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
                                                 ->maxSize(10240)
                                                 ->downloadable()
+                                                ->openable()
                                                 ->nullable(),
 
                                             FileUpload::make('cccd_back')
@@ -146,6 +193,7 @@ class OrderForm
                                                 ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
                                                 ->maxSize(10240)
                                                 ->downloadable()
+                                                ->openable()
                                                 ->nullable(),
                                         ]),
                                     ]),
