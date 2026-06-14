@@ -538,18 +538,20 @@ class OrderController extends Controller
             return response()->json(['message' => 'Chỉ áp dụng cho đơn đang ở trạng thái đặt cọc.'], 422);
         }
 
+        // Đơn cọc: full_amount = tiền cọc đã thanh toán; reconstruct tổng thực để tính remaining
+        $depositPct  = (int) $order->deposit_percent;
+        $depositPaid = (int) $order->full_amount;
+        $realTotal   = $depositPct > 0 ? (int) round($depositPaid * 100 / $depositPct) : $depositPaid;
+        $remaining   = $realTotal - $depositPaid;
+
         // Đã có link còn dùng được → trả về luôn
         if ($order->remaining_checkout_url && $order->remaining_payos_code) {
-            $remaining = max(0, (int) ($order->full_amount ?? $order->amount) - (int) $order->amount);
             return response()->json([
                 'order_code'   => $order->order_code,
                 'checkout_url' => $order->remaining_checkout_url,
                 'amount'       => $remaining,
             ]);
         }
-
-        $fullAmount = (int) ($order->full_amount ?? $order->amount);
-        $remaining  = $fullAmount - (int) $order->amount;
 
         if ($remaining < 2000) {
             return response()->json(['message' => 'Số tiền còn lại quá nhỏ hoặc đã thanh toán đủ.'], 422);
