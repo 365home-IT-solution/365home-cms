@@ -6,6 +6,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Payment\Entities\Order;
@@ -91,6 +92,13 @@ class Customer extends Authenticatable
     public function personalCoupons(): HasMany
     {
         return $this->hasMany(Coupon::class, 'customer_id');
+    }
+
+    public function coupons(): BelongsToMany
+    {
+        return $this->belongsToMany(Coupon::class, 'coupon_customers', 'customer_id', 'coupon_id')
+            ->withPivot('assigned_at')
+            ->withTimestamps();
     }
 
     public function wishlists(): HasMany

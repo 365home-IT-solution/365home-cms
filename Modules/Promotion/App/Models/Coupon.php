@@ -65,6 +65,13 @@ class Coupon extends Model
         return $this->belongsTo(Customer::class, 'customer_id');
     }
 
+    public function customers(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(Customer::class, 'coupon_customers', 'coupon_id', 'customer_id')
+            ->withPivot('assigned_at')
+            ->withTimestamps();
+    }
+
     public function isPersonal(): bool
     {
         return $this->customer_id !== null;

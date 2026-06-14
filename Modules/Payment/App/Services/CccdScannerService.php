@@ -80,6 +80,7 @@ class CccdScannerService
     /**
      * Quét QR từ file ảnh cục bộ.
      * Thứ tự ưu tiên: Node.js jsQR → zbarimg CLI → khanamiryan
+     * Nếu thất bại, thử xoay ảnh 90°/270°/180° để xử lý ảnh dọc hoặc xéo.
      */
     protected function tryQrScan(string $imagePath): ?array
     {
@@ -96,7 +97,68 @@ class CccdScannerService
         }
 
         // Chiến lược 3: khanamiryan PHP ZXing
-        return $this->tryKhanamiryan($imagePath);
+        $data = $this->tryKhanamiryan($imagePath);
+        if ($data) {
+            return $data;
+        }
+
+        // Chiến lược 4: thử xoay ảnh — xử lý ảnh dọc (portrait) hoặc xéo
+        // 90° CCW sửa ảnh chụp xoay 90° CW, 270° CCW sửa 90° CCW, 180° sửa lật ngược
+        foreach ([90, 270, 180] as $angle) {
+            $rotatedPath = $this->rotateImageForQr($imagePath, $angle);
+            if (! $rotatedPath) {
+                continue;
+            }
+
+            $data = $this->tryNodeJsQR($rotatedPath)
+                 ?? $this->tryZbarimg($rotatedPath)
+                 ?? $this->tryKhanamiryan($rotatedPath);
+
+            @unlink($rotatedPath);
+
+            if ($data) {
+                Log::debug('[CccdScanner] thành công sau khi xoay', ['angle' => $angle]);
+                return $data;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Tạo bản sao ảnh đã xoay (dùng GD) để thử lại QR scan.
+     * angle tính ngược chiều kim đồng hồ (PHP imagerotate convention).
+     */
+    protected function rotateImageForQr(string $imagePath, int $angle): ?string
+    {
+        if (! extension_loaded('gd')) {
+            return null;
+        }
+
+        $ext = strtolower(pathinfo($imagePath, PATHINFO_EXTENSION));
+        $src = match ($ext) {
+            'jpg', 'jpeg' => @imagecreatefromjpeg($imagePath),
+            'png'         => @imagecreatefrompng($imagePath),
+            'webp'        => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($imagePath) : null,
+            default       => null,
+        };
+
+        if (! $src) {
+            return null;
+        }
+
+        $rotated = imagerotate($src, $angle, 0);
+        imagedestroy($src);
+
+        if (! $rotated) {
+            return null;
+        }
+
+        $tmpPath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'cccd_rot' . $angle . '_' . uniqid() . '.jpg';
+        imagejpeg($rotated, $tmpPath, 95);
+        imagedestroy($rotated);
+
+        return file_exists($tmpPath) ? $tmpPath : null;
     }
 
     /**
