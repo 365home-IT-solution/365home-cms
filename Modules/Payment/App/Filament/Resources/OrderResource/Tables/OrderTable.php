@@ -402,19 +402,23 @@ class OrderTable
                                                     Config::get('payos.checksum_key')
                                                 );
 
-                                                $orderCode = time();
+                                                $record->load('items');
+                                                $orderCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
+                                                $expiredAt = now()->addMinutes(30);
                                                 $response  = $payos->createPaymentLink([
                                                     'orderCode'   => $orderCode,
                                                     'amount'      => $remaining,
-                                                    'description' => 'Con lai ' . $record->order_code,
-                                                    'returnUrl'   => config('app.url') . '/payment/success?order_code=' . $record->order_code . '&remaining=1',
-                                                    'cancelUrl'   => config('app.url') . '/payment/cancel?order_code=' . $record->order_code,
-                                                    'webhookUrl'  => config('app.url') . '/api/payos/webhook',
-                                                    'extraData'   => json_encode([
-                                                        'order_id'     => $record->id,
-                                                        'order_code'   => $record->order_code,
-                                                        'is_remaining' => true,
-                                                    ]),
+                                                    'description' => 'Tt con lai - ' . $record->order_code,
+                                                    'returnUrl'   => config('app.url') . '/payment/success?orderCode=' . $record->order_code . '&remaining=1',
+                                                    'cancelUrl'   => config('app.url') . '/payment/cancel?orderCode=' . $record->order_code,
+                                                    'buyerName'   => $record->buyer_name ?? '',
+                                                    'buyerPhone'  => $record->buyer_phone ?? '',
+                                                    'expiredAt'   => $expiredAt->timestamp,
+                                                    'items'       => [[
+                                                        'name'     => 'Tiền còn lại - ' . ($record->items->first()?->name ?? 'Phòng'),
+                                                        'quantity' => 1,
+                                                        'price'    => $remaining,
+                                                    ]],
                                                 ]);
 
                                                 $checkoutUrl = $response['checkoutUrl'] ?? null;
