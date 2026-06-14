@@ -80,12 +80,11 @@ class OrderForm
 
                                             TextInput::make('guest_count')
                                                 ->label('Số lượng khách')
-                                                ->placeholder('Tối đa 4 người')
+                                                ->placeholder('Số lượng khách')
                                                 ->prefixIcon('heroicon-o-users')
                                                 ->helperText('Phụ thu 50.000đ/người từ khách thứ 3')
                                                 ->numeric()
                                                 ->minValue(1)
-                                                ->maxValue(4)
                                                 ->default(1)
                                                 ->required()
                                                 ->hintIcon('heroicon-m-users')
@@ -350,16 +349,14 @@ class OrderForm
 
                                                                 TextInput::make('guest_count')
                                                                     ->label('Số lượng khách')
-                                                                    ->placeholder('1-4 người')
+                                                                    ->placeholder('Số lượng khách')
                                                                     ->helperText('Phụ thu theo cấu hình phòng từ khách thứ 3')
                                                                     ->numeric()
                                                                     ->minValue(1)
-                                                                    ->maxValue(4)
                                                                     ->default(1)
                                                                     ->required()
                                                                     ->hintIcon('heroicon-c-user-plus')
                                                                     ->hintColor('primary')
-                                                                    ->hintIconTooltip('Tối đa 4 người')
                                                                     ->afterStateUpdated(function ($state, Get $get, Set $set) {
                                                                         self::calculateTotal($get, $set);
                                                                     }),
@@ -1107,24 +1104,27 @@ class OrderForm
                                     ->icon('heroicon-m-clock')
                                     ->iconColor('gray')
                                     ->collapsible()
-                                    ->collapsed(true)
+                                    ->collapsed(false)
                                     ->schema([
                                         Placeholder::make('activity_log')
                                             ->label('')
-                                            ->content(function ($record) {
-                                                if (! $record) {
-                                                    return new \Illuminate\Support\HtmlString('<p class="text-gray-400 text-sm italic">Chưa có lịch sử</p>');
+                                            ->content(function ($record, $livewire) {
+                                                $record = $record ?? $livewire?->record ?? null;
+                                                $orderId = $record?->getKey();
+
+                                                if (! $orderId) {
+                                                    return new \Illuminate\Support\HtmlString('<p style="color:#9ca3af;font-size:13px;font-style:italic;">Chưa có lịch sử</p>');
                                                 }
 
                                                 $activities = AuditLog::query()
                                                     ->where('module', 'Order')
-                                                    ->where('target_id', (string) $record->id)
+                                                    ->where('target_id', (string) $orderId)
                                                     ->orderByDesc('created_at')
                                                     ->limit(50)
                                                     ->get();
 
                                                 if ($activities->isEmpty()) {
-                                                    return new \Illuminate\Support\HtmlString('<p style="color:#9ca3af;font-size:13px;font-style:italic;">Chưa có lịch sử thao tác</p>');
+                                                    return new \Illuminate\Support\HtmlString('<p style="color:#9ca3af;font-size:13px;font-style:italic;">Chưa có lịch sử thao tác cho đơn này</p>');
                                                 }
 
                                                 $actionColors = [
