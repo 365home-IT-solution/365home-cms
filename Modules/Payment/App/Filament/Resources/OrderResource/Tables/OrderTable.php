@@ -391,11 +391,7 @@ class OrderTable
                                     ->modalSubmitActionLabel('Tạo và mở trang QR')
                                     ->action(function () use ($record) {
                                         try {
-                                            // Tính remaining từ item prices hiện tại (dynamic sau khi admin cập nhật)
-                                            $record->load('items');
-                                            $itemTotal   = (int) round($record->items->sum(fn($i) => (float)($i->price ?? 0) + (float)($i->extra_fee ?? 0)));
-                                            $depositPaid = (int) $record->full_amount;
-                                            $remaining   = max(0, $itemTotal - $depositPaid);
+                                            $remaining = max(0, (int) $record->amount - (int) $record->full_amount);
 
                                             if ($remaining <= 0) {
                                                 Notification::make()->warning()->title('Đơn đã được thanh toán đủ, không cần tạo QR')->send();

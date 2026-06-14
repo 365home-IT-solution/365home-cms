@@ -874,15 +874,12 @@ class OrderForm
                                             ->label('Số tiền còn lại (dự kiến)')
                                             ->content(function ($record) {
                                                 if (! $record) return new \Illuminate\Support\HtmlString('');
-                                                $record->loadMissing('items');
-                                                $itemTotal   = (int) round($record->items->sum(fn($i) => (float)($i->price ?? 0) + (float)($i->extra_fee ?? 0)));
-                                                $depositPaid = (int) $record->full_amount;
-                                                $remaining   = max(0, $itemTotal - $depositPaid);
-                                                $color       = $remaining < 1000 ? '#dc2626' : '#15803d';
+                                                $remaining = max(0, (int) $record->amount - (int) $record->full_amount);
+                                                $color     = $remaining <= 0 ? '#dc2626' : '#15803d';
                                                 return new \Illuminate\Support\HtmlString(
                                                     '<span style="font-size:15px;font-weight:700;color:' . $color . ';">'
                                                     . number_format($remaining, 0, ',', '.') . 'đ</span>'
-                                                    . '<span style="font-size:12px;color:#6b7280;margin-left:8px;">= ' . number_format($itemTotal, 0, ',', '.') . ' (tổng item) − ' . number_format($depositPaid, 0, ',', '.') . ' (đã cọc)</span>'
+                                                    . '<span style="font-size:12px;color:#6b7280;margin-left:8px;">= ' . number_format((int) $record->amount, 0, ',', '.') . ' (tổng đơn) − ' . number_format((int) $record->full_amount, 0, ',', '.') . ' (đã cọc)</span>'
                                                 );
                                             }),
 
@@ -898,10 +895,7 @@ class OrderForm
                                                 ->action(function ($record) {
                                                     if (! $record) return;
                                                     try {
-                                                        $record->load('items');
-                                                        $itemTotal   = (int) round($record->items->sum(fn($i) => (float)($i->price ?? 0) + (float)($i->extra_fee ?? 0)));
-                                                        $depositPaid = (int) $record->full_amount;
-                                                        $remaining   = max(0, $itemTotal - $depositPaid);
+                                                        $remaining = max(0, (int) $record->amount - (int) $record->full_amount);
 
                                                         if ($remaining <= 0) {
                                                             Notification::make()->warning()->title('Đơn đã được thanh toán đủ, không cần tạo QR')->send();
