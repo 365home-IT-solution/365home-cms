@@ -862,21 +862,24 @@ class OrderForm
                                     ->schema([
                                         TextInput::make('full_amount')
                                             ->label('Số tiền đã cọc (full_amount)')
-                                            ->helperText('Chỉnh sửa nếu cần điều chỉnh số tiền cọc đã thu. Số tiền còn lại QR = tổng item - số tiền này.')
+                                            ->helperText('Chỉnh sửa để điều chỉnh số tiền cọc đã thu. Số tiền QR = tổng đơn − giá trị này.')
                                             ->numeric()
                                             ->suffix('VNĐ')
+                                            ->live()
                                             ->dehydrateStateUsing(fn ($state) => (int) $state),
 
                                         Placeholder::make('remaining_qr_preview')
                                             ->label('Số tiền còn lại (dự kiến)')
-                                            ->content(function ($record) {
+                                            ->content(function ($record, $get) {
                                                 if (! $record) return new \Illuminate\Support\HtmlString('');
-                                                $remaining = max(0, (int) $record->amount - (int) $record->full_amount);
-                                                $color     = $remaining <= 0 ? '#dc2626' : '#15803d';
+                                                $orderAmount = (int) $record->amount;
+                                                $fullAmount  = (int) ($get('full_amount') ?? $record->full_amount ?? 0);
+                                                $remaining   = max(0, $orderAmount - $fullAmount);
+                                                $color       = $remaining <= 0 ? '#dc2626' : '#15803d';
                                                 return new \Illuminate\Support\HtmlString(
                                                     '<span style="font-size:15px;font-weight:700;color:' . $color . ';">'
                                                     . number_format($remaining, 0, ',', '.') . 'đ</span>'
-                                                    . '<span style="font-size:12px;color:#6b7280;margin-left:8px;">= ' . number_format((int) $record->amount, 0, ',', '.') . ' (tổng đơn) − ' . number_format((int) $record->full_amount, 0, ',', '.') . ' (đã cọc)</span>'
+                                                    . '<span style="font-size:12px;color:#6b7280;margin-left:8px;">= ' . number_format($orderAmount, 0, ',', '.') . ' (tổng đơn) − ' . number_format($fullAmount, 0, ',', '.') . ' (đã cọc)</span>'
                                                 );
                                             }),
 
@@ -1099,111 +1102,6 @@ class OrderForm
                                     ])
                                     ->columns(3),
 
-                                Section::make('Lịch sử thao tác')
-                                    ->description('Ghi lại mọi thay đổi và hành động của admin trên đơn này')
-                                    ->icon('heroicon-m-clock')
-                                    ->iconColor('gray')
-                                    ->collapsible()
-                                    ->collapsed(false)
-                                    ->schema([
-                                        Placeholder::make('activity_log')
-                                            ->label('')
-                                            ->content(function ($record, $livewire) {
-                                                $record = $record ?? $livewire?->record ?? null;
-                                                $orderId = $record?->getKey();
-
-                                                if (! $orderId) {
-                                                    return new \Illuminate\Support\HtmlString('<p style="color:#9ca3af;font-size:13px;font-style:italic;">Chưa có lịch sử</p>');
-                                                }
-
-                                                $activities = AuditLog::query()
-                                                    ->where('module', 'Order')
-                                                    ->where('target_id', (string) $orderId)
-                                                    ->orderByDesc('created_at')
-                                                    ->limit(50)
-                                                    ->get();
-
-                                                if ($activities->isEmpty()) {
-                                                    return new \Illuminate\Support\HtmlString('<p style="color:#9ca3af;font-size:13px;font-style:italic;">Chưa có lịch sử thao tác cho đơn này</p>');
-                                                }
-
-                                                $actionColors = [
-                                                    'create' => ['bg' => '#dcfce7', 'color' => '#166534', 'label' => 'Tạo mới'],
-                                                    'update' => ['bg' => '#fef9c3', 'color' => '#854d0e', 'label' => 'Cập nhật'],
-                                                    'delete' => ['bg' => '#fee2e2', 'color' => '#991b1b', 'label' => 'Xóa'],
-                                                ];
-                                                $fieldLabels = [
-                                                    'status'                   => 'Trạng thái',
-                                                    'amount'                   => 'Tổng tiền',
-                                                    'full_amount'              => 'Tiền cọc',
-                                                    'payment_method'           => 'Phương thức TT',
-                                                    'deposit_percent'          => 'Phần trăm cọc',
-                                                    'remaining_payment_method' => 'Thanh toán còn lại',
-                                                    'Tạo QR'                   => 'Tạo QR',
-                                                    'Mã PayOS'                 => 'Mã PayOS',
-                                                ];
-
-                                                $html = '<div>';
-                                                foreach ($activities as $log) {
-                                                    $ac       = $actionColors[$log->action] ?? ['bg' => '#f3f4f6', 'color' => '#374151', 'label' => $log->action];
-                                                    $time     = $log->created_at?->format('d/m/Y H:i:s') ?? '—';
-                                                    $userName = e($log->user_name ?? 'Hệ thống');
-                                                    $isQR     = isset($log->new_values['Tạo QR']);
-                                                    $isCash   = ($log->new_values['remaining_payment_method'] ?? null) === 'cash';
-
-                                                    if ($isQR) {
-                                                        $iconClr = '#854d0e'; $iconBg = '#fef9c3';
-                                                        $iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="' . $iconClr . '" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 3.75 9.375v-4.5ZM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5ZM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 13.5 9.375v-4.5Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75ZM6.75 16.5h.75v.75h-.75v-.75ZM16.5 6.75h.75v.75h-.75v-.75ZM13.5 13.5h.75v.75h-.75v-.75ZM13.5 19.5h.75v.75h-.75v-.75ZM19.5 13.5h.75v.75h-.75v-.75ZM19.5 19.5h.75v.75h-.75v-.75ZM16.5 16.5h.75v.75h-.75v-.75Z"/></svg>';
-                                                    } elseif ($isCash) {
-                                                        $iconClr = '#166534'; $iconBg = '#dcfce7';
-                                                        $iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="' . $iconClr . '" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z"/></svg>';
-                                                    } elseif ($log->action === 'create') {
-                                                        $iconClr = '#1e40af'; $iconBg = '#dbeafe';
-                                                        $iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="' . $iconClr . '" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/></svg>';
-                                                    } else {
-                                                        $iconClr = '#374151'; $iconBg = '#f3f4f6';
-                                                        $iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="' . $iconClr . '" width="18" height="18"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>';
-                                                    }
-
-                                                    // Dòng thay đổi
-                                                    $changesHtml = '';
-                                                    $old = $log->old_values ?? [];
-                                                    $new = $log->new_values ?? [];
-                                                    $allKeys = array_unique(array_merge(array_keys($old), array_keys($new)));
-                                                    $rows = '';
-                                                    foreach ($allKeys as $key) {
-                                                        $label  = $fieldLabels[$key] ?? $key;
-                                                        $oldVal = array_key_exists($key, $old) ? (string)($old[$key] ?? '—') : null;
-                                                        $newVal = array_key_exists($key, $new) ? (string)($new[$key] ?? '—') : null;
-                                                        if ($oldVal === null && $newVal !== null) {
-                                                            $rows .= '<tr><td style="padding:3px 8px;font-size:11px;color:#6b7280;">' . e($label) . '</td><td style="padding:3px 8px;font-size:11px;color:#166534;">' . e($newVal) . '</td></tr>';
-                                                        } elseif ($oldVal !== $newVal) {
-                                                            $rows .= '<tr><td style="padding:3px 8px;font-size:11px;color:#6b7280;">' . e($label) . '</td><td style="padding:3px 8px;font-size:11px;"><span style="text-decoration:line-through;color:#9ca3af;">' . e($oldVal) . '</span> → <span style="color:#166534;font-weight:600;">' . e($newVal) . '</span></td></tr>';
-                                                        }
-                                                    }
-                                                    if ($rows) {
-                                                        $changesHtml = '<table style="margin-top:6px;border-collapse:collapse;width:100%;">' . $rows . '</table>';
-                                                    }
-
-                                                    $html .= '
-                                                        <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid #f3f4f6;">
-                                                            <div style="flex-shrink:0;width:34px;height:34px;border-radius:50%;background:' . $iconBg . ';display:flex;align-items:center;justify-content:center;">' . $iconSvg . '</div>
-                                                            <div style="flex:1;min-width:0;">
-                                                                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
-                                                                    <span style="font-size:12px;font-weight:700;background:' . $ac['bg'] . ';color:' . $ac['color'] . ';padding:1px 8px;border-radius:999px;">' . $ac['label'] . '</span>
-                                                                    <span style="font-size:13px;font-weight:600;color:#111827;">' . e($log->target_label ?? '') . '</span>
-                                                                    <span style="font-size:11px;color:#6b7280;">bởi ' . $userName . '</span>
-                                                                </div>
-                                                                <div style="font-size:11px;color:#9ca3af;margin-top:2px;">' . $time . '</div>
-                                                                ' . $changesHtml . '
-                                                            </div>
-                                                        </div>';
-                                                }
-                                                $html .= '</div>';
-
-                                                return new \Illuminate\Support\HtmlString($html);
-                                            }),
-                                    ]),
                             ]),
                     ])
                     ->columnSpanFull()
