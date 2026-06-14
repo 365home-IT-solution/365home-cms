@@ -555,13 +555,9 @@ class OrderTable
      */
     private static function computeOrderTotal(Order $record): int
     {
-        // Đơn đặt cọc: full_amount = tiền cọc → reconstruct tổng thực
-        $depositPct = $record->deposit_percent !== null ? (int)$record->deposit_percent : null;
-        if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
-            return (int) round((int)$record->full_amount * 100 / $depositPct);
-        }
-
-        // Đơn thường: full_amount là số tiền thực sau tất cả discount/coupon/KM
+        // Đơn cọc và đơn thường: đều trả về full_amount
+        // - Đơn cọc: full_amount = số tiền cọc khách cần thanh toán ngay
+        // - Đơn thường: full_amount = tổng tiền thực sau discount
         return (int)($record->full_amount ?? $record->amount ?? 0);
     }
 

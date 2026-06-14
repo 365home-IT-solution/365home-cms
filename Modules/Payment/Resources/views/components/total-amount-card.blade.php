@@ -375,9 +375,10 @@
         @if(isset($record) && $record && $record->deposit_percent !== null && $isStyle2)
         @php
             $depPct     = (int) $record->deposit_percent;
-            $fullAmt2   = (int) ($record->full_amount ?? $record->amount);
-            $paidAmt2   = (int) $record->amount;
-            $remain2    = max(0, $fullAmt2 - $paidAmt2);
+            // full_amount với đơn cọc = tiền cọc phải trả → reconstruct tổng thực
+            $depositAmt = (int) $record->full_amount;
+            $realTotal  = $depPct > 0 ? (int) round($depositAmt * 100 / $depPct) : $depositAmt;
+            $remain2    = max(0, $realTotal - $depositAmt);
             $isFullPaid = $record->status === 'paid';
             $isDepPaid  = in_array($record->status, ['deposit', 'paid']);
         @endphp
@@ -400,11 +401,11 @@
             <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.5rem; padding:0.6rem 0.75rem; background:#ffffff;">
                 <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:0.5rem; padding:0.5rem 0.6rem; text-align:center;">
                     <div style="font-size:0.65rem; color:#6b7280; margin-bottom:0.2rem;">Tổng tiền phòng</div>
-                    <div style="font-size:0.875rem; font-weight:700; color:#15803d;">{{ number_format($fullAmt2, 0, ',', '.') }}đ</div>
+                    <div style="font-size:0.875rem; font-weight:700; color:#15803d;">{{ number_format($realTotal, 0, ',', '.') }}đ</div>
                 </div>
                 <div style="background:#fffbeb; border:1px solid #fbbf24; border-radius:0.5rem; padding:0.5rem 0.6rem; text-align:center;">
                     <div style="font-size:0.65rem; color:#6b7280; margin-bottom:0.2rem;">Tiền cọc ({{ $depPct }}%)</div>
-                    <div style="font-size:0.875rem; font-weight:700; color:#d97706;">{{ number_format($paidAmt2, 0, ',', '.') }}đ</div>
+                    <div style="font-size:0.875rem; font-weight:700; color:#d97706;">{{ number_format($depositAmt, 0, ',', '.') }}đ</div>
                 </div>
                 <div style="background:#fef2f2; border:1px solid #fca5a5; border-radius:0.5rem; padding:0.5rem 0.6rem; text-align:center;">
                     <div style="font-size:0.65rem; color:#6b7280; margin-bottom:0.2rem;">Còn lại khi nhận phòng</div>

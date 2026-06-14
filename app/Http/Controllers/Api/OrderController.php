@@ -948,7 +948,7 @@ class OrderController extends Controller
         if ($rtsMap->isEmpty() && $product) {
             $dateRtsMap = $product->roomTimeSlots
                 ->whereNotNull('date')
-                ->keyBy('date');
+                ->keyBy(fn ($rts) => $rts->date->format('Y-m-d'));
 
             foreach ($items as $item) {
                 $date  = $item->checkin_date?->format('Y-m-d');
