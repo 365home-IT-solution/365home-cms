@@ -670,9 +670,25 @@ class OrderController extends Controller
                     if ($isRemaining) {
                         $order->update([
                             'status'            => 'paid',
-                            'amount'            => $order->full_amount ?? $order->amount,
                             'remaining_paid_at' => now(),
                         ]);
+                        // Cấp mã cổng tự động sau khi khách thanh toán phần còn lại
+                        try {
+                            $order->load('items.product');
+                            $firstItem    = $order->items->sortBy('checkin_date')->first();
+                            $checkinDate  = $order->items->min('checkin_date');
+                            $checkoutDate = $order->items->max('checkout_date');
+                            $product      = $firstItem?->product;
+                            if (! $order->hasAccessCode()) {
+                                app(\Modules\BladeThemeV1\Services\AccessCode\AccessCodeService::class)
+                                    ->assignCodeToOrder($order->id, $order->category_id, $checkinDate, $checkoutDate, $product);
+                            }
+                        } catch (\Throwable $codeErr) {
+                            Log::warning('Could not assign access code after remaining PayOS payment', [
+                                'order_code' => $order->order_code,
+                                'error'      => $codeErr->getMessage(),
+                            ]);
+                        }
                     } elseif ($order->deposit_percent !== null) {
                         $order->update(['status' => 'deposit', 'checkout_url' => null, 'deposit_paid_at' => now()]);
                     } else {

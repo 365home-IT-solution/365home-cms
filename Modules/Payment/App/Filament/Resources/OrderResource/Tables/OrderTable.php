@@ -5,6 +5,7 @@ namespace Modules\Payment\App\Filament\Resources\OrderResource\Tables;
 use Filament\Notifications\Notification;
 use Filament\Support\Enums\FontWeight;
 use Filament\Tables\Actions\Action;
+use PayOS\PayOS;
 use Filament\Tables\Columns\BadgeColumn;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\ImageColumn;
@@ -253,6 +254,20 @@ class OrderTable
                                             </div>
                                         </div>
                                     </div>';
+
+                                // Hiển thị link QR còn lại nếu đã tạo
+                                if ($record->remaining_checkout_url) {
+                                    $html .= '
+                                    <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;padding:12px 16px;margin-bottom:16px;">
+                                        <div style="font-weight:700;font-size:12px;color:#92400e;margin-bottom:8px;display:flex;align-items:center;gap:5px;">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#92400e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                                            Link QR thanh toán còn lại
+                                        </div>
+                                        <div style="font-size:12px;word-break:break-all;color:#1d4ed8;text-decoration:underline;">
+                                            <a href="' . e($record->remaining_checkout_url) . '" target="_blank">' . e($record->remaining_checkout_url) . '</a>
+                                        </div>
+                                    </div>';
+                                }
                             } else {
                                 $html .= '
                                     <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px 16px;margin-bottom:16px;">
@@ -552,6 +567,115 @@ class OrderTable
 
         return new HtmlString($html);
     }),
+
+                    // Action: Tạo QR thanh toán phần còn lại (cho đơn cọc)
+                    Action::make('tao_qr_con_lai')
+                        ->label('Tạo QR còn lại')
+                        ->color('warning')
+                        ->icon('heroicon-o-qr-code')
+                        ->requiresConfirmation()
+                        ->modalHeading('Tạo link QR thanh toán phần còn lại')
+                        ->modalDescription(fn ($record) => 'Tạo link PayOS cho đơn ' . $record->order_code . ' để khách thanh toán phần còn lại.')
+                        ->modalSubmitActionLabel('Tạo link')
+                        ->hidden(fn ($record) => $record->status !== 'deposit' || $record->deposit_percent === null)
+                        ->action(function ($record) {
+                            try {
+                                $depositPct  = (int) $record->deposit_percent;
+                                $depositPaid = (int) $record->full_amount;
+                                $realTotal   = $depositPct > 0 ? (int) round($depositPaid * 100 / $depositPct) : $depositPaid;
+                                $remaining   = $realTotal - $depositPaid;
+
+                                if ($remaining < 1000) {
+                                    Notification::make()->warning()->title('Số tiền còn lại quá nhỏ hoặc đã thanh toán đủ')->send();
+                                    return;
+                                }
+
+                                $orderCode = time();
+                                $description = 'Còn lại ' . $record->order_code;
+
+                                $payos = new PayOS(
+                                    Config::get('payos.client_id'),
+                                    Config::get('payos.api_key'),
+                                    Config::get('payos.checksum_key')
+                                );
+
+                                $webhookUrl = config('app.url') . '/api/payos/webhook';
+                                $returnUrl  = config('app.url') . '/payment/success?order_code=' . $record->order_code . '&remaining=1';
+                                $cancelUrl  = config('app.url') . '/payment/cancel?order_code=' . $record->order_code;
+
+                                $response = $payos->createPaymentLink([
+                                    'orderCode'   => $orderCode,
+                                    'amount'      => $remaining,
+                                    'description' => $description,
+                                    'returnUrl'   => $returnUrl,
+                                    'cancelUrl'   => $cancelUrl,
+                                    'webhookUrl'  => $webhookUrl,
+                                    'extraData'   => json_encode([
+                                        'order_id'         => $record->id,
+                                        'order_code'       => $record->order_code,
+                                        'is_remaining'     => true,
+                                    ]),
+                                ]);
+
+                                $checkoutUrl = $response['checkoutUrl'] ?? null;
+                                if (! $checkoutUrl) {
+                                    Notification::make()->danger()->title('Không thể tạo link thanh toán')->send();
+                                    return;
+                                }
+
+                                $record->update([
+                                    'remaining_payos_code'   => (string) $orderCode,
+                                    'remaining_checkout_url' => $checkoutUrl,
+                                ]);
+
+                                Notification::make()
+                                    ->success()
+                                    ->title('Đã tạo link QR còn lại')
+                                    ->body('Link: ' . $checkoutUrl)
+                                    ->send();
+
+                            } catch (\Throwable $e) {
+                                Notification::make()->danger()->title('Lỗi tạo QR: ' . $e->getMessage())->send();
+                            }
+                        }),
+
+                    // Action: Xác nhận thu tiền mặt phần còn lại (cho đơn cọc)
+                    Action::make('xac_nhan_thu_tien')
+                        ->label('Đã thu tiền mặt')
+                        ->color('success')
+                        ->icon('heroicon-o-banknotes')
+                        ->requiresConfirmation()
+                        ->modalHeading('Xác nhận thu tiền mặt')
+                        ->modalDescription(fn ($record) => 'Xác nhận đã thu tiền mặt phần còn lại của đơn ' . $record->order_code . '. Thao tác này sẽ cập nhật trạng thái thành "Đã thanh toán đầy đủ" và cấp mã truy cập cho khách.')
+                        ->modalSubmitActionLabel('Xác nhận')
+                        ->hidden(fn ($record) => $record->status !== 'deposit')
+                        ->action(function ($record) {
+                            try {
+                                $record->update([
+                                    'status'             => 'paid',
+                                    'remaining_paid_at'  => now(),
+                                ]);
+
+                                $record->load('items.product');
+                                $firstItem    = $record->items->sortBy('checkin_date')->first();
+                                $checkinDate  = $record->items->min('checkin_date');
+                                $checkoutDate = $record->items->max('checkout_date');
+                                $product      = $firstItem?->product;
+
+                                if (! $record->hasAccessCode()) {
+                                    app(\Modules\BladeThemeV1\Services\AccessCode\AccessCodeService::class)
+                                        ->assignCodeToOrder($record->id, $record->category_id, $checkinDate, $checkoutDate, $product);
+                                }
+
+                                Notification::make()
+                                    ->success()
+                                    ->title('Đã xác nhận thanh toán và cấp mã truy cập')
+                                    ->send();
+
+                            } catch (\Throwable $e) {
+                                Notification::make()->danger()->title('Lỗi: ' . $e->getMessage())->send();
+                            }
+                        }),
                 ],
                 OrderAction::action()
             ), position: ActionsPosition::BeforeCells)
