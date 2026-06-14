@@ -393,17 +393,22 @@ class CccdScannerService
         $w = imagesx($src);
         $h = imagesy($src);
 
-        // Upscale ảnh nhỏ (< 1500px) lên 1.5x — đủ để QR decode, không OOM
-        // Downscale ảnh quá lớn (> 3000px) để tránh dùng quá nhiều RAM
+        // Upscale ảnh nhỏ (< 1500px wide) để QR đủ lớn để decode
+        // Sau đó đảm bảo tổng pixel ≤ 1.4M để khanamiryan không OOM
+        // (kiểm tra theo pixel area thay vì cạnh dài —
+        //  ảnh điện thoại 2976×1879 = 5.6M px nhưng không trigger ngưỡng 3000px cũ)
         $targetW = $w;
         $targetH = $h;
         if ($w < 1500) {
             $targetW = (int) ($w * 1.5);
             $targetH = (int) ($h * 1.5);
-        } elseif ($w > 3000 || $h > 3000) {
-            $scale   = min(3000 / $w, 3000 / $h);
-            $targetW = (int) ($w * $scale);
-            $targetH = (int) ($h * $scale);
+        }
+
+        $maxPixels = 1_400_000;
+        if ($targetW * $targetH > $maxPixels) {
+            $scale   = sqrt($maxPixels / ($targetW * $targetH));
+            $targetW = (int) ($targetW * $scale);
+            $targetH = (int) ($targetH * $scale);
         }
 
         if ($targetW !== $w || $targetH !== $h) {
