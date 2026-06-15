@@ -33,7 +33,7 @@ class MembershipController extends Controller
 
         $coupons = Coupon::where(function ($q) use ($customer) {
                 $q->where('customer_id', $customer->id)
-                  ->orWhereHas('customers', fn ($q2) => $q2->where('cms_customers.id', $customer->id));
+                  ->orWhereHas('customers', fn ($q2) => $q2->whereKey($customer->id));
             })
             ->where('is_active', true)
             ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', now()))
