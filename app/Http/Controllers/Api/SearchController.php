@@ -20,70 +20,44 @@ class SearchController extends Controller
 
     public function suggestions(): JsonResponse
     {
-        $items = [
-            [
-                'id'          => '1',
-                'name'        => 'Lân cận',
-                'description' => 'Tìm xung quanh bạn',
-                'type'        => 'nearby',
-                'icon'        => 'navigate-outline',
-                'icon_color'  => '#4A90D9',
-                'bg_color'    => '#E8F0FE',
-                'query'       => null,
-                'latitude'    => null,
-                'longitude'   => null,
-            ],
-            [
-                'id'          => '2',
-                'name'        => 'Đà Nẵng, Đà Nẵng',
-                'description' => 'Điểm đến có bãi biển được ưa chuộng',
-                'type'        => 'location',
-                'icon'        => 'umbrella-outline',
-                'icon_color'  => '#4CAF50',
-                'bg_color'    => '#E8F5E9',
-                'query'       => 'Đà Nẵng',
-                'latitude'    => '16.0544',
-                'longitude'   => '108.2022',
-            ],
-            [
-                'id'          => '3',
-                'name'        => 'Hội An, Quảng Nam',
-                'description' => 'Phố cổ di sản thế giới',
-                'type'        => 'location',
-                'icon'        => 'business-outline',
-                'icon_color'  => '#FF9800',
-                'bg_color'    => '#FFF3E0',
-                'query'       => 'Hội An',
-                'latitude'    => '15.8801',
-                'longitude'   => '108.3380',
-            ],
-            [
-                'id'          => '4',
-                'name'        => 'Hà Nội',
-                'description' => 'Thủ đô nghìn năm văn hiến',
-                'type'        => 'location',
-                'icon'        => 'home-outline',
-                'icon_color'  => '#9C27B0',
-                'bg_color'    => '#F3E5F5',
-                'query'       => 'Hà Nội',
-                'latitude'    => '21.0285',
-                'longitude'   => '105.8542',
-            ],
-            [
-                'id'          => '5',
-                'name'        => 'TP. Hồ Chí Minh',
-                'description' => 'Thành phố năng động phía Nam',
-                'type'        => 'location',
-                'icon'        => 'storefront-outline',
-                'icon_color'  => '#F44336',
-                'bg_color'    => '#FFEBEE',
-                'query'       => 'Hồ Chí Minh',
-                'latitude'    => '10.8231',
-                'longitude'   => '106.6297',
-            ],
+        $nearby = [
+            'id'          => 'nearby',
+            'name'        => 'Lân cận',
+            'description' => 'Tìm phòng xung quanh bạn',
+            'type'        => 'nearby',
+            'icon'        => 'navigate-outline',
+            'icon_color'  => '#4A90D9',
+            'bg_color'    => '#E8F0FE',
+            'query'       => null,
+            'latitude'    => null,
+            'longitude'   => null,
         ];
 
-        return response()->json(['data' => $items]);
+        $locations = Product::where('is_activated', true)
+            ->where('is_in_stock', true)
+            ->whereNotNull('address')
+            ->whereNotNull('latitude')
+            ->whereNotNull('longitude')
+            ->selectRaw('address, MIN(latitude) as latitude, MIN(longitude) as longitude, COUNT(*) as room_count')
+            ->groupBy('address')
+            ->orderByDesc('room_count')
+            ->limit(10)
+            ->get()
+            ->map(fn ($row, $index) => [
+                'id'          => (string) ($index + 1),
+                'name'        => $row->address,
+                'description' => $row->room_count . ' phòng',
+                'type'        => 'location',
+                'icon'        => 'location-outline',
+                'icon_color'  => '#4CAF50',
+                'bg_color'    => '#E8F5E9',
+                'query'       => $row->address,
+                'latitude'    => (string) $row->latitude,
+                'longitude'   => (string) $row->longitude,
+            ])
+            ->values();
+
+        return response()->json(['data' => collect([$nearby])->merge($locations)->values()]);
     }
 
     // ─── GET /v1/search ──────────────────────────────────────────────────────
