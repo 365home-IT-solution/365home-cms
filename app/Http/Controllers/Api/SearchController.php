@@ -131,18 +131,25 @@ class SearchController extends Controller
         }
 
         // Geo search (Haversine — requires lat & lng together)
-        if (isset($validated['lat'], $validated['lng'])) {
+        $geoActive = isset($validated['lat'], $validated['lng']);
+
+        if ($geoActive) {
             $lat    = (float) $validated['lat'];
             $lng    = (float) $validated['lng'];
-            $radius = (float) ($validated['radius'] ?? 10);
+            $radius = (float) ($validated['radius'] ?? 3);
+
+            // LEAST(1.0, ...) tránh lỗi acos khi toạ độ trùng khớp chính xác
+            $haversine = '( 6371 * acos( LEAST(1.0, '
+                . 'cos( radians(?) ) * cos( radians(latitude) ) '
+                . '* cos( radians(longitude) - radians(?) ) '
+                . '+ sin( radians(?) ) * sin( radians(latitude) ) '
+                . ') ) )';
 
             $query->whereNotNull('latitude')
                 ->whereNotNull('longitude')
-                ->selectRaw(
-                    '*, ( 6371 * acos( cos( radians(?) ) * cos( radians(latitude) ) * cos( radians(longitude) - radians(?) ) + sin( radians(?) ) * sin( radians(latitude) ) ) ) AS distance',
-                    [$lat, $lng, $lat]
-                )
-                ->having('distance', '<=', $radius)
+                // whereRaw hoạt động đúng trong cả data query lẫn COUNT query của paginate()
+                ->whereRaw("{$haversine} <= ?", [$lat, $lng, $lat, $radius])
+                ->selectRaw("*, {$haversine} AS distance", [$lat, $lng, $lat])
                 ->orderBy('distance');
         } else {
             $query->latest();
@@ -156,10 +163,15 @@ class SearchController extends Controller
             ? $authUser->wishlists()->pluck('product_id')->toArray()
             : null;
 
-        $data = collect($rooms->items())->map(function ($room) use ($wishlistedIds) {
+        $data = collect($rooms->items())->map(function ($room) use ($wishlistedIds, $geoActive) {
             $status = $wishlistedIds === null ? null : in_array($room->id, $wishlistedIds);
+            $card   = $this->mapRoom($room, $status);
 
-            return $this->mapRoom($room, $status);
+            if ($geoActive) {
+                $card['distance'] = round((float) ($room->distance ?? 0), 2);
+            }
+
+            return $card;
         });
 
         return response()->json([
