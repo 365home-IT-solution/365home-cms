@@ -31,7 +31,10 @@ class MembershipController extends Controller
             ->orderBy('min_spending')
             ->first();
 
-        $coupons = Coupon::where('customer_id', $customer->id)
+        $coupons = Coupon::where(function ($q) use ($customer) {
+                $q->where('customer_id', $customer->id)
+                  ->orWhereHas('customers', fn ($q2) => $q2->where('id', $customer->id));
+            })
             ->where('is_active', true)
             ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', now()))
             ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', now()))
