@@ -330,21 +330,29 @@ class CustomerResource extends Resource
                     ->fillForm(fn (Customer $record) => ['membership_tier_id' => $record->membership_tier_id])
                     ->action(function (Customer $record, array $data): void {
                         $from = $record->membership_tier_id;
-                        $to   = $data['membership_tier_id'];
+                        $to   = (int) $data['membership_tier_id'];
 
                         if ($from === $to) {
                             return;
                         }
 
-                        $record->update(['membership_tier_id' => $to]);
+                        $coupon = app(\App\Services\MembershipService::class)
+                            ->assignManually($record, $to, $from);
 
-                        \App\Models\CustomerMembershipLog::create([
-                            'customer_id'        => $record->id,
-                            'from_tier_id'       => $from,
-                            'to_tier_id'         => $to,
-                            'reason'             => 'manual',
-                            'spending_at_change' => $record->total_spending ?? 0,
-                        ]);
+                        if ($coupon) {
+                            \Filament\Notifications\Notification::make()
+                                ->title('Đã gán hạng thành công')
+                                ->body("Mã giảm giá vừa cấp: **{$coupon->code}**")
+                                ->success()
+                                ->persistent()
+                                ->send();
+                        } else {
+                            \Filament\Notifications\Notification::make()
+                                ->title('Đã gán hạng thành công')
+                                ->body('Hạng này chưa cấu hình coupon, không có mã giảm giá được tạo.')
+                                ->success()
+                                ->send();
+                        }
                     })
                     ->modalHeading('Gán hạng thành viên')
                     ->modalSubmitActionLabel('Lưu'),

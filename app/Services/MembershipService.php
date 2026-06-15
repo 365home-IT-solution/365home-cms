@@ -86,18 +86,39 @@ class MembershipService
     }
 
     /**
+     * Gán hạng thủ công từ admin: cập nhật tier, ghi log, phát coupon.
+     * Trả về coupon vừa tạo (hoặc null nếu tier không cấu hình coupon).
+     */
+    public function assignManually(Customer $customer, int $toTierId, ?int $fromTierId = null): ?Coupon
+    {
+        $customer->update(['membership_tier_id' => $toTierId]);
+
+        CustomerMembershipLog::create([
+            'customer_id'        => $customer->id,
+            'from_tier_id'       => $fromTierId,
+            'to_tier_id'         => $toTierId,
+            'reason'             => 'manual',
+            'spending_at_change' => $customer->total_spending ?? 0,
+        ]);
+
+        $tier = MembershipTier::find($toTierId);
+
+        return $tier ? $this->issueTierCoupon($customer, $tier) : null;
+    }
+
+    /**
      * Tạo coupon cá nhân cho customer dựa theo cấu hình của tier.
      */
-    private function issueTierCoupon(Customer $customer, MembershipTier $tier): void
+    private function issueTierCoupon(Customer $customer, MembershipTier $tier): ?Coupon
     {
         if (! $tier->welcome_coupon_value || $tier->welcome_coupon_value <= 0) {
-            return;
+            return null;
         }
 
         $prefix = strtoupper($tier->welcome_coupon_prefix ?: Str::slug($tier->name, ''));
         $code   = $prefix . strtoupper(Str::random(6));
 
-        Coupon::create([
+        return Coupon::create([
             'code'          => $code,
             'name'          => 'Ưu đãi hạng ' . $tier->name . ' — ' . $customer->fullname,
             'description'   => 'Coupon tự động cấp khi đạt hạng ' . $tier->name,
