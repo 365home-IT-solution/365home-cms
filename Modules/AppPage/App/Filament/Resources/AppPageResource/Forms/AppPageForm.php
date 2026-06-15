@@ -157,12 +157,8 @@ class AppPageForm
 
                                     $branchIds = array_filter((array) ($get('branch_ids') ?? []));
                                     if (! empty($branchIds)) {
-                                        $childIds = Category::whereIn('parent_id', $branchIds)
-                                            ->pluck('id');
-
-                                        $filterIds = $childIds->isNotEmpty()
-                                            ? $childIds
-                                            : collect($branchIds);
+                                        $childIds  = Category::whereIn('parent_id', $branchIds)->pluck('id');
+                                        $filterIds = collect($branchIds)->merge($childIds)->unique()->values();
 
                                         $query->whereHas(
                                             'categories',

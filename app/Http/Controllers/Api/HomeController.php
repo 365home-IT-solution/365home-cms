@@ -11,6 +11,7 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Storage;
 use Modules\AppPage\App\Models\AppPage;
 use Modules\AppPage\App\Models\Banner;
+use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomType;
 
@@ -131,6 +132,13 @@ class HomeController extends Controller
         } else {
             $query = Product::where('is_activated', true)
                 ->where('is_in_stock', true);
+
+            $branchIds = array_filter((array) ($data['branch_ids'] ?? []));
+            if (! empty($branchIds)) {
+                $childIds  = Category::whereIn('parent_id', $branchIds)->pluck('id');
+                $filterIds = collect($branchIds)->merge($childIds)->unique()->values();
+                $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
+            }
 
             $orderBy = $data['order_by'] ?? 'latest';
             match ($orderBy) {

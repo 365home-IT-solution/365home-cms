@@ -4,12 +4,14 @@ namespace App\Http\Controllers\Api\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
+use App\Models\MembershipTier;
 use App\Services\ZaloOtpService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Modules\Payment\App\Services\CccdScannerService;
+use Modules\Promotion\App\Models\Coupon;
 
 class ZaloOtpController extends Controller
 {
@@ -349,6 +351,24 @@ class ZaloOtpController extends Controller
 
     private function customerResource(Customer $customer): array
     {
+        $customer->loadMissing('membershipTier');
+
+        $tier     = $customer->membershipTier;
+        $spending = (float) $customer->total_spending;
+
+        $nextTier = MembershipTier::where('is_active', true)
+            ->where('min_spending', '>', $spending)
+            ->orderBy('min_spending')
+            ->first();
+
+        $coupons = Coupon::where('customer_id', $customer->id)
+            ->where('is_active', true)
+            ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', now()))
+            ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', now()))
+            ->where(fn ($q) => $q->whereNull('usage_limit')->orWhereColumn('used_count', '<', 'usage_limit'))
+            ->orderByDesc('created_at')
+            ->get(['id', 'code', 'name', 'type', 'value', 'max_discount', 'min_order_value', 'end_at']);
+
         return [
             'id'                => $customer->id,
             'fullname'          => $customer->fullname,
@@ -363,6 +383,31 @@ class ZaloOtpController extends Controller
                 ? Storage::disk('public')->url($customer->cccd_back)
                 : null,
             'cccd_data'         => $customer->cccd_data,
+            'membership'        => [
+                'tier'           => $tier ? [
+                    'id'    => $tier->id,
+                    'name'  => $tier->name,
+                    'slug'  => $tier->slug,
+                    'color' => $tier->color,
+                    'icon'  => $tier->icon,
+                ] : null,
+                'total_spending' => $spending,
+                'next_tier'      => $nextTier ? [
+                    'id'           => $nextTier->id,
+                    'name'         => $nextTier->name,
+                    'min_spending' => (float) $nextTier->min_spending,
+                    'remaining'    => max(0, (float) $nextTier->min_spending - $spending),
+                ] : null,
+                'coupons'        => $coupons->map(fn (Coupon $c) => [
+                    'code'            => $c->code,
+                    'name'            => $c->name,
+                    'type'            => $c->type,
+                    'value'           => (float) $c->value,
+                    'max_discount'    => $c->max_discount ? (float) $c->max_discount : null,
+                    'min_order_value' => $c->min_order_value ? (float) $c->min_order_value : null,
+                    'expires_at'      => $c->end_at?->toDateString(),
+                ]),
+            ],
         ];
     }
 }
