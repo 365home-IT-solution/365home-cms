@@ -150,6 +150,54 @@ class CustomerResource extends Resource
                             ->numeric()
                             ->suffix('VNĐ'),
 
+                        Placeholder::make('personal_coupons_display')
+                            ->label('Mã giảm giá thành viên')
+                            ->content(function (?Customer $record): HtmlString {
+                                if (! $record) {
+                                    return new HtmlString('<p class="text-sm text-gray-400 italic">—</p>');
+                                }
+
+                                $coupons = $record->personalCoupons()
+                                    ->orderByDesc('created_at')
+                                    ->get();
+
+                                if ($coupons->isEmpty()) {
+                                    return new HtmlString('<p class="text-sm text-gray-400 italic">Chưa có mã nào.</p>');
+                                }
+
+                                $html = '<div class="space-y-2">';
+                                foreach ($coupons as $coupon) {
+                                    $expired = $coupon->end_at && now()->gt($coupon->end_at);
+                                    $used    = $coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit;
+                                    $inactive = ! $coupon->is_active;
+
+                                    if ($expired || $used || $inactive) {
+                                        $wrap = 'rounded-lg bg-gray-100 dark:bg-gray-800 px-3 py-2 opacity-50';
+                                        $code = '<s class="font-mono font-semibold text-sm text-gray-400">' . e($coupon->code) . '</s>';
+                                    } else {
+                                        $wrap = 'rounded-lg bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2 border border-emerald-200 dark:border-emerald-800';
+                                        $code = '<code class="font-mono font-semibold text-sm text-emerald-700 dark:text-emerald-300 select-all">' . e($coupon->code) . '</code>';
+                                    }
+
+                                    $value = $coupon->type === 'percentage'
+                                        ? $coupon->value . '%'
+                                        : number_format((float) $coupon->value, 0, ',', '.') . ' VNĐ';
+
+                                    $expire = $coupon->end_at
+                                        ? ' · HH: ' . \Carbon\Carbon::parse($coupon->end_at)->format('d/m/Y')
+                                        : '';
+
+                                    $html .= '<div class="flex items-center justify-between gap-2 ' . $wrap . '">';
+                                    $html .= $code;
+                                    $html .= '<span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">' . e($value) . $expire . '</span>';
+                                    $html .= '</div>';
+                                }
+                                $html .= '</div>';
+
+                                return new HtmlString($html);
+                            })
+                            ->hiddenOn('create'),
+
                         Placeholder::make('tier_benefits_display')
                             ->label('Quyền lợi hạng')
                             ->content(function (?Customer $record): HtmlString {
