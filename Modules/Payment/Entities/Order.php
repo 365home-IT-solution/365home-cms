@@ -54,6 +54,7 @@ class Order extends Model implements Eventable
         'exclude_from_stats',
         'customer_id',
         'qr_code',
+        'remaining_qr_code',
     ];
 
     protected $casts = [

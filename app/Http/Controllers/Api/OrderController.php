@@ -175,6 +175,7 @@ class OrderController extends Controller
                     // Giá thay đổi → link PayOS cũ không còn hợp lệ
                     if ($order->checkout_url) {
                         $updates['checkout_url'] = null;
+                        $updates['qr_code']      = null;
                         $updates['expired_at']   = null;
                     }
                 }
@@ -291,6 +292,7 @@ class OrderController extends Controller
             // Link PayOS cũ tạo với giá cũ → vô hiệu hoá nếu giá thay đổi
             if ($newFullAmount !== (int) $order->full_amount && $order->checkout_url) {
                 $updates['checkout_url'] = null;
+                $updates['qr_code']      = null;
                 $updates['expired_at']   = null;
             }
 
@@ -551,6 +553,7 @@ class OrderController extends Controller
             return response()->json([
                 'order_code'   => $order->order_code,
                 'checkout_url' => $order->remaining_checkout_url,
+                'qr_code'      => $order->remaining_qr_code,
                 'amount'       => $remaining,
             ]);
         }
@@ -598,6 +601,7 @@ class OrderController extends Controller
             $order->update([
                 'remaining_payos_code'   => $remainingCode,
                 'remaining_checkout_url' => $checkoutUrl,
+                'remaining_qr_code'      => $qrCode,
             ]);
 
             return response()->json([
