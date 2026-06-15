@@ -87,11 +87,13 @@ class SearchController extends Controller
             ->where('is_in_stock', true)
             ->with(['roomTimeSlots.timeSlot', 'media', 'roomType']);
 
-        // Filter by room_type_slug
+        // Filter by room_type_slug — nếu category không tồn tại thì trả về rỗng
         if (! empty($validated['category'])) {
             $roomType = RoomType::where('slug', $validated['category'])->first();
             if ($roomType) {
                 $query->where('room_type_id', $roomType->id);
+            } else {
+                $query->whereRaw('1 = 0');
             }
         }
 
@@ -101,6 +103,26 @@ class SearchController extends Controller
             $query->where(function ($sub) use ($q) {
                 $sub->where('name', 'like', "%{$q}%")
                     ->orWhere('address', 'like', "%{$q}%");
+            });
+        }
+
+        // Filter rooms by available time slots khi tìm theo_gio có time_from & time_to
+        $timeFrom = null;
+        $timeTo   = null;
+        if (($validated['time_type'] ?? null) === 'slot'
+            && ! empty($validated['time_from'])
+            && ! empty($validated['time_to'])
+        ) {
+            $timeFrom = $validated['time_from'];
+            $timeTo   = $validated['time_to'];
+
+            $query->whereHas('roomTimeSlots', function ($sub) use ($timeFrom, $timeTo) {
+                $sub->whereNull('date')
+                    ->whereNotIn('status', ['booked'])
+                    ->whereHas('timeSlot', function ($slotSub) use ($timeFrom, $timeTo) {
+                        $slotSub->where('start_time', '>=', $timeFrom)
+                                ->where('end_time', '<=', $timeTo);
+                    });
             });
         }
 
@@ -137,9 +159,9 @@ class SearchController extends Controller
             ? $authUser->wishlists()->pluck('product_id')->toArray()
             : null;
 
-        $data = collect($rooms->items())->map(function ($room) use ($wishlistedIds, $geoActive) {
+        $data = collect($rooms->items())->map(function ($room) use ($wishlistedIds, $geoActive, $timeFrom, $timeTo) {
             $status = $wishlistedIds === null ? null : in_array($room->id, $wishlistedIds);
-            $card   = $this->mapRoom($room, $status);
+            $card   = $this->mapRoom($room, $status, $timeFrom, $timeTo);
 
             if ($geoActive) {
                 $card['distance'] = round((float) ($room->distance ?? 0), 2);

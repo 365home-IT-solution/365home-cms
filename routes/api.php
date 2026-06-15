@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\RoomTypeController;
 use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\RatingController;
 use App\Http\Controllers\Api\WishlistController;
 use Illuminate\Support\Facades\Route;
 use Modules\AppPage\App\Http\Controllers\AppPageController;
@@ -104,6 +105,21 @@ Route::get('rooms/{id}/dates',         [DailyRoomController::class, 'dates'])->n
 Route::get('rooms/{id}/price-preview', [DailyRoomController::class, 'pricePreview'])->name('api.rooms.daily.price-preview');
 Route::post('rooms/{id}/hold',         [DailyRoomHoldController::class, 'hold'])->name('api.rooms.daily.hold');
 Route::delete('rooms/{id}/hold',       [DailyRoomHoldController::class, 'release'])->name('api.rooms.daily.hold.release');
+
+/*
+|--------------------------------------------------------------------------
+| Room Ratings — Đánh giá sao
+| GET    /api/rooms/{id}/ratings → Danh sách đánh giá + summary (public)
+| POST   /api/rooms/{id}/ratings → Tạo / cập nhật đánh giá (auth)
+| DELETE /api/rooms/{id}/ratings → Xoá đánh giá của mình (auth)
+|--------------------------------------------------------------------------
+*/
+Route::get('rooms/{id}/ratings', [RatingController::class, 'index'])->name('api.rooms.ratings.index');
+
+Route::middleware(['auth:sanctum', 'customer.active'])->group(function () {
+    Route::post('rooms/{id}/ratings',   [RatingController::class, 'store'])->name('api.rooms.ratings.store');
+    Route::delete('rooms/{id}/ratings', [RatingController::class, 'destroy'])->name('api.rooms.ratings.destroy');
+});
 
 /*
 |--------------------------------------------------------------------------

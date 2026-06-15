@@ -166,6 +166,11 @@ class Product extends Model implements HasMedia, Resourceable
         );
     }
 
+    public function ratings()
+    {
+        return $this->hasMany(\App\Models\RoomRating::class, 'room_id');
+    }
+
     public function additionalServices()
     {
         return $this->belongsToMany(

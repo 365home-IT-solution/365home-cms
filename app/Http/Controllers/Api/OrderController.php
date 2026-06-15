@@ -428,6 +428,7 @@ class OrderController extends Controller
                 'status'         => $order->status,
                 'payment_method' => $order->payment_method,
                 'checkout_url'   => $order->checkout_url,
+                'qr_code'        => $order->qr_code,
                 'expired_at'     => $order->expired_at,
                 'buyer_name'     => $order->buyer_name,
                 'buyer_phone'    => $order->buyer_phone,
@@ -470,7 +471,7 @@ class OrderController extends Controller
      * POST /api/orders/{order_code}/retry-payment
      * Tạo lại link PayOS khi link cũ hết hạn hoặc bị huỷ.
      */
-    public function retryPayment(string $orderCode): JsonResponse
+    public function retryPayment(Request $request, string $orderCode): JsonResponse
     {
         /** @var \App\Models\Customer $customer */
         $customer = auth('sanctum')->user();
@@ -499,7 +500,7 @@ class OrderController extends Controller
         }
 
         $itemName    = $order->items->first()?->name ?? 'Đặt phòng';
-        $checkoutUrl = $this->buildPayOSLink($order, $itemName);
+        $checkoutUrl = $this->buildPayOSLink($order, $itemName, $request->input('return_url'), $request->input('cancel_url'));
 
         if (! $checkoutUrl) {
             return response()->json(['message' => 'Không thể tạo link thanh toán. Vui lòng thử lại sau.'], 500);
@@ -512,6 +513,7 @@ class OrderController extends Controller
             'order_code'   => $order->order_code,
             'status'       => $order->status,
             'checkout_url' => $order->checkout_url,
+            'qr_code'      => $order->qr_code,
             'expired_at'   => $order->expired_at,
         ]);
     }
@@ -520,7 +522,7 @@ class OrderController extends Controller
      * POST /api/orders/{order_code}/remaining-payment
      * Tạo link PayOS để thanh toán phần còn lại sau khi đã đặt cọc.
      */
-    public function remainingPayment(string $orderCode): JsonResponse
+    public function remainingPayment(Request $request, string $orderCode): JsonResponse
     {
         /** @var \App\Models\Customer $customer */
         $customer = auth('sanctum')->user();
@@ -574,8 +576,8 @@ class OrderController extends Controller
                 'orderCode'   => $remainingCode,
                 'amount'      => $remaining,
                 'description' => 'Tt con lai - ' . $order->order_code,
-                'returnUrl'   => config('app.url') . '/payment/success?orderCode=' . $order->order_code . '&remaining=1',
-                'cancelUrl'   => config('app.url') . '/payment/cancel?orderCode=' . $order->order_code,
+                'returnUrl'   => $request->input('return_url') ?? config('app.url') . '/payment/success?orderCode=' . $order->order_code . '&remaining=1',
+                'cancelUrl'   => $request->input('cancel_url') ?? config('app.url') . '/payment/cancel?orderCode=' . $order->order_code,
                 'buyerName'   => $order->buyer_name ?? '',
                 'buyerPhone'  => $order->buyer_phone ?? '',
                 'expiredAt'   => $expiredAt->timestamp,
@@ -587,6 +589,7 @@ class OrderController extends Controller
             ]);
 
             $checkoutUrl = $response['checkoutUrl'] ?? null;
+            $qrCode      = $response['qrCode'] ?? null;
 
             if (! $checkoutUrl) {
                 return response()->json(['message' => 'Không thể tạo link thanh toán.'], 500);
@@ -600,6 +603,7 @@ class OrderController extends Controller
             return response()->json([
                 'order_code'   => $order->order_code,
                 'checkout_url' => $checkoutUrl,
+                'qr_code'      => $qrCode,
                 'amount'       => $remaining,
                 'expired_at'   => $expiredAt->toIso8601String(),
             ]);
@@ -734,7 +738,7 @@ class OrderController extends Controller
 
     // ─────────────────────────────────────────────
 
-    private function buildPayOSLink(Order $order, string $itemName): ?string
+    private function buildPayOSLink(Order $order, string $itemName, ?string $returnUrl = null, ?string $cancelUrl = null): ?string
     {
         try {
             $clientId    = Config::get('payos.client_id');
@@ -765,17 +769,17 @@ class OrderController extends Controller
             $newPayosCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
 
             Log::info('buildPayOSLink: creating', [
-                'order_code'    => $order->order_code,
+                'order_code'     => $order->order_code,
                 'new_payos_code' => $newPayosCode,
-                'amount'        => (int) $order->full_amount,
+                'amount'         => (int) $order->full_amount,
             ]);
 
             $response = $payOS->createPaymentLink([
                 'orderCode'   => $newPayosCode,
                 'amount'      => (int) $order->full_amount,
                 'description' => 'TT don ' . $order->order_code,
-                'returnUrl'   => route('payment.success') . '?orderCode=' . $order->order_code,
-                'cancelUrl'   => route('payment.cancel') . '?orderCode=' . $order->order_code,
+                'returnUrl'   => $returnUrl ?? route('payment.success') . '?orderCode=' . $order->order_code,
+                'cancelUrl'   => $cancelUrl ?? route('payment.cancel') . '?orderCode=' . $order->order_code,
                 'buyerName'   => $order->buyer_name ?? '',
                 'buyerPhone'  => $order->buyer_phone ?? '',
                 'expiredAt'   => $expiredAt->timestamp,
@@ -783,16 +787,19 @@ class OrderController extends Controller
             ]);
 
             $checkoutUrl = $response['checkoutUrl'] ?? null;
+            $qrCode      = $response['qrCode'] ?? null;
 
             Log::info('buildPayOSLink: result', [
-                'order_code'    => $order->order_code,
+                'order_code'     => $order->order_code,
                 'new_payos_code' => $newPayosCode,
-                'checkout_url'  => $checkoutUrl,
+                'checkout_url'   => $checkoutUrl,
+                'has_qr'         => (bool) $qrCode,
             ]);
 
             if ($checkoutUrl) {
                 $order->update([
                     'checkout_url'       => $checkoutUrl,
+                    'qr_code'            => $qrCode,
                     'expired_at'         => $expiredAt,
                     'current_payos_code' => $newPayosCode,
                 ]);

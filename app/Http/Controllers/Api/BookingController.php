@@ -37,6 +37,8 @@ class BookingController extends Controller
             'services'                => 'sometimes|nullable|array',
             'services.*.service_id'   => 'required_with:services|integer',
             'services.*.quantity'     => 'required_with:services|integer|min:1',
+            'return_url'              => 'sometimes|nullable|string|max:500',
+            'cancel_url'              => 'sometimes|nullable|string|max:500',
         ];
 
         if ($request->input('type') === 'slot') {
@@ -261,7 +263,7 @@ class BookingController extends Controller
 
         // ── 8. Tạo link PayOS ────────────────────────────────────────────────
         if ($paymentMethod === 'PayOS' && $amountDue >= 2000) {
-            $this->createPayOSLink($order, $summaryName);
+            $this->createPayOSLink($order, $summaryName, $request->input('return_url'), $request->input('cancel_url'));
         }
 
         // ── 9. Realtime: cập nhật trạng thái slot cho các client đang xem ────
@@ -291,6 +293,7 @@ class BookingController extends Controller
                 'status'         => $order->status,
                 'payment_method' => $order->payment_method,
                 'checkout_url'   => $order->checkout_url,
+                'qr_code'        => $order->qr_code,
                 'expired_at'     => $order->expired_at,
                 'buyer_name'     => $order->buyer_name,
                 'buyer_phone'    => $order->buyer_phone,
@@ -848,7 +851,7 @@ class BookingController extends Controller
 
     // ── PayOS ─────────────────────────────────────────────────────────────────
 
-    private function createPayOSLink(Order $order, string $itemName): void
+    private function createPayOSLink(Order $order, string $itemName, ?string $returnUrl = null, ?string $cancelUrl = null): void
     {
         try {
             $clientId    = Config::get('payos.client_id');
@@ -866,16 +869,26 @@ class BookingController extends Controller
                 'orderCode'   => (int) $order->order_code,
                 'amount'      => (int) $order->full_amount,
                 'description' => 'TT don ' . $order->order_code,
-                'returnUrl'   => route('payment.success') . '?orderCode=' . $order->order_code,
-                'cancelUrl'   => route('payment.cancel') . '?orderCode=' . $order->order_code,
+                'returnUrl'   => $returnUrl ?? route('payment.success') . '?orderCode=' . $order->order_code,
+                'cancelUrl'   => $cancelUrl ?? route('payment.cancel') . '?orderCode=' . $order->order_code,
                 'buyerName'   => $order->buyer_name ?? '',
                 'buyerPhone'  => $order->buyer_phone ?? '',
                 'expiredAt'   => $expiredAt->timestamp,
                 'items'       => [['name' => $itemName, 'quantity' => 1, 'price' => (int) $order->full_amount]],
             ]);
 
+            $updates = ['expired_at' => $expiredAt];
+
             if ($checkoutUrl = $response['checkoutUrl'] ?? null) {
-                $order->update(['checkout_url' => $checkoutUrl, 'expired_at' => $expiredAt]);
+                $updates['checkout_url'] = $checkoutUrl;
+            }
+
+            if ($qrCode = $response['qrCode'] ?? null) {
+                $updates['qr_code'] = $qrCode;
+            }
+
+            if (! empty($updates)) {
+                $order->update($updates);
             }
         } catch (\Throwable $e) {
             Log::error('PayOS link creation error', ['order_id' => $order->id, 'error' => $e->getMessage()]);

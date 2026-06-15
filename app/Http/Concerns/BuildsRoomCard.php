@@ -10,10 +10,10 @@ use Modules\Product\App\Models\TimeSlot;
 
 trait BuildsRoomCard
 {
-    private function mapRoom(Product $room, ?bool $wishlistStatus = null): array
+    private function mapRoom(Product $room, ?bool $wishlistStatus = null, ?string $timeFrom = null, ?string $timeTo = null): array
     {
         $badge     = $room->badge;
-        $timeSlots = $this->buildTimeSlots($room);
+        $timeSlots = $this->buildTimeSlots($room, $timeFrom, $timeTo);
 
         if (! empty($timeSlots)) {
             $basePrice = collect($timeSlots)->sum('amount');
@@ -67,11 +67,23 @@ trait BuildsRoomCard
         return $media?->getUrl();
     }
 
-    private function buildTimeSlots(Product $room): array
+    private function buildTimeSlots(Product $room, ?string $timeFrom = null, ?string $timeTo = null): array
     {
-        return $room->roomTimeSlots
+        $slots = $room->roomTimeSlots
             ->whereNull('date')
-            ->whereNotIn('status', ['booked'])
+            ->whereNotIn('status', ['booked']);
+
+        if ($timeFrom !== null && $timeTo !== null) {
+            $slots = $slots->filter(function ($roomSlot) use ($timeFrom, $timeTo) {
+                $ts = $roomSlot->timeSlot;
+                if (! $ts || ! $ts->start_time || ! $ts->end_time) {
+                    return false;
+                }
+                return $ts->start_time >= $timeFrom && $ts->end_time <= $timeTo;
+            });
+        }
+
+        return $slots
             ->groupBy('timeslot_id')
             ->map(function ($group) {
                 $slot  = $group->sortBy('price')->first();
