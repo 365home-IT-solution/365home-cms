@@ -53,6 +53,8 @@ trait BuildsRoomCard
             ] : null,
             'wishlist_status' => $wishlistStatus,
             'is_available'    => $room->is_in_stock,
+            'latitude'        => $room->latitude  ? (string) $room->latitude  : null,
+            'longitude'       => $room->longitude ? (string) $room->longitude : null,
         ];
     }
 

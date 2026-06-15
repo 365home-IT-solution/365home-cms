@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\CouponController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\OrderServiceController;
 use App\Http\Controllers\Api\HomeController;
+use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\LockRecordCallbackController;
 use App\Http\Controllers\Api\DailyRoomController;
 use App\Http\Controllers\Api\DailyRoomHoldController;
@@ -56,6 +57,20 @@ Route::get('room-types', [RoomTypeController::class, 'index'])->name('api.room-t
 */
 Route::prefix('v1')->name('api.v1.')->group(function () {
     Route::get('home', HomeController::class)->name('home');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Search
+    | GET /api/v1/search/suggestions → Gợi ý điểm đến (màn nhập liệu)
+    | GET /api/v1/search             → Kết quả tìm kiếm + marker bản đồ
+    | GET /api/v1/search/locations   → Autocomplete địa điểm khi gõ
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('search')->name('search.')->group(function () {
+        Route::get('suggestions', [SearchController::class, 'suggestions'])->name('suggestions');
+        Route::get('locations',   [SearchController::class, 'locations'])->name('locations');
+        Route::get('/',           [SearchController::class, 'index'])->name('index');
+    });
 });
 
 /*
