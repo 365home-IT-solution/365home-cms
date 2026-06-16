@@ -20,7 +20,7 @@ trait BuildsRoomCard
             $timeSlots = $this->buildTimeSlots($room, $timeFrom, $timeTo);
             $firstSlot = collect($timeSlots)->first();
             $price     = $firstSlot
-                ? ['amount' => $firstSlot['amount'], 'unit_label' => '/ khung giờ']
+                ? ['amount' => $firstSlot['amount'], 'unit_label' => '/ ' . ($firstSlot['label'] ?? 'khung giờ')]
                 : null;
         } else {
             $price = (float) $room->price;
