@@ -12,20 +12,19 @@ trait BuildsRoomCard
 {
     private function mapRoom(Product $room, ?bool $wishlistStatus = null, ?string $timeFrom = null, ?string $timeTo = null): array
     {
-        $badge     = $room->badge;
-        $timeSlots = $this->buildTimeSlots($room, $timeFrom, $timeTo);
-
-        if (! empty($timeSlots)) {
-            $basePrice = collect($timeSlots)->sum('amount');
-            $baseLabel = '/ ngày';
-            $baseUnit  = 'per_day';
-        } else {
-            $basePrice = (float) $room->price;
-            $baseLabel = $this->priceUnitLabel($room->price_unit);
-            $baseUnit  = $room->price_unit;
-        }
-
+        $badge    = $room->badge;
         $roomType = $room->relationLoaded('roomType') ? $room->roomType : null;
+        $isHourly = $roomType?->slug === 'theo_gio';
+
+        if ($isHourly) {
+            $timeSlots = $this->buildTimeSlots($room, $timeFrom, $timeTo);
+            $firstSlot = collect($timeSlots)->first();
+            $price     = $firstSlot
+                ? ['amount' => $firstSlot['amount'], 'unit_label' => '/ khung giờ']
+                : null;
+        } else {
+            $price = (float) $room->price;
+        }
 
         return [
             'id'              => $room->id,
@@ -40,14 +39,8 @@ trait BuildsRoomCard
                 'bg_color'   => $badge['bg_color'] ?? '#FFFFFF',
                 'text_color' => $badge['text_color'] ?? '#1F2937',
             ] : null,
-            'price' => [
-                'amount'     => $basePrice,
-                'currency'   => 'VND',
-                'unit'       => $baseUnit,
-                'unit_label' => $baseLabel,
-                'time_slots' => $timeSlots,
-            ],
-            'rating' => $room->rating_score !== null ? (float) $room->rating_score : null,
+            'price'           => $price,
+            'rating'          => $room->rating_score !== null ? (float) $room->rating_score : null,
             'wishlist_status' => $wishlistStatus,
             'is_available'    => $room->is_in_stock,
             'latitude'        => $room->latitude  ? (string) $room->latitude  : null,

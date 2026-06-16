@@ -18,7 +18,7 @@ class WishlistController extends Controller
     {
         $rooms = $request->user()
             ->wishlists()
-            ->with(['product.roomTimeSlots.timeSlot', 'product.mainImage'])
+            ->with(['product.roomTimeSlots.timeSlot', 'product.mainImage', 'product.roomType'])
             ->get()
             ->pluck('product')
             ->filter()
