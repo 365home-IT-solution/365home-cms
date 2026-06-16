@@ -10,15 +10,15 @@ use Modules\Product\App\Models\Product;
 
 class RoomRating extends Model
 {
-    protected $fillable = ['user_id', 'room_id', 'star', 'comment'];
+    protected $fillable = ['customer_id', 'room_id', 'star', 'comment'];
 
     protected $casts = [
         'star' => 'integer',
     ];
 
-    public function user(): BelongsTo
+    public function customer(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(Customer::class);
     }
 
     public function room(): BelongsTo

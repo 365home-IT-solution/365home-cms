@@ -21,7 +21,7 @@ class RatingController extends Controller
         }
 
         $ratings = RoomRating::where('room_id', $roomId)
-            ->with('user:id,name')
+            ->with('customer:id,fullname')
             ->latest()
             ->paginate(10);
 
@@ -44,9 +44,9 @@ class RatingController extends Controller
 
         return response()->json([
             'summary' => $summary,
-            'data'    => $ratings->map(fn ($r) => [
+            'data'    => $ratings->getCollection()->map(fn ($r) => [
                 'id'         => $r->id,
-                'user_name'  => $r->user?->name ?? 'Ẩn danh',
+                'user_name'  => $r->customer?->fullname ?? 'Ẩn danh',
                 'star'       => $r->star,
                 'comment'    => $r->comment,
                 'created_at' => $r->created_at?->toISOString(),
@@ -75,12 +75,12 @@ class RatingController extends Controller
 
         $user = auth('sanctum')->user();
 
-        $existed = RoomRating::where('user_id', $user->id)
+        $existed = RoomRating::where('customer_id', $user->id)
             ->where('room_id', $roomId)
             ->exists();
 
         $rating = RoomRating::updateOrCreate(
-            ['user_id' => $user->id, 'room_id' => $roomId],
+            ['customer_id' => $user->id, 'room_id' => $roomId],
             ['star' => $data['star'], 'comment' => $data['comment'] ?? null],
         );
 
@@ -105,7 +105,7 @@ class RatingController extends Controller
     {
         $user = auth('sanctum')->user();
 
-        $rating = RoomRating::where('user_id', $user->id)
+        $rating = RoomRating::where('customer_id', $user->id)
             ->where('room_id', $roomId)
             ->first();
 

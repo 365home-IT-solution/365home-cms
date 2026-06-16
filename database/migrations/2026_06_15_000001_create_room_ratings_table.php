@@ -10,14 +10,14 @@ return new class extends Migration
     {
         Schema::create('room_ratings', function (Blueprint $table) {
             $table->id();
-            $table->char('user_id', 36);
+            $table->char('customer_id', 36);
             $table->char('room_id', 36);
             $table->unsignedTinyInteger('star');
             $table->text('comment')->nullable();
             $table->timestamps();
 
-            $table->unique(['user_id', 'room_id']);
-            $table->foreign('user_id')->references('id')->on('users')->cascadeOnDelete();
+            $table->unique(['customer_id', 'room_id']);
+            $table->foreign('customer_id')->references('id')->on('customers')->cascadeOnDelete();
             $table->foreign('room_id')->references('id')->on('products')->cascadeOnDelete();
         });
     }
