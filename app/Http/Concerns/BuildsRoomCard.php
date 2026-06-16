@@ -65,6 +65,9 @@ trait BuildsRoomCard
 
         if ($timeFrom !== null && $timeTo !== null) {
             $slots = $slots->filter(function ($roomSlot) use ($timeFrom, $timeTo) {
+                if ($roomSlot->over_night) {
+                    return false;
+                }
                 $ts = $roomSlot->timeSlot;
                 if (! $ts || ! $ts->start_time || ! $ts->end_time) {
                     return false;

@@ -119,6 +119,7 @@ class SearchController extends Controller
             $query->whereHas('roomTimeSlots', function ($sub) use ($timeFrom, $timeTo) {
                 $sub->whereNull('date')
                     ->whereNotIn('status', ['booked'])
+                    ->where('over_night', false)
                     ->whereHas('timeSlot', function ($slotSub) use ($timeFrom, $timeTo) {
                         $slotSub->where('start_time', '>=', $timeFrom)
                                 ->where('end_time', '<=', $timeTo);

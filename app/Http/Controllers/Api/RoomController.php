@@ -223,10 +223,31 @@ class RoomController extends Controller
             'is_available'      => $room->is_in_stock,
             'room_type'         => $room->roomType?->slug,
             'rating' => $room->rating_score !== null ? (float) $room->rating_score : null,
+            'video'               => $this->buildVideo($room),
             'amenities'           => $this->buildAmenities($room),
             'additional_services' => $this->buildServices($room),
             'specials'            => $this->buildSpecials($room),
             'prices'              => $this->buildPrices($room),
+        ];
+    }
+
+    // ─────────────────────────────────────────────
+    // VIDEO
+    // ─────────────────────────────────────────────
+
+    private function buildVideo(Product $room): ?array
+    {
+        $setting = is_array($room->setting_video_room) ? $room->setting_video_room : [];
+        $url     = $setting['url'] ?? null;
+
+        if (! $url) {
+            return null;
+        }
+
+        return [
+            'url'   => $url,
+            'ratio' => $setting['ratio'] ?? '9:16',
+            'title' => $setting['title'] ?? null,
         ];
     }
 

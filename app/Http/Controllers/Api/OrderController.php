@@ -434,7 +434,6 @@ class OrderController extends Controller
                 'order_code'     => $order->order_code,
                 'status'         => $order->status,
                 'payment_method' => $order->payment_method,
-                'checkout_url'   => $order->checkout_url,
                 'qr_code'        => $order->qr_code,
                 'expired_at'     => $order->expired_at,
                 'buyer_name'     => $order->buyer_name,
@@ -516,11 +515,10 @@ class OrderController extends Controller
         $order->refresh();
 
         return response()->json([
-            'order_code'   => $order->order_code,
-            'status'       => $order->status,
-            'checkout_url' => $order->checkout_url,
-            'qr_code'      => $order->qr_code,
-            'expired_at'   => $order->expired_at,
+            'order_code' => $order->order_code,
+            'status'     => $order->status,
+            'qr_code'    => $order->qr_code,
+            'expired_at' => $order->expired_at,
         ]);
     }
 
@@ -721,7 +719,6 @@ class OrderController extends Controller
                 'order_code'   => $order->order_code,
                 'status'       => $order->status,
                 'payos_status' => $status,
-                'checkout_url' => $order->checkout_url,
                 'expired_at'   => $order->expired_at,
             ]);
 

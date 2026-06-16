@@ -262,7 +262,6 @@ class ChatController extends Controller
                 'order_code'     => $order->order_code,
                 'status'         => $order->status,
                 'payment_method' => $order->payment_method,
-                'checkout_url'   => $order->checkout_url,
                 'expired_at'     => $order->expired_at,
                 'buyer_name'     => $order->buyer_name,
                 'buyer_phone'    => $order->buyer_phone,
