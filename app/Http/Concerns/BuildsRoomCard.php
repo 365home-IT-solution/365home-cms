@@ -72,7 +72,8 @@ trait BuildsRoomCard
                 if (! $ts || ! $ts->start_time || ! $ts->end_time) {
                     return false;
                 }
-                return $ts->start_time >= $timeFrom && $ts->end_time <= $timeTo;
+                return substr($ts->start_time, 0, 5) >= $timeFrom
+                    && substr($ts->end_time, 0, 5) <= $timeTo;
             });
         }
 
