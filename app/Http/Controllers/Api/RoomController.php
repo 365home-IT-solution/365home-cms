@@ -222,6 +222,7 @@ class RoomController extends Controller
             'wishlist_status'   => $wishlistStatus,
             'is_available'      => $room->is_in_stock,
             'room_type'         => $room->roomType?->slug,
+            'rating' => $room->rating_score !== null ? (float) $room->rating_score : null,
             'amenities'           => $this->buildAmenities($room),
             'additional_services' => $this->buildServices($room),
             'specials'            => $this->buildSpecials($room),

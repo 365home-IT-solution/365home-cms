@@ -47,10 +47,7 @@ trait BuildsRoomCard
                 'unit_label' => $baseLabel,
                 'time_slots' => $timeSlots,
             ],
-            'rating'          => $room->rating_score !== null ? [
-                'score'     => (float) $room->rating_score,
-                'show_star' => true,
-            ] : null,
+            'rating' => $room->rating_score !== null ? (float) $room->rating_score : null,
             'wishlist_status' => $wishlistStatus,
             'is_available'    => $room->is_in_stock,
             'latitude'        => $room->latitude  ? (string) $room->latitude  : null,
