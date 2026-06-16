@@ -474,6 +474,58 @@ class OrderController extends Controller
     // ─────────────────────────────────────────────
 
     /**
+     * GET /api/orders/{order_code}/payment-qr
+     * Trả về QR hiện tại (nếu còn hạn) hoặc tự tạo lại nếu đã hết hạn.
+     */
+    public function paymentQr(string $orderCode): JsonResponse
+    {
+        /** @var \App\Models\Customer $customer */
+        $customer = auth('sanctum')->user();
+
+        $order = Order::with('items')
+            ->where('order_code', $orderCode)
+            ->where('customer_id', $customer->id)
+            ->first();
+
+        if (! $order) {
+            return response()->json(['message' => 'Đơn hàng không tồn tại.'], 404);
+        }
+
+        if (! in_array($order->status, ['pending', 'cancelled_payment'])) {
+            return response()->json(['message' => 'Đơn hàng không ở trạng thái chờ thanh toán.'], 422);
+        }
+
+        if ($order->payment_method !== 'PayOS') {
+            return response()->json(['message' => 'Đơn này không thanh toán qua PayOS.'], 422);
+        }
+
+        if ((int) $order->full_amount < 2000) {
+            return response()->json(['message' => 'Số tiền thanh toán không đủ tối thiểu.'], 422);
+        }
+
+        $needsNew = ! $order->qr_code
+            || ! $order->expired_at
+            || now()->gte($order->expired_at);
+
+        if ($needsNew) {
+            $itemName = $order->items->first()?->name ?? 'Đặt phòng';
+            $this->buildPayOSLink($order, $itemName);
+            $order->refresh();
+        }
+
+        if (! $order->qr_code) {
+            return response()->json(['message' => 'Không thể tạo QR thanh toán. Vui lòng thử lại sau.'], 500);
+        }
+
+        return response()->json([
+            'order_code' => $order->order_code,
+            'status'     => $order->status,
+            'qr_code'    => $order->qr_code,
+            'expired_at' => $order->expired_at,
+        ]);
+    }
+
+    /**
      * POST /api/orders/{order_code}/retry-payment
      */
     public function retryPayment(Request $request, string $orderCode): JsonResponse
