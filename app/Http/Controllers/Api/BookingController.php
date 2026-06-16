@@ -59,6 +59,17 @@ class BookingController extends Controller
 
         $request->validate($baseRules);
 
+        // Normalize: accept coupon_codes (preferred) hoặc coupon_code (array hoặc string)
+        $couponInput = $request->input('coupon_codes');
+        if (empty($couponInput)) {
+            $raw = $request->input('coupon_code');
+            if ($raw !== null) {
+                $couponInput = is_array($raw) ? $raw : [$raw];
+            }
+        }
+        $couponCodes = array_values(array_unique(array_map('strtoupper', array_filter((array) ($couponInput ?? [])))));
+
+
         // ── 2. Khách hàng từ token ───────────────────────────────────────────
         /** @var \App\Models\Customer $customer */
         $customer   = auth('sanctum')->user();
@@ -123,9 +134,9 @@ class BookingController extends Controller
             [$systemDiscount, $appliedSystemDiscount] = $this->applyFullBookingDiscount($basePrice, $room);
 
             $couponBase = $basePrice - $systemDiscount;
-            if ($request->filled('coupon_codes')) {
+            if (! empty($couponCodes)) {
                 [$couponDiscount, $appliedCoupons] = $this->applyMultipleCoupons(
-                    array_filter((array) $request->input('coupon_codes')),
+                    $couponCodes,
                     $couponBase,
                     $room,
                     $rtsCollection,
@@ -150,9 +161,9 @@ class BookingController extends Controller
             }
 
             $couponBase = $basePrice - $promotionDiscount - $systemDiscount;
-            if ($request->filled('coupon_codes')) {
+            if (! empty($couponCodes)) {
                 [$couponDiscount, $appliedCoupons] = $this->applyMultipleCoupons(
-                    array_filter((array) $request->input('coupon_codes')),
+                    $couponCodes,
                     $couponBase,
                     $room,
                     $rtsCollection,
@@ -771,7 +782,7 @@ class BookingController extends Controller
 
         $coupons = [];
         foreach ($codes as $index => $code) {
-            $coupon = $this->validateOneCoupon($code, $index, $room, $rtsCollection, $customer);
+            $coupon = $this->validateOneCoupon($code, $index, $room, $rtsCollection, $customer, $orderAmount);
             $coupons[] = $coupon;
         }
 
@@ -813,7 +824,8 @@ class BookingController extends Controller
         int $index,
         Product $room,
         Collection $rtsCollection,
-        \App\Models\Customer $customer
+        \App\Models\Customer $customer,
+        float $orderAmount = 0
     ): Coupon {
         $coupon = Coupon::where('code', $code)
             ->where('is_active', true)
@@ -829,16 +841,25 @@ class BookingController extends Controller
             ]);
         }
 
-        // Kiểm tra coupon cá nhân thuộc đúng customer
+        // Kiểm tra coupon cá nhân: customer_id trực tiếp hoặc gán qua coupon_customers pivot
         if ($coupon->customer_id !== null && $coupon->customer_id !== $customer->id) {
-            throw ValidationException::withMessages([
-                $field => ["Mã \"{$code}\" không thuộc về tài khoản của bạn."],
-            ]);
+            $isAssigned = $coupon->customers()->where('customer_id', $customer->id)->exists();
+            if (! $isAssigned) {
+                throw ValidationException::withMessages([
+                    $field => ["Mã \"{$code}\" không thuộc về tài khoản của bạn."],
+                ]);
+            }
         }
 
         if ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {
             throw ValidationException::withMessages([
                 $field => ["Mã \"{$code}\" đã hết lượt sử dụng."],
+            ]);
+        }
+
+        if ($coupon->min_order_value && $orderAmount < (float) $coupon->min_order_value) {
+            throw ValidationException::withMessages([
+                $field => ['Mã "' . $code . '" yêu cầu đơn hàng tối thiểu ' . number_format((float) $coupon->min_order_value) . 'đ.'],
             ]);
         }
 

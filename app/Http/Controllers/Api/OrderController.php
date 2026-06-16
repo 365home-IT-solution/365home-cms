@@ -100,6 +100,7 @@ class OrderController extends Controller
             'services.*.quantity'     => 'required_with:services|integer|min:1',
             'coupon_codes'            => 'sometimes|nullable|array',
             'coupon_codes.*'          => 'string',
+            'coupon_code'             => 'sometimes|nullable',
         ]);
 
         $updates            = [];
@@ -170,10 +171,16 @@ class OrderController extends Controller
         }
 
         // ── Cập nhật coupon_codes ─────────────────────────────────────────────
-        if ($request->has('coupon_codes')) {
+        if ($request->has('coupon_codes') || $request->has('coupon_code')) {
+            // Normalize: nhận coupon_codes (preferred) hoặc coupon_code (fallback)
+            $couponInput = $request->input('coupon_codes');
+            if ($couponInput === null && $request->has('coupon_code')) {
+                $raw = $request->input('coupon_code');
+                $couponInput = is_array($raw) ? $raw : ($raw !== null ? [$raw] : []);
+            }
             $newCodes = array_values(array_unique(array_map(
                 'strtoupper',
-                array_filter((array) $request->input('coupon_codes', []))
+                array_filter((array) ($couponInput ?? []))
             )));
 
             // Giải phóng lượt dùng của coupon cũ
