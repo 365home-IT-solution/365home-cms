@@ -22,6 +22,7 @@ class Order extends Model implements Eventable
         'full_amount',
         'deposit_percent',
         'coupon_code',
+        'coupon_codes',
         'deposit_paid_at',
         'remaining_paid_at',
         'remaining_payment_method',
@@ -59,6 +60,7 @@ class Order extends Model implements Eventable
 
     protected $casts = [
         'cccd_data'            => 'array',
+        'coupon_codes'         => 'array',
         'deposit_paid_at'      => 'datetime',
         'remaining_paid_at'    => 'datetime',
         'exclude_from_stats'   => 'boolean',

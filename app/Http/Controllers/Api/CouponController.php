@@ -13,6 +13,52 @@ use Modules\Promotion\App\Models\Coupon;
 class CouponController extends Controller
 {
     /**
+     * GET /api/coupons/mine
+     *
+     * Danh sách mã giảm giá mà customer đang đăng nhập có thể sử dụng:
+     * - Coupon cá nhân (customer_id = customer hiện tại)
+     * - Coupon công khai (customer_id = null)
+     * Lọc: còn hiệu lực, chưa hết lượt dùng.
+     */
+    public function mine(Request $request): JsonResponse
+    {
+        /** @var \App\Models\Customer $customer */
+        $customer = auth('sanctum')->user();
+
+        $now = now();
+
+        $coupons = Coupon::where('is_active', true)
+            ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', $now))
+            ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', $now))
+            ->where(fn ($q) => $q
+                ->whereNull('customer_id')
+                ->orWhere('customer_id', $customer->id)
+            )
+            ->whereRaw('(usage_limit IS NULL OR used_count < usage_limit)')
+            ->orderByRaw('customer_id IS NULL ASC') // cá nhân lên trước
+            ->orderBy('end_at')
+            ->get();
+
+        $data = $coupons->map(fn ($c) => [
+            'code'            => $c->code,
+            'name'            => $c->name,
+            'description'     => $c->description,
+            'type'            => $c->type,
+            'value'           => $c->value,
+            'apply_type'      => $c->apply_type,
+            'min_order_value' => $c->min_order_value,
+            'max_discount'    => $c->max_discount,
+            'end_at'          => $c->end_at?->toDateTimeString(),
+            'is_personal'     => $c->isPersonal(),
+            'usage_remaining' => $c->usage_limit !== null
+                ? max(0, (int) $c->usage_limit - (int) $c->used_count)
+                : null,
+        ])->values();
+
+        return response()->json(['data' => $data]);
+    }
+
+    /**
      * POST /api/coupons/validate
      *
      * Kiểm tra mã giảm giá và trả về số tiền được giảm.

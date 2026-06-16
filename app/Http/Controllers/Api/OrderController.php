@@ -12,12 +12,13 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Modules\Payment\Entities\Order;
+use Modules\Promotion\App\Models\Coupon;
 use PayOS\PayOS;
 
 class OrderController extends Controller
 {
     // GET /api/orders
-    public function index(Request $request): JsonResponse
+    public function index(): JsonResponse
     {
         /** @var \App\Models\Customer $customer */
         $customer = auth('sanctum')->user();
@@ -64,8 +65,8 @@ class OrderController extends Controller
     // ─────────────────────────────────────────────
 
     /**
-     * PATCH /api/orders/{order_code}
-     * Cập nhật thông tin người mua và/hoặc dịch vụ bổ sung.
+     * POST /api/orders/{order_code}
+     * Cập nhật thông tin người mua, dịch vụ bổ sung, và/hoặc danh sách mã giảm giá.
      * Chỉ áp dụng khi đơn ở trạng thái pending.
      */
     public function update(Request $request, string $orderCode): JsonResponse
@@ -97,10 +98,12 @@ class OrderController extends Controller
             'services'                => 'sometimes|array',
             'services.*.service_id'   => 'required_with:services|integer',
             'services.*.quantity'     => 'required_with:services|integer|min:1',
+            'coupon_codes'            => 'sometimes|nullable|array',
+            'coupon_codes.*'          => 'string',
         ]);
 
-        $updates             = [];
-        $originalFullAmount  = (int) $order->full_amount;
+        $updates            = [];
+        $originalFullAmount = (int) $order->full_amount;
 
         foreach (['guest_count', 'note_for_admin'] as $field) {
             if ($request->has($field)) {
@@ -108,14 +111,12 @@ class OrderController extends Controller
             }
         }
 
-        // Đồng bộ guest_count xuống từng OrderItem + tính lại phụ thu khách nếu có cấu hình
+        // ── Phụ thu khách ─────────────────────────────────────────────────────
         if ($request->has('guest_count')) {
             $newGuestCount = (int) $request->input('guest_count');
             $order->items()->update(['guest_count' => $newGuestCount]);
 
-            $productId = $order->items->first()?->product_id;
-            // Dùng luôn product đã eager-load (có roomType, roomTimeSlots, promotions)
-            $guestRoom = $order->items->first()?->product;
+            $guestRoom      = $order->items->first()?->product;
             $guestConfig    = $guestRoom?->room_config ?? [];
             $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
             $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
@@ -124,8 +125,7 @@ class OrderController extends Controller
                 $itemsSum       = (int) $order->items->sum('price');
                 $oldServicesSum = (int) $order->services->sum('subtotal');
                 $oldSurcharge   = max(0, (int) $order->amount - $itemsSum - $oldServicesSum);
-                // Slot (theo_gio): phụ thu tính 1 lần duy nhất, không nhân theo số slot
-                $isSlotType   = $guestRoom?->roomType?->slug === 'theo_gio';
+                $isSlotType     = $guestRoom?->roomType?->slug === 'theo_gio';
                 $nights         = $isSlotType ? 1 : max(1, $order->items->count());
                 $newSurcharge   = max(0, $newGuestCount - $guestThreshold) * $guestFee * $nights;
 
@@ -133,7 +133,6 @@ class OrderController extends Controller
                     $newAmtWithSurcharge = max(0, (int) $order->amount - $oldSurcharge + $newSurcharge);
                     $updates['amount']   = $newAmtWithSurcharge;
 
-                    // Tính lại promotion từ RTS hiện tại
                     $gcPromoRtsMap = collect();
                     if ($guestRoom) {
                         $gcPromoRtsMap = $guestRoom->roomTimeSlots
@@ -141,38 +140,26 @@ class OrderController extends Controller
                             ->keyBy(fn ($rts) => $rts->timeSlot?->start_time);
                     }
                     [, $gcRecomputedPromo] = $this->recomputePromotions($order->items, $gcPromoRtsMap);
+                    $gcCouponDiscount = $this->recomputeCouponDiscount($order, $newAmtWithSurcharge - $gcRecomputedPromo);
+
+                    $gcTotalDiscount = $gcRecomputedPromo + $gcCouponDiscount;
 
                     $depositPct = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
                     if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
-                        $origFinal          = (int) round((int) $order->full_amount * 100 / $depositPct);
-                        $origTotalDiscount  = max(0, (int) $order->amount - $origFinal);
-                        $gcCouponDiscount   = max(0, $origTotalDiscount - $gcRecomputedPromo);
-                        $gcTotalDiscount    = $gcRecomputedPromo + $gcCouponDiscount;
                         $updates['full_amount'] = (int) ceil(max(0, $newAmtWithSurcharge - $gcTotalDiscount) * $depositPct / 100);
                     } else {
-                        $origTotalDiscount  = max(0, (int) $order->amount - (int) $order->full_amount);
-                        $gcCouponDiscount   = max(0, $origTotalDiscount - $gcRecomputedPromo);
-                        $gcTotalDiscount    = $gcRecomputedPromo + $gcCouponDiscount;
                         $updates['full_amount'] = max(0, $newAmtWithSurcharge - $gcTotalDiscount);
                     }
 
                     Log::info('order.update guest-surcharge', [
-                        'order_code'          => $order->order_code,
-                        'db_amount'           => (int) $order->amount,
-                        'db_full_amount'      => (int) $order->full_amount,
-                        'items_sum'           => $itemsSum,
-                        'old_services_sum'    => $oldServicesSum,
-                        'old_surcharge'       => $oldSurcharge,
-                        'new_surcharge'       => $newSurcharge,
-                        'new_amt_w_surcharge' => $newAmtWithSurcharge,
-                        'recomputed_promo'    => $gcRecomputedPromo,
-                        'orig_total_discount' => $origTotalDiscount,
-                        'coupon_discount'     => $gcCouponDiscount,
-                        'total_discount'      => $gcTotalDiscount,
-                        'new_full_amount'     => $updates['full_amount'],
+                        'order_code'     => $order->order_code,
+                        'old_surcharge'  => $oldSurcharge,
+                        'new_surcharge'  => $newSurcharge,
+                        'promo_discount' => $gcRecomputedPromo,
+                        'coupon_discount'=> $gcCouponDiscount,
+                        'new_full_amount'=> $updates['full_amount'],
                     ]);
 
-                    // Giá thay đổi → link PayOS cũ không còn hợp lệ
                     if ($order->checkout_url) {
                         $updates['checkout_url'] = null;
                         $updates['qr_code']      = null;
@@ -182,8 +169,63 @@ class OrderController extends Controller
             }
         }
 
-        // Thay thế toàn bộ services nếu key được gửi lên
-        $servicesResult = null;
+        // ── Cập nhật coupon_codes ─────────────────────────────────────────────
+        if ($request->has('coupon_codes')) {
+            $newCodes = array_values(array_unique(array_map(
+                'strtoupper',
+                array_filter((array) $request->input('coupon_codes', []))
+            )));
+
+            // Giải phóng lượt dùng của coupon cũ
+            $this->releaseCouponUsage($order);
+
+            // Validate & apply coupon mới
+            $product        = $order->items->first()?->product;
+            $currentAmount  = isset($updates['amount']) ? (int) $updates['amount'] : (int) $order->amount;
+
+            // Tính promo discount để biết base cho coupon
+            $rtsMap = collect();
+            if ($product) {
+                $rtsMap = $product->roomTimeSlots
+                    ->whereNull('date')
+                    ->keyBy(fn ($rts) => $rts->timeSlot?->start_time);
+            }
+            /** @var \Illuminate\Database\Eloquent\Collection $orderItems */
+            $orderItems = $order->items;
+            [, $promoDiscount] = $this->recomputePromotions($orderItems, $rtsMap);
+            $couponBase = max(0, $currentAmount - $promoDiscount);
+
+            [$newCouponDiscount, $appliedCoupons] = $this->applyAndValidateCoupons(
+                $newCodes, $couponBase, $product, $customer
+            );
+
+            // Increment usage cho coupon mới
+            foreach ($appliedCoupons as $info) {
+                $info['_model']->incrementUsage();
+            }
+
+            $appliedCodes = collect($appliedCoupons)->pluck('code')->values()->all();
+            $updates['coupon_code']  = $appliedCodes[0] ?? null;
+            $updates['coupon_codes'] = $appliedCodes ?: null;
+
+            // Tính lại full_amount với coupon mới
+            $baseAmt     = isset($updates['amount']) ? (int) $updates['amount'] : (int) $order->amount;
+            $totalDisc   = $promoDiscount + $newCouponDiscount;
+            $depositPct  = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
+            if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
+                $updates['full_amount'] = (int) ceil(max(0, $baseAmt - $totalDisc) * $depositPct / 100);
+            } else {
+                $updates['full_amount'] = max(0, $baseAmt - $totalDisc);
+            }
+
+            if ($order->checkout_url) {
+                $updates['checkout_url'] = null;
+                $updates['qr_code']      = null;
+                $updates['expired_at']   = null;
+            }
+        }
+
+        // ── Cập nhật services ─────────────────────────────────────────────────
         if ($request->has('services')) {
             $productId = $order->items->first()?->product_id;
             if (! $productId) {
@@ -224,22 +266,17 @@ class OrderController extends Controller
                 ];
             }
 
-            // Lưu tổng dịch vụ cũ TRƯỚC khi xoá để tính lại giá phòng (giữ phụ thu, không dùng items->sum('price'))
             $oldServicesTotal = (int) $order->services->sum('subtotal');
 
-            // Xoá cũ, thêm mới
             $order->services()->delete();
             foreach ($servicesData as $svc) {
                 $order->services()->create($svc);
             }
 
-            // Tính lại amount / full_amount
-            // Nếu guest_count cũng vừa thay đổi thì dùng amount đã cập nhật phụ thu, không dùng DB cũ
             $currentAmountBase = isset($updates['amount']) ? (int) $updates['amount'] : (int) $order->amount;
             $roomBaseAmount    = max(0, $currentAmountBase - $oldServicesTotal);
-            $newSubtotal    = $roomBaseAmount + $addedTotal;
+            $newSubtotal       = $roomBaseAmount + $addedTotal;
 
-            // Tính lại promotion discount từ RTS hiện tại (items không đổi khi update services/guest)
             $promoRtsMap = collect();
             $promoProduct = $order->items->first()?->product;
             if ($promoProduct) {
@@ -249,54 +286,42 @@ class OrderController extends Controller
             }
             [, $recomputedPromoDiscount] = $this->recomputePromotions($order->items, $promoRtsMap);
 
-            // Xử lý đơn cọc và đơn thường riêng biệt:
-            // - Đơn thường: full_amount = finalAmount → discount = amount - full_amount
-            // - Đơn cọc:   full_amount = deposit portion → phải reconstruct finalAmount thật trước
-            $depositPct = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
+            // Lấy coupon codes từ updates (nếu vừa thay đổi) hoặc từ order cũ
+            $couponCodesToUse = $updates['coupon_codes'] ?? ($order->coupon_codes ?: ($order->coupon_code ? [$order->coupon_code] : []));
+            $couponBase       = max(0, $newSubtotal - $recomputedPromoDiscount);
+            $recomputedCouponDiscount = $this->recomputeCouponDiscountFromCodes(
+                is_array($couponCodesToUse) ? $couponCodesToUse : [],
+                $couponBase
+            );
+
+            $totalNewDiscount = $recomputedPromoDiscount + $recomputedCouponDiscount;
+            $depositPct       = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
+
             if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
-                $origFinalAmount    = (int) round((int) $order->full_amount * 100 / $depositPct);
-                $origTotalDiscount  = max(0, (int) $order->amount - $origFinalAmount);
-                // Tách coupon = tổng discount cũ - promotion cũ (promotion cũ ≈ promotion hiện tại vì items không đổi)
-                $couponDiscount     = max(0, $origTotalDiscount - $recomputedPromoDiscount);
-                $totalNewDiscount   = $recomputedPromoDiscount + $couponDiscount;
-                $newRealFinal       = max(0, $newSubtotal - $totalNewDiscount);
-                $newFullAmount      = (int) ceil($newRealFinal * $depositPct / 100);
+                $newFullAmount = (int) ceil(max(0, $newSubtotal - $totalNewDiscount) * $depositPct / 100);
             } else {
-                $origTotalDiscount  = max(0, (int) $order->amount - (int) $order->full_amount);
-                $couponDiscount     = max(0, $origTotalDiscount - $recomputedPromoDiscount);
-                $totalNewDiscount   = $recomputedPromoDiscount + $couponDiscount;
-                $newRealFinal       = max(0, $newSubtotal - $totalNewDiscount);
-                $newFullAmount      = $newRealFinal;
+                $newFullAmount = max(0, $newSubtotal - $totalNewDiscount);
             }
 
             Log::info('order.update services-recalc', [
-                'order_code'             => $order->order_code,
-                'db_amount'              => (int) $order->amount,
-                'db_full_amount'         => (int) $order->full_amount,
-                'deposit_pct'            => $depositPct,
-                'current_amt_base'       => $currentAmountBase,
-                'old_services'           => $oldServicesTotal,
-                'added_total'            => $addedTotal,
-                'new_subtotal'           => $newSubtotal,
-                'recomputed_promo'       => $recomputedPromoDiscount,
-                'orig_total_discount'    => $origTotalDiscount,
-                'coupon_discount'        => $couponDiscount,
-                'total_new_discount'     => $totalNewDiscount,
-                'new_real_final'         => $newRealFinal,
-                'new_full_amount'        => $newFullAmount,
+                'order_code'          => $order->order_code,
+                'old_services'        => $oldServicesTotal,
+                'added_total'         => $addedTotal,
+                'new_subtotal'        => $newSubtotal,
+                'promo_discount'      => $recomputedPromoDiscount,
+                'coupon_discount'     => $recomputedCouponDiscount,
+                'total_discount'      => $totalNewDiscount,
+                'new_full_amount'     => $newFullAmount,
             ]);
 
             $updates['amount']      = $newSubtotal;
             $updates['full_amount'] = $newFullAmount;
 
-            // Link PayOS cũ tạo với giá cũ → vô hiệu hoá nếu giá thay đổi
             if ($newFullAmount !== (int) $order->full_amount && $order->checkout_url) {
                 $updates['checkout_url'] = null;
                 $updates['qr_code']      = null;
                 $updates['expired_at']   = null;
             }
-
-            $servicesResult = $servicesData;
         }
 
         if (! empty($updates)) {
@@ -304,16 +329,8 @@ class OrderController extends Controller
             $order->refresh();
         }
 
-        // Tạo lại link PayOS nếu giá vừa thay đổi hoặc chưa có link
+        // Tạo lại link PayOS nếu giá thay đổi
         $priceChanged = (int) $order->full_amount !== $originalFullAmount;
-        Log::info('order.update payos-check', [
-            'order_code'     => $order->order_code,
-            'payment_method' => $order->payment_method,
-            'price_changed'  => $priceChanged,
-            'original_amt'   => $originalFullAmount,
-            'new_amt'        => (int) $order->full_amount,
-            'has_url'        => (bool) $order->checkout_url,
-        ]);
         if (
             $order->payment_method === 'PayOS' &&
             ($priceChanged || ! $order->checkout_url) &&
@@ -324,7 +341,6 @@ class OrderController extends Controller
             $order->refresh();
         }
 
-        // Load thêm relationships cần cho response đầy đủ
         $order->load([
             'items.product.roomType',
             'items.product.roomTimeSlots.timeSlot',
@@ -334,13 +350,11 @@ class OrderController extends Controller
         $firstItem = $order->items->first();
         $product   = $firstItem?->product;
 
-        // ── Slots ──
         $slots = $order->items->map(fn ($item) => [
             'date'  => $item->checkin_date?->format('Y-m-d'),
             'price' => (int) $item->price,
         ])->values()->toArray();
 
-        // ── Services (dùng từ DB sau khi đã refresh) ──
         $servicesResult = $order->services->map(fn ($s) => [
             'service_id'   => $s->service_id,
             'service_name' => $s->service_name,
@@ -350,15 +364,14 @@ class OrderController extends Controller
         ])->values()->toArray();
         $servicesTotal = array_sum(array_column($servicesResult, 'subtotal'));
 
-        // ── Guest surcharge ──
+        // Guest surcharge
         $guestSurchargeInfo  = null;
         $guestSurchargeTotal = 0;
         if ($product) {
             $guestConfig    = $product->room_config ?? [];
             $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
             $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
-            // Slot (theo_gio): phụ thu tính 1 lần duy nhất, không nhân theo số slot
-            $isSlotType  = $product->roomType?->slug === 'theo_gio';
+            $isSlotType     = $product->roomType?->slug === 'theo_gio';
             $nights         = $isSlotType ? 1 : max(1, $order->items->count());
             $guestCount     = (int) $order->guest_count;
             $extraGuests    = max(0, $guestCount - $guestThreshold);
@@ -378,7 +391,7 @@ class OrderController extends Controller
             }
         }
 
-        // ── Promotions (recompute từ config phòng hiện tại) ──
+        // Promotions
         $rtsMap = collect();
         if ($product) {
             $rtsMap = $product->roomTimeSlots
@@ -387,7 +400,7 @@ class OrderController extends Controller
         }
         [$promotions, $promotionDiscount] = $this->recomputePromotions($order->items, $rtsMap);
 
-        // ── Tính discount ──
+        // Summary
         $slotsTotal     = (int) $order->items->sum('price');
         $newFullAmt     = (int) $order->full_amount;
         $depositPctResp = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
@@ -403,25 +416,10 @@ class OrderController extends Controller
         $otherDiscount = max(0, $totalDiscount - $promotionDiscount);
         $slotsFinal    = max(0, $slotsTotal - $totalDiscount);
 
-        // Phân biệt coupon vs system_discount dựa vào coupon_code lưu trên đơn
-        $couponInfo     = null;
-        $couponDiscount = 0;
-        $sysDelta       = $otherDiscount;
-
-        if ($order->coupon_code) {
-            $coupon = \Modules\Promotion\App\Models\Coupon::where('code', $order->coupon_code)->first();
-            if ($coupon) {
-                $couponDiscount = min($otherDiscount, (int) $coupon->calculateDiscount($slotsTotal - $promotionDiscount));
-                $couponInfo = [
-                    'code'            => $coupon->code,
-                    'name'            => $coupon->name,
-                    'type'            => $coupon->type,
-                    'value'           => $coupon->value,
-                    'discount_amount' => $couponDiscount,
-                ];
-                $sysDelta = max(0, $otherDiscount - $couponDiscount);
-            }
-        }
+        // Coupons info
+        $couponsInfo    = $this->buildCouponsInfo($order, $slotsTotal - $promotionDiscount);
+        $couponDiscount = array_sum(array_column($couponsInfo, 'discount_amount'));
+        $sysDelta       = max(0, $otherDiscount - $couponDiscount);
 
         return response()->json([
             'order' => [
@@ -445,7 +443,7 @@ class OrderController extends Controller
             'guest_surcharge' => $guestSurchargeInfo,
             'promotions'      => $promotions,
             'system_discount' => $sysDelta > 0 ? ['discount_amount' => $sysDelta] : null,
-            'coupon'          => $couponInfo,
+            'coupons'         => $couponsInfo,
             'deposit'         => $depositPctResp !== null ? [
                 'type'             => 'deposit',
                 'percentage'       => $depositPctResp,
@@ -471,7 +469,6 @@ class OrderController extends Controller
 
     /**
      * POST /api/orders/{order_code}/retry-payment
-     * Tạo lại link PayOS khi link cũ hết hạn hoặc bị huỷ.
      */
     public function retryPayment(Request $request, string $orderCode): JsonResponse
     {
@@ -522,7 +519,6 @@ class OrderController extends Controller
 
     /**
      * POST /api/orders/{order_code}/remaining-payment
-     * Tạo link PayOS để thanh toán phần còn lại sau khi đã đặt cọc.
      */
     public function remainingPayment(Request $request, string $orderCode): JsonResponse
     {
@@ -542,13 +538,11 @@ class OrderController extends Controller
             return response()->json(['message' => 'Chỉ áp dụng cho đơn đang ở trạng thái đặt cọc.'], 422);
         }
 
-        // Đơn cọc: full_amount = tiền cọc đã thanh toán; reconstruct tổng thực để tính remaining
         $depositPct  = (int) $order->deposit_percent;
         $depositPaid = (int) $order->full_amount;
         $realTotal   = $depositPct > 0 ? (int) round($depositPaid * 100 / $depositPct) : $depositPaid;
         $remaining   = $realTotal - $depositPaid;
 
-        // Đã có link còn dùng được → trả về luôn
         if ($order->remaining_checkout_url && $order->remaining_payos_code) {
             return response()->json([
                 'order_code'   => $order->order_code,
@@ -623,7 +617,6 @@ class OrderController extends Controller
 
     /**
      * GET /api/orders/{order_code}/payment-status
-     * Kiểm tra trạng thái PayOS và cập nhật đơn hàng.
      */
     public function paymentStatus(string $orderCode): JsonResponse
     {
@@ -639,7 +632,6 @@ class OrderController extends Controller
             return response()->json(['message' => 'Đơn hàng không tồn tại.'], 404);
         }
 
-        // Không cần gọi PayOS nếu đã xác định rõ
         if (in_array($order->status, ['paid', 'failed', 'cancelled'])) {
             return response()->json([
                 'order_code' => $order->order_code,
@@ -663,7 +655,6 @@ class OrderController extends Controller
                 return response()->json(['order_code' => $order->order_code, 'status' => $order->status]);
             }
 
-            // Đơn cọc đang chờ thanh toán còn lại → query remaining_payos_code
             $isRemaining = $order->status === 'deposit' && $order->remaining_payos_code;
             $payosCode   = $isRemaining
                 ? (int) $order->remaining_payos_code
@@ -681,7 +672,6 @@ class OrderController extends Controller
                             'remaining_paid_at'        => now(),
                             'remaining_payment_method' => 'payos',
                         ]);
-                        // Cấp mã cổng tự động sau khi khách thanh toán phần còn lại
                         try {
                             $order->load('items.product');
                             $firstItem    = $order->items->sortBy('checkin_date')->first();
@@ -756,27 +746,17 @@ class OrderController extends Controller
             $payOS     = new PayOS($clientId, $apiKey, $checksumKey);
             $expiredAt = now()->addMinutes(15);
 
-            // Huỷ link cũ trên PayOS (dùng current_payos_code nếu đã có, fallback về order_code)
             $oldPayosCode = $order->current_payos_code ?? (int) $order->order_code;
             try {
                 $payOS->cancelPaymentLink((int) $oldPayosCode);
-                Log::info('buildPayOSLink: cancel ok', ['order_code' => $order->order_code, 'payos_code' => $oldPayosCode]);
             } catch (\Throwable $e) {
                 Log::info('buildPayOSLink: cancel skipped', [
                     'order_code' => $order->order_code,
-                    'payos_code' => $oldPayosCode,
                     'reason'     => $e->getMessage(),
                 ]);
             }
 
-            // PayOS không cho tạo lại với cùng orderCode → dùng unique code mới mỗi lần
             $newPayosCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
-
-            Log::info('buildPayOSLink: creating', [
-                'order_code'     => $order->order_code,
-                'new_payos_code' => $newPayosCode,
-                'amount'         => (int) $order->full_amount,
-            ]);
 
             $response = $payOS->createPaymentLink([
                 'orderCode'   => $newPayosCode,
@@ -792,13 +772,6 @@ class OrderController extends Controller
 
             $checkoutUrl = $response['checkoutUrl'] ?? null;
             $qrCode      = $response['qrCode'] ?? null;
-
-            Log::info('buildPayOSLink: result', [
-                'order_code'     => $order->order_code,
-                'new_payos_code' => $newPayosCode,
-                'checkout_url'   => $checkoutUrl,
-                'has_qr'         => (bool) $qrCode,
-            ]);
 
             if ($checkoutUrl) {
                 $order->update([
@@ -824,21 +797,20 @@ class OrderController extends Controller
         $firstItem = $order->items->first();
         $lastItem  = $order->items->last();
 
-        // Tên phòng: ưu tiên lấy từ product, fallback từ phần đầu của item.name
         $roomName = $firstItem?->product?->name
             ?? ($firstItem?->name ? explode(' - ', $firstItem->name, 2)[0] : null);
 
         return [
-            'order_code'   => $order->order_code,
-            'created_at'   => $order->created_at->format('Y-m-d H:i:s'),
-            'status'       => $order->status,
+            'order_code'     => $order->order_code,
+            'created_at'     => $order->created_at->format('Y-m-d H:i:s'),
+            'status'         => $order->status,
             'room_id'        => $firstItem?->product?->id,
             'room_slug'      => $firstItem?->product?->slug,
             'room_name'      => $roomName,
             'room_thumbnail' => $this->getRoomThumbnail($firstItem?->product),
-            'checkin'      => $firstItem?->checkin_date?->format('Y-m-d H:i'),
-            'checkout'     => $lastItem?->checkout_date?->format('Y-m-d H:i'),
-            'final_amount' => (int) $order->full_amount,
+            'checkin'        => $firstItem?->checkin_date?->format('Y-m-d H:i'),
+            'checkout'       => $lastItem?->checkout_date?->format('Y-m-d H:i'),
+            'final_amount'   => (int) $order->full_amount,
         ];
     }
 
@@ -847,7 +819,6 @@ class OrderController extends Controller
         $firstItem = $order->items->first();
         $product   = $firstItem?->product;
 
-        // Map RoomTimeSlot theo start_time để tra timeslot_id
         $rtsMap = collect();
         if ($product) {
             $rtsMap = $product->roomTimeSlots
@@ -855,12 +826,10 @@ class OrderController extends Controller
                 ->keyBy(fn ($rts) => $rts->timeSlot?->start_time);
         }
 
-        // ── Slots ──
         $slots = $order->items->map(function ($item) use ($rtsMap) {
             $startTime = $item->checkin_date?->format('H:i:s');
             $rts       = $startTime ? $rtsMap->get($startTime) : null;
 
-            // Label nằm sau "RoomName - " trong item.name
             $nameParts = $item->name ? explode(' - ', $item->name, 2) : [];
             $label     = count($nameParts) > 1 ? $nameParts[1] : null;
 
@@ -872,7 +841,6 @@ class OrderController extends Controller
             ];
         })->values()->toArray();
 
-        // ── Services ──
         $services = $order->services->map(fn ($s) => [
             'service_id'   => $s->service_id,
             'service_name' => $s->service_name,
@@ -881,15 +849,11 @@ class OrderController extends Controller
             'subtotal'     => $s->subtotal,
         ])->values()->toArray();
 
-        // ── Promotions (recompute từ config phòng hiện tại) ──
         [$promotions, $promotionDiscount] = $this->recomputePromotions($order->items, $rtsMap);
 
-        // ── Summary ──
         $slotsTotal    = (int) $order->items->sum('price');
         $servicesTotal = (int) $order->services->sum('subtotal');
 
-        // amount = subtotal (slots + services + phụ thu, trước discount)
-        // full_amount = với đơn cọc: tiền cọc; với đơn thường: số tiền sau discount
         $depositPctDetail = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
         if ($depositPctDetail !== null && $depositPctDetail > 0 && $depositPctDetail < 100) {
             $realFinalDetail = (int) round((int) $order->full_amount * 100 / $depositPctDetail);
@@ -899,10 +863,12 @@ class OrderController extends Controller
             $totalDiscount   = max(0, (int) $order->amount - (int) $order->full_amount);
         }
 
-        // Phần discount không phải promotion: có thể là bulk/full_booking và/hoặc coupon
         $otherDiscount = max(0, $totalDiscount - $promotionDiscount);
+        $slotsFinal    = max(0, $slotsTotal - $totalDiscount);
 
-        $slotsFinal = max(0, $slotsTotal - $totalDiscount);
+        $couponsInfo    = $this->buildCouponsInfo($order, $slotsTotal - $promotionDiscount);
+        $couponDiscount = array_sum(array_column($couponsInfo, 'discount_amount'));
+        $sysDelta       = max(0, $otherDiscount - $couponDiscount);
 
         return [
             'order' => [
@@ -920,15 +886,11 @@ class OrderController extends Controller
                 'name'      => $product?->name,
                 'thumbnail' => $this->getRoomThumbnail($product),
             ],
-            'slots'    => $slots,
-            'services' => $services,
-
-            // Recomputed từ config phòng hiện tại
-            'promotions' => $promotions,
-
-            // Không lưu khi tạo đơn → không thể phục hồi chi tiết
-            'system_discount' => $otherDiscount > 0 ? ['discount_amount' => $otherDiscount] : null,
-            'coupon'          => null,
+            'slots'           => $slots,
+            'services'        => $services,
+            'promotions'      => $promotions,
+            'system_discount' => $sysDelta > 0 ? ['discount_amount' => $sysDelta] : null,
+            'coupons'         => $couponsInfo,
 
             'deposit' => $depositPctDetail !== null ? [
                 'type'             => 'deposit',
@@ -940,8 +902,8 @@ class OrderController extends Controller
             'summary' => [
                 'slots_total'          => $slotsTotal,
                 'promotion_discount'   => $promotionDiscount,
-                'system_discount'      => $otherDiscount,
-                'coupon_discount'      => 0,
+                'system_discount'      => $sysDelta,
+                'coupon_discount'      => $couponDiscount,
                 'discount_amount'      => $totalDiscount,
                 'slots_final'          => $slotsFinal,
                 'services_total'       => $servicesTotal,
@@ -973,7 +935,6 @@ class OrderController extends Controller
             }
         };
 
-        // Daily rooms: slot-based rtsMap (null-date RTS) sẽ rỗng → dùng date-keyed RTS
         $product = $items->first()?->product;
         if ($rtsMap->isEmpty() && $product) {
             $dateRtsMap = $product->roomTimeSlots
@@ -994,7 +955,6 @@ class OrderController extends Controller
             return [$applied, (int) $totalDiscount];
         }
 
-        // Slot rooms: tra cứu RTS theo start_time
         foreach ($items as $item) {
             $startTime = $item->checkin_date?->format('H:i:s');
             $rts       = $startTime ? $rtsMap->get($startTime) : null;
@@ -1010,6 +970,198 @@ class OrderController extends Controller
         }
 
         return [$applied, $totalDiscount];
+    }
+
+    /**
+     * Tính lại coupon discount từ coupon_codes/coupon_code lưu trên đơn.
+     * Dùng khi guest_count thay đổi để không mất coupon cũ.
+     */
+    private function recomputeCouponDiscount(Order $order, float $baseAmount): int
+    {
+        $codes = $order->coupon_codes
+            ?? ($order->coupon_code ? [$order->coupon_code] : []);
+
+        return $this->recomputeCouponDiscountFromCodes(
+            is_array($codes) ? $codes : [],
+            $baseAmount
+        );
+    }
+
+    /**
+     * Tính discount của danh sách code trên $baseAmount (không validate lại quyền,
+     * vì đây là recalc cho đơn đã tạo — coupon đã được validate từ trước).
+     */
+    private function recomputeCouponDiscountFromCodes(array $codes, float $baseAmount): int
+    {
+        if (empty($codes)) {
+            return 0;
+        }
+
+        $coupons = Coupon::whereIn('code', $codes)->get()->keyBy('code');
+
+        // Sắp xếp theo thứ tự code gốc, giữ % trước fixed
+        $sorted = collect($codes)
+            ->map(fn ($c) => $coupons->get($c))
+            ->filter()
+            ->sortByDesc(fn ($c) => $c->type === 'percentage' ? 1 : 0)
+            ->values();
+
+        $total     = 0;
+        $remaining = $baseAmount;
+
+        foreach ($sorted as $coupon) {
+            if ($remaining <= 0) break;
+            $disc       = (int) $coupon->calculateDiscount($remaining);
+            $remaining -= $disc;
+            $total     += $disc;
+        }
+
+        return $total;
+    }
+
+    /**
+     * Build coupon info array để trả về trong response.
+     * $baseAmount = số tiền sau promo, trước coupon.
+     */
+    private function buildCouponsInfo(Order $order, float $baseAmount): array
+    {
+        $codes = $order->coupon_codes
+            ?? ($order->coupon_code ? [$order->coupon_code] : []);
+
+        if (empty($codes) || ! is_array($codes)) {
+            return [];
+        }
+
+        $coupons = Coupon::whereIn('code', $codes)->get()->keyBy('code');
+
+        $sorted = collect($codes)
+            ->map(fn ($c) => $coupons->get($c))
+            ->filter()
+            ->sortByDesc(fn ($c) => $c->type === 'percentage' ? 1 : 0)
+            ->values();
+
+        $result    = [];
+        $remaining = $baseAmount;
+
+        foreach ($sorted as $coupon) {
+            if ($remaining <= 0) break;
+            $disc       = (int) $coupon->calculateDiscount($remaining);
+            $remaining -= $disc;
+
+            $result[] = [
+                'code'            => $coupon->code,
+                'name'            => $coupon->name,
+                'type'            => $coupon->type,
+                'value'           => $coupon->value,
+                'discount_amount' => $disc,
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * Giải phóng lượt dùng của tất cả coupon đang áp trên đơn.
+     */
+    private function releaseCouponUsage(Order $order): void
+    {
+        $codes = $order->coupon_codes
+            ?? ($order->coupon_code ? [$order->coupon_code] : []);
+
+        if (empty($codes) || ! is_array($codes)) {
+            return;
+        }
+
+        Coupon::whereIn('code', $codes)
+            ->where('used_count', '>', 0)
+            ->decrement('used_count');
+    }
+
+    /**
+     * Validate + apply nhiều coupon khi cập nhật đơn.
+     * Trả về [totalDiscount, appliedList (có _model)].
+     */
+    private function applyAndValidateCoupons(
+        array $codes,
+        float $baseAmount,
+        ?\Modules\Product\App\Models\Product $product,
+        \App\Models\Customer $customer
+    ): array {
+        if (empty($codes)) {
+            return [0, []];
+        }
+
+        $coupons = Coupon::whereIn('code', $codes)
+            ->where('is_active', true)
+            ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', now()))
+            ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', now()))
+            ->get()
+            ->keyBy('code');
+
+        $validated = [];
+        foreach ($codes as $index => $code) {
+            $coupon = $coupons->get($code);
+            $field  = "coupon_codes.{$index}";
+
+            if (! $coupon) {
+                throw ValidationException::withMessages([
+                    $field => ["Mã \"{$code}\" không tồn tại hoặc đã hết hạn."],
+                ]);
+            }
+
+            if ($coupon->customer_id !== null && $coupon->customer_id !== $customer->id) {
+                throw ValidationException::withMessages([
+                    $field => ["Mã \"{$code}\" không thuộc về tài khoản của bạn."],
+                ]);
+            }
+
+            if ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {
+                throw ValidationException::withMessages([
+                    $field => ["Mã \"{$code}\" đã hết lượt sử dụng."],
+                ]);
+            }
+
+            if ($product) {
+                $applicable = match ($coupon->apply_type) {
+                    'all_rooms'     => true,
+                    'specific_room' => $coupon->room_id === $product->id,
+                    default         => true, // specific_slot: cho qua khi update
+                };
+
+                if (! $applicable) {
+                    throw ValidationException::withMessages([
+                        $field => ["Mã \"{$code}\" không áp dụng cho phòng này."],
+                    ]);
+                }
+            }
+
+            $validated[] = $coupon;
+        }
+
+        // Sắp xếp: % trước, fixed sau
+        usort($validated, fn ($a, $b) => ($b->type === 'percentage' ? 1 : 0) - ($a->type === 'percentage' ? 1 : 0));
+
+        $total     = 0;
+        $applied   = [];
+        $remaining = $baseAmount;
+
+        foreach ($validated as $coupon) {
+            if ($remaining <= 0) break;
+            $disc       = (int) $coupon->calculateDiscount($remaining);
+            $remaining -= $disc;
+            $total     += $disc;
+
+            $applied[] = [
+                'code'            => $coupon->code,
+                'name'            => $coupon->name,
+                'type'            => $coupon->type,
+                'value'           => $coupon->value,
+                'discount_amount' => $disc,
+                '_model'          => $coupon,
+            ];
+        }
+
+        return [(int) $total, $applied];
     }
 
     private function getRoomThumbnail(?\Modules\Product\App\Models\Product $product): ?string

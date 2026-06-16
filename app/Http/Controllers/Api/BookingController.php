@@ -33,7 +33,8 @@ class BookingController extends Controller
             'guest_count'             => 'required|integer|min:1',
             'payment_method'          => 'sometimes|in:PayOS,cash',
             'payment_type'            => 'sometimes|in:full,deposit',
-            'coupon_code'             => 'sometimes|nullable|string',
+            'coupon_codes'            => 'sometimes|nullable|array',
+            'coupon_codes.*'          => 'string',
             'services'                => 'sometimes|nullable|array',
             'services.*.service_id'   => 'required_with:services|integer',
             'services.*.quantity'     => 'required_with:services|integer|min:1',
@@ -42,7 +43,6 @@ class BookingController extends Controller
         ];
 
         if ($request->input('type') === 'slot') {
-            // date có thể đặt ở ngoài (dùng chung) hoặc trong từng slot (nhiều ngày)
             $baseRules['date']                = 'sometimes|date_format:Y-m-d|after_or_equal:today';
             $baseRules['slots']               = 'required|array|min:1';
             $baseRules['slots.*.timeslot_id'] = 'required|integer';
@@ -52,7 +52,6 @@ class BookingController extends Controller
             $baseRules['checkout_date'] = 'required|date|after:checkin_date';
         }
 
-        // Daily: cần load thêm room_time_slots theo date
         if ($request->input('type') === 'daily') {
             $baseRules['checkin_date']  = 'required|date_format:Y-m-d|after_or_equal:today';
             $baseRules['checkout_date'] = 'required|date_format:Y-m-d|after:checkin_date';
@@ -96,46 +95,44 @@ class BookingController extends Controller
         // ── 5. Dịch vụ bổ sung ───────────────────────────────────────────────
         [$servicesTotal, $servicesData] = $this->buildServices($request, $room);
 
-        // ── 5.5 Phụ thu số lượng người (chỉ slot + theo_gio) ─────────────────
+        // ── 5.5 Phụ thu số lượng người ─────────────────────────────────────────
         [$guestSurcharge, $guestSurchargeInfo] = $this->buildGuestSurcharge($request, $room, $slotSummary);
 
         $subtotal = $basePrice + $servicesTotal + $guestSurcharge;
 
         // ── 6. Áp dụng discount theo thứ tự ưu tiên ─────────────────────────
         //
-        //  Discount CHỈ tính trên giá slot (basePrice).
-        //  Services được cộng vào SAU khi đã trừ hết discount.
-        //
         //  Full booking (chọn hết slot trong ngày)
-        //    → full_booking_discount + coupon, BỎ QUA promotion + bulk
+        //    → full_booking_discount + coupons, BỎ QUA promotion + bulk
         //
         //  Không full booking
-        //    → promotion → bulk → coupon
+        //    → promotion → bulk → coupons
+        //
+        //  Coupon stack: % trước, fixed sau; mỗi coupon áp trên số tiền còn lại.
         //
         $appliedPromotions     = [];
         $promotionDiscount     = 0;
-        $appliedSystemDiscount = null; // full_booking hoặc bulk
+        $appliedSystemDiscount = null;
         $systemDiscount        = 0;
-        $appliedCoupon         = null;
+        $appliedCoupons        = [];
         $couponDiscount        = 0;
 
         $hasFullBooking = ! empty($slotSummary) && $this->checkFullDayBooking($slotSummary, $room);
 
         if ($hasFullBooking) {
-            // Full booking: áp discount trên basePrice, KHÔNG promotion/bulk
             [$systemDiscount, $appliedSystemDiscount] = $this->applyFullBookingDiscount($basePrice, $room);
 
-            // Coupon tính trên giá sau full_booking_discount
-            if ($request->filled('coupon_code')) {
-                [$couponDiscount, $appliedCoupon] = $this->applyCoupon(
-                    $request->coupon_code,
-                    $basePrice - $systemDiscount,
+            $couponBase = $basePrice - $systemDiscount;
+            if ($request->filled('coupon_codes')) {
+                [$couponDiscount, $appliedCoupons] = $this->applyMultipleCoupons(
+                    array_filter((array) $request->input('coupon_codes')),
+                    $couponBase,
                     $room,
-                    $rtsCollection
+                    $rtsCollection,
+                    $customer
                 );
             }
         } else {
-            // Promotion → bulk → coupon, tất cả tính trên basePrice
             if ($rtsCollection->isNotEmpty()) {
                 if ($request->input('type') === 'daily') {
                     [$promotionDiscount, $appliedPromotions] = $this->applyDailyPromotions($rtsCollection, $slotSummary);
@@ -152,17 +149,18 @@ class BookingController extends Controller
                 );
             }
 
-            if ($request->filled('coupon_code')) {
-                [$couponDiscount, $appliedCoupon] = $this->applyCoupon(
-                    $request->coupon_code,
-                    $basePrice - $promotionDiscount - $systemDiscount,
+            $couponBase = $basePrice - $promotionDiscount - $systemDiscount;
+            if ($request->filled('coupon_codes')) {
+                [$couponDiscount, $appliedCoupons] = $this->applyMultipleCoupons(
+                    array_filter((array) $request->input('coupon_codes')),
+                    $couponBase,
                     $room,
-                    $rtsCollection
+                    $rtsCollection,
+                    $customer
                 );
             }
         }
 
-        // Services + phụ thu cộng vào SAU khi trừ hết discount trên slot
         $discountAmount = $promotionDiscount + $systemDiscount + $couponDiscount;
         $slotFinalPrice = max(0, $basePrice - $discountAmount);
         $finalAmount    = $slotFinalPrice + $servicesTotal + $guestSurcharge;
@@ -199,19 +197,19 @@ class BookingController extends Controller
         $category      = $room->categories()->first();
         $paymentMethod = $request->input('payment_method', 'PayOS');
 
-        // Lưu lại deposit_percent để ghi vào đơn (dùng cho PATCH recalculation sau này)
         $depositPercentToSave = $depositInfo !== null ? (int) ($depositInfo['percentage']) : null;
+
+        // Lấy danh sách code coupon đã áp dụng thành công
+        $appliedCouponCodes = collect($appliedCoupons)->pluck('code')->values()->all();
 
         // ── 7. Tạo đơn + items + services trong transaction ──────────────────
         $order = DB::transaction(function () use (
             $room, $amountDue, $finalAmount, $subtotal, $buyerName, $buyerPhone,
             $customer, $category, $itemsData, $servicesData,
-            $paymentMethod, $request, $appliedCoupon, $depositPercentToSave
+            $paymentMethod, $request, $appliedCoupons, $appliedCouponCodes, $depositPercentToSave
         ) {
-            // Lock room row: serialize concurrent bookings cho cùng phòng
             Product::where('id', $room->id)->lockForUpdate()->first();
 
-            // Re-check conflict dưới lock (ngăn double booking khi 2 user click cùng lúc)
             foreach ($itemsData as $itemData) {
                 if (empty($itemData['checkin_date'])) {
                     continue;
@@ -231,11 +229,14 @@ class BookingController extends Controller
                 }
             }
 
+            $firstCode = $appliedCouponCodes[0] ?? null;
+
             $order = Order::create([
-                'amount'          => $subtotal,              // giá gốc: slots + services + phụ thu (trước giảm giá)
-                'full_amount'     => $amountDue,             // số tiền thanh toán ngay (deposit hoặc toàn bộ sau giảm)
-                'deposit_percent' => $depositPercentToSave,  // % cọc — cần thiết để PATCH tính lại đúng
-                'coupon_code'     => $appliedCoupon?->code,
+                'amount'          => $subtotal,
+                'full_amount'     => $amountDue,
+                'deposit_percent' => $depositPercentToSave,
+                'coupon_code'     => $firstCode,           // backward compat
+                'coupon_codes'    => $appliedCouponCodes ?: null,
                 'description'     => 'Đặt phòng - ' . $room->name,
                 'buyer_name'      => $buyerName,
                 'buyer_phone'     => $buyerPhone,
@@ -254,8 +255,11 @@ class BookingController extends Controller
                 $order->services()->create($svc);
             }
 
-            if ($appliedCoupon) {
-                $appliedCoupon->incrementUsage();
+            // Tăng lượt dùng cho tất cả coupon đã áp dụng
+            foreach ($appliedCoupons as $couponInfo) {
+                if (isset($couponInfo['_model'])) {
+                    $couponInfo['_model']->incrementUsage();
+                }
             }
 
             return $order;
@@ -266,13 +270,11 @@ class BookingController extends Controller
             $this->createPayOSLink($order, $summaryName, $request->input('return_url'), $request->input('cancel_url'));
         }
 
-        // ── 9. Realtime: cập nhật trạng thái slot cho các client đang xem ────
+        // ── 9. Realtime: cập nhật trạng thái slot ────────────────────────────
         $realtimeService = app(\App\Services\SlotRealtimeService::class);
 
         if ($request->input('type') === 'daily' && ! empty($slotSummary)) {
-            $checkinStr  = $request->input('checkin_date');
-            $checkoutStr = $request->input('checkout_date');
-            $realtimeService->broadcastDailyBooked($room->id, $checkinStr, $checkoutStr);
+            $realtimeService->broadcastDailyBooked($room->id, $request->input('checkin_date'), $request->input('checkout_date'));
         } elseif (! empty($slotSummary)) {
             $byDate = collect($slotSummary)->groupBy('date');
             foreach ($byDate as $date => $slots) {
@@ -285,6 +287,9 @@ class BookingController extends Controller
         }
 
         $order->refresh();
+
+        // Loại bỏ _model khỏi response
+        $couponsForResponse = collect($appliedCoupons)->map(fn ($c) => collect($c)->except('_model')->all())->values()->all();
 
         return response()->json([
             'order' => [
@@ -307,13 +312,7 @@ class BookingController extends Controller
             'guest_surcharge'  => $guestSurchargeInfo,
             'promotions'       => $appliedPromotions,
             'system_discount'  => $appliedSystemDiscount,
-            'coupon'           => $appliedCoupon ? [
-                'code'            => $appliedCoupon->code,
-                'name'            => $appliedCoupon->name,
-                'type'            => $appliedCoupon->type,
-                'value'           => $appliedCoupon->value,
-                'discount_amount' => $couponDiscount,
-            ] : null,
+            'coupons'          => $couponsForResponse,
             'deposit' => $depositInfo,
             'summary' => [
                 'slots_total'          => $basePrice,
@@ -426,8 +425,6 @@ class BookingController extends Controller
         return [$totalPrice, $summaryName, $itemsData, $rtsCollection, $slotSummary];
     }
 
-    // ── Monthly ───────────────────────────────────────────────────────────────
-
     // ── Daily (phòng theo ngày) ───────────────────────────────────────────────
 
     private function buildDailyItems(Request $request, Product $room): array
@@ -514,7 +511,6 @@ class BookingController extends Controller
     private function applyDailyPromotions(Collection $rtsCollection, array $nightSummary): array
     {
         $calculator    = new PromotionCalculator();
-        // Dùng giá đêm thực từ nightSummary (đã fallback về room->price nếu rts->price = null)
         $nightPriceMap = collect($nightSummary)->pluck('price', 'date');
 
         $totalDiscount = 0;
@@ -629,7 +625,6 @@ class BookingController extends Controller
             return false;
         }
 
-        // Tổng số template slot của phòng (date IS NULL)
         $totalSlots = $room->roomTimeSlots
             ->filter(fn ($s) => is_null($s->date))
             ->count();
@@ -638,10 +633,8 @@ class BookingController extends Controller
             return false;
         }
 
-        // Nhóm các slot đã chọn theo ngày
         $slotsByDate = collect($slotSummary)->groupBy('date');
 
-        // Full booking = bất kỳ ngày nào có đủ tất cả slot
         foreach ($slotsByDate as $dateSlots) {
             if ($dateSlots->count() === $totalSlots) {
                 return true;
@@ -713,7 +706,7 @@ class BookingController extends Controller
         return (float) str_replace(['.', ','], '', $rule);
     }
 
-    // ── Promotions (auto-apply, gộp từ tất cả slot) ──────────────────────────
+    // ── Promotions ────────────────────────────────────────────────────────────
 
     private function applyPromotions(Collection $rtsCollection, array $slotSummary = []): array
     {
@@ -734,7 +727,6 @@ class BookingController extends Controller
             $totalDiscount += $result['promo_discount'];
 
             foreach ($result['applied'] as $entry) {
-                // Gộp các promotion trùng id (nhiều slot cùng promo)
                 $found = false;
                 foreach ($applied as $i => $a) {
                     if ($a['id'] === $entry['id']) {
@@ -752,37 +744,101 @@ class BookingController extends Controller
         return [(int) $totalDiscount, $applied];
     }
 
-    // ── Coupon ────────────────────────────────────────────────────────────────
+    // ── Multiple coupons ──────────────────────────────────────────────────────
 
-    private function applyCoupon(
-        string $code,
+    /**
+     * Áp dụng nhiều mã giảm giá theo thứ tự:
+     *   1. Coupon % (áp trên số tiền lớn hơn → lợi hơn cho customer)
+     *   2. Coupon fixed
+     * Mỗi coupon áp trên số tiền còn lại sau coupon trước.
+     *
+     * Trả về [totalDiscount, appliedList]
+     * appliedList: mỗi phần tử có _model để gọi incrementUsage() trong transaction.
+     */
+    private function applyMultipleCoupons(
+        array $codes,
         float $orderAmount,
         Product $room,
-        Collection $rtsCollection
+        Collection $rtsCollection,
+        \App\Models\Customer $customer
     ): array {
-        $coupon = Coupon::where('code', strtoupper($code))
+        if (empty($codes)) {
+            return [0, []];
+        }
+
+        // Loại trùng, uppercase
+        $codes = array_values(array_unique(array_map('strtoupper', $codes)));
+
+        $coupons = [];
+        foreach ($codes as $index => $code) {
+            $coupon = $this->validateOneCoupon($code, $index, $room, $rtsCollection, $customer);
+            $coupons[] = $coupon;
+        }
+
+        // Sắp xếp: percentage trước, fixed sau
+        usort($coupons, fn ($a, $b) => ($b->type === 'percentage' ? 1 : 0) - ($a->type === 'percentage' ? 1 : 0));
+
+        $totalDiscount = 0;
+        $applied       = [];
+        $remaining     = $orderAmount;
+
+        foreach ($coupons as $coupon) {
+            if ($remaining <= 0) {
+                break;
+            }
+
+            $discount   = (int) $coupon->calculateDiscount($remaining);
+            $remaining -= $discount;
+            $totalDiscount += $discount;
+
+            $applied[] = [
+                'code'            => $coupon->code,
+                'name'            => $coupon->name,
+                'type'            => $coupon->type,
+                'value'           => $coupon->value,
+                'discount_amount' => $discount,
+                '_model'          => $coupon, // chỉ dùng nội bộ để incrementUsage
+            ];
+        }
+
+        return [(int) $totalDiscount, $applied];
+    }
+
+    /**
+     * Validate một mã coupon: tồn tại, còn hạn, còn lượt, đúng phòng,
+     * và thuộc về customer nếu là coupon cá nhân.
+     */
+    private function validateOneCoupon(
+        string $code,
+        int $index,
+        Product $room,
+        Collection $rtsCollection,
+        \App\Models\Customer $customer
+    ): Coupon {
+        $coupon = Coupon::where('code', $code)
             ->where('is_active', true)
             ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', now()))
             ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', now()))
             ->first();
 
+        $field = "coupon_codes.{$index}";
+
         if (! $coupon) {
             throw ValidationException::withMessages([
-                'coupon_code' => ['Mã giảm giá không tồn tại hoặc đã hết hạn.'],
+                $field => ["Mã \"{$code}\" không tồn tại hoặc đã hết hạn."],
+            ]);
+        }
+
+        // Kiểm tra coupon cá nhân thuộc đúng customer
+        if ($coupon->customer_id !== null && $coupon->customer_id !== $customer->id) {
+            throw ValidationException::withMessages([
+                $field => ["Mã \"{$code}\" không thuộc về tài khoản của bạn."],
             ]);
         }
 
         if ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {
             throw ValidationException::withMessages([
-                'coupon_code' => ['Mã giảm giá đã hết lượt sử dụng.'],
-            ]);
-        }
-
-        if ($coupon->min_order_value && $orderAmount < (float) $coupon->min_order_value) {
-            throw ValidationException::withMessages([
-                'coupon_code' => [
-                    'Đơn hàng chưa đạt giá trị tối thiểu ' . number_format((float) $coupon->min_order_value) . 'đ để áp dụng mã này.',
-                ],
+                $field => ["Mã \"{$code}\" đã hết lượt sử dụng."],
             ]);
         }
 
@@ -795,13 +851,11 @@ class BookingController extends Controller
 
         if (! $applicable) {
             throw ValidationException::withMessages([
-                'coupon_code' => ['Mã giảm giá không áp dụng cho phòng hoặc khung giờ này.'],
+                $field => ["Mã \"{$code}\" không áp dụng cho phòng hoặc khung giờ này."],
             ]);
         }
 
-        $discount = (int) $coupon->calculateDiscount($orderAmount);
-
-        return [$discount, $coupon];
+        return $coupon;
     }
 
     // ── Phụ thu số lượng người ───────────────────────────────────────────────
@@ -814,7 +868,6 @@ class BookingController extends Controller
 
         $type = $request->input('type');
 
-        // Slot: chỉ áp dụng cho phòng theo giờ
         if ($type === 'slot' && $room->roomType?->slug !== 'theo_gio') {
             return [0, null];
         }
@@ -829,7 +882,6 @@ class BookingController extends Controller
         }
 
         $extraGuests = $guests - $threshold;
-        // Daily: nhân theo số đêm; slot: tính một lần cho cả booking
         $nights      = $type === 'daily' ? count($slotSummary) : 1;
         $total       = $extraGuests * $fee * $nights;
 

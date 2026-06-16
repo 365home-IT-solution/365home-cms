@@ -192,6 +192,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('orders/{order_code}/retry-payment',    [OrderController::class,       'retryPayment'])->name('api.orders.retry-payment');
         Route::post('orders/{order_code}/remaining-payment',[OrderController::class,       'remainingPayment'])->name('api.orders.remaining-payment');
         Route::post('orders/{order}/services',              [OrderServiceController::class,'store'])->name('api.orders.services.store');
+        Route::get('coupons/mine',             [CouponController::class,     'mine'])->name('api.coupons.mine');
         Route::post('coupons/validate',        [CouponController::class,     'validate'])->name('api.coupons.validate');
     });
 });
