@@ -550,10 +550,9 @@ class OrderController extends Controller
 
         if ($order->remaining_checkout_url && $order->remaining_payos_code) {
             return response()->json([
-                'order_code'   => $order->order_code,
-                'checkout_url' => $order->remaining_checkout_url,
-                'qr_code'      => $order->remaining_qr_code,
-                'amount'       => $remaining,
+                'order_code' => $order->order_code,
+                'qr_code'    => $order->remaining_qr_code,
+                'amount'     => $remaining,
             ]);
         }
 
@@ -604,11 +603,10 @@ class OrderController extends Controller
             ]);
 
             return response()->json([
-                'order_code'   => $order->order_code,
-                'checkout_url' => $checkoutUrl,
-                'qr_code'      => $qrCode,
-                'amount'       => $remaining,
-                'expired_at'   => $expiredAt->toIso8601String(),
+                'order_code' => $order->order_code,
+                'qr_code'    => $qrCode,
+                'amount'     => $remaining,
+                'expired_at' => $expiredAt->toIso8601String(),
             ]);
 
         } catch (\Throwable $e) {
