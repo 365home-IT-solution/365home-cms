@@ -15,29 +15,39 @@ class CouponController extends Controller
     /**
      * GET /api/coupons/mine
      *
-     * Danh sách mã giảm giá mà customer đang đăng nhập có thể sử dụng:
-     * - Coupon cá nhân (customer_id = customer hiện tại)
-     * - Coupon công khai (customer_id = null)
+     * Danh sách mã giảm giá mà customer sở hữu:
+     * - Coupon cá nhân từ membership tier (coupon.customer_id = customer.id)
+     * - Coupon được gán qua bảng coupon_customers (many-to-many)
      * Lọc: còn hiệu lực, chưa hết lượt dùng.
      */
-    public function mine(Request $request): JsonResponse
+    public function mine(): JsonResponse
     {
         /** @var \App\Models\Customer $customer */
         $customer = auth('sanctum')->user();
 
         $now = now();
 
-        $coupons = Coupon::where('is_active', true)
+        // Coupon cá nhân (membership tier phát, customer_id trực tiếp)
+        $personal = Coupon::where('customer_id', $customer->id)
+            ->where('is_active', true)
             ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', $now))
             ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', $now))
-            ->where(fn ($q) => $q
-                ->whereNull('customer_id')
-                ->orWhere('customer_id', $customer->id)
-            )
             ->whereRaw('(usage_limit IS NULL OR used_count < usage_limit)')
-            ->orderByRaw('customer_id IS NULL ASC') // cá nhân lên trước
-            ->orderBy('end_at')
             ->get();
+
+        // Coupon được gán qua coupon_customers (many-to-many)
+        $assigned = $customer->coupons()
+            ->where('is_active', true)
+            ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', $now))
+            ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', $now))
+            ->whereRaw('(usage_limit IS NULL OR used_count < usage_limit)')
+            ->get();
+
+        // Gộp, loại trùng theo code, cá nhân lên trước
+        $coupons = $personal->concat($assigned)
+            ->unique('code')
+            ->sortBy('end_at')
+            ->values();
 
         $data = $coupons->map(fn ($c) => [
             'code'            => $c->code,
@@ -53,7 +63,7 @@ class CouponController extends Controller
             'usage_remaining' => $c->usage_limit !== null
                 ? max(0, (int) $c->usage_limit - (int) $c->used_count)
                 : null,
-        ])->values();
+        ]);
 
         return response()->json(['data' => $data]);
     }
