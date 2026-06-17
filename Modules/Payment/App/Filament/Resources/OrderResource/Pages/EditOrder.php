@@ -361,26 +361,77 @@ class EditOrder extends EditRecord
         ];
     }
 
+    private function sendStatusChangeNotification(\Modules\Payment\Entities\Order $order): void
+    {
+        $messages = [
+            'paid'               => ['Đặt phòng thành công!',      "Đơn #{$order->order_code} đã được xác nhận thanh toán."],
+            'confirmed'          => ['Đơn đã được xác nhận',       "Đơn #{$order->order_code} đã được xác nhận bởi chúng tôi."],
+            'deposit'            => ['Đã nhận tiền cọc',           "Đơn #{$order->order_code} đã nhận cọc " . ($order->deposit_percent ?? '') . "%."],
+            'cancelled'          => ['Đơn đã bị hủy',              "Đơn #{$order->order_code} đã bị hủy. Liên hệ chúng tôi nếu có thắc mắc."],
+            'cancelled_payment'  => ['Thanh toán hết hạn',         "Đơn #{$order->order_code} đã hết hạn thanh toán."],
+            'failed'             => ['Thanh toán thất bại',        "Đơn #{$order->order_code} thanh toán không thành công."],
+            'shipped'            => ['Đơn đang được xử lý',        "Đơn #{$order->order_code} đang được xử lý."],
+        ];
+
+        [$title, $body] = $messages[$order->status] ?? [null, null];
+
+        if (! $title) {
+            return;
+        }
+
+        $extra = ['order_code' => (string) $order->order_code, 'type' => 'order_status_changed'];
+        $notifService = app(\App\Services\NotificationFcmService::class);
+
+        try {
+            // Guest (không có customer_id) → dùng device_token lưu trên order
+            if (is_null($order->customer_id) && $order->device_token) {
+                $notifService->sendToGuestToken($order->device_token, $title, $body, 'order_status_changed', $extra);
+                return;
+            }
+
+            // Customer đăng nhập
+            if ($order->customer_id) {
+                $customer = $order->customer;
+                if ($customer) {
+                    $notifService->sendToCustomer($customer, $title, $body, 'order_status_changed', $extra);
+                }
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('EditOrder: sendStatusChangeNotification failed', [
+                'order_id' => $order->id,
+                'status'   => $order->status,
+                'error'    => $e->getMessage(),
+            ]);
+        }
+    }
+
     /** Ngày checkout cũ trước khi save (để so sánh) */
     protected ?string $oldCheckoutDate = null;
     protected ?string $oldCheckinDate  = null;
+    protected ?string $oldStatus       = null;
 
     /**
-     * Ghi nhớ ngày cũ trước khi lưu để so sánh sau.
+     * Ghi nhớ ngày cũ và trạng thái cũ trước khi lưu để so sánh sau.
      */
     protected function beforeSave(): void
     {
         $firstItem = $this->record->items()->where('extra_fee', 0)->first();
         $this->oldCheckoutDate = $firstItem?->checkout_date?->toDateTimeString();
         $this->oldCheckinDate  = $firstItem?->checkin_date?->toDateTimeString();
+        $this->oldStatus       = $this->record->status;
     }
 
     /**
-     * Sau khi lưu đơn, kiểm tra nếu checkin/checkout thay đổi thì cập nhật TTLock.
+     * Sau khi lưu đơn, gửi thông báo nếu trạng thái thay đổi và cập nhật TTLock nếu ngày thay đổi.
      */
     protected function afterSave(): void
     {
         $record = $this->record->fresh(['items.product', 'accessCodes']);
+
+        // ── Gửi push notification khi status thay đổi ────────────────────────
+        if ($this->oldStatus && $record->status !== $this->oldStatus) {
+            $this->sendStatusChangeNotification($record);
+        }
 
         $firstItem    = $record->items->where('extra_fee', 0)->first() ?? $record->items->first();
         $newCheckout  = $firstItem?->checkout_date?->toDateTimeString();
