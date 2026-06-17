@@ -23,7 +23,10 @@ trait BuildsRoomCard
                 ? ['amount' => $firstSlot['amount'], 'unit_label' => '/ ' . ($firstSlot['label'] ?? 'khung giờ')]
                 : null;
         } else {
-            $price = (float) $room->price;
+            $price = [
+                'amount'     => (float) $room->price,
+                'unit_label' => $this->priceUnitLabel($room->price_unit) ?? '/ ngày',
+            ];
         }
 
         return [
