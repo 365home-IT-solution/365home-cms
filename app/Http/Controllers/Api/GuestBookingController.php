@@ -614,6 +614,106 @@ class GuestBookingController extends Controller
     }
 
     // ══════════════════════════════════════════════════════════════════════
+    // POST /api/guest/orders/{order_code}/remaining-payment
+    // Thanh toán phần còn lại cho đơn đặt cọc — xác thực qua buyer_phone
+    // ══════════════════════════════════════════════════════════════════════
+
+    public function remainingPayment(Request $request, string $orderCode): JsonResponse
+    {
+        $request->validate([
+            'buyer_phone' => 'required|string|max:20',
+        ]);
+
+        $order = Order::with('items')
+            ->where('order_code', $orderCode)
+            ->whereNull('customer_id')
+            ->where('buyer_phone', trim($request->input('buyer_phone')))
+            ->first();
+
+        if (! $order) {
+            return response()->json(['message' => 'Đơn hàng không tồn tại hoặc số điện thoại không khớp.'], 404);
+        }
+
+        if ($order->status !== 'deposit') {
+            return response()->json(['message' => 'Chỉ áp dụng cho đơn đang ở trạng thái đặt cọc.'], 422);
+        }
+
+        $depositPct  = (int) $order->deposit_percent;
+        $depositPaid = (int) $order->full_amount;
+        $realTotal   = $depositPct > 0 ? (int) round($depositPaid * 100 / $depositPct) : $depositPaid;
+        $remaining   = $realTotal - $depositPaid;
+
+        if ($order->remaining_checkout_url && $order->remaining_payos_code) {
+            return response()->json([
+                'order_code' => $order->order_code,
+                'qr_code'    => $order->remaining_qr_code,
+                'amount'     => $remaining,
+            ]);
+        }
+
+        if ($remaining < 2000) {
+            return response()->json(['message' => 'Số tiền còn lại quá nhỏ hoặc đã thanh toán đủ.'], 422);
+        }
+
+        try {
+            $clientId    = Config::get('payos.client_id');
+            $apiKey      = Config::get('payos.api_key');
+            $checksumKey = Config::get('payos.checksum_key');
+
+            if (! $clientId || ! $apiKey || ! $checksumKey) {
+                return response()->json(['message' => 'Cổng thanh toán chưa được cấu hình.'], 500);
+            }
+
+            $payOS         = new PayOS($clientId, $apiKey, $checksumKey);
+            $remainingCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
+            $expiredAt     = now()->addMinutes(30);
+
+            $response = $payOS->createPaymentLink([
+                'orderCode'   => $remainingCode,
+                'amount'      => $remaining,
+                'description' => 'Tt con lai - ' . $order->order_code,
+                'returnUrl'   => $request->input('return_url') ?? config('app.url') . '/payment/success?orderCode=' . $order->order_code . '&remaining=1',
+                'cancelUrl'   => $request->input('cancel_url') ?? config('app.url') . '/payment/cancel?orderCode=' . $order->order_code,
+                'buyerName'   => $order->buyer_name ?? '',
+                'buyerPhone'  => $order->buyer_phone ?? '',
+                'expiredAt'   => $expiredAt->timestamp,
+                'items'       => [[
+                    'name'     => 'Tiền còn lại - ' . ($order->items->first()?->name ?? 'Phòng'),
+                    'quantity' => 1,
+                    'price'    => $remaining,
+                ]],
+            ]);
+
+            $checkoutUrl = $response['checkoutUrl'] ?? null;
+            $qrCode      = $response['qrCode'] ?? null;
+
+            if (! $checkoutUrl) {
+                return response()->json(['message' => 'Không thể tạo link thanh toán.'], 500);
+            }
+
+            $order->update([
+                'remaining_payos_code'   => $remainingCode,
+                'remaining_checkout_url' => $checkoutUrl,
+                'remaining_qr_code'      => $qrCode,
+            ]);
+
+            return response()->json([
+                'order_code' => $order->order_code,
+                'qr_code'    => $qrCode,
+                'amount'     => $remaining,
+                'expired_at' => $expiredAt->toIso8601String(),
+            ]);
+
+        } catch (\Throwable $e) {
+            Log::error('Guest remainingPayment error', [
+                'order_code' => $orderCode,
+                'error'      => $e->getMessage(),
+            ]);
+            return response()->json(['message' => 'Lỗi khi tạo link thanh toán. Vui lòng thử lại.'], 500);
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
     // Private helpers
     // ══════════════════════════════════════════════════════════════════════
 

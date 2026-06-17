@@ -202,19 +202,21 @@ Route::middleware('auth:sanctum')->group(function () {
 /*
 |--------------------------------------------------------------------------
 | Guest Booking (không cần đăng nhập)
-| POST   /api/guest/orders                       → Đặt phòng theo giờ / ngày (slot / daily)
-|                                                    payment_type=full   → 100% (mặc định)
-|                                                    payment_type=deposit → 50% (chỉ daily)
-| POST   /api/guest/orders/{order_code}          → Cập nhật đơn (xác thực bằng buyer_phone)
-| GET    /api/guest/orders?phone=xxx             → Tra cứu danh sách đơn theo SĐT
-| GET    /api/guest/orders/{order_code}?phone=xx → Xem chi tiết đơn theo SĐT
+| POST   /api/guest/orders                                        → Đặt phòng theo giờ / ngày (slot / daily)
+|                                                                      payment_type=full   → 100% (mặc định)
+|                                                                      payment_type=deposit → 50% (chỉ daily)
+| POST   /api/guest/orders/{order_code}                           → Cập nhật đơn (xác thực bằng buyer_phone)
+| GET    /api/guest/orders?phone=xxx                              → Tra cứu danh sách đơn theo SĐT
+| GET    /api/guest/orders/{order_code}?phone=xx                  → Xem chi tiết đơn theo SĐT
+| POST   /api/guest/orders/{order_code}/remaining-payment         → Thanh toán phần còn lại (đặt cọc)
 |--------------------------------------------------------------------------
 */
 Route::prefix('guest')->name('api.guest.')->group(function () {
-    Route::post('orders',              [GuestBookingController::class, 'store'])->name('orders.store');
-    Route::post('orders/{order_code}', [GuestBookingController::class, 'update'])->name('orders.update');
-    Route::get('orders',               [GuestBookingController::class, 'lookup'])->name('orders.lookup');
-    Route::get('orders/{order_code}',  [GuestBookingController::class, 'show'])->name('orders.show');
+    Route::post('orders',                                        [GuestBookingController::class, 'store'])->name('orders.store');
+    Route::post('orders/{order_code}',                           [GuestBookingController::class, 'update'])->name('orders.update');
+    Route::get('orders',                                         [GuestBookingController::class, 'lookup'])->name('orders.lookup');
+    Route::get('orders/{order_code}',                            [GuestBookingController::class, 'show'])->name('orders.show');
+    Route::post('orders/{order_code}/remaining-payment',         [GuestBookingController::class, 'remainingPayment'])->name('orders.remaining-payment');
 });
 
 /*
