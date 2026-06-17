@@ -1566,8 +1566,10 @@ class GuestBookingController extends Controller
                 'cccd_data'      => $order->cccd_data,
             ],
             'room' => [
-                'id'   => $product?->id,
-                'name' => $product?->name,
+                'id'        => $product?->id,
+                'slug'      => $product?->slug,
+                'name'      => $product?->name,
+                'thumbnail' => $this->getRoomThumbnail($product),
             ],
             'slots'           => $slots,
             'services'        => $servicesResult,
@@ -1602,19 +1604,36 @@ class GuestBookingController extends Controller
     {
         $firstItem = $order->items->first();
         $lastItem  = $order->items->last();
+        $product   = $firstItem?->product;
 
-        $roomName = $firstItem?->product?->name
+        $roomName = $product?->name
             ?? ($firstItem?->name ? explode(' - ', $firstItem->name, 2)[0] : null);
 
         return [
-            'order_code'   => $order->order_code,
-            'created_at'   => $order->created_at->format('Y-m-d H:i:s'),
-            'status'       => $order->status,
-            'room_name'    => $roomName,
-            'checkin'      => $firstItem?->checkin_date?->format('Y-m-d H:i'),
-            'checkout'     => $lastItem?->checkout_date?->format('Y-m-d H:i'),
-            'final_amount' => (int) $order->full_amount,
+            'order_code'     => $order->order_code,
+            'created_at'     => $order->created_at->format('Y-m-d H:i:s'),
+            'status'         => $order->status,
+            'room_id'        => $product?->id,
+            'room_slug'      => $product?->slug,
+            'room_name'      => $roomName,
+            'room_thumbnail' => $this->getRoomThumbnail($product),
+            'checkin'        => $firstItem?->checkin_date?->format('Y-m-d H:i'),
+            'checkout'       => $lastItem?->checkout_date?->format('Y-m-d H:i'),
+            'final_amount'   => (int) $order->full_amount,
         ];
+    }
+
+    private function getRoomThumbnail(?\Modules\Product\App\Models\Product $product): ?string
+    {
+        if (! $product) {
+            return null;
+        }
+
+        $media = $product->getFirstMedia('Ảnh bìa')
+              ?? $product->getFirstMedia('Ảnh chính')
+              ?? $product->getFirstMedia();
+
+        return $media?->getUrl();
     }
 
     private function createPayOSLink(Order $order, string $itemName): void
