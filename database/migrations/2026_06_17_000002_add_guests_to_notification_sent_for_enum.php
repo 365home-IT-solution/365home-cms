@@ -12,7 +12,8 @@ return new class extends Migration
             return;
         }
 
-        DB::statement("ALTER TABLE notification_fcm MODIFY COLUMN sent_for ENUM('all', 'users', 'guests') DEFAULT 'users'");
+        $prefix = DB::getTablePrefix();
+        DB::statement("ALTER TABLE {$prefix}notification_fcm MODIFY COLUMN sent_for ENUM('all', 'users', 'guests') DEFAULT 'users'");
     }
 
     public function down(): void
@@ -21,6 +22,7 @@ return new class extends Migration
             return;
         }
 
-        DB::statement("ALTER TABLE notification_fcm MODIFY COLUMN sent_for ENUM('all', 'users') DEFAULT 'users'");
+        $prefix = DB::getTablePrefix();
+        DB::statement("ALTER TABLE {$prefix}notification_fcm MODIFY COLUMN sent_for ENUM('all', 'users') DEFAULT 'users'");
     }
 };
