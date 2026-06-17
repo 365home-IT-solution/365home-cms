@@ -12,6 +12,8 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Modules\Payment\App\Services\CccdScannerService;
 use Illuminate\Validation\ValidationException;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
@@ -44,8 +46,8 @@ class GuestBookingController extends Controller
             'services'                => 'sometimes|nullable|array',
             'services.*.service_id'   => 'required_with:services|integer',
             'services.*.quantity'     => 'required_with:services|integer|min:1',
-            'cccd_front'              => 'sometimes|nullable|string|max:500',
-            'cccd_back'               => 'sometimes|nullable|string|max:500',
+            'cccd_front'              => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'cccd_back'               => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
         ];
 
         if ($request->input('type') === 'slot') {
@@ -69,10 +71,24 @@ class GuestBookingController extends Controller
         }
         $couponCodes = array_values(array_unique(array_map('strtoupper', array_filter((array) ($couponInput ?? [])))));
 
-        $buyerName  = trim($request->input('buyer_name'));
+        $buyerName = trim($request->input('buyer_name'));
         $buyerPhone = trim($request->input('buyer_phone'));
-        $cccdFront  = $request->input('cccd_front');
-        $cccdBack   = $request->input('cccd_back');
+
+        // ── CCCD upload + QR scan (bắt buộc cho guest) ───────────────────────
+        $cccdFront = $request->file('cccd_front')->store('cccd', 'public');
+        $cccdBack  = $request->file('cccd_back')->store('cccd', 'public');
+
+        $tempOrder = new Order(['cccd_front' => $cccdFront, 'cccd_back' => $cccdBack]);
+        $cccdData  = app(CccdScannerService::class)->scanOrder($tempOrder);
+
+        if (! $cccdData) {
+            Storage::disk('public')->delete($cccdFront);
+            Storage::disk('public')->delete($cccdBack);
+
+            return response()->json([
+                'message' => 'Không đọc được QR trên ảnh CCCD. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.',
+            ], 422);
+        }
 
         // ── 2. Load phòng ─────────────────────────────────────────────────────
         $room = Product::where('id', $request->input('room_id'))
@@ -189,7 +205,7 @@ class GuestBookingController extends Controller
         // ── 7. Tạo đơn trong transaction ─────────────────────────────────────
         $order = DB::transaction(function () use (
             $room, $amountDue, $finalAmount, $subtotal, $buyerName, $buyerPhone,
-            $cccdFront, $cccdBack, $category, $itemsData, $servicesData,
+            $cccdFront, $cccdBack, $cccdData, $category, $itemsData, $servicesData,
             $paymentMethod, $request, $appliedCoupons, $appliedCouponCodes, $depositPercentToSave
         ) {
             Product::where('id', $room->id)->lockForUpdate()->first();
@@ -226,6 +242,7 @@ class GuestBookingController extends Controller
                 'buyer_phone'     => $buyerPhone,
                 'cccd_front'      => $cccdFront,
                 'cccd_back'       => $cccdBack,
+                'cccd_data'       => $cccdData,
                 'payment_method'  => $paymentMethod,
                 'status'          => 'pending',
                 'guest_count'     => $request->guest_count,
@@ -286,6 +303,9 @@ class GuestBookingController extends Controller
                 'expired_at'     => $order->expired_at,
                 'buyer_name'     => $order->buyer_name,
                 'buyer_phone'    => $order->buyer_phone,
+                'cccd_front'     => $order->cccd_front ? Storage::disk('public')->url($order->cccd_front) : null,
+                'cccd_back'      => $order->cccd_back  ? Storage::disk('public')->url($order->cccd_back)  : null,
+                'cccd_data'      => $order->cccd_data,
             ],
             'room' => [
                 'id'   => $room->id,
@@ -324,8 +344,8 @@ class GuestBookingController extends Controller
             'buyer_phone'             => 'required|string|max:20',
             'guest_count'             => 'sometimes|integer|min:1|max:50',
             'note_for_admin'          => 'sometimes|nullable|string|max:500',
-            'cccd_front'              => 'sometimes|nullable|string|max:500',
-            'cccd_back'               => 'sometimes|nullable|string|max:500',
+            'cccd_front'              => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'cccd_back'               => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
             'services'                => 'sometimes|array',
             'services.*.service_id'   => 'required_with:services|integer',
             'services.*.quantity'     => 'required_with:services|integer|min:1',
@@ -353,10 +373,48 @@ class GuestBookingController extends Controller
         $updates            = [];
         $originalFullAmount = (int) $order->full_amount;
 
-        foreach (['note_for_admin', 'cccd_front', 'cccd_back'] as $field) {
-            if ($request->has($field)) {
-                $updates[$field] = $request->input($field);
+        if ($request->has('note_for_admin')) {
+            $updates['note_for_admin'] = $request->input('note_for_admin');
+        }
+
+        // ── CCCD upload + QR scan ─────────────────────────────────────────────
+        if ($request->hasFile('cccd_front') || $request->hasFile('cccd_back')) {
+            $newFront = null;
+            $newBack  = null;
+
+            if ($request->hasFile('cccd_front')) {
+                $newFront = $request->file('cccd_front')->store('cccd', 'public');
             }
+            if ($request->hasFile('cccd_back')) {
+                $newBack = $request->file('cccd_back')->store('cccd', 'public');
+            }
+
+            $tempOrder = new Order([
+                'cccd_front' => $newFront ?? $order->cccd_front,
+                'cccd_back'  => $newBack  ?? $order->cccd_back,
+            ]);
+            $cccdData = app(CccdScannerService::class)->scanOrder($tempOrder);
+
+            if (! $cccdData) {
+                if ($newFront) Storage::disk('public')->delete($newFront);
+                if ($newBack)  Storage::disk('public')->delete($newBack);
+
+                return response()->json([
+                    'message' => 'Không đọc được QR trên ảnh CCCD. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.',
+                ], 422);
+            }
+
+            // QR hợp lệ — xoá file cũ nếu có
+            if ($newFront && $order->cccd_front) {
+                Storage::disk('public')->delete($order->cccd_front);
+            }
+            if ($newBack && $order->cccd_back) {
+                Storage::disk('public')->delete($order->cccd_back);
+            }
+
+            if ($newFront) $updates['cccd_front'] = $newFront;
+            if ($newBack)  $updates['cccd_back']  = $newBack;
+            $updates['cccd_data'] = $cccdData;
         }
 
         // ── Phụ thu khách ─────────────────────────────────────────────────────
@@ -962,7 +1020,7 @@ class GuestBookingController extends Controller
     }
 
     /**
-     * Áp dụng coupon cho guest: chỉ cho phép coupon public (customer_id = null).
+     * Áp dụng coupon cho guest: chấp nhận mọi coupon active có code hợp lệ.
      */
     private function applyGuestCoupons(
         array $codes,
@@ -980,7 +1038,6 @@ class GuestBookingController extends Controller
         foreach ($codes as $index => $code) {
             $coupon = Coupon::where('code', $code)
                 ->where('is_active', true)
-                ->whereNull('customer_id')
                 ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', now()))
                 ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', now()))
                 ->first();
@@ -1155,6 +1212,9 @@ class GuestBookingController extends Controller
                 'buyer_name'     => $order->buyer_name,
                 'buyer_phone'    => $order->buyer_phone,
                 'note_for_admin' => $order->note_for_admin,
+                'cccd_front'     => $order->cccd_front ? Storage::disk('public')->url($order->cccd_front) : null,
+                'cccd_back'      => $order->cccd_back  ? Storage::disk('public')->url($order->cccd_back)  : null,
+                'cccd_data'      => $order->cccd_data,
             ],
             'room' => [
                 'id'   => $product?->id,
