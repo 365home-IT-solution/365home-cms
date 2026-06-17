@@ -11,6 +11,7 @@ use Carbon\Carbon;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
+use Modules\Payment\Entities\Order;
 
 class CreateNotificationFcm extends CreateRecord
 {
@@ -32,9 +33,9 @@ class CreateNotificationFcm extends CreateRecord
     {
         $customerIds = $data['customer_ids'] ?? [];
         $sentFor     = $data['sent_for'] ?? 'users';
-        unset($data['customer_ids']);
+        $orderId     = $data['order_id'] ?? null;
+        unset($data['customer_ids'], $data['order_id']);
 
-        // Gửi tất cả → lấy toàn bộ customer có token
         if ($sentFor === 'all') {
             $customerIds = Customer::whereNotNull('token_device')
                 ->where('status', Customer::STATUS_ACTIVE)
@@ -49,6 +50,29 @@ class CreateNotificationFcm extends CreateRecord
             : null;
 
         $isScheduled = $scheduledAt && $scheduledAt->isFuture();
+
+        // Xử lý gửi theo đơn hàng
+        if ($sentFor === 'order') {
+            $order = $orderId ? Order::with('customer')->find($orderId) : null;
+
+            if ($isScheduled) {
+                $data['recipient_ids'] = $order ? ['order_id' => $order->id] : [];
+            }
+
+            $record = static::getModel()::create($data);
+
+            if (! $isScheduled && $order) {
+                $service = app(NotificationFcmService::class);
+
+                if ($order->customer_id && $order->customer?->token_device) {
+                    $service->sendToExisting($record, collect([$order->customer]));
+                } elseif ($order->device_token) {
+                    $service->sendGuestToExisting($record, $order->device_token);
+                }
+            }
+
+            return $record;
+        }
 
         if ($isScheduled) {
             $data['recipient_ids'] = $customerIds;

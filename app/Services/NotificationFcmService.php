@@ -216,6 +216,40 @@ class NotificationFcmService
     }
 
     /**
+     * Gửi cho guest token từ NotificationFcm record đã tạo sẵn (order mode).
+     */
+    public function sendGuestToExisting(NotificationFcm $notification, string $token): void
+    {
+        $status = 'sent';
+
+        try {
+            $this->fcm->sendToToken($token, $notification->title, $notification->body, [
+                'notification_id' => (string) $notification->id,
+                'type'            => $notification->type,
+            ]);
+        } catch (\Throwable $e) {
+            $status = 'failed';
+            Log::warning('NotificationFcmService: guest FCM failed [order]', [
+                'token_prefix' => substr($token, 0, 20),
+                'error'        => $e->getMessage(),
+            ]);
+        }
+
+        NotificationFcmRecipient::create([
+            'notification_fcm_id' => $notification->id,
+            'customer_id'         => null,
+            'fcm_token'           => $token,
+            'status'              => $status,
+        ]);
+
+        $notification->update([
+            'sent_count' => $status === 'sent' ? 1 : 0,
+            'fail_count' => $status === 'failed' ? 1 : 0,
+            'sent_at'    => now(),
+        ]);
+    }
+
+    /**
      * Gửi push notification cho guest (không có customer_id) và lưu vào DB
      * để hiển thị trong GET /api/guest/notifications.
      * Xác định bằng fcm_token vì guest không có tài khoản.

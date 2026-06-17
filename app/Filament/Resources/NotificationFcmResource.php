@@ -17,6 +17,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
+use Modules\Payment\Entities\Order;
 use Filament\Infolists\Components\Grid;
 use Filament\Infolists\Components\Section as InfoSection;
 use Filament\Infolists\Components\TextEntry;
@@ -70,6 +71,7 @@ class NotificationFcmResource extends Resource
                     ->options([
                         'all'   => 'Tất cả khách hàng (có token)',
                         'users' => 'Chọn từng người',
+                        'order' => 'Theo đơn hàng',
                     ])
                     ->default('users')
                     ->inline()
@@ -119,6 +121,78 @@ class NotificationFcmResource extends Resource
                     ->noSearchResultsMessage('Không tìm thấy khách hàng có token thiết bị.')
                     ->loadingMessage('Đang tìm kiếm...')
                     ->placeholder('Tìm theo tên hoặc số điện thoại...'),
+
+                Select::make('order_id')
+                    ->label('Tìm đơn hàng')
+                    ->helperText('Nhập mã đơn, tên hoặc số điện thoại người mua để tìm kiếm.')
+                    ->searchable()
+                    ->live()
+                    ->required()
+                    ->visible(fn (Get $get): bool => $get('sent_for') === 'order')
+                    ->getSearchResultsUsing(function (string $search): array {
+                        return Order::where(function ($q) use ($search) {
+                            $q->where('order_code', 'like', "%{$search}%")
+                              ->orWhere('buyer_name', 'like', "%{$search}%")
+                              ->orWhere('buyer_phone', 'like', "%{$search}%");
+                        })
+                        ->orderByDesc('created_at')
+                        ->limit(30)
+                        ->get()
+                        ->mapWithKeys(function (Order $o): array {
+                            $tokenLabel = $o->device_token
+                                ? '[guest token]'
+                                : ($o->customer_id ? '[customer]' : '[không có token]');
+
+                            return [
+                                $o->id => "#{$o->order_code} — {$o->buyer_name} ({$o->buyer_phone}) {$tokenLabel}",
+                            ];
+                        })
+                        ->toArray();
+                    })
+                    ->getOptionLabelUsing(function (int $value): string {
+                        $o = Order::find($value);
+                        if (! $o) {
+                            return "Đơn #{$value}";
+                        }
+
+                        $tokenLabel = $o->device_token
+                            ? '[guest token]'
+                            : ($o->customer_id ? '[customer]' : '[không có token]');
+
+                        return "#{$o->order_code} — {$o->buyer_name} ({$o->buyer_phone}) {$tokenLabel}";
+                    })
+                    ->noSearchResultsMessage('Không tìm thấy đơn hàng.')
+                    ->loadingMessage('Đang tìm kiếm...')
+                    ->placeholder('Nhập mã đơn, tên hoặc SĐT...'),
+
+                Placeholder::make('order_recipient_hint')
+                    ->label('Người nhận')
+                    ->content(function (Get $get): string {
+                        $orderId = $get('order_id');
+                        if (! $orderId) {
+                            return 'Chọn đơn hàng để xem thông tin người nhận.';
+                        }
+
+                        $order = Order::with('customer')->find($orderId);
+                        if (! $order) {
+                            return 'Không tìm thấy đơn hàng.';
+                        }
+
+                        if ($order->customer_id && $order->customer?->token_device) {
+                            return "✓ Gửi đến khách hàng: {$order->customer->fullname} ({$order->buyer_phone}) — thiết bị đã đăng nhập.";
+                        }
+
+                        if ($order->device_token) {
+                            return "✓ Gửi đến guest: {$order->buyer_name} ({$order->buyer_phone}) — token từ đơn hàng.";
+                        }
+
+                        if ($order->customer_id && ! $order->customer?->token_device) {
+                            return "⚠ Khách hàng {$order->buyer_name} chưa đăng nhập trên thiết bị di động (không có token).";
+                        }
+
+                        return "⚠ Đơn hàng này không có token thiết bị nào để gửi thông báo.";
+                    })
+                    ->visible(fn (Get $get): bool => $get('sent_for') === 'order'),
             ]),
 
             Section::make('Lịch gửi')->schema([
