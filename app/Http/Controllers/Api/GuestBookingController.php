@@ -1166,6 +1166,40 @@ class GuestBookingController extends Controller
         return $total;
     }
 
+    private function buildCouponsInfo(array $codes, float $baseAmount): array
+    {
+        if (empty($codes)) {
+            return [];
+        }
+
+        $coupons = Coupon::whereIn('code', $codes)->get()->keyBy('code');
+
+        $sorted = collect($codes)
+            ->map(fn ($c) => $coupons->get($c))
+            ->filter()
+            ->sortByDesc(fn ($c) => $c->type === 'percentage' ? 1 : 0)
+            ->values();
+
+        $result    = [];
+        $remaining = $baseAmount;
+
+        foreach ($sorted as $coupon) {
+            if ($remaining <= 0) break;
+            $disc       = (int) $coupon->calculateDiscount($remaining);
+            $remaining -= $disc;
+
+            $result[] = [
+                'code'            => $coupon->code,
+                'name'            => $coupon->name,
+                'type'            => $coupon->type,
+                'value'           => $coupon->value,
+                'discount_amount' => $disc,
+            ];
+        }
+
+        return $result;
+    }
+
     private function buildOrderResponse(Order $order): array
     {
         $firstItem = $order->items->first();
@@ -1190,6 +1224,42 @@ class GuestBookingController extends Controller
         $slotsTotal    = (int) $order->items->sum('price');
         $servicesTotal = (int) $order->services->sum('subtotal');
 
+        // ── Guest surcharge ───────────────────────────────────────────────────
+        $guestSurchargeInfo  = null;
+        $guestSurchargeTotal = 0;
+        if ($product) {
+            $guestConfig    = $product->room_config ?? [];
+            $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
+            $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
+            $isSlotType     = $product->roomType?->slug === 'theo_gio';
+            $nights         = $isSlotType ? 1 : max(1, $order->items->count());
+            $guestCount     = (int) $order->guest_count;
+            $extraGuests    = max(0, $guestCount - $guestThreshold);
+            $guestSurchargeTotal = $extraGuests * $guestFee * $nights;
+
+            if ($guestFee > 0 && $extraGuests > 0) {
+                $nightsLabel = (! $isSlotType && $nights > 1) ? " × {$nights} đêm" : '';
+                $guestSurchargeInfo = [
+                    'guest_count'    => $guestCount,
+                    'threshold'      => $guestThreshold,
+                    'extra_guests'   => $extraGuests,
+                    'fee_per_person' => $guestFee,
+                    'nights'         => $nights,
+                    'total'          => $guestSurchargeTotal,
+                    'label'          => "Phụ thu {$extraGuests} người (trên {$guestThreshold} người){$nightsLabel}",
+                ];
+            }
+        }
+
+        // ── Promotions ────────────────────────────────────────────────────────
+        [$promoDiscount, $promoApplied] = $this->recomputePromotionDiscount($order);
+
+        // ── Coupons ───────────────────────────────────────────────────────────
+        $couponCodes    = is_array($order->coupon_codes) ? $order->coupon_codes : ($order->coupon_code ? [$order->coupon_code] : []);
+        $couponDiscount = $this->recomputeCouponDiscountFromCodes($couponCodes, max(0, $slotsTotal - $promoDiscount));
+        $couponsInfo    = $this->buildCouponsInfo($couponCodes, max(0, $slotsTotal - $promoDiscount));
+
+        // ── Deposit & totals ──────────────────────────────────────────────────
         $depositPct = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
         if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
             $realFinalAmount = (int) round((int) $order->full_amount * 100 / $depositPct);
@@ -1198,6 +1268,10 @@ class GuestBookingController extends Controller
             $realFinalAmount = (int) $order->full_amount;
             $totalDiscount   = max(0, (int) $order->amount - (int) $order->full_amount);
         }
+
+        $otherDiscount      = max(0, $totalDiscount - $promoDiscount - $couponDiscount);
+        $systemDiscountInfo = $otherDiscount > 0 ? ['discount_amount' => $otherDiscount] : null;
+        $slotsFinal         = max(0, $slotsTotal - $totalDiscount);
 
         return [
             'order' => [
@@ -1218,9 +1292,13 @@ class GuestBookingController extends Controller
                 'id'   => $product?->id,
                 'name' => $product?->name,
             ],
-            'slots'    => $slots,
-            'services' => $servicesResult,
-            'deposit'  => $depositPct !== null ? [
+            'slots'           => $slots,
+            'services'        => $servicesResult,
+            'guest_surcharge' => $guestSurchargeInfo,
+            'promotions'      => $promoApplied,
+            'system_discount' => $systemDiscountInfo,
+            'coupons'         => $couponsInfo,
+            'deposit'         => $depositPct !== null ? [
                 'type'             => 'deposit',
                 'percentage'       => $depositPct,
                 'deposit_amount'   => (int) $order->full_amount,
@@ -1228,7 +1306,12 @@ class GuestBookingController extends Controller
             ] : null,
             'summary' => [
                 'slots_total'          => $slotsTotal,
+                'promotion_discount'   => $promoDiscount,
+                'system_discount'      => $otherDiscount,
+                'coupon_discount'      => $couponDiscount,
                 'discount_amount'      => $totalDiscount,
+                'slots_final'          => $slotsFinal,
+                'guest_surcharge'      => $guestSurchargeTotal,
                 'services_total'       => $servicesTotal,
                 'total_after_discount' => $realFinalAmount,
                 'final_amount'         => (int) $order->full_amount,
