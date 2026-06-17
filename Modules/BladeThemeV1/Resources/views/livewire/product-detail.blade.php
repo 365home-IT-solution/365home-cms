@@ -1199,7 +1199,7 @@
 </div>
 @push('scripts')
 <script>
-    function processAndUpload(input, field) {
+    function processAndUpload(input, field, opts = {}) {
         const file = input.files[0];
         if (!file) return;
 
@@ -1222,7 +1222,8 @@
                 const canvas = document.createElement('canvas');
                 let width = img.width;
                 let height = img.height;
-                const max_size = 1200; // Giới hạn chiều dài nhất là 1200px
+                const max_size = opts.maxSize || 1200;
+                const quality  = opts.quality  || 0.7;
 
                 if (width > height) {
                     if (width > max_size) { height *= max_size / width; width = max_size; }
@@ -1235,7 +1236,6 @@
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0, width, height);
 
-                // Xuất ra file JPEG chất lượng 0.7 (giảm dung lượng ~10 lần)
                 canvas.toBlob(function (blob) {
                     const safeFileName = file.name.replace(/\.[^/.]+$/, '') + '.jpg';
                     const compressedFile = new File([blob], safeFileName, { type: 'image/jpeg' });
@@ -1271,7 +1271,7 @@
                         progressBar.style.width = event.detail.progress + "%";
                     }
                 );
-                }, 'image/jpeg', 0.7);
+                }, 'image/jpeg', quality);
             };
         };
     }

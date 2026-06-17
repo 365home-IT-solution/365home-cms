@@ -614,7 +614,7 @@ $initSelectVal = $initIsCustom ? 'custom' : (string)$initGuests;
             {{-- Overlay cho phép upload lại --}}
             <label class="absolute inset-0 flex flex-col items-center justify-center bg-black/0 group-hover:bg-black/40 transition-all cursor-pointer rounded-xl">
                 <input type="file" accept="image/*" class="hidden"
-                       onchange="processAndUpload(this, 'cccd_{{ $side }}')" />
+                       onchange="processAndUpload(this, 'cccd_{{ $side }}', {maxSize: 2400, quality: 0.92})" />
                 <div class="opacity-0 group-hover:opacity-100 transition-opacity text-center">
                     <svg class="w-6 h-6 text-white mx-auto mb-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
@@ -651,7 +651,7 @@ $initSelectVal = $initIsCustom ? 'custom' : (string)$initGuests;
         <label class="relative group flex-1 h-40 border-4 border-dashed rounded-xl cursor-pointer overflow-hidden transition-all duration-300 hover:border-primary hover:bg-blue-50/30
                 {{ $errors->has($field) ? 'border-red-600' : 'border-black' }}">
             <input type="file" accept="image/*" class="hidden"
-                   onchange="processAndUpload(this, '{{ $field }}')" />
+                   onchange="processAndUpload(this, '{{ $field }}', {maxSize: 2400, quality: 0.92})" />
             <div wire:ignore class="absolute inset-0">
                 <div id="loading-{{ $field }}" class="hidden absolute inset-0 bg-white/90 backdrop-blur-sm z-20 rounded-xl">
                     <div class="flex flex-col items-center justify-center h-full">

@@ -82,6 +82,33 @@ class CccdScannerService
     }
 
     /**
+     * Quét QR từ 2 path đã lưu trên disk 'public'.
+     * Dùng cho Livewire booking flow sau khi file đã store() vĩnh viễn.
+     */
+    public function scanPaths(?string $frontPath, ?string $backPath): ?array
+    {
+        ini_set('memory_limit', '256M');
+
+        if ($backPath) {
+            $path = Storage::disk('public')->path($backPath);
+            if (file_exists($path)) {
+                $data = $this->tryQrScan($path);
+                if ($data) return $data;
+            }
+        }
+
+        if ($frontPath) {
+            $path = Storage::disk('public')->path($frontPath);
+            if (file_exists($path)) {
+                $data = $this->tryQrScan($path);
+                if ($data) return $data;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Quét QR từ file ảnh cục bộ.
      * Thứ tự ưu tiên: Node.js jsQR → zbarimg CLI → khanamiryan
      * Nếu thất bại, thử xoay ảnh 90°/270°/180° để xử lý ảnh dọc hoặc xéo.
