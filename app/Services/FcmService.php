@@ -11,16 +11,24 @@ use Illuminate\Support\Facades\Log;
 
 class FcmService
 {
-    private string $projectId;
-    private string $clientEmail;
-    private string $privateKey;
+    private ?string $projectId = null;
+    private ?string $clientEmail = null;
+    private ?string $privateKey = null;
 
-    public function __construct()
+    public function __construct() {}
+
+    private function loadCredentials(): void
     {
-        $credentials    = json_decode(file_get_contents(storage_path('firebase/service-account.json')), true);
-        $this->projectId    = $credentials['project_id'];
-        $this->clientEmail  = $credentials['client_email'];
-        $this->privateKey   = $credentials['private_key'];
+        if ($this->projectId !== null) {
+            return;
+        }
+
+        $path        = storage_path('firebase/service-account.json');
+        $credentials = json_decode(file_get_contents($path), true);
+
+        $this->projectId   = $credentials['project_id'];
+        $this->clientEmail = $credentials['client_email'];
+        $this->privateKey  = $credentials['private_key'];
     }
 
     /**
@@ -245,6 +253,8 @@ class FcmService
      */
     private function getAccessToken(): string
     {
+        $this->loadCredentials();
+
         return Cache::remember('fcm_oauth2_token', 3000, function () {
             $jwt      = $this->makeJwt();
             $response = Http::asForm()->post('https://oauth2.googleapis.com/token', [
