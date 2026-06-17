@@ -614,6 +614,104 @@ class GuestBookingController extends Controller
     }
 
     // ══════════════════════════════════════════════════════════════════════
+    // GET /api/guest/orders/{order_code}/payment-status?phone={phone}
+    // App polling để biết khi nào thanh toán xác nhận — xác thực qua buyer_phone
+    // ══════════════════════════════════════════════════════════════════════
+
+    public function paymentStatus(Request $request, string $orderCode): JsonResponse
+    {
+        $request->validate([
+            'phone' => 'required|string|max:20',
+        ]);
+
+        $order = Order::with('items')
+            ->where('order_code', $orderCode)
+            ->whereNull('customer_id')
+            ->where('buyer_phone', trim($request->input('phone')))
+            ->first();
+
+        if (! $order) {
+            return response()->json(['message' => 'Đơn hàng không tồn tại hoặc số điện thoại không khớp.'], 404);
+        }
+
+        if (in_array($order->status, ['paid', 'failed', 'cancelled', 'cancelled_payment'])) {
+            return response()->json([
+                'order_code' => $order->order_code,
+                'status'     => $order->status,
+            ]);
+        }
+
+        if ($order->payment_method !== 'PayOS') {
+            return response()->json([
+                'order_code' => $order->order_code,
+                'status'     => $order->status,
+            ]);
+        }
+
+        try {
+            $clientId    = Config::get('payos.client_id');
+            $apiKey      = Config::get('payos.api_key');
+            $checksumKey = Config::get('payos.checksum_key');
+
+            if (! $clientId || ! $apiKey || ! $checksumKey) {
+                return response()->json([
+                    'order_code' => $order->order_code,
+                    'status'     => $order->status,
+                ]);
+            }
+
+            $payOS = new PayOS($clientId, $apiKey, $checksumKey);
+
+            // Xác định đang check payment nào: remaining hay cọc gốc
+            $isRemaining = $order->status === 'deposit' && $order->remaining_payos_code;
+            $payosCode   = $isRemaining
+                ? (int) $order->remaining_payos_code
+                : (int) $order->order_code;
+
+            $response = $payOS->getPaymentLinkInformation($payosCode);
+            $status   = $response['status'] ?? 'PENDING';
+
+            if ($status === 'PAID') {
+                if ($isRemaining) {
+                    // Backup cho webhook: cập nhật nếu webhook chưa kịp chạy
+                    if ($order->status === 'deposit') {
+                        $order->update([
+                            'status'            => 'paid',
+                            'remaining_paid_at' => now(),
+                        ]);
+                        $order->refresh();
+                    }
+                } elseif ($order->deposit_percent !== null && $order->status === 'pending') {
+                    $order->update([
+                        'status'          => 'deposit',
+                        'checkout_url'    => null,
+                        'deposit_paid_at' => now(),
+                    ]);
+                    $order->refresh();
+                } elseif ($order->deposit_percent === null && $order->status === 'pending') {
+                    $order->update(['status' => 'paid']);
+                    $order->refresh();
+                }
+            }
+
+            return response()->json([
+                'order_code' => $order->order_code,
+                'status'     => $order->status,
+            ]);
+
+        } catch (\Throwable $e) {
+            Log::error('Guest paymentStatus error', [
+                'order_code' => $orderCode,
+                'error'      => $e->getMessage(),
+            ]);
+            return response()->json([
+                'order_code' => $order->order_code,
+                'status'     => $order->status,
+            ]);
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
     // POST /api/guest/orders/{order_code}/remaining-payment
     // Thanh toán phần còn lại cho đơn đặt cọc — xác thực qua buyer_phone
     // ══════════════════════════════════════════════════════════════════════
@@ -645,9 +743,10 @@ class GuestBookingController extends Controller
 
         if ($order->remaining_checkout_url && $order->remaining_payos_code) {
             return response()->json([
-                'order_code' => $order->order_code,
-                'qr_code'    => $order->remaining_qr_code,
-                'amount'     => $remaining,
+                'order_code'   => $order->order_code,
+                'checkout_url' => $order->remaining_checkout_url,
+                'qr_code'      => $order->remaining_qr_code,
+                'amount'       => $remaining,
             ]);
         }
 
@@ -672,7 +771,7 @@ class GuestBookingController extends Controller
                 'orderCode'   => $remainingCode,
                 'amount'      => $remaining,
                 'description' => 'Tt con lai - ' . $order->order_code,
-                'returnUrl'   => $request->input('return_url') ?? config('app.url') . '/payment/success?orderCode=' . $order->order_code . '&remaining=1',
+                'returnUrl'   => $request->input('return_url') ?? config('app.url') . '/payment/success?orderCode=' . $remainingCode,
                 'cancelUrl'   => $request->input('cancel_url') ?? config('app.url') . '/payment/cancel?orderCode=' . $order->order_code,
                 'buyerName'   => $order->buyer_name ?? '',
                 'buyerPhone'  => $order->buyer_phone ?? '',
@@ -698,10 +797,11 @@ class GuestBookingController extends Controller
             ]);
 
             return response()->json([
-                'order_code' => $order->order_code,
-                'qr_code'    => $qrCode,
-                'amount'     => $remaining,
-                'expired_at' => $expiredAt->toIso8601String(),
+                'order_code'   => $order->order_code,
+                'checkout_url' => $checkoutUrl,
+                'qr_code'      => $qrCode,
+                'amount'       => $remaining,
+                'expired_at'   => $expiredAt->toIso8601String(),
             ]);
 
         } catch (\Throwable $e) {
@@ -1450,6 +1550,8 @@ class GuestBookingController extends Controller
                 'percentage'       => $depositPct,
                 'deposit_amount'   => (int) $order->full_amount,
                 'remaining_amount' => max(0, $realFinalAmount - (int) $order->full_amount),
+                'checkout_url'     => $order->remaining_checkout_url ?? null,
+                'qr_code'          => $order->remaining_qr_code ?? null,
             ] : null,
             'summary' => [
                 'slots_total'          => $slotsTotal,
