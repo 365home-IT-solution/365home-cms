@@ -439,12 +439,8 @@ class GuestBookingController extends Controller
                     $newAmtWithSurcharge = max(0, (int) $order->amount - $oldSurcharge + $newSurcharge);
                     $updates['amount']   = $newAmtWithSurcharge;
 
-                    [$promoDiscount] = $this->recomputePromotionDiscount($order);
-                    $couponDiscount  = $this->recomputeCouponDiscountFromCodes(
-                        is_array($order->coupon_codes) ? $order->coupon_codes : [],
-                        max(0, $newAmtWithSurcharge - $promoDiscount)
-                    );
-                    $totalDisc = $promoDiscount + $couponDiscount;
+                    [$promoDiscount, , $systemDiscount, , $couponDiscount] = $this->computeSlotDiscounts($order, $itemsSum);
+                    $totalDisc = $promoDiscount + $systemDiscount + $couponDiscount;
 
                     $depositPct = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
                     if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
@@ -510,10 +506,9 @@ class GuestBookingController extends Controller
                 $order->services()->create($svc);
             }
 
-            [$promoDiscount] = $this->recomputePromotionDiscount($order);
-            $couponCodes     = is_array($order->coupon_codes) ? $order->coupon_codes : ($order->coupon_code ? [$order->coupon_code] : []);
-            $couponDiscount  = $this->recomputeCouponDiscountFromCodes($couponCodes, max(0, $newSubtotal - $promoDiscount));
-            $totalDiscount   = $promoDiscount + $couponDiscount;
+            $itemsSum = (int) $order->items->sum('price');
+            [$promoDiscount, , $systemDiscount, , $couponDiscount] = $this->computeSlotDiscounts($order, $itemsSum);
+            $totalDiscount = $promoDiscount + $systemDiscount + $couponDiscount;
 
             $depositPct = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
             if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
@@ -1103,6 +1098,62 @@ class GuestBookingController extends Controller
         return [(int) $totalDiscount, $applied];
     }
 
+    /**
+     * Tính lại discount đúng cho slot orders, xử lý cả full_booking và non-full_booking.
+     * Returns: [$promoDiscount, $promoApplied, $systemDiscount, $systemDiscountInfo, $couponDiscount, $couponBase]
+     */
+    private function computeSlotDiscounts(Order $order, int $itemsSum): array
+    {
+        $product     = $order->items->first()?->product;
+        $couponCodes = is_array($order->coupon_codes) ? $order->coupon_codes
+            : ($order->coupon_code ? [$order->coupon_code] : []);
+
+        if (! $product) {
+            $couponDiscount = $this->recomputeCouponDiscountFromCodes($couponCodes, $itemsSum);
+            return [0, [], 0, null, $couponDiscount, $itemsSum];
+        }
+
+        // Reconstruct slot summary from order items to check full_booking
+        $rtsMap = $product->roomTimeSlots
+            ->whereNull('date')
+            ->keyBy(fn ($rts) => $rts->timeSlot?->start_time);
+
+        $slotSummary = [];
+        if ($rtsMap->isNotEmpty()) {
+            foreach ($order->items as $item) {
+                $startTime = $item->checkin_date?->format('H:i:s');
+                $rts       = $startTime ? $rtsMap->get($startTime) : null;
+                if ($rts) {
+                    $slotSummary[] = [
+                        'timeslot_id' => $rts->timeslot_id,
+                        'date'        => $item->checkin_date->format('Y-m-d'),
+                    ];
+                }
+            }
+        }
+
+        $promoDiscount      = 0;
+        $promoApplied       = [];
+        $systemDiscount     = 0;
+        $systemDiscountInfo = null;
+
+        if (! empty($slotSummary) && $this->checkFullDayBooking($slotSummary, $product)) {
+            [$systemDiscount, $systemDiscountInfo] = $this->applyFullBookingDiscount((float) $itemsSum, $product);
+        } else {
+            [$promoDiscount] = $this->recomputePromotionDiscount($order);
+            if (! empty($slotSummary)) {
+                [$systemDiscount, $systemDiscountInfo] = $this->applyBulkDiscount(
+                    count($slotSummary), $product, $itemsSum - $promoDiscount
+                );
+            }
+        }
+
+        $couponBase     = max(0, $itemsSum - $promoDiscount - $systemDiscount);
+        $couponDiscount = $this->recomputeCouponDiscountFromCodes($couponCodes, $couponBase);
+
+        return [$promoDiscount, $promoApplied, $systemDiscount, $systemDiscountInfo, $couponDiscount, $couponBase];
+    }
+
     private function recomputePromotionDiscount(Order $order): array
     {
         $calculator    = new PromotionCalculator();
@@ -1251,27 +1302,23 @@ class GuestBookingController extends Controller
             }
         }
 
-        // ── Promotions ────────────────────────────────────────────────────────
-        [$promoDiscount, $promoApplied] = $this->recomputePromotionDiscount($order);
-
-        // ── Coupons ───────────────────────────────────────────────────────────
-        $couponCodes    = is_array($order->coupon_codes) ? $order->coupon_codes : ($order->coupon_code ? [$order->coupon_code] : []);
-        $couponDiscount = $this->recomputeCouponDiscountFromCodes($couponCodes, max(0, $slotsTotal - $promoDiscount));
-        $couponsInfo    = $this->buildCouponsInfo($couponCodes, max(0, $slotsTotal - $promoDiscount));
+        // ── Discounts (promotion / system / coupon) ───────────────────────────
+        $couponCodes = is_array($order->coupon_codes) ? $order->coupon_codes : ($order->coupon_code ? [$order->coupon_code] : []);
+        [$promoDiscount, $promoApplied, $systemDiscount, $systemDiscountInfo, $couponDiscount, $couponBase] = $this->computeSlotDiscounts($order, $slotsTotal);
+        $couponsInfo = $this->buildCouponsInfo($couponCodes, $couponBase);
 
         // ── Deposit & totals ──────────────────────────────────────────────────
+        $totalSlotDiscount = $promoDiscount + $systemDiscount + $couponDiscount;
         $depositPct = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
         if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
             $realFinalAmount = (int) round((int) $order->full_amount * 100 / $depositPct);
             $totalDiscount   = max(0, (int) $order->amount - $realFinalAmount);
         } else {
             $realFinalAmount = (int) $order->full_amount;
-            $totalDiscount   = max(0, (int) $order->amount - (int) $order->full_amount);
+            $totalDiscount   = $totalSlotDiscount;
         }
 
-        $otherDiscount      = max(0, $totalDiscount - $promoDiscount - $couponDiscount);
-        $systemDiscountInfo = $otherDiscount > 0 ? ['discount_amount' => $otherDiscount] : null;
-        $slotsFinal         = max(0, $slotsTotal - $totalDiscount);
+        $slotsFinal = max(0, $slotsTotal - $promoDiscount - $systemDiscount - $couponDiscount);
 
         return [
             'order' => [
@@ -1307,7 +1354,7 @@ class GuestBookingController extends Controller
             'summary' => [
                 'slots_total'          => $slotsTotal,
                 'promotion_discount'   => $promoDiscount,
-                'system_discount'      => $otherDiscount,
+                'system_discount'      => $systemDiscount,
                 'coupon_discount'      => $couponDiscount,
                 'discount_amount'      => $totalDiscount,
                 'slots_final'          => $slotsFinal,
