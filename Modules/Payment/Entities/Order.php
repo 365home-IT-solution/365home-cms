@@ -56,6 +56,7 @@ class Order extends Model implements Eventable
         'customer_id',
         'qr_code',
         'remaining_qr_code',
+        'device_token',
     ];
 
     protected $casts = [

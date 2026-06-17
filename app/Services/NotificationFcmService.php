@@ -216,6 +216,54 @@ class NotificationFcmService
     }
 
     /**
+     * Gửi push notification cho guest (không có customer_id) và lưu vào DB
+     * để hiển thị trong GET /api/guest/notifications.
+     * Xác định bằng fcm_token vì guest không có tài khoản.
+     */
+    public function sendToGuestToken(
+        string $token,
+        string $title,
+        string $body,
+        string $type = 'manual',
+        array $extra = [],
+    ): void {
+        $notification = NotificationFcm::create([
+            'title'    => $title,
+            'body'     => $body,
+            'type'     => $type,
+            'sent_for' => 'guests',
+            'sent_at'  => now(),
+        ]);
+
+        $status = 'sent';
+
+        try {
+            $this->fcm->sendToToken($token, $title, $body, array_merge($extra, [
+                'notification_id' => (string) $notification->id,
+                'type'            => $type,
+            ]));
+        } catch (\Throwable $e) {
+            $status = 'failed';
+            Log::warning("NotificationFcmService: guest FCM failed [{$type}]", [
+                'token_prefix' => substr($token, 0, 20),
+                'error'        => $e->getMessage(),
+            ]);
+        }
+
+        NotificationFcmRecipient::create([
+            'notification_fcm_id' => $notification->id,
+            'customer_id'         => null,
+            'fcm_token'           => $token,
+            'status'              => $status,
+        ]);
+
+        $notification->update([
+            'sent_count' => $status === 'sent' ? 1 : 0,
+            'fail_count' => $status === 'failed' ? 1 : 0,
+        ]);
+    }
+
+    /**
      * Gọi Node WS server để đẩy realtime đến customer đang kết nối.
      * Fire-and-forget: lỗi chỉ log, không throw.
      */

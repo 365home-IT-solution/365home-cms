@@ -87,6 +87,22 @@ class FcmService
     }
 
     /**
+     * Gửi push notification trực tiếp đến 1 token bất kỳ (dùng cho guest).
+     */
+    public function sendToToken(string $token, string $title, string $body, array $data = []): void
+    {
+        if (empty($token)) {
+            return;
+        }
+
+        if ($this->isExpoToken($token)) {
+            $this->sendViaExpo($token, $title, $body, $data);
+        } else {
+            $this->sendMobile($this->getAccessToken(), $token, $title, $body, $data);
+        }
+    }
+
+    /**
      * Gửi push notification đến thiết bị của khách hàng.
      * Tự detect Expo token hay FCM token để gửi đúng API.
      */

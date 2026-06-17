@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\Admin\ChatController as AdminChatController;
 use App\Http\Controllers\Api\BookingController;
 use App\Http\Controllers\Api\GuestBookingController;
+use App\Http\Controllers\Api\GuestNotificationController;
 use App\Http\Controllers\Api\CouponController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\OrderServiceController;
@@ -219,6 +220,20 @@ Route::prefix('guest')->name('api.guest.')->group(function () {
     Route::get('orders/{order_code}',                            [GuestBookingController::class, 'show'])->name('orders.show');
     Route::post('orders/{order_code}/remaining-payment',         [GuestBookingController::class, 'remainingPayment'])->name('orders.remaining-payment');
     Route::get('orders/{order_code}/payment-status',             [GuestBookingController::class, 'paymentStatus'])->name('orders.payment-status');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Guest Notifications (xác thực bằng device_token)
+    | GET  /api/guest/notifications?device_token=xxx          → Danh sách thông báo
+    | POST /api/guest/notifications/read-all                  → Đánh dấu tất cả đã xem
+    | POST /api/guest/notifications/{id}/read                 → Đánh dấu 1 thông báo đã xem
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('notifications')->name('notifications.')->group(function () {
+        Route::get('/',           [GuestNotificationController::class, 'index'])->name('index');
+        Route::post('read-all',   [GuestNotificationController::class, 'markAllRead'])->name('read-all');
+        Route::post('{id}/read',  [GuestNotificationController::class, 'markRead'])->name('read');
+    });
 });
 
 /*

@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Modules\Payment\App\Services\CccdScannerService;
 use Illuminate\Validation\ValidationException;
+use App\Services\NotificationFcmService;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
@@ -48,6 +49,7 @@ class GuestBookingController extends Controller
             'services.*.quantity'     => 'required_with:services|integer|min:1',
             'cccd_front'              => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
             'cccd_back'               => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'device_token'            => 'sometimes|nullable|string|max:500',
         ];
 
         if ($request->input('type') === 'slot') {
@@ -203,10 +205,13 @@ class GuestBookingController extends Controller
         $appliedCouponCodes   = collect($appliedCoupons)->pluck('code')->values()->all();
 
         // ── 7. Tạo đơn trong transaction ─────────────────────────────────────
+        $deviceToken = $request->input('device_token') ?: null;
+
         $order = DB::transaction(function () use (
             $room, $amountDue, $finalAmount, $subtotal, $buyerName, $buyerPhone,
             $cccdFront, $cccdBack, $cccdData, $category, $itemsData, $servicesData,
-            $paymentMethod, $request, $appliedCoupons, $appliedCouponCodes, $depositPercentToSave
+            $paymentMethod, $request, $appliedCoupons, $appliedCouponCodes, $depositPercentToSave,
+            $deviceToken
         ) {
             Product::where('id', $room->id)->lockForUpdate()->first();
 
@@ -248,6 +253,7 @@ class GuestBookingController extends Controller
                 'guest_count'     => $request->guest_count,
                 'category_id'     => $category?->id,
                 'customer_id'     => null,
+                'device_token'    => $deviceToken,
             ]);
 
             foreach ($itemsData as $itemData) {
@@ -285,6 +291,25 @@ class GuestBookingController extends Controller
                     $date,
                     $slots->pluck('timeslot_id')->values()->toArray()
                 );
+            }
+        }
+
+        // ── 10. Push notification + lưu DB cho guest ─────────────────────────
+        if ($deviceToken) {
+            try {
+                $firstItem    = $order->items->first();
+                $checkinLabel = $firstItem?->checkin_date
+                    ? $firstItem->checkin_date->format('H:i d/m/Y')
+                    : '';
+                app(NotificationFcmService::class)->sendToGuestToken(
+                    $deviceToken,
+                    'Đặt phòng thành công',
+                    "Phòng {$room->name} đã được đặt." . ($checkinLabel ? " Check-in: {$checkinLabel}." : '') . " Mã đơn: {$order->order_code}",
+                    'order_created',
+                    ['order_code' => (string) $order->order_code],
+                );
+            } catch (\Throwable $e) {
+                Log::warning('Guest FCM order_created failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
             }
         }
 
@@ -348,6 +373,7 @@ class GuestBookingController extends Controller
             'services'                => 'sometimes|array',
             'services.*.service_id'   => 'required_with:services|integer',
             'services.*.quantity'     => 'required_with:services|integer|min:1',
+            'device_token'            => 'sometimes|nullable|string|max:500',
         ]);
 
         $order = Order::with([
@@ -371,6 +397,10 @@ class GuestBookingController extends Controller
 
         $updates            = [];
         $originalFullAmount = (int) $order->full_amount;
+
+        if ($request->has('device_token')) {
+            $updates['device_token'] = $request->input('device_token') ?: null;
+        }
 
         if ($request->has('note_for_admin')) {
             $updates['note_for_admin'] = $request->input('note_for_admin');
