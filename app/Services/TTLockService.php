@@ -462,6 +462,49 @@ class TTLockService
     }
 
     // =========================================================
+    // Mở khóa từ xa qua cloud (yêu cầu lock có gateway online)
+    // POST /v3/lock/unlock
+    // =========================================================
+
+    public function remoteUnlock(int $lockId): bool
+    {
+        $token = $this->getAccessToken();
+
+        if (!$token) {
+            Log::error('TTLock remoteUnlock: no access token');
+            return false;
+        }
+
+        try {
+            $response = Http::timeout(15)->withOptions([
+                'verify' => false,
+            ])->asForm()->post("{$this->apiBase}/v3/lock/unlock", [
+                'clientId'    => $this->clientId,
+                'accessToken' => $token,
+                'lockId'      => $lockId,
+                'date'        => (int) round(microtime(true) * 1000),
+            ]);
+
+            $data = $response->json();
+
+            Log::info('TTLock remoteUnlock response', [
+                'lockId' => $lockId,
+                'status' => $response->status(),
+                'data'   => $data,
+            ]);
+
+            return $response->successful() && (($data['errcode'] ?? -1) === 0);
+
+        } catch (\Exception $e) {
+            Log::error('TTLock remoteUnlock exception', [
+                'lockId' => $lockId,
+                'error'  => $e->getMessage(),
+            ]);
+            return false;
+        }
+    }
+
+    // =========================================================
     // Xóa mã passcode khỏi khóa
     // POST /v3/keyboardPwd/delete
     // =========================================================

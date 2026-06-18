@@ -178,6 +178,16 @@ class OrderTable
                     ->tooltip(fn ($record) => $record->exclude_from_stats ? 'Đang loại khỏi thống kê & xuất Excel' : 'Đang tính vào thống kê & xuất Excel')
                     ->visible(fn () => auth()->user()?->isSuperAdmin() ?? false)
                     ->toggleable(isToggledHiddenByDefault: false),
+
+                IconColumn::make('unlock_anytime')
+                    ->label('Mở cổng tự do')
+                    ->boolean()
+                    ->trueIcon('heroicon-o-lock-open')
+                    ->falseIcon('heroicon-o-lock-closed')
+                    ->trueColor('warning')
+                    ->falseColor('gray')
+                    ->tooltip(fn ($record) => $record->unlock_anytime ? 'Khách có thể mở cổng bất kỳ lúc nào' : 'Mở cổng giới hạn theo giờ đặt phòng')
+                    ->toggleable(isToggledHiddenByDefault: false),
             ])
             ->defaultSort('created_at', 'desc')
             ->filters(
@@ -627,6 +637,28 @@ class OrderTable
                         $record->update(['exclude_from_stats' => ! $record->exclude_from_stats]);
                         Notification::make()
                             ->title($record->exclude_from_stats ? 'Đã loại khỏi thống kê' : 'Đã bật lại thống kê')
+                            ->success()
+                            ->send();
+                    }),
+
+                Action::make('toggle_unlock_anytime')
+                    ->label(fn ($record) => $record->unlock_anytime ? 'Khoá giờ mở cổng' : 'Cho mở cổng tự do')
+                    ->icon(fn ($record) => $record->unlock_anytime ? 'heroicon-o-lock-closed' : 'heroicon-o-lock-open')
+                    ->color(fn ($record) => $record->unlock_anytime ? 'gray' : 'warning')
+                    ->requiresConfirmation()
+                    ->modalHeading(fn ($record) => $record->unlock_anytime
+                        ? 'Khoá lại giờ mở cổng?'
+                        : 'Cho phép khách mở cổng bất kỳ lúc nào?')
+                    ->modalDescription(fn ($record) => $record->unlock_anytime
+                        ? 'Khách sẽ chỉ được mở cổng trong khung giờ đặt phòng (±30 phút).'
+                        : 'Khách có thể nhấn mở cổng bất kỳ lúc nào, dù chưa đến hoặc đã quá giờ đặt phòng. Dùng khi khách đến sớm hoặc về muộn.')
+                    ->modalSubmitActionLabel(fn ($record) => $record->unlock_anytime ? 'Khoá lại' : 'Cho phép')
+                    ->action(function ($record) {
+                        $record->update(['unlock_anytime' => ! $record->unlock_anytime]);
+                        Notification::make()
+                            ->title($record->unlock_anytime
+                                ? 'Đã cho phép khách mở cổng tự do'
+                                : 'Đã khoá lại theo giờ đặt phòng')
                             ->success()
                             ->send();
                     }),
