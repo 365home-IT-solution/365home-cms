@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\TelegramService;
 use App\Services\TTLockService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -14,6 +15,8 @@ use Modules\Product\App\Models\Product;
 
 class UnlockController extends Controller
 {
+    public function __construct(private TelegramService $telegram) {}
+
     /**
      * Mở cổng cho user đăng nhập.
      * POST /api/orders/{order_code}/unlock
@@ -151,6 +154,8 @@ class UnlockController extends Controller
         ]);
 
         if ($opened) {
+            $this->notifyUnlock($order, $product, $accessCode);
+
             return response()->json([
                 'success' => true,
                 'type'    => 'ttlock',
@@ -160,7 +165,6 @@ class UnlockController extends Controller
 
         // Gateway offline hoặc lỗi
         if ($accessCode?->code) {
-            // Có mã dự phòng → hướng dẫn nhập tay
             return response()->json([
                 'success'  => false,
                 'type'     => 'ttlock_fallback',
@@ -169,11 +173,51 @@ class UnlockController extends Controller
             ]);
         }
 
-        // Không có mã nào → yêu cầu liên hệ nhân viên
+        // Không có mã nào → cảnh báo admin qua Telegram
+        $this->notifyNoCode($order, $product);
+
         return response()->json([
             'success' => false,
             'type'    => 'ttlock_error',
             'message' => 'Không thể mở cổng tự động và chưa có mã dự phòng. Vui lòng liên hệ nhân viên để được hỗ trợ.',
         ], 503);
+    }
+
+    // =========================================================
+    // TELEGRAM NOTIFICATIONS
+    // =========================================================
+
+    private function notifyUnlock(Order $order, Product $product, ?AccessCode $accessCode): void
+    {
+        $msg = "📱 MỞ CỔNG QUA APP - <b>{$product->name}</b>\n"
+             . now()->format('H:i d/m/Y') . "\n\n"
+             . "Khách: {$order->buyer_name} | {$order->buyer_phone}\n"
+             . "Mã đơn: <code>{$order->order_code}</code>\n";
+
+        if ($accessCode?->code) {
+            $msg .= "Mã cổng: <code>{$accessCode->code}</code>";
+        }
+
+        try {
+            $this->telegram->sendLockMessage(trim($msg));
+        } catch (\Exception $e) {
+            Log::error('Remote unlock: Telegram notify failed', ['error' => $e->getMessage()]);
+        }
+    }
+
+    private function notifyNoCode(Order $order, Product $product): void
+    {
+        $msg = "⚠️ MỞ CỔNG THẤT BẠI - <b>{$product->name}</b>\n"
+             . now()->format('H:i d/m/Y') . "\n\n"
+             . "Khách: {$order->buyer_name} | {$order->buyer_phone}\n"
+             . "Mã đơn: <code>{$order->order_code}</code>\n"
+             . "Lý do: Gateway offline và không có mã dự phòng.\n"
+             . "→ Cần hỗ trợ khách ngay!";
+
+        try {
+            $this->telegram->sendLockMessage(trim($msg));
+        } catch (\Exception $e) {
+            Log::error('Remote unlock: Telegram error notify failed', ['error' => $e->getMessage()]);
+        }
     }
 }
