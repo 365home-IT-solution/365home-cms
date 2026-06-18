@@ -31,7 +31,7 @@ class BookingController extends Controller
             'type'                    => 'required|in:slot,monthly,daily',
             'room_id'                 => 'required|string',
             'guest_count'             => 'required|integer|min:1',
-            'payment_method'          => 'sometimes|in:PayOS,cash',
+            'payment_method'          => 'sometimes|in:PayOS,cod',
             'payment_type'            => 'sometimes|in:full,deposit',
             'coupon_codes'            => 'sometimes|nullable|array',
             'coupon_codes.*'          => 'string',
@@ -186,6 +186,12 @@ class BookingController extends Controller
             $paymentType = $request->input('payment_type', 'full');
 
             if ($paymentType === 'deposit') {
+                if ($paymentMethod === 'cod') {
+                    throw ValidationException::withMessages([
+                        'payment_type' => ['Đặt cọc không áp dụng cho phương thức thanh toán tiền mặt.'],
+                    ]);
+                }
+
                 $nights = count($slotSummary);
                 if ($depositMin > 0 && $nights >= $depositMin && $depositPct < 100) {
                     $amountDue   = (int) ceil($finalAmount * $depositPct / 100);

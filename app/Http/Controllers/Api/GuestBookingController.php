@@ -40,7 +40,7 @@ class GuestBookingController extends Controller
             'buyer_name'              => 'required|string|max:100',
             'buyer_phone'             => 'required|string|max:20',
             'guest_count'             => 'required|integer|min:1',
-            'payment_method'          => 'sometimes|in:PayOS,cash',
+            'payment_method'          => 'sometimes|in:PayOS,cod',
             'payment_type'            => 'sometimes|in:full,deposit',
             'coupon_codes'            => 'sometimes|nullable|array',
             'coupon_codes.*'          => 'string',
