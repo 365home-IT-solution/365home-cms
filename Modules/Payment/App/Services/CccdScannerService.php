@@ -40,34 +40,10 @@ class CccdScannerService
         ini_set('memory_limit', '256M');
         $this->startTimer();
 
-        // Ưu tiên mặt sau (chip QR thường nằm ở đây)
-        if ($order->cccd_back) {
-            $path = Storage::disk('public')->path($order->cccd_back);
-            if (file_exists($path)) {
-                $data = $this->tryQrScan($path);
-                if ($data) {
-                    return $data;
-                }
-            }
-        }
+        $frontPath = $order->cccd_front ? Storage::disk('public')->path($order->cccd_front) : null;
+        $backPath  = $order->cccd_back  ? Storage::disk('public')->path($order->cccd_back)  : null;
 
-        if ($this->isTimedOut()) {
-            Log::warning('[CccdScanner] scanOrder timeout sau mặt sau', ['order_id' => $order->id ?? null]);
-            return null;
-        }
-
-        // Thử mặt trước
-        if ($order->cccd_front) {
-            $path = Storage::disk('public')->path($order->cccd_front);
-            if (file_exists($path)) {
-                $data = $this->tryQrScan($path);
-                if ($data) {
-                    return $data;
-                }
-            }
-        }
-
-        return null;
+        return $this->scanBothSides($frontPath, $backPath, ['order_id' => $order->id ?? null]);
     }
 
     /**
@@ -78,34 +54,10 @@ class CccdScannerService
         ini_set('memory_limit', '256M');
         $this->startTimer();
 
-        // Ưu tiên mặt sau
-        if ($customer->cccd_back) {
-            $path = Storage::disk('public')->path($customer->cccd_back);
-            if (file_exists($path)) {
-                $data = $this->tryQrScan($path);
-                if ($data) {
-                    return $data;
-                }
-            }
-        }
+        $frontPath = $customer->cccd_front ? Storage::disk('public')->path($customer->cccd_front) : null;
+        $backPath  = $customer->cccd_back  ? Storage::disk('public')->path($customer->cccd_back)  : null;
 
-        if ($this->isTimedOut()) {
-            Log::warning('[CccdScanner] scanCustomer timeout sau mặt sau', ['customer_id' => $customer->id ?? null]);
-            return null;
-        }
-
-        // Thử mặt trước
-        if ($customer->cccd_front) {
-            $path = Storage::disk('public')->path($customer->cccd_front);
-            if (file_exists($path)) {
-                $data = $this->tryQrScan($path);
-                if ($data) {
-                    return $data;
-                }
-            }
-        }
-
-        return null;
+        return $this->scanBothSides($frontPath, $backPath, ['customer_id' => $customer->id ?? null]);
     }
 
     /**
@@ -117,24 +69,68 @@ class CccdScannerService
         ini_set('memory_limit', '256M');
         $this->startTimer();
 
-        if ($backPath) {
-            $path = Storage::disk('public')->path($backPath);
-            if (file_exists($path)) {
-                $data = $this->tryQrScan($path);
-                if ($data) return $data;
-            }
-        }
+        $front = $frontPath ? Storage::disk('public')->path($frontPath) : null;
+        $back  = $backPath  ? Storage::disk('public')->path($backPath)  : null;
 
-        if ($this->isTimedOut()) {
-            Log::warning('[CccdScanner] scanPaths timeout sau mặt sau');
+        return $this->scanBothSides($front, $back);
+    }
+
+    /**
+     * Quét QR bằng cách truyền cả 2 ảnh vào 1 lần gọi Node.js.
+     * Node.js thử từng attempt trên TẤT CẢ ảnh trước khi chuyển attempt tiếp theo
+     * → không cần biết QR ở mặt trước hay sau (tương thích mọi format CCCD).
+     *
+     * Sau đó fallback sang zbarimg + khanamiryan + rotation trên từng ảnh riêng.
+     */
+    protected function scanBothSides(?string $frontPath, ?string $backPath, array $logCtx = []): ?array
+    {
+        $paths = array_filter([$frontPath, $backPath], fn ($p) => $p && file_exists($p));
+
+        if (empty($paths)) {
             return null;
         }
 
-        if ($frontPath) {
-            $path = Storage::disk('public')->path($frontPath);
-            if (file_exists($path)) {
-                $data = $this->tryQrScan($path);
-                if ($data) return $data;
+        // Bước 1: 1 lần gọi Node.js với cả 2 ảnh — format-agnostic
+        $data = $this->tryNodeJsQR(...array_values($paths));
+        if ($data) {
+            return $data;
+        }
+
+        if ($this->isTimedOut()) {
+            Log::warning('[CccdScanner] scanBothSides timeout sau jsQR', $logCtx);
+            return null;
+        }
+
+        // Bước 2: fallback zbarimg + khanamiryan trên từng ảnh
+        foreach ($paths as $path) {
+            $data = $this->tryZbarimg($path) ?? $this->tryKhanamiryan($path);
+            if ($data) {
+                return $data;
+            }
+            if ($this->isTimedOut()) {
+                Log::warning('[CccdScanner] scanBothSides timeout trong fallback', $logCtx);
+                return null;
+            }
+        }
+
+        // Bước 3: rotation fallback trên từng ảnh
+        foreach ($paths as $path) {
+            foreach ([90, 270, 180] as $angle) {
+                if ($this->isTimedOut()) {
+                    break 2;
+                }
+                $rotated = $this->rotateImageForQr($path, $angle);
+                if (! $rotated) {
+                    continue;
+                }
+                $data = $this->tryNodeJsQR($rotated)
+                     ?? $this->tryZbarimg($rotated)
+                     ?? $this->tryKhanamiryan($rotated);
+                @unlink($rotated);
+                if ($data) {
+                    Log::debug('[CccdScanner] thành công sau khi xoay', ['angle' => $angle]);
+                    return $data;
+                }
             }
         }
 
