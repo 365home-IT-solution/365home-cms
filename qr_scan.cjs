@@ -1,7 +1,7 @@
 const { Jimp } = require('jimp');
 const jsQR = require('jsqr');
 
-const MAX_BASE_PIXELS   = 1_500_000; // ~1225×1225 — đủ lớn để đọc QR CCCD
+const MAX_BASE_PIXELS    = 1_500_000; // ~1225×1225 — đủ lớn để đọc QR CCCD
 const MAX_ATTEMPT_PIXELS = 4_000_000; // giới hạn mỗi lần scale()
 
 async function scanQR(imagePath) {
@@ -20,11 +20,25 @@ async function scanQR(imagePath) {
         const H = image.height;
 
         const attempts = [
+            // ── Toàn ảnh ──────────────────────────────────────────────────────
             () => image.clone(),
             () => image.clone().greyscale().scale(2),
-            () => image.clone().crop({ x: Math.floor(W*0.55), y: 0, w: Math.floor(W*0.45), h: Math.floor(H*0.60) }).greyscale().scale(4),
-            () => image.clone().crop({ x: Math.floor(W*0.5), y: 0, w: Math.floor(W*0.5), h: H }).greyscale().scale(3),
-            () => image.clone().crop({ x: Math.floor(W*0.60), y: 0, w: Math.floor(W*0.40), h: Math.floor(H*0.55) }).greyscale().scale(5),
+
+            // ── Nửa phải — QR ở góc phải khi chụp ngang (landscape) ──────────
+            () => image.clone().crop({ x: Math.floor(W*0.55), y: 0,            w: Math.floor(W*0.45), h: Math.floor(H*0.60) }).greyscale().scale(4),
+            () => image.clone().crop({ x: Math.floor(W*0.50), y: 0,            w: Math.floor(W*0.50), h: H                  }).greyscale().scale(3),
+            () => image.clone().crop({ x: Math.floor(W*0.60), y: 0,            w: Math.floor(W*0.40), h: Math.floor(H*0.55) }).greyscale().scale(5),
+
+            // ── Nửa trái — QR góc dưới-trái CCCD mặt sau ────────────────────
+            () => image.clone().crop({ x: 0,                  y: 0,            w: Math.floor(W*0.50), h: H                  }).greyscale().scale(3),
+            () => image.clone().crop({ x: 0,                  y: Math.floor(H*0.40), w: Math.floor(W*0.50), h: Math.floor(H*0.60) }).greyscale().scale(4),
+            () => image.clone().crop({ x: 0,                  y: Math.floor(H*0.50), w: Math.floor(W*0.45), h: Math.floor(H*0.50) }).greyscale().scale(5),
+
+            // ── Nửa dưới — ảnh chụp dọc (portrait), QR nằm ở phần dưới ──────
+            () => image.clone().crop({ x: 0,                  y: Math.floor(H*0.50), w: W,                  h: Math.floor(H*0.50) }).greyscale().scale(3),
+            () => image.clone().crop({ x: 0,                  y: Math.floor(H*0.40), w: W,                  h: Math.floor(H*0.60) }).greyscale().scale(3),
+
+            // ── Xử lý toàn ảnh với contrast/normalize ────────────────────────
             () => image.clone().greyscale().invert(),
             () => image.clone().normalize().greyscale().scale(2),
             () => image.clone().contrast(0.5).greyscale().scale(2),
@@ -34,7 +48,7 @@ async function scanQR(imagePath) {
         for (let i = 0; i < attempts.length; i++) {
             let img = attempts[i]();
 
-            // Cap từng attempt để scale(5) trên crop không vượt quá MAX_ATTEMPT_PIXELS
+            // Cap từng attempt để scale() không vượt quá MAX_ATTEMPT_PIXELS
             if (img.width * img.height > MAX_ATTEMPT_PIXELS) {
                 const r = Math.sqrt(MAX_ATTEMPT_PIXELS / (img.width * img.height));
                 img = img.scale(r);
