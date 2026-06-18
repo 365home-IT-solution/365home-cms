@@ -169,6 +169,11 @@ class CccdScannerService
         // Chiến lược 4: thử xoay ảnh — xử lý ảnh dọc (portrait) hoặc xéo
         // 90° CCW sửa ảnh chụp xoay 90° CW, 270° CCW sửa 90° CCW, 180° sửa lật ngược
         foreach ([90, 270, 180] as $angle) {
+            if ($this->isTimedOut()) {
+                Log::debug('[CccdScanner] rotation aborted (global timeout)', ['angle' => $angle]);
+                break;
+            }
+
             $rotatedPath = $this->rotateImageForQr($imagePath, $angle);
             if (! $rotatedPath) {
                 continue;
@@ -270,7 +275,7 @@ class CccdScannerService
 
             // Trên Linux: dùng `timeout` để kill nếu Node.js treo quá lâu (exit 124)
             if (PHP_OS_FAMILY !== 'Windows') {
-                array_unshift($argv, 'timeout', '15');
+                array_unshift($argv, 'timeout', '10');
             }
 
             $process = proc_open($argv, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
@@ -285,7 +290,7 @@ class CccdScannerService
             $exitCode = proc_close($process);
 
             if ($exitCode === 124) {
-                Log::warning('[CccdScanner] jsQR timeout (>15s)', ['path' => basename($imagePath)]);
+                Log::warning('[CccdScanner] jsQR timeout (>10s)', ['path' => basename($imagePath)]);
                 return null;
             }
 

@@ -92,6 +92,9 @@ COPY --from=qr-deps /app/node_modules /var/www/html/node_modules
 RUN rm -f /etc/nginx/sites-enabled/default
 COPY docker/nginx.conf /etc/nginx/sites-enabled/laravel
 
+# PHP-FPM: tăng max_execution_time để xử lý CCCD scan ảnh lớn
+COPY docker/php-fpm-override.ini /etc/php/8.3/fpm/conf.d/99-app.ini
+
 # Laravel scheduler crontab
 COPY docker/laravel-cron /etc/cron.d/laravel
 RUN chmod 0644 /etc/cron.d/laravel
