@@ -295,23 +295,6 @@ class GuestBookingController extends Controller
         }
 
         // ── 10. Push notification + lưu DB cho guest ─────────────────────────
-        if ($deviceToken) {
-            try {
-                $firstItem    = $order->items->first();
-                $checkinLabel = $firstItem?->checkin_date
-                    ? $firstItem->checkin_date->format('H:i d/m/Y')
-                    : '';
-                app(NotificationFcmService::class)->sendToGuestToken(
-                    $deviceToken,
-                    'Đặt phòng thành công',
-                    "Phòng {$room->name} đã được đặt." . ($checkinLabel ? " Check-in: {$checkinLabel}." : '') . " Mã đơn: {$order->order_code}",
-                    'order_created',
-                    ['order_code' => (string) $order->order_code],
-                );
-            } catch (\Throwable $e) {
-                Log::warning('Guest FCM order_created failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
-            }
-        }
 
         $order->refresh();
 

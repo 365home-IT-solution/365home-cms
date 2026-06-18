@@ -101,7 +101,7 @@ class OrderObserver
         );
     }
 
-    private function sendToGuest(Order $order, string $title, string $body): void
+    private function sendToGuest(Order $order, string $title, string $body, string $type = 'booking'): void
     {
         if ($order->customer_id || empty($order->device_token)) {
             return;
@@ -112,7 +112,7 @@ class OrderObserver
                 $order->device_token,
                 $title,
                 $body,
-                'booking',
+                $type,
                 ['order_code' => (string) $order->order_code, 'type' => 'order'],
             );
         } catch (\Throwable $e) {
@@ -157,6 +157,13 @@ class OrderObserver
             $order,
             'Đặt phòng thành công',
             "Đơn #{$order->order_code} đang chờ thanh toán. Vui lòng hoàn tất để xác nhận."
+        );
+
+        $this->sendToGuest(
+            $order,
+            'Đặt phòng thành công',
+            $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đang chờ thanh toán."),
+            'order_created'
         );
     }
 
