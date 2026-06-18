@@ -262,6 +262,9 @@ class BookingController extends Controller
                 'guest_count'     => $request->guest_count,
                 'category_id'     => $category?->id,
                 'customer_id'     => $customer?->id,
+                'cccd_front'      => $customer?->cccd_front,
+                'cccd_back'       => $customer?->cccd_back,
+                'cccd_data'       => $customer?->cccd_data,
             ]);
 
             foreach ($itemsData as $itemData) {

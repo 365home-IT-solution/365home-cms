@@ -204,7 +204,7 @@ class OrderObserver
             $this->sendToGuest(
                 $order,
                 'Thanh toán thành công',
-                "Đơn #{$order->order_code} đã được xác nhận. Chúc bạn có trải nghiệm tốt!"
+                $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã xác nhận.")
             );
             return;
         }
@@ -221,7 +221,7 @@ class OrderObserver
             $this->sendToGuest(
                 $order,
                 'Thanh toán hoàn tất',
-                "Đơn #{$order->order_code} đã được thanh toán đầy đủ."
+                $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã thanh toán đủ.")
             );
             return;
         }
@@ -237,6 +237,11 @@ class OrderObserver
         $releasedStatuses = ['cancelled_payment', 'failed', 'cancelled'];
         if (in_array($newStatus, $releasedStatuses) && ! in_array($oldStatus, $releasedStatuses)) {
             $this->broadcastSlotRelease($order);
+        }
+
+        // Guest: thông báo khi huỷ thanh toán hoặc hết hạn QR
+        if ($newStatus === 'failed' || $newStatus === 'cancelled_payment') {
+            $this->sendToGuest($order, 'Thanh toán không thành công', "Đơn #{$order->order_code} đã bị huỷ. Vui lòng đặt lại nếu cần.");
         }
 
         if (! isset($map[$newStatus])) {
@@ -284,6 +289,25 @@ class OrderObserver
             old: $order->only(['order_code', 'buyer_name', 'buyer_phone', 'amount', 'status']),
             label: "#{$order->order_code} — {$order->buyer_name}",
         );
+    }
+
+    private function buildGuestCheckinBody(Order $order, string $prefix): string
+    {
+        $order->loadMissing('items');
+
+        $checkin  = $order->items->min('checkin_date');
+        $checkout = $order->items->max('checkout_date');
+
+        $parts = [$prefix];
+
+        if ($checkin) {
+            $parts[] = 'Check-in: ' . \Carbon\Carbon::parse($checkin)->format('H:i d/m');
+        }
+        if ($checkout) {
+            $parts[] = 'Check-out: ' . \Carbon\Carbon::parse($checkout)->format('H:i d/m');
+        }
+
+        return implode(' ', $parts);
     }
 
     private function accumulateMembershipSpending(Order $order): void
