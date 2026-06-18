@@ -54,6 +54,7 @@ class Order extends Model implements Eventable
         'money_deposit',
         'exclude_from_stats',
         'unlock_anytime',
+        'checked_in_at',
         'customer_id',
         'qr_code',
         'remaining_qr_code',
@@ -67,6 +68,7 @@ class Order extends Model implements Eventable
         'remaining_paid_at'    => 'datetime',
         'exclude_from_stats'   => 'boolean',
         'unlock_anytime'       => 'boolean',
+        'checked_in_at'        => 'datetime',
     ];
     protected $with = ['items'];
 

@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Modules\AccessCode\Entities\AccessCode;
 use Modules\Payment\Entities\Order;
+use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
 
 class UnlockController extends Controller
@@ -46,6 +47,7 @@ class UnlockController extends Controller
     /**
      * Mở cổng cho guest (xác thực bằng số điện thoại).
      * POST /api/guest/orders/{order_code}/unlock
+     * Body: phone (bắt buộc)
      */
     public function unlockGuest(Request $request, string $orderCode): JsonResponse
     {
@@ -76,7 +78,6 @@ class UnlockController extends Controller
             ], 422);
         }
 
-        // Lấy item chính (bỏ qua item phụ phí)
         $item    = $order->items->where('extra_fee', 0)->first();
         $product = $item?->product;
 
@@ -87,8 +88,7 @@ class UnlockController extends Controller
             ], 422);
         }
 
-        // Kiểm tra cửa sổ thời gian hợp lệ (buffer 30 phút trước/sau)
-        // Bỏ qua nếu admin đã bật unlock_anytime cho đơn này
+        // Kiểm tra cửa sổ thời gian (buffer 30 phút trước/sau)
         if (!$order->unlock_anytime && $item->checkin_date && $item->checkout_date) {
             $now      = now();
             $earliest = Carbon::parse($item->checkin_date)->subMinutes(30);
@@ -105,14 +105,17 @@ class UnlockController extends Controller
             }
         }
 
+        // Lần đầu → CHECK-IN, đã check-in rồi → CHECK-OUT
+        $isCheckin  = is_null($order->checked_in_at);
+        $lockId     = $isCheckin ? $product->lock_id : $product->lock_id_checkout;
         $accessCode = $order->accessCodes->first();
 
-        // Chi nhánh TTLock: mở từ xa qua cloud
-        if ($product->lock_id) {
-            return $this->handleTTLockUnlock($order, $product, $accessCode);
+        // Chi nhánh TTLock
+        if ($lockId) {
+            return $this->handleTTLockUnlock($order, $product, $item, $accessCode, (int) $lockId, $isCheckin);
         }
 
-        // Chi nhánh cấp mã thủ công: trả passcode cho khách tự bấm
+        // Chi nhánh cấp mã thủ công
         if ($accessCode) {
             return response()->json([
                 'success'  => false,
@@ -130,12 +133,17 @@ class UnlockController extends Controller
         ], 422);
     }
 
-    private function handleTTLockUnlock(Order $order, Product $product, ?AccessCode $accessCode): JsonResponse
-    {
+    private function handleTTLockUnlock(
+        Order       $order,
+        Product     $product,
+        OrderItem   $item,
+        ?AccessCode $accessCode,
+        int         $lockId,
+        bool        $isCheckin
+    ): JsonResponse {
         $ttlock = TTLockService::forCategory($order->category_id);
 
         if (!$ttlock) {
-            // TTLock chưa được cấu hình cho chi nhánh → fallback
             return response()->json([
                 'success'  => false,
                 'type'     => 'manual',
@@ -144,26 +152,34 @@ class UnlockController extends Controller
             ]);
         }
 
-        $opened = $ttlock->remoteUnlock((int) $product->lock_id);
+        $opened = $ttlock->remoteUnlock($lockId);
 
         Log::info('Remote unlock attempt', [
             'order_id'   => $order->id,
             'order_code' => $order->order_code,
-            'lock_id'    => $product->lock_id,
+            'lock_id'    => $lockId,
+            'is_checkin' => $isCheckin,
             'success'    => $opened,
         ]);
 
         if ($opened) {
-            $this->notifyUnlock($order, $product, $accessCode);
+            if ($isCheckin) {
+                $order->update(['checked_in_at' => now()]);
+            }
+
+            $this->notifyUnlock($order, $product, $item, $accessCode, $isCheckin);
+
+            $msg = $isCheckin
+                ? 'Cổng đã được mở. Chào mừng bạn!'
+                : 'Cổng checkout đã được mở. Hẹn gặp lại!';
 
             return response()->json([
                 'success' => true,
                 'type'    => 'ttlock',
-                'message' => 'Cổng đã được mở. Chào mừng bạn!',
+                'message' => $msg,
             ]);
         }
 
-        // Gateway offline hoặc lỗi
         if ($accessCode?->code) {
             return response()->json([
                 'success'  => false,
@@ -173,8 +189,7 @@ class UnlockController extends Controller
             ]);
         }
 
-        // Không có mã nào → cảnh báo admin qua Telegram
-        $this->notifyNoCode($order, $product);
+        $this->notifyNoCode($order, $product, $isCheckin);
 
         return response()->json([
             'success' => false,
@@ -184,19 +199,37 @@ class UnlockController extends Controller
     }
 
     // =========================================================
-    // TELEGRAM NOTIFICATIONS
+    // TELEGRAM NOTIFICATIONS (format giống LockRecordCallbackController)
     // =========================================================
 
-    private function notifyUnlock(Order $order, Product $product, ?AccessCode $accessCode): void
-    {
-        $msg = "📱 MỞ CỔNG QUA APP - <b>{$product->name}</b>\n"
+    private function notifyUnlock(
+        Order       $order,
+        Product     $product,
+        OrderItem   $item,
+        ?AccessCode $accessCode,
+        bool        $isCheckin
+    ): void {
+        $prefix = $isCheckin ? 'CHECK-IN' : 'CHECK-OUT';
+
+        $msg = "{$prefix} - <b>{$product->name}</b>\n"
              . now()->format('H:i d/m/Y') . "\n\n"
              . "Khách: {$order->buyer_name} | {$order->buyer_phone}\n"
              . "Mã đơn: <code>{$order->order_code}</code>\n";
 
-        if ($accessCode?->code) {
-            $msg .= "Mã cổng: <code>{$accessCode->code}</code>";
+        if ($isCheckin) {
+            if ($item->checkout_date) {
+                $msg .= "Checkout: " . Carbon::parse($item->checkout_date)->format('H:i d/m/Y') . "\n";
+            }
+            if ($item->slot_label ?? null) {
+                $msg .= "Khung giờ: {$item->slot_label}\n";
+            }
         }
+
+        if ($accessCode?->code) {
+            $msg .= "Mã cổng: <code>{$accessCode->code}</code>\n";
+        }
+
+        $msg .= "(Mở qua app)";
 
         try {
             $this->telegram->sendLockMessage(trim($msg));
@@ -205,9 +238,11 @@ class UnlockController extends Controller
         }
     }
 
-    private function notifyNoCode(Order $order, Product $product): void
+    private function notifyNoCode(Order $order, Product $product, bool $isCheckin): void
     {
-        $msg = "⚠️ MỞ CỔNG THẤT BẠI - <b>{$product->name}</b>\n"
+        $prefix = $isCheckin ? 'CHECK-IN' : 'CHECK-OUT';
+
+        $msg = "⚠️ MỞ CỔNG THẤT BẠI ({$prefix}) - <b>{$product->name}</b>\n"
              . now()->format('H:i d/m/Y') . "\n\n"
              . "Khách: {$order->buyer_name} | {$order->buyer_phone}\n"
              . "Mã đơn: <code>{$order->order_code}</code>\n"
