@@ -158,12 +158,22 @@ class UnlockController extends Controller
             ]);
         }
 
-        // Gateway offline hoặc lỗi → fallback về mã thủ công
+        // Gateway offline hoặc lỗi
+        if ($accessCode?->code) {
+            // Có mã dự phòng → hướng dẫn nhập tay
+            return response()->json([
+                'success'  => false,
+                'type'     => 'ttlock_fallback',
+                'message'  => 'Không thể mở cổng tự động (khóa ngoại tuyến). Vui lòng nhập mã cổng thủ công vào khóa.',
+                'passcode' => $accessCode->code,
+            ]);
+        }
+
+        // Không có mã nào → yêu cầu liên hệ nhân viên
         return response()->json([
-            'success'  => false,
-            'type'     => 'ttlock_fallback',
-            'message'  => 'Không thể mở cổng tự động (khóa ngoại tuyến). Vui lòng nhập mã cổng thủ công.',
-            'passcode' => $accessCode?->code,
-        ]);
+            'success' => false,
+            'type'    => 'ttlock_error',
+            'message' => 'Không thể mở cổng tự động và chưa có mã dự phòng. Vui lòng liên hệ nhân viên để được hỗ trợ.',
+        ], 503);
     }
 }

@@ -13,7 +13,6 @@ use Illuminate\Support\Facades\Log;
  */
 class TTLockService
 {
-    private const TOKEN_URL = 'https://cnapi.ttlock.com';
 
     private string $clientId;
     private string $clientSecret;
@@ -34,7 +33,7 @@ class TTLockService
         $this->clientSecret = $clientSecret ?: (config('services.ttlock.client_secret') ?? '');
         $this->username     = $username     ?: (config('services.ttlock.username') ?? '');
         $this->password     = $password     ?: (config('services.ttlock.password') ?? '');
-        $this->apiBase      = $apiBase      ?: (config('services.ttlock.api_base', 'https://euapi.ttlock.com'));
+        $this->apiBase      = $apiBase      ?: (config('services.ttlock.api_base', 'https://cnapi.ttlock.com'));
         $this->cachePrefix  = $cachePrefix;
     }
 
@@ -106,7 +105,7 @@ class TTLockService
         try {
             $response = Http::timeout(12)->withOptions([
                 'verify' => false,
-            ])->asForm()->post(self::TOKEN_URL . '/oauth2/token', [
+            ])->asForm()->post($this->apiBase . '/oauth2/token', [
                 'clientId'     => $this->clientId,
                 'clientSecret' => $this->clientSecret,
                 'username'     => $this->username,
@@ -143,7 +142,7 @@ class TTLockService
         try {
             $response = Http::timeout(10)->withOptions([
                 'verify' => false,
-            ])->asForm()->post(self::TOKEN_URL . '/oauth2/token', [
+            ])->asForm()->post($this->apiBase . '/oauth2/token', [
                 'clientId'      => $this->clientId,
                 'clientSecret'  => $this->clientSecret,
                 'grant_type'    => 'refresh_token',
@@ -369,7 +368,7 @@ class TTLockService
         }
 
         try {
-            $response = Http::timeout(10)->withOptions([
+            $response = Http::timeout(30)->withOptions([
                 'verify' => false,
             ])->asForm()->post("{$this->apiBase}/v3/keyboardPwd/add", $params);
 
@@ -463,8 +462,12 @@ class TTLockService
 
     // =========================================================
     // Mở khóa từ xa qua cloud (yêu cầu lock có gateway online)
-    // POST /v3/lock/unlock
+    // POST https://api.sciener.com/v3/lock/unlock
+    // Lưu ý: endpoint này dùng api.sciener.com, KHÔNG phải euapi/cnapi
+    // Nếu nhận -4043: bật "Remote Unlock" trong Sciener APP > cài đặt khóa
     // =========================================================
+
+    private const SCIENER_API = 'https://api.sciener.com';
 
     public function remoteUnlock(int $lockId): bool
     {
@@ -478,7 +481,7 @@ class TTLockService
         try {
             $response = Http::timeout(15)->withOptions([
                 'verify' => false,
-            ])->asForm()->post("{$this->apiBase}/v3/lock/unlock", [
+            ])->asForm()->post(self::SCIENER_API . '/v3/lock/unlock', [
                 'clientId'    => $this->clientId,
                 'accessToken' => $token,
                 'lockId'      => $lockId,
@@ -488,10 +491,18 @@ class TTLockService
             $data = $response->json();
 
             Log::info('TTLock remoteUnlock response', [
-                'lockId' => $lockId,
-                'status' => $response->status(),
-                'data'   => $data,
+                'lockId'   => $lockId,
+                'status'   => $response->status(),
+                'errcode'  => $data['errcode'] ?? null,
+                'errmsg'   => $data['errmsg'] ?? null,
             ]);
+
+            if (($data['errcode'] ?? -1) === -4043) {
+                Log::warning('TTLock remoteUnlock: tính năng chưa bật trên khóa', [
+                    'lockId' => $lockId,
+                    'hint'   => 'Bật Remote Unlock trong Sciener APP > cài đặt khóa',
+                ]);
+            }
 
             return $response->successful() && (($data['errcode'] ?? -1) === 0);
 
