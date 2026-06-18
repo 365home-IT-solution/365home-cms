@@ -17,12 +17,28 @@ use Modules\Payment\Entities\Order;
  */
 class CccdScannerService
 {
+    /** Giới hạn tổng thời gian scan để tránh 504 Gateway Timeout */
+    private const MAX_SCAN_SECONDS = 25;
+
+    private float $scanDeadline = 0;
+
+    private function startTimer(): void
+    {
+        $this->scanDeadline = microtime(true) + self::MAX_SCAN_SECONDS;
+    }
+
+    private function isTimedOut(): bool
+    {
+        return $this->scanDeadline > 0 && microtime(true) >= $this->scanDeadline;
+    }
+
     /**
      * Quét và trả về mảng cccd_data cho đơn hàng, hoặc null nếu không đọc được.
      */
     public function scanOrder(Order $order): ?array
     {
         ini_set('memory_limit', '256M');
+        $this->startTimer();
 
         // Ưu tiên mặt sau (chip QR thường nằm ở đây)
         if ($order->cccd_back) {
@@ -33,6 +49,11 @@ class CccdScannerService
                     return $data;
                 }
             }
+        }
+
+        if ($this->isTimedOut()) {
+            Log::warning('[CccdScanner] scanOrder timeout sau mặt sau', ['order_id' => $order->id ?? null]);
+            return null;
         }
 
         // Thử mặt trước
@@ -55,6 +76,7 @@ class CccdScannerService
     public function scanCustomer(Customer $customer): ?array
     {
         ini_set('memory_limit', '256M');
+        $this->startTimer();
 
         // Ưu tiên mặt sau
         if ($customer->cccd_back) {
@@ -65,6 +87,11 @@ class CccdScannerService
                     return $data;
                 }
             }
+        }
+
+        if ($this->isTimedOut()) {
+            Log::warning('[CccdScanner] scanCustomer timeout sau mặt sau', ['customer_id' => $customer->id ?? null]);
+            return null;
         }
 
         // Thử mặt trước
@@ -88,6 +115,7 @@ class CccdScannerService
     public function scanPaths(?string $frontPath, ?string $backPath): ?array
     {
         ini_set('memory_limit', '256M');
+        $this->startTimer();
 
         if ($backPath) {
             $path = Storage::disk('public')->path($backPath);
@@ -95,6 +123,11 @@ class CccdScannerService
                 $data = $this->tryQrScan($path);
                 if ($data) return $data;
             }
+        }
+
+        if ($this->isTimedOut()) {
+            Log::warning('[CccdScanner] scanPaths timeout sau mặt sau');
+            return null;
         }
 
         if ($frontPath) {
@@ -218,7 +251,6 @@ class CccdScannerService
             return null;
         }
 
-        $nodeCmd = PHP_OS_FAMILY === 'Windows' ? 'node' : 'node';
         $found = PHP_OS_FAMILY === 'Windows'
             ? @shell_exec('where node 2>NUL')
             : @shell_exec('which node 2>/dev/null');
@@ -228,8 +260,19 @@ class CccdScannerService
 
         $realPath = realpath($imagePath) ?: str_replace('/', DIRECTORY_SEPARATOR, $imagePath);
 
+        // Downscale ảnh lớn bằng GD trước khi pass sang Node.js:
+        // Jimp đọc file gốc chậm hơn nhiều khi ảnh > 2M pixels.
+        $tmpScaled = $this->downscaleForNodeQr($realPath);
+        $scanPath  = $tmpScaled ?? $realPath;
+
         try {
-            $argv    = [$nodeCmd, $scriptPath, $realPath];
+            $argv = ['node', $scriptPath, $scanPath];
+
+            // Trên Linux: dùng `timeout` để kill nếu Node.js treo quá lâu (exit 124)
+            if (PHP_OS_FAMILY !== 'Windows') {
+                array_unshift($argv, 'timeout', '15');
+            }
+
             $process = proc_open($argv, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
             if (! is_resource($process)) {
                 return null;
@@ -240,6 +283,11 @@ class CccdScannerService
             fclose($pipes[1]);
             fclose($pipes[2]);
             $exitCode = proc_close($process);
+
+            if ($exitCode === 124) {
+                Log::warning('[CccdScanner] jsQR timeout (>15s)', ['path' => basename($imagePath)]);
+                return null;
+            }
 
             $text = $stdout ? trim($stdout) : null;
             Log::debug('[CccdScanner] jsQR result', [
@@ -259,9 +307,72 @@ class CccdScannerService
             }
         } catch (\Throwable $e) {
             Log::debug('[CccdScanner] jsQR exception', ['error' => $e->getMessage()]);
+        } finally {
+            if ($tmpScaled && file_exists($tmpScaled)) {
+                @unlink($tmpScaled);
+            }
         }
 
         return null;
+    }
+
+    /**
+     * Downscale ảnh xuống ≤ 2M pixels trước khi pass sang Node.js.
+     * Giúp Jimp đọc file nhanh hơn và giảm bộ nhớ trong qr_scan.cjs.
+     * Trả về path tmp, hoặc null nếu ảnh đã nhỏ / không thể resize.
+     */
+    protected function downscaleForNodeQr(string $imagePath): ?string
+    {
+        if (! extension_loaded('gd')) {
+            return null;
+        }
+
+        $imgInfo = @getimagesize($imagePath);
+        if (! $imgInfo) {
+            return null;
+        }
+
+        $w = $imgInfo[0];
+        $h = $imgInfo[1];
+        $maxPixels = 2_000_000;
+
+        if ($w * $h <= $maxPixels) {
+            return null;
+        }
+
+        $ext = strtolower(pathinfo($imagePath, PATHINFO_EXTENSION));
+        $src = match ($ext) {
+            'jpg', 'jpeg' => @imagecreatefromjpeg($imagePath),
+            'png'         => @imagecreatefrompng($imagePath),
+            'webp'        => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($imagePath) : null,
+            default       => null,
+        };
+
+        if (! $src) {
+            return null;
+        }
+
+        $scale   = sqrt($maxPixels / ($w * $h));
+        $tw      = (int) ($w * $scale);
+        $th      = (int) ($h * $scale);
+        $resized = imagecreatetruecolor($tw, $th);
+        imagecopyresampled($resized, $src, 0, 0, 0, 0, $tw, $th, $w, $h);
+        imagedestroy($src);
+
+        $tmpPath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'cccd_node_' . uniqid() . '.jpg';
+        imagejpeg($resized, $tmpPath, 95);
+        imagedestroy($resized);
+
+        if (! file_exists($tmpPath)) {
+            return null;
+        }
+
+        Log::debug('[CccdScanner] jsQR downscaled', [
+            'from' => "{$w}x{$h} (" . ($w * $h) . 'px)',
+            'to'   => "{$tw}x{$th} (" . ($tw * $th) . 'px)',
+        ]);
+
+        return $tmpPath;
     }
 
     /**

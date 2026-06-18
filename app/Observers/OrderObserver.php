@@ -101,6 +101,28 @@ class OrderObserver
         );
     }
 
+    private function sendToGuest(Order $order, string $title, string $body): void
+    {
+        if ($order->customer_id || empty($order->device_token)) {
+            return;
+        }
+
+        try {
+            app(NotificationFcmService::class)->sendToGuestToken(
+                $order->device_token,
+                $title,
+                $body,
+                'booking',
+                ['order_code' => (string) $order->order_code, 'type' => 'order'],
+            );
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Guest FCM from observer failed', [
+                'order_id' => $order->id,
+                'error'    => $e->getMessage(),
+            ]);
+        }
+    }
+
     /**
      * Chỉ notify khi đơn mới tạo ở trạng thái pending
      * (status='deposit' bỏ qua — sẽ được notify bởi updated() sau khi PayOS xác nhận)
@@ -179,6 +201,11 @@ class OrderObserver
                 'Thanh toán thành công',
                 "Đơn #{$order->order_code} đã được xác nhận. Chúc bạn có trải nghiệm tốt!"
             );
+            $this->sendToGuest(
+                $order,
+                'Thanh toán thành công',
+                "Đơn #{$order->order_code} đã được xác nhận. Chúc bạn có trải nghiệm tốt!"
+            );
             return;
         }
 
@@ -187,6 +214,11 @@ class OrderObserver
             $this->accumulateMembershipSpending($order);
             $this->send($order, 'Đã thanh toán phần còn lại', 'heroicon-o-check-circle', 'success');
             $this->sendToCustomer(
+                $order,
+                'Thanh toán hoàn tất',
+                "Đơn #{$order->order_code} đã được thanh toán đầy đủ."
+            );
+            $this->sendToGuest(
                 $order,
                 'Thanh toán hoàn tất',
                 "Đơn #{$order->order_code} đã được thanh toán đầy đủ."
@@ -223,6 +255,7 @@ class OrderObserver
         if (isset($customerMessages[$newStatus])) {
             [$customerTitle, $customerBody] = $customerMessages[$newStatus];
             $this->sendToCustomer($order, $customerTitle, $customerBody);
+            $this->sendToGuest($order, $customerTitle, $customerBody);
         }
     }
 
