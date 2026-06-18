@@ -480,7 +480,8 @@ class TTLockService
 
         try {
             $response = Http::timeout(15)->withOptions([
-                'verify' => false,
+                'verify'            => false,
+                CURLOPT_IPRESOLVE   => CURL_IPRESOLVE_V4,
             ])->asForm()->post(self::SCIENER_API . '/v3/lock/unlock', [
                 'clientId'    => $this->clientId,
                 'accessToken' => $token,
