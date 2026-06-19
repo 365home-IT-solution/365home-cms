@@ -1610,14 +1610,15 @@ class GuestBookingController extends Controller
         // Extra charge (phát sinh thêm sau khi đã thanh toán)
         if ($order->extra_charge_amount) {
             $isExpired = $order->extra_charge_expired_at && now()->gt($order->extra_charge_expired_at);
+            $isPaid    = ! is_null($order->extra_charge_paid_at);
             $result['extra_charge'] = [
                 'amount'         => (int) $order->extra_charge_amount,
-                'qr_code'        => $isExpired ? null : $order->extra_charge_qr_code,
+                'qr_code'        => ($isPaid || $isExpired) ? null : $order->extra_charge_qr_code,
                 'payment_method' => $order->extra_charge_payment_method,
                 'paid_at'        => $order->extra_charge_paid_at,
                 'expired_at'     => $order->extra_charge_expired_at,
-                'is_paid'        => ! is_null($order->extra_charge_paid_at),
-                'is_expired'     => $isExpired && is_null($order->extra_charge_paid_at),
+                'is_paid'        => $isPaid,
+                'is_expired'     => $isExpired && ! $isPaid,
             ];
         }
 
