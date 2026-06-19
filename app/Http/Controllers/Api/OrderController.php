@@ -856,17 +856,22 @@ class OrderController extends Controller
         $roomName = $firstItem?->product?->name
             ?? ($firstItem?->name ? explode(' - ', $firstItem->name, 2)[0] : null);
 
+        $hasPendingExtraCharge = $order->extra_charge_amount && is_null($order->extra_charge_paid_at);
+
         return [
-            'order_code'     => $order->order_code,
-            'created_at'     => $order->created_at->format('Y-m-d H:i:s'),
-            'status'         => $order->status,
-            'room_id'        => $firstItem?->product?->id,
-            'room_slug'      => $firstItem?->product?->slug,
-            'room_name'      => $roomName,
-            'room_thumbnail' => $this->getRoomThumbnail($firstItem?->product),
-            'checkin'        => $firstItem?->checkin_date?->format('Y-m-d H:i'),
-            'checkout'       => $lastItem?->checkout_date?->format('Y-m-d H:i'),
-            'final_amount'   => (int) $order->full_amount,
+            'order_code'                => $order->order_code,
+            'created_at'                => $order->created_at->format('Y-m-d H:i:s'),
+            'status'                    => $order->status,
+            'room_id'                   => $firstItem?->product?->id,
+            'room_slug'                 => $firstItem?->product?->slug,
+            'room_name'                 => $roomName,
+            'room_thumbnail'            => $this->getRoomThumbnail($firstItem?->product),
+            'checkin'                   => $firstItem?->checkin_date?->format('Y-m-d H:i'),
+            'checkout'                  => $lastItem?->checkout_date?->format('Y-m-d H:i'),
+            'final_amount'              => (int) $order->full_amount,
+            'has_pending_extra_charge'  => $hasPendingExtraCharge,
+            'extra_charge_amount'       => $hasPendingExtraCharge ? (int) $order->extra_charge_amount : null,
+            'extra_charge_checkout_url' => $hasPendingExtraCharge ? $order->extra_charge_checkout_url : null,
         ];
     }
 

@@ -509,6 +509,70 @@ class EditOrder extends EditRecord
                             ->send();
                     }
                 }),
+            Actions\Action::make('collectExtraChargeCash')
+                ->label('Thu tiền mặt (phát sinh)')
+                ->icon('heroicon-m-banknotes')
+                ->color('success')
+                ->visible(function () {
+                    if (! (auth()->user()?->can('update_order') ?? false)) {
+                        return false;
+                    }
+                    $r = $this->record;
+                    return $r->extra_charge_amount
+                        && is_null($r->extra_charge_paid_at)
+                        && in_array($r->status, ['paid', 'deposit']);
+                })
+                ->requiresConfirmation()
+                ->modalHeading('Xác nhận thu tiền mặt')
+                ->modalDescription(function () {
+                    $amount = number_format((int) $this->record->extra_charge_amount, 0, ',', '.');
+                    return "Xác nhận đã thu {$amount}đ tiền mặt cho khoản phát sinh của đơn #{$this->record->order_code}?";
+                })
+                ->modalSubmitActionLabel('Xác nhận đã thu')
+                ->action(function () {
+                    $record = $this->record->fresh();
+
+                    if (! $record->extra_charge_amount || ! is_null($record->extra_charge_paid_at)) {
+                        Notification::make()
+                            ->title('Không có khoản phát sinh chờ thanh toán')
+                            ->warning()
+                            ->send();
+                        return;
+                    }
+
+                    try {
+                        app(\App\Services\ExtraChargeService::class)->markExtraChargeAsCash($record, (int) $record->extra_charge_amount);
+
+                        $notifService = app(\App\Services\NotificationFcmService::class);
+                        $title        = "Đơn #{$record->order_code}: khoản phát sinh đã thanh toán";
+                        $body         = 'Khoản phát sinh ' . number_format((int) $record->extra_charge_amount, 0, ',', '.') . 'đ đã được ghi nhận (tiền mặt).';
+                        $extra        = ['order_code' => (string) $record->order_code, 'type' => 'order_extra_charge_paid'];
+
+                        $this->pushClientNotification($record, $notifService, $title, $body, 'order_extra_charge_paid', $extra);
+
+                        app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
+                            (string) $record->order_code,
+                            ['extra_charge' => ['paid_at' => now()->toISOString(), 'payment_method' => 'cash']],
+                            $record->customer_id,
+                        );
+
+                        Notification::make()
+                            ->title('Đã ghi nhận thu tiền mặt')
+                            ->body(number_format((int) $record->extra_charge_amount, 0, ',', '.') . 'đ')
+                            ->success()
+                            ->send();
+
+                        $this->refreshFormData(['extra_charge_amount', 'extra_charge_paid_at', 'extra_charge_payment_method']);
+
+                    } catch (\Throwable $e) {
+                        Notification::make()
+                            ->title('Lỗi khi ghi nhận thu tiền')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
+
             Actions\DeleteAction::make(),
         ];
     }
