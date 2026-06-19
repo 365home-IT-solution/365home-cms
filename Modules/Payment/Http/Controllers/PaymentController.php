@@ -418,6 +418,20 @@ private function buildTelegramMessage(Order $order, string $status): string
                     ], 200);
                 }
 
+                // Kiểm tra xem đây có phải extra charge (phát sinh thêm) không
+                $extraChargeOrder = Order::with('items')
+                    ->where('extra_charge_payos_code', $orderCode)
+                    ->first();
+
+                if ($extraChargeOrder && (isset($data['code']) ? $data['code'] == '00' : $status === 'PAID')) {
+                    Log::info('PayOS Webhook: Extra charge payment received', [
+                        'extra_code' => $orderCode,
+                        'order_id'   => $extraChargeOrder->id,
+                    ]);
+                    app(\App\Services\ExtraChargeService::class)->handleExtraChargePaid($extraChargeOrder);
+                    return response()->json(['error' => 0, 'message' => 'Extra charge processed']);
+                }
+
                 Log::warning('PayOS Webhook: Order not found', ['orderCode' => $orderCode]);
                 return response()->json(['message' => 'Order not found, assuming test request'], 200);
             }

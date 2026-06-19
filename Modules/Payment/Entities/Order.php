@@ -59,16 +59,23 @@ class Order extends Model implements Eventable
         'qr_code',
         'remaining_qr_code',
         'device_token',
+        'extra_charge_amount',
+        'extra_charge_payos_code',
+        'extra_charge_checkout_url',
+        'extra_charge_qr_code',
+        'extra_charge_payment_method',
+        'extra_charge_paid_at',
     ];
 
     protected $casts = [
-        'cccd_data'            => 'array',
-        'coupon_codes'         => 'array',
-        'deposit_paid_at'      => 'datetime',
-        'remaining_paid_at'    => 'datetime',
-        'exclude_from_stats'   => 'boolean',
-        'unlock_anytime'       => 'boolean',
-        'checked_in_at'        => 'datetime',
+        'cccd_data'              => 'array',
+        'coupon_codes'           => 'array',
+        'deposit_paid_at'        => 'datetime',
+        'remaining_paid_at'      => 'datetime',
+        'extra_charge_paid_at'   => 'datetime',
+        'exclude_from_stats'     => 'boolean',
+        'unlock_anytime'         => 'boolean',
+        'checked_in_at'          => 'datetime',
     ];
     protected $with = ['items'];
 

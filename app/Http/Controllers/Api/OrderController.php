@@ -47,6 +47,7 @@ class OrderController extends Controller
 
         $order = Order::with([
             'items.product.media',
+            'items.product.roomType',
             'items.product.roomTimeSlots.timeSlot',
             'items.product.roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
             'services',
@@ -909,6 +910,32 @@ class OrderController extends Controller
         $slotsTotal    = (int) $order->items->sum('price');
         $servicesTotal = (int) $order->services->sum('subtotal');
 
+        // Guest surcharge
+        $guestSurchargeInfo  = null;
+        $guestSurchargeTotal = 0;
+        if ($product) {
+            $guestConfig    = $product->room_config ?? [];
+            $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
+            $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
+            $isSlotType     = $product->roomType?->slug === 'theo_gio';
+            $nights         = $isSlotType ? 1 : max(1, $order->items->count());
+            $guestCount     = (int) $order->guest_count;
+            $extraGuests    = max(0, $guestCount - $guestThreshold);
+            $guestSurchargeTotal = $extraGuests * $guestFee * $nights;
+            if ($guestFee > 0 && $extraGuests > 0) {
+                $nightsLabel = (! $isSlotType && $nights > 1) ? " × {$nights} đêm" : '';
+                $guestSurchargeInfo = [
+                    'guest_count'    => $guestCount,
+                    'threshold'      => $guestThreshold,
+                    'extra_guests'   => $extraGuests,
+                    'fee_per_person' => $guestFee,
+                    'nights'         => $nights,
+                    'total'          => $guestSurchargeTotal,
+                    'label'          => "Phụ thu {$extraGuests} người (trên {$guestThreshold} người){$nightsLabel}",
+                ];
+            }
+        }
+
         $depositPctDetail = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
         if ($depositPctDetail !== null && $depositPctDetail > 0 && $depositPctDetail < 100) {
             $realFinalDetail = (int) round((int) $order->full_amount * 100 / $depositPctDetail);
@@ -934,6 +961,7 @@ class OrderController extends Controller
                 'expired_at'     => $order->expired_at,
                 'buyer_name'     => $order->buyer_name,
                 'buyer_phone'    => $order->buyer_phone,
+                'guest_count'    => (int) $order->guest_count,
             ],
             'room' => [
                 'id'        => $product?->id,
@@ -943,6 +971,7 @@ class OrderController extends Controller
             ],
             'slots'           => $slots,
             'services'        => $services,
+            'guest_surcharge' => $guestSurchargeInfo,
             'promotions'      => $promotions,
             'system_discount' => $sysDelta > 0 ? ['discount_amount' => $sysDelta] : null,
             'coupons'         => $couponsInfo,
@@ -961,6 +990,7 @@ class OrderController extends Controller
                 'coupon_discount'      => $couponDiscount,
                 'discount_amount'      => $totalDiscount,
                 'slots_final'          => $slotsFinal,
+                'guest_surcharge'      => $guestSurchargeTotal,
                 'services_total'       => $servicesTotal,
                 'total_after_discount' => $realFinalDetail,
                 'final_amount'         => (int) $order->full_amount,
@@ -970,6 +1000,18 @@ class OrderController extends Controller
         $lockInfo = $this->buildLockInfo($order, $product);
         if ($lockInfo) {
             $result['lock_info'] = $lockInfo;
+        }
+
+        // Extra charge (phát sinh thêm sau khi đã thanh toán)
+        if ($order->extra_charge_amount) {
+            $result['extra_charge'] = [
+                'amount'         => (int) $order->extra_charge_amount,
+                'checkout_url'   => $order->extra_charge_checkout_url,
+                'qr_code'        => $order->extra_charge_qr_code,
+                'payment_method' => $order->extra_charge_payment_method,
+                'paid_at'        => $order->extra_charge_paid_at,
+                'is_paid'        => ! is_null($order->extra_charge_paid_at),
+            ];
         }
 
         return $result;

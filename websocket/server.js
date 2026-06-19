@@ -62,6 +62,19 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Subscribe to a specific order (guest + logged-in user đang xem đơn hàng)
+    socket.on('subscribe:order', ({ order_code }) => {
+        if (order_code) {
+            socket.join(`order:${order_code}`);
+        }
+    });
+
+    socket.on('unsubscribe:order', ({ order_code }) => {
+        if (order_code) {
+            socket.leave(`order:${order_code}`);
+        }
+    });
+
     // Subscribe to a specific conversation (customer + admin đang xem conv đó)
     socket.on('subscribe:chat', ({ conversation_id }) => {
         if (conversation_id) {
@@ -175,6 +188,63 @@ app.post('/internal/daily-hold-update', (req, res) => {
     io.to(channel).emit('daily.hold.updated', { room_id, holds: holds || [] });
     console.log(`[WS] Daily hold: room=${room_id} holds=${(holds || []).length} → ${channel}`);
 
+    return res.json({ ok: true });
+});
+
+// ── Order update — broadcast khi admin cập nhật đơn hàng ─────────────────────
+app.post('/internal/order-update', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { order_code, customer_id, order } = req.body;
+    if (!order_code) {
+        return res.status(422).json({ error: 'Missing order_code' });
+    }
+
+    const payload = { order_code, order };
+
+    // Broadcast đến tất cả client đang subscribe đơn này (guest + user)
+    io.to(`order:${order_code}`).emit('order.updated', payload);
+
+    // Push thêm cho customer nếu biết customer_id (logged-in user trên app)
+    if (customer_id) {
+        const sockets = connections.get(String(customer_id));
+        if (sockets && sockets.size > 0) {
+            sockets.forEach((s) => s.emit('order.updated', payload));
+        }
+    }
+
+    console.log(`[WS] Order update: order=${order_code} customer=${customer_id || 'guest'}`);
+    return res.json({ ok: true });
+});
+
+// ── Access code changed — thông báo mã cổng/phòng thay đổi ───────────────────
+app.post('/internal/order-code-changed', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { order_code, customer_id, new_code, type } = req.body;
+    if (!order_code || !new_code) {
+        return res.status(422).json({ error: 'Missing order_code or new_code' });
+    }
+
+    // type: 'manual' | 'ttlock'
+    const payload = { order_code, new_code, type: type || 'manual' };
+
+    io.to(`order:${order_code}`).emit('order.code_changed', payload);
+
+    if (customer_id) {
+        const sockets = connections.get(String(customer_id));
+        if (sockets && sockets.size > 0) {
+            sockets.forEach((s) => s.emit('order.code_changed', payload));
+        }
+    }
+
+    console.log(`[WS] Code changed: order=${order_code} type=${type} customer=${customer_id || 'guest'}`);
     return res.json({ ok: true });
 });
 

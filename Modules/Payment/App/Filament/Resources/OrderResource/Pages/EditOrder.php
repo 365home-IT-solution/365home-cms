@@ -11,6 +11,8 @@ use Modules\BladeThemeV1\Services\AccessCode\AccessCodeService;
 use Modules\BladeThemeV1\Services\Zns\ZaloZnsService;
 use Modules\BladeThemeV1\Services\OcrSpaceService;
 use Modules\Payment\App\Services\CccdScannerService;
+use App\Services\OrderRealtimeService;
+use App\Services\ExtraChargeService;
 
 class EditOrder extends EditRecord
 {
@@ -223,6 +225,156 @@ class EditOrder extends EditRecord
                     }
                 }),
 
+            Actions\Action::make('changeManualCode')
+                ->label('Đổi mã cổng (thủ công)')
+                ->icon('heroicon-m-key')
+                ->color('info')
+                ->visible(function () {
+                    if (! (auth()->user()?->can('update_order') ?? false)) {
+                        return false;
+                    }
+                    if (! in_array($this->record->status, ['paid', 'deposit'])) {
+                        return false;
+                    }
+                    // Chỉ hiện khi đơn có access code nhập tay (không có ttlock_keyboard_pwd_id)
+                    return $this->record->accessCodes()
+                        ->whereNull('ttlock_keyboard_pwd_id')
+                        ->exists();
+                })
+                ->form([
+                    \Filament\Forms\Components\Select::make('new_access_code_id')
+                        ->label('Chọn mã cổng mới')
+                        ->options(function () {
+                            return \Modules\AccessCode\Entities\AccessCode::where('status', 'active')
+                                ->where('category_id', $this->record->category_id)
+                                ->whereNull('ttlock_keyboard_pwd_id')
+                                ->whereDoesntHave('orders', fn ($q) => $q->where('orders.id', $this->record->id))
+                                ->get()
+                                ->mapWithKeys(fn ($c) => [$c->id => $c->code . ($c->gate_location ? " ({$c->gate_location})" : '')])
+                                ->toArray();
+                        })
+                        ->required()
+                        ->searchable(),
+                ])
+                ->requiresConfirmation()
+                ->modalHeading('Đổi mã cổng thủ công')
+                ->modalDescription('Mã cổng cũ sẽ bị thu hồi và mã mới sẽ được gán cho đơn này. Khách hàng sẽ được thông báo realtime.')
+                ->modalSubmitActionLabel('Xác nhận đổi mã')
+                ->action(function (array $data) {
+                    $record = $this->record->fresh(['items', 'accessCodes']);
+
+                    try {
+                        $newCode = \Modules\AccessCode\Entities\AccessCode::findOrFail($data['new_access_code_id']);
+
+                        // Thu hồi mã cũ (chỉ manual, không gọi TTLock API)
+                        $record->accessCodes()
+                            ->whereNull('ttlock_keyboard_pwd_id')
+                            ->each(fn ($ac) => $ac->orders()->detach($record->id));
+
+                        // Gán mã mới
+                        $newCode->assignToOrder($record->id);
+
+                        // Notify realtime đến client
+                        try {
+                            app(OrderRealtimeService::class)->broadcastCodeChanged(
+                                (string) $record->order_code,
+                                (string) $newCode->code,
+                                'manual',
+                                $record->customer_id,
+                            );
+                        } catch (\Throwable) {}
+
+                        Notification::make()
+                            ->title("Đã đổi mã cổng thành: {$newCode->code}")
+                            ->success()
+                            ->send();
+
+                        $this->redirect($this->getResource()::getUrl('edit', ['record' => $record]));
+                    } catch (\Exception $e) {
+                        Notification::make()
+                            ->title('Không thể đổi mã cổng')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
+
+            Actions\Action::make('changeTtlockCode')
+                ->label('Tạo mã mới (TTLock)')
+                ->icon('heroicon-m-arrow-path')
+                ->color('info')
+                ->visible(function () {
+                    if (! (auth()->user()?->can('update_order') ?? false)) {
+                        return false;
+                    }
+                    if (! in_array($this->record->status, ['paid', 'deposit'])) {
+                        return false;
+                    }
+                    // Chỉ hiện khi đơn có access code TTLock
+                    return $this->record->accessCodes()
+                        ->whereNotNull('ttlock_keyboard_pwd_id')
+                        ->exists();
+                })
+                ->requiresConfirmation()
+                ->modalHeading('Tạo mã TTLock mới')
+                ->modalDescription('Mã cũ sẽ bị xóa khỏi khóa, một mã 6 số mới sẽ được tạo và cập nhật lên TTLock. Khách hàng sẽ được thông báo realtime.')
+                ->modalSubmitActionLabel('Xác nhận tạo mã mới')
+                ->action(function () {
+                    $record = $this->record->fresh(['items.product', 'accessCodes']);
+
+                    try {
+                        $accessCodeService = app(\Modules\BladeThemeV1\Services\AccessCode\AccessCodeService::class);
+
+                        // Thu hồi mã TTLock cũ (gọi TTLock API delete + xóa record)
+                        $accessCodeService->releaseCode($record->id);
+
+                        // Cấp mã TTLock mới
+                        $firstItem    = $record->items->where('extra_fee', 0)->first() ?? $record->items->first();
+                        $checkinDate  = $firstItem?->checkin_date;
+                        $checkoutDate = $firstItem?->checkout_date;
+                        $product      = $firstItem?->product;
+
+                        $newCode = $accessCodeService->assignCodeToOrder(
+                            $record->id,
+                            $record->category_id,
+                            $checkinDate,
+                            $checkoutDate,
+                            $product,
+                        );
+
+                        if (! $newCode) {
+                            Notification::make()
+                                ->title('Phòng này dùng khóa thủ công, không cần tạo mã TTLock.')
+                                ->warning()
+                                ->send();
+                            return;
+                        }
+
+                        // Notify realtime đến client
+                        try {
+                            app(OrderRealtimeService::class)->broadcastCodeChanged(
+                                (string) $record->order_code,
+                                (string) $newCode->code,
+                                'ttlock',
+                                $record->customer_id,
+                            );
+                        } catch (\Throwable) {}
+
+                        Notification::make()
+                            ->title("Đã tạo mã TTLock mới: {$newCode->code}")
+                            ->success()
+                            ->send();
+
+                        $this->redirect($this->getResource()::getUrl('edit', ['record' => $record]));
+                    } catch (\Exception $e) {
+                        Notification::make()
+                            ->title('Không thể tạo mã TTLock mới')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
+
             Actions\Action::make('scanCccdQr')
                 ->label('[TEST] Quét QR CCCD')
                 ->icon('heroicon-m-qr-code')
@@ -409,16 +561,25 @@ class EditOrder extends EditRecord
     protected ?string $oldCheckoutDate = null;
     protected ?string $oldCheckinDate  = null;
     protected ?string $oldStatus       = null;
+    protected ?int    $oldGuestCount    = null;
+    protected array   $oldServices      = [];
+    protected int     $oldServicesTotal = 0;
 
     /**
-     * Ghi nhớ ngày cũ và trạng thái cũ trước khi lưu để so sánh sau.
+     * Ghi nhớ ngày cũ, trạng thái cũ, guest_count cũ và services cũ trước khi lưu để so sánh sau.
      */
     protected function beforeSave(): void
     {
         $firstItem = $this->record->items()->where('extra_fee', 0)->first();
-        $this->oldCheckoutDate = $firstItem?->checkout_date?->toDateTimeString();
-        $this->oldCheckinDate  = $firstItem?->checkin_date?->toDateTimeString();
-        $this->oldStatus       = $this->record->status;
+        $this->oldCheckoutDate  = $firstItem?->checkout_date?->toDateTimeString();
+        $this->oldCheckinDate   = $firstItem?->checkin_date?->toDateTimeString();
+        $this->oldStatus        = $this->record->status;
+        $this->oldGuestCount    = (int) $this->record->guest_count;
+        $this->oldServicesTotal = (int) $this->record->services()->sum('subtotal');
+        $this->oldServices      = $this->record->services()
+            ->get(['service_id', 'quantity'])
+            ->map(fn ($s) => ['service_id' => $s->service_id, 'quantity' => $s->quantity])
+            ->toArray();
     }
 
     /**
@@ -426,11 +587,64 @@ class EditOrder extends EditRecord
      */
     protected function afterSave(): void
     {
-        $record = $this->record->fresh(['items.product', 'accessCodes']);
+        $record = $this->record->fresh(['items.product', 'accessCodes', 'services']);
 
         // ── Gửi push notification khi status thay đổi ────────────────────────
         if ($this->oldStatus && $record->status !== $this->oldStatus) {
             $this->sendStatusChangeNotification($record);
+        }
+
+        // ── Broadcast realtime + xử lý chênh lệch giá khi thay đổi ─────────
+        $guestCountChanged = (int) $record->guest_count !== $this->oldGuestCount;
+
+        $newServicesSnapshot = $record->services
+            ->map(fn ($s) => ['service_id' => $s->service_id, 'quantity' => $s->quantity])
+            ->toArray();
+        $servicesChanged = $newServicesSnapshot !== $this->oldServices;
+
+        if ($guestCountChanged || $servicesChanged) {
+            $changes = [];
+
+            if ($guestCountChanged) {
+                $changes['guest_count'] = ['from' => $this->oldGuestCount, 'to' => $record->guest_count];
+            }
+            if ($servicesChanged) {
+                $changes['services'] = $record->services->map(fn ($s) => [
+                    'service_name' => $s->service_name,
+                    'quantity'     => $s->quantity,
+                    'subtotal'     => $s->subtotal,
+                ])->values()->toArray();
+            }
+
+            // Broadcast realtime đến client
+            try {
+                app(OrderRealtimeService::class)->broadcastOrderUpdate(
+                    (string) $record->order_code,
+                    [
+                        'guest_count' => $record->guest_count,
+                        'services'    => $record->services->map(fn ($s) => [
+                            'service_name' => $s->service_name,
+                            'quantity'     => $s->quantity,
+                            'subtotal'     => $s->subtotal,
+                        ])->values()->toArray(),
+                        'changes' => $changes,
+                    ],
+                    $record->customer_id,
+                );
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('afterSave: broadcastOrderUpdate failed', [
+                    'order_id' => $record->id,
+                    'error'    => $e->getMessage(),
+                ]);
+            }
+
+            // FCM + WS notification đến khách về thay đổi đơn
+            $this->sendOrderUpdateNotification($record, $changes);
+
+            // Xử lý chênh lệch giá (chỉ khi đơn đã thanh toán ít nhất 1 lần)
+            if (in_array($record->status, ['paid', 'deposit'])) {
+                $this->handlePriceDiff($record);
+            }
         }
 
         $firstItem    = $record->items->where('extra_fee', 0)->first() ?? $record->items->first();
@@ -478,6 +692,170 @@ class EditOrder extends EditRecord
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::warning('afterSave: updateCodeDates failed', [
                 'order_id' => $record->id,
+                'error'    => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Tính chênh lệch giá sau khi admin cập nhật guest_count/services và xử lý theo trạng thái đơn.
+     *
+     * - deposit: cộng diff vào full_amount → remaining tự tăng
+     * - paid:    tạo PayOS link mới cho khoản phát sinh, admin xem link trong notification
+     */
+    private function handlePriceDiff(\Modules\Payment\Entities\Order $order): void
+    {
+        try {
+            $extraChargeService = app(ExtraChargeService::class);
+            $diff = $extraChargeService->calculateDiff(
+                $order,
+                $this->oldGuestCount ?? (int) $order->guest_count,
+                $this->oldServicesTotal,
+            );
+
+            if ($diff === 0) {
+                return;
+            }
+
+            $notifService = app(\App\Services\NotificationFcmService::class);
+            $extra        = ['order_code' => (string) $order->order_code, 'type' => 'order_extra_charge'];
+
+            // ── Đơn deposit: cộng vào remaining ──────────────────────────────
+            if ($order->status === 'deposit') {
+                $extraChargeService->applyDiffToDeposit($order, $diff);
+
+                $label = $diff > 0
+                    ? 'Phần còn lại tăng thêm ' . number_format($diff, 0, ',', '.') . 'đ'
+                    : 'Phần còn lại giảm ' . number_format(abs($diff), 0, ',', '.') . 'đ';
+
+                // Notify admin (Filament)
+                Notification::make()
+                    ->title($label)
+                    ->body('Khách hàng sẽ thanh toán phần còn lại đã cập nhật khi check-out.')
+                    ->info()
+                    ->send();
+
+                // Notify khách
+                $clientTitle = "Đơn #{$order->order_code}: phần còn lại đã thay đổi";
+                $clientBody  = $diff > 0
+                    ? 'Dịch vụ/số người bổ sung làm tăng ' . number_format($diff, 0, ',', '.') . 'đ phần thanh toán còn lại.'
+                    : 'Phần thanh toán còn lại giảm ' . number_format(abs($diff), 0, ',', '.') . 'đ.';
+
+                $this->pushClientNotification($order, $notifService, $clientTitle, $clientBody, 'order_extra_charge', $extra);
+
+                return;
+            }
+
+            // ── Đơn đã paid: tạo PayOS mới cho khoản phát sinh ───────────────
+            if ($diff > 0) {
+                $result = $extraChargeService->createExtraChargePayOS($order, $diff);
+
+                // Notify admin (Filament)
+                Notification::make()
+                    ->title('Phát sinh thêm ' . number_format($diff, 0, ',', '.') . 'đ')
+                    ->body('Link thanh toán: ' . $result['checkout_url'])
+                    ->actions([
+                        \Filament\Notifications\Actions\Action::make('view_link')
+                            ->label('Mở link PayOS')
+                            ->url($result['checkout_url'])
+                            ->openUrlInNewTab(),
+                    ])
+                    ->warning()
+                    ->persistent()
+                    ->send();
+
+                // Notify khách
+                $clientTitle = "Đơn #{$order->order_code}: phát sinh thêm " . number_format($diff, 0, ',', '.') . 'đ';
+                $clientBody  = 'Bổ sung dịch vụ/số người. Vui lòng thanh toán khoản phát sinh.';
+                $this->pushClientNotification($order, $notifService, $clientTitle, $clientBody, 'order_extra_charge',
+                    array_merge($extra, ['checkout_url' => $result['checkout_url'], 'amount' => $diff])
+                );
+            } else {
+                // Giảm giá — thông báo admin + khách
+                Notification::make()
+                    ->title('Tổng tiền giảm ' . number_format(abs($diff), 0, ',', '.') . 'đ')
+                    ->body('Vui lòng thông báo cho khách về khoản giảm này.')
+                    ->info()
+                    ->send();
+
+                $clientTitle = "Đơn #{$order->order_code}: tổng tiền đã giảm";
+                $clientBody  = 'Dịch vụ/số người đã được điều chỉnh, giảm ' . number_format(abs($diff), 0, ',', '.') . 'đ.';
+                $this->pushClientNotification($order, $notifService, $clientTitle, $clientBody, 'order_extra_charge', $extra);
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('handlePriceDiff failed', [
+                'order_id' => $order->id,
+                'error'    => $e->getMessage(),
+            ]);
+
+            Notification::make()
+                ->title('Không thể tạo link thanh toán phát sinh')
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
+    /**
+     * Gửi FCM + WS notification đến khách khi admin cập nhật guest_count / services.
+     */
+    private function sendOrderUpdateNotification(\Modules\Payment\Entities\Order $order, array $changes): void
+    {
+        $parts = [];
+        if (isset($changes['guest_count'])) {
+            $parts[] = 'Số người: ' . $changes['guest_count']['to'];
+        }
+        if (isset($changes['services'])) {
+            $names   = array_column($changes['services'], 'service_name');
+            $parts[] = 'Dịch vụ: ' . implode(', ', $names);
+        }
+
+        if (empty($parts)) {
+            return;
+        }
+
+        $title = "Đơn #{$order->order_code} đã được cập nhật";
+        $body  = implode(' · ', $parts);
+        $extra = ['order_code' => (string) $order->order_code, 'type' => 'order_updated'];
+
+        $this->pushClientNotification(
+            $order,
+            app(\App\Services\NotificationFcmService::class),
+            $title,
+            $body,
+            'order_updated',
+            $extra,
+        );
+    }
+
+    /**
+     * Push FCM + WS notification đến khách (customer hoặc guest).
+     * Tương tự sendStatusChangeNotification nhưng dùng được cho mọi loại notification.
+     */
+    private function pushClientNotification(
+        \Modules\Payment\Entities\Order $order,
+        \App\Services\NotificationFcmService $notifService,
+        string $title,
+        string $body,
+        string $type,
+        array $extra = [],
+    ): void {
+        try {
+            if (is_null($order->customer_id) && $order->device_token) {
+                $notifService->sendToGuestToken($order->device_token, $title, $body, $type, $extra);
+                return;
+            }
+
+            if ($order->customer_id) {
+                $customer = $order->customer;
+                if ($customer) {
+                    $notifService->sendToCustomer($customer, $title, $body, $type, $extra);
+                }
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('pushClientNotification failed', [
+                'order_id' => $order->id,
+                'type'     => $type,
                 'error'    => $e->getMessage(),
             ]);
         }

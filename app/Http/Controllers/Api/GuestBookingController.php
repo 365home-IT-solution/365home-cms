@@ -629,6 +629,7 @@ class GuestBookingController extends Controller
 
         $order = Order::with([
             'items.product.media',
+            'items.product.roomType',
             'items.product.roomTimeSlots.timeSlot',
             'items.product.roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
             'services',
@@ -1605,6 +1606,18 @@ class GuestBookingController extends Controller
         $lockInfo = $this->buildLockInfo($order, $product);
         if ($lockInfo) {
             $result['lock_info'] = $lockInfo;
+        }
+
+        // Extra charge (phát sinh thêm sau khi đã thanh toán)
+        if ($order->extra_charge_amount) {
+            $result['extra_charge'] = [
+                'amount'         => (int) $order->extra_charge_amount,
+                'checkout_url'   => $order->extra_charge_checkout_url,
+                'qr_code'        => $order->extra_charge_qr_code,
+                'payment_method' => $order->extra_charge_payment_method,
+                'paid_at'        => $order->extra_charge_paid_at,
+                'is_paid'        => ! is_null($order->extra_charge_paid_at),
+            ];
         }
 
         return $result;
