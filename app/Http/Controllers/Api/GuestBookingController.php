@@ -1599,6 +1599,7 @@ class GuestBookingController extends Controller
                 'services_total'       => $servicesTotal,
                 'total_after_discount' => $realFinalAmount,
                 'final_amount'         => (int) $order->full_amount,
+                'grand_total'          => $realFinalAmount + (int) ($order->extra_charge_amount ?? 0),
             ],
         ];
 

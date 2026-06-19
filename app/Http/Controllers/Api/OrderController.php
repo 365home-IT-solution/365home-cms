@@ -995,6 +995,7 @@ class OrderController extends Controller
                 'services_total'       => $servicesTotal,
                 'total_after_discount' => $realFinalDetail,
                 'final_amount'         => (int) $order->full_amount,
+                'grand_total'          => $realFinalDetail + (int) ($order->extra_charge_amount ?? 0),
             ],
         ];
 
