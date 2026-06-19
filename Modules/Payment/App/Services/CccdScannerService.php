@@ -134,6 +134,15 @@ class CccdScannerService
             }
         }
 
+        // Bước 4: OCR.space fallback trên ảnh mặt trước
+        if ($frontPath && file_exists($frontPath) && ! $this->isTimedOut()) {
+            $data = $this->tryOcrFrontside($frontPath);
+            if ($data) {
+                Log::debug('[CccdScanner] OCR.space fallback thành công');
+                return $data;
+            }
+        }
+
         return null;
     }
 

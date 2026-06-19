@@ -20,6 +20,7 @@ use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
+use App\Services\CccdDeclarationService;
 use App\Services\PromotionCalculator;
 use Modules\Promotion\App\Models\Coupon;
 use PayOS\PayOS;
@@ -90,6 +91,12 @@ class GuestBookingController extends Controller
             return response()->json([
                 'message' => 'Không đọc được QR trên ảnh CCCD. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.',
             ], 422);
+        }
+
+        if ($ageError = $this->validateCccdAge($cccdData)) {
+            Storage::disk('public')->delete($cccdFront);
+            Storage::disk('public')->delete($cccdBack);
+            return $ageError;
         }
 
         // ── 2. Load phòng ─────────────────────────────────────────────────────
@@ -278,6 +285,8 @@ class GuestBookingController extends Controller
             $this->createPayOSLink($order, $summaryName);
         }
 
+        app(CccdDeclarationService::class)->upsertFromOrder($order->load('items'));
+
         // ── 9. Realtime ───────────────────────────────────────────────────────
         $realtimeService = app(\App\Services\SlotRealtimeService::class);
 
@@ -416,6 +425,12 @@ class GuestBookingController extends Controller
                 ], 422);
             }
 
+            if ($ageError = $this->validateCccdAge($cccdData)) {
+                if ($newFront) Storage::disk('public')->delete($newFront);
+                if ($newBack)  Storage::disk('public')->delete($newBack);
+                return $ageError;
+            }
+
             // QR hợp lệ — xoá file cũ nếu có
             if ($newFront && $order->cccd_front) {
                 Storage::disk('public')->delete($order->cccd_front);
@@ -545,6 +560,10 @@ class GuestBookingController extends Controller
             $order->refresh();
         }
 
+        if (isset($updates['cccd_data'])) {
+            app(CccdDeclarationService::class)->upsertFromOrder($order->load('items'));
+        }
+
         // Tạo lại link PayOS nếu giá thay đổi
         $priceChanged = (int) $order->full_amount !== $originalFullAmount;
         if (
@@ -613,6 +632,7 @@ class GuestBookingController extends Controller
             'items.product.roomTimeSlots.timeSlot',
             'items.product.roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
             'services',
+            'accessCodes',
         ])
             ->where('order_code', $orderCode)
             ->whereNull('customer_id')
@@ -1533,7 +1553,7 @@ class GuestBookingController extends Controller
 
         $slotsFinal = max(0, $slotsTotal - $promoDiscount - $systemDiscount - $couponDiscount);
 
-        return [
+        $result = [
             'order' => [
                 'id'             => $order->id,
                 'order_code'     => $order->order_code,
@@ -1581,6 +1601,42 @@ class GuestBookingController extends Controller
                 'final_amount'         => (int) $order->full_amount,
             ],
         ];
+
+        $lockInfo = $this->buildLockInfo($order, $product);
+        if ($lockInfo) {
+            $result['lock_info'] = $lockInfo;
+        }
+
+        return $result;
+    }
+
+    private function buildLockInfo(Order $order, ?\Modules\Product\App\Models\Product $product): ?array
+    {
+        if (! $product || ! in_array($order->status, ['paid', 'deposit'])) {
+            return null;
+        }
+
+        $checkinDate = $order->items->where('extra_fee', 0)->first()?->checkin_date;
+
+        // Case 1: Mật khẩu thủ công (gate_password / room_password)
+        $manualPwd = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($product, $checkinDate);
+        if ($manualPwd) {
+            return [
+                'type'          => 'manual',
+                'gate_password' => $manualPwd->gate_password,
+                'room_password' => $manualPwd->room_password,
+            ];
+        }
+
+        // Case 2: TTLock — chi nhánh có tài khoản TTLock + product có lock_id
+        if ($product->lock_id && \App\Services\TTLockService::forCategory($order->category_id)) {
+            return [
+                'type'       => 'ttlock',
+                'can_unlock' => true,
+            ];
+        }
+
+        return null;
     }
 
     private function buildListItem(Order $order): array
@@ -1708,5 +1764,27 @@ class GuestBookingController extends Controller
         } catch (\Throwable $e) {
             Log::error('Guest rebuildPayOSLink error', ['order_id' => $order->id, 'error' => $e->getMessage()]);
         }
+    }
+
+    private function validateCccdAge(array $cccdData): ?JsonResponse
+    {
+        $dob = $cccdData['dob'] ?? null;
+        if (empty($dob)) {
+            return null;
+        }
+
+        try {
+            $birthDate = Carbon::createFromFormat('d/m/Y', $dob)->startOfDay();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($birthDate->age < 18) {
+            return response()->json([
+                'message' => 'Người đặt phòng phải đủ 18 tuổi trở lên.',
+            ], 422);
+        }
+
+        return null;
     }
 }

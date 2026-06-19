@@ -50,6 +50,7 @@ class OrderController extends Controller
             'items.product.roomTimeSlots.timeSlot',
             'items.product.roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
             'services',
+            'accessCodes',
         ])
             ->where('order_code', $orderCode)
             ->where('customer_id', $customer->id)
@@ -924,7 +925,7 @@ class OrderController extends Controller
         $couponDiscount = array_sum(array_column($couponsInfo, 'discount_amount'));
         $sysDelta       = max(0, $otherDiscount - $couponDiscount);
 
-        return [
+        $result = [
             'order' => [
                 'id'             => $order->id,
                 'order_code'     => $order->order_code,
@@ -965,6 +966,13 @@ class OrderController extends Controller
                 'final_amount'         => (int) $order->full_amount,
             ],
         ];
+
+        $lockInfo = $this->buildLockInfo($order, $product);
+        if ($lockInfo) {
+            $result['lock_info'] = $lockInfo;
+        }
+
+        return $result;
     }
 
     private function recomputePromotions($items, $rtsMap): array
@@ -1216,6 +1224,35 @@ class OrderController extends Controller
         }
 
         return [(int) $total, $applied];
+    }
+
+    private function buildLockInfo(Order $order, ?\Modules\Product\App\Models\Product $product): ?array
+    {
+        if (! $product || ! in_array($order->status, ['paid', 'deposit'])) {
+            return null;
+        }
+
+        $checkinDate = $order->items->where('extra_fee', 0)->first()?->checkin_date;
+
+        // Case 1: Mật khẩu thủ công (gate_password / room_password)
+        $manualPwd = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($product, $checkinDate);
+        if ($manualPwd) {
+            return [
+                'type'          => 'manual',
+                'gate_password' => $manualPwd->gate_password,
+                'room_password' => $manualPwd->room_password,
+            ];
+        }
+
+        // Case 2: TTLock — chi nhánh có tài khoản TTLock + product có lock_id
+        if ($product->lock_id && \App\Services\TTLockService::forCategory($order->category_id)) {
+            return [
+                'type'       => 'ttlock',
+                'can_unlock' => true,
+            ];
+        }
+
+        return null;
     }
 
     private function getRoomThumbnail(?\Modules\Product\App\Models\Product $product): ?string
