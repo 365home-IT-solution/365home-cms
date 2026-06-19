@@ -106,56 +106,34 @@ class CccdScannerService
                 return null;
             }
 
-            // Bước 1: 1 lần gọi Node.js với cả 2 ảnh — format-agnostic
+            // Bước 1: Node.js jsQR với tất cả ảnh cùng 1 lần — crop + scale đa chiến lược
+            // Không pre-downscale ở PHP: Node.js xử lý ảnh gốc độ phân giải cao hơn.
             $data = $this->tryNodeJsQR(...$paths);
             if ($data) {
                 return $data;
             }
 
             if ($this->isTimedOut()) {
-                Log::warning('[CccdScanner] scanBothSides timeout sau jsQR', $logCtx);
-                return null;
-            }
-
-            // Bước 2: fallback zbarimg + khanamiryan trên từng ảnh
-            foreach ($paths as $path) {
-                $data = $this->tryZbarimg($path) ?? $this->tryKhanamiryan($path);
-                if ($data) {
-                    return $data;
-                }
-                if ($this->isTimedOut()) {
-                    Log::warning('[CccdScanner] scanBothSides timeout trong fallback', $logCtx);
-                    return null;
-                }
-            }
-
-            // Bước 3: rotation fallback trên từng ảnh
-            foreach ($paths as $path) {
-                foreach ([90, 270, 180] as $angle) {
-                    if ($this->isTimedOut()) {
-                        break 2;
-                    }
-                    $rotated = $this->rotateImageForQr($path, $angle);
-                    if (! $rotated) {
-                        continue;
-                    }
-                    $data = $this->tryNodeJsQR($rotated)
-                         ?? $this->tryZbarimg($rotated)
-                         ?? $this->tryKhanamiryan($rotated);
-                    @unlink($rotated);
+                Log::warning('[CccdScanner] timeout sau jsQR — bỏ qua zbarimg, nhảy thẳng OCR', $logCtx);
+            } else {
+                // Bước 2: zbarimg CLI nếu có — nhanh, không cần PHP memory
+                foreach ($paths as $path) {
+                    $data = $this->tryZbarimg($path);
                     if ($data) {
-                        Log::debug('[CccdScanner] thành công sau khi xoay', ['angle' => $angle]);
                         return $data;
                     }
+                    if ($this->isTimedOut()) {
+                        break;
+                    }
                 }
             }
 
-            // Bước 4: OCR.space fallback trên ảnh mặt trước (đã normalized)
+            // Bước 3: OCR.space — luôn chạy kể cả khi timeout, đây là fallback cuối cùng
             $ocrTarget = $frontNorm && file_exists($frontNorm) ? $frontNorm : $frontPath;
-            if ($ocrTarget && file_exists($ocrTarget) && ! $this->isTimedOut()) {
+            if ($ocrTarget && file_exists($ocrTarget)) {
                 $data = $this->tryOcrFrontside($ocrTarget);
                 if ($data) {
-                    Log::debug('[CccdScanner] OCR.space fallback thành công');
+                    Log::info('[CccdScanner] OCR.space fallback thành công');
                     return $data;
                 }
             }
@@ -338,34 +316,39 @@ class CccdScannerService
     /**
      * Dùng Node.js + jsQR — xử lý ảnh JPEG nén tốt hơn ZBar/ZXing.
      * Script qr_scan.cjs phải ở root dự án.
+     * Không pre-downscale ở PHP: Node.js tự crop + scale với độ phân giải cao hơn.
      */
-    protected function tryNodeJsQR(string $imagePath): ?array
+    protected function tryNodeJsQR(string ...$imagePaths): ?array
     {
         $scriptPath = base_path('qr_scan.cjs');
         if (! file_exists($scriptPath)) {
             return null;
         }
 
-        $found = PHP_OS_FAMILY === 'Windows'
-            ? @shell_exec('where node 2>NUL')
-            : @shell_exec('which node 2>/dev/null');
-        if (! $found) {
+        // Dùng đường dẫn tuyệt đối của node để tránh PATH khác nhau giữa shell và web server
+        $nodeBin = $this->resolveNodeBin();
+        if (! $nodeBin) {
+            Log::warning('[CccdScanner] Node.js không tìm thấy, bỏ qua jsQR');
             return null;
         }
 
-        $realPath = realpath($imagePath) ?: str_replace('/', DIRECTORY_SEPARATOR, $imagePath);
+        $realPaths = [];
+        foreach ($imagePaths as $path) {
+            $real = realpath($path) ?: str_replace('/', DIRECTORY_SEPARATOR, $path);
+            if ($real && file_exists($real)) {
+                $realPaths[] = $real;
+            }
+        }
 
-        // Downscale ảnh lớn bằng GD trước khi pass sang Node.js:
-        // Jimp đọc file gốc chậm hơn nhiều khi ảnh > 2M pixels.
-        $tmpScaled = $this->downscaleForNodeQr($realPath);
-        $scanPath  = $tmpScaled ?? $realPath;
+        if (empty($realPaths)) {
+            return null;
+        }
 
         try {
-            $argv = ['node', $scriptPath, $scanPath];
+            $argv = array_merge([$nodeBin, $scriptPath], $realPaths);
 
-            // Trên Linux: dùng `timeout` để kill nếu Node.js treo quá lâu (exit 124)
             if (PHP_OS_FAMILY !== 'Windows') {
-                array_unshift($argv, 'timeout', '10');
+                array_unshift($argv, 'timeout', '12');
             }
 
             $process = proc_open($argv, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
@@ -380,14 +363,16 @@ class CccdScannerService
             $exitCode = proc_close($process);
 
             if ($exitCode === 124) {
-                Log::warning('[CccdScanner] jsQR timeout (>10s)', ['path' => basename($imagePath)]);
+                Log::warning('[CccdScanner] jsQR timeout (>12s)');
                 return null;
             }
 
             $text = $stdout ? trim($stdout) : null;
-            Log::debug('[CccdScanner] jsQR result', [
+
+            // Log ở info level để dễ debug khi QR được đọc nhưng không phải CCCD format
+            Log::info('[CccdScanner] jsQR result', [
                 'exit'   => $exitCode,
-                'stdout' => $text ? substr($text, 0, 80) : null,
+                'stdout' => $text ? substr($text, 0, 120) : null,
                 'stderr' => trim((string) $stderr),
             ]);
 
@@ -396,19 +381,57 @@ class CccdScannerService
                     $text = \Normalizer::normalize($text, \Normalizer::FORM_C) ?: $text;
                 }
                 if ($this->isCccdQr($text)) {
-                    Log::debug('[CccdScanner] jsQR thành công');
+                    Log::info('[CccdScanner] jsQR thành công');
                     return $this->parseQrData($text);
                 }
+                Log::warning('[CccdScanner] jsQR đọc được QR nhưng không phải format CCCD', [
+                    'decoded' => substr($text, 0, 200),
+                    'pipes'   => substr_count($text, '|'),
+                ]);
             }
         } catch (\Throwable $e) {
-            Log::debug('[CccdScanner] jsQR exception', ['error' => $e->getMessage()]);
-        } finally {
-            if ($tmpScaled && file_exists($tmpScaled)) {
-                @unlink($tmpScaled);
-            }
+            Log::warning('[CccdScanner] jsQR exception', ['error' => $e->getMessage()]);
         }
 
         return null;
+    }
+
+    /**
+     * Tìm đường dẫn tuyệt đối của node executable.
+     * Dùng đường dẫn tuyệt đối để tránh PATH không khớp giữa web server và shell.
+     */
+    private function resolveNodeBin(): ?string
+    {
+        static $cached = false;
+        if ($cached !== false) {
+            return $cached ?: null;
+        }
+
+        if (PHP_OS_FAMILY === 'Windows') {
+            $raw = @shell_exec('where node 2>NUL');
+        } else {
+            $raw = @shell_exec('which node 2>/dev/null');
+        }
+
+        if (! $raw) {
+            // Fallback: thử các đường dẫn phổ biến
+            $candidates = PHP_OS_FAMILY === 'Windows'
+                ? ['C:\\Program Files\\nodejs\\node.exe', 'C:\\Program Files (x86)\\nodejs\\node.exe']
+                : ['/usr/bin/node', '/usr/local/bin/node', '/opt/homebrew/bin/node'];
+            foreach ($candidates as $c) {
+                if (file_exists($c)) {
+                    $cached = $c;
+                    return $c;
+                }
+            }
+            $cached = '';
+            return null;
+        }
+
+        // `where` có thể trả về nhiều dòng — lấy dòng đầu tiên
+        $bin    = trim(strtok(trim($raw), "\n\r"));
+        $cached = $bin ?: '';
+        return $bin ?: null;
     }
 
     /**
@@ -701,14 +724,25 @@ class CccdScannerService
                 return null;
             }
 
+            Log::info('[CccdScanner] OCR raw text', [
+                'path'    => basename($imagePath),
+                'length'  => strlen($text),
+                'preview' => substr($text, 0, 300),
+            ]);
+
             $data = $this->parseOcrText($text);
             if ($data) {
-                Log::debug('[CccdScanner] OCR thành công', ['path' => basename($imagePath)]);
+                Log::info('[CccdScanner] OCR parse thành công', ['path' => basename($imagePath)]);
+            } else {
+                Log::warning('[CccdScanner] OCR extract được text nhưng parse thất bại', [
+                    'path'    => basename($imagePath),
+                    'preview' => substr($text, 0, 300),
+                ]);
             }
 
             return $data;
         } catch (\Throwable $e) {
-            Log::debug('[CccdScanner] OCR thất bại', [
+            Log::warning('[CccdScanner] OCR thất bại', [
                 'path'  => basename($imagePath),
                 'error' => $e->getMessage(),
             ]);
@@ -756,10 +790,17 @@ class CccdScannerService
         $gender   = '';
         $address  = '';
 
-        // Số CCCD: 12 chữ số (hoặc CMND 9 số)
-        if (preg_match('/\b(\d{12})\b/', $text, $m)) {
+        // OCR.space hay: (1) mất dấu tiếng Việt (Số→So, Họ→Ho), (2) chèn space vào số.
+        // Chuẩn hoá riêng để không ảnh hưởng matching tên/địa chỉ tiếng Việt.
+        $textNum = preg_replace('/(\d)\s+(\d)/u', '$1$2', $text);
+        $textNum = preg_replace('/(\d)\s+(\d)/u', '$1$2', $textNum); // lặp cho "1 2 3 4"
+
+        // Số CCCD: 12 chữ số — ưu tiên sau label "Số / No.:" (cả có và không dấu)
+        if (preg_match('/(?:S[oố]\s*[\/|]\s*No\.?|No\.?)\s*[:\.]?\s*(\d{12})/ui', $textNum, $m)) {
             $cccd = $m[1];
-        } elseif (preg_match('/\b(\d{9})\b/', $text, $m)) {
+        } elseif (preg_match('/\b(\d{12})\b/', $textNum, $m)) {
+            $cccd = $m[1];
+        } elseif (preg_match('/\b(\d{9})\b/', $textNum, $m)) {
             $cccd = $m[1];
         }
 
@@ -771,24 +812,38 @@ class CccdScannerService
                 continue;
             }
 
-            // Họ và tên
-            if (! $fullName && preg_match('/(?:Họ và tên|Full name)[:\s\/\\\\]+(.+)/ui', $line, $m)) {
+            // Họ và tên — hỗ trợ có/không dấu: "Họ và tên", "Ho va ten", "Full name"
+            if (! $fullName && preg_match('/(?:H[oọ](?:\s+(?:v[aà]|va|&)\s+|\s*[&]\s*)t[eê]n|Full\s*n[ae]me?)[:\s\/\\\\]+(.+)/ui', $line, $m)) {
                 $val = trim($m[1]);
-                // Strip bilingual prefix còn sót lại: "Full name: ..." hoặc "Full name / ..."
-                $val = preg_replace('/^Full\s*name\s*[:\s\/\\\\]+/iu', '', $val);
+                $val = preg_replace('/^Full\s*n[ae]me?\s*[:\s\/\\\\]+/iu', '', $val);
                 $val = trim($val);
-                $fullName = (strlen($val) > 2 && ! preg_match('/^(?:Full name|\/|\\\\)$/i', $val))
-                    ? $val
-                    : trim($lines[$i + 1] ?? '');
+                if (strlen($val) > 2 && ! preg_match('/^(?:Full\s*name|\/|\\\\|\s)$/i', $val)) {
+                    $fullName = $val;
+                } else {
+                    // Tên nằm ở dòng tiếp theo (OCR thường xuống dòng sau label)
+                    $next = trim($lines[$i + 1] ?? '');
+                    if (strlen($next) > 2 && preg_match('/^\p{Lu}/u', $next)) {
+                        $fullName = $next;
+                    }
+                }
             }
 
-            // Ngày sinh
-            if (! $dob && preg_match('/(?:Ngày sinh|Date of birth)[:\s\/\\\\]+(.+)/ui', $line, $m)) {
+            // Ngày sinh — hỗ trợ có/không dấu
+            if (! $dob && preg_match('/(?:Ng[aà]y\s*sinh|Date\s*of\s*birth)[:\s\/\\\\]+(.+)/ui', $line, $m)) {
                 $raw = trim($m[1]);
-                if (preg_match('/\d{2}[\/\-]\d{2}[\/\-]\d{4}/', $raw, $dm)) {
-                    $dob = $dm[0];
+                // Cắt bỏ phần sau (giới tính, quốc tịch thường nằm cùng dòng)
+                $raw = preg_replace('/\s+(?:Giới tính|Sex|Quốc tịch|Nationality).*/ui', '', $raw);
+                if (preg_match('/(\d{2})[\/\-\.](\d{2})[\/\-\.](\d{4})/', $raw, $dm)) {
+                    $dob = $dm[1] . '/' . $dm[2] . '/' . $dm[3];
                 } elseif (preg_match('/\d{8}/', $raw, $dm)) {
                     $dob = $this->formatDate($dm[0]);
+                }
+                // Thử tìm ngày trên dòng tiếp nếu raw rỗng
+                if (! $dob) {
+                    $next = trim($lines[$i + 1] ?? '');
+                    if (preg_match('/(\d{2})[\/\-\.](\d{2})[\/\-\.](\d{4})/', $next, $dm)) {
+                        $dob = $dm[1] . '/' . $dm[2] . '/' . $dm[3];
+                    }
                 }
             }
 

@@ -1,7 +1,7 @@
 const { Jimp } = require('jimp');
 const jsQR = require('jsqr');
 
-const MAX_BASE_PIXELS    = 1_500_000; // ~1225×1225 — đủ lớn để đọc QR CCCD
+const MAX_BASE_PIXELS    = 2_000_000; // ~1414×1414 — cân bằng giữa chi tiết QR và tốc độ
 const MAX_ATTEMPT_PIXELS = 4_000_000; // giới hạn mỗi lần scale()
 
 /**
@@ -73,6 +73,13 @@ async function scanQR(imagePaths) {
         (img)       => img.clone().normalize().greyscale().scale(2),
         (img)       => img.clone().contrast(0.5).greyscale().scale(2),
         (img)       => img.clone().normalize().contrast(0.3).greyscale().scale(3),
+
+        // ── Ảnh mờ / chụp xa: scale cao + contrast mạnh SAU upscale ───────────
+        // Áp contrast sau scale để làm nét cạnh QR bị blur do ảnh chụp xa.
+        (img, W, H) => img.clone().crop({ x: Math.floor(W*0.55), y: 0, w: Math.floor(W*0.45), h: Math.floor(H*0.60) }).greyscale().scale(5).contrast(0.8),
+        (img, W, H) => img.clone().crop({ x: Math.floor(W*0.60), y: 0, w: Math.floor(W*0.40), h: Math.floor(H*0.55) }).normalize().greyscale().scale(6).contrast(0.9),
+        (img, W, H) => img.clone().crop({ x: Math.floor(W*0.58), y: 0, w: Math.floor(W*0.42), h: Math.floor(H*0.52) }).greyscale().normalize().scale(7).contrast(1.0),
+        (img, W, H) => img.clone().crop({ x: Math.floor(W*0.55), y: 0, w: Math.floor(W*0.45), h: Math.floor(H*0.55) }).normalize().greyscale().scale(8).normalize(),
     ];
 
     for (const attemptFn of attemptFns) {
