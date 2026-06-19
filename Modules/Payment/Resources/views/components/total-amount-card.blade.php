@@ -149,6 +149,14 @@
 
     $finalTotal = $totalAfterBulk + $totalGuestSurcharge + $serviceTotal;
 
+    // Đơn paid có extra_charge: full_amount (gốc) + extra_charge_amount (phát sinh)
+    // Không dùng fresh-computed total vì services/surcharge thêm sau không nằm trong full_amount gốc
+    $extraChargeAmt  = $hasRecord ? (int)($record->extra_charge_amount ?? 0) : 0;
+    $isPaidWithExtra = $extraChargeAmt > 0 && $hasRecord && $record->deposit_percent === null;
+    if ($isPaidWithExtra) {
+        $finalTotal = (int)$record->full_amount + $extraChargeAmt;
+    }
+
     // Thu thập tất cả mức giảm giá duy nhất để hiển thị ghi chú
     $allDiscountRulesSummary = [];
     if (!$isStyle2) {
@@ -300,6 +308,35 @@
 
         {{-- ===== BREAKDOWN ===== --}}
         <div style="border-top:1px solid #e2e8f0; padding-top:0.6rem; margin-bottom:0.6rem;">
+            @if($isPaidWithExtra)
+            {{-- Đơn paid có phát sinh: hiển thị 2 dòng rõ ràng thay vì reconstruct --}}
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem;">
+                <span style="font-size:0.75rem; color:#6b7280; display:flex; align-items:center; gap:0.3rem;">
+                    <x-heroicon-o-lock-closed style="width:0.75rem; height:0.75rem;" />
+                    Đã thanh toán
+                </span>
+                <span style="font-size:0.75rem; font-weight:600; color:#374151;">
+                    {{ number_format((int)$record->full_amount, 0, ',', '.') }} đ
+                </span>
+            </div>
+            @php
+                $extraIsPaid = !is_null($record->extra_charge_paid_at);
+                $extraMethod = $record->extra_charge_payment_method ?? null;
+                $extraLabel  = $extraIsPaid
+                    ? ('Phát sinh — đã thu' . ($extraMethod === 'cod' ? ' (tiền mặt)' : ' (QR)'))
+                    : 'Phát sinh — chưa thanh toán';
+                $extraColor  = $extraIsPaid ? '#15803d' : '#dc2626';
+            @endphp
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem;">
+                <span style="font-size:0.75rem; color:{{ $extraColor }}; display:flex; align-items:center; gap:0.3rem;">
+                    <x-heroicon-o-plus-circle style="width:0.75rem; height:0.75rem;" />
+                    {{ $extraLabel }}
+                </span>
+                <span style="font-size:0.75rem; font-weight:600; color:{{ $extraColor }};">
+                    +{{ number_format($extraChargeAmt, 0, ',', '.') }} đ
+                </span>
+            </div>
+            @else
             @if($hasDiscount && !$isStyle2)
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem;">
                 <span style="font-size:0.75rem; color:#6b7280;">Giá phòng gốc</span>
@@ -356,6 +393,7 @@
                     +{{ number_format($serviceTotal, 0, ',', '.') }} đ
                 </span>
             </div>
+            @endif
             @endif
         </div>
 
@@ -460,7 +498,14 @@
 
         {{-- Ghi chú: tổng từ DB hay ước tính --}}
         @if(!$isStyle2)
-        @if($useActualDiscount)
+        @if($isPaidWithExtra)
+        <div style="margin-top:0.5rem; background:#f0fdf4; border:1px solid #86efac; border-radius:0.375rem; padding:0.4rem 0.6rem; display:flex; align-items:flex-start; gap:0.35rem;">
+            <x-heroicon-o-check-circle style="width:0.875rem; height:0.875rem; color:#16a34a; flex-shrink:0; margin-top:0.05rem;" />
+            <span style="font-size:0.7rem; color:#15803d; line-height:1.4;">
+                Tổng = số tiền đã thanh toán + phát sinh thêm. Dịch vụ/phụ thu hiển thị phía trên chỉ mang tính tham khảo.
+            </span>
+        </div>
+        @elseif($useActualDiscount)
         <div style="margin-top:0.5rem; background:#f0fdf4; border:1px solid #86efac; border-radius:0.375rem; padding:0.4rem 0.6rem; display:flex; align-items:flex-start; gap:0.35rem;">
             <x-heroicon-o-check-circle style="width:0.875rem; height:0.875rem; color:#16a34a; flex-shrink:0; margin-top:0.05rem;" />
             <span style="font-size:0.7rem; color:#15803d; line-height:1.4;">
