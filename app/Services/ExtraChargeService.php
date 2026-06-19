@@ -60,7 +60,16 @@ class ExtraChargeService
      */
     public function applyDiffToDeposit(Order $order, int $diff): void
     {
-        $newFull = max(0, (int) $order->full_amount + $diff);
+        // full_amount stores deposit paid (not full price).
+        // remaining = full_amount × (100 - pct) / pct
+        // To make remaining increase by exactly $diff, we must add diff × pct / (100 - pct).
+        // For 50%: adjustedDiff = diff × 50/50 = diff (why 50% worked before).
+        $pct = (int) $order->deposit_percent;
+        $adjustedDiff = ($pct > 0 && $pct < 100)
+            ? (int) ceil($diff * $pct / (100 - $pct))
+            : $diff;
+
+        $newFull = max(0, (int) $order->full_amount + $adjustedDiff);
 
         $order->update([
             'full_amount'              => $newFull,
@@ -70,9 +79,11 @@ class ExtraChargeService
         ]);
 
         Log::info('ExtraCharge: deposit full_amount updated', [
-            'order_id' => $order->id,
-            'diff'     => $diff,
-            'new_full' => $newFull,
+            'order_id'      => $order->id,
+            'deposit_pct'   => $pct,
+            'diff'          => $diff,
+            'adjusted_diff' => $adjustedDiff,
+            'new_full'      => $newFull,
         ]);
     }
 
