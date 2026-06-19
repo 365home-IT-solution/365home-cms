@@ -93,7 +93,8 @@ class ExtraChargeService
         );
 
         $extraCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
-        $expiredAt = now()->addMinutes(60)->timestamp;
+        $expiredAt    = now()->addMinutes(60);
+        $expiredAtTs  = $expiredAt->timestamp;
 
         $data = [
             'orderCode'   => $extraCode,
@@ -104,7 +105,7 @@ class ExtraChargeService
             'buyerName'   => $order->buyer_name,
             'buyerPhone'  => $order->buyer_phone,
             'buyerEmail'  => $order->buyer_email ?? '',
-            'expiredAt'   => $expiredAt,
+            'expiredAt'   => $expiredAtTs,
             'items'       => [[
                 'name'     => 'Phát sinh thêm - ' . $order->order_code,
                 'quantity' => 1,
@@ -121,12 +122,13 @@ class ExtraChargeService
         }
 
         $order->update([
-            'extra_charge_amount'       => $amount,
-            'extra_charge_payos_code'   => $extraCode,
-            'extra_charge_checkout_url' => $checkoutUrl,
-            'extra_charge_qr_code'      => $qrCode,
+            'extra_charge_amount'         => $amount,
+            'extra_charge_payos_code'     => $extraCode,
+            'extra_charge_checkout_url'   => $checkoutUrl,
+            'extra_charge_qr_code'        => $qrCode,
             'extra_charge_payment_method' => 'payos',
-            'extra_charge_paid_at'      => null,
+            'extra_charge_paid_at'        => null,
+            'extra_charge_expired_at'     => $expiredAt,
         ]);
 
         Log::info('ExtraCharge: PayOS link created', [
@@ -154,6 +156,7 @@ class ExtraChargeService
             'extra_charge_qr_code'        => null,
             'extra_charge_payment_method' => 'cash',
             'extra_charge_paid_at'        => now(),
+            'extra_charge_expired_at'     => null,
         ]);
 
         Log::info('ExtraCharge: cash collected', [
@@ -170,6 +173,7 @@ class ExtraChargeService
         $order->update([
             'extra_charge_payment_method' => 'payos',
             'extra_charge_paid_at'        => now(),
+            'extra_charge_expired_at'     => null,
         ]);
 
         Log::info('ExtraCharge: paid via PayOS', ['order_id' => $order->id]);

@@ -576,9 +576,6 @@ class OrderController extends Controller
         ]);
     }
 
-    /**
-     * POST /api/orders/{order_code}/remaining-payment
-     */
     public function remainingPayment(Request $request, string $orderCode): JsonResponse
     {
         /** @var \App\Models\Customer $customer */
@@ -1009,13 +1006,16 @@ class OrderController extends Controller
 
         // Extra charge (phát sinh thêm sau khi đã thanh toán)
         if ($order->extra_charge_amount) {
+            $isExpired = $order->extra_charge_expired_at && now()->gt($order->extra_charge_expired_at);
             $result['extra_charge'] = [
                 'amount'         => (int) $order->extra_charge_amount,
-                'checkout_url'   => $order->extra_charge_checkout_url,
-                'qr_code'        => $order->extra_charge_qr_code,
+                'checkout_url'   => $isExpired ? null : $order->extra_charge_checkout_url,
+                'qr_code'        => $isExpired ? null : $order->extra_charge_qr_code,
                 'payment_method' => $order->extra_charge_payment_method,
                 'paid_at'        => $order->extra_charge_paid_at,
+                'expired_at'     => $order->extra_charge_expired_at,
                 'is_paid'        => ! is_null($order->extra_charge_paid_at),
+                'is_expired'     => $isExpired && is_null($order->extra_charge_paid_at),
             ];
         }
 

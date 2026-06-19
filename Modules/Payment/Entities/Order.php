@@ -65,6 +65,7 @@ class Order extends Model implements Eventable
         'extra_charge_qr_code',
         'extra_charge_payment_method',
         'extra_charge_paid_at',
+        'extra_charge_expired_at',
     ];
 
     protected $casts = [
@@ -72,7 +73,8 @@ class Order extends Model implements Eventable
         'coupon_codes'           => 'array',
         'deposit_paid_at'        => 'datetime',
         'remaining_paid_at'      => 'datetime',
-        'extra_charge_paid_at'   => 'datetime',
+        'extra_charge_paid_at'    => 'datetime',
+        'extra_charge_expired_at' => 'datetime',
         'exclude_from_stats'     => 'boolean',
         'unlock_anytime'         => 'boolean',
         'checked_in_at'          => 'datetime',

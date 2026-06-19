@@ -428,7 +428,42 @@ private function buildTelegramMessage(Order $order, string $status): string
                         'extra_code' => $orderCode,
                         'order_id'   => $extraChargeOrder->id,
                     ]);
+
                     app(\App\Services\ExtraChargeService::class)->handleExtraChargePaid($extraChargeOrder);
+
+                    // Notify khách real-time
+                    try {
+                        $amount = number_format((int) $extraChargeOrder->extra_charge_amount, 0, ',', '.');
+                        $title  = "Thanh toán khoản phát sinh thành công";
+                        $body   = "Đơn #{$extraChargeOrder->order_code}: {$amount}đ đã được xác nhận.";
+                        $extra  = [
+                            'order_code' => (string) $extraChargeOrder->order_code,
+                            'type'       => 'order_extra_charge_paid',
+                        ];
+
+                        $notifService = app(\App\Services\NotificationFcmService::class);
+
+                        if (is_null($extraChargeOrder->customer_id) && $extraChargeOrder->device_token) {
+                            $notifService->sendToGuestToken($extraChargeOrder->device_token, $title, $body, 'order_extra_charge_paid', $extra);
+                        } elseif ($extraChargeOrder->customer_id) {
+                            $customer = $extraChargeOrder->customer;
+                            if ($customer) {
+                                $notifService->sendToCustomer($customer, $title, $body, 'order_extra_charge_paid', $extra);
+                            }
+                        }
+
+                        app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
+                            (string) $extraChargeOrder->order_code,
+                            ['extra_charge' => ['is_paid' => true, 'paid_at' => now()->toISOString(), 'payment_method' => 'payos']],
+                            $extraChargeOrder->customer_id,
+                        );
+                    } catch (\Throwable $e) {
+                        Log::warning('PayOS Webhook: Extra charge notify failed', [
+                            'order_id' => $extraChargeOrder->id,
+                            'error'    => $e->getMessage(),
+                        ]);
+                    }
+
                     return response()->json(['error' => 0, 'message' => 'Extra charge processed']);
                 }
 

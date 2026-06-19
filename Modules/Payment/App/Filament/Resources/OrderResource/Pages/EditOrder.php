@@ -509,6 +509,83 @@ class EditOrder extends EditRecord
                             ->send();
                     }
                 }),
+            Actions\Action::make('regenerateExtraChargeQr')
+                ->label('Tạo lại QR phát sinh')
+                ->icon('heroicon-m-qr-code')
+                ->color('warning')
+                ->visible(function () {
+                    if (! (auth()->user()?->can('update_order') ?? false)) {
+                        return false;
+                    }
+                    $r = $this->record;
+                    return $r->extra_charge_amount
+                        && is_null($r->extra_charge_paid_at)
+                        && $r->status === 'paid';
+                })
+                ->requiresConfirmation()
+                ->modalHeading('Tạo lại QR thanh toán phát sinh')
+                ->modalDescription(function () {
+                    $amount = number_format((int) $this->record->extra_charge_amount, 0, ',', '.');
+                    return "Tạo lại link PayOS mới cho khoản phát sinh {$amount}đ của đơn #{$this->record->order_code}? Link cũ sẽ bị hủy.";
+                })
+                ->modalSubmitActionLabel('Tạo lại')
+                ->action(function () {
+                    $record = $this->record->fresh();
+
+                    if (! $record->extra_charge_amount || ! is_null($record->extra_charge_paid_at)) {
+                        Notification::make()
+                            ->title('Không có khoản phát sinh cần tạo lại QR')
+                            ->warning()
+                            ->send();
+                        return;
+                    }
+
+                    try {
+                        $result = app(ExtraChargeService::class)->createExtraChargePayOS($record, (int) $record->extra_charge_amount);
+
+                        // Notify khách QR mới
+                        $notifService = app(\App\Services\NotificationFcmService::class);
+                        $amount       = number_format((int) $record->extra_charge_amount, 0, ',', '.');
+                        $title        = "Đơn #{$record->order_code}: QR thanh toán phát sinh mới";
+                        $body         = "Link thanh toán {$amount}đ đã được tạo lại. Vui lòng thanh toán trong 60 phút.";
+                        $extra        = [
+                            'order_code'   => (string) $record->order_code,
+                            'type'         => 'order_extra_charge',
+                            'checkout_url' => $result['checkout_url'],
+                            'amount'       => (int) $record->extra_charge_amount,
+                        ];
+                        $this->pushClientNotification($record, $notifService, $title, $body, 'order_extra_charge', $extra);
+
+                        app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
+                            (string) $record->order_code,
+                            ['extra_charge' => ['checkout_url' => $result['checkout_url'], 'is_expired' => false]],
+                            $record->customer_id,
+                        );
+
+                        Notification::make()
+                            ->title('Đã tạo lại QR thanh toán phát sinh')
+                            ->body('Link mới: ' . $result['checkout_url'])
+                            ->actions([
+                                \Filament\Notifications\Actions\Action::make('open')
+                                    ->label('Mở link')
+                                    ->url($result['checkout_url'])
+                                    ->openUrlInNewTab(),
+                            ])
+                            ->success()
+                            ->persistent()
+                            ->send();
+
+                        $this->refreshFormData(['extra_charge_checkout_url', 'extra_charge_expired_at']);
+
+                    } catch (\Throwable $e) {
+                        Notification::make()
+                            ->title('Không thể tạo lại QR')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
+
             Actions\Action::make('collectExtraChargeCash')
                 ->label('Thu tiền mặt (phát sinh)')
                 ->icon('heroicon-m-banknotes')
