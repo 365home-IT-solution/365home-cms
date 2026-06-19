@@ -866,9 +866,8 @@ class OrderController extends Controller
             'checkin'                   => $firstItem?->checkin_date?->format('Y-m-d H:i'),
             'checkout'                  => $lastItem?->checkout_date?->format('Y-m-d H:i'),
             'final_amount'              => (int) $order->full_amount,
-            'has_pending_extra_charge'  => $hasPendingExtraCharge,
-            'extra_charge_amount'       => $hasPendingExtraCharge ? (int) $order->extra_charge_amount : null,
-            'extra_charge_checkout_url' => $hasPendingExtraCharge ? $order->extra_charge_checkout_url : null,
+            'has_pending_extra_charge' => $hasPendingExtraCharge,
+            'extra_charge_amount'      => $hasPendingExtraCharge ? (int) $order->extra_charge_amount : null,
         ];
     }
 
@@ -1009,7 +1008,6 @@ class OrderController extends Controller
             $isExpired = $order->extra_charge_expired_at && now()->gt($order->extra_charge_expired_at);
             $result['extra_charge'] = [
                 'amount'         => (int) $order->extra_charge_amount,
-                'checkout_url'   => $isExpired ? null : $order->extra_charge_checkout_url,
                 'qr_code'        => $isExpired ? null : $order->extra_charge_qr_code,
                 'payment_method' => $order->extra_charge_payment_method,
                 'paid_at'        => $order->extra_charge_paid_at,

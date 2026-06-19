@@ -93,7 +93,7 @@ class ExtraChargeService
         );
 
         $extraCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
-        $expiredAt    = now()->addMinutes(60);
+        $expiredAt    = now()->addMinutes(15);
         $expiredAtTs  = $expiredAt->timestamp;
 
         $data = [
@@ -154,7 +154,7 @@ class ExtraChargeService
             'extra_charge_payos_code'     => null,
             'extra_charge_checkout_url'   => null,
             'extra_charge_qr_code'        => null,
-            'extra_charge_payment_method' => 'cash',
+            'extra_charge_payment_method' => 'cod',
             'extra_charge_paid_at'        => now(),
             'extra_charge_expired_at'     => null,
         ]);

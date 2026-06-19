@@ -558,7 +558,7 @@ class EditOrder extends EditRecord
 
                         app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
                             (string) $record->order_code,
-                            ['extra_charge' => ['checkout_url' => $result['checkout_url'], 'is_expired' => false]],
+                            ['extra_charge' => ['is_expired' => false, 'qr_code' => $result['qr_code']]],
                             $record->customer_id,
                         );
 
@@ -629,7 +629,7 @@ class EditOrder extends EditRecord
 
                         app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
                             (string) $record->order_code,
-                            ['extra_charge' => ['paid_at' => now()->toISOString(), 'payment_method' => 'cash']],
+                            ['extra_charge' => ['is_paid' => true, 'paid_at' => now()->toISOString(), 'payment_method' => 'cod']],
                             $record->customer_id,
                         );
 
@@ -909,7 +909,7 @@ class EditOrder extends EditRecord
                 $clientTitle = "Đơn #{$order->order_code}: phát sinh thêm " . number_format($diff, 0, ',', '.') . 'đ';
                 $clientBody  = 'Bổ sung dịch vụ/số người. Vui lòng thanh toán khoản phát sinh.';
                 $this->pushClientNotification($order, $notifService, $clientTitle, $clientBody, 'order_extra_charge',
-                    array_merge($extra, ['checkout_url' => $result['checkout_url'], 'amount' => $diff])
+                    array_merge($extra, ['amount' => $diff])
                 );
             } else {
                 // Giảm giá — thông báo admin + khách
