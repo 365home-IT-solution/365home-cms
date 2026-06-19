@@ -84,66 +84,91 @@ class CccdScannerService
      */
     protected function scanBothSides(?string $frontPath, ?string $backPath, array $logCtx = []): ?array
     {
-        $paths = array_filter([$frontPath, $backPath], fn ($p) => $p && file_exists($p));
+        // Normalize EXIF orientation trước mọi bước — ảnh điện thoại thường có
+        // EXIF Orientation ≠ 1 nhưng pixel thô vẫn xoay → jsQR/ZBar không decode được.
+        $frontNorm = $frontPath && file_exists($frontPath)
+            ? ($this->normalizeExifOrientation($frontPath) ?? $frontPath)
+            : $frontPath;
+        $backNorm  = $backPath && file_exists($backPath)
+            ? ($this->normalizeExifOrientation($backPath) ?? $backPath)
+            : $backPath;
 
-        if (empty($paths)) {
-            return null;
-        }
+        // Thu thập các file tmp để dọn dẹp khi thoát (dù thành công hay thất bại)
+        $tmpNorm = array_values(array_filter([
+            $frontNorm !== $frontPath ? $frontNorm : null,
+            $backNorm  !== $backPath  ? $backNorm  : null,
+        ]));
 
-        // Bước 1: 1 lần gọi Node.js với cả 2 ảnh — format-agnostic
-        $data = $this->tryNodeJsQR(...array_values($paths));
-        if ($data) {
-            return $data;
-        }
+        $paths = array_values(array_filter([$frontNorm, $backNorm], fn ($p) => $p && file_exists($p)));
 
-        if ($this->isTimedOut()) {
-            Log::warning('[CccdScanner] scanBothSides timeout sau jsQR', $logCtx);
-            return null;
-        }
+        try {
+            if (empty($paths)) {
+                return null;
+            }
 
-        // Bước 2: fallback zbarimg + khanamiryan trên từng ảnh
-        foreach ($paths as $path) {
-            $data = $this->tryZbarimg($path) ?? $this->tryKhanamiryan($path);
+            // Bước 1: 1 lần gọi Node.js với cả 2 ảnh — format-agnostic
+            $data = $this->tryNodeJsQR(...$paths);
             if ($data) {
                 return $data;
             }
+
             if ($this->isTimedOut()) {
-                Log::warning('[CccdScanner] scanBothSides timeout trong fallback', $logCtx);
+                Log::warning('[CccdScanner] scanBothSides timeout sau jsQR', $logCtx);
                 return null;
             }
-        }
 
-        // Bước 3: rotation fallback trên từng ảnh
-        foreach ($paths as $path) {
-            foreach ([90, 270, 180] as $angle) {
-                if ($this->isTimedOut()) {
-                    break 2;
-                }
-                $rotated = $this->rotateImageForQr($path, $angle);
-                if (! $rotated) {
-                    continue;
-                }
-                $data = $this->tryNodeJsQR($rotated)
-                     ?? $this->tryZbarimg($rotated)
-                     ?? $this->tryKhanamiryan($rotated);
-                @unlink($rotated);
+            // Bước 2: fallback zbarimg + khanamiryan trên từng ảnh
+            foreach ($paths as $path) {
+                $data = $this->tryZbarimg($path) ?? $this->tryKhanamiryan($path);
                 if ($data) {
-                    Log::debug('[CccdScanner] thành công sau khi xoay', ['angle' => $angle]);
+                    return $data;
+                }
+                if ($this->isTimedOut()) {
+                    Log::warning('[CccdScanner] scanBothSides timeout trong fallback', $logCtx);
+                    return null;
+                }
+            }
+
+            // Bước 3: rotation fallback trên từng ảnh
+            foreach ($paths as $path) {
+                foreach ([90, 270, 180] as $angle) {
+                    if ($this->isTimedOut()) {
+                        break 2;
+                    }
+                    $rotated = $this->rotateImageForQr($path, $angle);
+                    if (! $rotated) {
+                        continue;
+                    }
+                    $data = $this->tryNodeJsQR($rotated)
+                         ?? $this->tryZbarimg($rotated)
+                         ?? $this->tryKhanamiryan($rotated);
+                    @unlink($rotated);
+                    if ($data) {
+                        Log::debug('[CccdScanner] thành công sau khi xoay', ['angle' => $angle]);
+                        return $data;
+                    }
+                }
+            }
+
+            // Bước 4: OCR.space fallback trên ảnh mặt trước (đã normalized)
+            $ocrTarget = $frontNorm && file_exists($frontNorm) ? $frontNorm : $frontPath;
+            if ($ocrTarget && file_exists($ocrTarget) && ! $this->isTimedOut()) {
+                $data = $this->tryOcrFrontside($ocrTarget);
+                if ($data) {
+                    Log::debug('[CccdScanner] OCR.space fallback thành công');
                     return $data;
                 }
             }
-        }
 
-        // Bước 4: OCR.space fallback trên ảnh mặt trước
-        if ($frontPath && file_exists($frontPath) && ! $this->isTimedOut()) {
-            $data = $this->tryOcrFrontside($frontPath);
-            if ($data) {
-                Log::debug('[CccdScanner] OCR.space fallback thành công');
-                return $data;
+            return null;
+
+        } finally {
+            foreach ($tmpNorm as $t) {
+                if ($t && file_exists($t)) {
+                    @unlink($t);
+                }
             }
         }
-
-        return null;
     }
 
     /**
@@ -197,6 +222,66 @@ class CccdScannerService
         }
 
         return null;
+    }
+
+    /**
+     * Đọc EXIF Orientation và xuất bản sao ảnh đã xoay đúng chiều.
+     * Trả về path tmp mới, hoặc null nếu không cần xoay / không hỗ trợ.
+     *
+     * Mapping EXIF Orientation → góc xoay GD (ngược chiều kim đồng hồ):
+     *   1 = bình thường       → không xoay
+     *   3 = lật 180°          → xoay 180°
+     *   6 = xoay 90° CW       → xoay 270° (ngược lại để sửa)
+     *   8 = xoay 90° CCW      → xoay 90°
+     */
+    protected function normalizeExifOrientation(string $imagePath): ?string
+    {
+        if (! extension_loaded('gd') || ! function_exists('exif_read_data')) {
+            return null;
+        }
+
+        $ext = strtolower(pathinfo($imagePath, PATHINFO_EXTENSION));
+        if (! in_array($ext, ['jpg', 'jpeg'], true)) {
+            return null;
+        }
+
+        $exif        = @exif_read_data($imagePath);
+        $orientation = $exif['Orientation'] ?? 1;
+
+        $angle = match ($orientation) {
+            3 => 180,
+            6 => 270,
+            8 => 90,
+            default => 0,
+        };
+
+        if ($angle === 0) {
+            return null;
+        }
+
+        $src = @imagecreatefromjpeg($imagePath);
+        if (! $src) {
+            return null;
+        }
+
+        $rotated = imagerotate($src, $angle, 0);
+        imagedestroy($src);
+
+        if (! $rotated) {
+            return null;
+        }
+
+        $tmpPath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'cccd_exif_' . uniqid() . '.jpg';
+        imagejpeg($rotated, $tmpPath, 95);
+        imagedestroy($rotated);
+
+        Log::debug('[CccdScanner] EXIF normalize', [
+            'orientation' => $orientation,
+            'angle'       => $angle,
+            'file'        => basename($imagePath),
+        ]);
+
+        return file_exists($tmpPath) ? $tmpPath : null;
     }
 
     /**
