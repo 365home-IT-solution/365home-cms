@@ -144,8 +144,7 @@ class RoomCardsService
                     'slot_count'   => $slotCount,
                     'slot_labels'  => $slotLabels,
                     'slot_ranges'  => [],
-                    'deposit_room'    => $order->deposit_room ?? '',
-                    'note_for_admin' => $order->note_for_admin ?? '',
+                    'deposit_room' => $order->deposit_room ?? '',
                 ];
             };
 

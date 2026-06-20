@@ -233,9 +233,9 @@ window._rcBuildPopupHtml = function(orders, roomList) {
             if (createdFmt) metaParts.push('<span class="ta-pop-created-badge">Tạo: ' + createdFmt + '</span>');
             if (metaParts.length) row += '<div class="ta-pop-order-meta">' + metaParts.join('') + '</div>';
 
-            // Line 3: note for admin
-            if (o.note_for_admin) {
-                row += '<div class="ta-pop-order-note">' + o.note_for_admin.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>';
+            // Line 3: deposit/admin note
+            if (o.deposit_room) {
+                row += '<div class="ta-pop-order-note">' + o.deposit_room.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>';
             }
 
             row += '</div>';
@@ -449,8 +449,7 @@ document.addEventListener('keydown', function(e) {
                 slot_count: o.slot_count, slot_labels: o.slot_labels,
                 slot_ranges: o.slot_ranges || [],
                 created_at: o.created_at,
-                deposit_room: o.deposit_room,
-                note_for_admin: o.note_for_admin || ''
+                deposit_room: o.deposit_room
             })) : '';
             html +=
                 '<div class="ta-rc-order-item' + (o.is_new ? ' is-new' : '') + ' seg-' + seg + '" data-segment="' + seg + '" data-order="' + _oAttr + '">' +
