@@ -291,6 +291,34 @@ private function buildTelegramMessage(Order $order, string $status): string
                 $order->id, $categoryId, $checkinDate, $checkoutDate, $product
             );
 
+            // FCM + WS → khách biết mã cổng đã sẵn sàng
+            try {
+                $notifService = app(\App\Services\NotificationFcmService::class);
+                $title        = "Đơn #{$order->order_code}: Mã cổng đã sẵn sàng";
+                $body         = 'Mã cổng của bạn đã được gán. Vui lòng kiểm tra trong chi tiết đơn hàng.';
+                $extra        = ['order_code' => (string) $order->order_code, 'type' => 'order_access_code'];
+
+                if (is_null($order->customer_id) && $order->device_token) {
+                    $notifService->sendToGuestToken($order->device_token, $title, $body, 'order_access_code', $extra);
+                } elseif ($order->customer_id) {
+                    $customer = $order->customer;
+                    if ($customer) {
+                        $notifService->sendToCustomer($customer, $title, $body, 'order_access_code', $extra);
+                    }
+                }
+
+                app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
+                    (string) $order->order_code,
+                    ['access_code_assigned' => true],
+                    $order->customer_id ? (int) $order->customer_id : null,
+                );
+            } catch (\Throwable $e) {
+                Log::warning('handleSuccessfulPayment: access code notification failed', [
+                    'order_id' => $order->id,
+                    'error'    => $e->getMessage(),
+                ]);
+            }
+
             // Không dùng ZaloZNS nữa — Telegram xử lý ở caller
             $this->sendAdminNotification($order);
 
@@ -334,6 +362,35 @@ private function buildTelegramMessage(Order $order, string $status): string
                 'order_id'   => $order->id,
                 'order_code' => $order->order_code,
             ]);
+
+            // FCM → khách
+            try {
+                $notifService = app(\App\Services\NotificationFcmService::class);
+                $title        = "Đơn #{$order->order_code}: Thanh toán thành công";
+                $body         = 'Thanh toán phần còn lại thành công. Mã cổng sẽ được gán trong giây lát.';
+                $extra        = ['order_code' => (string) $order->order_code, 'type' => 'order_remaining_paid'];
+                if (is_null($order->customer_id) && $order->device_token) {
+                    $notifService->sendToGuestToken($order->device_token, $title, $body, 'order_remaining_paid', $extra);
+                } elseif ($order->customer_id) {
+                    $customer = $order->customer;
+                    if ($customer) {
+                        $notifService->sendToCustomer($customer, $title, $body, 'order_remaining_paid', $extra);
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('handleRemainingPayment: FCM failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+            }
+
+            // WS broadcast → cập nhật status trên app khách ngay
+            try {
+                app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
+                    (string) $order->order_code,
+                    ['status' => 'paid', 'remaining_paid_at' => now()->toISOString()],
+                    $order->customer_id ? (int) $order->customer_id : null,
+                );
+            } catch (\Throwable $e) {
+                Log::warning('handleRemainingPayment: broadcastOrderUpdate failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+            }
 
             // Gán mã cổng sau khi thanh toán đủ
             $this->handleSuccessfulPayment($order);

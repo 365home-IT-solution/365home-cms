@@ -915,12 +915,24 @@ class EditOrder extends EditRecord
                     ->persistent()
                     ->send();
 
-                // Notify khách
+                // FCM + WS → khách
                 $clientTitle = "Đơn #{$order->order_code}: phát sinh thêm " . number_format($diff, 0, ',', '.') . 'đ';
                 $clientBody  = 'Bổ sung dịch vụ/số người. Vui lòng thanh toán khoản phát sinh.';
                 $this->pushClientNotification($order, $notifService, $clientTitle, $clientBody, 'order_extra_charge',
                     array_merge($extra, ['amount' => $diff])
                 );
+
+                try {
+                    app(OrderRealtimeService::class)->broadcastOrderUpdate(
+                        (string) $order->order_code,
+                        ['extra_charge' => ['amount' => $diff, 'qr_code' => $result['qr_code'], 'is_paid' => false]],
+                        $order->customer_id ? (int) $order->customer_id : null,
+                    );
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('handlePriceDiff: paid extra charge broadcastOrderUpdate failed', [
+                        'order_id' => $order->id, 'error' => $e->getMessage(),
+                    ]);
+                }
             } else {
                 // Giảm giá — thông báo admin + khách
                 Notification::make()
@@ -932,6 +944,19 @@ class EditOrder extends EditRecord
                 $clientTitle = "Đơn #{$order->order_code}: tổng tiền đã giảm";
                 $clientBody  = 'Dịch vụ/số người đã được điều chỉnh, giảm ' . number_format(abs($diff), 0, ',', '.') . 'đ.';
                 $this->pushClientNotification($order, $notifService, $clientTitle, $clientBody, 'order_extra_charge', $extra);
+
+                try {
+                    $order->refresh();
+                    app(OrderRealtimeService::class)->broadcastOrderUpdate(
+                        (string) $order->order_code,
+                        ['summary' => ['grand_total' => (int) $order->full_amount + (int) ($order->extra_charge_amount ?? 0)]],
+                        $order->customer_id ? (int) $order->customer_id : null,
+                    );
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('handlePriceDiff: paid price reduction broadcastOrderUpdate failed', [
+                        'order_id' => $order->id, 'error' => $e->getMessage(),
+                    ]);
+                }
             }
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('handlePriceDiff failed', [
