@@ -12,14 +12,14 @@ class ConfigController extends Controller
     public function __invoke(): JsonResponse
     {
         return response()->json([
-            'google_maps_api_key' => config('services.google_maps.key'),
+            'map' => config('services.google_maps.key'),
         ]);
     }
 
     public function map(): JsonResponse
     {
         return response()->json([
-            'google_maps_api_key' => config('services.google_maps.key'),
+            'map' => config('services.google_maps.key'),
         ]);
     }
 }
