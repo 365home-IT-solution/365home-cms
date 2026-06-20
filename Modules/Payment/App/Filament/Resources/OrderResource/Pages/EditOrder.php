@@ -136,67 +136,27 @@ class EditOrder extends EditRecord
                 }),
 
             Actions\Action::make('assignAccessCode')
-                ->label('Gán mã cổng')
-                ->icon('heroicon-m-key')
-                ->color('success')
-                ->visible(fn () => (auth()->user()?->can('update_order') ?? false) && $this->record->status === 'paid' && !$this->record->hasAccessCode())
-                ->requiresConfirmation()
-                ->modalHeading('Gán mã cổng cho đơn hàng')
-                ->modalDescription('Hệ thống sẽ tự động tìm mã cổng khả dụng theo chi nhánh và gán cho đơn này.')
-                ->modalSubmitActionLabel('Xác nhận gán')
-                ->action(function () {
-                    $record = $this->record->fresh();
-                    $record->load('items');
-
-                    try {
-                        $firstItem    = $record->items->sortBy('checkin_date')->first();
-                        $checkinDate  = $record->items->min('checkin_date');
-                        $checkoutDate = $record->items->max('checkout_date');
-                        $product      = $firstItem?->product;
-
-                        $service = app(AccessCodeService::class);
-                        $service->assignCodeToOrder(
-                            $record->id,
-                            $record->category_id,
-                            $checkinDate,
-                            $checkoutDate,
-                            $product,
-                        );
-
-                        Notification::make()
-                            ->title('Đã gán mã cổng thành công')
-                            ->success()
-                            ->send();
-
-                        $this->redirect($this->getResource()::getUrl('edit', ['record' => $record]));
-                    } catch (\Exception $e) {
-                        Notification::make()
-                            ->title('Không thể gán mã cổng')
-                            ->body($e->getMessage())
-                            ->warning()
-                            ->send();
-                    }
-                }),
-
-            Actions\Action::make('reissueAccessCode')
-                ->label('Cấp lại mã cổng')
-                ->icon('heroicon-m-arrow-path')
-                ->color('warning')
+                ->label(fn () => $this->record->hasAccessCode() ? 'Cấp lại mã cổng' : 'Gán mã cổng')
+                ->icon(fn () => $this->record->hasAccessCode() ? 'heroicon-m-arrow-path' : 'heroicon-m-key')
+                ->color(fn () => $this->record->hasAccessCode() ? 'warning' : 'success')
                 ->visible(fn () => (auth()->user()?->can('update_order') ?? false) && in_array($this->record->status, ['paid', 'deposit']))
                 ->requiresConfirmation()
-                ->modalHeading('Cấp lại mã cổng')
-                ->modalDescription('Hệ thống sẽ thu hồi mã cổng hiện tại (nếu có) và cấp mã mới cho đơn này.')
-                ->modalSubmitActionLabel('Xác nhận cấp lại')
+                ->modalHeading(fn () => $this->record->hasAccessCode() ? 'Cấp lại mã cổng' : 'Gán mã cổng cho đơn hàng')
+                ->modalDescription(fn () => $this->record->hasAccessCode()
+                    ? 'Hệ thống sẽ thu hồi mã cổng hiện tại và cấp mã mới. Khách hàng sẽ được thông báo realtime.'
+                    : 'Hệ thống sẽ tự động tìm mã cổng khả dụng và gán cho đơn này. Khách hàng sẽ được thông báo realtime.')
+                ->modalSubmitActionLabel(fn () => $this->record->hasAccessCode() ? 'Xác nhận cấp lại' : 'Xác nhận gán')
                 ->action(function () {
-                    $record = $this->record->fresh(['items.product']);
+                    $record = $this->record->fresh(['items.product', 'accessCodes']);
 
                     try {
                         $service = app(AccessCodeService::class);
 
-                        // Thu hồi mã cũ (nếu có)
-                        $service->releaseCode($record->id);
+                        // Thu hồi mã cũ nếu đã có
+                        if ($record->hasAccessCode()) {
+                            $service->releaseCode($record->id);
+                        }
 
-                        // Cấp mã mới
                         $firstItem    = $record->items->sortBy('checkin_date')->first();
                         $checkinDate  = $record->items->min('checkin_date');
                         $checkoutDate = $record->items->max('checkout_date');
@@ -210,15 +170,28 @@ class EditOrder extends EditRecord
                             $product,
                         );
 
+                        // Notify realtime + FCM đến khách
+                        $notifService = app(\App\Services\NotificationFcmService::class);
+                        $title        = "Đơn #{$record->order_code}: mã cổng đã được cấp";
+                        $body         = 'Mã cổng của bạn đã sẵn sàng. Vui lòng kiểm tra trong chi tiết đơn hàng.';
+                        $extra        = ['order_code' => (string) $record->order_code, 'type' => 'order_access_code'];
+                        $this->pushClientNotification($record, $notifService, $title, $body, 'order_access_code', $extra);
+
+                        app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
+                            (string) $record->order_code,
+                            ['access_code_assigned' => true],
+                            $record->customer_id ? (int) $record->customer_id : null,
+                        );
+
                         Notification::make()
-                            ->title('Đã cấp lại mã cổng: ' . $code->code)
+                            ->title('Đã gán mã cổng: ' . $code->code)
                             ->success()
                             ->send();
 
-                        $this->redirect($this->getResource()::getUrl('edit', ['record' => $record]));
+                        $this->record = $record->fresh();
                     } catch (\Exception $e) {
                         Notification::make()
-                            ->title('Không thể cấp lại mã cổng')
+                            ->title('Không thể gán mã cổng')
                             ->body($e->getMessage())
                             ->danger()
                             ->send();
@@ -559,7 +532,7 @@ class EditOrder extends EditRecord
                         app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
                             (string) $record->order_code,
                             ['extra_charge' => ['is_expired' => false, 'qr_code' => $result['qr_code']]],
-                            $record->customer_id,
+                            $record->customer_id ? (int) $record->customer_id : null,
                         );
 
                         Notification::make()
@@ -630,7 +603,7 @@ class EditOrder extends EditRecord
                         app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
                             (string) $record->order_code,
                             ['extra_charge' => ['is_paid' => true, 'paid_at' => now()->toISOString(), 'payment_method' => 'cod']],
-                            $record->customer_id,
+                            $record->customer_id ? (int) $record->customer_id : null,
                         );
 
                         Notification::make()
@@ -770,7 +743,7 @@ class EditOrder extends EditRecord
                         ])->values()->toArray(),
                         'changes' => $changes,
                     ],
-                    $record->customer_id,
+                    $record->customer_id ? (int) $record->customer_id : null,
                 );
             } catch (\Throwable $e) {
                 \Illuminate\Support\Facades\Log::warning('afterSave: broadcastOrderUpdate failed', [
@@ -836,6 +809,10 @@ class EditOrder extends EditRecord
                 'error'    => $e->getMessage(),
             ]);
         }
+
+        // Refresh $this->record để header action visible() callbacks thấy data mới
+        // (ví dụ: extra_charge_amount vừa được set bởi handlePriceDiff)
+        $this->record = $this->record->fresh();
     }
 
     /**
