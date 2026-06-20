@@ -62,8 +62,8 @@ Route::get('room-types', [RoomTypeController::class, 'index'])->name('api.room-t
 */
 Route::prefix('v1')->name('api.v1.')->group(function () {
     Route::get('home',   HomeController::class)->name('home');
-    Route::get('config',     ConfigController::class)->name('config');
-    Route::get('config/map', [ConfigController::class, 'map'])->name('config.map');
+    Route::get('config',     ConfigController::class)->name('config')->middleware('throttle:config');
+    Route::get('config/map', [ConfigController::class, 'map'])->name('config.map')->middleware('throttle:config');
 
     /*
     |--------------------------------------------------------------------------

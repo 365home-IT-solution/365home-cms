@@ -62,6 +62,11 @@ class RouteServiceProvider extends ServiceProvider
             ];
         });
 
+        // config: 10/phút/IP — endpoint public trả cấu hình app (vd: Maps API key)
+        RateLimiter::for('config', function (Request $request) {
+            return Limit::perMinute(10)->by($request->ip());
+        });
+
         $this->routes(function () {
             Route::middleware('api')
                 ->prefix('api')
