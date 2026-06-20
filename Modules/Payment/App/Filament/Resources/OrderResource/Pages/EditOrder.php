@@ -568,9 +568,11 @@ class EditOrder extends EditRecord
                         return false;
                     }
                     $r = $this->record;
+                    // Chỉ hiện cho đơn paid: extra charge là khoản thu riêng sau thanh toán.
+                    // Deposit: extra đã gộp vào remaining, admin thu qua nút trong form.
                     return $r->extra_charge_amount
                         && is_null($r->extra_charge_paid_at)
-                        && in_array($r->status, ['paid', 'deposit']);
+                        && $r->status === 'paid';
                 })
                 ->requiresConfirmation()
                 ->modalHeading('Xác nhận thu tiền mặt')

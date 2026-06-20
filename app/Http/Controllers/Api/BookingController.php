@@ -177,8 +177,9 @@ class BookingController extends Controller
         $finalAmount    = $slotFinalPrice + $servicesTotal + $guestSurcharge;
 
         // ── Deposit (chỉ daily) ───────────────────────────────────────────────
-        $amountDue   = $finalAmount;
-        $depositInfo = null;
+        $paymentMethod = $request->input('payment_method', 'PayOS');
+        $amountDue     = $finalAmount;
+        $depositInfo   = null;
 
         if ($request->input('type') === 'daily') {
             $depositMin  = (int) ($room->deposit_min_nights  ?? 0);
@@ -211,8 +212,7 @@ class BookingController extends Controller
             }
         }
 
-        $category      = $room->categories()->first();
-        $paymentMethod = $request->input('payment_method', 'PayOS');
+        $category = $room->categories()->first();
 
         $depositPercentToSave = $depositInfo !== null ? (int) ($depositInfo['percentage']) : null;
 
