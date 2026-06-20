@@ -920,14 +920,24 @@ class OrderForm
                                             ->label('Số tiền còn lại (dự kiến)')
                                             ->content(function ($record, $get) {
                                                 if (! $record) return new \Illuminate\Support\HtmlString('');
-                                                $orderAmount = (int) $record->amount;
+                                                $depositPct  = (int) ($record->deposit_percent ?? 0);
                                                 $fullAmount  = (int) ($get('full_amount') ?? $record->full_amount ?? 0);
-                                                $remaining   = max(0, $orderAmount - $fullAmount);
+                                                $realTotal   = $depositPct > 0
+                                                    ? (int) round($fullAmount * 100 / $depositPct)
+                                                    : $fullAmount;
+                                                $extraCharge = (int) ($record->extra_charge_amount ?? 0);
+                                                $remaining   = max(0, $realTotal - $fullAmount) + $extraCharge;
                                                 $color       = $remaining <= 0 ? '#dc2626' : '#15803d';
+
+                                                $breakdown = '= ' . number_format($realTotal, 0, ',', '.') . ' (tổng) − ' . number_format($fullAmount, 0, ',', '.') . ' (đã cọc)';
+                                                if ($extraCharge > 0) {
+                                                    $breakdown .= ' + ' . number_format($extraCharge, 0, ',', '.') . ' (phát sinh)';
+                                                }
+
                                                 return new \Illuminate\Support\HtmlString(
                                                     '<span style="font-size:15px;font-weight:700;color:' . $color . ';">'
                                                     . number_format($remaining, 0, ',', '.') . 'đ</span>'
-                                                    . '<span style="font-size:12px;color:#6b7280;margin-left:8px;">= ' . number_format($orderAmount, 0, ',', '.') . ' (tổng đơn) − ' . number_format($fullAmount, 0, ',', '.') . ' (đã cọc)</span>'
+                                                    . '<span style="font-size:12px;color:#6b7280;margin-left:8px;">' . $breakdown . '</span>'
                                                 );
                                             }),
 

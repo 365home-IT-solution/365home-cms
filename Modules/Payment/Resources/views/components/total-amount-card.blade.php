@@ -420,13 +420,15 @@
         {{-- ===== THÔNG TIN CỌC (chỉ hiện với style=2 khi có cọc) ===== --}}
         @if(isset($record) && $record && $record->deposit_percent !== null && $isStyle2)
         @php
-            $depPct     = (int) $record->deposit_percent;
-            // full_amount với đơn cọc = tiền cọc phải trả → reconstruct tổng thực
-            $depositAmt = (int) $record->full_amount;
-            $realTotal  = $depPct > 0 ? (int) round($depositAmt * 100 / $depPct) : $depositAmt;
-            $remain2    = max(0, $realTotal - $depositAmt);
-            $isFullPaid = $record->status === 'paid';
-            $isDepPaid  = in_array($record->status, ['deposit', 'paid']);
+            $depPct      = (int) $record->deposit_percent;
+            $depositAmt  = (int) $record->full_amount;
+            $realTotal   = $depPct > 0 ? (int) round($depositAmt * 100 / $depPct) : $depositAmt;
+            $depExtra    = (int) ($record->extra_charge_amount ?? 0);
+            $baseRemain  = max(0, $realTotal - $depositAmt);
+            $remain2     = $baseRemain + $depExtra;
+            $isFullPaid  = $record->status === 'paid';
+            $isDepPaid   = in_array($record->status, ['deposit', 'paid']);
+            $hasDepExtra = $depExtra > 0 && !$isFullPaid;
         @endphp
         <div style="margin-top:0.75rem; border:1px solid #fde68a; border-radius:0.625rem; overflow:hidden;">
             {{-- Header --}}
@@ -462,6 +464,26 @@
                     @endif
                 </div>
             </div>
+            {{-- Phát sinh thêm (nếu có) --}}
+            @if($hasDepExtra)
+            <div style="padding:0.4rem 0.75rem; background:#fff7ed; border-top:1px solid #fde68a; display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:0.7rem; color:#c2410c; display:flex; align-items:center; gap:0.3rem;">
+                    <x-heroicon-o-plus-circle style="width:0.75rem; height:0.75rem; flex-shrink:0;" />
+                    Phát sinh thêm (cộng vào lần thanh toán còn lại)
+                </span>
+                <span style="font-size:0.75rem; font-weight:700; color:#c2410c; white-space:nowrap; margin-left:0.5rem;">
+                    +{{ number_format($depExtra, 0, ',', '.') }}đ
+                </span>
+            </div>
+            <div style="padding:0.35rem 0.75rem; background:#fff7ed; display:flex; justify-content:space-between; align-items:center; border-top:1px dashed #fde68a;">
+                <span style="font-size:0.7rem; color:#92400e;">
+                    {{ number_format($baseRemain, 0, ',', '.') }}đ (gốc) + {{ number_format($depExtra, 0, ',', '.') }}đ (phát sinh)
+                </span>
+                <span style="font-size:0.8rem; font-weight:700; color:#dc2626; white-space:nowrap; margin-left:0.5rem;">
+                    = {{ number_format($remain2, 0, ',', '.') }}đ
+                </span>
+            </div>
+            @endif
             {{-- Note --}}
             <div style="padding:0.4rem 0.75rem; background:#fffbeb; border-top:1px solid #fde68a;">
                 @if($isFullPaid)

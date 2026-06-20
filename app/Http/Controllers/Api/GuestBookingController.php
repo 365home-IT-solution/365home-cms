@@ -1584,8 +1584,6 @@ class GuestBookingController extends Controller
                 'percentage'       => $depositPct,
                 'deposit_amount'   => (int) $order->full_amount,
                 'remaining_amount' => max(0, $realFinalAmount - (int) $order->full_amount) + (int) ($order->extra_charge_amount ?? 0),
-                'checkout_url'     => $order->remaining_checkout_url ?? null,
-                'qr_code'          => $order->remaining_qr_code ?? null,
             ] : null,
             'summary' => [
                 'slots_total'          => $slotsTotal,

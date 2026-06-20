@@ -456,7 +456,7 @@ class OrderController extends Controller
                 'type'             => 'deposit',
                 'percentage'       => $depositPctResp,
                 'deposit_amount'   => $newFullAmt,
-                'remaining_amount' => max(0, $realFinalAmount - $newFullAmt),
+                'remaining_amount' => max(0, $realFinalAmount - $newFullAmt) + (int) ($order->extra_charge_amount ?? 0),
             ] : null,
             'summary' => [
                 'slots_total'          => $slotsTotal,
