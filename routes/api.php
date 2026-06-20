@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Auth\ZaloOtpController;
+use App\Http\Controllers\Api\ConfigController;
 use App\Http\Controllers\Api\MembershipController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\Admin\ChatController as AdminChatController;
@@ -60,7 +61,9 @@ Route::get('room-types', [RoomTypeController::class, 'index'])->name('api.room-t
 |--------------------------------------------------------------------------
 */
 Route::prefix('v1')->name('api.v1.')->group(function () {
-    Route::get('home', HomeController::class)->name('home');
+    Route::get('home',   HomeController::class)->name('home');
+    Route::get('config',     ConfigController::class)->name('config');
+    Route::get('config/map', [ConfigController::class, 'map'])->name('config.map');
 
     /*
     |--------------------------------------------------------------------------
