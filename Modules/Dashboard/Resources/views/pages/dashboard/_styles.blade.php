@@ -2269,12 +2269,12 @@
     .ta-pop-order-note {
         margin-top: 4px;
         font-size: 11px;
-        color: #6B7280;
+        color: #92400E;
         font-style: italic;
         line-height: 1.4;
         padding: 3px 6px;
-        background: #F9FAFB;
-        border-left: 2px solid #D1D5DB;
+        background: #FEF9C3;
+        border-left: 2px solid #FCD34D;
         border-radius: 0 4px 4px 0;
     }
 
