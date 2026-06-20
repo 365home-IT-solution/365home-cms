@@ -842,6 +842,13 @@ class EditOrder extends EditRecord
             if ($order->status === 'deposit') {
                 $extraChargeService->applyDiffToDeposit($order, $diff);
 
+                // Tính remaining mới sau khi full_amount đã được cập nhật
+                $order->refresh();
+                $depositPct   = (int) $order->deposit_percent;
+                $depositPaid  = (int) $order->full_amount;
+                $newRealTotal = $depositPct > 0 ? (int) round($depositPaid * 100 / $depositPct) : $depositPaid;
+                $newRemaining = $newRealTotal - $depositPaid;
+
                 $label = $diff > 0
                     ? 'Phần còn lại tăng thêm ' . number_format($diff, 0, ',', '.') . 'đ'
                     : 'Phần còn lại giảm ' . number_format(abs($diff), 0, ',', '.') . 'đ';
@@ -849,17 +856,40 @@ class EditOrder extends EditRecord
                 // Notify admin (Filament)
                 Notification::make()
                     ->title($label)
-                    ->body('Khách hàng sẽ thanh toán phần còn lại đã cập nhật khi check-out.')
+                    ->body('Số tiền còn lại: ' . number_format($newRemaining, 0, ',', '.') . 'đ. Khách thanh toán khi check-out.')
                     ->info()
                     ->send();
 
-                // Notify khách
-                $clientTitle = "Đơn #{$order->order_code}: phần còn lại đã thay đổi";
-                $clientBody  = $diff > 0
-                    ? 'Dịch vụ/số người bổ sung làm tăng ' . number_format($diff, 0, ',', '.') . 'đ phần thanh toán còn lại.'
-                    : 'Phần thanh toán còn lại giảm ' . number_format(abs($diff), 0, ',', '.') . 'đ.';
+                // WS realtime → app khách cập nhật deposit block ngay
+                try {
+                    app(OrderRealtimeService::class)->broadcastOrderUpdate(
+                        (string) $order->order_code,
+                        [
+                            'deposit' => [
+                                'remaining_amount' => $newRemaining,
+                                'qr_code'          => null,
+                                'checkout_url'     => null,
+                            ],
+                            'summary' => [
+                                'grand_total' => $newRealTotal,
+                            ],
+                        ],
+                        $order->customer_id ? (int) $order->customer_id : null,
+                    );
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('handlePriceDiff: deposit broadcastOrderUpdate failed', [
+                        'order_id' => $order->id,
+                        'error'    => $e->getMessage(),
+                    ]);
+                }
 
-                $this->pushClientNotification($order, $notifService, $clientTitle, $clientBody, 'order_extra_charge', $extra);
+                // FCM notify khách
+                $clientTitle = "Đơn #{$order->order_code}: số tiền còn lại đã thay đổi";
+                $clientBody  = $diff > 0
+                    ? 'Dịch vụ/số người bổ sung làm tăng ' . number_format($diff, 0, ',', '.') . 'đ. Số tiền còn lại: ' . number_format($newRemaining, 0, ',', '.') . 'đ.'
+                    : 'Điều chỉnh giảm ' . number_format(abs($diff), 0, ',', '.') . 'đ. Số tiền còn lại: ' . number_format($newRemaining, 0, ',', '.') . 'đ.';
+
+                $this->pushClientNotification($order, $notifService, $clientTitle, $clientBody, 'order_deposit_updated', $extra);
 
                 return;
             }
