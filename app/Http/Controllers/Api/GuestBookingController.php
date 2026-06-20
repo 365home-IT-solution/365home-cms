@@ -772,14 +772,14 @@ class GuestBookingController extends Controller
         $depositPct  = (int) $order->deposit_percent;
         $depositPaid = (int) $order->full_amount;
         $realTotal   = $depositPct > 0 ? (int) round($depositPaid * 100 / $depositPct) : $depositPaid;
-        $remaining   = $realTotal - $depositPaid;
+        $extraCharge = (int) ($order->extra_charge_amount ?? 0);
+        $remaining   = ($realTotal - $depositPaid) + $extraCharge;
 
         if ($order->remaining_checkout_url && $order->remaining_payos_code) {
             return response()->json([
-                'order_code'   => $order->order_code,
-                'checkout_url' => $order->remaining_checkout_url,
-                'qr_code'      => $order->remaining_qr_code,
-                'amount'       => $remaining,
+                'order_code' => $order->order_code,
+                'qr_code'    => $order->remaining_qr_code,
+                'amount'     => $remaining,
             ]);
         }
 
@@ -830,9 +830,8 @@ class GuestBookingController extends Controller
             ]);
 
             return response()->json([
-                'order_code'   => $order->order_code,
-                'checkout_url' => $checkoutUrl,
-                'qr_code'      => $qrCode,
+                'order_code' => $order->order_code,
+                'qr_code'    => $qrCode,
                 'amount'       => $remaining,
                 'expired_at'   => $expiredAt->toIso8601String(),
             ]);
@@ -1584,7 +1583,7 @@ class GuestBookingController extends Controller
                 'type'             => 'deposit',
                 'percentage'       => $depositPct,
                 'deposit_amount'   => (int) $order->full_amount,
-                'remaining_amount' => max(0, $realFinalAmount - (int) $order->full_amount),
+                'remaining_amount' => max(0, $realFinalAmount - (int) $order->full_amount) + (int) ($order->extra_charge_amount ?? 0),
                 'checkout_url'     => $order->remaining_checkout_url ?? null,
                 'qr_code'          => $order->remaining_qr_code ?? null,
             ] : null,

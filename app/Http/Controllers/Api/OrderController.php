@@ -597,7 +597,8 @@ class OrderController extends Controller
         $depositPct  = (int) $order->deposit_percent;
         $depositPaid = (int) $order->full_amount;
         $realTotal   = $depositPct > 0 ? (int) round($depositPaid * 100 / $depositPct) : $depositPaid;
-        $remaining   = $realTotal - $depositPaid;
+        $extraCharge = (int) ($order->extra_charge_amount ?? 0);
+        $remaining   = ($realTotal - $depositPaid) + $extraCharge;
 
         if ($order->remaining_checkout_url && $order->remaining_payos_code) {
             return response()->json([
@@ -981,7 +982,7 @@ class OrderController extends Controller
                 'type'             => 'deposit',
                 'percentage'       => $depositPctDetail,
                 'deposit_amount'   => (int) $order->full_amount,
-                'remaining_amount' => max(0, $realFinalDetail - (int) $order->full_amount),
+                'remaining_amount' => max(0, $realFinalDetail - (int) $order->full_amount) + (int) ($order->extra_charge_amount ?? 0),
             ] : null,
 
             'summary' => [

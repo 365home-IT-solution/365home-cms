@@ -60,30 +60,26 @@ class ExtraChargeService
      */
     public function applyDiffToDeposit(Order $order, int $diff): void
     {
-        // full_amount stores deposit paid (not full price).
-        // remaining = full_amount × (100 - pct) / pct
-        // To make remaining increase by exactly $diff, we must add diff × pct / (100 - pct).
-        // For 50%: adjustedDiff = diff × 50/50 = diff (why 50% worked before).
-        $pct = (int) $order->deposit_percent;
-        $adjustedDiff = ($pct > 0 && $pct < 100)
-            ? (int) ceil($diff * $pct / (100 - $pct))
-            : $diff;
-
-        $newFull = max(0, (int) $order->full_amount + $adjustedDiff);
+        // full_amount = deposit đã thu (KHÔNG thay đổi).
+        // Extra charge được cộng dồn vào extra_charge_amount.
+        // remaining_payment API sẽ cộng extra_charge_amount vào remaining khi tính link QR.
+        $currentExtra = (int) ($order->extra_charge_amount ?? 0);
+        $newExtra     = $currentExtra + $diff;
 
         $order->update([
-            'full_amount'              => $newFull,
-            'remaining_payos_code'     => null,
-            'remaining_checkout_url'   => null,
-            'remaining_qr_code'        => null,
+            'extra_charge_amount'    => $newExtra !== 0 ? $newExtra : null,
+            'remaining_payos_code'   => null,
+            'remaining_checkout_url' => null,
+            'remaining_qr_code'      => null,
         ]);
 
-        Log::info('ExtraCharge: deposit full_amount updated', [
+        Log::info('ExtraCharge: deposit extra_charge_amount updated', [
             'order_id'      => $order->id,
-            'deposit_pct'   => $pct,
+            'deposit_pct'   => $order->deposit_percent,
             'diff'          => $diff,
-            'adjusted_diff' => $adjustedDiff,
-            'new_full'      => $newFull,
+            'old_extra'     => $currentExtra,
+            'new_extra'     => $newExtra,
+            'full_amount'   => $order->full_amount,
         ]);
     }
 

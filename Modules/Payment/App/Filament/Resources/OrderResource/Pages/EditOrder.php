@@ -842,12 +842,13 @@ class EditOrder extends EditRecord
             if ($order->status === 'deposit') {
                 $extraChargeService->applyDiffToDeposit($order, $diff);
 
-                // Tính remaining mới sau khi full_amount đã được cập nhật
+                // full_amount KHÔNG đổi — remaining = (realTotal - depositPaid) + extraCharge
                 $order->refresh();
                 $depositPct   = (int) $order->deposit_percent;
                 $depositPaid  = (int) $order->full_amount;
                 $newRealTotal = $depositPct > 0 ? (int) round($depositPaid * 100 / $depositPct) : $depositPaid;
-                $newRemaining = $newRealTotal - $depositPaid;
+                $extraCharge  = (int) ($order->extra_charge_amount ?? 0);
+                $newRemaining = ($newRealTotal - $depositPaid) + $extraCharge;
 
                 $label = $diff > 0
                     ? 'Phần còn lại tăng thêm ' . number_format($diff, 0, ',', '.') . 'đ'

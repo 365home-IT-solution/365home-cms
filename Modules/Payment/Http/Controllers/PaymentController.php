@@ -311,10 +311,23 @@ private function buildTelegramMessage(Order $order, string $status): string
     private function handleRemainingPayment(Order $order): bool
     {
         try {
+            // full_amount = tiền cọc đã thu (không đổi).
+            // extra_charge_amount = khoản phát sinh được cộng vào remaining khi deposit.
+            // Tổng thực thu = realTotal + extra_charge_amount.
+            $depositPct  = (int) ($order->deposit_percent ?? 0);
+            $depositPaid = (int) $order->full_amount;
+            $realTotal   = $depositPct > 0
+                ? (int) round($depositPaid * 100 / $depositPct)
+                : $depositPaid;
+            $extraCharge = (int) ($order->extra_charge_amount ?? 0);
+            $totalPaid   = $realTotal + $extraCharge;
+
             $order->update([
-                'status'             => 'paid',
-                'amount'             => $order->full_amount ?? $order->amount,
-                'remaining_paid_at'  => now(),
+                'status'              => 'paid',
+                'full_amount'         => $totalPaid,
+                'amount'              => $totalPaid,
+                'extra_charge_amount' => null,
+                'remaining_paid_at'   => now(),
             ]);
 
             Log::info('Order remaining payment received', [
@@ -758,9 +771,13 @@ private function buildTelegramMessage(Order $order, string $status): string
                 ]);
             }
 
-            $fullAmount    = (int) ($order->full_amount ?? $order->amount);
-            $paidAmount    = (int) $order->amount;
-            $remaining     = $fullAmount - $paidAmount;
+            $depositPct  = (int) ($order->deposit_percent ?? 0);
+            $depositPaid = (int) $order->full_amount;
+            $realTotal   = $depositPct > 0
+                ? (int) round($depositPaid * 100 / $depositPct)
+                : $depositPaid;
+            $extraCharge = (int) ($order->extra_charge_amount ?? 0);
+            $remaining   = ($realTotal - $depositPaid) + $extraCharge;
 
             if ($remaining <= 0) {
                 return response()->json(['error' => 1, 'message' => 'Không còn khoản cọc còn lại.'], 422);
