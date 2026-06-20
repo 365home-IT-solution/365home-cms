@@ -1,0 +1,81 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Modules\Payment\App\Filament\Resources\OrderResource\Tables\Actions;
+
+use App\Services\TTLockService;
+use Filament\Notifications\Notification;
+use Filament\Tables\Actions\Action;
+use Illuminate\Support\Facades\Log;
+use Modules\Payment\Entities\Order;
+
+class OpenGateAction
+{
+    public static function make(): Action
+    {
+        return Action::make('openGate')
+            ->label('Mở cổng tự do')
+            ->icon('heroicon-o-lock-open')
+            ->color('warning')
+            ->visible(function (Order $record): bool {
+                if (!in_array($record->status, ['paid', 'deposit'])) {
+                    return false;
+                }
+                $product = $record->items->first()?->product;
+                if (!$product || !$product->lock_id) {
+                    return false;
+                }
+                return TTLockService::forCategory($record->category_id) !== null;
+            })
+            ->requiresConfirmation()
+            ->modalHeading(fn (Order $record) => "Mở cổng — Đơn #{$record->order_code}")
+            ->modalDescription('Hệ thống sẽ gửi lệnh mở khóa TTLock ngay lập tức. Chỉ dùng khi cần hỗ trợ khách vào phòng khẩn cấp.')
+            ->modalSubmitActionLabel('Mở cổng ngay')
+            ->action(function (Order $record): void {
+                $record->load('items.product');
+                $product = $record->items->first()?->product;
+
+                if (!$product || !$product->lock_id) {
+                    Notification::make()
+                        ->title('Phòng này không có TTLock')
+                        ->danger()
+                        ->send();
+                    return;
+                }
+
+                $ttlock = TTLockService::forCategory($record->category_id);
+                if (!$ttlock) {
+                    Notification::make()
+                        ->title('Chi nhánh chưa kết nối TTLock')
+                        ->danger()
+                        ->send();
+                    return;
+                }
+
+                $success = $ttlock->remoteUnlock((int) $product->lock_id);
+
+                Log::info('OpenGateAction', [
+                    'order_id'   => $record->id,
+                    'order_code' => $record->order_code,
+                    'lock_id'    => $product->lock_id,
+                    'success'    => $success,
+                    'admin'      => auth()->user()?->email,
+                ]);
+
+                if ($success) {
+                    Notification::make()
+                        ->title("Đã mở cổng — Đơn #{$record->order_code}")
+                        ->body('Lệnh mở khóa đã được gửi thành công đến TTLock.')
+                        ->success()
+                        ->send();
+                } else {
+                    Notification::make()
+                        ->title('Mở cổng thất bại')
+                        ->body('TTLock không phản hồi hoặc tính năng Remote Unlock chưa được bật trên khóa.')
+                        ->danger()
+                        ->send();
+                }
+            });
+    }
+}

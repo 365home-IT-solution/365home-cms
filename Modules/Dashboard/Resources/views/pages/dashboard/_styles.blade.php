@@ -2266,6 +2266,18 @@
         white-space: nowrap;
     }
 
+    .ta-pop-order-note {
+        margin-top: 4px;
+        font-size: 11px;
+        color: #6B7280;
+        font-style: italic;
+        line-height: 1.4;
+        padding: 3px 6px;
+        background: #F9FAFB;
+        border-left: 2px solid #D1D5DB;
+        border-radius: 0 4px 4px 0;
+    }
+
     .ta-pop-status-pill {
         display: inline-flex;
         align-items: center;

@@ -13,6 +13,7 @@ class OrderAction
     {
         return [
             AssignAccessCodeAction::make(),
+            OpenGateAction::make(),
             ActionGroup::make([
                 ViewAction::make()->label('Xem chi tiết'),
                 EditAction::make()->label('Cập nhật'),
