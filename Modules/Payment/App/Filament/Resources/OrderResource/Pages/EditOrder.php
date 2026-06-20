@@ -139,7 +139,12 @@ class EditOrder extends EditRecord
                 ->label(fn () => $this->record->hasAccessCode() ? 'Cấp lại mã cổng' : 'Gán mã cổng')
                 ->icon(fn () => $this->record->hasAccessCode() ? 'heroicon-m-arrow-path' : 'heroicon-m-key')
                 ->color(fn () => $this->record->hasAccessCode() ? 'warning' : 'success')
-                ->visible(fn () => (auth()->user()?->can('update_order') ?? false) && in_array($this->record->status, ['paid', 'deposit']))
+                ->visible(function (): bool {
+                    if (!(auth()->user()?->can('update_order') ?? false)) return false;
+                    if (!in_array($this->record->status, ['paid', 'deposit'])) return false;
+                    $product = $this->record->items->first()?->product;
+                    return $product && ($product->has_manual_lock || $product->lock_id !== null);
+                })
                 ->requiresConfirmation()
                 ->modalHeading(fn () => $this->record->hasAccessCode() ? 'Cấp lại mã cổng' : 'Gán mã cổng cho đơn hàng')
                 ->modalDescription(fn () => $this->record->hasAccessCode()
@@ -170,21 +175,53 @@ class EditOrder extends EditRecord
                             $product,
                         );
 
-                        // Notify realtime + FCM đến khách
+                        // Notify realtime + FCM đến khách theo loại khóa
                         $notifService = app(\App\Services\NotificationFcmService::class);
-                        $title        = "Đơn #{$record->order_code}: mã cổng đã được cấp";
-                        $body         = 'Mã cổng của bạn đã sẵn sàng. Vui lòng kiểm tra trong chi tiết đơn hàng.';
                         $extra        = ['order_code' => (string) $record->order_code, 'type' => 'order_access_code'];
-                        $this->pushClientNotification($record, $notifService, $title, $body, 'order_access_code', $extra);
+                        $notifTitle   = null;
+                        $notifBody    = null;
+                        $wsPayload    = ['access_code_assigned' => true];
+                        $adminMsg     = 'Đã gán mã cổng';
 
-                        app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
-                            (string) $record->order_code,
-                            ['access_code_assigned' => true],
-                            $record->customer_id ? (int) $record->customer_id : null,
-                        );
+                        if ($product && $product->has_manual_lock) {
+                            // Phòng mật khẩu thủ công → gửi mã thực tế
+                            $manualPwd = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($product, $checkinDate);
+                            if ($manualPwd && ($manualPwd->gate_password || $manualPwd->room_password)) {
+                                $parts = [];
+                                if ($manualPwd->gate_password) $parts[] = 'Mã cổng: ' . $manualPwd->gate_password;
+                                if ($manualPwd->room_password) $parts[] = 'Mã phòng: ' . $manualPwd->room_password;
+                                $notifTitle = "Đơn #{$record->order_code}: Mã cổng đã được cấp";
+                                $notifBody  = implode(' | ', $parts);
+                                $wsPayload  = [
+                                    'access_code_assigned' => true,
+                                    'lock_type'            => 'manual',
+                                    'gate_password'        => $manualPwd->gate_password,
+                                    'room_password'        => $manualPwd->room_password,
+                                ];
+                                $adminMsg = 'Đã cấp: ' . implode(' | ', $parts);
+                            }
+                        } elseif ($product && $product->lock_id && \App\Services\TTLockService::forCategory($record->category_id)) {
+                            // Phòng TTLock
+                            $notifTitle = "Đơn #{$record->order_code}: Mã cổng đã sẵn sàng";
+                            $notifBody  = 'Bạn có thể mở cửa trực tiếp từ ứng dụng.';
+                            $wsPayload  = ['access_code_assigned' => true, 'lock_type' => 'ttlock'];
+                            $adminMsg   = 'Đã cấp TTLock: ' . ($code?->code ?? '-');
+                        } elseif ($code) {
+                            // Pool AccessCode (không có thông báo khách — phòng không cần hiển thị code)
+                            $adminMsg = 'Đã gán mã cổng: ' . $code->code;
+                        }
+
+                        if ($notifTitle && $notifBody) {
+                            $this->pushClientNotification($record, $notifService, $notifTitle, $notifBody, 'order_access_code', $extra);
+                            app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
+                                (string) $record->order_code,
+                                $wsPayload,
+                                $record->customer_id ? (int) $record->customer_id : null,
+                            );
+                        }
 
                         Notification::make()
-                            ->title('Đã gán mã cổng: ' . $code->code)
+                            ->title($adminMsg)
                             ->success()
                             ->send();
 

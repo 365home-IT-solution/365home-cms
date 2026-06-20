@@ -291,27 +291,57 @@ private function buildTelegramMessage(Order $order, string $status): string
                 $order->id, $categoryId, $checkinDate, $checkoutDate, $product
             );
 
-            // FCM + WS → khách biết mã cổng đã sẵn sàng
+            // FCM + WS theo loại khóa của phòng
             try {
-                $notifService = app(\App\Services\NotificationFcmService::class);
-                $title        = "Đơn #{$order->order_code}: Mã cổng đã sẵn sàng";
-                $body         = 'Mã cổng của bạn đã được gán. Vui lòng kiểm tra trong chi tiết đơn hàng.';
-                $extra        = ['order_code' => (string) $order->order_code, 'type' => 'order_access_code'];
+                $order->loadMissing(['items.product']);
+                $checkinDate = $order->items->min('checkin_date');
+                $notifTitle  = null;
+                $notifBody   = null;
+                $wsPayload   = ['access_code_assigned' => true];
 
-                if (is_null($order->customer_id) && $order->device_token) {
-                    $notifService->sendToGuestToken($order->device_token, $title, $body, 'order_access_code', $extra);
-                } elseif ($order->customer_id) {
-                    $customer = $order->customer;
-                    if ($customer) {
-                        $notifService->sendToCustomer($customer, $title, $body, 'order_access_code', $extra);
+                if ($product && $product->has_manual_lock) {
+                    // Phòng có mật khẩu thủ công (ManualLockPassword) → gửi mã thực tế
+                    $manualPwd = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($product, $checkinDate);
+                    if ($manualPwd && ($manualPwd->gate_password || $manualPwd->room_password)) {
+                        $parts = [];
+                        if ($manualPwd->gate_password) $parts[] = 'Mã cổng: ' . $manualPwd->gate_password;
+                        if ($manualPwd->room_password) $parts[] = 'Mã phòng: ' . $manualPwd->room_password;
+                        $notifTitle = "Đơn #{$order->order_code}: Mã cổng đã được cấp";
+                        $notifBody  = implode(' | ', $parts);
+                        $wsPayload  = [
+                            'access_code_assigned' => true,
+                            'lock_type'            => 'manual',
+                            'gate_password'        => $manualPwd->gate_password,
+                            'room_password'        => $manualPwd->room_password,
+                        ];
                     }
+                } elseif ($product && $product->lock_id && \App\Services\TTLockService::forCategory($order->category_id)) {
+                    // Phòng TTLock → thông báo có thể mở từ app
+                    $notifTitle = "Đơn #{$order->order_code}: Mã cổng đã sẵn sàng";
+                    $notifBody  = 'Bạn có thể mở cửa trực tiếp từ ứng dụng.';
+                    $wsPayload  = ['access_code_assigned' => true, 'lock_type' => 'ttlock'];
                 }
+                // Phòng không có pass → không gửi thông báo
 
-                app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
-                    (string) $order->order_code,
-                    ['access_code_assigned' => true],
-                    $order->customer_id ? (int) $order->customer_id : null,
-                );
+                if ($notifTitle && $notifBody) {
+                    $notifService = app(\App\Services\NotificationFcmService::class);
+                    $extra        = ['order_code' => (string) $order->order_code, 'type' => 'order_access_code'];
+
+                    if (is_null($order->customer_id) && $order->device_token) {
+                        $notifService->sendToGuestToken($order->device_token, $notifTitle, $notifBody, 'order_access_code', $extra);
+                    } elseif ($order->customer_id) {
+                        $customer = $order->customer;
+                        if ($customer) {
+                            $notifService->sendToCustomer($customer, $notifTitle, $notifBody, 'order_access_code', $extra);
+                        }
+                    }
+
+                    app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
+                        (string) $order->order_code,
+                        $wsPayload,
+                        $order->customer_id ? (int) $order->customer_id : null,
+                    );
+                }
             } catch (\Throwable $e) {
                 Log::warning('handleSuccessfulPayment: access code notification failed', [
                     'order_id' => $order->id,
