@@ -238,6 +238,11 @@ class OrderObserver
             $this->deductMembershipSpending($order);
         }
 
+        // Mọi transition khác → paid (failed/cancelled/... → paid): tích điểm
+        if ($newStatus === 'paid') {
+            $this->accumulateMembershipSpending($order);
+        }
+
         $map = [
             'paid'      => ['title' => 'Đơn đã thanh toán đủ',  'icon' => 'heroicon-o-check-circle', 'color' => 'success'],
             'deposit'   => ['title' => 'Đơn đã đặt cọc',        'icon' => 'heroicon-o-banknotes',    'color' => 'warning'],
