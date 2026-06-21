@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\CouponController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\OrderServiceController;
 use App\Http\Controllers\Api\HomeController;
+use App\Http\Controllers\Api\ProvinceController;
 use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\LockRecordCallbackController;
 use App\Http\Controllers\Api\UnlockController;
@@ -56,12 +57,14 @@ Route::get('room-types', [RoomTypeController::class, 'index'])->name('api.room-t
 /*
 |--------------------------------------------------------------------------
 | V1 — Home
-| GET /api/v1/home           → Full sections (banner + room_list)
-| GET /api/v1/home?tab={id}  → Banner + room_list lọc theo tab
+| GET /api/v1/home                  → Full sections (banner + room_list)
+| GET /api/v1/home?tab={id}         → Banner + room_list lọc theo tab
+| GET /api/v1/provinces/{slug}      → Chi tiết tỉnh/thành phố + danh sách chi nhánh
 |--------------------------------------------------------------------------
 */
 Route::prefix('v1')->name('api.v1.')->group(function () {
-    Route::get('home',   HomeController::class)->name('home');
+    Route::get('home',               HomeController::class)->name('home');
+    Route::get('provinces/{slug}',   [ProvinceController::class, 'show'])->name('provinces.show');
     Route::get('config',     ConfigController::class)->name('config')->middleware('throttle:config');
     Route::get('config/map', [ConfigController::class, 'map'])->name('config.map')->middleware('throttle:config');
 

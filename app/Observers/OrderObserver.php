@@ -296,6 +296,24 @@ class OrderObserver
             old: $order->only(['order_code', 'buyer_name', 'buyer_phone', 'amount', 'status']),
             label: "#{$order->order_code} — {$order->buyer_name}",
         );
+
+        // Trừ lại chi tiêu khi xóa đơn đã thanh toán
+        if ($order->status === 'paid' && $order->customer_id && ! $order->exclude_from_stats) {
+            $customer = Customer::find($order->customer_id);
+            if ($customer) {
+                $amount = (float) ($order->full_amount ?? $order->amount ?? 0);
+                if ($amount > 0) {
+                    try {
+                        $newSpending = max(0, (float) $customer->total_spending - $amount);
+                        $customer->update(['total_spending' => $newSpending]);
+                        $customer->refresh();
+                        app(MembershipService::class)->recalculateTier($customer);
+                    } catch (\Throwable $e) {
+                        \Illuminate\Support\Facades\Log::warning('MembershipService: deduct spending on delete failed: ' . $e->getMessage());
+                    }
+                }
+            }
+        }
     }
 
     private function buildGuestCheckinBody(Order $order, string $prefix): string
