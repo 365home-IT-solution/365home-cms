@@ -30,7 +30,7 @@ class ProvinceResource extends Resource
     protected static ?string $model = Province::class;
 
     protected static ?string $navigationIcon   = 'heroicon-o-map-pin';
-    protected static ?string $navigationGroup  = 'Cấu hình web';
+    protected static ?string $navigationGroup  = 'Quản lý API';
     protected static ?string $navigationLabel  = 'Tỉnh/Thành phố';
     protected static ?string $modelLabel       = 'Tỉnh/Thành phố';
     protected static ?string $pluralModelLabel = 'Tỉnh/Thành phố';

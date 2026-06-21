@@ -9,6 +9,7 @@ use App\Models\Wishlist;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Storage;
+use App\Models\Province;
 use Modules\AppPage\App\Models\AppPage;
 use Modules\AppPage\App\Models\Banner;
 use Modules\Category\Entities\Category;
@@ -18,7 +19,7 @@ class AppPageController extends Controller
 {
     use BuildsRoomCard;
 
-    private const SUPPORTED_BLOCKS = ['room_list', 'banner'];
+    private const SUPPORTED_BLOCKS = ['room_list', 'banner', 'province_list'];
 
     public function show(string $slug): JsonResponse
     {
@@ -52,9 +53,10 @@ class AppPageController extends Controller
         $data = $block['data'] ?? [];
 
         return match ($type) {
-            'banner'    => $this->buildBanner($data, $index),
-            'room_list' => $this->buildRoomList($data, $index, $wishlistedIds),
-            default     => [],
+            'banner'        => $this->buildBanner($data, $index),
+            'room_list'     => $this->buildRoomList($data, $index, $wishlistedIds),
+            'province_list' => $this->buildProvinceList($data, $index),
+            default         => [],
         };
     }
 
@@ -124,6 +126,44 @@ class AppPageController extends Controller
             'text_color' => $data['badge_text_color'] ?? '#1F2937',
         ];
     }
+
+    // ─── Province list ───────────────────────────────────────────────────────
+
+    private function buildProvinceList(array $data, int $index): array
+    {
+        $provinceIds = collect($data['items'] ?? [])
+            ->pluck('province_id')
+            ->filter()
+            ->values()
+            ->toArray();
+
+        $provincesById = Province::whereIn('id', $provinceIds)
+            ->get()
+            ->keyBy('id');
+
+        $items = collect($provinceIds)
+            ->map(fn ($id) => $provincesById->get($id))
+            ->filter()
+            ->map(fn (Province $province) => [
+                'id'        => $province->id,
+                'name'      => $province->name,
+                'slug'      => $province->slug,
+                'image_url' => $province->image
+                    ? Storage::disk('public')->url($province->image)
+                    : null,
+            ])
+            ->values()
+            ->toArray();
+
+        return [
+            'type'       => 'province',
+            'id'         => $index + 1,
+            'sort_order' => $index + 1,
+            'items'      => $items,
+        ];
+    }
+
+    // ─── Room list ───────────────────────────────────────────────────────────
 
     private function getRooms(array $data, ?array $wishlistedIds): array
     {
