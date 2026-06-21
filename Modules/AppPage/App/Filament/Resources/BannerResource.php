@@ -83,7 +83,6 @@ class BannerResource extends Resource
                         ->options([
                             'public' => 'Public (local)',
                             's3'     => 'Amazon S3',
-                            'r2'     => 'Cloudflare R2',
                         ])
                         ->default('public')
                         ->required()
@@ -113,7 +112,7 @@ class BannerResource extends Resource
             ->columns([
                 ImageColumn::make('image')
                     ->label('Ảnh')
-                    ->disk(fn ($record) => $record->disk ?? 'public')
+                    ->disk(fn ($record) => in_array($record->disk, ['public', 's3']) ? $record->disk : 'public')
                     ->height(60)
                     ->width(100),
 
