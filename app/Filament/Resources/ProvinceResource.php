@@ -72,7 +72,13 @@ class ProvinceResource extends Resource
                     ->schema([
                         Select::make('categorie_id')
                             ->label('Danh mục')
-                            ->options(Category::where('category_type', 'product')->orderBy('name')->pluck('name', 'id'))
+                            ->options(
+                                Category::where('category_type', 'product')
+                                    ->where('status', true)
+                                    ->whereNull('parent_id')
+                                    ->orderBy('name')
+                                    ->pluck('name', 'id')
+                            )
                             ->searchable()
                             ->required(),
 

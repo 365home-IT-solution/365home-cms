@@ -96,7 +96,7 @@ class BannerResource extends Resource
 
                 FileUpload::make('image')
                     ->label('Ảnh banner')
-                    ->disk(fn ($get) => $get('disk') ?? 'public')
+                    ->disk(fn ($get) => (['public' => 1, 's3' => 1][$get('disk')] ?? null) ? $get('disk') : 'public')
                     ->directory('banners')
                     ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp', 'image/avif'])
                     ->maxSize(5120)
