@@ -76,6 +76,13 @@ class BookingController extends Controller
         $buyerName  = $customer->fullname;
         $buyerPhone = $customer->phone;
 
+        if (empty($customer->cccd_front) || empty($customer->cccd_back) || empty($customer->cccd_data)) {
+            return response()->json([
+                'message' => 'Bạn cần cập nhật CCCD/CMND vào tài khoản trước khi đặt phòng.',
+                'error'   => 'cccd_required',
+            ], 422);
+        }
+
         // ── 3. Load phòng ─────────────────────────────────────────────────────
         $room = Product::where('id', $request->input('room_id'))
             ->where('is_activated', true)

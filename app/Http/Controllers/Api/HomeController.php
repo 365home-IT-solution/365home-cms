@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Concerns\BuildsRoomCard;
+use App\Models\Province;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -44,7 +45,7 @@ class HomeController extends Controller
             : null;
 
         $sections = collect($page->content ?? [])
-            ->filter(fn ($block) => in_array($block['type'] ?? '', ['banner', 'room_list']))
+            ->filter(fn ($block) => in_array($block['type'] ?? '', ['banner', 'room_list', 'province_list']))
             ->values()
             ->map(fn ($block, $index) => $this->buildBlock($block, $index, $wishlistedIds, $tabRoomTypeId))
             ->filter()
@@ -61,9 +62,10 @@ class HomeController extends Controller
     private function buildBlock(array $block, int $index, ?array $wishlistedIds, ?int $tabRoomTypeId): ?array
     {
         return match ($block['type']) {
-            'banner'    => $this->buildBanner($block['data'] ?? [], $index),
-            'room_list' => $this->buildRoomList($block['data'] ?? [], $index, $wishlistedIds, $tabRoomTypeId),
-            default     => null,
+            'banner'        => $this->buildBanner($block['data'] ?? [], $index),
+            'room_list'     => $this->buildRoomList($block['data'] ?? [], $index, $wishlistedIds, $tabRoomTypeId),
+            'province_list' => $this->buildProvinceList($block['data'] ?? [], $index),
+            default         => null,
         };
     }
 
@@ -98,6 +100,42 @@ class HomeController extends Controller
 
         return [
             'type'       => 'banner',
+            'id'         => $index + 1,
+            'sort_order' => $index + 1,
+            'items'      => $items,
+        ];
+    }
+
+    // ─── Province list ───────────────────────────────────────────────────────
+
+    private function buildProvinceList(array $data, int $index): array
+    {
+        $provinceIds = collect($data['items'] ?? [])
+            ->pluck('province_id')
+            ->filter()
+            ->values()
+            ->toArray();
+
+        $provincesById = Province::whereIn('id', $provinceIds)
+            ->get()
+            ->keyBy('id');
+
+        $items = collect($provinceIds)
+            ->map(fn ($id) => $provincesById->get($id))
+            ->filter()
+            ->map(fn (Province $province) => [
+                'id'        => $province->id,
+                'name'      => $province->name,
+                'slug'      => $province->slug,
+                'image_url' => $province->image
+                    ? Storage::disk('public')->url($province->image)
+                    : null,
+            ])
+            ->values()
+            ->toArray();
+
+        return [
+            'type'       => 'province',
             'id'         => $index + 1,
             'sort_order' => $index + 1,
             'items'      => $items,

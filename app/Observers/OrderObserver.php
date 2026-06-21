@@ -319,6 +319,11 @@ class OrderObserver
 
     private function accumulateMembershipSpending(Order $order): void
     {
+        // Chỉ tích điểm khi đơn đã thanh toán thành công
+        if ($order->status !== 'paid') {
+            return;
+        }
+
         if (! $order->customer_id || $order->exclude_from_stats) {
             return;
         }

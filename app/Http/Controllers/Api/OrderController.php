@@ -722,8 +722,19 @@ class OrderController extends Controller
             switch ($status) {
                 case 'PAID':
                     if ($isRemaining) {
+                        // Tính full_amount đúng (deposit + remaining) để Observer tích điểm chính xác
+                        $depositPct  = (int) ($order->deposit_percent ?? 0);
+                        $depositPaid = (int) $order->full_amount;
+                        $realTotal   = $depositPct > 0
+                            ? (int) round($depositPaid * 100 / $depositPct)
+                            : $depositPaid;
+                        $extraCharge = (int) ($order->extra_charge_amount ?? 0);
+                        $totalPaid   = $realTotal + $extraCharge;
+
                         $order->update([
                             'status'                   => 'paid',
+                            'full_amount'              => $totalPaid,
+                            'amount'                   => $totalPaid,
                             'remaining_paid_at'        => now(),
                             'remaining_payment_method' => 'payos',
                         ]);

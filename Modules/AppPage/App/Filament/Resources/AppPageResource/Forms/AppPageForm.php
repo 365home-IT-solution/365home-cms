@@ -175,16 +175,6 @@ class AppPageForm
                         ->label('Tỉnh/Thành phố')
                         ->icon('heroicon-o-map-pin')
                         ->schema([
-                            Grid::make(2)->schema([
-                                TextInput::make('title')
-                                    ->label('Tiêu đề section')
-                                    ->placeholder('VD: Khám phá theo tỉnh thành'),
-
-                                TextInput::make('subtitle')
-                                    ->label('Phụ đề')
-                                    ->placeholder('VD: Chọn điểm đến của bạn'),
-                            ]),
-
                             Repeater::make('items')
                                 ->label('Danh sách tỉnh/thành phố')
                                 ->schema([

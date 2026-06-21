@@ -646,6 +646,17 @@ private function buildTelegramMessage(Order $order, string $status): string
 
     private function processWebhookStatus(Order $order, string $status, array $data): bool
     {
+        // Đơn đã paid hoặc deposit: không cho phép downgrade do webhook muộn/cũ.
+        // Chỉ cho phép tiếp tục xử lý nếu webhook báo PAID (idempotency check phía dưới).
+        if (in_array($order->status, ['paid', 'deposit']) && $status !== 'PAID') {
+            Log::info('processWebhookStatus: skipping stale webhook for paid/deposit order', [
+                'order_id'       => $order->id,
+                'current_status' => $order->status,
+                'webhook_status' => $status,
+            ]);
+            return false;
+        }
+
         if ($order->status === 'paid' && $status === 'PAID') {
             Log::info('Order already paid', ['order_id' => $order->id, 'current_status' => $order->status]);
             return false;
@@ -654,9 +665,11 @@ private function buildTelegramMessage(Order $order, string $status): string
         switch ($status) {
             case 'PAID':      return $this->handlePaidStatus($order, $data);
             case 'CANCELLED': return $this->handleCancelledStatus($order, $data);
-            case 'EXPIRED':   return $this->handleExpiredStatus($order, $data); // ✅
+            case 'EXPIRED':   return $this->handleExpiredStatus($order, $data);
             case 'PENDING':
-                $order->update(['status' => 'pending']);
+                if (! in_array($order->status, ['paid', 'deposit'])) {
+                    $order->update(['status' => 'pending']);
+                }
                 return true;
             default:
                 Log::warning('Unknown payment status', ['order_id' => $order->id, 'status' => $status]);
