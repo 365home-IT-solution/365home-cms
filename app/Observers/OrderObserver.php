@@ -233,6 +233,11 @@ class OrderObserver
             return;
         }
 
+        // paid → bất kỳ trạng thái nào khác: hoàn trả điểm
+        if ($oldStatus === 'paid' && $newStatus !== 'paid') {
+            $this->deductMembershipSpending($order);
+        }
+
         $map = [
             'paid'      => ['title' => 'Đơn đã thanh toán đủ',  'icon' => 'heroicon-o-check-circle', 'color' => 'success'],
             'deposit'   => ['title' => 'Đơn đã đặt cọc',        'icon' => 'heroicon-o-banknotes',    'color' => 'warning'],
@@ -360,6 +365,32 @@ class OrderObserver
             app(MembershipService::class)->addSpending($customer, $amount);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('MembershipService::addSpending failed: ' . $e->getMessage());
+        }
+    }
+
+    private function deductMembershipSpending(Order $order): void
+    {
+        if (! $order->customer_id || $order->exclude_from_stats) {
+            return;
+        }
+
+        $customer = Customer::find($order->customer_id);
+        if (! $customer) {
+            return;
+        }
+
+        $amount = (float) ($order->full_amount ?? $order->amount ?? 0);
+        if ($amount <= 0) {
+            return;
+        }
+
+        try {
+            $newSpending = max(0, (float) $customer->total_spending - $amount);
+            $customer->update(['total_spending' => $newSpending]);
+            $customer->refresh();
+            app(MembershipService::class)->recalculateTier($customer);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('MembershipService: deductSpending failed: ' . $e->getMessage());
         }
     }
 }
