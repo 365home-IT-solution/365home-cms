@@ -42,6 +42,12 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping(2)
             ->appendOutputTo(storage_path('logs/checkin-reminders.log'));
+
+        $schedule->command('guests:link-registered')
+            ->hourly()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/link-registered-guests.log'));
     }
 
     /**

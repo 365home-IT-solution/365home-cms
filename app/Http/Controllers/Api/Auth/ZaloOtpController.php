@@ -192,7 +192,7 @@ class ZaloOtpController extends Controller
             'password_updated_at' => $hasPassword ? $now : null,
         ]);
 
-        // Liên kết khách vãng lai đã từng dùng app bằng SĐT này
+        // Liên kết khách vãng lai bằng SĐT
         GuestCustomer::where('phone', $normalizedPhone)
             ->whereNull('customer_id')
             ->update(['customer_id' => $customer->id]);
@@ -287,7 +287,6 @@ class ZaloOtpController extends Controller
             'date_of_birth' => 'sometimes|date_format:d-m-Y|before:today',
             'cccd_front'    => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
             'cccd_back'     => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
-            'province_id'   => 'sometimes|nullable|integer|exists:provinces,id',
         ]);
 
         $customer = $request->user();
@@ -299,10 +298,6 @@ class ZaloOtpController extends Controller
 
         if ($request->filled('date_of_birth')) {
             $data['date_of_birth'] = Carbon::createFromFormat('d-m-Y', $request->date_of_birth)->toDateString();
-        }
-
-        if ($request->has('province_id')) {
-            $data['province_id'] = $request->province_id;
         }
 
         // Lưu path file cũ để xoá sau khi xác nhận QR hợp lệ
@@ -429,4 +424,5 @@ class ZaloOtpController extends Controller
             ],
         ];
     }
+
 }

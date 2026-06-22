@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Models\GuestCustomer;
 use App\Models\Province;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,86 +15,50 @@ use Modules\Product\App\Models\Product;
 
 class ProvinceController extends Controller
 {
-    private const POPULAR_LIMIT = 5;
-
     // ─── GET /api/v1/provinces ───────────────────────────────────────────────
 
     public function index(): JsonResponse
     {
-        $provinces = Province::with(['branches' => fn ($q) => $q->where('status', true)])
+        $provinces = Province::orderByRaw('code IS NULL, code ASC')
             ->orderBy('name')
             ->get();
 
-        // Batch: lấy tất cả child category ID trong 1 query
-        $allBranchCategoryIds = $provinces
-            ->flatMap(fn ($p) => $p->branches->pluck('categorie_id'))
-            ->unique()
-            ->filter()
-            ->values()
-            ->toArray();
+        return response()->json([
+            'provinces' => $provinces->map(fn ($p) => [
+                'id'            => $p->id,
+                'name'          => $p->name,
+                'slug'          => $p->slug,
+                'code'          => $p->code,
+                'division_type' => $p->division_type,
+                'codename'      => $p->codename,
+                'phone_code'    => $p->phone_code,
+            ])->values(),
+        ]);
+    }
 
-        $childIdsByParent = Category::whereIn('parent_id', $allBranchCategoryIds)
-            ->get(['id', 'parent_id'])
-            ->groupBy('parent_id')
-            ->map(fn ($g) => $g->pluck('id')->toArray());
+    // ─── POST /api/v1/provinces/select ──────────────────────────────────────
+    // Dùng chung cho cả customer (có token) lẫn guest (dùng device_token)
 
-        // Đếm phòng cho từng tỉnh
-        $provinces->each(function ($province) use ($childIdsByParent) {
-            $categoryIds = $province->branches->pluck('categorie_id')->filter()->toArray();
+    public function select(Request $request): JsonResponse
+    {
+        $authUser = auth('sanctum')->user();
 
-            if (empty($categoryIds)) {
-                $province->room_count = 0;
+        $rules = ['province_id' => 'required|integer|exists:provinces,id'];
+        if (! $authUser) {
+            $rules['device_token'] = 'required|string|max:255';
+        }
+        $request->validate($rules);
 
-                return;
-            }
-
-            $allIds = collect($categoryIds)
-                ->flatMap(fn ($id) => array_merge([$id], $childIdsByParent->get($id, [])))
-                ->unique()
-                ->values()
-                ->toArray();
-
-            $province->room_count = Product::where('is_activated', true)
-                ->where('is_in_stock', true)
-                ->whereHas('categories', fn ($q) => $q->whereIn('category_id', $allIds))
-                ->count();
-        });
-
-        // Top POPULAR_LIMIT tỉnh có nhiều phòng nhất → nhóm "Phổ biến"
-        $popular = $provinces
-            ->filter(fn ($p) => $p->room_count > 0)
-            ->sortByDesc('room_count')
-            ->take(self::POPULAR_LIMIT);
-
-        $popularIds = $popular->pluck('id')->toArray();
-
-        // Còn lại → nhóm theo ký tự đầu của tên thực (bỏ prefix Tỉnh/Thành phố)
-        $grouped = $provinces
-            ->reject(fn ($p) => in_array($p->id, $popularIds))
-            ->groupBy(function ($p) {
-                $base = preg_replace('/^(Thành phố|Tỉnh)\s+/u', '', $p->name);
-                return mb_strtoupper(mb_substr($base, 0, 1));
-            })
-            ->sortKeys()
-            ->map(fn ($items) => $this->mapItems($items));
-
-        $sections = collect();
-
-        if ($popular->isNotEmpty()) {
-            $sections->push([
-                'group' => 'Phổ biến',
-                'items' => $this->mapItems($popular),
-            ]);
+        if ($authUser) {
+            $authUser->update(['province_id' => $request->province_id]);
+        } else {
+            GuestCustomer::findOrCreateByDevice(
+                deviceToken: $request->device_token,
+                attributes: ['province_id' => $request->province_id],
+            );
         }
 
-        foreach ($grouped as $letter => $items) {
-            $sections->push([
-                'group' => $letter,
-                'items' => $items,
-            ]);
-        }
-
-        return response()->json(['provinces' => $sections->values()]);
+        return response()->json(['ok' => true]);
     }
 
     // ─── GET /api/v1/provinces/detect?lat=...&lng=... ────────────────────────
@@ -178,15 +143,6 @@ class ProvinceController extends Controller
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
-
-    private function mapItems($provinces): array
-    {
-        return $provinces->map(fn ($p) => [
-            'id'   => $p->id,
-            'name' => $p->name,
-            'slug' => $p->slug,
-        ])->values()->toArray();
-    }
 
     private function haversine(float $lat1, float $lng1, float $lat2, float $lng2): float
     {

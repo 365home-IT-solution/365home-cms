@@ -24,7 +24,7 @@ class GuestCustomerResource extends Resource
 
     protected static ?string $navigationIcon  = 'heroicon-o-user-circle';
     protected static ?string $navigationLabel = 'Khách vãng lai';
-    protected static ?string $navigationGroup = 'Quản lý Khách hàng';
+    protected static ?string $navigationGroup = 'Quản lý API';
     protected static ?int    $navigationSort  = 10;
     protected static ?string $modelLabel      = 'Khách vãng lai';
     protected static ?string $pluralModelLabel = 'Khách vãng lai';
