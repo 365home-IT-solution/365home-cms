@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\GuestNotificationController;
 use App\Http\Controllers\Api\CouponController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\OrderServiceController;
+use App\Http\Controllers\Api\AskUserController;
 use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\ProvinceController;
 use App\Http\Controllers\Api\SearchController;
@@ -57,14 +58,30 @@ Route::get('room-types', [RoomTypeController::class, 'index'])->name('api.room-t
 /*
 |--------------------------------------------------------------------------
 | V1 — Home
-| GET /api/v1/home                  → Full sections (banner + room_list)
-| GET /api/v1/home?tab={id}         → Banner + room_list lọc theo tab
-| GET /api/v1/provinces/{slug}      → Chi tiết tỉnh/thành phố + danh sách chi nhánh
+| GET /api/v1/home                          → Full sections (banner + room_list)
+| GET /api/v1/home?tab={id}                 → Banner + room_list lọc theo tab
+| GET /api/v1/home?province={id}            → Sections lọc theo tỉnh/thành phố
+|
+| GET /api/v1/provinces                     → Danh sách tỉnh grouped (Phổ biến + A-Z)
+| GET /api/v1/provinces/detect?lat=&lng=    → Tỉnh gần nhất theo GPS
+| GET /api/v1/provinces/{id}/branches       → Chi nhánh theo tỉnh (có total_room)
+| GET /api/v1/provinces/{slug}              → Chi tiết tỉnh + chi nhánh (slug)
+|
+| GET /api/v1/ask-user/{id}                 → Nội dung thông báo khi vào app
 |--------------------------------------------------------------------------
 */
 Route::prefix('v1')->name('api.v1.')->group(function () {
-    Route::get('home',               HomeController::class)->name('home');
-    Route::get('provinces/{slug}',   [ProvinceController::class, 'show'])->name('provinces.show');
+    Route::get('home', HomeController::class)->name('home');
+
+    Route::prefix('provinces')->name('provinces.')->group(function () {
+        Route::get('/',              [ProvinceController::class, 'index'])->name('index');
+        Route::get('detect',         [ProvinceController::class, 'detect'])->name('detect');
+        Route::get('{id}/branches',  [ProvinceController::class, 'branches'])->name('branches')->whereNumber('id');
+        Route::get('{slug}',         [ProvinceController::class, 'show'])->name('show');
+    });
+
+    Route::get('ask-user/{id}', [AskUserController::class, 'show'])->name('ask-user.show')->whereNumber('id');
+
     Route::get('config',     ConfigController::class)->name('config')->middleware('throttle:config');
     Route::get('config/map', [ConfigController::class, 'map'])->name('config.map')->middleware('throttle:config');
 

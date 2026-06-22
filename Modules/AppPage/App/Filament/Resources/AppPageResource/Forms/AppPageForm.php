@@ -14,7 +14,6 @@ use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Illuminate\Support\Str;
-use App\Models\Province;
 use Modules\AppPage\App\Models\Banner;
 use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
@@ -170,28 +169,6 @@ class AppPageForm
                                     return $query->orderBy('name')->pluck('name', 'id')->toArray();
                                 })
                                 ->placeholder('Để trống để hiển thị tất cả phòng...'),
-                        ]),
-                    Builder\Block::make('province_list')
-                        ->label('Tỉnh/Thành phố')
-                        ->icon('heroicon-o-map-pin')
-                        ->schema([
-                            Repeater::make('items')
-                                ->label('Danh sách tỉnh/thành phố')
-                                ->schema([
-                                    Select::make('province_id')
-                                        ->label('Tỉnh/Thành phố')
-                                        ->options(fn () => Province::orderBy('name')->pluck('name', 'id')->toArray())
-                                        ->searchable()
-                                        ->required()
-                                        ->columnSpanFull(),
-                                ])
-                                ->addActionLabel('+ Thêm tỉnh/thành phố')
-                                ->reorderable()
-                                ->reorderableWithButtons()
-                                ->itemLabel(fn (array $state): ?string => isset($state['province_id'])
-                                    ? Province::find($state['province_id'])?->name
-                                    : 'Chọn tỉnh/thành phố...')
-                                ->columnSpanFull(),
                         ]),
                 ]),
         ]);

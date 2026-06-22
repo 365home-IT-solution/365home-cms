@@ -60,6 +60,21 @@ class ProvinceResource extends Resource
                     ->image()
                     ->directory('provinces')
                     ->nullable(),
+
+                Grid::make(2)->schema([
+                    TextInput::make('lat')
+                        ->label('Vĩ độ (Latitude)')
+                        ->numeric()
+                        ->placeholder('VD: 21.0285')
+                        ->helperText('Dùng để xác định vị trí GPS gần nhất')
+                        ->nullable(),
+
+                    TextInput::make('lng')
+                        ->label('Kinh độ (Longitude)')
+                        ->numeric()
+                        ->placeholder('VD: 105.8542')
+                        ->nullable(),
+                ]),
             ]),
 
             Section::make('Chi nhánh tại tỉnh/thành phố')->schema([
