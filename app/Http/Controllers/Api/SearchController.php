@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Concerns\BuildsRoomCard;
+use App\Models\Province;
+use App\Models\ProvinceBranch;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Validation\Rule;
+use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomType;
 
@@ -100,9 +103,20 @@ class SearchController extends Controller
         // Keyword search
         if (! empty($validated['q'])) {
             $q = $validated['q'];
-            $query->where(function ($sub) use ($q) {
+
+            // Tìm tỉnh/thành phố khớp với từ khóa → lấy branch category IDs
+            $provinceCategoryIds = $this->getCategoryIdsByProvinceName($q);
+
+            $query->where(function ($sub) use ($q, $provinceCategoryIds) {
                 $sub->where('name', 'like', "%{$q}%")
-                    ->orWhere('address', 'like', "%{$q}%");
+                    ->orWhere('address', 'like', "%{$q}%")
+                    // Tìm theo tên chi nhánh
+                    ->orWhereHas('categories', fn ($cq) => $cq->where('name', 'like', "%{$q}%"));
+
+                // Tìm theo khu vực (tỉnh/thành phố)
+                if (! empty($provinceCategoryIds)) {
+                    $sub->orWhereHas('categories', fn ($cq) => $cq->whereIn('category_id', $provinceCategoryIds));
+                }
             });
         }
 
@@ -180,6 +194,33 @@ class SearchController extends Controller
                 'total'        => $rooms->total(),
             ],
         ]);
+    }
+
+    // ─── Helpers ─────────────────────────────────────────────────────────────
+
+    // Tìm tỉnh khớp tên → trả về category IDs (branch + child) để filter phòng
+    private function getCategoryIdsByProvinceName(string $q): array
+    {
+        $provinceIds = Province::where('name', 'like', "%{$q}%")->pluck('id');
+
+        if ($provinceIds->isEmpty()) {
+            return [];
+        }
+
+        $branchCategoryIds = ProvinceBranch::whereIn('province_id', $provinceIds)
+            ->where('status', true)
+            ->pluck('categorie_id')
+            ->toArray();
+
+        if (empty($branchCategoryIds)) {
+            return [];
+        }
+
+        $childIds = Category::whereIn('parent_id', $branchCategoryIds)
+            ->pluck('id')
+            ->toArray();
+
+        return array_unique(array_merge($branchCategoryIds, $childIds));
     }
 
     // ─── GET /v1/search/locations ────────────────────────────────────────────
