@@ -18,11 +18,17 @@ class Province extends Model
         'image',
         'lat',
         'lng',
+        'code',
+        'division_type',
+        'codename',
+        'phone_code',
     ];
 
     protected $casts = [
-        'lat' => 'float',
-        'lng' => 'float',
+        'lat'        => 'float',
+        'lng'        => 'float',
+        'code'       => 'integer',
+        'phone_code' => 'integer',
     ];
 
     public function branches(): HasMany

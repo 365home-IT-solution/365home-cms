@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
+use App\Models\GuestCustomer;
 use App\Models\MembershipTier;
 use App\Services\ZaloOtpService;
 use Carbon\Carbon;
@@ -191,6 +192,11 @@ class ZaloOtpController extends Controller
             'password_updated_at' => $hasPassword ? $now : null,
         ]);
 
+        // Liên kết khách vãng lai đã từng dùng app bằng SĐT này
+        GuestCustomer::where('phone', $normalizedPhone)
+            ->whereNull('customer_id')
+            ->update(['customer_id' => $customer->id]);
+
         $expiresAt = now()->addDays(30);
         $token     = $customer->createToken('mobile', ['*'], $expiresAt)->plainTextToken;
 
@@ -281,6 +287,7 @@ class ZaloOtpController extends Controller
             'date_of_birth' => 'sometimes|date_format:d-m-Y|before:today',
             'cccd_front'    => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
             'cccd_back'     => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'province_id'   => 'sometimes|nullable|integer|exists:provinces,id',
         ]);
 
         $customer = $request->user();
@@ -292,6 +299,10 @@ class ZaloOtpController extends Controller
 
         if ($request->filled('date_of_birth')) {
             $data['date_of_birth'] = Carbon::createFromFormat('d-m-Y', $request->date_of_birth)->toDateString();
+        }
+
+        if ($request->has('province_id')) {
+            $data['province_id'] = $request->province_id;
         }
 
         // Lưu path file cũ để xoá sau khi xác nhận QR hợp lệ
@@ -351,7 +362,7 @@ class ZaloOtpController extends Controller
 
     private function customerResource(Customer $customer): array
     {
-        $customer->loadMissing('membershipTier');
+        $customer->loadMissing(['membershipTier', 'province']);
 
         $tier     = $customer->membershipTier;
         $spending = (float) $customer->total_spending;
@@ -386,6 +397,11 @@ class ZaloOtpController extends Controller
                 ? Storage::disk('public')->url($customer->cccd_back)
                 : null,
             'cccd_data'         => $customer->cccd_data,
+            'province'          => $customer->province ? [
+                'id'   => $customer->province->id,
+                'name' => $customer->province->name,
+                'slug' => $customer->province->slug,
+            ] : null,
             'membership'        => [
                 'tier'           => $tier ? [
                     'id'    => $tier->id,

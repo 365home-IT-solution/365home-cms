@@ -49,10 +49,42 @@ class ProvinceResource extends Resource
                         ->afterStateUpdated(fn (Set $set, ?string $state) => $set('slug', Str::slug($state ?? ''))),
 
                     TextInput::make('slug')
-                        ->label('Slug')
+                        ->label('Slug (URL param)')
                         ->required()
                         ->unique(ignoreRecord: true)
-                        ->maxLength(255),
+                        ->maxLength(255)
+                        ->helperText('Dùng cho ?province=slug'),
+                ]),
+
+                Grid::make(4)->schema([
+                    TextInput::make('code')
+                        ->label('Mã tỉnh')
+                        ->numeric()
+                        ->unique(ignoreRecord: true)
+                        ->placeholder('VD: 1')
+                        ->helperText('Mã hành chính (provinces.open-api.vn)'),
+
+                    TextInput::make('division_type')
+                        ->label('Loại đơn vị')
+                        ->maxLength(100)
+                        ->placeholder('VD: tỉnh, thành phố trung ương'),
+
+                    TextInput::make('codename')
+                        ->label('Codename')
+                        ->maxLength(100)
+                        ->unique(ignoreRecord: true)
+                        ->placeholder('VD: ha_noi')
+                        ->live(onBlur: true)
+                        ->afterStateUpdated(fn (Set $set, ?string $state) => $state
+                            ? $set('slug', str_replace('_', '-', $state))
+                            : null
+                        )
+                        ->helperText('Tự động cập nhật slug khi nhập'),
+
+                    TextInput::make('phone_code')
+                        ->label('Mã vùng')
+                        ->numeric()
+                        ->placeholder('VD: 24'),
                 ]),
 
                 FileUpload::make('image')
@@ -119,10 +151,29 @@ class ProvinceResource extends Resource
                     ->square()
                     ->size(50),
 
+                TextColumn::make('code')
+                    ->label('Mã')
+                    ->sortable()
+                    ->width('60px'),
+
                 TextColumn::make('name')
                     ->label('Tên tỉnh/thành phố')
                     ->sortable()
                     ->searchable(),
+
+                TextColumn::make('division_type')
+                    ->label('Loại')
+                    ->badge()
+                    ->color(fn (?string $state): string => match (true) {
+                        str_contains((string) $state, 'trung ương') => 'warning',
+                        str_contains((string) $state, 'thành phố') => 'info',
+                        default                                     => 'gray',
+                    }),
+
+                TextColumn::make('codename')
+                    ->label('Codename')
+                    ->searchable()
+                    ->placeholder('—'),
 
                 TextColumn::make('slug')
                     ->label('Slug')

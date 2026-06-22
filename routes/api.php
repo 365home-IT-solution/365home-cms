@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\Admin\ChatController as AdminChatController;
 use App\Http\Controllers\Api\BookingController;
 use App\Http\Controllers\Api\GuestBookingController;
+use App\Http\Controllers\Api\GuestCustomerController;
 use App\Http\Controllers\Api\GuestNotificationController;
 use App\Http\Controllers\Api\CouponController;
 use App\Http\Controllers\Api\OrderController;
@@ -238,6 +239,14 @@ Route::middleware('auth:sanctum')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::prefix('guest')->name('api.guest.')->group(function () {
+    /*
+    |--------------------------------------------------------------------------
+    | Guest Province
+    | POST /api/guest/province → Lưu khu vực đã chọn cho khách vãng lai
+    |--------------------------------------------------------------------------
+    */
+    Route::post('province', [GuestCustomerController::class, 'saveProvince'])->name('province');
+
     Route::post('orders',                                        [GuestBookingController::class, 'store'])->name('orders.store');
     Route::post('orders/{order_code}',                           [GuestBookingController::class, 'update'])->name('orders.update');
     Route::get('orders',                                         [GuestBookingController::class, 'lookup'])->name('orders.lookup');

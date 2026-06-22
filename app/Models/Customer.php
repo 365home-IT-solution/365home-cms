@@ -40,6 +40,7 @@ class Customer extends Authenticatable
         'membership_tier_id',
         'total_spending',
         'welcome_coupon_sent_at',
+        'province_id',
     ];
 
     protected $hidden = [
@@ -77,6 +78,11 @@ class Customer extends Authenticatable
                 $model->tokens()->delete();
             }
         });
+    }
+
+    public function province(): BelongsTo
+    {
+        return $this->belongsTo(Province::class, 'province_id');
     }
 
     public function membershipTier(): BelongsTo

@@ -67,10 +67,13 @@ class ProvinceController extends Controller
 
         $popularIds = $popular->pluck('id')->toArray();
 
-        // Còn lại → nhóm theo ký tự đầu (bỏ những tỉnh đã ở Phổ biến)
+        // Còn lại → nhóm theo ký tự đầu của tên thực (bỏ prefix Tỉnh/Thành phố)
         $grouped = $provinces
             ->reject(fn ($p) => in_array($p->id, $popularIds))
-            ->groupBy(fn ($p) => mb_strtoupper(mb_substr($p->name, 0, 1)))
+            ->groupBy(function ($p) {
+                $base = preg_replace('/^(Thành phố|Tỉnh)\s+/u', '', $p->name);
+                return mb_strtoupper(mb_substr($base, 0, 1));
+            })
             ->sortKeys()
             ->map(fn ($items) => $this->mapItems($items));
 
