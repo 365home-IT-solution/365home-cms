@@ -31,7 +31,6 @@ class ProvinceController extends Controller
                 'code'          => $p->code,
                 'division_type' => $p->division_type,
                 'codename'      => $p->codename,
-                'phone_code'    => $p->phone_code,
             ])->values(),
         ]);
     }
@@ -96,9 +95,9 @@ class ProvinceController extends Controller
 
     // ─── GET /api/v1/provinces/{slug} ────────────────────────────────────────
 
-    public function show(string $slug): JsonResponse
+    public function show(int $id): JsonResponse
     {
-        $province = Province::where('slug', $slug)->first();
+        $province = Province::find($id);
 
         if (! $province) {
             return response()->json(['message' => 'Province not found.'], 404);

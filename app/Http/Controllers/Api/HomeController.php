@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Concerns\BuildsRoomCard;
+use App\Http\Concerns\ResolvesProvince;
 use App\Models\Province;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,7 +19,7 @@ use Modules\Product\App\Models\RoomType;
 
 class HomeController extends Controller
 {
-    use BuildsRoomCard;
+    use BuildsRoomCard, ResolvesProvince;
 
     public function __invoke(Request $request): JsonResponse
     {
@@ -34,10 +35,7 @@ class HomeController extends Controller
             ? (int) $request->query('tab')
             : null;
 
-        $province = null;
-        if ($request->query('province') !== null) {
-            $province = Province::where('slug', $request->query('province'))->first();
-        }
+        $province = $this->resolveProvince($request);
 
         $roomTypes = RoomType::where('is_active', true)
             ->orderBy('sort_order')
