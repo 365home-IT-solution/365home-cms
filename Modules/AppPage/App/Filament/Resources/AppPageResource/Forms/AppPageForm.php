@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Modules\AppPage\App\Filament\Resources\AppPageResource\Forms;
 
 use Filament\Forms\Components\Builder;
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
@@ -17,6 +18,7 @@ use Illuminate\Support\Str;
 use Modules\AppPage\App\Models\Banner;
 use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
+use Modules\Promotion\App\Models\Promotion;
 
 class AppPageForm
 {
@@ -184,6 +186,44 @@ class AppPageForm
                                 ->default('room')
                                 ->required()
                                 ->helperText('Hiển thị theo khu vực đã chọn. Nếu chưa chọn khu vực sẽ thông báo người dùng chọn.'),
+                        ]),
+
+                    Builder\Block::make('promotion_list')
+                        ->label('Phòng khuyến mãi')
+                        ->icon('heroicon-o-tag')
+                        ->schema([
+                            FileUpload::make('icon')
+                                ->label('Icon / Ảnh tiêu đề')
+                                ->helperText('Gắn icon flash hoặc ảnh trang trí hiển thị trước tiêu đề.')
+                                ->image()
+                                ->disk('public')
+                                ->directory('promotion-icons')
+                                ->imagePreviewHeight('60')
+                                ->maxSize(512),
+
+                            TextInput::make('title')
+                                ->label('Tiêu đề')
+                                ->placeholder('VD: Ưu đãi đặc biệt')
+                                ->required(),
+
+                            Select::make('product_ids')
+                                ->label('Chọn phòng khuyến mãi')
+                                ->helperText('Chỉ hiển thị phòng đang có promotion còn hiệu lực.')
+                                ->multiple()
+                                ->searchable()
+                                ->options(fn () => Product::where('is_activated', true)
+                                    ->where('is_in_stock', true)
+                                    ->whereHas('roomTimeSlots.promotions', fn ($q) => $q
+                                        ->where('is_active', true)
+                                        ->where(fn ($q2) => $q2
+                                            ->whereNull('end_at')
+                                            ->orWhere('end_at', '>=', now())
+                                        )
+                                    )
+                                    ->orderBy('name')
+                                    ->pluck('name', 'id')
+                                    ->toArray())
+                                ->required(),
                         ]),
                 ]),
         ]);

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Concerns\BuildsRoomCard;
+use App\Http\Concerns\ResolvesProvince;
 use App\Models\Province;
 use App\Models\ProvinceBranch;
 use Illuminate\Http\JsonResponse;
@@ -17,7 +18,7 @@ use Modules\Product\App\Models\RoomType;
 
 class SearchController extends Controller
 {
-    use BuildsRoomCard;
+    use BuildsRoomCard, ResolvesProvince;
 
     // ─── GET /v1/search/suggestions ─────────────────────────────────────────
 
@@ -90,6 +91,21 @@ class SearchController extends Controller
             ->where('is_in_stock', true)
             ->with(['roomTimeSlots.timeSlot', 'media', 'roomType']);
 
+        // Auto-filter theo khu vực đã lưu (customer hoặc guest ?province_id=)
+        $province = $this->resolveProvince($request);
+        if ($province !== null) {
+            $provinceBranchIds = $province->branches()
+                ->where('status', true)
+                ->pluck('categorie_id')
+                ->toArray();
+
+            if (! empty($provinceBranchIds)) {
+                $childIds  = Category::whereIn('parent_id', $provinceBranchIds)->pluck('id');
+                $filterIds = collect($provinceBranchIds)->merge($childIds)->unique()->values();
+                $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
+            }
+        }
+
         // Filter by room_type_slug — nếu category không tồn tại thì trả về rỗng
         if (! empty($validated['category'])) {
             $roomType = RoomType::where('slug', $validated['category'])->first();
@@ -104,16 +120,16 @@ class SearchController extends Controller
         if (! empty($validated['q'])) {
             $q = $validated['q'];
 
-            // Tìm tỉnh/thành phố khớp với từ khóa → lấy branch category IDs
-            $provinceCategoryIds = $this->getCategoryIdsByProvinceName($q);
+            // Khi province đã được auto-resolve thì không cần tìm theo tên tỉnh nữa
+            $provinceCategoryIds = $province === null
+                ? $this->getCategoryIdsByProvinceName($q)
+                : [];
 
             $query->where(function ($sub) use ($q, $provinceCategoryIds) {
                 $sub->where('name', 'like', "%{$q}%")
                     ->orWhere('address', 'like', "%{$q}%")
-                    // Tìm theo tên chi nhánh
                     ->orWhereHas('categories', fn ($cq) => $cq->where('name', 'like', "%{$q}%"));
 
-                // Tìm theo khu vực (tỉnh/thành phố)
                 if (! empty($provinceCategoryIds)) {
                     $sub->orWhereHas('categories', fn ($cq) => $cq->whereIn('category_id', $provinceCategoryIds));
                 }

@@ -357,7 +357,7 @@ class ZaloOtpController extends Controller
 
     private function customerResource(Customer $customer): array
     {
-        $customer->loadMissing(['membershipTier', 'province']);
+        $customer->loadMissing(['membershipTier']);
 
         $tier     = $customer->membershipTier;
         $spending = (float) $customer->total_spending;
@@ -392,11 +392,6 @@ class ZaloOtpController extends Controller
                 ? Storage::disk('public')->url($customer->cccd_back)
                 : null,
             'cccd_data'         => $customer->cccd_data,
-            'province'          => $customer->province ? [
-                'id'   => $customer->province->id,
-                'name' => $customer->province->name,
-                'slug' => $customer->province->slug,
-            ] : null,
             'membership'        => [
                 'tier'           => $tier ? [
                     'id'    => $tier->id,

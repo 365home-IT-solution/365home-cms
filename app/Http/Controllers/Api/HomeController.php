@@ -48,7 +48,7 @@ class HomeController extends Controller
             : null;
 
         $sections = collect($page->content ?? [])
-            ->filter(fn ($block) => in_array($block['type'] ?? '', ['banner', 'room_list', 'suggestion_list']))
+            ->filter(fn ($block) => in_array($block['type'] ?? '', ['banner', 'room_list', 'suggestion_list', 'promotion_list']))
             ->values()
             ->map(fn ($block, $index) => $this->buildBlock($block, $index, $wishlistedIds, $tabRoomTypeId, $province))
             ->filter()
@@ -68,6 +68,7 @@ class HomeController extends Controller
             'banner'          => $this->buildBanner($block['data'] ?? [], $index),
             'room_list'       => $this->buildRoomList($block['data'] ?? [], $index, $wishlistedIds, $tabRoomTypeId, $province),
             'suggestion_list' => $this->buildSuggestionList($block['data'] ?? [], $index, $province),
+            'promotion_list'  => $this->buildPromotionList($block['data'] ?? [], $index, $wishlistedIds, $province),
             default           => null,
         };
     }
@@ -183,6 +184,57 @@ class HomeController extends Controller
                 return $this->mapRoom($room, $status);
             })
             ->toArray();
+    }
+
+    // ─── Promotion list ──────────────────────────────────────────────────────
+
+    private function buildPromotionList(array $data, int $index, ?array $wishlistedIds, ?Province $province): array
+    {
+        $icon = $data['icon'] ?? null;
+        $base = [
+            'type'       => 'promotion_list',
+            'id'         => $index + 1,
+            'sort_order' => $index + 1,
+            'icon_url'   => $icon ? Storage::disk('public')->url($icon) : null,
+            'title'      => $data['title'] ?? null,
+            'rooms'      => [],
+        ];
+
+        if ($province === null) {
+            return $base;
+        }
+
+        $productIds = array_filter((array) ($data['product_ids'] ?? []));
+        if (empty($productIds)) {
+            return $base;
+        }
+
+        $provinceBranchIds = $province->branches()
+            ->where('status', true)
+            ->pluck('categorie_id')
+            ->toArray();
+
+        if (empty($provinceBranchIds)) {
+            return $base;
+        }
+
+        $childIds  = Category::whereIn('parent_id', $provinceBranchIds)->pluck('id');
+        $filterIds = collect($provinceBranchIds)->merge($childIds)->unique()->values();
+
+        $rooms = Product::whereIn('id', $productIds)
+            ->where('is_activated', true)
+            ->where('is_in_stock', true)
+            ->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds))
+            ->with(['roomTimeSlots.timeSlot', 'media', 'roomType'])
+            ->get()
+            ->map(function ($room) use ($wishlistedIds) {
+                $status = $wishlistedIds === null ? null : \in_array($room->id, $wishlistedIds);
+                return $this->mapRoom($room, $status);
+            })
+            ->values()
+            ->toArray();
+
+        return array_merge($base, ['rooms' => $rooms]);
     }
 
     // ─── Suggestion list ─────────────────────────────────────────────────────
