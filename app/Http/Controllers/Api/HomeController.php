@@ -191,83 +191,64 @@ class HomeController extends Controller
 
     private function buildSuggestionList(array $data, int $index, ?Province $province = null): array
     {
-        $type  = $data['type'] ?? 'branch';
-        $items = $type === 'branch'
-            ? $this->getSuggestionBranches($data, $province)
-            : $this->getSuggestionRooms($data, $province);
+        $type = $data['type'] ?? 'room';
 
-        return [
+        $base = [
             'type'            => 'suggestion_list',
             'id'              => $index + 1,
             'sort_order'      => $index + 1,
             'suggestion_type' => $type,
-            'items'           => $items,
         ];
+
+        if ($province === null) {
+            return array_merge($base, [
+                'message' => 'Vui lòng chọn khu vực của bạn',
+                'items'   => [],
+            ]);
+        }
+
+        $items = $type === 'branch'
+            ? $this->getSuggestionBranches($province)
+            : $this->getSuggestionRooms($province);
+
+        return array_merge($base, ['items' => $items]);
     }
 
-    private function getSuggestionBranches(array $data, ?Province $province = null): array
+    private function getSuggestionBranches(Province $province): array
     {
-        $branchIds = array_filter((array) ($data['branch_ids'] ?? []));
-
-        if (empty($branchIds)) {
-            return [];
-        }
-
-        if ($province !== null) {
-            $provinceBranchIds = $province->branches()
-                ->where('status', true)
-                ->pluck('categorie_id')
-                ->toArray();
-
-            $branchIds = array_values(array_intersect($branchIds, $provinceBranchIds));
-        }
-
-        if (empty($branchIds)) {
-            return [];
-        }
-
-        return Category::whereIn('id', $branchIds)
+        return $province->branches()
+            ->where('status', true)
+            ->with('category')
             ->get()
-            ->map(fn ($cat) => [
-                'id'        => $cat->id,
-                'name'      => $cat->name,
-                'slug'      => $cat->slug,
-                'image_url' => $cat->image
-                    ? Storage::disk('public')->url($cat->image)
+            ->map(fn ($branch) => [
+                'id'        => $branch->category->id,
+                'name'      => $branch->category->name,
+                'slug'      => $branch->category->slug,
+                'image_url' => $branch->category->image
+                    ? Storage::disk('public')->url($branch->category->image)
                     : null,
             ])
             ->values()
             ->toArray();
     }
 
-    private function getSuggestionRooms(array $data, ?Province $province = null): array
+    private function getSuggestionRooms(Province $province): array
     {
-        $productIds = array_filter((array) ($data['product_ids'] ?? []));
+        $branchCategoryIds = $province->branches()
+            ->where('status', true)
+            ->pluck('categorie_id')
+            ->toArray();
 
-        if (empty($productIds)) {
+        if (empty($branchCategoryIds)) {
             return [];
         }
 
-        $query = Product::whereIn('id', $productIds)
-            ->where('is_activated', true)
-            ->where('is_in_stock', true);
+        $childIds  = Category::whereIn('parent_id', $branchCategoryIds)->pluck('id');
+        $filterIds = collect($branchCategoryIds)->merge($childIds)->unique()->values();
 
-        if ($province !== null) {
-            $provinceBranchIds = $province->branches()
-                ->where('status', true)
-                ->pluck('categorie_id')
-                ->toArray();
-
-            if (empty($provinceBranchIds)) {
-                return [];
-            }
-
-            $childIds  = Category::whereIn('parent_id', $provinceBranchIds)->pluck('id');
-            $filterIds = collect($provinceBranchIds)->merge($childIds)->unique()->values();
-            $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
-        }
-
-        return $query
+        return Product::where('is_activated', true)
+            ->where('is_in_stock', true)
+            ->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds))
             ->with('media')
             ->get()
             ->map(fn ($room) => [

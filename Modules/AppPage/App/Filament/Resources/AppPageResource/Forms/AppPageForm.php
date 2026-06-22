@@ -181,37 +181,9 @@ class AppPageForm
                                     'branch' => 'Chi nhánh',
                                     'room'   => 'Phòng',
                                 ])
+                                ->default('room')
                                 ->required()
-                                ->live()
-                                ->afterStateUpdated(function (callable $set) {
-                                    $set('branch_ids', []);
-                                    $set('product_ids', []);
-                                }),
-
-                            Select::make('branch_ids')
-                                ->label('Chọn chi nhánh')
-                                ->options(fn () => Category::whereNull('parent_id')
-                                    ->where('category_type', 'product')
-                                    ->orderBy('name')
-                                    ->pluck('name', 'id')
-                                    ->toArray())
-                                ->multiple()
-                                ->searchable()
-                                ->visible(fn (Get $get) => $get('type') === 'branch')
-                                ->required(fn (Get $get) => $get('type') === 'branch')
-                                ->placeholder('Chọn chi nhánh...'),
-
-                            Select::make('product_ids')
-                                ->label('Chọn phòng')
-                                ->options(fn () => Product::where('is_activated', true)
-                                    ->orderBy('name')
-                                    ->pluck('name', 'id')
-                                    ->toArray())
-                                ->multiple()
-                                ->searchable()
-                                ->visible(fn (Get $get) => $get('type') === 'room')
-                                ->required(fn (Get $get) => $get('type') === 'room')
-                                ->placeholder('Chọn phòng...'),
+                                ->helperText('Hiển thị theo khu vực đã chọn. Nếu chưa chọn khu vực sẽ thông báo người dùng chọn.'),
                         ]),
                 ]),
         ]);
