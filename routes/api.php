@@ -74,10 +74,9 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     Route::get('home', HomeController::class)->name('home');
 
     Route::prefix('provinces')->name('provinces.')->group(function () {
-        Route::get('/',              [ProvinceController::class, 'index'])->name('index');
-        Route::get('detect',         [ProvinceController::class, 'detect'])->name('detect');
-        Route::get('{id}/branches',  [ProvinceController::class, 'branches'])->name('branches')->whereNumber('id');
-        Route::get('{slug}',         [ProvinceController::class, 'show'])->name('show');
+        Route::get('/',      [ProvinceController::class, 'index'])->name('index');
+        Route::get('detect', [ProvinceController::class, 'detect'])->name('detect');
+        Route::get('{slug}', [ProvinceController::class, 'show'])->name('show');
     });
 
     Route::get('ask-user/{id}', [AskUserController::class, 'show'])->name('ask-user.show')->whereNumber('id');

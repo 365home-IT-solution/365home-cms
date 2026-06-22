@@ -36,7 +36,7 @@ class HomeController extends Controller
 
         $province = null;
         if ($request->query('province') !== null) {
-            $province = Province::find((int) $request->query('province'));
+            $province = Province::where('slug', $request->query('province'))->first();
         }
 
         $roomTypes = RoomType::where('is_active', true)
@@ -49,23 +49,9 @@ class HomeController extends Controller
             ? $authUser->wishlists()->pluck('product_id')->toArray()
             : null;
 
-        $blocks = collect($page->content ?? [])
-            ->filter(function ($block) use ($province) {
-                $type = $block['type'] ?? '';
-                if (! in_array($type, ['banner', 'room_list', 'province_list'])) {
-                    return false;
-                }
-                return ! ($type === 'province_list' && $province !== null);
-            })
-            ->values();
-
-        if ($province !== null) {
-            $blocks = collect([['type' => '__branch_list__', 'data' => []]])
-                ->merge($blocks)
-                ->values();
-        }
-
-        $sections = $blocks
+        $sections = collect($page->content ?? [])
+            ->filter(fn ($block) => in_array($block['type'] ?? '', ['banner', 'room_list', 'suggestion_list']))
+            ->values()
             ->map(fn ($block, $index) => $this->buildBlock($block, $index, $wishlistedIds, $tabRoomTypeId, $province))
             ->filter()
             ->values();
@@ -83,8 +69,7 @@ class HomeController extends Controller
         return match ($block['type']) {
             'banner'          => $this->buildBanner($block['data'] ?? [], $index),
             'room_list'       => $this->buildRoomList($block['data'] ?? [], $index, $wishlistedIds, $tabRoomTypeId, $province),
-            'province_list'   => $this->buildProvinceList($block['data'] ?? [], $index),
-            '__branch_list__' => $province ? $this->buildBranchList($province, $index) : null,
+            'suggestion_list' => $this->buildSuggestionList($block['data'] ?? [], $index, $province),
             default           => null,
         };
     }
@@ -123,74 +108,6 @@ class HomeController extends Controller
             'id'         => $index + 1,
             'sort_order' => $index + 1,
             'items'      => $items,
-        ];
-    }
-
-    // ─── Province list ───────────────────────────────────────────────────────
-
-    private function buildProvinceList(array $data, int $index): array
-    {
-        $provinceIds = collect($data['items'] ?? [])
-            ->pluck('province_id')
-            ->filter()
-            ->values()
-            ->toArray();
-
-        $provincesById = Province::whereIn('id', $provinceIds)
-            ->get()
-            ->keyBy('id');
-
-        $items = collect($provinceIds)
-            ->map(fn ($id) => $provincesById->get($id))
-            ->filter()
-            ->map(fn (Province $province) => [
-                'id'        => $province->id,
-                'name'      => $province->name,
-                'slug'      => $province->slug,
-                'image_url' => $province->image
-                    ? Storage::disk('public')->url($province->image)
-                    : null,
-            ])
-            ->values()
-            ->toArray();
-
-        return [
-            'type'       => 'province',
-            'id'         => $index + 1,
-            'sort_order' => $index + 1,
-            'items'      => $items,
-        ];
-    }
-
-    // ─── Branch list (khi đã chọn province) ─────────────────────────────────
-
-    private function buildBranchList(Province $province, int $index): array
-    {
-        $branches = $province->branches()
-            ->where('status', true)
-            ->with('category')
-            ->get()
-            ->map(fn ($branch) => [
-                'id'        => $branch->category->id,
-                'name'      => $branch->category->name,
-                'slug'      => $branch->category->slug,
-                'image_url' => $branch->category->image
-                    ? Storage::disk('public')->url($branch->category->image)
-                    : null,
-            ])
-            ->values()
-            ->toArray();
-
-        return [
-            'type'       => 'branch_list',
-            'id'         => $index + 1,
-            'sort_order' => $index + 1,
-            'province'   => [
-                'id'   => $province->id,
-                'name' => $province->name,
-                'slug' => $province->slug,
-            ],
-            'items' => $branches,
         ];
     }
 
@@ -267,6 +184,99 @@ class HomeController extends Controller
 
                 return $this->mapRoom($room, $status);
             })
+            ->toArray();
+    }
+
+    // ─── Suggestion list ─────────────────────────────────────────────────────
+
+    private function buildSuggestionList(array $data, int $index, ?Province $province = null): array
+    {
+        $type  = $data['type'] ?? 'branch';
+        $items = $type === 'branch'
+            ? $this->getSuggestionBranches($data, $province)
+            : $this->getSuggestionRooms($data, $province);
+
+        return [
+            'type'            => 'suggestion_list',
+            'id'              => $index + 1,
+            'sort_order'      => $index + 1,
+            'suggestion_type' => $type,
+            'items'           => $items,
+        ];
+    }
+
+    private function getSuggestionBranches(array $data, ?Province $province = null): array
+    {
+        $branchIds = array_filter((array) ($data['branch_ids'] ?? []));
+
+        if (empty($branchIds)) {
+            return [];
+        }
+
+        if ($province !== null) {
+            $provinceBranchIds = $province->branches()
+                ->where('status', true)
+                ->pluck('categorie_id')
+                ->toArray();
+
+            $branchIds = array_values(array_intersect($branchIds, $provinceBranchIds));
+        }
+
+        if (empty($branchIds)) {
+            return [];
+        }
+
+        return Category::whereIn('id', $branchIds)
+            ->get()
+            ->map(fn ($cat) => [
+                'id'        => $cat->id,
+                'name'      => $cat->name,
+                'slug'      => $cat->slug,
+                'image_url' => $cat->image
+                    ? Storage::disk('public')->url($cat->image)
+                    : null,
+            ])
+            ->values()
+            ->toArray();
+    }
+
+    private function getSuggestionRooms(array $data, ?Province $province = null): array
+    {
+        $productIds = array_filter((array) ($data['product_ids'] ?? []));
+
+        if (empty($productIds)) {
+            return [];
+        }
+
+        $query = Product::whereIn('id', $productIds)
+            ->where('is_activated', true)
+            ->where('is_in_stock', true);
+
+        if ($province !== null) {
+            $provinceBranchIds = $province->branches()
+                ->where('status', true)
+                ->pluck('categorie_id')
+                ->toArray();
+
+            if (empty($provinceBranchIds)) {
+                return [];
+            }
+
+            $childIds  = Category::whereIn('parent_id', $provinceBranchIds)->pluck('id');
+            $filterIds = collect($provinceBranchIds)->merge($childIds)->unique()->values();
+            $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
+        }
+
+        return $query
+            ->with('media')
+            ->get()
+            ->map(fn ($room) => [
+                'id'        => $room->id,
+                'name'      => $room->name,
+                'slug'      => $room->slug,
+                'image_url' => $this->getMainImageUrl($room),
+            ])
+            ->values()
             ->toArray();
     }
 }

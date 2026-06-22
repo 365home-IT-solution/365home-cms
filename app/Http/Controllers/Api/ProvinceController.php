@@ -14,34 +14,72 @@ use Modules\Product\App\Models\Product;
 
 class ProvinceController extends Controller
 {
+    private const POPULAR_LIMIT = 5;
+
     // ─── GET /api/v1/provinces ───────────────────────────────────────────────
-    // Trả về danh sách tỉnh/thành phố theo nhóm:
-    //   - "Phổ biến": Hà Nội + Hồ Chí Minh
-    //   - Còn lại: nhóm theo ký tự đầu (sắp xếp bảng chữ cái)
 
     public function index(): JsonResponse
     {
-        $provinces = Province::orderBy('name')->get();
+        $provinces = Province::with(['branches' => fn ($q) => $q->where('status', true)])
+            ->orderBy('name')
+            ->get();
 
-        $popular = $provinces->filter(
-            fn ($p) => str_contains($p->slug, 'ha-noi') || str_contains($p->slug, 'ho-chi-minh')
-        );
+        // Batch: lấy tất cả child category ID trong 1 query
+        $allBranchCategoryIds = $provinces
+            ->flatMap(fn ($p) => $p->branches->pluck('categorie_id'))
+            ->unique()
+            ->filter()
+            ->values()
+            ->toArray();
 
-        $others = $provinces->reject(
-            fn ($p) => str_contains($p->slug, 'ha-noi') || str_contains($p->slug, 'ho-chi-minh')
-        );
+        $childIdsByParent = Category::whereIn('parent_id', $allBranchCategoryIds)
+            ->get(['id', 'parent_id'])
+            ->groupBy('parent_id')
+            ->map(fn ($g) => $g->pluck('id')->toArray());
 
-        $grouped = $others
+        // Đếm phòng cho từng tỉnh
+        $provinces->each(function ($province) use ($childIdsByParent) {
+            $categoryIds = $province->branches->pluck('categorie_id')->filter()->toArray();
+
+            if (empty($categoryIds)) {
+                $province->room_count = 0;
+
+                return;
+            }
+
+            $allIds = collect($categoryIds)
+                ->flatMap(fn ($id) => array_merge([$id], $childIdsByParent->get($id, [])))
+                ->unique()
+                ->values()
+                ->toArray();
+
+            $province->room_count = Product::where('is_activated', true)
+                ->where('is_in_stock', true)
+                ->whereHas('categories', fn ($q) => $q->whereIn('category_id', $allIds))
+                ->count();
+        });
+
+        // Top POPULAR_LIMIT tỉnh có nhiều phòng nhất → nhóm "Phổ biến"
+        $popular = $provinces
+            ->filter(fn ($p) => $p->room_count > 0)
+            ->sortByDesc('room_count')
+            ->take(self::POPULAR_LIMIT);
+
+        $popularIds = $popular->pluck('id')->toArray();
+
+        // Còn lại → nhóm theo ký tự đầu (bỏ những tỉnh đã ở Phổ biến)
+        $grouped = $provinces
+            ->reject(fn ($p) => in_array($p->id, $popularIds))
             ->groupBy(fn ($p) => mb_strtoupper(mb_substr($p->name, 0, 1)))
             ->sortKeys()
-            ->map(fn ($items) => $this->mapProvinceItems($items));
+            ->map(fn ($items) => $this->mapItems($items));
 
         $sections = collect();
 
         if ($popular->isNotEmpty()) {
             $sections->push([
                 'group' => 'Phổ biến',
-                'items' => $this->mapProvinceItems($popular),
+                'items' => $this->mapItems($popular),
             ]);
         }
 
@@ -56,8 +94,6 @@ class ProvinceController extends Controller
     }
 
     // ─── GET /api/v1/provinces/detect?lat=...&lng=... ────────────────────────
-    // Tìm tỉnh/thành phố gần nhất dựa trên tọa độ GPS.
-    // Yêu cầu province có lat/lng được khai báo trong admin.
 
     public function detect(Request $request): JsonResponse
     {
@@ -68,9 +104,7 @@ class ProvinceController extends Controller
             return response()->json(['message' => 'Thiếu tọa độ lat/lng.'], 422);
         }
 
-        $provinces = Province::whereNotNull('lat')
-            ->whereNotNull('lng')
-            ->get();
+        $provinces = Province::whereNotNull('lat')->whereNotNull('lng')->get();
 
         if ($provinces->isEmpty()) {
             return response()->json(['province' => null]);
@@ -92,64 +126,7 @@ class ProvinceController extends Controller
         ]);
     }
 
-    // ─── GET /api/v1/provinces/{id}/branches ─────────────────────────────────
-    // Trả về danh sách chi nhánh của tỉnh/thành phố theo ID,
-    // kèm total_room (số phòng active trong chi nhánh đó).
-
-    public function branches(int $id): JsonResponse
-    {
-        $province = Province::find($id);
-
-        if (! $province) {
-            return response()->json(['message' => 'Không tìm thấy tỉnh/thành phố.'], 404);
-        }
-
-        $branches = $province->branches()
-            ->where('status', true)
-            ->with('category')
-            ->get()
-            ->map(function ($branch) {
-                $categoryId = $branch->categorie_id;
-
-                $childIds = Category::where('parent_id', $categoryId)
-                    ->pluck('id')
-                    ->toArray();
-
-                $allIds = array_merge([$categoryId], $childIds);
-
-                $totalRoom = Product::where('is_activated', true)
-                    ->where('is_in_stock', true)
-                    ->whereHas('categories', fn ($q) => $q->whereIn('category_id', $allIds))
-                    ->count();
-
-                return [
-                    'id'         => $branch->category->id,
-                    'name'       => $branch->category->name,
-                    'slug'       => $branch->category->slug,
-                    'image_url'  => $branch->category->image
-                        ? Storage::disk('public')->url($branch->category->image)
-                        : null,
-                    'total_room' => $totalRoom,
-                ];
-            })
-            ->values()
-            ->toArray();
-
-        return response()->json([
-            'province' => [
-                'id'        => $province->id,
-                'name'      => $province->name,
-                'slug'      => $province->slug,
-                'image_url' => $province->image
-                    ? Storage::disk('public')->url($province->image)
-                    : null,
-            ],
-            'branches' => $branches,
-        ]);
-    }
-
     // ─── GET /api/v1/provinces/{slug} ────────────────────────────────────────
-    // Endpoint cũ: giữ nguyên
 
     public function show(string $slug): JsonResponse
     {
@@ -163,46 +140,51 @@ class ProvinceController extends Controller
             ->where('status', true)
             ->with('category')
             ->get()
-            ->map(fn ($branch) => [
-                'id'          => $branch->category->id,
-                'name'        => $branch->category->name,
-                'slug'        => $branch->category->slug,
-                'description' => $branch->category->description,
-                'image_url'   => $branch->category->image
-                    ? Storage::disk('public')->url($branch->category->image)
-                    : null,
-            ])
+            ->map(function ($branch) {
+                $categoryId = $branch->categorie_id;
+                $childIds   = Category::where('parent_id', $categoryId)->pluck('id')->toArray();
+                $allIds     = array_merge([$categoryId], $childIds);
+
+                $totalRoom = Product::where('is_activated', true)
+                    ->where('is_in_stock', true)
+                    ->whereHas('categories', fn ($q) => $q->whereIn('category_id', $allIds))
+                    ->count();
+
+                return [
+                    'id'          => $branch->category->id,
+                    'name'        => $branch->category->name,
+                    'slug'        => $branch->category->slug,
+                    'description' => $branch->category->description,
+                    'image_url'   => $branch->category->image
+                        ? Storage::disk('public')->url($branch->category->image)
+                        : null,
+                    'total_room'  => $totalRoom,
+                ];
+            })
             ->values()
             ->toArray();
 
         return response()->json([
             'province' => [
-                'id'        => $province->id,
-                'name'      => $province->name,
-                'slug'      => $province->slug,
-                'image_url' => $province->image
-                    ? Storage::disk('public')->url($province->image)
-                    : null,
-                'branches'  => $branches,
+                'id'       => $province->id,
+                'name'     => $province->name,
+                'slug'     => $province->slug,
+                'branches' => $branches,
             ],
         ]);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
-    private function mapProvinceItems($provinces): array
+    private function mapItems($provinces): array
     {
         return $provinces->map(fn ($p) => [
-            'id'        => $p->id,
-            'name'      => $p->name,
-            'slug'      => $p->slug,
-            'image_url' => $p->image
-                ? Storage::disk('public')->url($p->image)
-                : null,
+            'id'   => $p->id,
+            'name' => $p->name,
+            'slug' => $p->slug,
         ])->values()->toArray();
     }
 
-    // Khoảng cách Haversine (km) giữa hai tọa độ
     private function haversine(float $lat1, float $lng1, float $lat2, float $lng2): float
     {
         $R    = 6371;
