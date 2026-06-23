@@ -7,6 +7,7 @@ namespace Modules\Product\App\Filament\Resources\ProductResource\Pages;
 use Filament\Notifications\Notification;
 use Filament\Support\Enums\MaxWidth;
 use Modules\Product\App\Filament\Resources\ProductResource;
+use Modules\Product\App\Filament\Resources\ProductResource\Tables\Actions\AssignNightsAction;
 use Filament\Actions;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Forms\Components\DatePicker;
@@ -103,6 +104,7 @@ class ListProduct extends ListRecords
 ////                ->extraAttributes(['style' =>  'display: inline-block;'])
 //                ->url(ListGasPrice::getUrl()),
 
+            AssignNightsAction::make(),
             Actions\CreateAction::make(),
         ];
     }

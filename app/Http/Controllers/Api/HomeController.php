@@ -112,8 +112,22 @@ class HomeController extends Controller
 
     // ─── Room list ───────────────────────────────────────────────────────────
 
-    private function buildRoomList(array $data, int $index, ?array $wishlistedIds, ?int $tabRoomTypeId, ?Province $province = null): array
+    private function buildRoomList(array $data, int $index, ?array $wishlistedIds, ?int $tabRoomTypeId, ?Province $province = null): ?array
     {
+        $displayMode = $data['display_mode'] ?? 'fixed';
+
+        // by_region: ẩn section khi chưa có khu vực
+        if ($displayMode === 'by_region' && $province === null) {
+            return null;
+        }
+
+        $rooms = $this->getRooms($data, $displayMode, $wishlistedIds, $tabRoomTypeId, $province);
+
+        // by_region: ẩn section khi khu vực không có phòng
+        if ($displayMode === 'by_region' && empty($rooms)) {
+            return null;
+        }
+
         return [
             'type'         => 'room_list',
             'id'           => $index + 1,
@@ -123,31 +137,45 @@ class HomeController extends Controller
             'view_all_url' => $data['view_all_url'] ?? null,
             'show_arrow'   => (bool) ($data['show_arrow'] ?? true),
             'layout'       => $data['layout'] ?? 'horizontal_scroll',
-            'rooms'        => $this->getRooms($data, $wishlistedIds, $tabRoomTypeId, $province),
+            'display_mode' => $displayMode,
+            'rooms'        => $rooms,
         ];
     }
 
-    private function getRooms(array $data, ?array $wishlistedIds, ?int $tabRoomTypeId, ?Province $province = null): array
+    private function getRooms(array $data, string $displayMode, ?array $wishlistedIds, ?int $tabRoomTypeId, ?Province $province = null): array
     {
         $productIds = $data['product_ids'] ?? [];
 
         if (! empty($productIds)) {
+            // Phòng được chọn tay — fixed: lấy hết; by_region: lọc theo tỉnh
             $query = Product::whereIn('id', $productIds)
                 ->where('is_activated', true)
                 ->where('is_in_stock', true);
+
+            if ($displayMode === 'by_region' && $province !== null) {
+                $provinceBranchIds = $province->branches()
+                    ->where('status', true)
+                    ->pluck('categorie_id')
+                    ->toArray();
+
+                if (! empty($provinceBranchIds)) {
+                    $childIds  = Category::whereIn('parent_id', $provinceBranchIds)->pluck('id');
+                    $filterIds = collect($provinceBranchIds)->merge($childIds)->unique()->values();
+                    $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
+                }
+            }
         } else {
             $query = Product::where('is_activated', true)
                 ->where('is_in_stock', true);
 
             $branchIds = array_filter((array) ($data['branch_ids'] ?? []));
 
-            if ($province !== null) {
+            if ($displayMode === 'by_region' && $province !== null) {
                 $provinceBranchIds = $province->branches()
                     ->where('status', true)
                     ->pluck('categorie_id')
                     ->toArray();
 
-                // Nếu block có cấu hình branch_ids, lấy phần giao với province
                 $effectiveBranchIds = ! empty($branchIds)
                     ? array_values(array_intersect($branchIds, $provinceBranchIds))
                     : $provinceBranchIds;
@@ -158,6 +186,7 @@ class HomeController extends Controller
                     $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
                 }
             } elseif (! empty($branchIds)) {
+                // fixed + branch_ids: lọc theo branch được chọn
                 $childIds  = Category::whereIn('parent_id', $branchIds)->pluck('id');
                 $filterIds = collect($branchIds)->merge($childIds)->unique()->values();
                 $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));

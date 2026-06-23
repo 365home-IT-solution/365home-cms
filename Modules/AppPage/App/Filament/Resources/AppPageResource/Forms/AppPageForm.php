@@ -18,7 +18,6 @@ use Illuminate\Support\Str;
 use Modules\AppPage\App\Models\Banner;
 use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
-use Modules\Promotion\App\Models\Promotion;
 
 class AppPageForm
 {
@@ -136,6 +135,17 @@ class AppPageForm
                                     ->placeholder('/rooms?type=deal'),
                             ]),
 
+                            Select::make('display_mode')
+                                ->label('Chế độ hiển thị')
+                                ->options([
+                                    'fixed'     => 'Cố định — luôn hiển thị dù đổi khu vực',
+                                    'by_region' => 'Theo khu vực — ẩn nếu không có khu vực / không có phòng',
+                                ])
+                                ->default('fixed')
+                                ->required()
+                                ->helperText('Cố định: hiển thị tất cả phòng đã chọn. Theo khu vực: ẩn section khi guest/user chưa chọn khu vực hoặc khu vực đó không có phòng.')
+                                ->columnSpanFull(),
+
                             Select::make('branch_ids')
                                 ->label('Chọn chi nhánh')
                                 ->options(fn () => Category::whereNull('parent_id')
@@ -147,7 +157,8 @@ class AppPageForm
                                 ->searchable()
                                 ->live()
                                 ->afterStateUpdated(fn (callable $set) => $set('product_ids', []))
-                                ->placeholder('Tất cả chi nhánh...'),
+                                ->placeholder('Tất cả chi nhánh...')
+                                ->hidden(fn (Get $get) => ($get('display_mode') ?? 'fixed') === 'by_region'),
 
                             Select::make('product_ids')
                                 ->label('Chọn phòng')
@@ -170,7 +181,8 @@ class AppPageForm
 
                                     return $query->orderBy('name')->pluck('name', 'id')->toArray();
                                 })
-                                ->placeholder('Để trống để hiển thị tất cả phòng...'),
+                                ->placeholder('Để trống để hiển thị tất cả phòng...')
+                                ->hidden(fn (Get $get) => ($get('display_mode') ?? 'fixed') === 'by_region'),
                         ]),
 
                     Builder\Block::make('suggestion_list')
