@@ -152,59 +152,26 @@ class ProvinceController extends Controller
             return response()->json(['message' => 'Province not found.'], 404);
         }
 
-        $branches = $province->branches()
+        $wards = $province->branches()
             ->where('status', true)
-            ->with(['category', 'ward'])
+            ->whereNotNull('ward_code')
+            ->with('ward')
             ->get()
-            ->map(function ($branch) {
-                $categoryId = $branch->categorie_id;
-                $childIds   = Category::where('parent_id', $categoryId)->pluck('id')->toArray();
-                $allIds     = array_merge([$categoryId], $childIds);
-
-                $totalRoom = Product::where('is_activated', true)
-                    ->where('is_in_stock', true)
-                    ->whereHas('categories', fn ($q) => $q->whereIn('category_id', $allIds))
-                    ->count();
-
-                return [
-                    'ward_code'   => $branch->ward_code,
-                    'ward_name'   => $branch->ward?->name,
-                    'id'          => $branch->category->id,
-                    'name'        => $branch->category->name,
-                    'slug'        => $branch->category->slug,
-                    'description' => $branch->category->description,
-                    'image_url'   => $branch->category->image
-                        ? Storage::disk('public')->url($branch->category->image)
-                        : null,
-                    'total_room'  => $totalRoom,
-                ];
-            });
-
-        $grouped = $branches
             ->groupBy('ward_code')
             ->map(fn ($items, $wardCode) => [
-                'ward'  => $wardCode ? [
-                    'code' => (int) $wardCode,
-                    'name' => $items->first()['ward_name'],
-                ] : null,
-                'items' => $items->map(fn ($b) => [
-                    'id'          => $b['id'],
-                    'name'        => $b['name'],
-                    'slug'        => $b['slug'],
-                    'description' => $b['description'],
-                    'image_url'   => $b['image_url'],
-                    'total_room'  => $b['total_room'],
-                ])->values(),
+                'code'           => (int) $wardCode,
+                'name'           => $items->first()->ward?->name,
+                'total_branches' => $items->count(),
             ])
-            ->sortBy(fn ($group) => $group['ward'] === null ? 1 : 0)
+            ->sortBy('name')
             ->values();
 
         return response()->json([
             'province' => [
-                'id'       => $province->id,
-                'name'     => $province->name,
-                'slug'     => $province->slug,
-                'branches' => $grouped,
+                'id'    => $province->id,
+                'name'  => $province->name,
+                'slug'  => $province->slug,
+                'wards' => $wards,
             ],
         ]);
     }

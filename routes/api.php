@@ -84,6 +84,8 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
     Route::get('guest/provinces/{id}', [ProvinceController::class, 'showInfo'])->name('guest.provinces.show')->whereNumber('id');
 
+    Route::get('wards/{code}', [WardController::class, 'showByCode'])->name('wards.show')->whereNumber('code');
+
     Route::get('ask-user/{id}', [AskUserController::class, 'show'])->name('ask-user.show')->whereNumber('id');
 
     Route::get('config',     ConfigController::class)->name('config')->middleware('throttle:config');
