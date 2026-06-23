@@ -8,6 +8,7 @@ use App\Http\Concerns\BuildsRoomCard;
 use App\Http\Concerns\ResolvesProvince;
 use App\Models\Province;
 use App\Models\ProvinceBranch;
+use App\Models\Ward;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -83,6 +84,7 @@ class SearchController extends Controller
             'month'     => ['nullable', 'integer', 'between:1,12', 'required_if:time_type,month'],
             'year'      => ['nullable', 'integer', 'min:2020', 'required_if:time_type,month'],
             'guests'    => ['nullable', 'integer', 'min:1'],
+            'ward_code' => ['nullable', 'integer'],
             'page'      => ['nullable', 'integer', 'min:1'],
             'per_page'  => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
@@ -103,6 +105,22 @@ class SearchController extends Controller
                 $childIds  = Category::whereIn('parent_id', $provinceBranchIds)->pluck('id');
                 $filterIds = collect($provinceBranchIds)->merge($childIds)->unique()->values();
                 $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
+            }
+        }
+
+        // Filter theo ward — chi tiết hơn tỉnh, ghi đè filter tỉnh nếu có
+        if (! empty($validated['ward_code'])) {
+            $wardBranchIds = ProvinceBranch::where('ward_code', $validated['ward_code'])
+                ->where('status', true)
+                ->pluck('categorie_id')
+                ->toArray();
+
+            if (! empty($wardBranchIds)) {
+                $childIds  = Category::whereIn('parent_id', $wardBranchIds)->pluck('id');
+                $filterIds = collect($wardBranchIds)->merge($childIds)->unique()->values();
+                $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
+            } else {
+                $query->whereRaw('1 = 0');
             }
         }
 
