@@ -38,7 +38,38 @@ class ProvinceController extends Controller
     // ─── POST /api/v1/provinces/select ──────────────────────────────────────
     // Dùng chung cho cả customer (có token) lẫn guest (dùng device_token)
 
-    public function select(Request $request): JsonResponse
+    public function getSelected(Request $request): JsonResponse|\Illuminate\Http\Response
+    {
+        $authUser = auth('sanctum')->user();
+
+        if ($authUser) {
+            $province = $authUser->province_id
+                ? Province::find($authUser->province_id)
+                : null;
+        } else {
+            $deviceToken = $request->query('device_token');
+            $province    = null;
+            if ($deviceToken) {
+                $guest    = GuestCustomer::where('device_token', $deviceToken)->first();
+                $province = $guest?->province_id ? Province::find($guest->province_id) : null;
+            }
+        }
+
+        if (! $province) {
+            return response()->noContent();
+        }
+
+        return response()->json([
+            'id'            => $province->id,
+            'name'          => $province->name,
+            'slug'          => $province->slug,
+            'code'          => $province->code,
+            'division_type' => $province->division_type,
+            'codename'      => $province->codename,
+        ]);
+    }
+
+    public function select(Request $request): \Illuminate\Http\Response
     {
         $authUser = auth('sanctum')->user();
 
@@ -57,7 +88,7 @@ class ProvinceController extends Controller
             );
         }
 
-        return response()->json(['ok' => true]);
+        return response('', 200);
     }
 
     // ─── GET /api/v1/provinces/detect?lat=...&lng=... ────────────────────────

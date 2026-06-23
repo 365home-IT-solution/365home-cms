@@ -76,6 +76,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     Route::prefix('provinces')->name('provinces.')->group(function () {
         Route::get('/',       [ProvinceController::class, 'index'])->name('index');
         Route::get('detect',  [ProvinceController::class, 'detect'])->name('detect');
+        Route::get('select',  [ProvinceController::class, 'getSelected'])->name('select.get');
         Route::post('select', [ProvinceController::class, 'select'])->name('select');
         Route::get('{id}',    [ProvinceController::class, 'show'])->name('show')->whereNumber('id');
     });
