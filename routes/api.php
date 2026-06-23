@@ -54,7 +54,8 @@ Route::post('lock/callback', [LockRecordCallbackController::class, 'handle'])
 | GET /api/room-types → Danh sách danh mục phòng (dùng cho select/dropdown)
 |--------------------------------------------------------------------------
 */
-Route::get('room-types', [RoomTypeController::class, 'index'])->name('api.room-types.index');
+Route::get('room-types',      [RoomTypeController::class, 'index'])->name('api.room-types.index');
+Route::get('v1/room-types/{id}', [RoomTypeController::class, 'show'])->name('api.v1.room-types.show')->whereNumber('id');
 
 /*
 |--------------------------------------------------------------------------
