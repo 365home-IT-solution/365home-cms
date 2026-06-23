@@ -69,6 +69,24 @@ class ProvinceController extends Controller
         ]);
     }
 
+    public function showInfo(int $id): JsonResponse|\Illuminate\Http\Response
+    {
+        $province = Province::find($id);
+
+        if (! $province) {
+            return response()->noContent(404);
+        }
+
+        return response()->json([
+            'id'            => $province->id,
+            'name'          => $province->name,
+            'slug'          => $province->slug,
+            'code'          => $province->code,
+            'division_type' => $province->division_type,
+            'codename'      => $province->codename,
+        ]);
+    }
+
     public function select(Request $request): \Illuminate\Http\Response
     {
         $authUser = auth('sanctum')->user();
