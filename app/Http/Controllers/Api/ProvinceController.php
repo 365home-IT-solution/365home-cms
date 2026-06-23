@@ -154,7 +154,7 @@ class ProvinceController extends Controller
 
         $branches = $province->branches()
             ->where('status', true)
-            ->with('category')
+            ->with(['category', 'ward'])
             ->get()
             ->map(function ($branch) {
                 $categoryId = $branch->categorie_id;
@@ -167,6 +167,8 @@ class ProvinceController extends Controller
                     ->count();
 
                 return [
+                    'ward_code'   => $branch->ward_code,
+                    'ward_name'   => $branch->ward?->name,
                     'id'          => $branch->category->id,
                     'name'        => $branch->category->name,
                     'slug'        => $branch->category->slug,
@@ -176,16 +178,33 @@ class ProvinceController extends Controller
                         : null,
                     'total_room'  => $totalRoom,
                 ];
-            })
-            ->values()
-            ->toArray();
+            });
+
+        $grouped = $branches
+            ->groupBy('ward_code')
+            ->map(fn ($items, $wardCode) => [
+                'ward'  => $wardCode ? [
+                    'code' => (int) $wardCode,
+                    'name' => $items->first()['ward_name'],
+                ] : null,
+                'items' => $items->map(fn ($b) => [
+                    'id'          => $b['id'],
+                    'name'        => $b['name'],
+                    'slug'        => $b['slug'],
+                    'description' => $b['description'],
+                    'image_url'   => $b['image_url'],
+                    'total_room'  => $b['total_room'],
+                ])->values(),
+            ])
+            ->sortBy(fn ($group) => $group['ward'] === null ? 1 : 0)
+            ->values();
 
         return response()->json([
             'province' => [
                 'id'       => $province->id,
                 'name'     => $province->name,
                 'slug'     => $province->slug,
-                'branches' => $branches,
+                'branches' => $grouped,
             ],
         ]);
     }

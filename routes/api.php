@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\AskUserController;
 use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\ProvinceController;
 use App\Http\Controllers\Api\SearchController;
+use App\Http\Controllers\Api\WardController;
 use App\Http\Controllers\Api\LockRecordCallbackController;
 use App\Http\Controllers\Api\UnlockController;
 use App\Http\Controllers\Api\DailyRoomController;
@@ -101,6 +102,21 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
         Route::get('locations',   [SearchController::class, 'locations'])->name('locations');
         Route::get('/',           [SearchController::class, 'index'])->name('index');
     });
+});
+
+/*
+|--------------------------------------------------------------------------
+| V2 — Wards (phường / xã)
+| GET /api/v2/ward                       → Danh sách tất cả phường/xã
+| GET /api/v2/ward?province_code=92      → Lọc theo mã tỉnh
+| GET /api/v2/ward?search=bình           → Tìm theo tên
+| GET /api/v2/ward?division_type=phường  → Lọc loại đơn vị
+| GET /api/v2/ward/{code}               → Chi tiết 1 phường/xã
+|--------------------------------------------------------------------------
+*/
+Route::prefix('v2')->name('api.v2.')->group(function () {
+    Route::get('ward',        [WardController::class, 'index'])->name('ward.index');
+    Route::get('ward/{code}', [WardController::class, 'show'])->name('ward.show')->whereNumber('code');
 });
 
 /*

@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\ProvinceResource\Pages;
+use App\Filament\Resources\ProvinceResource\RelationManagers\WardsRelationManager;
 use App\Models\Province;
+use App\Models\Ward;
 use Awcodes\TableRepeater\Components\TableRepeater;
 use Awcodes\TableRepeater\Header;
 use Filament\Forms\Components\FileUpload;
@@ -15,6 +17,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
 use Filament\Forms\Set;
 use Filament\Resources\Resource;
 use Filament\Tables\Actions\DeleteAction;
@@ -113,12 +116,23 @@ class ProvinceResource extends Resource
                 TableRepeater::make('branches')
                     ->relationship('branches')
                     ->headers([
-                        Header::make('categorie_id')->label('Danh mục'),
+                        Header::make('ward_code')->label('Phường/Xã'),
+                        Header::make('categorie_id')->label('Chi nhánh'),
                         Header::make('status')->label('Hiển thị')->width('120px'),
                     ])
                     ->schema([
+                        Select::make('ward_code')
+                            ->label('Phường/Xã')
+                            ->options(fn (Get $get) => Ward::where('province_code', $get('../../code') ?? 0)
+                                ->orderBy('name')
+                                ->pluck('name', 'code')
+                            )
+                            ->searchable()
+                            ->nullable()
+                            ->placeholder('— Chưa chọn —'),
+
                         Select::make('categorie_id')
-                            ->label('Danh mục')
+                            ->label('Chi nhánh')
                             ->options(
                                 Category::where('category_type', 'product')
                                     ->where('status', true)
@@ -195,6 +209,13 @@ class ProvinceResource extends Resource
                 DeleteAction::make()->label('Xoá'),
             ])
             ->bulkActions([]);
+    }
+
+    public static function getRelationManagers(): array
+    {
+        return [
+            WardsRelationManager::class,
+        ];
     }
 
     public static function getPages(): array
