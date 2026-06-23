@@ -8,7 +8,6 @@ use App\Http\Concerns\BuildsRoomCard;
 use App\Http\Concerns\ResolvesProvince;
 use App\Models\Province;
 use App\Models\ProvinceBranch;
-use App\Models\Ward;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -124,14 +123,19 @@ class SearchController extends Controller
             }
         }
 
-        // Filter by room_type_slug — nếu category không tồn tại thì trả về rỗng
+        // Filter theo category slug
         if (! empty($validated['category'])) {
-            $roomType = RoomType::where('slug', $validated['category'])->first();
-            if ($roomType) {
-                $query->where('room_type_id', $roomType->id);
-            } else {
-                $query->whereRaw('1 = 0');
-            }
+            match ($validated['category']) {
+                'theo_gio'  => $query->where('styles', 1),
+                'theo_ngay' => $query->where('styles', 2),
+                'qua_dem'   => $query->where('nights', true),
+                default     => (function () use ($query, $validated) {
+                    $roomType = RoomType::where('slug', $validated['category'])->first();
+                    $roomType
+                        ? $query->where('room_type_id', $roomType->id)
+                        : $query->whereRaw('1 = 0');
+                })(),
+            };
         }
 
         // Keyword search

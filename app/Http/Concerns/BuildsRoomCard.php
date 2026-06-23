@@ -14,7 +14,7 @@ trait BuildsRoomCard
     {
         $badge    = $room->badge;
         $roomType = $room->relationLoaded('roomType') ? $room->roomType : null;
-        $isHourly = $roomType?->slug === 'theo_gio';
+        $isHourly = $roomType?->slug === 'theo_gio' || (int) $room->styles === 1;
 
         if ($isHourly) {
             $timeSlots = $this->buildTimeSlots($room, $timeFrom, $timeTo);
