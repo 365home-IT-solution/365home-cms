@@ -332,7 +332,7 @@ class RoomController extends Controller
 
     private function buildPrices(Product $room): array
     {
-        return $room->roomType?->slug === 'theo_gio'
+        return (int) $room->styles === 1
             ? $this->buildHourlyPrices($room)
             : $this->buildDailyPrice($room);
     }

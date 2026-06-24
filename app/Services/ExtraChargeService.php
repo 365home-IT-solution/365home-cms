@@ -45,7 +45,7 @@ class ExtraChargeService
         $config         = $product->room_config ?? [];
         $guestFee       = (int) ($config['extra_guest_fee'] ?? 0);
         $guestThreshold = (int) ($config['max_free_guests'] ?? 2);
-        $isSlotType     = $product->roomType?->slug === 'theo_gio';
+        $isSlotType     = (int) $product->styles === 1;
         $nights         = $isSlotType ? 1 : max(1, $itemCount);
         $extraGuests    = max(0, $guestCount - $guestThreshold);
 

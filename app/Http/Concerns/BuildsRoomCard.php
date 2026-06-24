@@ -13,8 +13,7 @@ trait BuildsRoomCard
     private function mapRoom(Product $room, ?bool $wishlistStatus = null, ?string $timeFrom = null, ?string $timeTo = null): array
     {
         $badge    = $room->badge;
-        $roomType = $room->relationLoaded('roomType') ? $room->roomType : null;
-        $isHourly = $roomType?->slug === 'theo_gio' || (int) $room->styles === 1;
+        $isHourly = (int) $room->styles === 1;
 
         if ($isHourly) {
             $timeSlots = $this->buildTimeSlots($room, $timeFrom, $timeTo);
@@ -34,8 +33,11 @@ trait BuildsRoomCard
             'slug'            => $room->slug,
             'name'            => $room->name,
             'thumbnail_url'   => $this->getMainImageUrl($room),
-            'room_type_id'    => $roomType?->id,
-            'room_type_slug'  => $roomType?->slug,
+            'room_style'      => match ((int) $room->styles) {
+                1       => 'theo_gio',
+                2       => 'theo_ngay',
+                default => $room->nights ? 'qua_dem' : null,
+            },
             'badge'           => $badge ? [
                 'label'      => $badge['label'] ?? null,
                 'type'       => $badge['type'] ?? null,

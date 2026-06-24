@@ -128,7 +128,7 @@ class OrderController extends Controller
                 $itemsSum       = (int) $order->items->sum('price');
                 $oldServicesSum = (int) $order->services->sum('subtotal');
                 $oldSurcharge   = max(0, (int) $order->amount - $itemsSum - $oldServicesSum);
-                $isSlotType     = $guestRoom?->roomType?->slug === 'theo_gio';
+                $isSlotType     = (int) $guestRoom?->styles === 1;
                 $nights         = $isSlotType ? 1 : max(1, $order->items->count());
                 $newSurcharge   = max(0, $newGuestCount - $guestThreshold) * $guestFee * $nights;
 
@@ -380,7 +380,7 @@ class OrderController extends Controller
             $guestConfig    = $product->room_config ?? [];
             $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
             $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
-            $isSlotType     = $product->roomType?->slug === 'theo_gio';
+            $isSlotType     = (int) $product->styles === 1;
             $nights         = $isSlotType ? 1 : max(1, $order->items->count());
             $guestCount     = (int) $order->guest_count;
             $extraGuests    = max(0, $guestCount - $guestThreshold);
@@ -930,7 +930,7 @@ class OrderController extends Controller
             $guestConfig    = $product->room_config ?? [];
             $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
             $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
-            $isSlotType     = $product->roomType?->slug === 'theo_gio';
+            $isSlotType     = (int) $product->styles === 1;
             $nights         = $isSlotType ? 1 : max(1, $order->items->count());
             $guestCount     = (int) $order->guest_count;
             $extraGuests    = max(0, $guestCount - $guestThreshold);

@@ -67,7 +67,7 @@ class HomeController extends Controller
         return match ($block['type']) {
             'banner'          => $this->buildBanner($block['data'] ?? [], $index),
             'room_list'       => $this->buildRoomList($block['data'] ?? [], $index, $wishlistedIds, $tabRoomTypeId, $province),
-            'suggestion_list' => $this->buildSuggestionList($block['data'] ?? [], $index, $province),
+            'suggestion_list' => $this->buildSuggestionList($block['data'] ?? [], $index, $wishlistedIds, $province),
             'promotion_list'  => $this->buildPromotionList($block['data'] ?? [], $index, $wishlistedIds, $province),
             default           => null,
         };
@@ -268,7 +268,7 @@ class HomeController extends Controller
 
     // ─── Suggestion list ─────────────────────────────────────────────────────
 
-    private function buildSuggestionList(array $data, int $index, ?Province $province = null): array
+    private function buildSuggestionList(array $data, int $index, ?array $wishlistedIds, ?Province $province = null): array
     {
         $type = $data['type'] ?? 'room';
 
@@ -288,7 +288,7 @@ class HomeController extends Controller
 
         $items = $type === 'branch'
             ? $this->getSuggestionBranches($province)
-            : $this->getSuggestionRooms($province);
+            : $this->getSuggestionRooms($province, $wishlistedIds);
 
         return array_merge($base, ['items' => $items]);
     }
@@ -311,7 +311,7 @@ class HomeController extends Controller
             ->toArray();
     }
 
-    private function getSuggestionRooms(Province $province): array
+    private function getSuggestionRooms(Province $province, ?array $wishlistedIds = null): array
     {
         $branchCategoryIds = $province->branches()
             ->where('status', true)
@@ -328,14 +328,17 @@ class HomeController extends Controller
         return Product::where('is_activated', true)
             ->where('is_in_stock', true)
             ->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds))
-            ->with('media')
+            ->with(['roomTimeSlots.timeSlot', 'media', 'roomType'])
             ->get()
-            ->map(fn ($room) => [
-                'id'        => $room->id,
-                'name'      => $room->name,
-                'slug'      => $room->slug,
-                'image_url' => $this->getMainImageUrl($room),
-            ])
+            ->map(function ($room) use ($wishlistedIds) {
+                $status = $wishlistedIds === null ? null : \in_array($room->id, $wishlistedIds);
+                $card   = $this->mapRoom($room, $status);
+
+                $card['image_url'] = $card['thumbnail_url'];
+                unset($card['thumbnail_url']);
+
+                return $card;
+            })
             ->values()
             ->toArray();
     }

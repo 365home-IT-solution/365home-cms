@@ -904,7 +904,7 @@ class BookingController extends Controller
 
         $type = $request->input('type');
 
-        if ($type === 'slot' && $room->roomType?->slug !== 'theo_gio') {
+        if ($type === 'slot' && (int) $room->styles !== 1) {
             return [0, null];
         }
 
