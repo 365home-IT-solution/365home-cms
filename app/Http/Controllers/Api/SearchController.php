@@ -104,6 +104,9 @@ class SearchController extends Controller
                 $childIds  = Category::whereIn('parent_id', $provinceBranchIds)->pluck('id');
                 $filterIds = collect($provinceBranchIds)->merge($childIds)->unique()->values();
                 $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
+            } else {
+                // Province tồn tại nhưng không có branch active → trả về rỗng
+                $query->whereRaw('1 = 0');
             }
         }
 

@@ -162,6 +162,8 @@ class HomeController extends Controller
                     $childIds  = Category::whereIn('parent_id', $provinceBranchIds)->pluck('id');
                     $filterIds = collect($provinceBranchIds)->merge($childIds)->unique()->values();
                     $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
+                } else {
+                    $query->whereRaw('1 = 0');
                 }
             }
         } else {
@@ -184,6 +186,8 @@ class HomeController extends Controller
                     $childIds  = Category::whereIn('parent_id', $effectiveBranchIds)->pluck('id');
                     $filterIds = collect($effectiveBranchIds)->merge($childIds)->unique()->values();
                     $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
+                } else {
+                    $query->whereRaw('1 = 0');
                 }
             } elseif (! empty($branchIds)) {
                 // fixed + branch_ids: lọc theo branch được chọn
