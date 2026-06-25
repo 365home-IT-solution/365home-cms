@@ -394,9 +394,10 @@ class ZaloOtpController extends Controller
             'cccd_data'         => $customer->cccd_data,
             'membership'        => [
                 'tier'           => $tier ? [
-                    'id'   => $tier->id,
-                    'name' => $tier->name,
-                    'slug' => $tier->slug,
+                    'id'                  => $tier->id,
+                    'name'                => $tier->name,
+                    'slug'                => $tier->slug,
+                    'welcome_coupon_value'=> (float) $tier->welcome_coupon_value,
                 ] : null,
                 'total_spending' => $spending,
                 'next_tier'      => $nextTier ? [
