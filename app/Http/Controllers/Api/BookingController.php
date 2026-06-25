@@ -736,14 +736,14 @@ class BookingController extends Controller
 
     private function applyPromotions(Collection $rtsCollection, array $slotSummary = []): array
     {
-        $calculator  = new PromotionCalculator();
-        $slotDateMap = collect($slotSummary)->pluck('date', 'timeslot_id');
+        $calculator = new PromotionCalculator();
+        $rtsList    = $rtsCollection->values();
 
         $totalDiscount = 0;
         $applied       = [];
 
-        foreach ($rtsCollection as $rts) {
-            $bookingDate = $slotDateMap->get($rts->timeslot_id);
+        foreach ($rtsList as $i => $rts) {
+            $bookingDate = $slotSummary[$i]['date'] ?? null;
             if (! $bookingDate || ! $rts->timeSlot) {
                 continue;
             }
@@ -918,7 +918,11 @@ class BookingController extends Controller
         }
 
         $extraGuests = $guests - $threshold;
-        $nights      = $type === 'daily' ? count($slotSummary) : 1;
+        $nights      = match (true) {
+            $type === 'daily' => count($slotSummary),
+            $type === 'slot'  => collect($slotSummary)->pluck('date')->unique()->count(),
+            default           => 1,
+        };
         $total       = $extraGuests * $fee * $nights;
 
         $label = "Phụ thu {$extraGuests} người (trên {$threshold} người)";
