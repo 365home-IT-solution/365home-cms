@@ -202,6 +202,97 @@ class RoomController extends Controller
         ]);
     }
 
+    // GET /api/rooms/{id}/guest-surcharge-preview?guest_count=5&dates[]=2026-06-29&dates[]=2026-06-30
+    // GET /api/rooms/{id}/guest-surcharge-preview?guest_count=5&checkin=2026-06-29&checkout=2026-07-02
+    //
+    // Xem trước phụ thu khi chọn số lượng khách, áp dụng cho cả phòng theo
+    // khung giờ (styles=1, truyền dates[]) và phòng theo ngày (styles=2,
+    // truyền checkin/checkout). Cấu hình phụ thu lấy từ room_config
+    // (max_free_guests, extra_guest_fee) — set trong Hệ thống Giá & Ưu đãi.
+    public function guestSurchargePreview(Request $request, string $id): JsonResponse
+    {
+        $room = Product::where('id', $id)
+            ->where('is_activated', true)
+            ->first();
+
+        if (! $room) {
+            return response()->json(['message' => 'Phòng không tồn tại.'], 404);
+        }
+
+        $guestCount = (int) $request->query('guest_count', 0);
+        if ($guestCount < 1) {
+            return response()->json(['message' => 'Thiếu hoặc sai tham số guest_count.'], 422);
+        }
+
+        $isSlotType = (int) $room->styles === 1;
+
+        if ($isSlotType) {
+            $dates = array_filter((array) $request->query('dates', []));
+            if (empty($dates)) {
+                return response()->json(['message' => 'Thiếu tham số dates[] (danh sách ngày YYYY-MM-DD).'], 422);
+            }
+
+            try {
+                $nights = collect($dates)
+                    ->map(fn ($d) => Carbon::createFromFormat('Y-m-d', $d)->format('Y-m-d'))
+                    ->unique()
+                    ->count();
+            } catch (\Throwable) {
+                return response()->json(['message' => 'Định dạng dates không hợp lệ. Dùng YYYY-MM-DD.'], 422);
+            }
+        } else {
+            $checkinStr  = $request->query('checkin');
+            $checkoutStr = $request->query('checkout');
+            if (! $checkinStr || ! $checkoutStr) {
+                return response()->json(['message' => 'Thiếu tham số checkin/checkout (YYYY-MM-DD).'], 422);
+            }
+
+            try {
+                $checkin  = Carbon::createFromFormat('Y-m-d', $checkinStr)->startOfDay();
+                $checkout = Carbon::createFromFormat('Y-m-d', $checkoutStr)->startOfDay();
+            } catch (\Throwable) {
+                return response()->json(['message' => 'Định dạng checkin/checkout không hợp lệ. Dùng YYYY-MM-DD.'], 422);
+            }
+
+            if ($checkout->lte($checkin)) {
+                return response()->json(['message' => 'checkout phải sau checkin.'], 422);
+            }
+
+            $nights = (int) $checkin->diffInDays($checkout);
+        }
+
+        $config    = $room->room_config ?? [];
+        $fee       = (int) ($config['extra_guest_fee'] ?? 0);
+        $threshold = (int) ($config['max_free_guests'] ?? 2);
+
+        $guestSurcharge = null;
+        if ($fee > 0 && $guestCount > $threshold) {
+            $extraGuests = $guestCount - $threshold;
+            $total       = $extraGuests * $fee * $nights;
+            $label       = "Phụ thu {$extraGuests} người (trên {$threshold} người)";
+            if ($nights > 1) {
+                $label .= ' × ' . $nights . ' ' . ($isSlotType ? 'ngày' : 'đêm');
+            }
+
+            $guestSurcharge = [
+                'guest_count'    => $guestCount,
+                'threshold'      => $threshold,
+                'extra_guests'   => $extraGuests,
+                'fee_per_person' => $fee,
+                'nights'         => $nights,
+                'total'          => $total,
+                'label'          => $label,
+            ];
+        }
+
+        return response()->json([
+            'room_id'         => $room->id,
+            'type'            => $isSlotType ? 'slot' : 'daily',
+            'nights'          => $nights,
+            'guest_surcharge' => $guestSurcharge,
+        ]);
+    }
+
     // ─────────────────────────────────────────────
     // BUILD FULL ROOM DETAIL
     // ─────────────────────────────────────────────

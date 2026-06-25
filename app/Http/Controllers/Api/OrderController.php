@@ -129,7 +129,7 @@ class OrderController extends Controller
                 $oldServicesSum = (int) $order->services->sum('subtotal');
                 $oldSurcharge   = max(0, (int) $order->amount - $itemsSum - $oldServicesSum);
                 $isSlotType     = (int) $guestRoom?->styles === 1;
-                $nights         = $isSlotType ? 1 : max(1, $order->items->count());
+                $nights         = $isSlotType ? $this->countNights($order->items) : max(1, $order->items->count());
                 $newSurcharge   = max(0, $newGuestCount - $guestThreshold) * $guestFee * $nights;
 
                 if ($newSurcharge !== $oldSurcharge) {
@@ -381,7 +381,7 @@ class OrderController extends Controller
             $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
             $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
             $isSlotType     = (int) $product->styles === 1;
-            $nights         = $isSlotType ? 1 : max(1, $order->items->count());
+            $nights         = $isSlotType ? $this->countNights($order->items) : max(1, $order->items->count());
             $guestCount     = (int) $order->guest_count;
             $extraGuests    = max(0, $guestCount - $guestThreshold);
             $guestSurchargeTotal = $extraGuests * $guestFee * $nights;
@@ -931,7 +931,7 @@ class OrderController extends Controller
             $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
             $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
             $isSlotType     = (int) $product->styles === 1;
-            $nights         = $isSlotType ? 1 : max(1, $order->items->count());
+            $nights         = $isSlotType ? $this->countNights($order->items) : max(1, $order->items->count());
             $guestCount     = (int) $order->guest_count;
             $extraGuests    = max(0, $guestCount - $guestThreshold);
             $guestSurchargeTotal = $extraGuests * $guestFee * $nights;
@@ -1091,6 +1091,17 @@ class OrderController extends Controller
         }
 
         return [$applied, $totalDiscount];
+    }
+
+    /**
+     * Số ngày thực tế của đơn slot — đếm theo ngày (checkin_date) duy nhất
+     * giữa các item, vì cùng 1 khung giờ có thể được đặt lặp lại ở nhiều ngày.
+     */
+    private function countNights($items): int
+    {
+        return max(1, $items->pluck('checkin_date')->filter()->map(
+            fn ($d) => $d->format('Y-m-d')
+        )->unique()->count());
     }
 
     /**

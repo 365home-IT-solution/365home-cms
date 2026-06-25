@@ -139,6 +139,7 @@ Route::get('pages/{slug}', [AppPageController::class, 'show'])->name('api.pages.
 */
 Route::get('rooms/{id}', [RoomController::class, 'show'])->name('api.rooms.show');
 Route::get('slots', [RoomController::class, 'slots'])->name('api.slots');
+Route::get('rooms/{id}/guest-surcharge-preview', [RoomController::class, 'guestSurchargePreview'])->name('api.rooms.guest-surcharge-preview');
 
 /*
 |--------------------------------------------------------------------------
