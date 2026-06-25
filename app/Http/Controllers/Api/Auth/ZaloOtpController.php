@@ -394,11 +394,9 @@ class ZaloOtpController extends Controller
             'cccd_data'         => $customer->cccd_data,
             'membership'        => [
                 'tier'           => $tier ? [
-                    'id'    => $tier->id,
-                    'name'  => $tier->name,
-                    'slug'  => $tier->slug,
-                    'color' => $tier->color,
-                    'icon'  => $tier->icon,
+                    'id'   => $tier->id,
+                    'name' => $tier->name,
+                    'slug' => $tier->slug,
                 ] : null,
                 'total_spending' => $spending,
                 'next_tier'      => $nextTier ? [
