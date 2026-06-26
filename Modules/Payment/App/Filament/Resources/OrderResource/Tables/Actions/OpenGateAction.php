@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Payment\App\Filament\Resources\OrderResource\Tables\Actions;
 
-use App\Services\TTLockService;
+use Modules\TTLock\App\Services\TTLockService;
 use Filament\Notifications\Notification;
 use Filament\Tables\Actions\Action;
 use Illuminate\Support\Facades\Log;

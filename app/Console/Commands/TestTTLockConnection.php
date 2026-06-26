@@ -4,15 +4,23 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
-use App\Services\TTLockService;
+use Modules\TTLock\App\Services\TTLockService;
 
 class TestTTLockConnection extends Command
 {
     protected $signature   = 'ttlock:test';
     protected $description = 'Kiểm tra kết nối TTLock API từ server này';
 
-    public function handle(TTLockService $ttlock): int
+    public function handle(): int
     {
+        $ttlock = new TTLockService(
+            config('services.ttlock.client_id'),
+            config('services.ttlock.client_secret'),
+            config('services.ttlock.username'),
+            config('services.ttlock.password'),
+            config('services.ttlock.api_base', 'https://cnapi.ttlock.com'),
+        );
+
         $this->info('=== Kiểm tra kết nối TTLock ===');
 
         // 1. Ping cnapi (token endpoint)

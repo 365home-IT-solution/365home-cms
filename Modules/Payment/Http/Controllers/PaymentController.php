@@ -315,7 +315,7 @@ private function buildTelegramMessage(Order $order, string $status): string
                             'room_password'        => $manualPwd->room_password,
                         ];
                     }
-                } elseif ($product && $product->lock_id && \App\Services\TTLockService::forCategory($order->category_id)) {
+                } elseif ($product && $product->lock_id && \Modules\TTLock\App\Services\TTLockService::forCategory($order->category_id)) {
                     // Phòng TTLock → thông báo có thể mở từ app
                     $notifTitle = "Đơn #{$order->order_code}: Mã cổng đã sẵn sàng";
                     $notifBody  = 'Bạn có thể mở cửa trực tiếp từ ứng dụng.';

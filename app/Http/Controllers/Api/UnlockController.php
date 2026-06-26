@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\TelegramService;
-use App\Services\TTLockService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -13,6 +12,7 @@ use Modules\AccessCode\Entities\AccessCode;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
+use Modules\TTLock\App\Services\TTLockService;
 
 class UnlockController extends Controller
 {

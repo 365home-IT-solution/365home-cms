@@ -1315,7 +1315,7 @@ class OrderController extends Controller
         }
 
         // Case 2: TTLock — chi nhánh có tài khoản TTLock + product có lock_id
-        if ($product->lock_id && \App\Services\TTLockService::forCategory($order->category_id)) {
+        if ($product->lock_id && \Modules\TTLock\App\Services\TTLockService::forCategory($order->category_id)) {
             return [
                 'type'       => 'ttlock',
                 'can_unlock' => true,
