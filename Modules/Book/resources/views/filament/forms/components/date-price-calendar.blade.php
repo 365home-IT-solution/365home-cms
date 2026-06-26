@@ -48,6 +48,8 @@
         editId:         null,
         editPrice:      '',
         editPromotions: [],
+        editSurcharges: [],
+        editCoupons:    [],
         promoOptions:      @js($promotionDiscountOptions),
         surchargeOptions:  @js($promotionSurchargeOptions),
 
@@ -106,20 +108,29 @@ isPast(d) {
                 else{this.editCheckinHour=14;this.editCheckinMinute=0;}
                 if(slot.checkout){const p=slot.checkout.split(':');this.editCheckoutHour=parseInt(p[0],10);this.editCheckoutMinute=parseInt(p[1]||0,10);}
                 else{this.editCheckoutHour=12;this.editCheckoutMinute=0;}
+                this.editPromotions=(slot.promotions??[]).map(Number);
+                this.editSurcharges=(slot.surcharges??[]).map(Number);
+                this.editCoupons=(slot.coupons??[]).map(Number);
             }
             else{
                 this.editId=null;this.editPrice='';
                 this.editCheckinHour=14;this.editCheckinMinute=0;
                 this.editCheckoutHour=12;this.editCheckoutMinute=0;
+                this.editPromotions=[];this.editSurcharges=[];this.editCoupons=[];
             }
         },
-        togglePromo(id) { const n=Number(id),i=this.editPromotions.indexOf(n); if(i>=0)this.editPromotions.splice(i,1); else this.editPromotions.push(n); },
+        toggleEditPromo(id)     { const n=Number(id),i=this.editPromotions.indexOf(n); if(i>=0)this.editPromotions.splice(i,1); else this.editPromotions.push(n); },
+        toggleEditSurcharge(id) { const n=Number(id),i=this.editSurcharges.indexOf(n); if(i>=0)this.editSurcharges.splice(i,1); else this.editSurcharges.push(n); },
+        toggleEditCoupon(id)    { const n=Number(id),i=this.editCoupons.indexOf(n); if(i>=0)this.editCoupons.splice(i,1); else this.editCoupons.push(n); },
         async saveDate() {
-            if(!this.editingDate||this.editPrice===''||this.savingDate) return;
+            if(!this.editingDate||this.savingDate) return;
+            const hasData = this.editPrice!=='' || this.editPromotions.length>0 || this.editSurcharges.length>0 || this.editCoupons.length>0;
+            if(!hasData) return;
             this.savingDate=true;
+            const priceVal=this.editPrice!=='' ? parseInt(this.editPrice) : null;
             const checkin=String(this.editCheckinHour).padStart(2,'0')+':'+String(this.editCheckinMinute).padStart(2,'0');
             const checkout=String(this.editCheckoutHour).padStart(2,'0')+':'+String(this.editCheckoutMinute).padStart(2,'0');
-            await $wire.call('saveSingleDate', this.roomId, this.editingDate, parseInt(this.editPrice), checkin, checkout);
+            await $wire.call('saveSingleDate', this.roomId, this.editingDate, priceVal, checkin, checkout, [...this.editPromotions], [...this.editSurcharges], [...this.editCoupons]);
             this.savingDate=false;
             this.editingDate=null;
             this.activeEditTimePicker=null;

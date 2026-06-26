@@ -592,86 +592,97 @@ $initSelectVal = $initIsCustom ? 'custom' : (string)$initGuests;
 
 <!-- CCCD -->
 <div>
-    <h3 class="text-xl font-semibold mb-3">Căn cước công dân</h3>
-    <div class="flex gap-4">
-        <label class="relative group flex-1 h-40 border-4 border-dashed rounded-xl cursor-pointer overflow-hidden transition-all duration-300 hover:border-primary hover:bg-blue-50/30
-                                        {{ $errors->has('cccd_front') ? 'border-red-600' : 'border-black' }}">
+    <h3 class="text-xl font-semibold mb-2">Căn cước công dân</h3>
 
-                                            <input type="file" accept="image/*" class="hidden"
-                                                   onchange="processAndUpload(this, 'cccd_front')" />
-
-                                            {{-- wire:ignore: Livewire không được re-morph phần này, JS quản lý hoàn toàn --}}
-                                            <div wire:ignore class="absolute inset-0">
-                                                <div id="loading-cccd_front" class="hidden absolute inset-0 bg-white/90 backdrop-blur-sm z-20 rounded-xl">
-                                                    <div class="flex flex-col items-center justify-center h-full">
-                                                        <div class="animate-spin rounded-full h-8 w-8 border-3 border-black border-t-primary mb-3"></div>
-                                                        <p class="text-xs font-medium text-black mb-2" id="status-cccd_front">Đang xử lý...</p>
-                                                        <div class="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                                                            <div id="progress-cccd_front" class="h-full bg-primary rounded-full transition-all duration-300" style="width: 0%"></div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <img id="preview-cccd_front"
-                                                     src=""
-                                                     class="hidden absolute inset-0 w-full h-full object-cover rounded-xl"
-                                                     alt="Mặt trước CCCD" />
-                                                <div class="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl flex items-center justify-center">
-                                                    <div class="bg-white/90 rounded-lg px-3 py-1 text-sm font-medium text-black">Thay đổi ảnh</div>
-                                                </div>
-                                                <div id="checkmark-cccd_front" class="hidden absolute top-3 right-3 bg-green-500 rounded-full p-1.5 shadow-lg z-10">
-                                                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg>
-                                                </div>
-                                                <div id="placeholder-cccd_front" class="flex flex-col items-center justify-center h-full p-4 text-center">
-                                                    <svg xmlns='http://www.w3.org/2000/svg' class="w-12 h-12 mx-auto text-black group-hover:text-primary transition-colors duration-300" stroke="currentColor" fill="none" viewBox="0 0 48 48"><path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
-                                                    <div class="mt-3">
-                                                        <p class="text-lg font-semibold text-black group-hover:text-primary">Mặt trước</p>
-                                                        <p class="text-sm text-black mt-1 group-hover:text-primary opacity-60">Chọn ảnh hoặc chụp ảnh</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </label>
-
-        <label class="relative group flex-1 h-40 border-4 border-dashed rounded-xl cursor-pointer overflow-hidden transition-all duration-300 hover:border-primary hover:bg-blue-50/30
-                                        {{ $errors->has('cccd_back') ? 'border-red-600' : 'border-black' }}">
-
-                                            <input type="file" accept="image/*" class="hidden"
-                                                   onchange="processAndUpload(this, 'cccd_back')" />
-
-                                            {{-- wire:ignore: Livewire không được re-morph phần này, JS quản lý hoàn toàn --}}
-                                            <div wire:ignore class="absolute inset-0">
-                                                <div id="loading-cccd_back" class="hidden absolute inset-0 bg-white/90 backdrop-blur-sm z-20 rounded-xl">
-                                                    <div class="flex flex-col items-center justify-center h-full">
-                                                        <div class="animate-spin rounded-full h-8 w-8 border-3 border-black border-t-primary mb-3"></div>
-                                                        <p class="text-xs font-medium text-black mb-2" id="status-cccd_back">Đang xử lý...</p>
-                                                        <div class="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                                                            <div id="progress-cccd_back" class="h-full bg-primary rounded-full transition-all duration-300" style="width: 0%"></div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                <img id="preview-cccd_back"
-                                                     src=""
-                                                     class="hidden absolute inset-0 w-full h-full object-cover rounded-xl"
-                                                     alt="Mặt sau CCCD" />
-                                                <div class="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl flex items-center justify-center">
-                                                    <div class="bg-white/90 rounded-lg px-3 py-1 text-sm font-medium text-black">Thay đổi ảnh</div>
-                                                </div>
-                                                <div id="checkmark-cccd_back" class="hidden absolute top-3 right-3 bg-green-500 rounded-full p-1.5 shadow-lg z-10">
-                                                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" /></svg>
-                                                </div>
-                                                <div id="placeholder-cccd_back" class="flex flex-col items-center justify-center h-full p-4 text-center">
-                                                    <svg xmlns='http://www.w3.org/2000/svg' class="w-12 h-12 mx-auto text-black group-hover:text-primary transition-colors duration-300" stroke="currentColor" fill="none" viewBox="0 0 48 48"><path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
-                                                    <div class="mt-3">
-                                                        <p class="text-lg font-semibold text-black group-hover:text-primary">Mặt sau</p>
-                                                        <p class="text-sm text-black mt-1 group-hover:text-primary opacity-60">Chọn ảnh hoặc chụp ảnh</p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </label>
+    @if($isAuthUser && !empty($authCccdFront) && !empty($authCccdBack))
+    {{-- Auth user đã có CCCD trong profile → hiển thị ảnh đã lưu --}}
+    <div class="bg-green-50 border border-green-300 rounded-xl p-3 mb-3 flex items-start gap-2">
+        <svg class="w-4 h-4 text-green-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+        </svg>
+        <div class="flex-1">
+            <p class="text-sm font-semibold text-green-800">CCCD đã xác minh từ hồ sơ của bạn</p>
+            <p class="text-xs text-green-600 mt-0.5">Thông tin CCCD được lấy tự động — không cần upload lại.</p>
+        </div>
     </div>
-    <p class="text-sm text-gray-500 mt-2 text-justify">* Thông tin CCCD của bạn được lưu trữ và bảo mật riêng tư để khai
-        báo lưu trú, sẽ được xóa bỏ sau khi bạn check-out.</p>
+    <div class="flex gap-3">
+        @foreach([['front', $authCccdFront, 'Mặt trước'], ['back', $authCccdBack, 'Mặt sau']] as [$side, $path, $label])
+        @php $url = $path ? \Illuminate\Support\Facades\Storage::disk('public')->url($path) : ''; @endphp
+        <div class="relative group flex-1 h-36 border-2 border-green-300 rounded-xl overflow-hidden bg-green-50">
+            <img src="{{ $url }}" alt="{{ $label }} CCCD"
+                 class="absolute inset-0 w-full h-full object-cover rounded-xl">
+            {{-- Overlay cho phép upload lại --}}
+            <label class="absolute inset-0 flex flex-col items-center justify-center bg-black/0 group-hover:bg-black/40 transition-all cursor-pointer rounded-xl">
+                <input type="file" accept="image/*" class="hidden"
+                       onchange="processAndUpload(this, 'cccd_{{ $side }}', {maxSize: 2400, quality: 0.92})" />
+                <div class="opacity-0 group-hover:opacity-100 transition-opacity text-center">
+                    <svg class="w-6 h-6 text-white mx-auto mb-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+                    </svg>
+                    <span class="text-white text-xs font-semibold">Đổi ảnh</span>
+                </div>
+            </label>
+            {{-- Badge xác nhận --}}
+            <div class="absolute top-2 left-2 bg-green-500 rounded-full px-2 py-0.5 flex items-center gap-1 shadow">
+                <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                <span class="text-white text-[10px] font-bold">{{ $label }}</span>
+            </div>
+            {{-- JS-managed loading overlay (cho upload mới) --}}
+            <div wire:ignore>
+                <div id="loading-cccd_{{ $side }}" class="hidden absolute inset-0 bg-white/90 backdrop-blur-sm z-20 rounded-xl flex flex-col items-center justify-center">
+                    <div class="animate-spin rounded-full h-6 w-6 border-2 border-black border-t-primary mb-2"></div>
+                    <p class="text-xs font-medium" id="status-cccd_{{ $side }}">Đang xử lý...</p>
+                    <div class="w-20 h-1 bg-gray-200 rounded-full overflow-hidden mt-1">
+                        <div id="progress-cccd_{{ $side }}" class="h-full bg-primary rounded-full transition-all" style="width:0%"></div>
+                    </div>
+                </div>
+                <img id="preview-cccd_{{ $side }}" src="" class="hidden absolute inset-0 w-full h-full object-cover rounded-xl" alt="{{ $label }} CCCD mới"/>
+                <div id="checkmark-cccd_{{ $side }}" class="hidden absolute top-2 right-2 bg-green-500 rounded-full p-1 shadow z-10">
+                    <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                </div>
+            </div>
+        </div>
+        @endforeach
+    </div>
+    @else
+    {{-- Chưa có CCCD → hiển thị upload zone thông thường --}}
+    <div class="flex gap-4">
+        @foreach([['cccd_front', 'Mặt trước'], ['cccd_back', 'Mặt sau']] as [$field, $label])
+        <label class="relative group flex-1 h-40 border-4 border-dashed rounded-xl cursor-pointer overflow-hidden transition-all duration-300 hover:border-primary hover:bg-blue-50/30
+                {{ $errors->has($field) ? 'border-red-600' : 'border-black' }}">
+            <input type="file" accept="image/*" class="hidden"
+                   onchange="processAndUpload(this, '{{ $field }}', {maxSize: 2400, quality: 0.92})" />
+            <div wire:ignore class="absolute inset-0">
+                <div id="loading-{{ $field }}" class="hidden absolute inset-0 bg-white/90 backdrop-blur-sm z-20 rounded-xl">
+                    <div class="flex flex-col items-center justify-center h-full">
+                        <div class="animate-spin rounded-full h-8 w-8 border-3 border-black border-t-primary mb-3"></div>
+                        <p class="text-xs font-medium text-black mb-2" id="status-{{ $field }}">Đang xử lý...</p>
+                        <div class="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                            <div id="progress-{{ $field }}" class="h-full bg-primary rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+                <img id="preview-{{ $field }}" src="" class="hidden absolute inset-0 w-full h-full object-cover rounded-xl" alt="{{ $label }} CCCD"/>
+                <div class="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl flex items-center justify-center">
+                    <div class="bg-white/90 rounded-lg px-3 py-1 text-sm font-medium text-black">Thay đổi ảnh</div>
+                </div>
+                <div id="checkmark-{{ $field }}" class="hidden absolute top-3 right-3 bg-green-500 rounded-full p-1.5 shadow-lg z-10">
+                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>
+                </div>
+                <div id="placeholder-{{ $field }}" class="flex flex-col items-center justify-center h-full p-4 text-center">
+                    <svg xmlns='http://www.w3.org/2000/svg' class="w-12 h-12 mx-auto text-black group-hover:text-primary transition-colors duration-300" stroke="currentColor" fill="none" viewBox="0 0 48 48"><path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                    <div class="mt-3">
+                        <p class="text-lg font-semibold text-black group-hover:text-primary">{{ $label }}</p>
+                        <p class="text-sm text-black mt-1 group-hover:text-primary opacity-60">Chọn ảnh hoặc chụp ảnh</p>
+                    </div>
+                </div>
+            </div>
+        </label>
+        @endforeach
+    </div>
+    @endif
+
+    <p class="text-sm text-gray-500 mt-2 text-justify">* Thông tin CCCD được lưu trữ và bảo mật để khai báo lưu trú, xóa sau khi check-out.</p>
 </div>
 
 <textarea id="note" wire:model="note" placeholder="Ghi chú cho 365Home" rows="3"

@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Concerns\BuildsRoomCard;
-use App\Models\Wishlist;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Storage;
+use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
 
@@ -16,19 +18,18 @@ class RoomController extends Controller
 {
     use BuildsRoomCard;
 
-    public function show(string $slug): JsonResponse
+    public function show(string $id): JsonResponse
     {
-        $room = Product::where('slug', $slug)
+        $room = Product::where('id', $id)
             ->where('is_activated', true)
             ->with([
                 'roomType',
                 'roomTimeSlots.timeSlot',
                 'roomTimeSlots.promotions',
-                'amenities',
-                'services',
+                'additionalServices',
+                'tags',
                 'specials',
-                'mainImage',
-                'galleryImages',
+                'media',
             ])
             ->first();
 
@@ -36,15 +37,259 @@ class RoomController extends Controller
             return response()->json(['message' => 'Phòng không tồn tại.'], 404);
         }
 
-        $wishlistStatus = null;
-        if (auth()->check()) {
-            $wishlistStatus = Wishlist::where('user_id', auth()->id())
-                ->where('product_id', $room->id)
-                ->exists();
-        }
+        $authUser       = auth('sanctum')->user();
+        $wishlistStatus = $authUser
+            ? $authUser->wishlists()->where('product_id', $room->id)->exists()
+            : null;
 
         return response()->json([
             'data' => $this->buildRoomDetail($room, $wishlistStatus),
+        ]);
+    }
+
+    // GET /api/slots?room_id=...&date=2026-06-04
+    public function slots(Request $request): JsonResponse
+    {
+        $roomId = $request->query('room_id');
+        if (! $roomId) {
+            return response()->json(['message' => 'Thiếu tham số room_id.'], 422);
+        }
+
+        $room = Product::where('id', $roomId)
+            ->where('is_activated', true)
+            ->with([
+                'roomTimeSlots.timeSlot',
+                'roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
+            ])
+            ->first();
+
+        if (! $room) {
+            return response()->json(['message' => 'Phòng không tồn tại.'], 404);
+        }
+
+        $dateStr = $request->query('date');
+        if (! $dateStr) {
+            return response()->json(['message' => 'Thiếu tham số date (YYYY-MM-DD).'], 422);
+        }
+
+        try {
+            $date = Carbon::createFromFormat('Y-m-d', $dateStr)->startOfDay();
+        } catch (\Throwable) {
+            return response()->json(['message' => 'Định dạng date không hợp lệ. Dùng YYYY-MM-DD.'], 422);
+        }
+
+        // All template slots for this room (keep $rts reference for promotions/blocked check)
+        $templateSlots = $room->roomTimeSlots
+            ->whereNull('date')
+            ->map(function ($rts) {
+                $ts = $rts->timeSlot;
+                if (! $ts) return null;
+                return [
+                    'rts'         => $rts,
+                    'timeslot_id' => $rts->timeslot_id,
+                    'start_time'  => $ts->start_time,
+                    'end_time'    => $ts->end_time,
+                    'time'        => substr($ts->start_time, 0, 5) . ' - ' . substr($ts->end_time, 0, 5),
+                    'price'       => (int) $rts->price,
+                    'over_night'  => (bool) $rts->over_night,
+                ];
+            })
+            ->filter()
+            ->values();
+
+        // Active order items that could overlap with the given date
+        $activeItems = OrderItem::query()
+            ->where('product_id', $room->id)
+            ->whereNotNull('checkin_date')
+            ->whereNotNull('checkout_date')
+            ->where('checkout_date', '>', $date)
+            ->where('checkin_date', '<', $date->copy()->addDay())
+            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped', 'confirmed']))
+            ->with('order:id,status')
+            ->get(['id', 'order_id', 'checkin_date', 'checkout_date']);
+
+        // Build a map of timeslot_id => order_status for booked slots on this date
+        $bookedMap = [];
+        foreach ($activeItems as $item) {
+            $checkin     = Carbon::parse($item->checkin_date);
+            $checkout    = Carbon::parse($item->checkout_date);
+            $orderStatus = $item->order?->status ?? 'pending';
+
+            foreach ($templateSlots as $slot) {
+                $slotStart = Carbon::parse("{$dateStr} {$slot['start_time']}");
+                if ($slotStart->gte($checkin) && $slotStart->lt($checkout)) {
+                    $id = $slot['timeslot_id'];
+                    if (! isset($bookedMap[$id]) || $orderStatus !== 'pending') {
+                        $bookedMap[$id] = $orderStatus;
+                    }
+                }
+            }
+        }
+
+        $slots = $templateSlots->map(function ($slot) use ($bookedMap, $dateStr) {
+            $rts       = $slot['rts'];
+            $basePrice = $slot['price'];
+
+            // Blocked date check (from roomTimeSlot settings)
+            $isBlocked = $rts->isBlockedOn($dateStr);
+
+            // Promotions applicable to this slot on this date
+            $slotStart = Carbon::parse("{$dateStr} {$slot['start_time']}");
+            $slotEnd   = Carbon::parse("{$dateStr} {$slot['end_time']}");
+            if ($slotEnd->lte($slotStart)) {
+                $slotEnd->addDay(); // overnight slot
+            }
+
+            $priceAfterIncrease = $basePrice;
+            $finalPrice         = $basePrice;
+            $activePromos       = [];
+
+            // Pass 1: apply increases first (same order as blade)
+            foreach ($rts->promotions as $promo) {
+                if (! $this->promotionOverlapsSlot($promo, $slotStart, $slotEnd)) continue;
+                if ($promo->type === 'increase_fixed') {
+                    $priceAfterIncrease += (float) $promo->value;
+                } elseif ($promo->type === 'increase_percentage') {
+                    $priceAfterIncrease += $basePrice * ($promo->value / 100);
+                } else {
+                    continue;
+                }
+                $finalPrice     = $priceAfterIncrease;
+                $activePromos[] = $promo;
+            }
+
+            // Pass 2: apply discounts
+            foreach ($rts->promotions as $promo) {
+                if (! $this->promotionOverlapsSlot($promo, $slotStart, $slotEnd)) continue;
+                if ($promo->type === 'fixed') {
+                    $finalPrice -= (float) $promo->value;
+                } elseif ($promo->type === 'percentage') {
+                    $finalPrice -= $priceAfterIncrease * ($promo->value / 100);
+                } else {
+                    continue;
+                }
+                if (! collect($activePromos)->contains('id', $promo->id)) {
+                    $activePromos[] = $promo;
+                }
+            }
+
+            $finalPrice = max(0, (int) $finalPrice);
+
+            $promotionData = collect($activePromos)->map(fn ($p) => [
+                'id'    => $p->id,
+                'name'  => $p->name,
+                'type'  => $p->type,
+                'value' => $p->value,
+                'label' => $p->lable_client,
+                'image' => $p->image ? Storage::disk('public')->url($p->image) : null,
+            ])->values()->toArray();
+
+            return [
+                'timeslot_id'  => $slot['timeslot_id'],
+                'time'         => $slot['time'],
+                'price'        => $basePrice,
+                'final_price'  => $finalPrice !== $basePrice ? $finalPrice : null,
+                'over_night'   => $slot['over_night'],
+                'is_blocked'   => $isBlocked,
+                'order_status' => $bookedMap[$slot['timeslot_id']] ?? null,
+                'promotions'   => $promotionData,
+            ];
+        })->values()->toArray();
+
+        return response()->json([
+            'date'  => $dateStr,
+            'slots' => $slots,
+        ]);
+    }
+
+    // GET /api/rooms/{id}/guest-surcharge-preview?guest_count=5&dates[]=2026-06-29&dates[]=2026-06-30
+    // GET /api/rooms/{id}/guest-surcharge-preview?guest_count=5&checkin=2026-06-29&checkout=2026-07-02
+    //
+    // Xem trước phụ thu khi chọn số lượng khách, áp dụng cho cả phòng theo
+    // khung giờ (styles=1, truyền dates[]) và phòng theo ngày (styles=2,
+    // truyền checkin/checkout). Cấu hình phụ thu lấy từ room_config
+    // (max_free_guests, extra_guest_fee) — set trong Hệ thống Giá & Ưu đãi.
+    public function guestSurchargePreview(Request $request, string $id): JsonResponse
+    {
+        $room = Product::where('id', $id)
+            ->where('is_activated', true)
+            ->first();
+
+        if (! $room) {
+            return response()->json(['message' => 'Phòng không tồn tại.'], 404);
+        }
+
+        $guestCount = (int) $request->query('guest_count', 0);
+        if ($guestCount < 1) {
+            return response()->json(['message' => 'Thiếu hoặc sai tham số guest_count.'], 422);
+        }
+
+        $isSlotType = (int) $room->styles === 1;
+
+        if ($isSlotType) {
+            $dates = array_filter((array) $request->query('dates', []));
+            if (empty($dates)) {
+                return response()->json(['message' => 'Thiếu tham số dates[] (danh sách ngày YYYY-MM-DD).'], 422);
+            }
+
+            try {
+                $nights = collect($dates)
+                    ->map(fn ($d) => Carbon::createFromFormat('Y-m-d', $d)->format('Y-m-d'))
+                    ->unique()
+                    ->count();
+            } catch (\Throwable) {
+                return response()->json(['message' => 'Định dạng dates không hợp lệ. Dùng YYYY-MM-DD.'], 422);
+            }
+        } else {
+            $checkinStr  = $request->query('checkin');
+            $checkoutStr = $request->query('checkout');
+            if (! $checkinStr || ! $checkoutStr) {
+                return response()->json(['message' => 'Thiếu tham số checkin/checkout (YYYY-MM-DD).'], 422);
+            }
+
+            try {
+                $checkin  = Carbon::createFromFormat('Y-m-d', $checkinStr)->startOfDay();
+                $checkout = Carbon::createFromFormat('Y-m-d', $checkoutStr)->startOfDay();
+            } catch (\Throwable) {
+                return response()->json(['message' => 'Định dạng checkin/checkout không hợp lệ. Dùng YYYY-MM-DD.'], 422);
+            }
+
+            if ($checkout->lte($checkin)) {
+                return response()->json(['message' => 'checkout phải sau checkin.'], 422);
+            }
+
+            $nights = (int) $checkin->diffInDays($checkout);
+        }
+
+        $config    = $room->room_config ?? [];
+        $fee       = (int) ($config['extra_guest_fee'] ?? 0);
+        $threshold = (int) ($config['max_free_guests'] ?? 2);
+
+        $guestSurcharge = null;
+        if ($fee > 0 && $guestCount > $threshold) {
+            $extraGuests = $guestCount - $threshold;
+            $total       = $extraGuests * $fee * $nights;
+            $label       = "Phụ thu {$extraGuests} người (trên {$threshold} người)";
+            if ($nights > 1) {
+                $label .= ' × ' . $nights . ' ' . ($isSlotType ? 'ngày' : 'đêm');
+            }
+
+            $guestSurcharge = [
+                'guest_count'    => $guestCount,
+                'threshold'      => $threshold,
+                'extra_guests'   => $extraGuests,
+                'fee_per_person' => $fee,
+                'nights'         => $nights,
+                'total'          => $total,
+                'label'          => $label,
+            ];
+        }
+
+        return response()->json([
+            'room_id'         => $room->id,
+            'type'            => $isSlotType ? 'slot' : 'daily',
+            'nights'          => $nights,
+            'guest_surcharge' => $guestSurcharge,
         ]);
     }
 
@@ -60,15 +305,40 @@ class RoomController extends Controller
             'slug'              => $room->slug,
             'short_description' => $room->short_description,
             'description'       => $room->description,
+            'address'           => $room->address,
+            'latitude'          => $room->latitude,
+            'longitude'         => $room->longitude,
             'main'              => $this->buildMainImages($room),
             'gallery'           => $this->buildGallery($room),
             'wishlist_status'   => $wishlistStatus,
             'is_available'      => $room->is_in_stock,
             'room_type'         => $room->roomType?->slug,
-            'amenities'         => $this->buildAmenities($room),
+            'rating' => $room->rating_score !== null ? (float) $room->rating_score : null,
+            'video'               => $this->buildVideo($room),
+            'amenities'           => $this->buildAmenities($room),
             'additional_services' => $this->buildServices($room),
-            'specials'          => $this->buildSpecials($room),
-            'prices'            => $this->buildPrices($room),
+            'specials'            => $this->buildSpecials($room),
+            'prices'              => $this->buildPrices($room),
+        ];
+    }
+
+    // ─────────────────────────────────────────────
+    // VIDEO
+    // ─────────────────────────────────────────────
+
+    private function buildVideo(Product $room): ?array
+    {
+        $setting = is_array($room->setting_video_room) ? $room->setting_video_room : [];
+        $url     = $setting['url'] ?? null;
+
+        if (! $url) {
+            return null;
+        }
+
+        return [
+            'url'   => $url,
+            'ratio' => $setting['ratio'] ?? '9:16',
+            'title' => $setting['title'] ?? null,
         ];
     }
 
@@ -78,15 +348,10 @@ class RoomController extends Controller
 
     private function buildMainImages(Product $room): array
     {
-        $main = $room->mainImage;
-        if (! $main || empty($main->path)) return [];
-
-        $storage = Storage::disk($main->disk);
-
-        return array_values(array_map(
-            fn ($p) => is_string($p) ? $storage->url($p) : '',
-            array_filter($main->path, 'is_string')
-        ));
+        return $room->getMedia('Ảnh bìa')
+            ->map(fn ($m) => $m->getUrl())
+            ->values()
+            ->toArray();
     }
 
     // ─────────────────────────────────────────────
@@ -95,26 +360,27 @@ class RoomController extends Controller
 
     private function buildGallery(Product $room): array
     {
-        return $room->galleryImages
-            ->flatMap(fn ($img) => $img->sections)
+        return $room->getMedia('Thư viện')
+            ->map(fn ($m) => $m->getUrl())
             ->values()
             ->toArray();
     }
 
     // ─────────────────────────────────────────────
-    // AMENITIES — grouped by amenity_type
+    // AMENITIES — grouped by tag type
     // ─────────────────────────────────────────────
 
     private function buildAmenities(Product $room): array
     {
-        return $room->amenities
-            ->groupBy('amenity_type')
+        return $room->tags
+            ->groupBy('type')
             ->map(fn ($items, $type) => [
                 'type'  => $type,
-                'items' => $items->map(fn ($a) => [
-                    'id'   => $a->id,
-                    'icon' => $a->icon,
-                    'name' => $a->name,
+                'items' => $items->map(fn ($tag) => [
+                    'id'    => $tag->id,
+                    'name'  => $tag->name,
+                    'slug'  => $tag->slug,
+                    'image' => $tag->image,
                 ])->values()->toArray(),
             ])
             ->values()
@@ -122,18 +388,19 @@ class RoomController extends Controller
     }
 
     // ─────────────────────────────────────────────
-    // SERVICES
+    // SERVICES — room_additional_service_assigns
     // ─────────────────────────────────────────────
 
     private function buildServices(Product $room): array
     {
-        return $room->services->map(fn ($s) => [
-            'id'          => $s->id,
-            'name'        => $s->name,
-            'description' => $s->description,
-            'price'       => $s->price,
-            'unit'        => $s->unit,
-        ])->values()->toArray();
+        return $room->additionalServices
+            ->where('is_active', true)
+            ->map(fn ($s) => [
+                'id'    => $s->id,
+                'name'  => $s->name,
+                'price' => $s->price,
+                'image' => $s->image ? Storage::disk('public')->url($s->image) : null,
+            ])->values()->toArray();
     }
 
     // ─────────────────────────────────────────────
@@ -156,7 +423,7 @@ class RoomController extends Controller
 
     private function buildPrices(Product $room): array
     {
-        return $room->roomType?->slug === 'theo_gio'
+        return (int) $room->styles === 1
             ? $this->buildHourlyPrices($room)
             : $this->buildDailyPrice($room);
     }
@@ -238,5 +505,17 @@ class RoomController extends Controller
             ])
             ->values()
             ->toArray();
+    }
+
+    // ─────────────────────────────────────────────
+    // HELPERS
+    // ─────────────────────────────────────────────
+
+    private function promotionOverlapsSlot($promotion, Carbon $slotStart, Carbon $slotEnd): bool
+    {
+        if (! $promotion->start_at || ! $promotion->end_at) {
+            return false;
+        }
+        return $slotStart->lt($promotion->end_at) && $slotEnd->gt($promotion->start_at);
     }
 }

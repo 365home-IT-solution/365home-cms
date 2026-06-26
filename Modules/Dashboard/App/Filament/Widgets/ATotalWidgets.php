@@ -205,7 +205,7 @@ class ATotalWidgets extends BaseWidget
 
     private function branchFilteredOrderQuery(): Builder
     {
-        $query = Order::query();
+        $query = Order::query()->where('exclude_from_stats', false);
         $user  = auth()->user();
 
         if (! $user || $user->isSuperAdmin()) {

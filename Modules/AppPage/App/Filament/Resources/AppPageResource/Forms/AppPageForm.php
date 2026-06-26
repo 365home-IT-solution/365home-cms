@@ -15,6 +15,8 @@ use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Illuminate\Support\Str;
+use Modules\AppPage\App\Models\Banner;
+use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
 
 class AppPageForm
@@ -73,50 +75,27 @@ class AppPageForm
                         ->label('Banner')
                         ->icon('heroicon-o-photo')
                         ->schema([
-                            Select::make('disk')
-                                ->label('Storage disk')
-                                ->options([
-                                    'public' => 'Public (local)',
-                                    's3'     => 'Amazon S3',
-                                    'r2'     => 'Cloudflare R2',
-                                ])
-                                ->default('public')
-                                ->required()
-                                ->live(),
-
                             Repeater::make('items')
                                 ->label('Danh sách banner')
                                 ->schema([
-                                    Grid::make(2)->schema([
-                                        TextInput::make('title')
-                                            ->label('Tiêu đề')
-                                            ->maxLength(255),
-
-                                        TextInput::make('url')
-                                            ->label('URL điều hướng')
-                                            ->placeholder('VD: /rooms/phong-a')
-                                            ->maxLength(500),
-                                    ]),
-
-                                    TextInput::make('description')
-                                        ->label('Mô tả')
-                                        ->maxLength(500)
+                                    Select::make('banner_id')
+                                        ->label('Chọn banner')
+                                        ->options(fn () => Banner::where('is_active', true)
+                                            ->orderBy('title')
+                                            ->get()
+                                            ->mapWithKeys(fn ($b) => [$b->id => $b->title ?: "(ID #{$b->id})"])
+                                            ->toArray())
+                                        ->searchable()
+                                        ->required()
                                         ->columnSpanFull(),
-
-                                    FileUpload::make('image')
-                                        ->label('Ảnh banner')
-                                        ->disk(fn (Get $get) => $get('../../disk') ?? 'public')
-                                        ->directory('banners')
-                                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp', 'image/avif'])
-                                        ->maxSize(5120)
-                                        ->columnSpanFull()
-                                        ->required(),
                                 ])
-                                ->grid(3)
                                 ->addActionLabel('+ Thêm banner')
+                                ->reorderable()
                                 ->collapsible()
                                 ->collapsed()
-                                ->itemLabel(fn (array $state): ?string => $state['title'] ?? 'Banner chưa đặt tiêu đề')
+                                ->itemLabel(fn (array $state): ?string => isset($state['banner_id'])
+                                    ? (Banner::find($state['banner_id'])?->title ?: "(ID #{$state['banner_id']})")
+                                    : 'Chọn banner...')
                                 ->columnSpanFull(),
                         ]),
 
@@ -156,15 +135,106 @@ class AppPageForm
                                     ->placeholder('/rooms?type=deal'),
                             ]),
 
-                            Select::make('product_ids')
-                                ->label('Chọn phòng')
-                                ->multiple()
-                                ->searchable()
-                                ->options(fn () => Product::where('is_activated', true)
+                            Select::make('display_mode')
+                                ->label('Chế độ hiển thị')
+                                ->options([
+                                    'fixed'     => 'Cố định — luôn hiển thị dù đổi khu vực',
+                                    'by_region' => 'Theo khu vực — ẩn nếu không có khu vực / không có phòng',
+                                ])
+                                ->default('fixed')
+                                ->required()
+                                ->helperText('Cố định: hiển thị tất cả phòng đã chọn. Theo khu vực: ẩn section khi guest/user chưa chọn khu vực hoặc khu vực đó không có phòng.')
+                                ->columnSpanFull(),
+
+                            Select::make('branch_ids')
+                                ->label('Chọn chi nhánh')
+                                ->options(fn () => Category::whereNull('parent_id')
+                                    ->where('category_type', 'product')
                                     ->orderBy('name')
                                     ->pluck('name', 'id')
                                     ->toArray())
-                                ->placeholder('Tìm theo tên phòng...')
+                                ->multiple()
+                                ->searchable()
+                                ->live()
+                                ->afterStateUpdated(fn (callable $set) => $set('product_ids', []))
+                                ->placeholder('Tất cả chi nhánh...')
+                                ->hidden(fn (Get $get) => ($get('display_mode') ?? 'fixed') === 'by_region'),
+
+                            Select::make('product_ids')
+                                ->label('Chọn phòng')
+                                ->helperText('Để trống = hiển thị tất cả phòng. Tab lọc vẫn áp dụng theo loại phòng.')
+                                ->multiple()
+                                ->searchable()
+                                ->options(function (Get $get) {
+                                    $query = Product::where('is_activated', true);
+
+                                    $branchIds = array_filter((array) ($get('branch_ids') ?? []));
+                                    if (! empty($branchIds)) {
+                                        $childIds  = Category::whereIn('parent_id', $branchIds)->pluck('id');
+                                        $filterIds = collect($branchIds)->merge($childIds)->unique()->values();
+
+                                        $query->whereHas(
+                                            'categories',
+                                            fn ($cq) => $cq->whereIn('category_id', $filterIds)
+                                        );
+                                    }
+
+                                    return $query->orderBy('name')->pluck('name', 'id')->toArray();
+                                })
+                                ->placeholder('Để trống để hiển thị tất cả phòng...')
+                                ->hidden(fn (Get $get) => ($get('display_mode') ?? 'fixed') === 'by_region'),
+                        ]),
+
+                    Builder\Block::make('suggestion_list')
+                        ->label('Gợi ý điểm đến')
+                        ->icon('heroicon-o-light-bulb')
+                        ->schema([
+                            Select::make('type')
+                                ->label('Loại gợi ý')
+                                ->options([
+                                    'branch' => 'Chi nhánh',
+                                    'room'   => 'Phòng',
+                                ])
+                                ->default('room')
+                                ->required()
+                                ->helperText('Hiển thị theo khu vực đã chọn. Nếu chưa chọn khu vực sẽ thông báo người dùng chọn.'),
+                        ]),
+
+                    Builder\Block::make('promotion_list')
+                        ->label('Phòng khuyến mãi')
+                        ->icon('heroicon-o-tag')
+                        ->schema([
+                            FileUpload::make('icon')
+                                ->label('Icon / Ảnh tiêu đề')
+                                ->helperText('Gắn icon flash hoặc ảnh trang trí hiển thị trước tiêu đề.')
+                                ->image()
+                                ->disk('public')
+                                ->directory('promotion-icons')
+                                ->imagePreviewHeight('60')
+                                ->maxSize(512),
+
+                            TextInput::make('title')
+                                ->label('Tiêu đề')
+                                ->placeholder('VD: Ưu đãi đặc biệt')
+                                ->required(),
+
+                            Select::make('product_ids')
+                                ->label('Chọn phòng khuyến mãi')
+                                ->helperText('Chỉ hiển thị phòng đang có promotion còn hiệu lực.')
+                                ->multiple()
+                                ->searchable()
+                                ->options(fn () => Product::where('is_activated', true)
+                                    ->where('is_in_stock', true)
+                                    ->whereHas('roomTimeSlots.promotions', fn ($q) => $q
+                                        ->where('is_active', true)
+                                        ->where(fn ($q2) => $q2
+                                            ->whereNull('end_at')
+                                            ->orWhere('end_at', '>=', now())
+                                        )
+                                    )
+                                    ->orderBy('name')
+                                    ->pluck('name', 'id')
+                                    ->toArray())
                                 ->required(),
                         ]),
                 ]),

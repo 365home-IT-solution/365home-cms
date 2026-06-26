@@ -18,7 +18,7 @@ class WishlistController extends Controller
     {
         $rooms = $request->user()
             ->wishlists()
-            ->with(['product.roomTimeSlots.timeSlot', 'product.mainImage'])
+            ->with(['product.roomTimeSlots.timeSlot', 'product.mainImage', 'product.roomType'])
             ->get()
             ->pluck('product')
             ->filter()
@@ -28,9 +28,9 @@ class WishlistController extends Controller
         return response()->json(['data' => $rooms]);
     }
 
-    public function toggle(Request $request, string $slug): JsonResponse
+    public function toggle(Request $request, string $id): JsonResponse
     {
-        $product = Product::where('slug', $slug)->where('is_activated', true)->firstOrFail();
+        $product = Product::where('id', $id)->where('is_activated', true)->firstOrFail();
 
         $user   = $request->user();
         $exists = $user->wishlists()->where('product_id', $product->id)->exists();
@@ -43,6 +43,13 @@ class WishlistController extends Controller
             $status = true;
         }
 
-        return response()->json(['wishlist_status' => $status]);
+        return response()->json([
+            'customer_id'      => $user->id,
+            'room_id'          => $product->id,
+            'wishlist_status'  => $status,
+            'message'          => $status
+                ? 'Đã thêm vào danh sách yêu thích'
+                : 'Đã xoá khỏi danh sách yêu thích',
+        ]);
     }
 }

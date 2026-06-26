@@ -44,8 +44,16 @@ Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group
         $customStart = $period === 'custom' ? $request->query('custom_start') : null;
         $customEnd   = $period === 'custom' ? $request->query('custom_end')   : null;
 
+        $branchCategoryIds = null;
+        $branchId = $request->query('branch_id');
+        if ($branchId && ctype_digit((string) $branchId)) {
+            $branchId = (int) $branchId;
+            $childIds = \Modules\Category\Entities\Category::where('parent_id', $branchId)->pluck('id')->toArray();
+            $branchCategoryIds = array_merge([$branchId], $childIds);
+        }
+
         return response()->json(
-            \Modules\Dashboard\App\Filament\Pages\Dashboard::getKpiData($period, $user, $customStart, $customEnd)
+            \Modules\Dashboard\App\Services\KpiService::getData($period, $user, $customStart, $customEnd, $branchCategoryIds)
         );
     })->name('admin.kpi-stats');
 
@@ -56,10 +64,16 @@ Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group
 
         $year = (int) $request->query('year', now()->year);
 
-        $branches = \Modules\Category\Entities\Category::whereNull('parent_id')
+        $branchesQuery = \Modules\Category\Entities\Category::whereNull('parent_id')
             ->where('category_type', 'product')
-            ->orderBy('name')
-            ->get();
+            ->orderBy('name');
+
+        $filterBranchId = $request->query('branch_id');
+        if ($filterBranchId && ctype_digit((string) $filterBranchId)) {
+            $branchesQuery->where('id', (int) $filterBranchId);
+        }
+
+        $branches = $branchesQuery->get();
 
         if ($user && ! $user->isSuperAdmin()) {
             $allowedIds = $user->allowedCategoryIds() ?? [];
@@ -101,6 +115,81 @@ Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group
         return response()->json(['branches' => $result, 'year' => $year]);
     })->name('admin.branch-monthly');
 
+    // Branch revenue — doanh thu từng chi nhánh theo period hiện tại
+    Route::get('branch-revenue', function (\Illuminate\Http\Request $request) {
+        $user = auth()->user();
+        if (! $user) return response()->json(['branches' => [], 'total' => 0, 'dateRange' => '']);
+
+        $period = in_array($request->query('period'), ['today','yesterday','7d','30d','90d','this_month','last_month','ytd','last_year','custom'])
+            ? $request->query('period') : '30d';
+        $customStart = $period === 'custom' ? $request->query('custom_start') : null;
+        $customEnd   = $period === 'custom' ? $request->query('custom_end')   : null;
+
+        $end = \Carbon\Carbon::now()->endOfDay();
+        if ($period === 'custom') {
+            $start = $customStart ? \Carbon\Carbon::parse($customStart)->startOfDay() : \Carbon\Carbon::now()->subDays(29)->startOfDay();
+            $end   = $customEnd   ? \Carbon\Carbon::parse($customEnd)->endOfDay()     : \Carbon\Carbon::now()->endOfDay();
+            if ($start->gt($end)) [$start, $end] = [$end, $start];
+        } elseif ($period === 'today') {
+            $start = \Carbon\Carbon::today()->startOfDay(); $end = \Carbon\Carbon::today()->endOfDay();
+        } elseif ($period === 'yesterday') {
+            $start = \Carbon\Carbon::yesterday()->startOfDay(); $end = \Carbon\Carbon::yesterday()->endOfDay();
+        } elseif ($period === 'this_month') {
+            $start = \Carbon\Carbon::now()->startOfMonth()->startOfDay();
+        } elseif ($period === 'last_month') {
+            $start = \Carbon\Carbon::now()->subMonthNoOverflow()->startOfMonth()->startOfDay();
+            $end   = \Carbon\Carbon::now()->subMonthNoOverflow()->endOfMonth()->endOfDay();
+        } elseif ($period === 'last_year') {
+            $start = \Carbon\Carbon::now()->subYear()->startOfYear()->startOfDay();
+            $end   = \Carbon\Carbon::now()->subYear()->endOfYear()->endOfDay();
+        } elseif ($period === 'ytd') {
+            $start = \Carbon\Carbon::today()->startOfYear()->startOfDay();
+        } else {
+            $days  = match ($period) { '7d' => 7, '90d' => 90, default => 30 };
+            $start = \Carbon\Carbon::now()->subDays($days - 1)->startOfDay();
+        }
+
+        $branchQuery = \Modules\Category\Entities\Category::whereNull('parent_id')
+            ->where('category_type', 'product')
+            ->orderBy('name');
+
+        if ($user && ! $user->isSuperAdmin()) {
+            $allowedIds = $user->allowedCategoryIds() ?? [];
+            if (empty($allowedIds)) return response()->json(['branches' => [], 'total' => 0, 'dateRange' => $start->format('d/m') . ' – ' . $end->format('d/m')]);
+            $branchQuery->where(function ($q) use ($allowedIds) {
+                $q->whereIn('id', $allowedIds)
+                  ->orWhereIn('id', \Modules\Category\Entities\Category::whereIn('id', $allowedIds)->pluck('parent_id')->filter()->toArray());
+            });
+        }
+
+        $branches = $branchQuery->get();
+        $result   = [];
+
+        foreach ($branches as $branch) {
+            $childIds  = \Modules\Category\Entities\Category::where('parent_id', $branch->id)->pluck('id')->toArray();
+            $allCatIds = array_merge([$branch->id], $childIds);
+
+            $q = \Modules\Payment\Entities\Order::whereBetween('created_at', [$start, $end])
+                ->whereIn('category_id', $allCatIds)
+                ->where('exclude_from_stats', false);
+
+            $count   = (clone $q)->count();
+            $revenue = (clone $q)->where('status', 'paid')->sum('amount')
+                     + (clone $q)->where('status', 'deposit')->whereNotNull('money_deposit')->sum('money_deposit');
+
+            $result[] = ['name' => $branch->name, 'count' => (int) $count, 'revenue' => (int) $revenue];
+        }
+
+        usort($result, fn ($a, $b) => $b['revenue'] <=> $a['revenue']);
+        $total = array_sum(array_column($result, 'revenue'));
+
+        return response()->json([
+            'branches'  => $result,
+            'total'     => $total,
+            'dateRange' => $start->format('d/m') . ' – ' . $end->format('d/m'),
+        ]);
+    })->name('admin.branch-revenue');
+
     // Top customers — top điện thoại đặt phòng nhiều nhất trong năm
     Route::get('top-customers', function (\Illuminate\Http\Request $request) {
         $user = auth()->user();
@@ -122,6 +211,7 @@ Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group
                  AS total_revenue,
                  TIMESTAMPDIFF(MONTH, MIN(created_at), MAX(created_at)) + 1 AS active_months'
             )
+            ->where('exclude_from_stats', false)
             ->whereNotNull('buyer_phone')
             ->where('buyer_phone', '!=', '')
             ->whereYear('created_at', $year)
@@ -136,6 +226,13 @@ Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group
             if (! empty($allowedIds)) {
                 $query->whereIn('category_id', $allowedIds);
             }
+        }
+
+        $branchId = $request->query('branch_id');
+        if ($branchId && ctype_digit((string) $branchId)) {
+            $branchId = (int) $branchId;
+            $childIds = \Modules\Category\Entities\Category::where('parent_id', $branchId)->pluck('id')->toArray();
+            $query->whereIn('category_id', array_merge([$branchId], $childIds));
         }
 
         $customers = $query->get()->map(fn ($c) => [
@@ -191,8 +288,16 @@ Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group
 
         $year = (int) $request->query('year', now()->year);
 
+        $branchCategoryIds = null;
+        $branchId = $request->query('branch_id');
+        if ($branchId && ctype_digit((string) $branchId)) {
+            $branchId = (int) $branchId;
+            $childIds = \Modules\Category\Entities\Category::where('parent_id', $branchId)->pluck('id')->toArray();
+            $branchCategoryIds = array_merge([$branchId], $childIds);
+        }
+
         return response()->json(
-            \Modules\Dashboard\App\Filament\Pages\Dashboard::getRoomRevenueData($user, $year)
+            \Modules\Dashboard\App\Filament\Pages\Dashboard::getRoomRevenueData($user, $year, $branchCategoryIds)
         );
     })->name('admin.room-revenue');
 
@@ -241,8 +346,16 @@ Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group
 
         $year = (int) $request->query('year', now()->year);
 
+        $branchCategoryIds = null;
+        $branchId = $request->query('branch_id');
+        if ($branchId && ctype_digit((string) $branchId)) {
+            $branchId = (int) $branchId;
+            $childIds = \Modules\Category\Entities\Category::where('parent_id', $branchId)->pluck('id')->toArray();
+            $branchCategoryIds = array_merge([$branchId], $childIds);
+        }
+
         return response()->json(
-            \Modules\Dashboard\App\Filament\Pages\Dashboard::getMonthlyRevenueData($user, $year)
+            \Modules\Dashboard\App\Filament\Pages\Dashboard::getMonthlyRevenueData($user, $year, $branchCategoryIds)
         );
     })->name('admin.monthly-revenue');
 });

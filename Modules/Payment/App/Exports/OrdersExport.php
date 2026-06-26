@@ -47,7 +47,7 @@ class OrdersExport implements WithMultipleSheets
         $categories = $categories->filter(function ($category) use ($filters, $orderIds) {
             $categoryIds = $category->children->pluck('id')->push($category->id)->toArray();
 
-            $query = Order::whereHas('items.product.categories', function ($q) use ($categoryIds) {
+            $query = Order::where('exclude_from_stats', false)->whereHas('items.product.categories', function ($q) use ($categoryIds) {
                 $q->whereIn('categories.id', $categoryIds);
             });
 
@@ -108,6 +108,7 @@ class OrdersSheetByCategory implements FromCollection, WithHeadings, WithMapping
     public function collection()
     {
         $query = Order::query()
+            ->where('exclude_from_stats', false)
             ->with([
                 'items.product.roomTimeSlots.timeSlot',
                 'items.product.categories',

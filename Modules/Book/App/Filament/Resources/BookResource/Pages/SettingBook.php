@@ -176,6 +176,24 @@ class SettingBook extends Page implements HasForms
                                 ->helperText('Nhập % (VD: 10%) hoặc số tiền cố định (VD: 50000)')
                                 ->maxLength(50),
 
+                            TextInput::make('room_' . $product->id . '.room_config_max_free_guests')
+                                ->label('Số khách tối đa không phụ thu')
+                                ->numeric()
+                                ->default(2)
+                                ->minValue(1)
+                                ->suffix('người')
+                                ->helperText('Từ người thứ (N+1) trở đi sẽ tính phụ thu.')
+                                ->extraInputAttributes(['inputmode' => 'numeric']),
+
+                            TextInput::make('room_' . $product->id . '.room_config_extra_guest_fee')
+                                ->label('Phụ thu mỗi người vượt ngưỡng')
+                                ->numeric()
+                                ->default(0)
+                                ->minValue(0)
+                                ->suffix('đ/người')
+                                ->helperText('0 = không phụ thu. Chỉ áp dụng cho đặt theo giờ.')
+                                ->extraInputAttributes(['inputmode' => 'numeric']),
+
                             Repeater::make('room_' . $product->id . '.bulk_discount_rules')
                                 ->label('Giảm giá theo số khung giờ')
                                 ->helperText('Cấu hình % giảm khi khách chọn nhiều khung giờ. Ví dụ: 2 khung → 5%, 3 khung → 10%.')
@@ -440,6 +458,13 @@ class SettingBook extends Page implements HasForms
                         'is_in_stock'           => $roomData['is_in_stock'] ?? true,
                     ];
 
+                    if ($productStyle === 1) {
+                        $updateData['room_config'] = [
+                            'max_free_guests' => (int) ($roomData['room_config_max_free_guests'] ?? 2),
+                            'extra_guest_fee' => (int) preg_replace('/[^0-9]/', '', (string) ($roomData['room_config_extra_guest_fee'] ?? '0')),
+                        ];
+                    }
+
                     if ($productStyle === 2) {
                         $updateData['price']                = $roomData['price'] ?? 0;
                         $updateData['default_checkin']      = $roomData['default_checkin'] ?? '14:00';
@@ -625,10 +650,18 @@ class SettingBook extends Page implements HasForms
     public function saveSingleDate(
         string  $roomId,
         string  $date,
-        int     $price,
+        ?int    $price,
         ?string $checkin,
-        ?string $checkout
+        ?string $checkout,
+        array   $promoIds     = [],
+        array   $surchargeIds = [],
+        array   $couponIds    = []
     ): void {
+        $hasData = $price !== null || !empty($promoIds) || !empty($surchargeIds) || !empty($couponIds);
+        if (! $hasData) {
+            return;
+        }
+
         $dateLabel = \Carbon\Carbon::parse($date)->format('Y-m-d');
 
         $timeSlot = TimeSlot::firstOrCreate(
@@ -636,13 +669,18 @@ class SettingBook extends Page implements HasForms
             ['start_time' => null, 'end_time' => null]
         );
 
-        // Dùng updateOrCreate theo room_id + timeslot_id để tránh lỗi FK khi update sai slot
         $slotModel = RoomTimeSlot::updateOrCreate(
             ['room_id' => $roomId, 'timeslot_id' => $timeSlot->id],
             ['price' => $price, 'status' => 'available', 'checkin' => $checkin, 'checkout' => $checkout]
         );
 
-        // Reload để calendar phản ánh ngay
+        $allPromoIds = array_merge(
+            array_map('intval', $promoIds),
+            array_map('intval', $surchargeIds)
+        );
+        $slotModel->promotions()->sync($allPromoIds);
+        $slotModel->coupons()->sync(array_map('intval', $couponIds));
+
         $this->mount();
 
         Notification::make()

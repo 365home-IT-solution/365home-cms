@@ -931,8 +931,8 @@
                                             @endif
 
 
-                                        {{-- Giảm giá từ coupon (chỉ khi KHÔNG full booking) --}}
-                                        @if(!$hasFullDayBooking && $appliedCoupon && $couponDiscountAmount > 0)
+                                        {{-- Giảm giá từ coupon --}}
+                                        @if($appliedCoupon && $couponDiscountAmount > 0)
                                             <div class="ml-4 mb-2">
                                                 <p class="text-sm text-green-600 font-semibold flex items-center gap-1.5">
                                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></svg>
@@ -1105,6 +1105,7 @@
                             @elseif(!$fromBookingPage && $bookingStyle == 2)
                             {{-- Style 2: Daterange picker hiển thị ngay dưới ảnh/tiện ích --}}
                             @php
+                                $product->loadMissing(['roomTimeSlots.timeSlot', 'roomTimeSlots.promotions']);
                                 $pricePerNight   = $product->price ?? 0;
                                 $productDiscount = (int)($product->discount ?? 0);
                                 $bookedRanges = \Modules\Payment\Entities\OrderItem::where('product_id', $product->id)
@@ -1198,7 +1199,7 @@
 </div>
 @push('scripts')
 <script>
-    function processAndUpload(input, field) {
+    function processAndUpload(input, field, opts = {}) {
         const file = input.files[0];
         if (!file) return;
 
@@ -1221,7 +1222,8 @@
                 const canvas = document.createElement('canvas');
                 let width = img.width;
                 let height = img.height;
-                const max_size = 1200; // Giới hạn chiều dài nhất là 1200px
+                const max_size = opts.maxSize || 1200;
+                const quality  = opts.quality  || 0.7;
 
                 if (width > height) {
                     if (width > max_size) { height *= max_size / width; width = max_size; }
@@ -1234,7 +1236,6 @@
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0, width, height);
 
-                // Xuất ra file JPEG chất lượng 0.7 (giảm dung lượng ~10 lần)
                 canvas.toBlob(function (blob) {
                     const safeFileName = file.name.replace(/\.[^/.]+$/, '') + '.jpg';
                     const compressedFile = new File([blob], safeFileName, { type: 'image/jpeg' });
@@ -1270,7 +1271,7 @@
                         progressBar.style.width = event.detail.progress + "%";
                     }
                 );
-                }, 'image/jpeg', 0.7);
+                }, 'image/jpeg', quality);
             };
         };
     }

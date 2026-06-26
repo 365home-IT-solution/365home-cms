@@ -24,6 +24,13 @@ class RouteServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        RateLimiter::for('livewire-upload', function (Request $request) {
+            if ($request->user()) {
+                return Limit::perMinute(200)->by('livewire_upload_user:' . $request->user()->id);
+            }
+            return Limit::perMinute(30)->by($request->ip());
+        });
+
         RateLimiter::for('api', function (Request $request) {
             if ($request->is('api/lock/callback')) {
                 return Limit::none();
@@ -53,6 +60,11 @@ class RouteServiceProvider extends ServiceProvider
                 Limit::perMinute(5)->by($request->ip()),
                 Limit::perHour(3)->by('register_ip:' . $request->ip()),
             ];
+        });
+
+        // config: 10/phút/IP — endpoint public trả cấu hình app (vd: Maps API key)
+        RateLimiter::for('config', function (Request $request) {
+            return Limit::perMinute(10)->by($request->ip());
         });
 
         $this->routes(function () {

@@ -2,6 +2,7 @@
 
 namespace Modules\Payment\Entities;
 
+use App\Models\Customer;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -11,7 +12,6 @@ use Modules\Zns\App\Models\ZnsNotification;
 use Guava\Calendar\Contracts\Eventable;
 use Guava\Calendar\ValueObjects\CalendarEvent;
 use Modules\Payment\App\Models\OrderService;
-
 class Order extends Model implements Eventable
 {
     use HasFactory;
@@ -21,10 +21,14 @@ class Order extends Model implements Eventable
         'amount',
         'full_amount',
         'deposit_percent',
+        'coupon_code',
+        'coupon_codes',
         'deposit_paid_at',
         'remaining_paid_at',
+        'remaining_payment_method',
         'remaining_payos_code',
         'remaining_checkout_url',
+        'current_payos_code',
         'description',
         'buyer_name',
         'buyer_email',
@@ -48,12 +52,32 @@ class Order extends Model implements Eventable
         'category_id',
         'user_id',
         'money_deposit',
+        'exclude_from_stats',
+        'unlock_anytime',
+        'checked_in_at',
+        'customer_id',
+        'qr_code',
+        'remaining_qr_code',
+        'device_token',
+        'extra_charge_amount',
+        'extra_charge_payos_code',
+        'extra_charge_checkout_url',
+        'extra_charge_qr_code',
+        'extra_charge_payment_method',
+        'extra_charge_paid_at',
+        'extra_charge_expired_at',
     ];
 
     protected $casts = [
-        'cccd_data'          => 'array',
-        'deposit_paid_at'    => 'datetime',
-        'remaining_paid_at'  => 'datetime',
+        'cccd_data'              => 'array',
+        'coupon_codes'           => 'array',
+        'deposit_paid_at'        => 'datetime',
+        'remaining_paid_at'      => 'datetime',
+        'extra_charge_paid_at'    => 'datetime',
+        'extra_charge_expired_at' => 'datetime',
+        'exclude_from_stats'     => 'boolean',
+        'unlock_anytime'         => 'boolean',
+        'checked_in_at'          => 'datetime',
     ];
     protected $with = ['items'];
 
@@ -112,6 +136,11 @@ class Order extends Model implements Eventable
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function customer()
+    {
+        return $this->belongsTo(Customer::class);
     }
 
     /**

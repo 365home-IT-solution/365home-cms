@@ -57,8 +57,14 @@
                 $buyerName = $order->buyer_name ?? 'Khách hàng';
 
                 // Helper for product info (using first item's product for order-level defaults)
-                $firstProduct = $order->items->first() ? $order->items->first()->product : null;
+                $firstItem = $order->items->first();
+                $firstProduct = $firstItem ? $firstItem->product : null;
+                $checkinDate = $firstItem && $firstItem->checkin_date ? \Carbon\Carbon::parse($firstItem->checkin_date) : null;
+                $manualLockPassword = $firstProduct && $firstProduct->has_manual_lock
+                    ? \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($firstProduct, $checkinDate)
+                    : null;
                 $branchAddress = $firstProduct ? $firstProduct->address : 'Địa chỉ chi nhánh không xác định';
+                $mapUrl = $firstProduct && $firstProduct->map_url ? $firstProduct->map_url : 'https://www.google.com/maps/search/?q=' . urlencode($branchAddress);
                 $hotline = $firstProduct ? $firstProduct->hotline : '';
                 $wifi = $firstProduct ? $firstProduct->wifi : '...';
 
@@ -198,7 +204,34 @@
                                     <p class="text-xs text-gray-500 mt-0.5">Thanh toán phần còn lại để nhận mã cổng</p>
                                 </div>
                             </div>
+                            @elseif($firstProduct && $firstProduct->has_manual_lock)
+                            {{-- Phòng khóa thủ công: hiển thị pass cổng + pass phòng --}}
+                            <div class="flex items-start gap-3 flex-1 flex-wrap">
+                                <div
+                                    class="w-10 h-10 bg-white rounded-lg border border-gray-200 flex items-center justify-center text-gray-700 shadow-sm shrink-0">
+                                    <x-filament::icon-button icon="heroicon-m-key" color="black" size="sm" />
+                                </div>
+                                @if($manualLockPassword)
+                                <div class="flex gap-6 flex-wrap">
+                                    <div>
+                                        <p class="text-xs font-semibold uppercase tracking-wider text-gray-400">Pass Cổng</p>
+                                        <span class="text-lg font-bold font-mono tracking-widest text-gray-900">{{ $manualLockPassword->gate_password }}</span>
+                                    </div>
+                                    @if($manualLockPassword->room_password)
+                                    <div class="border-l border-dashed border-blue-400 pl-4">
+                                        <p class="text-xs font-semibold uppercase tracking-wider text-gray-400">Pass Phòng</p>
+                                        <span class="text-lg font-bold font-mono tracking-widest text-gray-900">{{ $manualLockPassword->room_password }}</span>
+                                    </div>
+                                    @endif
+                                </div>
+                                @else
+                                <div>
+                                    <p class="text-sm text-gray-500 mt-0.5">Vui lòng liên hệ để nhận mật khẩu phòng</p>
+                                </div>
+                                @endif
+                            </div>
                             @else
+                            {{-- TTLock: hiển thị mã cổng điện tử --}}
                             <div class="flex items-center gap-3">
                                 <div
                                     class="w-10 h-10 bg-white rounded-lg border border-gray-200 flex items-center justify-center text-gray-700 shadow-sm shrink-0">
@@ -243,7 +276,7 @@
                                     <span class="text-sm font-semibold text-gray-900">{{ $branchAddress }}</span>
                                 </div>
                             </div>
-                            <a href="https://maps.app.goo.gl/vREbkzagcBzi99Js9"
+                            <a href="{{ $mapUrl }}"
                                 target="_blank"
                                 class="shrink-0 text-xs font-semibold text-blue-600 underline hover:text-blue-800 transition-colors whitespace-nowrap">
                                 Xem bản đồ
@@ -389,7 +422,7 @@
                     </div>
 
                     <div class="bg-gray-50 px-6 py-4 flex gap-3 border-t border-gray-200">
-                        <a href="https://www.google.com/maps/search/?q={{ urlencode($branchAddress) }}" target="_blank"
+                        <a href="{{ $mapUrl }}" target="_blank"
                             class="flex-1 bg-white border border-gray-200 text-red-600 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-900 font-medium py-2.5 rounded-lg text-sm transition-all shadow-sm flex items-center justify-center gap-2">
                             <x-filament::icon-button icon="heroicon-m-map-pin" x-on:click="open = !open"
                                 :tooltip="trans('menu::menu-builder.items.expand')" color="red"

@@ -12,17 +12,16 @@ class Maps extends Component
     public $cateLevel1;
     public $cateLevel3;
     public $placeUrl;
+    public ?string $descriptionMap = null;
 
     public function mount($config)
     {
-        // id danh mục phân cấp 1
-        $this->cateLevel1 = $this->getConfig('place');
-        // id danh mục phân cấp thứ 3
-        $this->cateLevel3 = $this->getConfig('place_2');
-        // bản đồ địa điểm google map
-        $this->placeUrl = $this->getConfig('place_url');
-
         $this->setConfig($config);
+
+        $this->cateLevel1     = $this->getConfig('place');
+        $this->cateLevel3     = $this->getConfig('place_2');
+        $this->placeUrl       = $this->getConfig('place_url');
+        $this->descriptionMap = $this->getConfig('description-map');
     }
 
     public function getCate1()
@@ -60,9 +59,10 @@ class Maps extends Component
     public function render()
     {
         return view('bladethemev1::livewire.maps', [
-            'nameCate1' => $this->getCate1(),
-            'nameCate2' => $this->getCate2(),
-            'nameCate3' => $this->getCate3(),
+            'nameCate1'      => $this->getCate1(),
+            'nameCate2'      => $this->getCate2(),
+            'nameCate3'      => $this->getCate3(),
+            'descriptionMap' => $this->descriptionMap,
         ]);
     }
 }

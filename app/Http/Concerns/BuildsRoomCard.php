@@ -5,67 +5,84 @@ declare(strict_types=1);
 namespace App\Http\Concerns;
 
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Storage;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\TimeSlot;
 
 trait BuildsRoomCard
 {
-    private function mapRoom(Product $room, ?bool $wishlistStatus = null): array
+    private function mapRoom(Product $room, ?bool $wishlistStatus = null, ?string $timeFrom = null, ?string $timeTo = null): array
     {
-        $badge     = $room->badge;
-        $timeSlots = $this->buildTimeSlots($room);
+        $badge    = $room->badge;
+        $isHourly = (int) $room->styles === 1;
 
-        if (! empty($timeSlots)) {
-            $basePrice = collect($timeSlots)->sum('amount');
-            $baseLabel = '/ ngày';
-            $baseUnit  = 'per_day';
+        if ($isHourly) {
+            $timeSlots = $this->buildTimeSlots($room, $timeFrom, $timeTo);
+            $firstSlot = collect($timeSlots)->first();
+            $price     = $firstSlot
+                ? ['amount' => $firstSlot['amount'], 'unit_label' => '/ ' . ($firstSlot['label'] ?? 'khung giờ')]
+                : null;
         } else {
-            $basePrice = (float) $room->price;
-            $baseLabel = $this->priceUnitLabel($room->price_unit);
-            $baseUnit  = $room->price_unit;
+            $price = [
+                'amount'     => (float) $room->price,
+                'unit_label' => $this->priceUnitLabel($room->price_unit) ?? '/ ngày',
+            ];
         }
 
         return [
+            'id'              => $room->id,
             'slug'            => $room->slug,
             'name'            => $room->name,
             'thumbnail_url'   => $this->getMainImageUrl($room),
+            'room_style'      => match ((int) $room->styles) {
+                1       => 'theo_gio',
+                2       => 'theo_ngay',
+                default => $room->nights ? 'qua_dem' : null,
+            },
             'badge'           => $badge ? [
                 'label'      => $badge['label'] ?? null,
                 'type'       => $badge['type'] ?? null,
                 'bg_color'   => $badge['bg_color'] ?? '#FFFFFF',
                 'text_color' => $badge['text_color'] ?? '#1F2937',
             ] : null,
-            'price' => [
-                'amount'     => $basePrice,
-                'currency'   => 'VND',
-                'unit'       => $baseUnit,
-                'unit_label' => $baseLabel,
-                'time_slots' => $timeSlots,
-            ],
-            'rating'          => $room->rating_score !== null ? [
-                'score'     => (float) $room->rating_score,
-                'show_star' => true,
-            ] : null,
+            'price'           => $price,
+            'rating'          => $room->rating_score !== null ? (float) $room->rating_score : null,
             'wishlist_status' => $wishlistStatus,
             'is_available'    => $room->is_in_stock,
+            'latitude'        => $room->latitude  ? (string) $room->latitude  : null,
+            'longitude'       => $room->longitude ? (string) $room->longitude : null,
         ];
     }
 
     private function getMainImageUrl(Product $room): ?string
     {
-        $main = $room->mainImage;
-        if (! $main || empty($main->path)) return null;
+        $media = $room->getFirstMedia('Ảnh bìa')
+              ?? $room->getFirstMedia('Ảnh chính')
+              ?? $room->getFirstMedia();
 
-        $paths = array_values(array_filter((array) $main->path, 'is_string'));
-        return isset($paths[0]) ? Storage::disk($main->disk)->url($paths[0]) : null;
+        return $media?->getUrl();
     }
 
-    private function buildTimeSlots(Product $room): array
+    private function buildTimeSlots(Product $room, ?string $timeFrom = null, ?string $timeTo = null): array
     {
-        return $room->roomTimeSlots
+        $slots = $room->roomTimeSlots
             ->whereNull('date')
-            ->whereNotIn('status', ['booked'])
+            ->whereNotIn('status', ['booked']);
+
+        if ($timeFrom !== null && $timeTo !== null) {
+            $slots = $slots->filter(function ($roomSlot) use ($timeFrom, $timeTo) {
+                if ($roomSlot->over_night) {
+                    return false;
+                }
+                $ts = $roomSlot->timeSlot;
+                if (! $ts || ! $ts->start_time || ! $ts->end_time) {
+                    return false;
+                }
+                return substr($ts->start_time, 0, 5) >= $timeFrom
+                    && substr($ts->end_time, 0, 5) <= $timeTo;
+            });
+        }
+
+        return $slots
             ->groupBy('timeslot_id')
             ->map(function ($group) {
                 $slot  = $group->sortBy('price')->first();

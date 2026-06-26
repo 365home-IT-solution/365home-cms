@@ -291,6 +291,64 @@ private function buildTelegramMessage(Order $order, string $status): string
                 $order->id, $categoryId, $checkinDate, $checkoutDate, $product
             );
 
+            // FCM + WS theo loại khóa của phòng
+            try {
+                $order->loadMissing(['items.product']);
+                $checkinDate = $order->items->min('checkin_date');
+                $notifTitle  = null;
+                $notifBody   = null;
+                $wsPayload   = ['access_code_assigned' => true];
+
+                if ($product && $product->has_manual_lock) {
+                    // Phòng có mật khẩu thủ công (ManualLockPassword) → gửi mã thực tế
+                    $manualPwd = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($product, $checkinDate);
+                    if ($manualPwd && ($manualPwd->gate_password || $manualPwd->room_password)) {
+                        $parts = [];
+                        if ($manualPwd->gate_password) $parts[] = 'Mã cổng: ' . $manualPwd->gate_password;
+                        if ($manualPwd->room_password) $parts[] = 'Mã phòng: ' . $manualPwd->room_password;
+                        $notifTitle = "Đơn #{$order->order_code}: Mã cổng đã được cấp";
+                        $notifBody  = implode(' | ', $parts);
+                        $wsPayload  = [
+                            'access_code_assigned' => true,
+                            'lock_type'            => 'manual',
+                            'gate_password'        => $manualPwd->gate_password,
+                            'room_password'        => $manualPwd->room_password,
+                        ];
+                    }
+                } elseif ($product && $product->lock_id && \App\Services\TTLockService::forCategory($order->category_id)) {
+                    // Phòng TTLock → thông báo có thể mở từ app
+                    $notifTitle = "Đơn #{$order->order_code}: Mã cổng đã sẵn sàng";
+                    $notifBody  = 'Bạn có thể mở cửa trực tiếp từ ứng dụng.';
+                    $wsPayload  = ['access_code_assigned' => true, 'lock_type' => 'ttlock'];
+                }
+                // Phòng không có pass → không gửi thông báo
+
+                if ($notifTitle && $notifBody) {
+                    $notifService = app(\App\Services\NotificationFcmService::class);
+                    $extra        = ['order_code' => (string) $order->order_code, 'type' => 'order_access_code'];
+
+                    if (is_null($order->customer_id) && $order->device_token) {
+                        $notifService->sendToGuestToken($order->device_token, $notifTitle, $notifBody, 'order_access_code', $extra);
+                    } elseif ($order->customer_id) {
+                        $customer = $order->customer;
+                        if ($customer) {
+                            $notifService->sendToCustomer($customer, $notifTitle, $notifBody, 'order_access_code', $extra);
+                        }
+                    }
+
+                    app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
+                        (string) $order->order_code,
+                        $wsPayload,
+                        $order->customer_id ? (int) $order->customer_id : null,
+                    );
+                }
+            } catch (\Throwable $e) {
+                Log::warning('handleSuccessfulPayment: access code notification failed', [
+                    'order_id' => $order->id,
+                    'error'    => $e->getMessage(),
+                ]);
+            }
+
             // Không dùng ZaloZNS nữa — Telegram xử lý ở caller
             $this->sendAdminNotification($order);
 
@@ -311,16 +369,58 @@ private function buildTelegramMessage(Order $order, string $status): string
     private function handleRemainingPayment(Order $order): bool
     {
         try {
+            // full_amount = tiền cọc đã thu (không đổi).
+            // extra_charge_amount = khoản phát sinh được cộng vào remaining khi deposit.
+            // Tổng thực thu = realTotal + extra_charge_amount.
+            $depositPct  = (int) ($order->deposit_percent ?? 0);
+            $depositPaid = (int) $order->full_amount;
+            $realTotal   = $depositPct > 0
+                ? (int) round($depositPaid * 100 / $depositPct)
+                : $depositPaid;
+            $extraCharge = (int) ($order->extra_charge_amount ?? 0);
+            $totalPaid   = $realTotal + $extraCharge;
+
             $order->update([
-                'status'             => 'paid',
-                'amount'             => $order->full_amount ?? $order->amount,
-                'remaining_paid_at'  => now(),
+                'status'              => 'paid',
+                'full_amount'         => $totalPaid,
+                'amount'              => $totalPaid,
+                'extra_charge_amount' => null,
+                'remaining_paid_at'   => now(),
             ]);
 
             Log::info('Order remaining payment received', [
                 'order_id'   => $order->id,
                 'order_code' => $order->order_code,
             ]);
+
+            // FCM → khách
+            try {
+                $notifService = app(\App\Services\NotificationFcmService::class);
+                $title        = "Đơn #{$order->order_code}: Thanh toán thành công";
+                $body         = 'Thanh toán phần còn lại thành công. Mã cổng sẽ được gán trong giây lát.';
+                $extra        = ['order_code' => (string) $order->order_code, 'type' => 'order_remaining_paid'];
+                if (is_null($order->customer_id) && $order->device_token) {
+                    $notifService->sendToGuestToken($order->device_token, $title, $body, 'order_remaining_paid', $extra);
+                } elseif ($order->customer_id) {
+                    $customer = $order->customer;
+                    if ($customer) {
+                        $notifService->sendToCustomer($customer, $title, $body, 'order_remaining_paid', $extra);
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('handleRemainingPayment: FCM failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+            }
+
+            // WS broadcast → cập nhật status trên app khách ngay
+            try {
+                app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
+                    (string) $order->order_code,
+                    ['status' => 'paid', 'remaining_paid_at' => now()->toISOString()],
+                    $order->customer_id ? (int) $order->customer_id : null,
+                );
+            } catch (\Throwable $e) {
+                Log::warning('handleRemainingPayment: broadcastOrderUpdate failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+            }
 
             // Gán mã cổng sau khi thanh toán đủ
             $this->handleSuccessfulPayment($order);
@@ -374,6 +474,11 @@ private function buildTelegramMessage(Order $order, string $status): string
 
             $order = Order::with('items')->where('order_code', $orderCode)->first();
 
+            // Tìm theo current_payos_code (retry / update đơn hàng dùng code mới)
+            if (!$order) {
+                $order = Order::with('items')->where('current_payos_code', $orderCode)->first();
+            }
+
             // Kiểm tra xem đây có phải thanh toán còn lại không
             if (!$order) {
                 $parentOrder = Order::with('items')
@@ -411,6 +516,55 @@ private function buildTelegramMessage(Order $order, string $status): string
                         'error'   => 0,
                         'message' => $updated ? 'Deposit retry processed' : 'Already processed',
                     ], 200);
+                }
+
+                // Kiểm tra xem đây có phải extra charge (phát sinh thêm) không
+                $extraChargeOrder = Order::with('items')
+                    ->where('extra_charge_payos_code', $orderCode)
+                    ->first();
+
+                if ($extraChargeOrder && (isset($data['code']) ? $data['code'] == '00' : $status === 'PAID')) {
+                    Log::info('PayOS Webhook: Extra charge payment received', [
+                        'extra_code' => $orderCode,
+                        'order_id'   => $extraChargeOrder->id,
+                    ]);
+
+                    app(\App\Services\ExtraChargeService::class)->handleExtraChargePaid($extraChargeOrder);
+
+                    // Notify khách real-time
+                    try {
+                        $amount = number_format((int) $extraChargeOrder->extra_charge_amount, 0, ',', '.');
+                        $title  = "Thanh toán khoản phát sinh thành công";
+                        $body   = "Đơn #{$extraChargeOrder->order_code}: {$amount}đ đã được xác nhận.";
+                        $extra  = [
+                            'order_code' => (string) $extraChargeOrder->order_code,
+                            'type'       => 'order_extra_charge_paid',
+                        ];
+
+                        $notifService = app(\App\Services\NotificationFcmService::class);
+
+                        if (is_null($extraChargeOrder->customer_id) && $extraChargeOrder->device_token) {
+                            $notifService->sendToGuestToken($extraChargeOrder->device_token, $title, $body, 'order_extra_charge_paid', $extra);
+                        } elseif ($extraChargeOrder->customer_id) {
+                            $customer = $extraChargeOrder->customer;
+                            if ($customer) {
+                                $notifService->sendToCustomer($customer, $title, $body, 'order_extra_charge_paid', $extra);
+                            }
+                        }
+
+                        app(\App\Services\OrderRealtimeService::class)->broadcastOrderUpdate(
+                            (string) $extraChargeOrder->order_code,
+                            ['extra_charge' => ['is_paid' => true, 'paid_at' => now()->toISOString(), 'payment_method' => 'payos']],
+                            $extraChargeOrder->customer_id,
+                        );
+                    } catch (\Throwable $e) {
+                        Log::warning('PayOS Webhook: Extra charge notify failed', [
+                            'order_id' => $extraChargeOrder->id,
+                            'error'    => $e->getMessage(),
+                        ]);
+                    }
+
+                    return response()->json(['error' => 0, 'message' => 'Extra charge processed']);
                 }
 
                 Log::warning('PayOS Webhook: Order not found', ['orderCode' => $orderCode]);
@@ -492,6 +646,17 @@ private function buildTelegramMessage(Order $order, string $status): string
 
     private function processWebhookStatus(Order $order, string $status, array $data): bool
     {
+        // Đơn đã paid hoặc deposit: không cho phép downgrade do webhook muộn/cũ.
+        // Chỉ cho phép tiếp tục xử lý nếu webhook báo PAID (idempotency check phía dưới).
+        if (in_array($order->status, ['paid', 'deposit']) && $status !== 'PAID') {
+            Log::info('processWebhookStatus: skipping stale webhook for paid/deposit order', [
+                'order_id'       => $order->id,
+                'current_status' => $order->status,
+                'webhook_status' => $status,
+            ]);
+            return false;
+        }
+
         if ($order->status === 'paid' && $status === 'PAID') {
             Log::info('Order already paid', ['order_id' => $order->id, 'current_status' => $order->status]);
             return false;
@@ -500,9 +665,11 @@ private function buildTelegramMessage(Order $order, string $status): string
         switch ($status) {
             case 'PAID':      return $this->handlePaidStatus($order, $data);
             case 'CANCELLED': return $this->handleCancelledStatus($order, $data);
-            case 'EXPIRED':   return $this->handleExpiredStatus($order, $data); // ✅
+            case 'EXPIRED':   return $this->handleExpiredStatus($order, $data);
             case 'PENDING':
-                $order->update(['status' => 'pending']);
+                if (! in_array($order->status, ['paid', 'deposit'])) {
+                    $order->update(['status' => 'pending']);
+                }
                 return true;
             default:
                 Log::warning('Unknown payment status', ['order_id' => $order->id, 'status' => $status]);
@@ -704,9 +871,13 @@ private function buildTelegramMessage(Order $order, string $status): string
                 ]);
             }
 
-            $fullAmount    = (int) ($order->full_amount ?? $order->amount);
-            $paidAmount    = (int) $order->amount;
-            $remaining     = $fullAmount - $paidAmount;
+            $depositPct  = (int) ($order->deposit_percent ?? 0);
+            $depositPaid = (int) $order->full_amount;
+            $realTotal   = $depositPct > 0
+                ? (int) round($depositPaid * 100 / $depositPct)
+                : $depositPaid;
+            $extraCharge = (int) ($order->extra_charge_amount ?? 0);
+            $remaining   = ($realTotal - $depositPaid) + $extraCharge;
 
             if ($remaining <= 0) {
                 return response()->json(['error' => 1, 'message' => 'Không còn khoản cọc còn lại.'], 422);

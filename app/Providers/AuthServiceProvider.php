@@ -40,11 +40,13 @@ use Modules\Post\Entities\Post;
 use Modules\Post\Entities\PostPolicy;
 use Modules\Process\Entities\Process;
 use Modules\Process\Entities\ProcessPolicy;
+use Modules\Product\App\Models\ManualLockPassword;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomAmenity;
 use Modules\Product\App\Models\RoomImage;
 use Modules\Product\App\Models\RoomService;
 use Modules\Product\App\Models\RoomSpecial;
+use Modules\Product\App\Policies\ManualLockPasswordPolicy;
 use Modules\Product\App\Policies\ProductPolicy;
 use Modules\Product\App\Policies\RoomAmenityPolicy;
 use Modules\Product\App\Policies\RoomImagePolicy;
@@ -80,6 +82,7 @@ class AuthServiceProvider extends ServiceProvider
         Page::class               => PagePolicy::class,
         Post::class               => PostPolicy::class,
         Process::class            => ProcessPolicy::class,
+        ManualLockPassword::class => ManualLockPasswordPolicy::class,
         Product::class            => ProductPolicy::class,
         RoomAmenity::class        => RoomAmenityPolicy::class,
         RoomImage::class          => RoomImagePolicy::class,

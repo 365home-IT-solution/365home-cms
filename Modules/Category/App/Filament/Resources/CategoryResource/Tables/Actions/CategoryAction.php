@@ -9,6 +9,7 @@ use Filament\Tables\Actions\ActionGroup;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Actions\ViewAction;
 use Filament\Tables\Actions\DeleteAction;
+use Illuminate\Database\Eloquent\Model;
 
 class CategoryAction
 {
@@ -19,7 +20,7 @@ class CategoryAction
                 ViewAction::make()->label('Xem chi tiết')
                     ->modalWidth(MaxWidth::Full),
                 EditAction::make()->label('Cập nhật')
-                    ->modalWidth(MaxWidth::Full),
+                    ->url(fn (Model $record): string => route('filament.admin.resources.categories.edit', $record)),
                 DeleteAction::make()->label('Xóa')
             ])
         ];

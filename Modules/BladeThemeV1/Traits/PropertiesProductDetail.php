@@ -41,8 +41,10 @@ trait PropertiesProductDetail
     public string $paymentOption = 'deposit';
 
     // Auth-prefill: set server-side via prefillFromAuth(), never trust client-set values
-    public bool $isAuthUser = false;
-    public ?int $authUserId = null;
+    public bool    $isAuthUser    = false;
+    public ?string $authUserId    = null; // UUID of authenticated customer
+    public string  $authCccdFront = '';   // stored path from customer profile
+    public string  $authCccdBack  = '';   // stored path from customer profile
 
     
     /** 

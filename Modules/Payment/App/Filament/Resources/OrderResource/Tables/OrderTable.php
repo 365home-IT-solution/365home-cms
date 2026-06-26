@@ -5,7 +5,9 @@ namespace Modules\Payment\App\Filament\Resources\OrderResource\Tables;
 use Filament\Notifications\Notification;
 use Filament\Support\Enums\FontWeight;
 use Filament\Tables\Actions\Action;
+use PayOS\PayOS;
 use Filament\Tables\Columns\BadgeColumn;
+use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Enums\ActionsPosition;
@@ -13,6 +15,7 @@ use Filament\Tables\Table;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\HtmlString;
+use Modules\AuditLog\Services\AuditLogger;
 use Modules\Payment\Traits\GHNServiceTrait;
 use Modules\Payment\Traits\GHTKServiceTrait;
 use Modules\Payment\App\Filament\Resources\OrderResource\Tables\Actions\OrderAction;
@@ -28,7 +31,12 @@ class OrderTable
     public static function table(Table $table): Table
     {
         return $table
-            ->modifyQueryUsing(fn ($query) => $query->with(['items.product', 'accessCodes']))
+            ->modifyQueryUsing(function ($query) {
+                $query->with(['items.product', 'services', 'accessCodes']);
+                if (! (auth()->user()?->isSuperAdmin() ?? false)) {
+                    $query->where('exclude_from_stats', false);
+                }
+            })
             ->columns([
                 TextColumn::make('order_code')
                     ->label(__('payment::order.table.label.order_code'))
@@ -44,10 +52,12 @@ class OrderTable
                     ->color('primary')
                     ->icon('heroicon-m-building-office-2'),
 
-                TextColumn::make('amount')
+                TextColumn::make('computed_total')
                     ->label('Tổng tiền')
                     ->weight(FontWeight::Bold)
-                    ->money('VND'),
+                    ->getStateUsing(fn ($record) => static::computeOrderTotal($record))
+                    ->formatStateUsing(fn ($state) => number_format((int)$state, 0, ',', '.') . ' ₫')
+                    ->sortable(false),
 
                 TextColumn::make('created_at')
                     ->label(__('payment::order.table.label.created_at'))
@@ -157,6 +167,27 @@ class OrderTable
                     ->badge()
                     ->color(fn($state) => $state ? 'success' : 'gray')
                     ->toggleable(isToggledHiddenByDefault: false),
+
+                IconColumn::make('exclude_from_stats')
+                    ->label('Thống kê')
+                    ->boolean()
+                    ->trueIcon('heroicon-o-eye-slash')
+                    ->falseIcon('heroicon-o-chart-bar')
+                    ->trueColor('danger')
+                    ->falseColor('success')
+                    ->tooltip(fn ($record) => $record->exclude_from_stats ? 'Đang loại khỏi thống kê & xuất Excel' : 'Đang tính vào thống kê & xuất Excel')
+                    ->visible(fn () => auth()->user()?->isSuperAdmin() ?? false)
+                    ->toggleable(isToggledHiddenByDefault: false),
+
+                IconColumn::make('unlock_anytime')
+                    ->label('Mở cổng tự do')
+                    ->boolean()
+                    ->trueIcon('heroicon-o-lock-open')
+                    ->falseIcon('heroicon-o-lock-closed')
+                    ->trueColor('warning')
+                    ->falseColor('gray')
+                    ->tooltip(fn ($record) => $record->unlock_anytime ? 'Khách có thể mở cổng bất kỳ lúc nào' : 'Mở cổng giới hạn theo giờ đặt phòng')
+                    ->toggleable(isToggledHiddenByDefault: false),
             ])
             ->defaultSort('created_at', 'desc')
             ->filters(
@@ -176,10 +207,19 @@ class OrderTable
                         ->modalCancelActionLabel('Đóng')
                         ->modalWidth('lg')
                         ->modalContent(function ($record) {
-                            $isDeposit = $record->deposit_percent !== null;
-                            $fullAmt   = (int)($record->full_amount ?? $record->amount);
-                            $depositAmt   = ($isDeposit && $fullAmt > 0) ? (int)round($fullAmt * $record->deposit_percent / 100) : null;
-                            $remainingAmt = $depositAmt ? $fullAmt - $depositAmt : null;
+                            $isDeposit   = $record->deposit_percent !== null;
+                            $fullAmt     = (int)($record->full_amount ?? $record->amount);
+                            $depositPctV = $isDeposit ? (int)$record->deposit_percent : 0;
+                            if ($isDeposit && $depositPctV > 0) {
+                                // full_amount với đơn cọc = tiền cọc, phải reconstruct tổng
+                                $depositAmt   = $fullAmt;
+                                $realTotalV   = (int) round($fullAmt * 100 / $depositPctV);
+                                $remainingAmt = $realTotalV - $depositAmt;
+                            } else {
+                                $depositAmt   = null;
+                                $realTotalV   = $fullAmt;
+                                $remainingAmt = null;
+                            }
 
                             $fmt = fn($dt) => $dt ? \Carbon\Carbon::parse($dt)->format('d/m/Y H:i') : null;
 
@@ -213,7 +253,7 @@ class OrderTable
                                         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
                                             <div style="text-align:center;background:#fff;border-radius:8px;padding:10px;border:1px solid #e0e7ff;">
                                                 <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">Tổng đơn</div>
-                                                <div style="font-weight:700;font-size:15px;color:#111827;">' . number_format($fullAmt, 0, ',', '.') . 'đ</div>
+                                                <div style="font-weight:700;font-size:15px;color:#111827;">' . number_format($realTotalV, 0, ',', '.') . 'đ</div>
                                             </div>
                                             <div style="text-align:center;background:#fff;border-radius:8px;padding:10px;border:1px solid #fef08a;">
                                                 <div style="font-size:11px;color:#6b7280;margin-bottom:4px;">Tiền cọc (' . $record->deposit_percent . '%)</div>
@@ -240,18 +280,29 @@ class OrderTable
                                     'banknote' => "<svg {$a}><rect x=\"2\" y=\"5\" width=\"20\" height=\"14\" rx=\"2\"/><line x1=\"2\" y1=\"10\" x2=\"22\" y2=\"10\"/></svg>",
                                     'check'    => "<svg {$a}><path d=\"M22 11.08V12a10 10 0 1 1-5.93-9.14\"/><polyline points=\"22 4 12 14.01 9 11.01\"/></svg>",
                                     'file'     => "<svg {$a}><path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z\"/><polyline points=\"14 2 14 8 20 8\"/></svg>",
+                                    'qr'       => "<svg {$a}><rect x=\"3\" y=\"3\" width=\"7\" height=\"7\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\"/></svg>",
                                     default    => "<svg {$a}><circle cx=\"12\" cy=\"12\" r=\"10\"/></svg>",
                                 };
                             };
 
                             if ($isDeposit) {
-                                // Theo quy trình: khách chọn cọc → thanh toán → đơn được tạo
-                                // Nên created_at chính là thời điểm đặt cọc
-                                $remainingDone = $record->remaining_paid_at !== null
-                                    || ($record->status === 'paid' && $record->deposit_percent !== null);
-                                $remainingTimeStr = $record->remaining_paid_at
-                                    ? $fmt($record->remaining_paid_at)
-                                    : ($remainingDone ? '(Không rõ thời điểm)' : null);
+                                $remainingDone   = $record->status === 'paid' && $record->deposit_percent !== null;
+                                $remainingTime   = $record->remaining_paid_at ? $fmt($record->remaining_paid_at) : null;
+                                $payMethod       = $record->remaining_payment_method ?? null;
+                                $qrCreated       = ! empty($record->remaining_checkout_url);
+
+                                // Dùng remaining_payment_method để xác định nhãn chính xác
+                                if ($remainingDone) {
+                                    if ($payMethod === 'cash') {
+                                        $remainingLabel = 'Admin thu tiền mặt';
+                                    } elseif ($payMethod === 'payos') {
+                                        $remainingLabel = 'Khách thanh toán qua PayOS';
+                                    } else {
+                                        $remainingLabel = $qrCreated ? 'Khách thanh toán qua QR/PayOS' : 'Admin xác nhận thu tiền mặt';
+                                    }
+                                } else {
+                                    $remainingLabel = 'Chờ thanh toán phần còn lại';
+                                }
 
                                 $steps = [
                                     [
@@ -263,12 +314,20 @@ class OrderTable
                                         'sub'       => $depositAmt ? number_format($depositAmt, 0, ',', '.') . 'đ (' . $record->deposit_percent . '%)' : null,
                                     ],
                                     [
-                                        'icon_type' => 'check',
-                                        'label'     => 'Khách thanh toán phần còn lại',
-                                        'time'      => $remainingTimeStr,
+                                        'icon_type' => 'qr',
+                                        'label'     => $qrCreated ? 'QR thanh toán đã được tạo' : 'Chưa tạo QR thanh toán',
+                                        'time'      => null,
+                                        'done'      => $qrCreated,
+                                        'color'     => '#f59e0b',
+                                        'sub'       => null,
+                                    ],
+                                    [
+                                        'icon_type' => $payMethod === 'cash' ? 'banknote' : 'check',
+                                        'label'     => $remainingLabel,
+                                        'time'      => $remainingTime,
                                         'done'      => $remainingDone,
                                         'color'     => '#22c55e',
-                                        'sub'       => $remainingAmt ? number_format($remainingAmt, 0, ',', '.') . 'đ' : null,
+                                        'sub'       => ($remainingDone && $remainingAmt) ? number_format($remainingAmt, 0, ',', '.') . 'đ' : null,
                                     ],
                                 ];
                             } else {
@@ -326,6 +385,124 @@ class OrderTable
                             $html .= '</div></div>';
 
                             return new HtmlString($html);
+                        })
+                        ->extraModalFooterActions(function ($action) {
+                            $record = $action->getRecord();
+                            $actions = [];
+
+                            if ($record && $record->status === 'deposit' && $record->deposit_percent !== null) {
+                                $actions[] = Action::make('modal_tao_qr')
+                                    ->label('Tạo QR còn lại')
+                                    ->color('warning')
+                                    ->icon('heroicon-o-qr-code')
+                                    ->requiresConfirmation()
+                                    ->modalHeading('Tạo link QR thanh toán còn lại')
+                                    ->modalDescription('Mỗi lần bấm sẽ tạo link PayOS mới. Link cũ (nếu có) sẽ bị thay thế.')
+                                    ->modalSubmitActionLabel('Tạo và mở trang QR')
+                                    ->action(function () use ($record) {
+                                        try {
+                                            $remaining = max(0, (int) $record->amount - (int) $record->full_amount);
+
+                                            if ($remaining <= 0) {
+                                                Notification::make()->warning()->title('Đơn đã được thanh toán đủ, không cần tạo QR')->send();
+                                                return;
+                                            }
+
+                                            $payos = new PayOS(
+                                                Config::get('payos.client_id'),
+                                                Config::get('payos.api_key'),
+                                                Config::get('payos.checksum_key')
+                                            );
+
+                                            $orderCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
+                                            $expiredAt = now()->addMinutes(30);
+                                            $response  = $payos->createPaymentLink([
+                                                'orderCode'   => $orderCode,
+                                                'amount'      => $remaining,
+                                                'description' => 'Tt con lai - ' . $record->order_code,
+                                                'returnUrl'   => \Modules\Payment\App\Filament\Resources\OrderResource::getUrl('edit', ['record' => $record->id]) . '?remaining_done=1',
+                                                'cancelUrl'   => \Modules\Payment\App\Filament\Resources\OrderResource::getUrl('edit', ['record' => $record->id]) . '?remaining_cancelled=1',
+                                                'buyerName'   => $record->buyer_name ?? '',
+                                                'buyerPhone'  => $record->buyer_phone ?? '',
+                                                'expiredAt'   => $expiredAt->timestamp,
+                                                'items'       => [[
+                                                    'name'     => 'Tiền còn lại - ' . ($record->items->first()?->name ?? 'Phòng'),
+                                                    'quantity' => 1,
+                                                    'price'    => $remaining,
+                                                ]],
+                                            ]);
+
+                                            $checkoutUrl = $response['checkoutUrl'] ?? null;
+                                            if (! $checkoutUrl) {
+                                                Notification::make()->danger()->title('Không thể tạo link thanh toán')->send();
+                                                return;
+                                            }
+
+                                            $record->update([
+                                                'remaining_payos_code'   => (string) $orderCode,
+                                                'remaining_checkout_url' => $checkoutUrl,
+                                            ]);
+
+                                            AuditLogger::log(
+                                                'update', 'Order', $record,
+                                                [],
+                                                ['Tạo QR' => number_format($remaining, 0, ',', '.') . 'đ', 'Mã PayOS' => (string) $orderCode],
+                                                'Đơn #' . $record->order_code
+                                            );
+
+                                            return redirect()->away($checkoutUrl);
+
+                                        } catch (\Throwable $e) {
+                                            Notification::make()->danger()->title('Lỗi tạo QR: ' . $e->getMessage())->send();
+                                        }
+                                    });
+
+                                $actions[] = Action::make('modal_thu_tien')
+                                    ->label('Đã thu tiền mặt')
+                                    ->color('success')
+                                    ->icon('heroicon-o-banknotes')
+                                    ->requiresConfirmation()
+                                    ->modalHeading('Xác nhận thu tiền mặt')
+                                    ->modalDescription('Xác nhận đã thu tiền mặt phần còn lại. Đơn sẽ cập nhật "Đã thanh toán đầy đủ" và cấp mã truy cập cho khách.')
+                                    ->modalSubmitActionLabel('Xác nhận')
+                                    ->action(function () use ($record) {
+                                        try {
+                                            $record->update([
+                                                'status'                   => 'paid',
+                                                'remaining_paid_at'        => now(),
+                                                'remaining_payment_method' => 'cash',
+                                            ]);
+
+                                            $record->load('items.product');
+                                            $firstItem    = $record->items->sortBy('checkin_date')->first();
+                                            $checkinDate  = $record->items->min('checkin_date');
+                                            $checkoutDate = $record->items->max('checkout_date');
+                                            $product      = $firstItem?->product;
+
+                                            if (! $record->hasAccessCode()) {
+                                                app(\Modules\BladeThemeV1\Services\AccessCode\AccessCodeService::class)
+                                                    ->assignCodeToOrder($record->id, $record->category_id, $checkinDate, $checkoutDate, $product);
+                                            }
+
+                                            AuditLogger::log(
+                                                'update', 'Order', $record,
+                                                ['status' => 'deposit', 'remaining_payment_method' => null],
+                                                ['status' => 'paid', 'remaining_payment_method' => 'cash'],
+                                                'Đơn #' . $record->order_code
+                                            );
+
+                                            Notification::make()
+                                                ->success()
+                                                ->title('Đã xác nhận và cấp mã truy cập')
+                                                ->send();
+
+                                        } catch (\Throwable $e) {
+                                            Notification::make()->danger()->title('Lỗi: ' . $e->getMessage())->send();
+                                        }
+                                    });
+                            }
+
+                            return $actions;
                         }),
 
                     // Nút xem danh sách khung giờ — đặt đầu tiên (ẩn với đơn style=2)
@@ -339,14 +516,17 @@ class OrderTable
                         ->modalCancelActionLabel('Đóng')
                         ->modalWidth('2xl')
                         ->modalContent(function ($record) {
-                            $record->load('items');
+                            $record->loadMissing(['items.product', 'services']);
                             $items = $record->items;
 
                             if ($items->isEmpty()) {
                                 return new HtmlString('<p class="text-gray-500 text-sm py-4 text-center">Không có khung giờ nào.</p>');
                             }
 
-                            $rows = $items->map(function ($item, $index) {
+                            // Tính bulk discount per product group
+                            $bulkData = static::computeItemsBulkData($items);
+
+                            $rows = $items->map(function ($item, $index) use ($bulkData) {
                                 $checkin  = $item->checkin_date
                                     ? \Carbon\Carbon::parse($item->checkin_date)->format('d/m/Y H:i')
                                     : '—';
@@ -354,12 +534,20 @@ class OrderTable
                                     ? \Carbon\Carbon::parse($item->checkout_date)->format('d/m/Y H:i')
                                     : '—';
 
-                                $price    = number_format($item->price ?? 0, 0, ',', '.') . ' đ';
-                                $extraFee = ($item->extra_fee ?? 0) > 0
-                                    ? '<span class="text-orange-500 text-xs ml-1">(+' . number_format($item->extra_fee, 0, ',', '.') . ' đ phụ thu)</span>'
-                                    : '';
+                                $basePrice     = (float)($item->price ?? 0);
+                                $discountPct   = $bulkData['item_discount_pct'][$item->id] ?? 0;
+                                $discountedPrice = $discountPct > 0 ? round($basePrice * (1 - $discountPct / 100)) : $basePrice;
+                                $extraFee      = (float)($item->extra_fee ?? 0);
 
-                                $total = number_format(($item->price ?? 0) + ($item->extra_fee ?? 0), 0, ',', '.') . ' đ';
+                                $priceHtml = $discountPct > 0
+                                    ? '<span class="line-through text-gray-400 text-xs">' . number_format($basePrice, 0, ',', '.') . 'đ</span> '
+                                      . '<span class="font-semibold text-blue-700">' . number_format($discountedPrice, 0, ',', '.') . 'đ</span>'
+                                      . ' <span class="text-xs text-blue-500">(-' . $discountPct . '%)</span>'
+                                    : '<span class="font-semibold">' . number_format($basePrice, 0, ',', '.') . 'đ</span>';
+
+                                $extraHtml = $extraFee > 0
+                                    ? '<span class="text-orange-500 text-xs ml-1">(+' . number_format($extraFee, 0, ',', '.') . 'đ phụ thu)</span>'
+                                    : '';
 
                                 return '
                                     <tr class="border-b last:border-0 hover:bg-gray-50">
@@ -376,17 +564,44 @@ class OrderTable
                                             </div>
                                         </td>
                                         <td class="py-3 px-4 text-sm text-right">
-                                            <div class="font-semibold">' . $price . $extraFee . '</div>
-                                            <div class="text-xs text-gray-400">Tổng: ' . $total . '</div>
+                                            <div>' . $priceHtml . $extraHtml . '</div>
                                         </td>
                                     </tr>
                                 ';
                             })->join('');
 
-                            $grandTotal = number_format(
-                                $items->sum(fn ($i) => ($i->price ?? 0) + ($i->extra_fee ?? 0)),
-                                0, ',', '.'
-                            ) . ' đ';
+                            $grandTotal    = static::computeOrderTotal($record);
+                            $totalExtraFee = $items->sum(fn ($i) => (float)($i->extra_fee ?? 0));
+                            $serviceTotal  = $record->services->sum('subtotal');
+                            $discountTotal = $bulkData['total_discount'];
+
+                            $footerRows = '';
+                            if ($discountTotal > 0) {
+                                $footerRows .= '
+                                    <tr>
+                                        <td colspan="3" class="py-2 px-4 text-sm text-blue-600 text-right">Giảm giá đặt nhiều khung:</td>
+                                        <td class="py-2 px-4 text-sm font-semibold text-blue-600 text-right">-' . number_format($discountTotal, 0, ',', '.') . 'đ</td>
+                                    </tr>';
+                            }
+                            if ($totalExtraFee > 0) {
+                                $footerRows .= '
+                                    <tr>
+                                        <td colspan="3" class="py-2 px-4 text-sm text-orange-500 text-right">Phụ thu khách thêm:</td>
+                                        <td class="py-2 px-4 text-sm font-semibold text-orange-500 text-right">+' . number_format($totalExtraFee, 0, ',', '.') . 'đ</td>
+                                    </tr>';
+                            }
+                            if ($serviceTotal > 0) {
+                                $footerRows .= '
+                                    <tr>
+                                        <td colspan="3" class="py-2 px-4 text-sm text-orange-400 text-right">Dịch vụ thêm:</td>
+                                        <td class="py-2 px-4 text-sm font-semibold text-orange-400 text-right">+' . number_format($serviceTotal, 0, ',', '.') . 'đ</td>
+                                    </tr>';
+                            }
+                            $footerRows .= '
+                                <tr class="bg-blue-50">
+                                    <td colspan="3" class="py-3 px-4 text-sm font-bold text-gray-700 text-right">Tổng thanh toán:</td>
+                                    <td class="py-3 px-4 text-sm font-bold text-primary-600 text-right">' . number_format($grandTotal, 0, ',', '.') . 'đ</td>
+                                </tr>';
 
                             $html = '
                                 <div class="overflow-hidden rounded-lg border border-gray-200">
@@ -400,18 +615,53 @@ class OrderTable
                                             </tr>
                                         </thead>
                                         <tbody>' . $rows . '</tbody>
-                                        <tfoot class="bg-gray-50 border-t border-gray-200">
-                                            <tr>
-                                                <td colspan="3" class="py-3 px-4 text-sm font-bold text-gray-700 text-right">Tổng cộng:</td>
-                                                <td class="py-3 px-4 text-sm font-bold text-primary-600 text-right">' . $grandTotal . '</td>
-                                            </tr>
-                                        </tfoot>
+                                        <tfoot class="bg-gray-50 border-t border-gray-200">' . $footerRows . '</tfoot>
                                     </table>
                                 </div>
                             ';
 
                             return new HtmlString($html);
                         }),
+
+                Action::make('toggle_stats')
+                    ->label(fn ($record) => $record->exclude_from_stats ? 'Bật thống kê' : 'Tắt thống kê')
+                    ->icon(fn ($record) => $record->exclude_from_stats ? 'heroicon-o-chart-bar' : 'heroicon-o-eye-slash')
+                    ->color(fn ($record) => $record->exclude_from_stats ? 'success' : 'danger')
+                    ->visible(fn () => auth()->user()?->isSuperAdmin() ?? false)
+                    ->requiresConfirmation()
+                    ->modalHeading(fn ($record) => $record->exclude_from_stats ? 'Bật lại thống kê cho đơn này?' : 'Loại đơn này khỏi thống kê?')
+                    ->modalDescription(fn ($record) => $record->exclude_from_stats
+                        ? 'Đơn sẽ được tính lại vào dashboard và xuất Excel.'
+                        : 'Đơn sẽ không hiển thị trong dashboard và không có trong file Excel xuất ra.')
+                    ->action(function ($record) {
+                        $record->update(['exclude_from_stats' => ! $record->exclude_from_stats]);
+                        Notification::make()
+                            ->title($record->exclude_from_stats ? 'Đã loại khỏi thống kê' : 'Đã bật lại thống kê')
+                            ->success()
+                            ->send();
+                    }),
+
+                Action::make('toggle_unlock_anytime')
+                    ->label(fn ($record) => $record->unlock_anytime ? 'Khoá giờ mở cổng' : 'Cho mở cổng tự do')
+                    ->icon(fn ($record) => $record->unlock_anytime ? 'heroicon-o-lock-closed' : 'heroicon-o-lock-open')
+                    ->color(fn ($record) => $record->unlock_anytime ? 'gray' : 'warning')
+                    ->requiresConfirmation()
+                    ->modalHeading(fn ($record) => $record->unlock_anytime
+                        ? 'Khoá lại giờ mở cổng?'
+                        : 'Cho phép khách mở cổng bất kỳ lúc nào?')
+                    ->modalDescription(fn ($record) => $record->unlock_anytime
+                        ? 'Khách sẽ chỉ được mở cổng trong khung giờ đặt phòng (±30 phút).'
+                        : 'Khách có thể nhấn mở cổng bất kỳ lúc nào, dù chưa đến hoặc đã quá giờ đặt phòng. Dùng khi khách đến sớm hoặc về muộn.')
+                    ->modalSubmitActionLabel(fn ($record) => $record->unlock_anytime ? 'Khoá lại' : 'Cho phép')
+                    ->action(function ($record) {
+                        $record->update(['unlock_anytime' => ! $record->unlock_anytime]);
+                        Notification::make()
+                            ->title($record->unlock_anytime
+                                ? 'Đã cho phép khách mở cổng tự do'
+                                : 'Đã khoá lại theo giờ đặt phòng')
+                            ->success()
+                            ->send();
+                    }),
 
                 Action::make('view_services')
     ->label('Dịch vụ')
@@ -477,5 +727,61 @@ class OrderTable
                 OrderAction::action()
             ), position: ActionsPosition::BeforeCells)
             ->bulkActions(OrderBulkAction::bulkActions());
+    }
+
+    /**
+     * Tính tổng đơn hàng áp dụng bulk_discount_rules từ cài đặt phòng.
+     * Mỗi order item = 1 khung giờ; số lượng items cùng product_id xác định mức giảm.
+     */
+    private static function computeOrderTotal(Order $record): int
+    {
+        // Đơn cọc và đơn thường: đều trả về full_amount
+        // - Đơn cọc: full_amount = số tiền cọc khách cần thanh toán ngay
+        // - Đơn thường: full_amount = tổng tiền thực sau discount
+        return (int)($record->full_amount ?? $record->amount ?? 0);
+    }
+
+    /**
+     * Trả về mảng thông tin bulk discount cho từng item (dùng trong modal).
+     * ['item_discount_pct' => [item_id => pct], 'total_discount' => int]
+     */
+    private static function computeItemsBulkData($items): array
+    {
+        $itemDiscountPct = [];
+        $totalDiscount   = 0;
+
+        $itemsByProduct = $items
+            ->filter(fn ($i) => $i->product_id)
+            ->groupBy('product_id');
+
+        foreach ($itemsByProduct as $productId => $groupItems) {
+            $product = $groupItems->first()?->product;
+
+            $slotCount       = $groupItems->count();
+            $bulkDiscountPct = 0;
+
+            if ($product && $slotCount >= 2) {
+                $rules = $product->bulk_discount_rules ?? [];
+                usort($rules, fn ($a, $b) => (int)($b['slots'] ?? 0) - (int)($a['slots'] ?? 0));
+                foreach ($rules as $rule) {
+                    if ($slotCount >= (int)($rule['slots'] ?? 0)) {
+                        $bulkDiscountPct = (float)($rule['discount'] ?? 0);
+                        break;
+                    }
+                }
+            }
+
+            foreach ($groupItems as $item) {
+                $itemDiscountPct[$item->id] = $bulkDiscountPct;
+                if ($bulkDiscountPct > 0) {
+                    $totalDiscount += (int)round((float)($item->price ?? 0) * $bulkDiscountPct / 100);
+                }
+            }
+        }
+
+        return [
+            'item_discount_pct' => $itemDiscountPct,
+            'total_discount'    => $totalDiscount,
+        ];
     }
 }

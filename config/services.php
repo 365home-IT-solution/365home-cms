@@ -96,4 +96,14 @@ return [
     'ocr_space' => [
         'api_key' => env('OCR_SPACE_API_KEY'),
     ],
+
+    'google_maps' => [
+        'key' => env('GOOGLE_MAPS_API_KEY'),
+    ],
+
+    'websocket' => [
+        'url'          => env('WS_SERVER_URL', 'http://localhost:3001'),
+        'public_url'   => env('WS_PUBLIC_URL', env('WS_SERVER_URL', 'http://localhost:3001')),
+        'internal_key' => env('WS_INTERNAL_KEY', ''),
+    ],
 ];

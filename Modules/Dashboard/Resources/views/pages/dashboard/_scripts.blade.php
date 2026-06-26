@@ -233,6 +233,11 @@ window._rcBuildPopupHtml = function(orders, roomList) {
             if (createdFmt) metaParts.push('<span class="ta-pop-created-badge">Tạo: ' + createdFmt + '</span>');
             if (metaParts.length) row += '<div class="ta-pop-order-meta">' + metaParts.join('') + '</div>';
 
+            // Line 3: deposit/admin note
+            if (o.deposit_room) {
+                row += '<div class="ta-pop-order-note">' + o.deposit_room.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</div>';
+            }
+
             row += '</div>';
             return row;
         }).join('');
@@ -736,6 +741,161 @@ document.addEventListener('keydown', function(e) {
 
     pollKpi();
 
+    // ── Branch Filter Panel ──────────────────────────────────────────
+    var _branchOpen        = false;
+    var _selectedBranchId  = '';   // '' = tất cả
+
+    window.taBranchToggle = function() {
+        _branchOpen = !_branchOpen;
+        var panel = document.getElementById('ta-branch-panel');
+        var btn   = document.getElementById('ta-branch-toggle');
+        if (!panel) return;
+        panel.style.display = _branchOpen ? '' : 'none';
+        if (btn) btn.classList.toggle('active', _branchOpen);
+        if (_branchOpen) fetchBranchStats();
+    };
+
+    window.taBranchSelect = function(el) {
+        if (!el) return;
+        var branchId = el.dataset.branchId || '';
+        _selectedBranchId = branchId;
+        window._taBranchId = branchId;
+
+        // Cập nhật active state
+        document.querySelectorAll('.ta-branch-item').forEach(function(item) {
+            item.classList.toggle('active', (item.dataset.branchId || '') === branchId);
+        });
+
+        // Cập nhật label trên button
+        var btn = document.getElementById('ta-branch-toggle');
+        if (btn) {
+            var nameEl = el.querySelector('.ta-branch-item-name');
+            var label  = branchId ? (nameEl ? nameEl.textContent.trim() : 'Chi nhánh') : 'Chi nhánh';
+            btn.childNodes.forEach(function(n) { if (n.nodeType === 3) n.textContent = ' ' + label + ' '; });
+        }
+
+        // Cập nhật hint footer
+        var hint = document.getElementById('ta-branch-foot-hint');
+        if (hint) {
+            hint.textContent = branchId
+                ? '⚡ Đang lọc: ' + (el.querySelector('.ta-branch-item-name') || {textContent:''}).textContent.trim()
+                : 'Click vào chi nhánh để lọc tất cả số liệu ở trên';
+            hint.style.color = branchId ? '#059669' : '';
+        }
+
+        // Đồng bộ tab chi nhánh ở Lịch phòng
+        var branchName = branchId
+            ? ((el.querySelector('.ta-branch-item-name') || {textContent:''}).textContent.trim())
+            : '__all__';
+        if (window._rcActiveBranch !== undefined) {
+            window._rcActiveBranch = branchName;
+            if (window.rcApplyFilters) window.rcApplyFilters();
+        }
+
+        // Reload KPI + các biểu đồ bên dưới với branch filter
+        pollKpi();
+        if (window.pollBottomCharts) window.pollBottomCharts();
+    };
+
+    // Override pollKpi để truyền branch_id
+    var _origPollKpi = pollKpi;
+    pollKpi = function() {
+        var period = getCurrentPeriod();
+        var url    = '/admin/api/kpi-stats?period=' + period;
+        if (period === 'custom') {
+            var cs = document.getElementById('ta-custom-start');
+            var ce = document.getElementById('ta-custom-end');
+            if (cs && cs.value) url += '&custom_start=' + cs.value;
+            if (ce && ce.value) url += '&custom_end='   + ce.value;
+        }
+        if (_selectedBranchId) url += '&branch_id=' + _selectedBranchId;
+
+        fetch(url, { credentials: 'same-origin' })
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(d) {
+                if (!d) return;
+                var elTotal        = document.getElementById('ta-kpi-total');
+                var elPaid         = document.getElementById('ta-kpi-paid');
+                var elRev          = document.getElementById('ta-kpi-revenue');
+                var elPayos        = document.getElementById('ta-kpi-revenue-payos');
+                var elCod          = document.getElementById('ta-kpi-revenue-cod');
+                var elDepositPayos = document.getElementById('ta-kpi-revenue-deposit-payos');
+                var elDepositCod   = document.getElementById('ta-kpi-revenue-deposit-cod');
+                var elRange        = document.getElementById('ta-period-range');
+                if (elTotal)        elTotal.textContent        = Number(d.total).toLocaleString('vi-VN');
+                if (elPaid)         elPaid.textContent         = Number(d.paidCount).toLocaleString('vi-VN');
+                if (elRev)          elRev.innerHTML            = Number(d.revenue).toLocaleString('vi-VN') + '<span class="unit">đ</span>';
+                if (elPayos)        elPayos.innerHTML          = Number(d.revenuePayos).toLocaleString('vi-VN') + '<span class="unit">đ</span>';
+                if (elCod)          elCod.innerHTML            = Number(d.revenueCod).toLocaleString('vi-VN') + '<span class="unit">đ</span>';
+                if (elDepositPayos) elDepositPayos.innerHTML   = Number(d.revenueDepositPayos || 0).toLocaleString('vi-VN') + '<span class="unit">đ</span>';
+                if (elDepositCod)   elDepositCod.innerHTML     = Number(d.revenueDepositCod || 0).toLocaleString('vi-VN') + '<span class="unit">đ</span>';
+                if (elRange && d.dateRange) elRange.textContent = d.dateRange;
+                if (d.prevDateRange) {
+                    document.querySelectorAll('.ta-kpi-hint-range').forEach(function(el) {
+                        el.textContent = d.prevDateRange;
+                    });
+                }
+                setKpiDelta(document.getElementById('ta-kpi-total-delta'),                 d.totalDelta,              '%');
+                setKpiDelta(document.getElementById('ta-kpi-paid-delta'),                  d.paidDelta,               '%');
+                setKpiDelta(document.getElementById('ta-kpi-revenue-delta'),               d.revenueDelta,            '%');
+                setKpiDelta(document.getElementById('ta-kpi-revenue-payos-delta'),         d.revenuePayosDelta,       '%');
+                setKpiDelta(document.getElementById('ta-kpi-revenue-cod-delta'),           d.revenueCodDelta,         '%');
+                setKpiDelta(document.getElementById('ta-kpi-revenue-deposit-payos-delta'), d.revenueDepositPayosDelta || 0, '%');
+                setKpiDelta(document.getElementById('ta-kpi-revenue-deposit-cod-delta'),   d.revenueDepositCodDelta || 0,   '%');
+
+                // Refresh branch stats nếu panel đang mở
+                if (_branchOpen) fetchBranchStats();
+            })
+            .catch(function() {});
+    };
+
+    // Fetch stats cho từng chi nhánh trong panel
+    function fetchBranchStats() {
+        var period = getCurrentPeriod();
+        var url    = '/admin/api/branch-revenue?period=' + period;
+        if (period === 'custom') {
+            var cs = document.getElementById('ta-custom-start');
+            var ce = document.getElementById('ta-custom-end');
+            if (cs && cs.value) url += '&custom_start=' + cs.value;
+            if (ce && ce.value) url += '&custom_end='   + ce.value;
+        }
+        fetch(url, { credentials: 'same-origin' })
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(d) {
+                if (!d) return;
+                var rangeEl = document.getElementById('ta-branch-range');
+                if (rangeEl && d.dateRange) rangeEl.textContent = d.dateRange;
+
+                // Cập nhật "Tất cả"
+                var allEl = document.getElementById('ta-bfi-all');
+                if (allEl) {
+                    var allCount   = (d.branches || []).reduce(function(s, b) { return s + b.count; }, 0);
+                    allEl.querySelector('.ta-bfi-count').textContent = allCount + ' đơn';
+                    allEl.querySelector('.ta-bfi-rev').textContent   = Number(d.total).toLocaleString('vi-VN') + 'đ';
+                }
+
+                // Cập nhật từng chi nhánh
+                (d.branches || []).forEach(function(b) {
+                    var items = document.querySelectorAll('.ta-branch-item[data-branch-id]');
+                    items.forEach(function(item) {
+                        var statsEl = item.querySelector('.ta-branch-item-stats');
+                        if (!statsEl) return;
+                        var nameEl = item.querySelector('.ta-branch-item-name');
+                        if (nameEl && nameEl.textContent.trim() === b.name) {
+                            statsEl.querySelector('.ta-bfi-count').textContent = b.count + ' đơn';
+                            statsEl.querySelector('.ta-bfi-rev').textContent   = Number(b.revenue).toLocaleString('vi-VN') + 'đ';
+                        }
+                    });
+                });
+            })
+            .catch(function() {});
+    }
+
+    // Refresh panel khi period thay đổi (Livewire re-render)
+    document.addEventListener('livewire:updated', function() {
+        if (_branchOpen) fetchBranchStats();
+    });
+
     window.rcPollNow = function() { pollRoomCards(); pollKpi(); if (window.pollBottomCharts) window.pollBottomCharts(); };
 })();
 </script>
@@ -1014,7 +1174,9 @@ document.addEventListener('keydown', function(e) {
 
     /* ── Fetch & update room revenue for a given year ── */
     function fetchRrData(year) {
-        fetch('/admin/api/room-revenue?year=' + year, { credentials: 'same-origin' })
+        var url = '/admin/api/room-revenue?year=' + year;
+        if (window._taBranchId) url += '&branch_id=' + window._taBranchId;
+        fetch(url, { credentials: 'same-origin' })
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (data) {
                 if (!data) return;
@@ -1029,7 +1191,9 @@ document.addEventListener('keydown', function(e) {
 
     /* ── Fetch & update monthly revenue for a given year ── */
     function fetchMrData(year) {
-        fetch('/admin/api/monthly-revenue?year=' + year, { credentials: 'same-origin' })
+        var url = '/admin/api/monthly-revenue?year=' + year;
+        if (window._taBranchId) url += '&branch_id=' + window._taBranchId;
+        fetch(url, { credentials: 'same-origin' })
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (data) {
                 if (!data) return;
@@ -1108,7 +1272,9 @@ document.addEventListener('keydown', function(e) {
     ];
 
     function fetchBrData(year) {
-        fetch('/admin/api/branch-monthly?year=' + year, { credentials: 'same-origin' })
+        var url = '/admin/api/branch-monthly?year=' + year;
+        if (window._taBranchId) url += '&branch_id=' + window._taBranchId;
+        fetch(url, { credentials: 'same-origin' })
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(d) { if (d) renderBrChart(d); })
             .catch(function() {});
@@ -1227,7 +1393,9 @@ document.addEventListener('keydown', function(e) {
             '<div class="ta-cust-skel-row"><div class="ta-skel ta-skel-lg"></div><div class="ta-skel ta-skel-xs"></div><div class="ta-skel ta-skel-sm"></div><div class="ta-skel ta-skel-xs"></div></div>' +
             '<div class="ta-cust-skel-row"><div class="ta-skel ta-skel-lg"></div><div class="ta-skel ta-skel-xs"></div><div class="ta-skel ta-skel-sm"></div><div class="ta-skel ta-skel-xs"></div></div>';
 
-        fetch('/admin/api/top-customers?year=' + year + '&sort=' + _custSort + '&min_orders=' + _custMinOrders, { credentials: 'same-origin' })
+        var custUrl = '/admin/api/top-customers?year=' + year + '&sort=' + _custSort + '&min_orders=' + _custMinOrders;
+        if (window._taBranchId) custUrl += '&branch_id=' + window._taBranchId;
+        fetch(custUrl, { credentials: 'same-origin' })
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(d) { if (d) renderCustList(d); else if (el) el.innerHTML = '<div class="ta-rr-empty">Lỗi tải dữ liệu</div>'; })
             .catch(function() { if (el) el.innerHTML = '<div class="ta-rr-empty">Lỗi tải dữ liệu</div>'; });

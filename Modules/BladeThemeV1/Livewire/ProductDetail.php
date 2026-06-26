@@ -23,6 +23,8 @@ use Modules\BladeThemeV1\App\Models\BlindBag;
 use Modules\BladeThemeV1\Services\Payment\OrderHandlerService;
 use Modules\BladeThemeV1\Services\Payment\PaymentService;
 use Modules\BladeThemeV1\Services\OcrSpaceService;
+use Modules\Payment\App\Services\CccdScannerService;
+use App\Services\PromotionCalculator;
 
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Session;
@@ -59,15 +61,17 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
     public $cccdFrontText = '';
     public $cccdBackText = '';
     protected $ocrService;
+    protected $cccdScanner;
 
     public $additionalServices = null;
     public array $selectedServices = [];
 
-    public function boot(PaymentService $paymentService, OrderHandlerService $orderHandler, OcrSpaceService $ocrService)
+    public function boot(PaymentService $paymentService, OrderHandlerService $orderHandler, OcrSpaceService $ocrService, CccdScannerService $cccdScanner)
     {
         $this->paymentService = $paymentService;
         $this->orderHandler = $orderHandler;
         $this->ocrService = $ocrService;
+        $this->cccdScanner = $cccdScanner;
     }
 
     public function mount($slug)
@@ -161,36 +165,41 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
     {
         if (empty($token)) {
             if ($this->isAuthUser) {
-                $this->buyerName  = '';
-                $this->buyerPhone = '';
-                $this->isAuthUser = false;
-                $this->authUserId = null;
+                $this->buyerName    = '';
+                $this->buyerPhone   = '';
+                $this->isAuthUser   = false;
+                $this->authUserId   = null;
+                $this->authCccdFront = '';
+                $this->authCccdBack  = '';
             }
             return;
         }
 
         try {
             $pat = \Laravel\Sanctum\PersonalAccessToken::findToken($token);
-            if (!$pat || $pat->tokenable_type !== \App\Models\User::class) {
+            if (!$pat || $pat->tokenable_type !== \App\Models\Customer::class) {
                 return;
             }
 
-            /** @var \App\Models\User $user */
-            $user = $pat->tokenable;
-            if (!$user) {
+            /** @var \App\Models\Customer $customer */
+            $customer = $pat->tokenable;
+            if (!$customer || $customer->status !== \App\Models\Customer::STATUS_ACTIVE) {
                 return;
             }
 
             // DB lưu phone dạng 84xxxxxxxxx → hiển thị 0xxxxxxxxx
-            $phone = $user->phone ?? '';
+            $phone = $customer->phone ?? '';
             if (str_starts_with($phone, '84') && strlen($phone) >= 11) {
                 $phone = '0' . substr($phone, 2);
             }
 
-            $this->buyerName  = $user->fullname ?? '';
-            $this->buyerPhone = $phone;
-            $this->isAuthUser = true;
-            $this->authUserId = $user->id;
+            $this->buyerName     = $customer->fullname ?? '';
+            $this->buyerPhone    = $phone;
+            $this->isAuthUser    = true;
+            $this->authUserId    = $customer->id;
+            // Lưu path CCCD từ profile để dùng khi đặt phòng (không cần upload lại)
+            $this->authCccdFront = $customer->cccd_front ?? '';
+            $this->authCccdBack  = $customer->cccd_back  ?? '';
         } catch (\Throwable) {
             // Silent fail — user tiếp tục với form thường
         }
@@ -578,26 +587,13 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             // ❌ KHÔNG áp dụng bulk discount khi có full booking
             $this->bulkDiscountAmount = 0;
 
-            // ❌ KHÔNG áp dụng coupon khi có full booking
-            $this->couponDiscountAmount = 0;
-
         } else {
-            // ========== TÍNH GIẢM GIÁ TỪ COUPON (chỉ khi KHÔNG full booking) ==========
-            if ($this->appliedCoupon) {
-                $applicableSlots = $this->getApplicableSlots($this->appliedCoupon);
-                $applicableAmount = collect($applicableSlots)->sum('price');
-
-                $this->couponDiscountAmount = $this->appliedCoupon->calculateDiscount($applicableAmount);
-                $totalAfterPromo -= $this->couponDiscountAmount;
-            }
-
             // ========== GIẢM GIÁ BULK (chỉ khi KHÔNG full booking) ==========
             $slotCount = count($this->selectedSlots);
             $bulkDiscountRate = 0;
 
             $rules = $this->product->bulk_discount_rules ?? [];
             if (!empty($rules)) {
-                // Lấy rule có slots <= slotCount, ưu tiên rule cao nhất
                 $matched = collect($rules)
                     ->filter(fn($r) => $slotCount >= (int)($r['slots'] ?? 0))
                     ->sortByDesc('slots')
@@ -621,6 +617,13 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
                 $this->bulkDiscountAmount += $loyaltyDiscount;
                 $totalAfterPromo          -= $loyaltyDiscount;
             }
+        }
+
+        // ========== COUPON: luôn áp dụng được, kể cả khi full booking ==========
+        // Tính trên $totalAfterPromo (giá sau các discount trước đó) — không dùng giá gốc
+        if ($this->appliedCoupon) {
+            $this->couponDiscountAmount = $this->appliedCoupon->calculateDiscount($totalAfterPromo);
+            $totalAfterPromo           -= $this->couponDiscountAmount;
         }
 
         // Tính phụ phí theo cấu hình phòng
@@ -765,86 +768,60 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             return;
         }
 
+        $nights = (int) $checkin->diffInDays($checkout);
+
         $dayPriceMap = ['mon'=>1,'tue'=>2,'wed'=>3,'thu'=>4,'fri'=>5,'sat'=>6,'sun'=>0];
         $dayPrices = [];
         foreach ($this->product->day_prices ?? [] as $k => $v) {
             if (isset($dayPriceMap[$k]) && (int)$v > 0) $dayPrices[$dayPriceMap[$k]] = (int)$v;
         }
 
-        $dateConfigs = [];
-        $promoEffects = []; // ['type' => ..., 'value' => ...][]
-        $nowDt = now();
         $this->product->load(['roomTimeSlots.timeSlot', 'roomTimeSlots.promotions']);
+
+        $slotsByDate = [];
+        $dateConfigs = [];
         foreach ($this->product->roomTimeSlots as $rts) {
             if ($rts->timeSlot && ($rts->timeSlot->type ?? '') === 'date' && !empty($rts->timeSlot->label)) {
                 $dk = $rts->timeSlot->label;
-                $dateConfigs[$dk] = [
-                    'price' => $rts->price !== null ? (float) $rts->price : null,
-                    'checkin' => $rts->checkin,
-                    'checkout' => $rts->checkout,
-                ];
-                foreach ($rts->promotions as $promo) {
-                    if ($promo->is_active
-                        && (!$promo->start_at || $promo->start_at <= $nowDt)
-                        && (!$promo->end_at   || $promo->end_at   >= $nowDt)
-                    ) {
-                        $promoEffects[$dk][] = ['type' => $promo->type, 'value' => (float) $promo->value];
-                    }
-                }
+                $slotsByDate[$dk] = $rts;
+                $dateConfigs[$dk] = ['checkin' => $rts->checkin, 'checkout' => $rts->checkout];
             }
         }
 
-        $basePrice   = (float)($this->product->price ?? 0);
-        $productDisc = (float)($this->product->discount ?? 0);
+        $calculator  = app(PromotionCalculator::class);
+        $basePrice   = (float) ($this->product->price ?? 0);
+        $productDisc = (float) ($this->product->discount ?? 0);
         $effectiveBase = $productDisc > 0 ? round($basePrice * (1 - $productDisc / 100)) : $basePrice;
 
         $totalBeforePromo = 0;
         $totalAfterPromo  = 0;
         $totalIncrease    = 0;
         $totalDiscount    = 0;
+
         $current = $checkin->copy();
         while ($current->lt($checkout)) {
             $iso = $current->format('Y-m-d');
-            $nightBase = $effectiveBase;
+            $rts = $slotsByDate[$iso] ?? null;
 
-            if (isset($dateConfigs[$iso]) && $dateConfigs[$iso]['price'] !== null) {
-                $nightBase = (float) $dateConfigs[$iso]['price'];
+            $nightBase = $effectiveBase;
+            if ($rts && $rts->price !== null) {
+                $nightBase = (float) $rts->price;
             } elseif (isset($dayPrices[$current->dayOfWeek])) {
                 $nightBase = (float) $dayPrices[$current->dayOfWeek];
             }
 
-            $nightAfterPromo = $nightBase;
-            $nightIncrease   = 0;
-            $nightDiscount   = 0;
-            foreach ($promoEffects[$iso] ?? [] as $effect) {
-                $v = $effect['value'];
-                switch ($effect['type']) {
-                    case 'percentage':
-                        $disc = round($nightAfterPromo * $v / 100);
-                        $nightDiscount  += $disc;
-                        $nightAfterPromo -= $disc;
-                        break;
-                    case 'fixed':
-                        $disc = min((float) $nightAfterPromo, (float) $v);
-                        $nightDiscount  += $disc;
-                        $nightAfterPromo = max(0, $nightAfterPromo - $v);
-                        break;
-                    case 'increase_percentage':
-                        $inc = round($nightAfterPromo * $v / 100);
-                        $nightIncrease   += $inc;
-                        $nightAfterPromo  = round($nightAfterPromo * (1 + $v / 100));
-                        break;
-                    case 'increase_fixed':
-                        $nightIncrease   += $v;
-                        $nightAfterPromo  += $v;
-                        break;
+            $promos = $calculator->calculateForDate($rts, $nightBase, $iso);
+
+            foreach ($promos['applied'] as $entry) {
+                if (in_array($entry['type'], ['increase_fixed', 'increase_percentage'])) {
+                    $totalIncrease += $entry['discount_amount'];
+                } else {
+                    $totalDiscount += $entry['discount_amount'];
                 }
             }
 
             $totalBeforePromo += $nightBase;
-            $totalAfterPromo  += $nightAfterPromo;
-            $totalIncrease    += $nightIncrease;
-            $totalDiscount    += $nightDiscount;
+            $totalAfterPromo  += $promos['final_price'];
             $current->addDay();
         }
 
@@ -859,15 +836,18 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             $totalAfterPromo -= $this->couponDiscountAmount;
         }
 
-        $resolvedCheckin = $dateConfigs[$checkin->format('Y-m-d')]['checkin'] ?? null;
-        $lastNightDate = $checkout->copy()->subDay()->format('Y-m-d');
+        $resolvedCheckin  = $dateConfigs[$checkin->format('Y-m-d')]['checkin'] ?? null;
+        $lastNightDate    = $checkout->copy()->subDay()->format('Y-m-d');
         $resolvedCheckout = $dateConfigs[$lastNightDate]['checkout'] ?? null;
-        $this->style2CheckinTime = !empty($resolvedCheckin) ? substr((string) $resolvedCheckin, 0, 5) : '14:00';
+        $this->style2CheckinTime  = !empty($resolvedCheckin)  ? substr((string) $resolvedCheckin,  0, 5) : '14:00';
         $this->style2CheckoutTime = !empty($resolvedCheckout) ? substr((string) $resolvedCheckout, 0, 5) : '12:00';
 
-        $cfg2 = $this->product ? ($this->product->room_config ?? []) : [];
-        $this->extraFee = $this->guests > (int)($cfg2['max_free_guests'] ?? 2)
-            ? ($this->guests - (int)($cfg2['max_free_guests'] ?? 2)) * (int)($cfg2['extra_guest_fee'] ?? 50000)
+        // Phụ thu khách — nhân theo số đêm (đồng bộ API)
+        $cfg2    = $this->product ? ($this->product->room_config ?? []) : [];
+        $maxFree = (int) ($cfg2['max_free_guests'] ?? 2);
+        $feePer  = (int) ($cfg2['extra_guest_fee'] ?? 50000);
+        $this->extraFee = $this->guests > $maxFree
+            ? ($this->guests - $maxFree) * $feePer * $nights
             : 0;
 
         $serviceTotal = 0;
@@ -894,14 +874,15 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             return;
         }
 
-        $requiredFields = [
-            'buyerName',
-            'buyerPhone',
-            'guests',
-            'cccd_front',
-            'cccd_back',
-            'accept1',
-        ];
+        $requiredFields = ['buyerName', 'buyerPhone', 'guests', 'accept1'];
+
+        // CCCD chỉ bắt buộc upload nếu auth user chưa có sẵn trong profile
+        if (!($this->isAuthUser && !empty($this->authCccdFront))) {
+            $requiredFields[] = 'cccd_front';
+        }
+        if (!($this->isAuthUser && !empty($this->authCccdBack))) {
+            $requiredFields[] = 'cccd_back';
+        }
 
         $hasSelectedSlots = !empty($this->selectedSlots);
         $hasDateRange     = $this->bookingStyle == 2 && !empty($this->startTime) && !empty($this->endTime);
@@ -987,6 +968,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
     /**
      * Re-fetch giá từ DB cho style 1 để chống price manipulation từ client.
      * Ghi đè $this->selectedSlots với giá thực từ RoomTimeSlot + promotions.
+     * Dùng PromotionCalculator để đảm bảo logic giống API 100%.
      */
     protected function recalculateSlotPricesFromDB(): void
     {
@@ -994,54 +976,35 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             return;
         }
 
-        $nowDt = now();
         $this->product->loadMissing(['roomTimeSlots.timeSlot', 'roomTimeSlots.promotions']);
 
         $basePrice     = (float) ($this->product->price ?? 0);
         $productDisc   = (float) ($this->product->discount ?? 0);
         $effectiveBase = $productDisc > 0 ? round($basePrice * (1 - $productDisc / 100)) : $basePrice;
 
-        $rtsMap    = collect($this->product->roomTimeSlots)->keyBy('timeslot_id');
-        $sanitized = [];
+        $calculator = new \App\Services\PromotionCalculator();
+        $rtsMap     = collect($this->product->roomTimeSlots)->keyBy('timeslot_id');
+        $sanitized  = [];
 
         foreach ($this->selectedSlots as $slot) {
-            $timeslotId = $slot['timeslotId'] ?? null;
-            $rts        = $timeslotId ? $rtsMap->get($timeslotId) : null;
+            $timeslotId  = $slot['timeslotId'] ?? null;
+            $bookingDate = $slot['date'] ?? null;
+            $rts         = $timeslotId ? $rtsMap->get($timeslotId) : null;
 
-            $dbBasePrice     = ($rts && $rts->price !== null) ? (float) $rts->price : $effectiveBase;
+            $dbBasePrice = ($rts && $rts->price !== null) ? (float) $rts->price : $effectiveBase;
+
             $increaseAmount  = 0;
             $promoDiscount   = 0;
             $priceAfterPromo = $dbBasePrice;
 
-            if ($rts) {
-                foreach ($rts->promotions as $promo) {
-                    if (!$promo->is_active) continue;
-                    if ($promo->start_at && $promo->start_at > $nowDt) continue;
-                    if ($promo->end_at   && $promo->end_at   < $nowDt) continue;
+            if ($rts && $bookingDate && $rts->timeSlot) {
+                // Tạm gán price gốc để calculator dùng đúng base
+                $rts->price = $dbBasePrice;
 
-                    $v = (float) $promo->value;
-                    switch ($promo->type) {
-                        case 'percentage':
-                            $disc = round($priceAfterPromo * $v / 100);
-                            $promoDiscount  += $disc;
-                            $priceAfterPromo -= $disc;
-                            break;
-                        case 'fixed':
-                            $disc = min((float) $priceAfterPromo, $v);
-                            $promoDiscount  += $disc;
-                            $priceAfterPromo = max(0, $priceAfterPromo - $v);
-                            break;
-                        case 'increase_percentage':
-                            $inc = round($priceAfterPromo * $v / 100);
-                            $increaseAmount  += $inc;
-                            $priceAfterPromo += $inc;
-                            break;
-                        case 'increase_fixed':
-                            $increaseAmount  += $v;
-                            $priceAfterPromo += $v;
-                            break;
-                    }
-                }
+                $result          = $calculator->calculate($rts, $bookingDate);
+                $increaseAmount  = $result['increase_amount'];
+                $promoDiscount   = $result['promo_discount'];
+                $priceAfterPromo = $result['final_price'];
             }
 
             $slot['basePrice']      = $dbBasePrice;
@@ -1059,8 +1022,62 @@ public function confirmBooking()
 {
     try {
         // Upload file TRƯỚC transaction (không thể rollback file)
-        $frontPath = $this->cccd_front ? $this->cccd_front->store('cccd/front', 'public') : null;
-        $backPath  = $this->cccd_back  ? $this->cccd_back->store('cccd/back', 'public')   : null;
+        // Nếu auth user đã có CCCD trong profile → dùng lại, không bắt upload lại
+        $frontPath = null;
+        $backPath  = null;
+        if ($this->cccd_front) {
+            $frontPath = $this->cccd_front->store('cccd/front', 'public');
+        } elseif ($this->isAuthUser && !empty($this->authCccdFront)) {
+            $frontPath = $this->authCccdFront;
+        }
+        if ($this->cccd_back) {
+            $backPath = $this->cccd_back->store('cccd/back', 'public');
+        } elseif ($this->isAuthUser && !empty($this->authCccdBack)) {
+            $backPath = $this->authCccdBack;
+        }
+
+        // Quét QR CCCD — chỉ khi có file mới upload (guest hoặc auth user đổi ảnh)
+        $cccdData = null;
+        if ($this->cccd_front || $this->cccd_back) {
+            $cccdData = $this->cccdScanner->scanPaths($frontPath, $backPath);
+
+            if (!$cccdData) {
+                // Không đọc được QR → xóa file, yêu cầu upload lại
+                if ($frontPath && $this->cccd_front) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete($frontPath);
+                }
+                if ($backPath && $this->cccd_back) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete($backPath);
+                }
+                $this->dispatch('notify', [
+                    'message' => 'Không đọc được mã QR trên CCCD. Vui lòng upload ảnh gốc rõ nét, chụp thẳng mặt sau CCCD, không chụp lại màn hình.',
+                    'type'    => 'error',
+                ]);
+                return;
+            }
+
+            if (!empty($cccdData['dob'])) {
+                try {
+                    $dob = Carbon::createFromFormat('d/m/Y', $cccdData['dob']);
+                    if ($dob->diffInYears(Carbon::now()) < 18) {
+                        // Chưa đủ 18 tuổi → xóa file, không tạo đơn
+                        if ($frontPath && $this->cccd_front) {
+                            \Illuminate\Support\Facades\Storage::disk('public')->delete($frontPath);
+                        }
+                        if ($backPath && $this->cccd_back) {
+                            \Illuminate\Support\Facades\Storage::disk('public')->delete($backPath);
+                        }
+                        $this->dispatch('notify', [
+                            'message' => 'Người đặt phòng chưa đủ 18 tuổi. Vui lòng liên hệ trực tiếp để được hỗ trợ.',
+                            'type'    => 'error',
+                        ]);
+                        return;
+                    }
+                } catch (\Throwable) {
+                    // Không parse được ngày sinh → bỏ qua kiểm tra tuổi
+                }
+            }
+        }
 
         $roomConfig   = $this->product ? ($this->product->room_config ?? []) : [];
         $maxFreeGuests = (int) ($roomConfig['max_free_guests'] ?? 2);
@@ -1083,6 +1100,17 @@ public function confirmBooking()
             $noteForAdmin = $this->ocrService->formatCccdInfo($this->cccdFrontText);
         }
 
+        // QR data chính xác hơn OCR → ghi đè note_for_admin khi có
+        if ($cccdData) {
+            $noteForAdmin = implode("\n", array_filter([
+                !empty($cccdData['cccd'])      ? "Số CCCD:   {$cccdData['cccd']}"      : null,
+                !empty($cccdData['full_name']) ? "Họ và tên: {$cccdData['full_name']}" : null,
+                !empty($cccdData['dob'])       ? "Ngày sinh: {$cccdData['dob']}"       : null,
+                !empty($cccdData['gender'])    ? "Giới tính: {$cccdData['gender']}"    : null,
+                !empty($cccdData['address'])   ? "Địa chỉ:   {$cccdData['address']}"   : null,
+            ]));
+        }
+
         // Security: nếu đặt phòng với tài khoản đã xác thực, re-fetch dữ liệu từ DB
         // để chống price/identity manipulation qua Livewire snapshot.
         $verifiedBuyerName  = $this->buyerName;
@@ -1090,7 +1118,7 @@ public function confirmBooking()
         $verifiedUserId     = null;
 
         if ($this->isAuthUser && $this->authUserId) {
-            $authUser = \App\Models\User::find($this->authUserId);
+            $authUser = \App\Models\Customer::find($this->authUserId);
             if ($authUser) {
                 $verifiedBuyerName = $authUser->fullname ?? $this->buyerName;
                 $rawPhone = $authUser->phone ?? '';
@@ -1130,13 +1158,13 @@ public function confirmBooking()
 
         $paymentAmount = ($depositPercent >= 100)
             ? $orderTotal
-            : (int) round($fullAmount * $depositPercent / 100);
+            : (int) ceil($fullAmount * $depositPercent / 100);
 
         // =====================================================================
         // TRANSACTION: conflict check + order creation trong cùng 1 transaction
         // lockForUpdate ngăn 2 request đồng thời cùng tạo đơn trùng khung giờ
         // =====================================================================
-        $order = DB::transaction(function () use ($frontPath, $backPath, $extraFee, $categoryId, $orderTotal, $noteForAdmin, $paymentAmount, $depositPercent, $fullAmount, $verifiedBuyerName, $verifiedBuyerPhone, $verifiedUserId) {
+        $order = DB::transaction(function () use ($frontPath, $backPath, $extraFee, $categoryId, $orderTotal, $noteForAdmin, $paymentAmount, $depositPercent, $fullAmount, $verifiedBuyerName, $verifiedBuyerPhone, $verifiedUserId, $cccdData) {
 
             // --- Kiểm tra xung đột (style 1) ---
             if ($this->bookingStyle == 1 && !empty($this->selectedSlots)) {
@@ -1169,6 +1197,7 @@ public function confirmBooking()
                 'description'    => !empty($this->note) ? $this->note : 'Đặt phòng - ' . $this->product->name,
                 'cccd_front'     => $frontPath,
                 'cccd_back'      => $backPath,
+                'cccd_data'      => $cccdData,
                 'guest_count'    => $this->guests,
                 'category_id'    => $categoryId,
                 'coupon_code'    => $this->appliedCoupon ? $this->appliedCoupon->code : null,

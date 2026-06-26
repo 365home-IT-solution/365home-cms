@@ -64,6 +64,11 @@ return [
             'image_title' => true,
             'automatic_uploads' => true,
 
+            'custom_configs' => [
+                'images_file_types' => 'jpeg,jpg,jpe,jfi,jfif,png,gif,bmp,webp,avif',
+                'images_accept_types' => 'image/jpeg,image/png,image/gif,image/bmp,image/webp,image/avif',
+            ],
+
             'contextmenu' => 'link image table',
 
             'style_formats' => [

@@ -5,6 +5,13 @@ WORKDIR /app
 COPY composer.json composer.lock ./
 RUN composer install --no-dev --no-scripts --optimize-autoloader --no-interaction --ignore-platform-reqs
 
+# ─── Stage 1a: QR scanner runtime deps (jsqr + jimp only) ────────────────────
+FROM node:20-alpine AS qr-deps
+
+WORKDIR /app
+RUN echo '{"dependencies":{"jsqr":"^1.4.0","jimp":"^1.6.1"}}' > package.json \
+    && npm install --omit=dev
+
 # ─── Stage 1: Build frontend assets ──────────────────────────────────────────
 FROM node:20-alpine AS frontend
 
@@ -61,6 +68,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /var/www/html
 
+# Install Node.js 20 runtime (needed for qr_scan.cjs at PHP runtime)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && apt-get autoremove -y && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy application source (node_modules, vendor, .env excluded via .dockerignore)
 COPY . .
 
@@ -70,9 +85,15 @@ COPY --from=frontend /app/public /var/www/html/public
 # Copy vendor from composer stage (autoloader paths are relative, safe to copy)
 COPY --from=vendor /app/vendor /var/www/html/vendor
 
+# Copy chỉ jsqr + jimp từ stage qr-deps (~11MB thay vì 86MB)
+COPY --from=qr-deps /app/node_modules /var/www/html/node_modules
+
 # Nginx config
 RUN rm -f /etc/nginx/sites-enabled/default
 COPY docker/nginx.conf /etc/nginx/sites-enabled/laravel
+
+# PHP-FPM: tăng max_execution_time để xử lý CCCD scan ảnh lớn
+COPY docker/php-fpm-override.ini /etc/php/8.3/fpm/conf.d/99-app.ini
 
 # Laravel scheduler crontab
 COPY docker/laravel-cron /etc/cron.d/laravel

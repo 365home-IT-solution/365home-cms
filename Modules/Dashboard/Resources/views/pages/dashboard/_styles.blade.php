@@ -105,6 +105,187 @@
         background: var(--ta-ink-title);
     }
 
+    /* Header right — tabs + branch toggle */
+    .ta-header-right {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    /* Branch toggle button */
+    .ta-branch-toggle {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 7px 14px;
+        border-radius: 20px;
+        border: 1px solid var(--ta-line);
+        background: var(--ta-panel);
+        color: var(--ta-ink-mute);
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        cursor: pointer;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        transition: all 0.18s;
+        font-family: 'Inter', ui-sans-serif, sans-serif;
+        white-space: nowrap;
+    }
+
+    .ta-branch-toggle:hover,
+    .ta-branch-toggle.active {
+        background: var(--ta-ink-title);
+        color: #fff;
+        border-color: var(--ta-ink-title);
+    }
+
+    .ta-branch-toggle.active .ta-branch-caret {
+        transform: rotate(180deg);
+    }
+
+    .ta-branch-caret { transition: transform 0.18s; }
+
+    /* Branch revenue panel */
+    .ta-branch-panel {
+        background: var(--ta-panel);
+        border: 1px solid var(--ta-line);
+        border-radius: 12px;
+        margin-bottom: 20px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+
+    .ta-branch-panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 18px;
+        border-bottom: 1px solid var(--ta-line-soft);
+        background: var(--ta-line-soft);
+    }
+
+    .ta-branch-panel-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        color: var(--ta-ink);
+        text-transform: uppercase;
+    }
+
+    .ta-branch-close {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--ta-ink-faint);
+        font-size: 14px;
+        padding: 2px 6px;
+        border-radius: 6px;
+        transition: all 0.15s;
+    }
+
+    .ta-branch-close:hover { background: var(--ta-line); color: var(--ta-ink); }
+
+    /* Branch filter list */
+    .ta-branch-list-wrap {
+        padding: 8px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .ta-branch-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 9px 10px;
+        border-radius: 8px;
+        cursor: pointer;
+        border: 1.5px solid transparent;
+        transition: all 0.15s;
+        gap: 12px;
+    }
+
+    .ta-branch-item:hover {
+        background: var(--ta-line-soft);
+        border-color: var(--ta-line);
+    }
+
+    .ta-branch-item.active {
+        background: #f0fdf4;
+        border-color: #10b981;
+    }
+
+    .ta-branch-item-left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+    }
+
+    .ta-branch-dot {
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    .ta-branch-item-name {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--ta-ink);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .ta-branch-item.active .ta-branch-item-name {
+        color: #059669;
+    }
+
+    .ta-branch-item-stats {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-shrink: 0;
+    }
+
+    .ta-bfi-count {
+        font-size: 11px;
+        color: var(--ta-ink-mute);
+        min-width: 40px;
+        text-align: right;
+    }
+
+    .ta-bfi-rev {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--ta-ink);
+        min-width: 110px;
+        text-align: right;
+    }
+
+    .ta-branch-panel-foot {
+        padding: 8px 22px 12px;
+        border-top: 1px solid var(--ta-line-soft);
+    }
+
+    #ta-branch-foot-hint {
+        font-size: 10px;
+        color: var(--ta-ink-faint);
+        letter-spacing: 0.3px;
+    }
+
+    .ta-branch-loading {
+        padding: 20px 0;
+        text-align: center;
+        color: var(--ta-ink-faint);
+        font-size: 12px;
+    }
+
     /* Custom date range picker */
     .ta-custom-range {
         display: flex;
@@ -2083,6 +2264,18 @@
         font-weight: 700;
         padding: 1px 7px;
         white-space: nowrap;
+    }
+
+    .ta-pop-order-note {
+        margin-top: 4px;
+        font-size: 11px;
+        color: #92400E;
+        font-style: italic;
+        line-height: 1.4;
+        padding: 3px 6px;
+        background: #FEF9C3;
+        border-left: 2px solid #FCD34D;
+        border-radius: 0 4px 4px 0;
     }
 
     .ta-pop-status-pill {

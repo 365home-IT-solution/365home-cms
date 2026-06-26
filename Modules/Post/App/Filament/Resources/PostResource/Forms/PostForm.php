@@ -343,6 +343,7 @@ class PostForm
             ->label(__('post::post.form.label.seo_keywords'))
             ->color('success')
             ->placeholder(__('post::post.form.placeholder.seo_keywords'))
+            ->helperText('Từ khóa đầu tiên là từ khóa chính, các từ khóa tiếp theo là từ khóa phụ')
             ->suggestions($suggestions)
             ->separator(',')
             ->live(debounce: 1000)

@@ -16,8 +16,8 @@
         <div class="flex-1 h-px bg-gradient-to-l from-transparent to-primary/30 max-w-[120px]"></div>
     </div>
 
-    <div class="flex justify-center mb-6">
-        <div class="inline-flex items-center bg-gray-800 rounded-full p-1.5 gap-1" id="sub-tab-all-{{ $uniqueId }}"
+    <div class="overflow-x-auto mb-6 -mx-4 px-4 tab-scroll-container">
+        <div class="inline-flex items-center bg-gray-800 rounded-full p-1.5 gap-1 min-w-max" id="sub-tab-all-{{ $uniqueId }}"
             data-tabs-toggle="#sub-tab-content-all-{{ $uniqueId }}"
             data-tabs-active-classes="bg-primary text-white shadow border-0"
             data-tabs-inactive-classes="text-gray-400 hover:text-white border-0" role="tablist">
@@ -27,11 +27,11 @@
             $grandChild = $item['category'];
             @endphp
             <button
-                class="inline-flex items-center gap-2 px-5 py-2.5 rounded-full md:text-sm text-xs font-bold tracking-wide transition-all duration-200 uppercase"
+                class="inline-flex items-center gap-1.5 px-3 py-2 md:px-5 md:py-2.5 rounded-full text-xs md:text-sm font-bold tracking-wide transition-all duration-200 uppercase whitespace-nowrap"
                 id="sub-tab-btn-{{ $uniqueId }}-{{ $gIndex }}" data-tabs-target="#sub-styled-{{ $uniqueId }}-{{ $gIndex }}"
                 type="button" role="tab" aria-controls="sub-tab-{{ $uniqueId }}-{{ $gIndex }}"
                 aria-selected="{{ $gIndex === 0 ? 'true' : 'false' }}">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" fill="none"
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 md:w-4 md:h-4 shrink-0" fill="none"
                             viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round"
                                 d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
@@ -579,6 +579,13 @@
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
+        }
+
+        .tab-scroll-container {
+            scrollbar-width: none;
+        }
+        .tab-scroll-container::-webkit-scrollbar {
+            display: none;
         }
     </style>
 </div>

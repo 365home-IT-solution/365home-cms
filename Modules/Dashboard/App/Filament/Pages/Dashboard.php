@@ -59,18 +59,18 @@ class Dashboard extends FilamentDashboard
         $prevTotal = (clone $previousQuery)->count();
         $totalDelta = $prevTotal > 0 ? round((($total - $prevTotal) / $prevTotal) * 100, 1) : 0;
 
-        $revenue = (clone $currentQuery)->where('status', 'paid')->sum('amount')
+        $revenue = static::sumOrderAmount((clone $currentQuery)->where('status', 'paid'))
                  + (clone $currentQuery)->where('status', 'deposit')->whereNotNull('money_deposit')->sum('money_deposit');
-        $prevRevenue = (clone $previousQuery)->where('status', 'paid')->sum('amount')
-                    + (clone $previousQuery)->where('status', 'deposit')->whereNotNull('money_deposit')->sum('money_deposit');
+        $prevRevenue = static::sumOrderAmount((clone $previousQuery)->where('status', 'paid'))
+                     + (clone $previousQuery)->where('status', 'deposit')->whereNotNull('money_deposit')->sum('money_deposit');
         $revenueDelta = $prevRevenue > 0 ? round((($revenue - $prevRevenue) / $prevRevenue) * 100, 1) : 0;
 
-        $revenuePayos = (clone $currentQuery)->where('status', 'paid')->where('payment_method', 'PayOS')->sum('amount');
-        $prevRevenuePayos = (clone $previousQuery)->where('status', 'paid')->where('payment_method', 'PayOS')->sum('amount');
+        $revenuePayos = static::sumOrderAmount((clone $currentQuery)->where('status', 'paid')->where('payment_method', 'PayOS'));
+        $prevRevenuePayos = static::sumOrderAmount((clone $previousQuery)->where('status', 'paid')->where('payment_method', 'PayOS'));
         $revenuePayosDelta = $prevRevenuePayos > 0 ? round((($revenuePayos - $prevRevenuePayos) / $prevRevenuePayos) * 100, 1) : 0;
 
-        $revenueCod = (clone $currentQuery)->where('status', 'paid')->where('payment_method', 'cod')->sum('amount');
-        $prevRevenueCod = (clone $previousQuery)->where('status', 'paid')->where('payment_method', 'cod')->sum('amount');
+        $revenueCod = static::sumOrderAmount((clone $currentQuery)->where('status', 'paid')->where('payment_method', 'cod'));
+        $prevRevenueCod = static::sumOrderAmount((clone $previousQuery)->where('status', 'paid')->where('payment_method', 'cod'));
         $revenueCodDelta = $prevRevenueCod > 0 ? round((($revenueCod - $prevRevenueCod) / $prevRevenueCod) * 100, 1) : 0;
 
         $revenueDepositPayos = (clone $currentQuery)->where('status', 'deposit')->where('payment_method', 'PayOS')->sum('money_deposit');
@@ -149,6 +149,19 @@ class Dashboard extends FilamentDashboard
         $roomRevenue    = static::getRoomRevenueData();
         $monthlyRevenue = static::getMonthlyRevenueData();
 
+        $user            = auth()->user();
+        $branchesQuery   = \Modules\Category\Entities\Category::whereNull('parent_id')
+            ->where('category_type', 'product')
+            ->orderBy('name');
+        if ($user && ! $user->isSuperAdmin()) {
+            $allowedIds = $user->allowedCategoryIds() ?? [];
+            if (! empty($allowedIds)) {
+                $branchesQuery->whereIn('id', $allowedIds)
+                    ->orWhereIn('id', \Modules\Category\Entities\Category::whereIn('id', $allowedIds)->pluck('parent_id')->filter()->toArray());
+            }
+        }
+        $branches = $branchesQuery->get(['id', 'name']);
+
         return compact(
             'total', 'totalDelta',
             'revenue', 'revenueDelta',
@@ -160,7 +173,8 @@ class Dashboard extends FilamentDashboard
             'sources', 'donutData',
             'trendDays', 'trendPending', 'trendPaid', 'trendCancel',
             'barData', 'dateRange', 'prevDateRange',
-            'roomCards', 'roomRevenue', 'monthlyRevenue'
+            'roomCards', 'roomRevenue', 'monthlyRevenue',
+            'branches'
         );
     }
 
@@ -235,7 +249,7 @@ class Dashboard extends FilamentDashboard
     }
 
     /** Doanh thu từng phòng trong năm chỉ định (top 10, status=paid, PayOS+cod) */
-    public static function getRoomRevenueData($user = null, ?int $year = null): array
+    public static function getRoomRevenueData($user = null, ?int $year = null, ?array $branchCategoryIds = null): array
     {
         if ($user === null) {
             $user = auth()->user();
@@ -247,14 +261,16 @@ class Dashboard extends FilamentDashboard
         // Subquery: lấy cặp (order_id, product_id) duy nhất kèm orders.amount thực tế.
         // Dùng orders.amount thay vì order_items.price*quantity vì slot bookings có thể lưu base price = 0
         // trong khi orders.amount luôn là số tiền thực tế đã thanh toán.
+        $prefix = DB::getTablePrefix();
         $inner = DB::table("{$itemTable} as oi")
             ->join("{$ordTable} as o", 'oi.order_id', '=', 'o.id')
             ->join("{$prodTable} as p", 'oi.product_id', '=', 'p.id')
             ->where('o.status', 'paid')
             ->whereIn('o.payment_method', ['PayOS', 'cod'])
+            ->where('o.exclude_from_stats', false)
             ->whereYear('o.created_at', $year)
             ->whereNotNull('oi.product_id')
-            ->select('oi.product_id', 'p.name as product_name', 'o.id as order_id', 'o.amount as order_amount')
+            ->selectRaw("{$prefix}oi.product_id, {$prefix}p.name as product_name, {$prefix}o.id as order_id, COALESCE({$prefix}o.full_amount, {$prefix}o.amount) as order_amount")
             ->distinct();
 
         if ($user && ! $user->isSuperAdmin()) {
@@ -269,6 +285,10 @@ class Dashboard extends FilamentDashboard
                 return ['rooms' => [], 'total' => 0, 'year' => $year, 'available_years' => [$year]];
             }
             $inner->whereIn('oi.product_id', $allowedProductIds);
+        }
+
+        if ($branchCategoryIds !== null) {
+            $inner->whereIn('o.category_id', $branchCategoryIds);
         }
 
         $rooms = DB::table(DB::raw("({$inner->toSql()}) as sub"))
@@ -296,13 +316,14 @@ class Dashboard extends FilamentDashboard
     }
 
     /** Doanh thu từng tháng trong năm chỉ định (mảng 12 phần tử, status=paid, PayOS+cod) */
-    public static function getMonthlyRevenueData($user = null, ?int $year = null): array
+    public static function getMonthlyRevenueData($user = null, ?int $year = null, ?array $branchCategoryIds = null): array
     {
         if ($user === null) {
             $user = auth()->user();
         }
         $year  = $year ?? Carbon::now()->year;
         $query = Order::query()
+            ->where('exclude_from_stats', false)
             ->where('status', 'paid')
             ->whereIn('payment_method', ['PayOS', 'cod'])
             ->whereYear('created_at', $year);
@@ -323,8 +344,12 @@ class Dashboard extends FilamentDashboard
             });
         }
 
+        if ($branchCategoryIds !== null) {
+            $query->whereIn('category_id', $branchCategoryIds);
+        }
+
         $data = $query
-            ->selectRaw('MONTH(created_at) as month, SUM(amount) as revenue')
+            ->selectRaw('MONTH(created_at) as month, SUM(COALESCE(full_amount, amount)) as revenue')
             ->groupByRaw('MONTH(created_at)')
             ->pluck('revenue', 'month');
 
@@ -347,6 +372,7 @@ class Dashboard extends FilamentDashboard
             $user = auth()->user();
         }
         $query = Order::query()
+            ->where('exclude_from_stats', false)
             ->where('status', 'paid')
             ->whereIn('payment_method', ['PayOS', 'cod'])
             ->selectRaw('YEAR(created_at) as year')
@@ -376,7 +402,7 @@ class Dashboard extends FilamentDashboard
 
     private function baseQuery(): Builder
     {
-        $query = Order::query();
+        $query = Order::query()->where('exclude_from_stats', false);
         $user  = auth()->user();
         if (! $user || $user->isSuperAdmin()) {
             return $query;
@@ -386,5 +412,11 @@ class Dashboard extends FilamentDashboard
             return $query->whereRaw('1 = 0');
         }
         return $query->whereIn('category_id', $allCategoryIds);
+    }
+
+    /** Tổng tiền đơn đã thanh toán: ưu tiên full_amount (tổng thực tế), fallback amount */
+    private static function sumOrderAmount($query): int
+    {
+        return (int) ($query->selectRaw('SUM(COALESCE(full_amount, amount)) as total')->value('total') ?? 0);
     }
 }

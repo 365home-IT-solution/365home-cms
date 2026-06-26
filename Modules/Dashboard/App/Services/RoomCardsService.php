@@ -74,7 +74,7 @@ class RoomCardsService
                 })
                 ->orWhereHas('order', fn ($q2) => $q2->where('status', 'pending'));
             })
-            ->whereHas('order', fn ($q) => $q->whereNotIn('status', ['cancelled', 'failed']))
+            ->whereHas('order', fn ($q) => $q->whereNotIn('status', ['cancelled', 'failed'])->where('exclude_from_stats', false))
             ->orderByDesc('created_at')
             ->get()
             ->groupBy('product_id');
@@ -136,7 +136,7 @@ class RoomCardsService
                     'status_color' => $statusColors[$status] ?? '#94a3b8',
                     'checkin'      => $checkinLabel,
                     'checkout'     => $checkoutLabel,
-                    'amount'       => $order->amount ?? 0,
+                    'amount'       => $order->full_amount ?? 0,
                     'created_at'     => $order->created_at ? $order->created_at->diffForHumans() : '',
                     'created_at_fmt' => $order->created_at ? $order->created_at->format('d/m/Y H:i') : '',
                     'is_new'         => $order->created_at !== null && $order->created_at >= $newThreshold,
@@ -152,7 +152,7 @@ class RoomCardsService
                 $orders = $productItems
                     ->filter(fn ($item) => $item->order && $item->product_id !== null)
                     ->groupBy(fn ($item) => $item->order_id)
-                    ->map(function ($groupItems) use ($buildEntry, $now) {
+                    ->map(function ($groupItems) use ($buildEntry, $now, $product) {
                         $first     = $groupItems->first();
                         $slotCount = $groupItems->count();
                         $slotLabels = $groupItems
@@ -194,6 +194,8 @@ class RoomCardsService
                                 ])
                                 ->values()
                                 ->toArray();
+                            // Lấy full_amount thực tế từ DB (đã gồm KM + chiết khấu + phụ thu)
+                            $entry['amount'] = (int)($first->order?->full_amount ?? 0);
                         }
                         return $entry;
                     })
@@ -201,7 +203,45 @@ class RoomCardsService
                     ->values()
                     ->toArray();
             } else {
-                $orders = $productItems->map(fn ($item) => $buildEntry($item))->filter()->values()->toArray();
+                // Daily/monthly: nhóm theo order_id, hiển thị 1 card per đơn
+                $orders = $productItems
+                    ->filter(fn ($item) => $item->order && $item->product_id !== null)
+                    ->groupBy(fn ($item) => $item->order_id)
+                    ->map(function ($groupItems) use ($buildEntry, $now) {
+                        // Sắp xếp theo checkin để lấy đúng first/last
+                        $sorted = $groupItems->sortBy(fn ($i) => $i->checkin_date?->timestamp ?? 0);
+                        $first  = $sorted->first();
+                        $last   = $sorted->last();
+
+                        // Dùng item tổng hợp: checkin từ item đầu, checkout từ item cuối
+                        $proxy = clone $first;
+                        $proxy->checkout_date = $last->checkout_date;
+
+                        $entry = $buildEntry($proxy);
+                        if ($entry) {
+                            // Segment dựa trên toàn bộ group
+                            $anyActive = $groupItems->contains(
+                                fn ($i) => $i->checkin_date && $i->checkout_date
+                                    && $i->checkin_date->lte($now) && $i->checkout_date->gte($now)
+                            );
+                            $allOverdue = $groupItems->every(
+                                fn ($i) => $i->checkout_date && $i->checkout_date->lt($now)
+                            );
+                            if ($anyActive) {
+                                $entry['segment'] = 'active';
+                            } elseif (! $allOverdue) {
+                                $anyToday = $groupItems->contains(
+                                    fn ($i) => $i->checkin_date && $i->checkin_date->isToday()
+                                );
+                                $entry['segment'] = $anyToday ? 'today' : 'upcoming';
+                            }
+                            $entry['amount'] = (int)($first->order?->full_amount ?? 0);
+                        }
+                        return $entry;
+                    })
+                    ->filter()
+                    ->values()
+                    ->toArray();
             }
 
             $segOrd = ['active' => 0, 'today' => 1, 'upcoming' => 2, 'overdue' => 3];
@@ -279,5 +319,46 @@ class RoomCardsService
             'total_upcoming' => array_sum(array_column($rooms, 'upcoming_count')),
             'total_overdue'  => array_sum(array_column($rooms, 'overdue_count')),
         ];
+    }
+
+    /**
+     * Tính tổng tiền cho nhóm khung giờ của 1 phòng trong 1 đơn hàng,
+     * áp dụng bulk_discount_rules và phụ thu từ room_config.
+     */
+    private static function computeSlotAmount($groupItems, Product $product): int
+    {
+        $cfg     = $product->room_config ?? [];
+        $maxFree = (int)($cfg['max_free_guests'] ?? 2);
+        $feeEach = (int)($cfg['extra_guest_fee'] ?? 0);
+
+        $slotCount       = $groupItems->count();
+        $bulkDiscountPct = 0;
+
+        if ($slotCount >= 2) {
+            $rules = $product->bulk_discount_rules ?? [];
+            usort($rules, fn ($a, $b) => (int)($b['slots'] ?? 0) - (int)($a['slots'] ?? 0));
+            foreach ($rules as $rule) {
+                if ($slotCount >= (int)($rule['slots'] ?? 0)) {
+                    $bulkDiscountPct = (float)($rule['discount'] ?? 0);
+                    break;
+                }
+            }
+        }
+
+        $total = 0;
+        foreach ($groupItems as $item) {
+            $basePrice = (float)($item->price ?? 0);
+            if ($bulkDiscountPct > 0) {
+                $basePrice = round($basePrice * (1 - $bulkDiscountPct / 100));
+            }
+            $guestCount = (int)($item->guest_count ?? 1);
+            $extraFee   = $guestCount > $maxFree ? ($guestCount - $maxFree) * $feeEach : 0;
+            if ((float)($item->extra_fee ?? 0) > $extraFee) {
+                $extraFee = (float)$item->extra_fee;
+            }
+            $total += $basePrice + $extraFee;
+        }
+
+        return (int)$total;
     }
 }

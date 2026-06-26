@@ -149,9 +149,7 @@ class SelectFieldGenerator
                 return $categories->pluck('name', 'id');
             }),
             'area' => (function () {
-                // Hàm đệ quy để lấy tên danh mục phân cấp
                 $getFullName = function ($category) use (&$getFullName) {
-                    // Tải 'parent' nếu chưa tải (tránh N+1 query)
                     $category->loadMissing('parent');
                     if ($category->parent) {
                         return $getFullName($category->parent) . ' - ' . $category->name;
@@ -159,56 +157,32 @@ class SelectFieldGenerator
                     return $category->name;
                 };
 
-                // B1: Lấy ID danh mục cấp 1 (destination)
-                // (Giả định 'destination' dùng 'category_type' == 'product' dựa theo case 'destination')
+                // L1: danh mục gốc loại product (chi nhánh)
                 $destinationIds = Category::whereNull('parent_id')
                     ->where('category_type', 'product')
                     ->pluck('id');
 
-                // B2: Lấy danh mục cấp 2 (Area) thỏa mãn điều kiện
-                $level2Categories = Category::with('parent') // Tải parent (L1)
+                if ($destinationIds->isEmpty()) {
+                    return collect();
+                }
+
+                // L2: con trực tiếp của L1
+                $level2Categories = Category::with('parent')
                     ->whereIn('parent_id', $destinationIds)
-                    ->where(function ($query) {
-                        $query
-                            // 1. Có sản phẩm trực tiếp (L2)
-                            ->whereHas('products', fn ($q) => $q->where('is_activated', true))
-                            // 2. Hoặc có con (L3) có sản phẩm
-                            ->orWhereHas('children', fn ($q_l3) =>
-                                $q_l3->whereHas('products', fn ($q_p) => $q_p->where('is_activated', true))
-                            )
-                            // 3. Hoặc có cháu (L4) có sản phẩm
-                            ->orWhereHas('children.children', fn ($q_l4) =>
-                                $q_l4->whereHas('products', fn ($q_p) => $q_p->where('is_activated', true))
-                            );
-                    })
+                    ->orderBy('name')
                     ->get();
 
-                // B3: Lấy ID của TẤT CẢ danh mục cấp 2 (để tìm con cấp 3 của chúng)
-                $allLevel2Ids = Category::whereIn('parent_id', $destinationIds)->pluck('id');
+                // L3: cháu của L1 (con của L2)
+                $level2Ids = $level2Categories->pluck('id');
+                $level3Categories = $level2Ids->isNotEmpty()
+                    ? Category::with('parent.parent')
+                        ->whereIn('parent_id', $level2Ids)
+                        ->orderBy('name')
+                        ->get()
+                    : collect();
 
-                // B4: Lấy danh mục cấp 3 (Sub-area) thỏa mãn điều kiện
-                $level3Categories = Category::with('parent.parent') // Tải parent (L2) và parent.parent (L1)
-                    ->whereIn('parent_id', $allLevel2Ids)
-                    ->where(function ($query) {
-                        $query
-                            // 1. Có sản phẩm trực tiếp (L3)
-                            ->whereHas('products', fn ($q) => $q->where('is_activated', true))
-                            // 2. Hoặc có con (cấp 4) có sản phẩm
-                            ->orWhereHas('children', fn ($q1) =>
-                            $q1->whereHas('products', fn ($q2) =>
-                            $q2->where('is_activated', true)
-                            )
-                            );
-                    })
-                    ->get();
-
-                // B5: Gộp cả hai danh sách cấp 2 và cấp 3
-                $allValidCategories = $level2Categories->merge($level3Categories);
-
-                // B6: Tạo options với tên phân cấp đầy đủ
-                return $allValidCategories->mapWithKeys(function ($category) use ($getFullName) {
-                    return [$category->id => $getFullName($category)];
-                });
+                return $level2Categories->merge($level3Categories)
+                    ->mapWithKeys(fn ($cat) => [$cat->id => $getFullName($cat)]);
             }),
             'category_selection_post' => Category::where('status', 1)
                 ->where('category_type', 'post')

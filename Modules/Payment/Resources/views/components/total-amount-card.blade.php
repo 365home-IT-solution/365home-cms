@@ -1,40 +1,128 @@
 @php
-    $slotCount = is_array($items) ? count($items) : 0;
+    $slotCount      = is_array($items) ? count($items) : 0;
+    $guestCountUsed = (int)($guestCount ?? 1); // Order-level guest count (passed from Placeholder)
 
     // Phát hiện style=2 (đặt theo ngày)
     $isStyle2 = false;
+
+    // Load tất cả sản phẩm duy nhất để lấy bulk_discount_rules và room_config
+    $productCache = [];
     if (is_array($items)) {
         foreach ($items as $item) {
-            if ((int)($item['product_style'] ?? 0) === 2) { $isStyle2 = true; break; }
-            if (!empty($item['product_id'])) {
-                $prod = \Modules\Product\App\Models\Product::find($item['product_id']);
-                if ($prod && (int)($prod->styles ?? 1) === 2) { $isStyle2 = true; break; }
+            if ((int)($item['product_style'] ?? 0) === 2) { $isStyle2 = true; }
+            $pid = $item['product_id'] ?? null;
+            if ($pid && !isset($productCache[$pid])) {
+                $prod = \Modules\Product\App\Models\Product::find($pid);
+                if ($prod) {
+                    $productCache[$pid] = $prod;
+                    if ((int)($prod->styles ?? 1) === 2) { $isStyle2 = true; }
+                }
             }
         }
     }
 
-    // Tính giá gốc + phụ phí phòng
-    $originalTotal = 0;
-    $totalExtraFee = 0;
-    if (is_array($items) && $slotCount > 0) {
+    // Nhóm items theo product_id (mỗi item = 1 khung giờ)
+    $itemsByProduct = [];
+    $noProductItems = [];
+    if (is_array($items)) {
         foreach ($items as $item) {
-            $originalTotal += isset($item['price']) ? (float)$item['price'] : 0;
-            $totalExtraFee += isset($item['extra_fee']) ? (float)$item['extra_fee'] : 0;
+            $pid = $item['product_id'] ?? null;
+            if ($pid) {
+                $itemsByProduct[$pid][] = $item;
+            } else {
+                $noProductItems[] = $item;
+            }
         }
     }
 
-    // Giảm giá bulk (style=1 only)
-    $bulkDiscountRate = 0;
-    if (!$isStyle2) {
-        if ($slotCount === 2) $bulkDiscountRate = 0.05;
-        elseif ($slotCount >= 3) $bulkDiscountRate = 0.10;
+    // Tính tổng áp dụng bulk_discount_rules và phụ thu khách (order-level, 1 lần)
+    $originalTotal       = 0;
+    $totalBulkDiscount   = 0;
+    $totalGuestSurcharge = 0;
+    $bulkDiscountDetails   = [];
+    $guestSurchargeDetails = [];
+
+    foreach ($itemsByProduct as $pid => $groupItems) {
+        $prod    = $productCache[$pid] ?? null;
+        $cfg     = $prod ? ($prod->room_config ?? []) : [];
+        $maxFree = (int)($cfg['max_free_guests'] ?? 2);
+        $feeEach = (int)($cfg['extra_guest_fee'] ?? 0);
+
+        $groupSlotCount  = count($groupItems);
+        $bulkDiscountPct = 0;
+
+        if ($prod && $groupSlotCount >= 2) {
+            $rules = $prod->bulk_discount_rules ?? [];
+            usort($rules, fn($a, $b) => (int)($b['slots'] ?? 0) - (int)($a['slots'] ?? 0));
+            foreach ($rules as $rule) {
+                if ($groupSlotCount >= (int)($rule['slots'] ?? 0)) {
+                    $bulkDiscountPct = (float)($rule['discount'] ?? 0);
+                    break;
+                }
+            }
+        }
+
+        $groupOriginal = 0;
+        foreach ($groupItems as $item) {
+            $groupOriginal += (float)($item['price'] ?? 0);
+        }
+        $originalTotal += $groupOriginal;
+
+        if ($bulkDiscountPct > 0) {
+            $groupDiscount = round($groupOriginal * $bulkDiscountPct / 100);
+            $totalBulkDiscount += $groupDiscount;
+            $bulkDiscountDetails[] = [
+                'slots'  => $groupSlotCount,
+                'pct'    => $bulkDiscountPct,
+                'amount' => $groupDiscount,
+            ];
+        }
+
+        // Phụ thu khách: slot → × 1, daily → × số đêm (matching API)
+        if ($feeEach > 0 && $guestCountUsed > $maxFree) {
+            $extraGuests      = $guestCountUsed - $maxFree;
+            $surchargeNights  = $isStyle2 ? $groupSlotCount : 1;
+            $surcharge        = $extraGuests * $feeEach * $surchargeNights;
+            $totalGuestSurcharge += $surcharge;
+            $guestSurchargeDetails[] = [
+                'extra_guests' => $extraGuests,
+                'max_free'     => $maxFree,
+                'fee_each'     => $feeEach,
+                'nights'       => $surchargeNights,
+                'total'        => $surcharge,
+            ];
+        }
     }
-    $bulkDiscount = $originalTotal * $bulkDiscountRate;
-    $totalAfterBulk = $originalTotal - $bulkDiscount;
+
+    foreach ($noProductItems as $item) {
+        $originalTotal += (float)($item['price'] ?? 0);
+    }
+
+    // Khi edit đơn đã tồn tại: dùng discount thực tế từ DB (bao gồm KM khung giờ)
+    // record->amount - record->full_amount = tổng giảm giá trên slot (bất biến dù service thay đổi)
+    $hasRecord         = isset($record) && $record && $record->id;
+    $actualSlotDiscount = 0;
+    $useActualDiscount  = false;
+    if ($hasRecord && (int)($record->amount ?? 0) > 0) {
+        $recordDepositPct = $record->deposit_percent !== null ? (int)$record->deposit_percent : null;
+        if ($recordDepositPct !== null && $recordDepositPct > 0 && $recordDepositPct < 100) {
+            // Đơn cọc: full_amount = tiền cọc, phải reconstruct tổng thực trước khi tính discount
+            $recordRealTotal    = (int) round((int)$record->full_amount * 100 / $recordDepositPct);
+            $actualSlotDiscount = max(0, (int)$record->amount - $recordRealTotal);
+        } else {
+            // Đơn thường (100%): discount = amount - full_amount
+            $actualSlotDiscount = max(0, (int)$record->amount - (int)$record->full_amount);
+        }
+        if ($actualSlotDiscount > 0) { $useActualDiscount = true; }
+    }
+
+    $effectiveDiscount = $useActualDiscount ? $actualSlotDiscount : $totalBulkDiscount;
+    $totalAfterBulk    = max(0, $originalTotal - $effectiveDiscount);
+    $hasDiscount       = $effectiveDiscount > 0;
 
     // Dịch vụ: ưu tiên form state (live), fallback DB
-    $serviceItems   = collect();
-    $serviceTotal   = 0;
+    $serviceItems    = collect();
+    $serviceTotal    = 0;
     $useFormServices = isset($servicesFormState) && is_array($servicesFormState) && count($servicesFormState) > 0;
 
     if ($useFormServices) {
@@ -59,14 +147,29 @@
         $serviceTotal = $serviceItems->sum('subtotal');
     }
 
-    $finalTotal = $totalAfterBulk + ($isStyle2 ? 0 : $totalExtraFee) + $serviceTotal;
+    $finalTotal = $totalAfterBulk + $totalGuestSurcharge + $serviceTotal;
 
-    // Khi xem/sửa đơn đã lưu: dùng amount thực tế trong DB (tránh cộng thêm dịch vụ thêm sau)
-    if (isset($record) && $record && (int)($record->full_amount ?? $record->amount ?? 0) > 0) {
-        $finalTotal = (int)($record->full_amount ?? $record->amount);
+    // Đơn paid có extra_charge: full_amount (gốc) + extra_charge_amount (phát sinh)
+    // Không dùng fresh-computed total vì services/surcharge thêm sau không nằm trong full_amount gốc
+    $extraChargeAmt  = $hasRecord ? (int)($record->extra_charge_amount ?? 0) : 0;
+    $isPaidWithExtra = $extraChargeAmt > 0 && $hasRecord && $record->deposit_percent === null;
+    if ($isPaidWithExtra) {
+        $finalTotal = (int)$record->full_amount + $extraChargeAmt;
     }
 
-    $hasDiscount = $bulkDiscount > 0;
+    // Thu thập tất cả mức giảm giá duy nhất để hiển thị ghi chú
+    $allDiscountRulesSummary = [];
+    if (!$isStyle2) {
+        foreach ($productCache as $prod) {
+            foreach ($prod->bulk_discount_rules ?? [] as $rule) {
+                $key = (int)($rule['slots'] ?? 0);
+                if ($key >= 2 && !isset($allDiscountRulesSummary[$key])) {
+                    $allDiscountRulesSummary[$key] = (float)($rule['discount'] ?? 0);
+                }
+            }
+        }
+        ksort($allDiscountRulesSummary);
+    }
 @endphp
 
 <div style="font-family: inherit;">
@@ -92,9 +195,11 @@
             @foreach($items as $item)
                 @if(isset($item['name'], $item['price']))
                 @php
-                    $itemStyle = (int)($item['product_style'] ?? 1);
-                    $extraFee  = (float)($item['extra_fee'] ?? 0);
-                    $guestCount = (int)($item['guest_count'] ?? 1);
+                    $itemStyle   = (int)($item['product_style'] ?? 1);
+                    $itemPid     = $item['product_id'] ?? null;
+                    $itemProd    = $itemPid ? ($productCache[$itemPid] ?? null) : null;
+                    $itemCfg     = $itemProd ? ($itemProd->room_config ?? []) : [];
+                    $maxFreeItem = (int)($itemCfg['max_free_guests'] ?? 2);
                 @endphp
                 <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:0.5rem; padding:0.6rem 0.75rem; margin-bottom:0.4rem;">
                     {{-- Room name + price --}}
@@ -149,18 +254,13 @@
                         </div>
                     @endif
 
-                    {{-- Khách + phụ phí --}}
-                    @if($guestCount > 0 || $extraFee > 0)
+                    {{-- Số khách (hiển thị order-level guest count) --}}
+                    @if(!$isStyle2 && $guestCountUsed > 0)
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.35rem; padding-top:0.35rem; border-top:1px dashed #e2e8f0;">
                         <span style="font-size:0.7rem; color:#64748b; display:flex; align-items:center; gap:0.3rem;">
                             <x-heroicon-o-users style="width:0.75rem; height:0.75rem;" />
-                            {{ $guestCount }} khách{{ $guestCount > 2 ? ' (phụ thu ' . ($guestCount - 2) . ' người)' : '' }}
+                            {{ $guestCountUsed }} khách{{ $guestCountUsed > $maxFreeItem ? ' (phụ thu ' . ($guestCountUsed - $maxFreeItem) . ' người)' : '' }}
                         </span>
-                        @if($extraFee > 0)
-                        <span style="font-size:0.7rem; color:#ea580c; font-weight:600; white-space:nowrap;">
-                            +{{ number_format($extraFee, 0, ',', '.') }} đ
-                        </span>
-                        @endif
                     </div>
                     @endif
                 </div>
@@ -208,6 +308,35 @@
 
         {{-- ===== BREAKDOWN ===== --}}
         <div style="border-top:1px solid #e2e8f0; padding-top:0.6rem; margin-bottom:0.6rem;">
+            @if($isPaidWithExtra)
+            {{-- Đơn paid có phát sinh: hiển thị 2 dòng rõ ràng thay vì reconstruct --}}
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem;">
+                <span style="font-size:0.75rem; color:#6b7280; display:flex; align-items:center; gap:0.3rem;">
+                    <x-heroicon-o-lock-closed style="width:0.75rem; height:0.75rem;" />
+                    Đã thanh toán
+                </span>
+                <span style="font-size:0.75rem; font-weight:600; color:#374151;">
+                    {{ number_format((int)$record->full_amount, 0, ',', '.') }} đ
+                </span>
+            </div>
+            @php
+                $extraIsPaid = !is_null($record->extra_charge_paid_at);
+                $extraMethod = $record->extra_charge_payment_method ?? null;
+                $extraLabel  = $extraIsPaid
+                    ? ('Phát sinh — đã thu' . ($extraMethod === 'cod' ? ' (tiền mặt)' : ' (QR)'))
+                    : 'Phát sinh — chưa thanh toán';
+                $extraColor  = $extraIsPaid ? '#15803d' : '#dc2626';
+            @endphp
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem;">
+                <span style="font-size:0.75rem; color:{{ $extraColor }}; display:flex; align-items:center; gap:0.3rem;">
+                    <x-heroicon-o-plus-circle style="width:0.75rem; height:0.75rem;" />
+                    {{ $extraLabel }}
+                </span>
+                <span style="font-size:0.75rem; font-weight:600; color:{{ $extraColor }};">
+                    +{{ number_format($extraChargeAmt, 0, ',', '.') }} đ
+                </span>
+            </div>
+            @else
             @if($hasDiscount && !$isStyle2)
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem;">
                 <span style="font-size:0.75rem; color:#6b7280;">Giá phòng gốc</span>
@@ -215,27 +344,43 @@
                     {{ number_format($originalTotal, 0, ',', '.') }} đ
                 </span>
             </div>
+            @if($useActualDiscount)
             <div style="display:flex; justify-content:space-between; align-items:center; background:#eff6ff; border-radius:0.375rem; padding:0.3rem 0.5rem; margin-bottom:0.3rem;">
                 <span style="font-size:0.75rem; color:#1d4ed8; display:flex; align-items:center; gap:0.3rem;">
                     <x-heroicon-o-receipt-percent style="width:0.75rem; height:0.75rem;" />
-                    Giảm {{ $slotCount }} khung ({{ $bulkDiscountRate * 100 }}%)
+                    Giảm (KM + chiết khấu thực tế)
                 </span>
                 <span style="font-size:0.75rem; font-weight:600; color:#1d4ed8;">
-                    -{{ number_format($bulkDiscount, 0, ',', '.') }} đ
+                    -{{ number_format($effectiveDiscount, 0, ',', '.') }} đ
                 </span>
             </div>
+            @else
+            @foreach($bulkDiscountDetails as $detail)
+            <div style="display:flex; justify-content:space-between; align-items:center; background:#eff6ff; border-radius:0.375rem; padding:0.3rem 0.5rem; margin-bottom:0.3rem;">
+                <span style="font-size:0.75rem; color:#1d4ed8; display:flex; align-items:center; gap:0.3rem;">
+                    <x-heroicon-o-receipt-percent style="width:0.75rem; height:0.75rem;" />
+                    Giảm {{ $detail['slots'] }} khung ({{ $detail['pct'] }}%)
+                </span>
+                <span style="font-size:0.75rem; font-weight:600; color:#1d4ed8;">
+                    -{{ number_format($detail['amount'], 0, ',', '.') }} đ
+                </span>
+            </div>
+            @endforeach
+            @endif
             @endif
 
-            @if(!$isStyle2 && $totalExtraFee > 0)
+            @if($totalGuestSurcharge > 0)
+            @foreach($guestSurchargeDetails as $detail)
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem;">
                 <span style="font-size:0.75rem; color:#6b7280; display:flex; align-items:center; gap:0.3rem;">
                     <x-heroicon-o-user-plus style="width:0.75rem; height:0.75rem;" />
-                    Phụ phí khách thêm
+                    Phụ thu {{ $detail['extra_guests'] }} người (trên {{ $detail['max_free'] }} miễn phí){{ ($detail['nights'] ?? 1) > 1 ? ' × ' . $detail['nights'] . ' đêm' : '' }}
                 </span>
                 <span style="font-size:0.75rem; font-weight:600; color:#ea580c;">
-                    +{{ number_format($totalExtraFee, 0, ',', '.') }} đ
+                    +{{ number_format($detail['total'], 0, ',', '.') }} đ
                 </span>
             </div>
+            @endforeach
             @endif
 
             @if($serviceTotal > 0)
@@ -248,6 +393,7 @@
                     +{{ number_format($serviceTotal, 0, ',', '.') }} đ
                 </span>
             </div>
+            @endif
             @endif
         </div>
 
@@ -274,12 +420,15 @@
         {{-- ===== THÔNG TIN CỌC (chỉ hiện với style=2 khi có cọc) ===== --}}
         @if(isset($record) && $record && $record->deposit_percent !== null && $isStyle2)
         @php
-            $depPct     = (int) $record->deposit_percent;
-            $fullAmt2   = (int) ($record->full_amount ?? $record->amount);
-            $paidAmt2   = (int) $record->amount;
-            $remain2    = max(0, $fullAmt2 - $paidAmt2);
-            $isFullPaid = $record->status === 'paid';
-            $isDepPaid  = in_array($record->status, ['deposit', 'paid']);
+            $depPct      = (int) $record->deposit_percent;
+            $depositAmt  = (int) $record->full_amount;
+            $realTotal   = $depPct > 0 ? (int) round($depositAmt * 100 / $depPct) : $depositAmt;
+            $depExtra    = (int) ($record->extra_charge_amount ?? 0);
+            $baseRemain  = max(0, $realTotal - $depositAmt);
+            $remain2     = $baseRemain + $depExtra;
+            $isFullPaid  = $record->status === 'paid';
+            $isDepPaid   = in_array($record->status, ['deposit', 'paid']);
+            $hasDepExtra = $depExtra > 0 && !$isFullPaid;
         @endphp
         <div style="margin-top:0.75rem; border:1px solid #fde68a; border-radius:0.625rem; overflow:hidden;">
             {{-- Header --}}
@@ -300,17 +449,41 @@
             <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.5rem; padding:0.6rem 0.75rem; background:#ffffff;">
                 <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:0.5rem; padding:0.5rem 0.6rem; text-align:center;">
                     <div style="font-size:0.65rem; color:#6b7280; margin-bottom:0.2rem;">Tổng tiền phòng</div>
-                    <div style="font-size:0.875rem; font-weight:700; color:#15803d;">{{ number_format($fullAmt2, 0, ',', '.') }}đ</div>
+                    <div style="font-size:0.875rem; font-weight:700; color:#15803d;">{{ number_format($realTotal, 0, ',', '.') }}đ</div>
                 </div>
                 <div style="background:#fffbeb; border:1px solid #fbbf24; border-radius:0.5rem; padding:0.5rem 0.6rem; text-align:center;">
                     <div style="font-size:0.65rem; color:#6b7280; margin-bottom:0.2rem;">Tiền cọc ({{ $depPct }}%)</div>
-                    <div style="font-size:0.875rem; font-weight:700; color:#d97706;">{{ number_format($paidAmt2, 0, ',', '.') }}đ</div>
+                    <div style="font-size:0.875rem; font-weight:700; color:#d97706;">{{ number_format($depositAmt, 0, ',', '.') }}đ</div>
                 </div>
-                <div style="background:#fef2f2; border:1px solid #fca5a5; border-radius:0.5rem; padding:0.5rem 0.6rem; text-align:center;">
+                <div style="background:{{ $isFullPaid ? '#f0fdf4' : '#fef2f2' }}; border:1px solid {{ $isFullPaid ? '#86efac' : '#fca5a5' }}; border-radius:0.5rem; padding:0.5rem 0.6rem; text-align:center;">
                     <div style="font-size:0.65rem; color:#6b7280; margin-bottom:0.2rem;">Còn lại khi nhận phòng</div>
-                    <div style="font-size:0.875rem; font-weight:700; color:#dc2626;">{{ number_format($remain2, 0, ',', '.') }}đ</div>
+                    @if($isFullPaid)
+                        <div style="font-size:0.875rem; font-weight:700; color:#15803d;">Đã trả đủ</div>
+                    @else
+                        <div style="font-size:0.875rem; font-weight:700; color:#dc2626;">{{ number_format($remain2, 0, ',', '.') }}đ</div>
+                    @endif
                 </div>
             </div>
+            {{-- Phát sinh thêm (nếu có) --}}
+            @if($hasDepExtra)
+            <div style="padding:0.4rem 0.75rem; background:#fff7ed; border-top:1px solid #fde68a; display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size:0.7rem; color:#c2410c; display:flex; align-items:center; gap:0.3rem;">
+                    <x-heroicon-o-plus-circle style="width:0.75rem; height:0.75rem; flex-shrink:0;" />
+                    Phát sinh thêm (cộng vào lần thanh toán còn lại)
+                </span>
+                <span style="font-size:0.75rem; font-weight:700; color:#c2410c; white-space:nowrap; margin-left:0.5rem;">
+                    +{{ number_format($depExtra, 0, ',', '.') }}đ
+                </span>
+            </div>
+            <div style="padding:0.35rem 0.75rem; background:#fff7ed; display:flex; justify-content:space-between; align-items:center; border-top:1px dashed #fde68a;">
+                <span style="font-size:0.7rem; color:#92400e;">
+                    {{ number_format($baseRemain, 0, ',', '.') }}đ (gốc) + {{ number_format($depExtra, 0, ',', '.') }}đ (phát sinh)
+                </span>
+                <span style="font-size:0.8rem; font-weight:700; color:#dc2626; white-space:nowrap; margin-left:0.5rem;">
+                    = {{ number_format($remain2, 0, ',', '.') }}đ
+                </span>
+            </div>
+            @endif
             {{-- Note --}}
             <div style="padding:0.4rem 0.75rem; background:#fffbeb; border-top:1px solid #fde68a;">
                 @if($isFullPaid)
@@ -333,14 +506,42 @@
         </div>
         @endif
 
-        {{-- Ghi chú ưu đãi --}}
-        @if(!$isStyle2 && $slotCount >= 2)
+        {{-- Ghi chú mức giảm giá từ cài đặt --}}
+        @if(!$isStyle2 && $slotCount >= 2 && count($allDiscountRulesSummary) > 0)
         <div style="margin-top:0.5rem; background:#f0f9ff; border:1px solid #bae6fd; border-radius:0.375rem; padding:0.4rem 0.6rem; display:flex; align-items:flex-start; gap:0.35rem;">
             <x-heroicon-o-information-circle style="width:0.875rem; height:0.875rem; color:#0284c7; flex-shrink:0; margin-top:0.05rem;" />
             <span style="font-size:0.7rem; color:#0369a1; line-height:1.4;">
-                Giảm 5% khi đặt 2 khung, giảm 10% từ 3 khung trở lên
+                @foreach($allDiscountRulesSummary as $ruleSlots => $ruleDiscount)
+                    Giảm {{ $ruleDiscount }}% khi đặt {{ $ruleSlots }} khung{{ !$loop->last ? ' · ' : '' }}
+                @endforeach
             </span>
         </div>
+        @endif
+
+        {{-- Ghi chú: tổng từ DB hay ước tính --}}
+        @if(!$isStyle2)
+        @if($isPaidWithExtra)
+        <div style="margin-top:0.5rem; background:#f0fdf4; border:1px solid #86efac; border-radius:0.375rem; padding:0.4rem 0.6rem; display:flex; align-items:flex-start; gap:0.35rem;">
+            <x-heroicon-o-check-circle style="width:0.875rem; height:0.875rem; color:#16a34a; flex-shrink:0; margin-top:0.05rem;" />
+            <span style="font-size:0.7rem; color:#15803d; line-height:1.4;">
+                Tổng = số tiền đã thanh toán + phát sinh thêm. Dịch vụ/phụ thu hiển thị phía trên chỉ mang tính tham khảo.
+            </span>
+        </div>
+        @elseif($useActualDiscount)
+        <div style="margin-top:0.5rem; background:#f0fdf4; border:1px solid #86efac; border-radius:0.375rem; padding:0.4rem 0.6rem; display:flex; align-items:flex-start; gap:0.35rem;">
+            <x-heroicon-o-check-circle style="width:0.875rem; height:0.875rem; color:#16a34a; flex-shrink:0; margin-top:0.05rem;" />
+            <span style="font-size:0.7rem; color:#15803d; line-height:1.4;">
+                Tổng tính từ dữ liệu thực tế của đơn hàng (bao gồm KM và chiết khấu đã áp dụng).
+            </span>
+        </div>
+        @else
+        <div style="margin-top:0.5rem; background:#fef9c3; border:1px solid #fde047; border-radius:0.375rem; padding:0.4rem 0.6rem; display:flex; align-items:flex-start; gap:0.35rem;">
+            <x-heroicon-o-exclamation-triangle style="width:0.875rem; height:0.875rem; color:#ca8a04; flex-shrink:0; margin-top:0.05rem;" />
+            <span style="font-size:0.7rem; color:#854d0e; line-height:1.4;">
+                Ước tính chưa bao gồm: <strong>khuyến mãi khung giờ</strong> và <strong>coupon</strong>. Giá thực tế có thể thấp hơn khi đặt qua API.
+            </span>
+        </div>
+        @endif
         @endif
 
     @endif

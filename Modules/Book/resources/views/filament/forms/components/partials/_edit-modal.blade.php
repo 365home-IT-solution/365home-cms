@@ -145,98 +145,86 @@
                 </div>
             </div>
 
-            {{-- ── Đã gán: KM / Phụ thu / Mã giảm giá ── --}}
-            <div x-show="getSlot(editingDate)?.promotions?.length > 0 || getSlot(editingDate)?.surcharges?.length > 0 || getSlot(editingDate)?.coupons?.length > 0"
-                 style="border-top:1px solid #f3f4f6;padding-top:14px;display:flex;flex-direction:column;gap:10px">
-
-                <p style="font-size:10px;font-weight:700;letter-spacing:0.07em;text-transform:uppercase;color:#9ca3af;margin:0">Đã gán — nhấn × để gỡ</p>
+            {{-- ── Khuyến mãi / Phụ thu / Mã giảm giá ── --}}
+            <div style="border-top:1px solid #f3f4f6;padding-top:14px;display:flex;flex-direction:column;gap:12px">
 
                 {{-- Khuyến mãi --}}
-                <div x-show="getSlot(editingDate)?.promotions?.length > 0">
-                    <p style="font-size:10px;font-weight:700;color:#b45309;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px">
-                        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f97316;margin-right:4px;vertical-align:middle"></span>
+                @if(!empty($promotionDiscountOptions))
+                <div>
+                    <p style="font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#b45309;margin-bottom:6px">
+                        <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#f97316;margin-right:4px;vertical-align:middle"></span>
                         Khuyến mãi
                     </p>
-                    <div style="display:flex;flex-wrap:wrap;gap:6px">
-                        <template x-for="promoId in (getSlot(editingDate)?.promotions ?? [])" :key="promoId">
-                            <span style="display:inline-flex;align-items:center;gap:5px;background:#fffbeb;border:1px solid #fde68a;border-radius:20px;padding:3px 8px 3px 10px;font-size:11px;font-weight:600;color:#92400e;line-height:1.4">
-                                <span x-text="promoOptions[promoId] ?? ('#'+promoId)"></span>
-                                <button type="button"
-                                        @click="removePromoItem(promoId)"
-                                        :disabled="removingPromoId !== null"
-                                        title="Gỡ khuyến mãi này"
-                                        :style="removingPromoId===promoId ? 'display:flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:#fbbf24;border:none;cursor:wait;flex-shrink:0;padding:0' : 'display:flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:#fde68a;border:none;cursor:pointer;flex-shrink:0;padding:0;transition:background 0.12s'"
-                                        onmouseover="if(!this.disabled)this.style.background='#fbbf24'" onmouseout="if(this.style.cursor!=='wait')this.style.background='#fde68a'">
-                                    <svg x-show="removingPromoId !== promoId" style="width:8px;height:8px;color:#92400e" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                                    </svg>
-                                    <svg x-show="removingPromoId === promoId" class="animate-spin" style="width:9px;height:9px;color:#92400e" fill="none" viewBox="0 0 24 24">
-                                        <circle style="opacity:.3" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                                        <path style="opacity:.8" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                                    </svg>
-                                </button>
-                            </span>
-                        </template>
+                    <div style="display:flex;flex-direction:column;gap:4px;max-height:100px;overflow-y:auto;border:1px solid #f3f4f6;border-radius:8px;padding:4px">
+                        @foreach($promotionDiscountOptions as $pid => $pname)
+                        <div style="display:flex;align-items:center;gap:7px;padding:4px 8px;border-radius:6px;cursor:pointer;transition:background 0.1s"
+                             :style="editPromotions.includes({{ (int)$pid }}) ? 'background:#fffbeb' : ''"
+                             @click="toggleEditPromo({{ (int)$pid }})">
+                            <div style="width:14px;height:14px;border-radius:3px;border:1.5px solid;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all 0.1s"
+                                 :style="editPromotions.includes({{ (int)$pid }}) ? 'background:#f97316;border-color:#f97316' : 'border-color:#d1d5db;background:#fff'">
+                                <svg x-show="editPromotions.includes({{ (int)$pid }})" style="width:9px;height:9px;color:#fff" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                </svg>
+                            </div>
+                            <span style="font-size:11px;font-weight:500"
+                                  :style="editPromotions.includes({{ (int)$pid }}) ? 'color:#92400e' : 'color:#374151'">{{ $pname }}</span>
+                        </div>
+                        @endforeach
                     </div>
                 </div>
+                @endif
 
                 {{-- Phụ thu --}}
-                <div x-show="getSlot(editingDate)?.surcharges?.length > 0">
-                    <p style="font-size:10px;font-weight:700;color:#ea580c;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px">
-                        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#eef122;margin-right:4px;vertical-align:middle"></span>
+                @if(!empty($promotionSurchargeOptions))
+                <div>
+                    <p style="font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#ea580c;margin-bottom:6px">
+                        <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#eef122;margin-right:4px;vertical-align:middle"></span>
                         Phụ thu
                     </p>
-                    <div style="display:flex;flex-wrap:wrap;gap:6px">
-                        <template x-for="surchargeId in (getSlot(editingDate)?.surcharges ?? [])" :key="surchargeId">
-                            <span style="display:inline-flex;align-items:center;gap:5px;background:#fff7ed;border:1px solid #fed7aa;border-radius:20px;padding:3px 8px 3px 10px;font-size:11px;font-weight:600;color:#9a3412;line-height:1.4">
-                                <span x-text="surchargeOptions[surchargeId] ?? ('#'+surchargeId)"></span>
-                                <button type="button"
-                                        @click="removePromoItem(surchargeId)"
-                                        :disabled="removingPromoId !== null"
-                                        title="Gỡ phụ thu này"
-                                        :style="removingPromoId===surchargeId ? 'display:flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:#fb923c;border:none;cursor:wait;flex-shrink:0;padding:0' : 'display:flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:#fed7aa;border:none;cursor:pointer;flex-shrink:0;padding:0;transition:background 0.12s'"
-                                        onmouseover="if(!this.disabled)this.style.background='#fb923c'" onmouseout="if(this.style.cursor!=='wait')this.style.background='#fed7aa'">
-                                    <svg x-show="removingPromoId !== surchargeId" style="width:8px;height:8px;color:#9a3412" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                                    </svg>
-                                    <svg x-show="removingPromoId === surchargeId" class="animate-spin" style="width:9px;height:9px;color:#9a3412" fill="none" viewBox="0 0 24 24">
-                                        <circle style="opacity:.3" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                                        <path style="opacity:.8" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                                    </svg>
-                                </button>
-                            </span>
-                        </template>
+                    <div style="display:flex;flex-direction:column;gap:4px;max-height:100px;overflow-y:auto;border:1px solid #f3f4f6;border-radius:8px;padding:4px">
+                        @foreach($promotionSurchargeOptions as $sid => $sname)
+                        <div style="display:flex;align-items:center;gap:7px;padding:4px 8px;border-radius:6px;cursor:pointer;transition:background 0.1s"
+                             :style="editSurcharges.includes({{ (int)$sid }}) ? 'background:#fff7ed' : ''"
+                             @click="toggleEditSurcharge({{ (int)$sid }})">
+                            <div style="width:14px;height:14px;border-radius:3px;border:1.5px solid;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all 0.1s"
+                                 :style="editSurcharges.includes({{ (int)$sid }}) ? 'background:#ea580c;border-color:#ea580c' : 'border-color:#d1d5db;background:#fff'">
+                                <svg x-show="editSurcharges.includes({{ (int)$sid }})" style="width:9px;height:9px;color:#fff" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                </svg>
+                            </div>
+                            <span style="font-size:11px;font-weight:500"
+                                  :style="editSurcharges.includes({{ (int)$sid }}) ? 'color:#9a3412' : 'color:#374151'">{{ $sname }}</span>
+                        </div>
+                        @endforeach
                     </div>
                 </div>
+                @endif
 
                 {{-- Mã giảm giá --}}
-                <div x-show="getSlot(editingDate)?.coupons?.length > 0">
-                    <p style="font-size:10px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px">
-                        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#ef4444;margin-right:4px;vertical-align:middle"></span>
+                @if(!empty($couponOptions))
+                <div>
+                    <p style="font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#dc2626;margin-bottom:6px">
+                        <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#ef4444;margin-right:4px;vertical-align:middle"></span>
                         Mã giảm giá
                     </p>
-                    <div style="display:flex;flex-wrap:wrap;gap:6px">
-                        <template x-for="couponId in (getSlot(editingDate)?.coupons ?? [])" :key="couponId">
-                            <span style="display:inline-flex;align-items:center;gap:5px;background:#fff5f5;border:1px solid #fecaca;border-radius:20px;padding:3px 8px 3px 10px;font-size:11px;font-weight:600;color:#991b1b;line-height:1.4">
-                                <span x-text="couponOptions[couponId] ?? ('#'+couponId)"></span>
-                                <button type="button"
-                                        @click="removeCouponItem(couponId)"
-                                        :disabled="removingCouponId !== null"
-                                        title="Gỡ mã giảm giá này"
-                                        :style="removingCouponId===couponId ? 'display:flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:#f87171;border:none;cursor:wait;flex-shrink:0;padding:0' : 'display:flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:#fecaca;border:none;cursor:pointer;flex-shrink:0;padding:0;transition:background 0.12s'"
-                                        onmouseover="if(!this.disabled)this.style.background='#f87171'" onmouseout="if(this.style.cursor!=='wait')this.style.background='#fecaca'">
-                                    <svg x-show="removingCouponId !== couponId" style="width:8px;height:8px;color:#991b1b" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                                    </svg>
-                                    <svg x-show="removingCouponId === couponId" class="animate-spin" style="width:9px;height:9px;color:#991b1b" fill="none" viewBox="0 0 24 24">
-                                        <circle style="opacity:.3" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                                        <path style="opacity:.8" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                                    </svg>
-                                </button>
-                            </span>
-                        </template>
+                    <div style="display:flex;flex-direction:column;gap:4px;max-height:100px;overflow-y:auto;border:1px solid #f3f4f6;border-radius:8px;padding:4px">
+                        @foreach($couponOptions as $cid => $cname)
+                        <div style="display:flex;align-items:center;gap:7px;padding:4px 8px;border-radius:6px;cursor:pointer;transition:background 0.1s"
+                             :style="editCoupons.includes({{ (int)$cid }}) ? 'background:#fff5f5' : ''"
+                             @click="toggleEditCoupon({{ (int)$cid }})">
+                            <div style="width:14px;height:14px;border-radius:3px;border:1.5px solid;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all 0.1s"
+                                 :style="editCoupons.includes({{ (int)$cid }}) ? 'background:#ef4444;border-color:#ef4444' : 'border-color:#d1d5db;background:#fff'">
+                                <svg x-show="editCoupons.includes({{ (int)$cid }})" style="width:9px;height:9px;color:#fff" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                </svg>
+                            </div>
+                            <span style="font-size:11px;font-weight:500"
+                                  :style="editCoupons.includes({{ (int)$cid }}) ? 'color:#991b1b' : 'color:#374151'">{{ $cname }}</span>
+                        </div>
+                        @endforeach
                     </div>
                 </div>
+                @endif
 
             </div>
 
@@ -254,9 +242,9 @@
                 </svg>
                 <span x-text="deletingDate ? 'Đang xóa...' : 'Xóa ngày này'"></span>
             </button>
-            <button type="button" @click="saveDate()" :disabled="!editPrice || savingDate"
+            <button type="button" @click="saveDate()" :disabled="savingDate"
                     class="bk-apply-btn"
-                    :style="(!editPrice||savingDate)?'background:#4e6b4c;opacity:.4;cursor:not-allowed':'background:#4e6b4c'">
+                    :style="savingDate?'background:#4e6b4c;opacity:.4;cursor:not-allowed':'background:#4e6b4c'">
                 <svg x-show="savingDate" class="animate-spin" style="width:14px;height:14px;flex-shrink:0" fill="none" viewBox="0 0 24 24">
                     <circle style="opacity:.25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
                     <path style="opacity:.75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>

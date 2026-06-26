@@ -9,14 +9,17 @@ use App\Models\Wishlist;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Storage;
+use App\Models\Province;
 use Modules\AppPage\App\Models\AppPage;
+use Modules\AppPage\App\Models\Banner;
+use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
 
 class AppPageController extends Controller
 {
     use BuildsRoomCard;
 
-    private const SUPPORTED_BLOCKS = ['room_list', 'banner'];
+    private const SUPPORTED_BLOCKS = ['room_list', 'banner', 'province_list'];
 
     public function show(string $slug): JsonResponse
     {
@@ -50,9 +53,10 @@ class AppPageController extends Controller
         $data = $block['data'] ?? [];
 
         return match ($type) {
-            'banner'    => $this->buildBanner($data, $index),
-            'room_list' => $this->buildRoomList($data, $index, $wishlistedIds),
-            default     => [],
+            'banner'        => $this->buildBanner($data, $index),
+            'room_list'     => $this->buildRoomList($data, $index, $wishlistedIds),
+            'province_list' => $this->buildProvinceList($data, $index),
+            default         => [],
         };
     }
 
@@ -60,23 +64,34 @@ class AppPageController extends Controller
 
     private function buildBanner(array $data, int $index): array
     {
-        $disk    = $data['disk'] ?? 'public';
-        $storage = Storage::disk($disk);
+        $bannerIds = collect($data['items'] ?? [])
+            ->pluck('banner_id')
+            ->filter()
+            ->values()
+            ->toArray();
 
-        $items = array_map(fn ($item) => [
-            'title'       => $item['title'] ?? null,
-            'description' => $item['description'] ?? null,
-            'image_url'   => ! empty($item['image']) ? $storage->url($item['image']) : null,
-            'url'         => $item['url'] ?? null,
-        ], $data['items'] ?? []);
+        $bannersById = Banner::whereIn('id', $bannerIds)
+            ->where('is_active', true)
+            ->get()
+            ->keyBy('id');
+
+        $items = collect($bannerIds)
+            ->map(fn ($id) => $bannersById->get($id))
+            ->filter()
+            ->map(fn (Banner $banner) => [
+                'title'       => $banner->title,
+                'description' => $banner->description,
+                'image_url'   => $banner->image ? Storage::disk($banner->disk ?? 'public')->url($banner->image) : null,
+                'url'         => $banner->url,
+            ])
+            ->values()
+            ->toArray();
 
         return [
-            'type'        => 'banner',
-            'id'          => $index + 1,
-            'sort_order'  => $index + 1,
-            'title'       => $data['title'] ?? null,
-            'description' => $data['description'] ?? null,
-            'items'       => $items,
+            'type'       => 'banner',
+            'id'         => $index + 1,
+            'sort_order' => $index + 1,
+            'items'      => $items,
         ];
     }
 
@@ -112,6 +127,44 @@ class AppPageController extends Controller
         ];
     }
 
+    // ─── Province list ───────────────────────────────────────────────────────
+
+    private function buildProvinceList(array $data, int $index): array
+    {
+        $provinceIds = collect($data['items'] ?? [])
+            ->pluck('province_id')
+            ->filter()
+            ->values()
+            ->toArray();
+
+        $provincesById = Province::whereIn('id', $provinceIds)
+            ->get()
+            ->keyBy('id');
+
+        $items = collect($provinceIds)
+            ->map(fn ($id) => $provincesById->get($id))
+            ->filter()
+            ->map(fn (Province $province) => [
+                'id'        => $province->id,
+                'name'      => $province->name,
+                'slug'      => $province->slug,
+                'image_url' => $province->image
+                    ? Storage::disk('public')->url($province->image)
+                    : null,
+            ])
+            ->values()
+            ->toArray();
+
+        return [
+            'type'       => 'province',
+            'id'         => $index + 1,
+            'sort_order' => $index + 1,
+            'items'      => $items,
+        ];
+    }
+
+    // ─── Room list ───────────────────────────────────────────────────────────
+
     private function getRooms(array $data, ?array $wishlistedIds): array
     {
         $productIds = $data['product_ids'] ?? [];
@@ -123,6 +176,13 @@ class AppPageController extends Controller
         } else {
             $query = Product::where('is_activated', true)
                 ->where('is_in_stock', true);
+
+            $branchIds = array_filter((array) ($data['branch_ids'] ?? []));
+            if (! empty($branchIds)) {
+                $childIds  = Category::whereIn('parent_id', $branchIds)->pluck('id');
+                $filterIds = collect($branchIds)->merge($childIds)->unique()->values();
+                $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
+            }
 
             if (! empty($data['room_type_id'])) {
                 $query->where('room_type_id', $data['room_type_id']);
@@ -139,7 +199,7 @@ class AppPageController extends Controller
         $limit = max(1, (int) ($data['limit'] ?? 10));
 
         return $query
-            ->with(['roomTimeSlots.timeSlot', 'mainImage'])
+            ->with(['roomTimeSlots.timeSlot', 'mainImage', 'roomType'])
             ->limit($limit)
             ->get()
             ->map(function ($room) use ($wishlistedIds) {

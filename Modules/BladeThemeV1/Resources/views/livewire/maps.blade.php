@@ -141,31 +141,34 @@
 </style>
 
 
-<div class="max-w-screen-xl mx-auto">
-    <div class="container mx-auto">
-        <div class="row">
-            <div class="col-12">
-                <div class="entry-header-meta mb-[16px]">
-                    <span class="entry-header-location">
-                            {{ $nameCate1->name ?? '' }}
-                        </span>
+<div class="md:px-8 px-4 mx-auto">
+    <div class="entry-header-meta mb-[16px]">
+        @if($nameCate1)
+        <span class="entry-header-location">
+            {{ $nameCate1->name }}
+        </span>
+        @endif
 
-                    <span class="entry-header-map">
-                           <a href="{{ $placeUrl ?? '' }}"
-                              class="tooltip-link relative cursor-pointer"
-                              data-tooltip="Xem đường đi đến Home trên bản đồ">
-                               Xem bản đồ
-                           </a>
-                    </span>
-                </div>
-            </div>
-        </div>
+        @if($placeUrl)
+        <span class="entry-header-map">
+            <a href="{{ $placeUrl }}"
+               class="tooltip-link relative cursor-pointer"
+               data-tooltip="Xem đường đi đến Home trên bản đồ">
+                Xem bản đồ
+            </a>
+        </span>
+        @endif
     </div>
 
     <h1 class="archive-title text-xl sm:text-xl md:text-4xl lg:text-[48px] text-white">
-        Home – {{ $nameCate3->name ?? '' }}, {{ $nameCate2->name ?? ''}}
+        {{ $nameCate1->name ?? '' }} HOME
     </h1>
 
+    @if($descriptionMap)
+    <div class="maps-description mt-4 text-white text-base sm:text-lg leading-relaxed opacity-90">
+        {!! $descriptionMap !!}
+    </div>
+    @endif
 </div>
 <script>
     document.addEventListener('DOMContentLoaded', function () {

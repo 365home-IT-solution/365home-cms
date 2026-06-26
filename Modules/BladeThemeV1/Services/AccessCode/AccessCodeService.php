@@ -61,6 +61,11 @@ class AccessCodeService
      */
     public function assignCodeToOrder($orderId, $categoryId, $checkinDate = null, $checkoutDate = null, $product = null)
     {
+        // Phòng dùng mật khẩu thủ công → không cần mã TTLock/access code
+        if ($product && $product->has_manual_lock) {
+            return null;
+        }
+
         // Nếu product có lock_id → generate mã TTLock riêng cho đơn này
         if ($product && $product->lock_id) {
             return $this->generateTTLockCodeForOrder($orderId, $categoryId, $product, $checkinDate, $checkoutDate);

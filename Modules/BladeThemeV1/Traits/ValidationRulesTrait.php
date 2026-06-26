@@ -6,14 +6,17 @@ trait ValidationRulesTrait
 {
     protected function rules()
     {
+        $hasFront = $this->isAuthUser && !empty($this->authCccdFront);
+        $hasBack  = $this->isAuthUser && !empty($this->authCccdBack);
+
         return [
-            'buyerName' => 'required|min:2|max:50',
-            'buyerPhone' => ['required', 'regex:/^0[35789][0-9]{8}$/'],
-            'guests' => 'required|integer|min:1',
-            'cccd_front' => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
-            'cccd_back' => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
-            'accept1' => 'accepted',
-            'accept2' => 'accepted',
+            'buyerName'          => 'required|min:2|max:50',
+            'buyerPhone'         => ['required', 'regex:/^0[35789][0-9]{8}$/'],
+            'guests'             => 'required|integer|min:1',
+            'cccd_front'         => $hasFront ? 'nullable' : 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'cccd_back'          => $hasBack  ? 'nullable' : 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'accept1'            => 'accepted',
+            'accept2'            => 'accepted',
             'acceptRefundPolicy' => 'accepted',
         ];
     }

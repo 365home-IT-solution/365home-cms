@@ -2,8 +2,12 @@
 
 namespace App\Observers;
 
+use App\Models\Customer;
 use App\Models\User;
 use App\Services\FcmService;
+use App\Services\MembershipService;
+use App\Services\NotificationFcmService;
+use App\Services\SlotRealtimeService;
 use Filament\Notifications\Notification;
 use Filament\Notifications\Actions\Action;
 use Modules\AuditLog\Services\AuditLogger;
@@ -52,7 +56,7 @@ class OrderObserver
 
     private function send(Order $order, string $title, string $icon, string $color): void
     {
-        $body  = "#{$order->order_code} · {$order->buyer_name} · " . number_format($order->amount) . ' VNĐ';
+        $body  = "#{$order->order_code} · {$order->buyer_name} · " . number_format($order->full_amount) . ' VNĐ';
         $users = $this->adminUsers($order);
 
         Notification::make()
@@ -68,11 +72,54 @@ class OrderObserver
             ])
             ->sendToDatabase($users);
 
-        // Push notification đến thiết bị di động (kể cả khi đóng trình duyệt)
+        // Push notification đến thiết bị di động admin (kể cả khi đóng trình duyệt)
         try {
             app(FcmService::class)->sendToUsers($users, $title, $body);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('FCM push failed: ' . $e->getMessage());
+        }
+    }
+
+    private function sendToCustomer(Order $order, string $title, string $body): void
+    {
+        if (! $order->customer_id) {
+            return;
+        }
+
+        $customer = Customer::find($order->customer_id);
+
+        if (! $customer) {
+            return;
+        }
+
+        app(NotificationFcmService::class)->sendToCustomer(
+            $customer,
+            $title,
+            $body,
+            'booking',
+            ['order_code' => (string) $order->order_code, 'type' => 'order'],
+        );
+    }
+
+    private function sendToGuest(Order $order, string $title, string $body, string $type = 'booking'): void
+    {
+        if ($order->customer_id || empty($order->device_token)) {
+            return;
+        }
+
+        try {
+            app(NotificationFcmService::class)->sendToGuestToken(
+                $order->device_token,
+                $title,
+                $body,
+                $type,
+                ['order_code' => (string) $order->order_code, 'type' => 'order'],
+            );
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Guest FCM from observer failed', [
+                'order_id' => $order->id,
+                'error'    => $e->getMessage(),
+            ]);
         }
     }
 
@@ -105,6 +152,19 @@ class OrderObserver
         }
 
         $this->send($order, 'Đơn đặt phòng mới', 'heroicon-o-shopping-bag', 'info');
+
+        $this->sendToCustomer(
+            $order,
+            'Đặt phòng thành công',
+            "Đơn #{$order->order_code} đang chờ thanh toán. Vui lòng hoàn tất để xác nhận."
+        );
+
+        $this->sendToGuest(
+            $order,
+            'Đặt phòng thành công',
+            $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đang chờ thanh toán."),
+            'order_created'
+        );
     }
 
     /**
@@ -142,13 +202,45 @@ class OrderObserver
 
         // pending → paid: đã có thông báo "Đơn đặt phòng mới", không gửi thêm
         if ($newStatus === 'paid' && $oldStatus === 'pending') {
+            $this->accumulateMembershipSpending($order);
+            $this->sendToCustomer(
+                $order,
+                'Thanh toán thành công',
+                "Đơn #{$order->order_code} đã được xác nhận. Chúc bạn có trải nghiệm tốt!"
+            );
+            $this->sendToGuest(
+                $order,
+                'Thanh toán thành công',
+                $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã xác nhận.")
+            );
             return;
         }
 
         // Phân biệt thanh toán lần 2 (deposit → paid) với thanh toán đủ ngay
         if ($newStatus === 'paid' && $oldStatus === 'deposit') {
+            $this->accumulateMembershipSpending($order);
             $this->send($order, 'Đã thanh toán phần còn lại', 'heroicon-o-check-circle', 'success');
+            $this->sendToCustomer(
+                $order,
+                'Thanh toán hoàn tất',
+                "Đơn #{$order->order_code} đã được thanh toán đầy đủ."
+            );
+            $this->sendToGuest(
+                $order,
+                'Thanh toán hoàn tất',
+                $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã thanh toán đủ.")
+            );
             return;
+        }
+
+        // paid → bất kỳ trạng thái nào khác: hoàn trả điểm
+        if ($oldStatus === 'paid' && $newStatus !== 'paid') {
+            $this->deductMembershipSpending($order);
+        }
+
+        // Mọi transition khác → paid (failed/cancelled/... → paid): tích điểm
+        if ($newStatus === 'paid') {
+            $this->accumulateMembershipSpending($order);
         }
 
         $map = [
@@ -158,12 +250,51 @@ class OrderObserver
             'cancelled' => ['title' => 'Đơn bị hủy',            'icon' => 'heroicon-o-x-circle',     'color' => 'danger'],
         ];
 
+        // Slot giải phóng khi đơn bị hủy/hết hạn → broadcast để FE re-fetch
+        $releasedStatuses = ['cancelled_payment', 'failed', 'cancelled'];
+        if (in_array($newStatus, $releasedStatuses) && ! in_array($oldStatus, $releasedStatuses)) {
+            $this->broadcastSlotRelease($order);
+        }
+
+        // Guest: thông báo khi huỷ thanh toán hoặc hết hạn QR
+        if ($newStatus === 'failed' || $newStatus === 'cancelled_payment') {
+            $this->sendToGuest($order, 'Thanh toán không thành công', "Đơn #{$order->order_code} đã bị huỷ. Vui lòng đặt lại nếu cần.");
+        }
+
         if (! isset($map[$newStatus])) {
             return;
         }
 
         $cfg = $map[$newStatus];
         $this->send($order, $cfg['title'], $cfg['icon'], $cfg['color']);
+
+        $customerMessages = [
+            'deposit'   => ['Đơn đã cọc thành công',   "Đơn #{$order->order_code} đã nhận cọc. Vui lòng thanh toán phần còn lại khi check-in."],
+            'shipped'   => ['Đơn đang được xử lý',     "Đơn #{$order->order_code} đang được xử lý bởi nhân viên."],
+            'cancelled' => ['Đơn bị hủy',              "Đơn #{$order->order_code} đã bị hủy. Liên hệ hỗ trợ nếu cần thêm thông tin."],
+        ];
+
+        if (isset($customerMessages[$newStatus])) {
+            [$customerTitle, $customerBody] = $customerMessages[$newStatus];
+            $this->sendToCustomer($order, $customerTitle, $customerBody);
+            $this->sendToGuest($order, $customerTitle, $customerBody);
+        }
+    }
+
+    private function broadcastSlotRelease(Order $order): void
+    {
+        $order->loadMissing('items');
+        $service = app(SlotRealtimeService::class);
+
+        foreach ($order->items as $item) {
+            if (! $item->checkin_date || ! $item->product_id) {
+                continue;
+            }
+            $service->broadcastReleased(
+                (string) $item->product_id,
+                $item->checkin_date->format('Y-m-d'),
+            );
+        }
     }
 
     public function deleted(Order $order): void
@@ -175,5 +306,96 @@ class OrderObserver
             old: $order->only(['order_code', 'buyer_name', 'buyer_phone', 'amount', 'status']),
             label: "#{$order->order_code} — {$order->buyer_name}",
         );
+
+        // Trừ lại chi tiêu khi xóa đơn đã thanh toán
+        if ($order->status === 'paid' && $order->customer_id && ! $order->exclude_from_stats) {
+            $customer = Customer::find($order->customer_id);
+            if ($customer) {
+                $amount = (float) ($order->full_amount ?? $order->amount ?? 0);
+                if ($amount > 0) {
+                    try {
+                        $newSpending = max(0, (float) $customer->total_spending - $amount);
+                        $customer->update(['total_spending' => $newSpending]);
+                        $customer->refresh();
+                        app(MembershipService::class)->recalculateTier($customer);
+                    } catch (\Throwable $e) {
+                        \Illuminate\Support\Facades\Log::warning('MembershipService: deduct spending on delete failed: ' . $e->getMessage());
+                    }
+                }
+            }
+        }
+    }
+
+    private function buildGuestCheckinBody(Order $order, string $prefix): string
+    {
+        $order->loadMissing('items');
+
+        $checkin  = $order->items->min('checkin_date');
+        $checkout = $order->items->max('checkout_date');
+
+        $parts = [$prefix];
+
+        if ($checkin) {
+            $parts[] = 'Check-in: ' . \Carbon\Carbon::parse($checkin)->format('H:i d/m');
+        }
+        if ($checkout) {
+            $parts[] = 'Check-out: ' . \Carbon\Carbon::parse($checkout)->format('H:i d/m');
+        }
+
+        return implode(' ', $parts);
+    }
+
+    private function accumulateMembershipSpending(Order $order): void
+    {
+        // Chỉ tích điểm khi đơn đã thanh toán thành công
+        if ($order->status !== 'paid') {
+            return;
+        }
+
+        if (! $order->customer_id || $order->exclude_from_stats) {
+            return;
+        }
+
+        $customer = Customer::find($order->customer_id);
+        if (! $customer) {
+            return;
+        }
+
+        $amount = (float) ($order->full_amount ?? $order->amount ?? 0);
+        if ($amount <= 0) {
+            return;
+        }
+
+        try {
+            app(MembershipService::class)->addSpending($customer, $amount);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('MembershipService::addSpending failed: ' . $e->getMessage());
+        }
+    }
+
+    private function deductMembershipSpending(Order $order): void
+    {
+        if (! $order->customer_id || $order->exclude_from_stats) {
+            return;
+        }
+
+        $customer = Customer::find($order->customer_id);
+        if (! $customer) {
+            return;
+        }
+
+        $amount = (float) ($order->full_amount ?? $order->amount ?? 0);
+        if ($amount <= 0) {
+            return;
+        }
+
+        try {
+            $newSpending = max(0, (float) $customer->total_spending - $amount);
+            $customer->update(['total_spending' => $newSpending]);
+            $customer->refresh();
+            app(MembershipService::class)->recalculateTier($customer);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('MembershipService: deductSpending failed: ' . $e->getMessage());
+        }
     }
 }

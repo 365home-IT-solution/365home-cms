@@ -39,7 +39,7 @@ class SearchBooking extends Component
 
         if (!empty($phone)) {
             $this->orders = Order::with([
-                'items.product',
+                'items.product.manualLockPasswords',
                 'accessCodes',
                 'category',
                 ])
