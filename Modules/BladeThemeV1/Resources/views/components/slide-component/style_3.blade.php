@@ -120,12 +120,8 @@
                         }
                         @endphp
                         @foreach ($tags as $tag)
-                        <div class="tooltip-container">
-                            <div
-                                class="flex items-center justify-center p-2 bg-gray-50 w-10 h-10 rounded-full hover:bg-gray-100 hover:shadow-md transition-all duration-300 cursor-default border border-gray-100 hover:border-gray-300">
-                                <img src="{{ asset('storage/' . $tag['image']) }}" alt="{{ $tag['name'] }}" class="w-6 h-6 object-contain filter hover:brightness-110 transition-all duration-300">
-                            </div>
-                            <div class="tooltip">{{ $tag['name'] }}</div>
+                        <div class="flex items-center justify-center p-2 bg-gray-50 w-10 h-10 rounded-full cursor-default border border-gray-100">
+                            <img src="{{ asset('storage/' . $tag['image']) }}" alt="{{ $tag['name'] }}" class="w-6 h-6 object-contain filter">
                         </div>
                         @endforeach
                         @endif

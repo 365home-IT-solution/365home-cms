@@ -15,14 +15,12 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Get;
-use Filament\Forms\Set;
 use Filament\Support\Enums\ActionSize;
 use Filament\Support\Enums\MaxWidth;
 use Filament\Support\Facades\FilamentIcon;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -91,10 +89,6 @@ class MenuItems extends Component implements HasActions, HasForms
             ->form([
                 TextInput::make('title')
                     ->label(__('menu::menu-builder.form.title'))
-                    ->live(onBlur: true)
-                    ->afterStateUpdated(function (Get $get, Set $set, ?string $old, ?string $state) {
-                        $set('url', '/' . Str::slug($state));
-                    })
                     ->required(),
                 TextInput::make('url')
                     ->hidden(fn(?string $state, Get $get): bool => blank($state) || filled($get('linkable_type')))
