@@ -20,8 +20,6 @@ use Jeffgreco13\FilamentBreezy\Livewire\UpdatePassword;
 use Livewire\Livewire;
 use Symfony\Component\Mime\MimeTypes;
 use Symfony\Component\Mime\MimeTypeGuesserInterface;
-use Symfony\Component\Mime\MimeTypes;
-use Symfony\Component\Mime\MimeTypeGuesserInterface;
 
 class AppServiceProvider extends ServiceProvider
 {
