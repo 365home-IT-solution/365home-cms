@@ -310,6 +310,105 @@ app.post('/internal/chat-read', (req, res) => {
     return res.json({ ok: true });
 });
 
+// ── Slot blocked range — admin tô đen/gỡ tô đen nhiều ngày cùng lúc ─────────
+app.post('/internal/slot-blocked-range', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { room_id, dates, slot_ids, status } = req.body;
+    if (!room_id || !Array.isArray(dates) || dates.length === 0) {
+        return res.status(422).json({ error: 'Missing room_id or dates' });
+    }
+
+    for (const date of dates) {
+        io.to(`room:${room_id}:${date}`).emit('slot.updated', {
+            room_id,
+            date,
+            slot_ids: slot_ids || [],
+            status: status || 'blocked',
+        });
+    }
+
+    console.log(`[WS] Slot blocked range: room=${room_id} dates=${dates.length} status=${status}`);
+    return res.json({ ok: true });
+});
+
+// ── Daily blocked — admin khóa/gỡ khoảng ngày cho phòng theo ngày ────────────
+app.post('/internal/daily-blocked', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { room_id, blocked_ranges } = req.body;
+    if (!room_id) {
+        return res.status(422).json({ error: 'Missing room_id' });
+    }
+
+    const channel = `daily:${room_id}`;
+    io.to(channel).emit('daily.blocked', { room_id, blocked_ranges: blocked_ranges || [] });
+    console.log(`[WS] Daily blocked: room=${room_id} ranges=${(blocked_ranges || []).length} → ${channel}`);
+
+    return res.json({ ok: true });
+});
+
+// ── Order deleted — admin xóa đơn, app ẩn đơn đó ngay ───────────────────────
+app.post('/internal/order-deleted', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { order_code, customer_id } = req.body;
+    if (!order_code) {
+        return res.status(422).json({ error: 'Missing order_code' });
+    }
+
+    const payload = { order_code };
+
+    io.to(`order:${order_code}`).emit('order.deleted', payload);
+
+    if (customer_id) {
+        const sockets = connections.get(String(customer_id));
+        if (sockets && sockets.size > 0) {
+            sockets.forEach((s) => s.emit('order.deleted', payload));
+        }
+    }
+
+    console.log(`[WS] Order deleted: order=${order_code} customer=${customer_id || 'guest'}`);
+    return res.json({ ok: true });
+});
+
+// ── Order check-in/out — xác nhận mở cổng thành công ─────────────────────────
+app.post('/internal/order-checkin', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { order_code, customer_id, type, checked_in_at } = req.body;
+    if (!order_code || !type) {
+        return res.status(422).json({ error: 'Missing order_code or type' });
+    }
+
+    // type: 'checkin' | 'checkout'
+    const payload = { order_code, type, checked_in_at: checked_in_at || null };
+
+    io.to(`order:${order_code}`).emit('order.checkin', payload);
+
+    if (customer_id) {
+        const sockets = connections.get(String(customer_id));
+        if (sockets && sockets.size > 0) {
+            sockets.forEach((s) => s.emit('order.checkin', payload));
+        }
+    }
+
+    console.log(`[WS] Order checkin: order=${order_code} type=${type} customer=${customer_id || 'guest'}`);
+    return res.json({ ok: true });
+});
+
 // ── Broadcast đến tất cả customer đang kết nối ───────────────────────────────
 app.post('/internal/notify-all', (req, res) => {
     const key = req.headers['x-internal-key'];

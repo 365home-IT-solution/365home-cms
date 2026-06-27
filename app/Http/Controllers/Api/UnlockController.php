@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\OrderRealtimeService;
 use App\Services\TelegramService;
 use App\Services\TTLockService;
 use Carbon\Carbon;
@@ -16,7 +17,10 @@ use Modules\Product\App\Models\Product;
 
 class UnlockController extends Controller
 {
-    public function __construct(private TelegramService $telegram) {}
+    public function __construct(
+        private TelegramService $telegram,
+        private OrderRealtimeService $realtime,
+    ) {}
 
     /**
      * Mở cổng cho user đăng nhập.
@@ -189,9 +193,18 @@ class UnlockController extends Controller
         ]);
 
         if ($opened) {
+            $checkedInAt = null;
             if ($isCheckin) {
+                $checkedInAt = now()->toIso8601String();
                 $order->update(['checked_in_at' => now()]);
             }
+
+            $this->realtime->broadcastCheckin(
+                $order->order_code,
+                $isCheckin ? 'checkin' : 'checkout',
+                $checkedInAt,
+                $order->customer_id ? (int) $order->customer_id : null,
+            );
 
             $this->notifyUnlock($order, $product, $item, $accessCode, $isCheckin);
 

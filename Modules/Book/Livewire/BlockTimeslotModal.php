@@ -4,6 +4,7 @@ namespace Modules\Book\Livewire;
 
 use Livewire\Attributes\On;
 use Livewire\Component;
+use App\Services\SlotRealtimeService;
 use Modules\Category\Entities\Categorizable;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
@@ -193,6 +194,11 @@ class BlockTimeslotModal extends Component
             $this->reset(['date_from', 'date_to']);
             $this->refreshBlockedList();
 
+            app(SlotRealtimeService::class)->broadcastDailyBlocked(
+                (string) $this->product_id,
+                $config['blocked_ranges'],
+            );
+
             Notification::make()
                 ->title('Đã khóa khoảng thời gian')
                 ->body($startDisplay . ' → ' . $endDisplay)
@@ -242,12 +248,20 @@ class BlockTimeslotModal extends Component
             sort($merged);
 
             $settings['blocked_dates'] = $merged;
-            $rts->update(['settings' => json_encode($settings)]);
+            $rts->update(['settings' => $settings]);
             $count++;
         }
 
+        $broadcastSlotIds = array_map('intval', $this->timeslot_ids);
         $this->reset(['timeslot_ids', 'date_from', 'date_to']);
         $this->refreshBlockedList();
+
+        app(SlotRealtimeService::class)->broadcastBlockedRange(
+            (string) $this->product_id,
+            $blockedDates,
+            $broadcastSlotIds,
+            'blocked',
+        );
 
         Notification::make()
             ->title("Đã tô đen {$count} khung giờ")
@@ -274,8 +288,15 @@ class BlockTimeslotModal extends Component
             array_diff($settings['blocked_dates'] ?? [], [$date])
         );
 
-        $rts->update(['settings' => json_encode($settings)]);
+        $rts->update(['settings' => $settings]);
         $this->refreshBlockedList();
+
+        app(SlotRealtimeService::class)->broadcastBlockedRange(
+            (string) $this->product_id,
+            [$date],
+            [$rtsId],
+            'available',
+        );
 
         Notification::make()
             ->title('Đã gỡ tô đen')
@@ -300,6 +321,11 @@ class BlockTimeslotModal extends Component
         $product->update(['room_config' => $config]);
 
         $this->refreshBlockedList();
+
+        app(SlotRealtimeService::class)->broadcastDailyBlocked(
+            (string) $this->product_id,
+            $config['blocked_ranges'],
+        );
 
         Notification::make()
             ->title('Đã gỡ khóa khoảng thời gian')
@@ -360,6 +386,8 @@ class BlockTimeslotModal extends Component
     {
         if (!$this->product_id) return;
 
+        $realtime = app(SlotRealtimeService::class);
+
         if ($this->isStyle2) {
             $product = Product::find($this->product_id);
             if (!$product) return;
@@ -367,14 +395,28 @@ class BlockTimeslotModal extends Component
             $config = is_array($product->room_config) ? $product->room_config : [];
             $config['blocked_ranges'] = [];
             $product->update(['room_config' => $config]);
+
+            $realtime->broadcastDailyBlocked((string) $this->product_id, []);
         } else {
+            // Capture toàn bộ ngày đang bị khóa trước khi xóa để broadcast
+            $datesBeforeClear = collect($this->blockedList)->pluck('date')->unique()->values()->all();
+
             $slots = RoomTimeSlot::where('room_id', $this->product_id)->get();
             foreach ($slots as $rts) {
                 $settings = is_array($rts->settings)
                     ? $rts->settings
                     : (json_decode($rts->settings, true) ?? []);
                 $settings['blocked_dates'] = [];
-                $rts->update(['settings' => json_encode($settings)]);
+                $rts->update(['settings' => $settings]);
+            }
+
+            if (!empty($datesBeforeClear)) {
+                $realtime->broadcastBlockedRange(
+                    (string) $this->product_id,
+                    $datesBeforeClear,
+                    [],
+                    'available',
+                );
             }
         }
 

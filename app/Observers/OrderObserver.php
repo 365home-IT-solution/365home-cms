@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Services\FcmService;
 use App\Services\MembershipService;
 use App\Services\NotificationFcmService;
+use App\Services\OrderRealtimeService;
 use App\Services\SlotRealtimeService;
 use Filament\Notifications\Notification;
 use Filament\Notifications\Actions\Action;
@@ -305,6 +306,12 @@ class OrderObserver
             record: $order,
             old: $order->only(['order_code', 'buyer_name', 'buyer_phone', 'amount', 'status']),
             label: "#{$order->order_code} — {$order->buyer_name}",
+        );
+
+        // Realtime: app ẩn đơn ngay khi admin xóa
+        app(OrderRealtimeService::class)->broadcastOrderDeleted(
+            $order->order_code,
+            $order->customer_id ? (int) $order->customer_id : null,
         );
 
         // Trừ lại chi tiêu khi xóa đơn đã thanh toán
