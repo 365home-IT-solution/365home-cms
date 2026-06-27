@@ -18,9 +18,14 @@ class ThemeCache
     public const MENU_BY_ID_PREFIX = 'bladethemev1:menu:by_id:';
     public const TTL_HOURS = 6;
 
-    /** Circuit breaker: sau khi Redis fail 1 lần, bỏ qua thử kết nối lại trong khoảng này. */
-    private const REDIS_DOWN_FLAG = 'bladethemev1:redis_down';
-    private const CIRCUIT_BREAKER_SECONDS = 30;
+    /**
+     * Circuit breaker trong-request: sau khi Redis fail 1 lần, các lệnh cache
+     * khác trong CÙNG request bỏ qua thử kết nối lại — dùng static property
+     * (in-memory) thay vì file cache, vì không phụ thuộc quyền ghi file/đĩa,
+     * luôn đáng tin cậy. Không cần nhớ qua nhiều request vì "connection refused"
+     * trên Linux là tức thì (không tốn thời gian) khi Redis chưa chạy.
+     */
+    private static bool $redisDownThisRequest = false;
 
     public static function generalSettings(): GeneralSettings
     {
@@ -90,46 +95,23 @@ class ThemeCache
      * để cache hệ thống (session, plugin khác...) không bị kéo theo phụ thuộc Redis.
      * Nếu Redis lỗi/chưa cài (vd vừa deploy lên VPS chưa kịp setup), fallback tính
      * trực tiếp từ DB thay vì throw lỗi 500 ra toàn site.
-     *
-     * Circuit breaker: nếu vừa phát hiện Redis down, bỏ qua thử kết nối trong
-     * CIRCUIT_BREAKER_SECONDS — tránh mỗi cache key trong request đều phải chờ
-     * timeout kết nối riêng (1 request có thể gọi 4-5 key khác nhau).
      */
     private static function remember(string $key, Closure $callback): mixed
     {
-        if (self::isRedisMarkedDown()) {
+        if (self::$redisDownThisRequest) {
             return $callback();
         }
 
         try {
             return Cache::store('redis')->remember($key, now()->addHours(self::TTL_HOURS), $callback);
         } catch (Throwable $e) {
-            self::markRedisDown($e);
+            self::$redisDownThisRequest = true;
+
+            Log::warning('ThemeCache: redis store unavailable, falling back to direct query for the rest of this request', [
+                'error' => $e->getMessage(),
+            ]);
 
             return $callback();
-        }
-    }
-
-    private static function isRedisMarkedDown(): bool
-    {
-        try {
-            return Cache::store('file')->has(self::REDIS_DOWN_FLAG);
-        } catch (Throwable $e) {
-            return false;
-        }
-    }
-
-    private static function markRedisDown(Throwable $e): void
-    {
-        Log::warning('ThemeCache: redis store unavailable, falling back to direct query for ' . self::CIRCUIT_BREAKER_SECONDS . 's', [
-            'error' => $e->getMessage(),
-        ]);
-
-        try {
-            Cache::store('file')->put(self::REDIS_DOWN_FLAG, true, self::CIRCUIT_BREAKER_SECONDS);
-        } catch (Throwable $e) {
-            // file cache cũng lỗi (vd storage/framework/cache không writable) — bỏ qua,
-            // lần gọi kế tiếp sẽ lại tự thử Redis và fail nhanh nhờ connection timeout.
         }
     }
 
@@ -147,14 +129,19 @@ class ThemeCache
 
     private static function safeForget(string $key): void
     {
-        if (self::isRedisMarkedDown()) {
+        if (self::$redisDownThisRequest) {
             return;
         }
 
         try {
             Cache::store('redis')->forget($key);
         } catch (Throwable $e) {
-            self::markRedisDown($e);
+            self::$redisDownThisRequest = true;
+
+            Log::warning('ThemeCache: failed to forget cache key (redis unavailable)', [
+                'key' => $key,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 }
