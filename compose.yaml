@@ -18,6 +18,14 @@ services:
         networks:
             - app
             - mariadb_default
+        depends_on:
+            - redis
+
+    redis:
+        image: redis:7-alpine
+        restart: unless-stopped
+        networks:
+            - app
 
 networks:
     app:
