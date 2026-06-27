@@ -78,8 +78,9 @@ class UnlockController extends Controller
             ], 422);
         }
 
-        $item    = $order->items->where('extra_fee', 0)->first();
-        $product = $item?->product;
+        $mainItems = $order->items->where('extra_fee', 0);
+        $item      = $mainItems->first();
+        $product   = $item?->product;
 
         if (!$product) {
             return response()->json([
@@ -88,20 +89,45 @@ class UnlockController extends Controller
             ], 422);
         }
 
-        // Kiểm tra cửa sổ thời gian (buffer 30 phút trước/sau)
-        if (!$order->unlock_anytime && $item->checkin_date && $item->checkout_date) {
-            $now      = now();
-            $earliest = Carbon::parse($item->checkin_date)->subMinutes(30);
-            $latest   = Carbon::parse($item->checkout_date)->addMinutes(30);
+        // Kiểm tra cửa sổ thời gian - hỗ trợ nhiều khung giờ (buffer 30 phút trước/sau)
+        if (!$order->unlock_anytime) {
+            $now          = now();
+            $activeItem   = null;
+            $earliestItem = null;
 
-            if ($now->lt($earliest) || $now->gt($latest)) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Ngoài thời gian đặt phòng. Cổng chỉ có thể mở từ '
-                               . Carbon::parse($item->checkin_date)->format('H:i d/m')
-                               . ' đến '
-                               . Carbon::parse($item->checkout_date)->format('H:i d/m') . '.',
-                ], 422);
+            foreach ($mainItems as $it) {
+                if (!$it->checkin_date || !$it->checkout_date) {
+                    continue;
+                }
+
+                $earliest = Carbon::parse($it->checkin_date)->subMinutes(30);
+                $latest   = Carbon::parse($it->checkout_date)->addMinutes(30);
+
+                if ($now->between($earliest, $latest)) {
+                    $activeItem = $it;
+                    break;
+                }
+
+                if ($now->lt($earliest)) {
+                    if (!$earliestItem || Carbon::parse($it->checkin_date)->lt(Carbon::parse($earliestItem->checkin_date))) {
+                        $earliestItem = $it;
+                    }
+                }
+            }
+
+            $datedItems = $mainItems->filter(fn($it) => $it->checkin_date && $it->checkout_date);
+
+            if ($datedItems->isNotEmpty() && !$activeItem) {
+                $message = $earliestItem
+                    ? 'Ngoài thời gian đặt phòng. Khung giờ tiếp theo bắt đầu lúc '
+                      . Carbon::parse($earliestItem->checkin_date)->format('H:i d/m') . '.'
+                    : 'Đã hết tất cả khung giờ đặt phòng.';
+
+                return response()->json(['success' => false, 'message' => $message], 422);
+            }
+
+            if ($activeItem) {
+                $item = $activeItem;
             }
         }
 
