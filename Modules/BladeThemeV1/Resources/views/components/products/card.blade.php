@@ -5,15 +5,16 @@
 
     <div class="relative w-full overflow-hidden rounded">
         <a href="{{ route($routeName, ['slug' => $product->slug]) }}" class="block">
-            @if ($product->hasMedia('Ảnh bìa'))
+            @php $coverMedia = $product->getFirstMedia('Ảnh bìa'); @endphp
+            @if ($coverMedia)
                 <!-- Tối ưu hiệu ứng scale để tránh rung lắc các phần tử khác -->
                 <div class="overflow-hidden">
                     <img class="w-full cursor-pointer object-cover transition-all duration-700 ease-in-out group-hover:scale-105 group-hover:brightness-105 dark:hidden"
-                         src="{{ $product->getFirstMedia('Ảnh bìa')->getUrl() }}"
-                         alt="{{ $product->getFirstMedia('Ảnh bìa')->name ?? 'Product Image' }}">
+                         src="{{ $coverMedia->getUrl() }}"
+                         alt="{{ $coverMedia->name ?? 'Product Image' }}">
                     <img class="hidden w-full cursor-pointer object-cover transition-all duration-700 ease-in-out group-hover:scale-105 group-hover:brightness-105 dark:block"
-                         src="{{ $product->getFirstMedia('Ảnh bìa')->getUrl() }}"
-                         alt="{{ $product->getFirstMedia('Ảnh bìa')->name ?? 'Product Image' }}">
+                         src="{{ $coverMedia->getUrl() }}"
+                         alt="{{ $coverMedia->name ?? 'Product Image' }}">
                 </div>
             @else
                 <div class="flex h-48 w-full items-center justify-center bg-gray-200 dark:bg-gray-700">

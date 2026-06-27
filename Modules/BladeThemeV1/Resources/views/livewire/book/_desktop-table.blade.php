@@ -73,7 +73,7 @@
                         $today = now()->startOfDay();
                         @endphp
                         <tbody>
-                            @foreach ($this->getDatesForOneMonth() as $date)
+                            @foreach ($dates as $date)
                             <tr class="border-t">
                                 <td
                                     class="py-1 border-2 sticky-col sticky-col-thu {{ $date['is_today'] ? 'text-primary' : '' }}">

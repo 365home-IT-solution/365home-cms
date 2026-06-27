@@ -1,10 +1,10 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Modules\Menu\Entities\Menu;
 use Illuminate\Support\Collection;
 use Modules\BladeThemeV1\Http\Controllers\BladeThemeV1Controller;
 use Modules\BladeThemeV1\Http\Controllers\SitemapController;
+use Modules\BladeThemeV1\Support\ThemeCache;
 
 if (!function_exists('formatMenu')) {
 function formatMenu(Collection $items): array
@@ -52,26 +52,7 @@ function createRoutes(array $pages, string $prefix = ''): void
 }
 } // end if !function_exists('createRoutes')
 
-try {
-    $menus = Menu::query()
-        ->with([
-            'menuItems' => function ($query) {
-                $query->whereNull('parent_id')
-                    ->orderBy('order')
-                    ->with(['children' => function ($query) {
-                        $query->orderBy('order')
-                            ->with(['children' => function ($query) {
-                                $query->orderBy('order');
-                            }]);
-                    }]);
-            },
-            'locations'
-        ])
-        ->where('is_visible', true)
-        ->get();
-} catch (\Exception $e) {
-    $menus = collect();
-}
+$menus = ThemeCache::menuForRoutes();
 
 if ($menus->isNotEmpty()) {
     foreach ($menus as $menu) {
@@ -113,7 +94,7 @@ Route::get('/thong-tin-dat-phong/{code}', [BladeThemeV1Controller::class, 'booki
 Route::get('/tai-khoan', [BladeThemeV1Controller::class, 'accountPage'])->name('account.page');
 // routes/web.php
 Route::get('/theme.css', function () {
-    $theme = app(\App\Settings\GeneralSettings::class)->site_theme;
+    $theme = ThemeCache::generalSettings()->site_theme;
 
     $rgb = fn($hex) => implode(', ', sscanf($hex, "#%02x%02x%02x"));
 
@@ -139,6 +120,6 @@ Route::get('/theme.css', function () {
         }
     ", 200, [
         'Content-Type' => 'text/css',
-        'Cache-Control' => 'no-cache'
+        'Cache-Control' => 'public, max-age=3600'
     ]);
 })->name('theme.css');

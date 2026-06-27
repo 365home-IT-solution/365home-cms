@@ -52,7 +52,7 @@ class BladeThemeV1Controller extends Controller
             'og_type'         => 'website',
         ];
 
-        $pageComponents = PageComponent::with('pageComponentConfigurationValues')
+        $pageComponents = PageComponent::with(['component', 'pageComponentConfigurationValues'])
             ->where('page_id', $pageId)
             ->get();
 

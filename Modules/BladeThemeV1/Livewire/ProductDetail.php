@@ -1634,13 +1634,20 @@ public function confirmBooking()
 
     public function fetchDateStatusOrder($productId)
     {
-        $orders = Order::with(['items' => function ($query) use ($productId) {
+        $now = Carbon::now();
+        $endDate = Carbon::now()->addMonths(12)->endOfDay();
+
+        $orders = Order::with(['items' => function ($query) use ($productId, $now, $endDate) {
             $query->where('product_id', $productId)
                 ->whereNotNull('checkin_date')
-                ->whereNotNull('checkout_date');
+                ->whereNotNull('checkout_date')
+                ->where('checkout_date', '>', $now)
+                ->where('checkin_date', '<=', $endDate);
         }])
-            ->whereHas('items', function ($query) use ($productId) {
-                $query->where('product_id', $productId);
+            ->whereHas('items', function ($query) use ($productId, $now, $endDate) {
+                $query->where('product_id', $productId)
+                    ->where('checkout_date', '>', $now)
+                    ->where('checkin_date', '<=', $endDate);
             })
             ->get();
         $bookedDates = [];

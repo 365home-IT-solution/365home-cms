@@ -7,6 +7,7 @@ use Livewire\Component;
 use Modules\SettingCompany\Entities\Business;
 use Modules\ThemeSetting\App\Models\ThemeSection;
 use Modules\BladeThemeV1\Enums\FooterSection;
+use Modules\BladeThemeV1\Support\ThemeCache;
 use Modules\BladeThemeV1\Traits\HandleCalculateTrait;
 use Modules\BladeThemeV1\Traits\HandleSectionCfgTrait;
 
@@ -23,7 +24,7 @@ class Footer extends Component
 
     public function mount()
     {
-        $this->generalSettings = new GeneralSettings();
+        $this->generalSettings = ThemeCache::generalSettings();
 
         $this->section = $this->getFooterConfig();
         $footerMainConfig = $this->getChildSectionConfigs(FooterSection::FOOTER_MAIN->value);
@@ -57,7 +58,7 @@ class Footer extends Component
             'copyright' => $footerBottomConfig['copyright'],
             'bottom_menu' => (function () use ($footerBottomConfig) {
                 $menuId = $footerBottomConfig['bottom_menu'];
-                $menuItems = \Modules\Menu\Entities\Menu::find($menuId)?->menuItems;
+                $menuItems = $menuId ? ThemeCache::menuById((int) $menuId) : null;
                 return $this->formatMenuItems($menuItems);
             })()
         ];
@@ -94,8 +95,7 @@ class Footer extends Component
 
                     case 'menu':
                         if ($row['menu_id']) {
-                            // Nếu bạn có Menu model, có thể load menu items ở đây
-                            $menuItems = \Modules\Menu\Entities\Menu::find($row['menu_id'])?->menuItems;
+                            $menuItems = ThemeCache::menuById((int) $row['menu_id']);
                             if ($menuItems) {
                                 $contentItem['data'] = $this->formatMenuItems($menuItems);
                             }

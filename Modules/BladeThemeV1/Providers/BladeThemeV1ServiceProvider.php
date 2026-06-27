@@ -4,6 +4,13 @@ namespace Modules\BladeThemeV1\Providers;
 
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Database\Eloquent\Factory;
+use App\Settings\GeneralSettings;
+use Modules\BladeThemeV1\Observers\MenuCacheObserver;
+use Modules\BladeThemeV1\Support\ThemeCache;
+use Modules\Menu\Entities\Menu;
+use Modules\Menu\Entities\MenuItem;
+use Modules\Menu\Entities\MenuLocation;
+use Spatie\LaravelSettings\Events\SettingsSaved;
 
 class BladeThemeV1ServiceProvider extends ServiceProvider
 {
@@ -28,6 +35,24 @@ class BladeThemeV1ServiceProvider extends ServiceProvider
         $this->registerConfig();
         $this->registerViews();
         $this->loadMigrationsFrom(module_path($this->moduleName, 'Database/Migrations'));
+        $this->registerCacheInvalidation();
+    }
+
+    /**
+     * Bust cached Menu/GeneralSettings (see ThemeCache) whenever the underlying
+     * data is edited via Filament, so visitors don't wait out the TTL to see changes.
+     */
+    protected function registerCacheInvalidation(): void
+    {
+        Menu::observe(MenuCacheObserver::class);
+        MenuItem::observe(MenuCacheObserver::class);
+        MenuLocation::observe(MenuCacheObserver::class);
+
+        \Illuminate\Support\Facades\Event::listen(SettingsSaved::class, function (SettingsSaved $event) {
+            if ($event->settings instanceof GeneralSettings) {
+                ThemeCache::flushAll();
+            }
+        });
     }
 
     /**

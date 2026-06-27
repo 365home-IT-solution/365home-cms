@@ -20,7 +20,6 @@ use Filament\Support\Enums\MaxWidth;
 use Filament\Support\Facades\FilamentIcon;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -49,16 +48,19 @@ class MenuItems extends Component implements HasActions, HasForms
             return;
         }
 
-        FilamentMenuBuilderPlugin::get()->getMenuItemModel()::query()
+        // Cập nhật qua instance (->update() trên từng model) thay vì query builder mass update,
+        // để Eloquent bắn event saved/updated — MenuCacheObserver cần event này để bust cache menu.
+        $items = FilamentMenuBuilderPlugin::get()->getMenuItemModel()::query()
             ->whereIn('id', $order)
-            ->update([
-                'order' => DB::raw(
-                    'case ' . collect($order)
-                        ->map(fn($recordKey, int $recordIndex): string => 'when id = ' . DB::getPdo()->quote($recordKey) . ' then ' . ($recordIndex + 1))
-                        ->implode(' ') . ' end',
-                ),
+            ->get()
+            ->keyBy('id');
+
+        foreach ($order as $index => $recordKey) {
+            $items->get($recordKey)?->update([
+                'order' => $index + 1,
                 'parent_id' => $parentId,
             ]);
+        }
     }
 
     public function reorderAction(): Action
@@ -115,11 +117,14 @@ class MenuItems extends Component implements HasActions, HasForms
                     ->visible(fn(FormComponent $component) => $component->evaluate(FilamentMenuBuilderPlugin::get()->getMenuItemFields()) !== [])
                     ->schema(FilamentMenuBuilderPlugin::get()->getMenuItemFields()),
             ])
-            ->action(
-                fn(array $data, array $arguments) => FilamentMenuBuilderPlugin::get()->getMenuItemModel()::query()
+            ->action(function (array $data, array $arguments): void {
+                // ->update() trên instance (không phải query builder) để bắn event saved/updated.
+                $menuItem = FilamentMenuBuilderPlugin::get()->getMenuItemModel()::query()
                     ->where('id', $arguments['id'])
-                    ->update($data),
-            )
+                    ->first();
+
+                $menuItem?->update($data);
+            })
             ->modalWidth(MaxWidth::Medium)
             ->slideOver();
     }
