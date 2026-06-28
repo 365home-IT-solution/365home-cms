@@ -11,9 +11,11 @@
             </svg>
 
             <input
-                type="text"
+                type="search"
                 wire:model.live="searchQuery"
                 placeholder="Tìm kiếm bài viết..."
+                autocomplete="off"
+                name="post-search-query"
                 class="w-full text-base text-gray-700 placeholder:text-gray-400 bg-transparent border-none focus:outline-none focus:ring-0"
             />
 

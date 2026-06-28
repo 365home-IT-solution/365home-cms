@@ -1,10 +1,21 @@
-<div>
-    {{-- Modal (mở bằng header action dispatch 'open-block-timeslot-modal') --}}
-    @if ($showModal)
-    <div class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 pt-12" x-data
-        x-on:keydown.escape.window="$wire.closeModal()">
+<div x-data="{ open: false }"
+     @open-block-timeslot-modal.window="open = true; $wire.resetModal()"
+     @close-block-timeslot-modal.window="open = false">
+
+    {{-- Modal --}}
+    <div x-show="open"
+         x-cloak
+         x-transition:enter="transition ease-out duration-150"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-100"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 pt-12"
+         x-on:keydown.escape.window="open = false">
+
         {{-- Backdrop --}}
-        <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" wire:click="closeModal"></div>
+        <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" @click="open = false"></div>
 
         {{-- Panel 2 cột --}}
         <div class="relative z-10 w-full max-w-5xl rounded-2xl bg-white shadow-2xl ring-1 ring-black/5 dark:bg-gray-900 dark:ring-white/10">
@@ -26,7 +37,7 @@
                         </p>
                     </div>
                 </div>
-                <button wire:click="closeModal"
+                <button @click="open = false"
                     class="rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300">
                     <x-heroicon-o-x-mark class="h-5 w-5" />
                 </button>
@@ -149,7 +160,7 @@
                         @endif
                     </div>
 
-                    {{-- === Filament-style confirmation box === --}}
+                    {{-- Filament-style confirmation box --}}
                     @if ($showConfirmClear || $pendingRangeIndex !== null || $pendingDateItem !== null)
                     <div class="mb-4 rounded-xl border border-danger-200 bg-danger-50 p-4 dark:border-danger-800 dark:bg-danger-950/60">
                         <div class="flex items-start gap-3">
@@ -200,7 +211,6 @@
                             </p>
                         </div>
                     @elseif ($isStyle2)
-                        {{-- Bảng khoảng ngày bị khóa (styles=2) --}}
                         <div class="overflow-auto rounded-xl border border-gray-100 dark:border-gray-800">
                             <table class="w-full text-sm">
                                 <thead>
@@ -245,7 +255,6 @@
                             </table>
                         </div>
                     @else
-                        {{-- Bảng ngày bị tô đen (styles=1) --}}
                         <div class="overflow-auto rounded-xl border border-gray-100 dark:border-gray-800">
                             <table class="w-full text-sm">
                                 <thead>
@@ -297,12 +306,11 @@
 
             {{-- Footer --}}
             <div class="flex justify-end border-t border-gray-100 px-6 py-4 dark:border-gray-800">
-                <x-filament::button color="gray" wire:click="closeModal">
+                <x-filament::button color="gray" @click="open = false">
                     Đóng
                 </x-filament::button>
             </div>
 
         </div>
     </div>
-    @endif
 </div>

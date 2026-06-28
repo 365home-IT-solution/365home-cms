@@ -3,6 +3,7 @@
 namespace Modules\Book\App\Filament\Resources\BookResource\Pages;
 
 use Modules\Book\App\Filament\Resources\BookResource;
+use Modules\Book\App\Filament\Traits\HasBookingHeaderActions;
 use Filament\Resources\Pages\Page;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -24,14 +25,23 @@ use Modules\Product\App\Models\RoomTimeSlot;
 use Modules\Product\App\Models\TimeSlot;
 use Modules\Promotion\App\Models\Promotion;
 use Filament\Notifications\Notification;
-use Modules\Book\App\Filament\Traits\HasBookingHeaderActions;
 use Modules\Promotion\App\Models\Coupon;
 use Modules\DataPermission\Entities\UserBranchPermission;
 
 class SettingBook extends Page implements HasForms
 {
     use InteractsWithForms;
-    use HasBookingHeaderActions;
+    use HasBookingHeaderActions {
+        getHeaderActions as private traitGetHeaderActions;
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return array_values(array_filter(
+            $this->traitGetHeaderActions(),
+            fn ($action) => $action->getName() !== 'block_calendar',
+        ));
+    }
 
     protected static string $resource = BookResource::class;
     protected static ?string $slug = 'cai-dat-he-thong-booking';

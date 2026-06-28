@@ -61,14 +61,22 @@ class BlockTimeslotModal extends Component
         return $query->pluck('name', 'id')->toArray();
     }
 
-    #[On('open-block-timeslot-modal')]
-    public function openModal(): void
+    // Called from Alpine via $wire.resetModal() when button is clicked — modal visibility
+    // is handled client-side by Alpine, so we only need to reset the form state here.
+    public function resetModal(): void
     {
         $this->reset([
             'product_id', 'timeslot_ids', 'date_from', 'date_to',
             'blockedList', 'timeslotOptions', 'isStyle2',
             'showConfirmClear', 'pendingRangeIndex', 'pendingDateItem',
         ]);
+    }
+
+    // Kept for any Livewire callers that still dispatch the event server-side.
+    #[On('open-block-timeslot-modal')]
+    public function openModal(): void
+    {
+        $this->resetModal();
         $this->showModal = true;
     }
 

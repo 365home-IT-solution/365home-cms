@@ -402,8 +402,8 @@
                                     .selectable.past-time { border:1px solid #d1d5db; }
                                     .selectable.past-time::after { content:""; position:absolute; inset:0; border-radius:999px !important; background-color:#f3f4f6; }
                                     .selectable.blocked { cursor:not-allowed !important; pointer-events:none; }
-                                    .selectable.blocked::after  { content:""; position:absolute; inset:0; border-radius:999px !important; background-color:#111827; z-index:5; }
-                                    .selectable.blocked::before { content:"🔒"; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:10px; z-index:10; pointer-events:none; }
+                                    .selectable.blocked::after  { content:""; position:absolute; inset:0; border-radius:999px !important; background-color:#4e6b4c; z-index:5; }
+                                    .selectable.blocked::before { content:""; }
                                     .selectable.promo::before { content:""; position:absolute; inset:0; border-radius:999px; background:linear-gradient(270deg,#f00,#f90,#3f0,#0ff,#30f,#f0c,#f00); background-size:300% 300%; animation:pdBorderFlow 10s linear infinite; z-index:-10; filter:blur(5px); }
                                     .selectable.promo::after   { content:""; position:absolute; inset:0; border-radius:999px; background:#fff; }
                                     .selectable-mini { position:relative; z-index:1; background:linear-gradient(135deg,#eef2ed,#e8f0e6) !important; border:1.5px solid #a8c4a0 !important; border-radius:999px !important; overflow:visible; }
@@ -462,8 +462,8 @@
                                     .slot-pg-btn:disabled { opacity:.4; cursor:not-allowed; }
                                     .slot-pg-info { color:rgba(255,255,255,.85); font-size:.75rem; font-weight:600; }
                                     /* ── blocked + promo: đặt cuối để thắng cascade (3-class > 2-class specificity) ── */
-                                    .selectable.blocked.promo::after  { content:"" !important; position:absolute !important; inset:0 !important; border-radius:999px !important; background-color:#111827 !important; z-index:15 !important; display:block !important; animation:none !important; filter:none !important; }
-                                    .selectable.blocked.promo::before { content:"🔒" !important; position:absolute !important; top:50% !important; left:50% !important; right:auto !important; bottom:auto !important; transform:translate(-50%,-50%) !important; font-size:10px !important; z-index:20 !important; pointer-events:none !important; background:none !important; filter:none !important; animation:none !important; opacity:1 !important; border-radius:0 !important; }
+                                    .selectable.blocked.promo::after  { content:"" !important; position:absolute !important; inset:0 !important; border-radius:999px !important; background-color:#4e6b4c !important; z-index:15 !important; display:block !important; animation:none !important; filter:none !important; }
+                                    .selectable.blocked.promo::before { content:"" !important; background:none !important; filter:none !important; animation:none !important; opacity:0 !important; }
                                 </style>
 
                                 {{-- ── Shared Alpine state (mobile + desktop) ── --}}
