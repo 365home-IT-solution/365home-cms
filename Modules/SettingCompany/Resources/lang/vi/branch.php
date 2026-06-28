@@ -3,7 +3,7 @@
 return [
     'resource' => [
         'navigation_icon' => 'heroicon-o-building-office-2',
-        'navigation_group' => 'Cấu hình thông tin',
+        'navigation_group' => 'Cấu hình web',
         'navigation_label' => 'Chi nhánh',
         'model_label' => 'Chi nhánh',
         'plural_label' => 'Chi nhánh',

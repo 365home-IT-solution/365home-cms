@@ -24,7 +24,7 @@ class TtlockAccountResource extends Resource
     protected static ?string $model = TtlockAccount::class;
 
     protected static ?string $navigationIcon  = 'heroicon-o-lock-closed';
-    protected static ?string $navigationGroup = 'Cấu hình thông tin';
+    protected static ?string $navigationGroup = 'Cấu hình web';
     protected static ?string $navigationLabel = 'Tài khoản TTLock';
     protected static ?string $modelLabel      = 'Tài khoản TTLock';
     protected static ?string $pluralModelLabel = 'Tài khoản TTLock';
