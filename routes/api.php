@@ -206,6 +206,7 @@ Route::prefix('auth')->name('api.auth.')->group(function () {
             Route::post('me',              [ZaloOtpController::class, 'update'])->name('me.update');
             Route::post('change-password', [ZaloOtpController::class, 'changePassword'])->name('change-password');
             Route::post('deactivate',      [ZaloOtpController::class, 'deactivate'])->name('deactivate');
+            Route::delete('account',       [ZaloOtpController::class, 'deleteAccount'])->name('delete-account');
         });
     });
 

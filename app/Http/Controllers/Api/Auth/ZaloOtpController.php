@@ -277,6 +277,20 @@ class ZaloOtpController extends Controller
     }
 
     /**
+     * Xoá tài khoản — do khách tự yêu cầu.
+     * Xoá toàn bộ token Sanctum rồi soft-delete customer.
+     */
+    public function deleteAccount(Request $request): JsonResponse
+    {
+        $customer = $request->user();
+
+        $customer->tokens()->delete();
+        $customer->delete();
+
+        return response()->json(['message' => 'Tài khoản đã được xoá thành công.']);
+    }
+
+    /**
      * Cập nhật thông tin khách hàng (yêu cầu token).
      * Body (multipart/form-data): fullname?, date_of_birth?, cccd_front?, cccd_back?
      */
