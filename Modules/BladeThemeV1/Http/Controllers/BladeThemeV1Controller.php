@@ -11,6 +11,7 @@ use Modules\Page\Entities\PageComponent;
 use Modules\BladeThemeV1\Traits\HandleColorTrait;
 use Modules\Post\Entities\Post;
 use Modules\Product\App\Models\Product;
+use App\Models\Province;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Http\Controllers\PaymentController;
 use Illuminate\Support\Facades\Log;
@@ -397,23 +398,60 @@ class BladeThemeV1Controller extends Controller
         ]);
     }
 
+    public function home()
+    {
+        $seoData = [
+            'seo_title'       => config('app.name', '365 HOME'),
+            'seo_description' => 'Đặt phòng nghỉ, coworking, phòng theo giờ chất lượng tại 365 HOME',
+            'seo_keywords'    => '365 home, đặt phòng, phòng theo giờ, coworking',
+            'og_type'         => 'website',
+        ];
+
+        return view('bladethemev1::pages.home', [
+            'primaryColor'     => $this->primaryColor,
+            'primaryColorRgb'  => $this->primaryColorRgb,
+            'heavyPrimaryColor' => $this->heavyPrimaryColor,
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+            'seoData'          => $seoData,
+        ]);
+    }
+
     public function searchProduct(Request $request)
     {
-        $this->primaryColor = $this->getFilamentPrimaryColor();
-        $search = $request->input('tim-kiem', '');
+        $location  = $request->query('location', '');
+
+        // Resolve province for map
+        $province = null;
+        $mapLat   = 16.0;
+        $mapLng   = 106.0;
+        $mapZoom  = 6;
+
+        if ($location) {
+            $province = Province::where('slug', $location)->first();
+            if ($province && $province->lat && $province->lng) {
+                $mapLat  = (float) $province->lat;
+                $mapLng  = (float) $province->lng;
+                $mapZoom = 13;
+            }
+        }
 
         $seoData = [
-            'seo_title' => 'Tìm kiếm sản phẩm' . ($search ? ': ' . $search : '') . ' | Goldenbeeltd',
-            'seo_description' => 'Trang tìm kiếm sản phẩm với đa dạng các mặt hàng chất lượng. Dễ dàng tìm kiếm và lọc sản phẩm theo danh mục, giá cả và nhiều tiêu chí khác.',
-            'seo_keywords' => 'tìm kiếm sản phẩm, tìm kiếm, mua sắm online, sản phẩm chất lượng, giá tốt, shop online'
+            'seo_title'       => 'Tìm kiếm phòng' . ($province ? ' tại ' . $province->name : '') . ' | 365 HOME',
+            'seo_description' => 'Tìm kiếm phòng nghỉ, coworking, phòng theo giờ chất lượng tại 365 HOME.',
+            'seo_keywords'    => 'tìm kiếm phòng, đặt phòng, phòng theo giờ, 365 home',
+            'og_type'         => 'website',
         ];
 
         return view('bladethemev1::pages.product.search', [
-            'seoData' => $seoData,
-            'primaryColor' => $this->primaryColor,
-            'primaryColorRgb' => $this->primaryColorRgb,
+            'seoData'          => $seoData,
+            'primaryColor'     => $this->primaryColor,
+            'primaryColorRgb'  => $this->primaryColorRgb,
             'heavyPrimaryColor' => $this->heavyPrimaryColor,
-            'lightPrimaryColor' => $this->lightPrimaryColor
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+            'province'         => $province,
+            'mapLat'           => $mapLat,
+            'mapLng'           => $mapLng,
+            'mapZoom'          => $mapZoom,
         ]);
     }
 

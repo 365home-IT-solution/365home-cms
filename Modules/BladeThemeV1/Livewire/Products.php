@@ -2,10 +2,13 @@
 
 namespace Modules\BladeThemeV1\Livewire;
 
+use App\Models\Province;
+use Livewire\Attributes\On;
 use Livewire\Component;
 use Modules\BladeThemeV1\Traits\HandleConfigTrait;
-use Modules\Product\App\Models\Product;
 use Modules\Category\Entities\Category;
+use Modules\Product\App\Models\Product;
+use Modules\Product\App\Models\RoomType;
 use Carbon\Carbon;
 
 class Products extends Component
@@ -16,43 +19,255 @@ class Products extends Component
     public $parentCategory;
     public $childCategories;
 
-    public function mount($config, $uniqueId)
+    // Search state
+    public bool   $hasSearchParams    = false;
+    public array  $searchSections     = [];
+    public string $searchKey          = '';   // thay đổi mỗi lần search → wire:key tạo DOM mới
+    public string $filterLocation     = '';
+    public string $filterType         = '';
+    public string $filterGuests       = '';
+    public string $filterCheckIn      = '';
+    public string $filterCheckOut     = '';
+    public string $filterBuoi         = '';
+    public string $filterProvinceName = '';
+    public string $filterTypeName     = '';
+
+    public function mount($config = null, $uniqueId = null)
     {
-        $this->setConfig($config);
-        $this->uniqueId = $uniqueId;
-        $listRoom = json_decode($config['list_room'] ?? '{}', true);
-        $categoriesWithKeys = $listRoom['categories'] ?? [];
-        $categoriesConfig = array_values($categoriesWithKeys);
-        $tempChildCategories = collect();
+        $this->uniqueId = $uniqueId ?? uniqid('products_');
 
-        foreach ($categoriesConfig as $configItem) {
-            $categoryId = $configItem['category_id'] ?? null;
-            $productIds = $configItem['products'] ?? [];
-            $grandChild = Category::with('parent')->find($categoryId);
+        // Chỉ xử lý config khi được truyền vào (gọi từ CMS loop)
+        if ($config) {
+            $this->setConfig($config);
+            $listRoom = json_decode($config['list_room'] ?? '{}', true);
+            $categoriesWithKeys = $listRoom['categories'] ?? [];
+            $categoriesConfig = array_values($categoriesWithKeys);
+            $tempChildCategories = collect();
 
-            if (!$grandChild) {
+            foreach ($categoriesConfig as $configItem) {
+                $categoryId = $configItem['category_id'] ?? null;
+                $productIds = $configItem['products'] ?? [];
+                $grandChild = Category::with('parent')->find($categoryId);
+
+                if (!$grandChild) continue;
+                if ($grandChild->parent) {
+                    $tempChildCategories->put($grandChild->parent->id, $grandChild->parent);
+                }
+                $this->configuredCategories[] = [
+                    'category' => $grandChild,
+                    'products' => !empty($productIds) ? $this->getRooms($productIds) : [],
+                ];
+            }
+
+            $this->childCategories = $tempChildCategories;
+            $firstChild = $this->childCategories->first();
+            $this->parentCategory = ($firstChild && $firstChild->parent_id)
+                ? Category::find($firstChild->parent_id)
+                : null;
+        }
+
+        // Đọc URL query params
+        $this->filterLocation = request()->query('location', '');
+        $this->filterType     = request()->query('type', '');
+        $this->filterGuests   = request()->query('guests', '');
+        $this->filterCheckIn  = request()->query('check_in', '');
+        $this->filterCheckOut = request()->query('check_out', '');
+        $this->filterBuoi     = request()->query('buoi', '');
+
+        $this->hasSearchParams = $this->filterLocation !== ''
+            || $this->filterType     !== ''
+            || $this->filterGuests   !== ''
+            || $this->filterCheckIn  !== ''
+            || $this->filterCheckOut !== ''
+            || $this->filterBuoi     !== '';
+
+        $this->loadFromSearch();
+    }
+
+    #[On('hero-search')]
+    public function handleHeroSearch(
+        string $location = '',
+        string $type     = '',
+        string $guests   = '',
+        string $checkIn  = '',
+        string $checkOut = '',
+        string $buoi     = ''
+    ): void {
+        $this->filterLocation = $location;
+        $this->filterType     = $type;
+        $this->filterGuests   = $guests;
+        $this->filterCheckIn  = $checkIn;
+        $this->filterCheckOut = $checkOut;
+        $this->filterBuoi     = $buoi;
+
+        $this->hasSearchParams = $location !== ''
+            || $type     !== ''
+            || $guests   !== ''
+            || $checkIn  !== ''
+            || $checkOut !== ''
+            || $buoi     !== '';
+
+        // Luôn load (có hoặc không có filter)
+        $this->loadFromSearch();
+
+        // Báo JS biết Livewire đã re-render xong để scroll + init carousels
+        $this->dispatch('products-updated');
+    }
+
+    private function loadFromSearch(): void
+    {
+        // Key thay đổi mỗi lần search → wire:key trên carousel tạo DOM mới hoàn toàn
+        $this->searchKey = substr(md5(
+            $this->filterType . '|' . $this->filterLocation . '|' .
+            $this->filterGuests . '|' . $this->filterCheckIn . '|' . $this->filterCheckOut .
+            '|' . microtime()
+        ), 0, 8);
+
+        // Resolve tên tỉnh / loại phòng để hiển thị
+        $this->filterProvinceName = '';
+        $this->filterTypeName     = '';
+
+        if ($this->filterLocation) {
+            $province = Province::where('slug', $this->filterLocation)->first();
+            $this->filterProvinceName = $province?->name ?? $this->filterLocation;
+        }
+
+        if ($this->filterType) {
+            $roomType = RoomType::where('slug', $this->filterType)->first();
+            $this->filterTypeName = $roomType?->name ?? $this->filterType;
+        }
+
+        // --- Build base query ---
+        $query = Product::where('is_activated', true)
+            ->where('is_in_stock', true)
+            ->orderBy('sort_order');
+
+        // Chỉ lấy sản phẩm có room type đang active (bỏ qua product chưa gán room type)
+        $query->whereHas('roomType', fn($q) => $q->where('is_active', true));
+
+        // Lọc theo loại phòng
+        if ($this->filterType) {
+            $query->whereHas('roomType', fn($q) => $q->where('slug', $this->filterType));
+        }
+
+        // Lọc theo tỉnh: province → province_branches → categories (branch + children)
+        if ($this->filterLocation) {
+            $province = Province::where('slug', $this->filterLocation)->first();
+            if ($province) {
+                $branchCatIds = $province->branches()
+                    ->where('status', true)
+                    ->pluck('categorie_id')
+                    ->toArray();
+
+                $childCatIds = Category::whereIn('parent_id', $branchCatIds)
+                    ->pluck('id')
+                    ->toArray();
+
+                $allCatIds = array_merge($branchCatIds, $childCatIds);
+
+                $query->whereHas('categories', fn($q) => $q->whereIn('categories.id', $allCatIds));
+            }
+        }
+
+        // Lọc theo loại đặt phòng: 1 = theo giờ, 2 = theo ngày (cột styles)
+        if ($this->filterBuoi !== '') {
+            $query->where('styles', (int) $this->filterBuoi);
+        }
+
+        // Lọc số khách (nếu products có trường số khách thì thêm ở đây)
+        // Hiện tại bỏ qua vì products chưa có trường guests
+
+        // Loại bỏ phòng đã được đặt trùng với khung giờ tìm kiếm
+        // Overlap: booking.checkin_date < filterCheckOut AND booking.checkout_date > filterCheckIn
+        if ($this->filterCheckIn && $this->filterCheckOut) {
+            $searchCheckIn  = $this->parseSearchDate($this->filterCheckIn);
+            $searchCheckOut = $this->parseSearchDate($this->filterCheckOut);
+
+            if ($searchCheckIn && $searchCheckOut && $searchCheckOut->gt($searchCheckIn)) {
+                $query->whereDoesntHave('orderItems', function ($q) use ($searchCheckIn, $searchCheckOut) {
+                    $q->whereNotNull('checkin_date')
+                      ->whereNotNull('checkout_date')
+                      ->where('checkin_date', '<', $searchCheckOut)
+                      ->where('checkout_date', '>', $searchCheckIn)
+                      ->whereHas('order', function ($oq) {
+                          $oq->whereIn('status', ['pending', 'paid', 'shipped', 'deposit', 'confirmed']);
+                      });
+                });
+            }
+        }
+
+        $productIds = $query->pluck('id')->toArray();
+
+        if (empty($productIds)) {
+            $this->searchSections = [];
+            return;
+        }
+
+        // Lấy products đã map (reuse getRooms())
+        $products = $this->getRooms($productIds);
+
+        // Load categories kèm parent để hiển thị vị trí trên card
+        $allCatIdList = $products->flatMap(function ($p) {
+            return collect(explode(',', (string) ($p->cate_id ?? '')))->filter()->map('intval');
+        })->unique()->values()->toArray();
+
+        $catMap = Category::with('parent')
+            ->whereIn('id', $allCatIdList)
+            ->get()
+            ->keyBy('id');
+
+        // Gắn thông tin category vào từng product
+        $products = $products->map(function ($product) use ($catMap) {
+            $firstCatId = collect(explode(',', (string) ($product->cate_id ?? '')))
+                ->filter()
+                ->map('intval')
+                ->first();
+
+            $grandchild = $firstCatId ? $catMap->get($firstCatId) : null;
+            $product->display_grandchild = $grandchild;
+            $product->display_child      = $grandchild?->parent;
+            return $product;
+        });
+
+        // Group by room type, theo sort_order của room type
+        $roomTypes = RoomType::where('is_active', true)
+            ->orderBy('sort_order')
+            ->get()
+            ->keyBy('id');
+
+        $grouped = $products->groupBy(fn($p) => $p->room_type_id ?? 0);
+
+        $sections = [];
+        $groupedRoomTypeIds = [];
+
+        foreach ($roomTypes as $rtId => $rt) {
+            $group = $grouped->get($rtId);
+            if (!$group || $group->isEmpty()) {
                 continue;
             }
-            if ($grandChild->parent) {
-                $tempChildCategories->put($grandChild->parent->id, $grandChild->parent);
-            }
-            $products = [];
-            if (!empty($productIds)) {
-                $products = $this->getRooms($productIds);
-            }
-            $this->configuredCategories[] = [
-                'category' => $grandChild,
-                'products' => $products
+            $groupedRoomTypeIds[] = $rtId;
+            $sections[] = [
+                'title'    => $rt->name,
+                'slug'     => $rt->slug,
+                'count'    => $group->count(),
+                'products' => $group->values(),
             ];
         }
 
-        $this->childCategories = $tempChildCategories;
-        $firstChild = $this->childCategories->first();
-        if ($firstChild && $firstChild->parent_id) {
-            $this->parentCategory = Category::find($firstChild->parent_id);
-        } else {
-            $this->parentCategory = null;
+        // Products không có room_type_id hoặc room type không active → nhóm chung vào section "Phòng"
+        $ungrouped = $products->filter(
+            fn($p) => !$p->room_type_id || !in_array((int) $p->room_type_id, $groupedRoomTypeIds)
+        );
+        if ($ungrouped->isNotEmpty()) {
+            $sections[] = [
+                'title'    => 'Phòng',
+                'slug'     => 'phong',
+                'count'    => $ungrouped->count(),
+                'products' => $ungrouped->values(),
+            ];
         }
+
+        $this->searchSections = $sections;
     }
 
 public function getRooms($productIds)
@@ -68,6 +283,7 @@ public function getRooms($productIds)
         },
         'orderItems.order',
     ])
+        ->withCount('ratings')
         ->where('is_activated', 1)
         ->whereIn('id', $productIds)
         ->get()
@@ -104,7 +320,7 @@ public function getRooms($productIds)
                         
                         return "{$timeValue}:{$slot->price}";
 
-                    } catch (\Exception $e) {
+                    } catch (\Exception) {
                         return null;
                     }
                 })
@@ -142,6 +358,23 @@ public function getRooms($productIds)
         });
     return $products->unique('pid')->values();
 }
+
+    /**
+     * Parse chuỗi ngày từ hero section (format "DD/MM/YYYY HH:MM" hoặc ISO)
+     * Carbon::parse() không nhận DD/MM/YYYY nên phải thử tuần tự các format.
+     */
+    private function parseSearchDate(string $value): ?Carbon
+    {
+        $formats = ['d/m/Y H:i', 'd/m/Y G:i', 'd/m/Y', 'Y-m-d H:i:s', 'Y-m-d H:i', 'Y-m-d'];
+        foreach ($formats as $fmt) {
+            try {
+                return Carbon::createFromFormat($fmt, trim($value));
+            } catch (\Exception) {
+                // thử format tiếp theo
+            }
+        }
+        return null;
+    }
 
     public function render()
     {
