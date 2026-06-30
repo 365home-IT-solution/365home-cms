@@ -9,6 +9,7 @@
 
     @if (request()->path() === '/')
         {{-- Trang chủ: chỉ render hero-section + các section tùy chỉnh --}}
+        @livewire('bladethemev1::hero-section')
         @livewire('bladethemev1::flash-sale')
         @livewire('bladethemev1::voucher')
         @livewire('bladethemev1::province-list')

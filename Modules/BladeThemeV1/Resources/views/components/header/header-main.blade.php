@@ -60,12 +60,11 @@
     };
 
     $initialBackground = $header_style ? 'background-color: transparent;' : "background-color: $headerBackgroundColor;";
-    // Màu nền ban đầu để dùng trong Alpine :style binding
     $initBgColor = $header_style ? 'transparent' : $headerBackgroundColor;
-    // Filter logo: trắng khi transparent trên hero, tự nhiên khi đã scroll
+    // Homepage: transparent→white khi scroll, logo invert→gốc. Non-homepage: luôn trắng, logo gốc
     $logoFilterExpr = $header_style
         ? "!isSticky ? 'brightness(0) invert(1)' : 'none'"
-        : "'brightness(0) invert(1)'";
+        : "'none'";
 @endphp
 
 <div id="main-header-bar"
@@ -84,14 +83,16 @@
         @endif
     }, { passive: true })"
      :class="{
-        'shadow-md': isSticky && {{ $addShadow ? 'true' : 'false' }},
+        'shadow-md': (isSticky || {{ !$header_style ? 'true' : 'false' }}) && {{ $addShadow ? 'true' : 'false' }},
+        'border-b border-gray-100': isSticky || {{ !$header_style ? 'true' : 'false' }},
         'backdrop-blur-sm': !isSticky && {{ $header_style ? 'true' : 'false' }},
         'header-hero-transparent': !isSticky && {{ $header_style ? 'true' : 'false' }},
+        'header-hero-sticky': isSticky || {{ !$header_style ? 'true' : 'false' }},
      }"
      class="w-full z-50 transition-all duration-300 ease-in-out {{ $header_style ? 'fixed top-0 left-0 right-0' : '' }}">
 
     <div class="flex items-center transition-all duration-300 ease-in-out"
-         :style="{ height: '{{ $headerHeight }}', backgroundColor: isSticky ? '{{ $headerBackgroundColor }}' : '{{ $initBgColor }}' }">
+         :style="{ height: '{{ $headerHeight }}', backgroundColor: (isSticky || {{ !$header_style ? 'true' : 'false' }}) ? 'white' : '{{ $initBgColor }}' }">
 
         <div class="w-full md:px-8 px-4 mx-auto py-[8px]">
                 <div class='flex flex-wrap items-center justify-between relative'>
@@ -190,13 +191,16 @@
 </div>
 
 <style>
-    /* Khi navbar transparent trên hero, force nav links và action buttons sang màu trắng */
-    .header-hero-transparent ul button,
-    .header-hero-transparent ul li > span {
-        color: white !important;
+    /* Sau khi scroll xuống (nền trắng): chữ màu primary, gạch chân primary */
+    .header-hero-sticky .main-menu-item {
+        color: var(--color-primary) !important;
     }
-    .header-hero-transparent .header-hero-transparent ul a:hover {
-        color: rgba(255,255,255,0.8) !important;
+    .header-hero-sticky .main-menu-item:hover {
+        color: var(--color-primary) !important;
+        opacity: 0.8;
+    }
+    .header-hero-sticky .main-menu-item::after {
+        background: var(--color-primary) !important;
     }
 
     /* Custom styles for mobile optimization */

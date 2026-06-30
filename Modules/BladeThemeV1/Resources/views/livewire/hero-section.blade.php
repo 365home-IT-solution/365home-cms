@@ -1,5 +1,5 @@
 <div
-    x-data="{ heroShrunk: window.__heroAlwaysCompact || false, compactTop: '0px', formOpen: false }"
+    x-data="{ heroShrunk: window.__heroAlwaysCompact || false, compactTop: '0px', formOpen: false, menuOpen: false }"
     x-init="
         if (window.__heroAlwaysCompact) {
             heroShrunk = true;
@@ -25,8 +25,45 @@
             });
             window.addEventListener('scroll', () => {
                 const threshold = window.__heroScrollThreshold ?? (_heroH > 0 ? _heroH - 80 : 300);
-                heroShrunk = window.scrollY > threshold;
+                const shrunk = window.scrollY > threshold;
+                if (shrunk !== heroShrunk) {
+                    heroShrunk = shrunk;
+                    window.dispatchEvent(new CustomEvent(shrunk ? 'hero-shrunk' : 'hero-expanded'));
+                }
             }, { passive: true });
+            const _hideHeader = () => {
+                const h = document.getElementById('main-header-bar');
+                if (!h) return;
+                h.style.transition = 'transform 220ms ease-in-out, opacity 220ms ease-in-out';
+                h.style.transform = 'translateY(-110%)';
+                h.style.opacity = '0';
+                h.style.pointerEvents = 'none';
+            };
+            const _showHeader = () => {
+                const h = document.getElementById('main-header-bar');
+                if (!h) return;
+                h.style.transition = 'transform 220ms ease-in-out, opacity 220ms ease-in-out';
+                h.style.transform = '';
+                h.style.opacity = '';
+                h.style.pointerEvents = '';
+            };
+            $watch('heroShrunk', val => {
+                if (val) { _hideHeader(); compactTop = '0px'; }
+                else { _showHeader(); compactTop = document.getElementById('main-header-bar')?.offsetHeight + 'px' || '0px'; }
+            });
+            $watch('formOpen', val => {
+                if (!heroShrunk) return;
+                if (val) {
+                    _showHeader();
+                    setTimeout(() => {
+                        const h = document.getElementById('main-header-bar');
+                        compactTop = (h && h.offsetHeight > 0) ? h.offsetHeight + 'px' : '0px';
+                    }, 30);
+                } else {
+                    _hideHeader();
+                    compactTop = '0px';
+                }
+            });
         }
         document.addEventListener('livewire:navigated', () => { heroShrunk = window.__heroAlwaysCompact || false; });
     ">
@@ -190,6 +227,18 @@
         };
     </script>
 
+    <style>
+        .search-pill {
+            transition: left 300ms cubic-bezier(0.4, 0, 0.2, 1),
+                        width 300ms cubic-bezier(0.4, 0, 0.2, 1),
+                        opacity 200ms ease;
+        }
+        .menu-drawer {
+            display: flex;
+            flex-direction: column;
+        }
+    </style>
+
     @php
         $labelClass   = $noBanner ? 'text-gray-500'  : 'text-white/80';
         $tabInactive  = $noBanner
@@ -261,9 +310,9 @@
                     style="overflow:visible;">
 
                     {{-- Sliding highlight pill --}}
-                    <div class="absolute rounded-xl bg-white shadow-md pointer-events-none"
-                         :style="`top:6px; bottom:6px; left:${pillLeft}px; width:${pillWidth}px; opacity:${anyOpen?1:0};`"
-                         style="z-index:5; transition:left 300ms cubic-bezier(0.4,0,0.2,1),width 300ms cubic-bezier(0.4,0,0.2,1),opacity 200ms ease;"></div>
+                    <div class="search-pill absolute rounded-xl bg-white shadow-md pointer-events-none"
+                         style="z-index:5;"
+                         :style="{ top:'6px', bottom:'6px', left:pillLeft+'px', width:pillWidth+'px', opacity:anyOpen?1:0 }"></div>
 
                     {{-- Địa điểm --}}
                     <div @click.outside="locOpen = false" data-field="loc" class="relative z-10 flex-[3] min-w-0">
@@ -660,7 +709,7 @@
 
         {{-- Pill thu gọn --}}
         <div x-show="!formOpen"
-             style="background:#fff; border-bottom:1px solid #f0f0f0; box-shadow:0 2px 12px rgba(0,0,0,.07); padding:9px 20px; display:flex; align-items:center; gap:14px;">
+             style="background:#fff; border-bottom:1px solid #f0f0f0; box-shadow:0 2px 12px rgba(0,0,0,.07); padding:9px 64px 9px 16px; position:relative; display:flex; align-items:center;">
 
             <button @click="formOpen = true"
                     style="flex:1; display:flex; align-items:center; gap:0; border:1.5px solid #e5e7eb; border-radius:99px; background:#fff; box-shadow:0 1px 6px rgba(0,0,0,.08); cursor:pointer; overflow:hidden; max-width:52rem; margin:0 auto; transition:box-shadow .2s, border-color .2s;"
@@ -701,6 +750,16 @@
                         </svg>
                     </span>
                 </span>
+            </button>
+
+            {{-- Hamburger --}}
+            <button @click.stop="menuOpen = !menuOpen"
+                    style="position:absolute; right:16px; top:50%; transform:translateY(-50%); width:42px; height:42px; border-radius:12px; background:white; border:1.5px solid #e5e7eb; display:flex; align-items:center; justify-content:center; cursor:pointer; box-shadow:0 1px 6px rgba(0,0,0,.08); transition:all .2s; flex-shrink:0;"
+                    onmouseover="this.style.background='#f0fdfa'; this.style.borderColor='#99f6e4';"
+                    onmouseout="this.style.background='white'; this.style.borderColor='#e5e7eb';">
+                <svg style="width:18px;height:18px;color:#374151;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                </svg>
             </button>
         </div>
 
@@ -747,9 +806,9 @@
                         style="overflow:visible;">
 
                         {{-- Sliding highlight pill --}}
-                        <div class="absolute rounded-xl bg-white shadow-md pointer-events-none"
-                             :style="`top:6px; bottom:6px; left:${pillLeft}px; width:${pillWidth}px; opacity:${anyOpen?1:0};`"
-                             style="z-index:5; transition:left 300ms cubic-bezier(0.4,0,0.2,1),width 300ms cubic-bezier(0.4,0,0.2,1),opacity 200ms ease;"></div>
+                        <div class="search-pill absolute rounded-xl bg-white shadow-md pointer-events-none"
+                             style="z-index:5;"
+                             :style="{ top:'6px', bottom:'6px', left:pillLeft+'px', width:pillWidth+'px', opacity:anyOpen?1:0 }"></div>
 
                         {{-- Địa điểm --}}
                         <div @click.outside="locOpen = false" data-field="loc" class="relative z-10 flex-[3] min-w-0">
@@ -1011,6 +1070,102 @@
 
                 </div>
             </div>
+        </div>
+    </div>
+
+    {{-- Backdrop --}}
+    <div x-show="menuOpen"
+         x-cloak
+         style="display:none; position:fixed; inset:0; z-index:1999; background:rgba(0,0,0,0.45);"
+         x-transition:enter="transition ease-out duration-300"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-200"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         @click="menuOpen = false"></div>
+
+    {{-- Slide-in menu drawer --}}
+    <div x-show="menuOpen"
+         x-cloak
+         class="menu-drawer"
+         style="position:fixed; top:0; right:0; bottom:0; width:min(340px,90vw); z-index:2000; background:white; box-shadow:-8px 0 40px rgba(0,0,0,0.18); overflow-y:auto;"
+         x-transition:enter="transition ease-out duration-300"
+         x-transition:enter-start="translate-x-full"
+         x-transition:enter-end="translate-x-0"
+         x-transition:leave="transition ease-in duration-250"
+         x-transition:leave-start="translate-x-0"
+         x-transition:leave-end="translate-x-full">
+
+        {{-- Topbar: logo + close --}}
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f3f4f6; flex-shrink:0;">
+            <span style="font-size:16px; font-weight:700; color:#111827; letter-spacing:-.3px;">Menu</span>
+            <button @click="menuOpen = false"
+                    style="width:34px; height:34px; border-radius:50%; background:#f3f4f6; border:none; color:#6b7280; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background .2s;"
+                    onmouseover="this.style.background='#e5e7eb';" onmouseout="this.style.background='#f3f4f6';">
+                <svg style="width:16px;height:16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+
+        {{-- Nav items --}}
+        <div style="padding:8px 0; flex:1;">
+            @foreach($navLinks as $link)
+            <a href="{{ $link['url'] }}"
+               @click="menuOpen = false"
+               style="display:flex; align-items:center; gap:14px; padding:13px 20px; text-decoration:none; color:#374151; transition:all .15s; cursor:pointer;"
+               onmouseover="this.style.background='#f9fafb'; this.style.color='#0f766e';"
+               onmouseout="this.style.background=''; this.style.color='#374151';">
+                <span style="width:34px; height:34px; border-radius:9px; background:#f3f4f6; display:flex; align-items:center; justify-content:center; flex-shrink:0;">{!! $link['icon'] !!}</span>
+                <span style="font-size:14px; font-weight:600; flex:1;">{{ $link['label'] }}</span>
+                <svg style="width:13px;height:13px;color:#d1d5db; flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+            </a>
+            @endforeach
+        </div>
+
+        {{-- Divider + Auth --}}
+        <div style="border-top:1px solid #f3f4f6; padding:12px 20px 20px; flex-shrink:0;"
+             x-data="{
+                authUser: null,
+                init() {
+                    this.load();
+                    window.addEventListener('auth-state-changed', () => this.load());
+                },
+                load() {
+                    try {
+                        const t = localStorage.getItem('auth_token');
+                        const u = localStorage.getItem('auth_user');
+                        this.authUser = (t && u) ? JSON.parse(u) : null;
+                    } catch(e) { this.authUser = null; }
+                },
+                openLogin() { window.dispatchEvent(new CustomEvent('open-auth-modal')); menuOpen = false; }
+             }">
+            <template x-if="!authUser">
+                <button @click="openLogin()"
+                        style="width:100%; display:flex; align-items:center; gap:12px; padding:13px 16px; background:#f9fafb; border:1.5px solid #e5e7eb; border-radius:12px; cursor:pointer; transition:all .15s; text-align:left;"
+                        onmouseover="this.style.background='#f0fdfa'; this.style.borderColor='#99f6e4';"
+                        onmouseout="this.style.background='#f9fafb'; this.style.borderColor='#e5e7eb';">
+                    <span style="width:34px; height:34px; border-radius:9px; background:#e5e7eb; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                        <svg style="width:16px;height:16px;color:#6b7280;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                        </svg>
+                    </span>
+                    <span style="font-size:14px; font-weight:600; color:#374151; flex:1;">Đăng nhập</span>
+                    <svg style="width:13px;height:13px;color:#d1d5db;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </button>
+            </template>
+            <template x-if="authUser">
+                <div style="display:flex; align-items:center; gap:12px; padding:12px 16px; background:#f9fafb; border:1.5px solid #e5e7eb; border-radius:12px;">
+                    <span style="width:34px; height:34px; border-radius:50%; background:#0f766e; display:flex; align-items:center; justify-content:center; flex-shrink:0; color:white; font-size:14px; font-weight:700;"
+                          x-text="authUser.fullname ? authUser.fullname.charAt(0).toUpperCase() : '?'"></span>
+                    <span style="font-size:14px; font-weight:600; color:#111827; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" x-text="authUser.fullname"></span>
+                </div>
+            </template>
         </div>
     </div>
 </div>

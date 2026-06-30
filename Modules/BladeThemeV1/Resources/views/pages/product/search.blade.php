@@ -84,16 +84,17 @@
 
         /* Leaflet popup — Airbnb style */
         .leaflet-popup-content-wrapper {
-            border-radius: 16px !important;
+            border-radius: 14px !important;
             padding: 0 !important;
             overflow: hidden;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, .22) !important;
-            border: none !important;
+            box-shadow: 0 4px 24px rgba(0,0,0,.18), 0 1px 6px rgba(0,0,0,.10) !important;
+            border: 1px solid rgba(0,0,0,.06) !important;
         }
 
         .leaflet-popup-content {
             margin: 0 !important;
-            width: 260px !important;
+            width: 244px !important;
+            line-height: 1 !important;
         }
 
         .leaflet-popup-tip-container {
@@ -102,18 +103,19 @@
 
         .leaflet-popup-close-button {
             position: absolute !important;
-            top: 8px !important;
-            right: 8px !important;
-            background: rgba(0, 0, 0, .45) !important;
+            top: 7px !important;
+            right: 7px !important;
+            background: rgba(0,0,0,.42) !important;
             border-radius: 50% !important;
-            width: 24px !important;
-            height: 24px !important;
+            width: 22px !important;
+            height: 22px !important;
             padding: 0 !important;
             color: #fff !important;
-            font-size: 18px !important;
-            line-height: 24px !important;
+            font-size: 16px !important;
+            line-height: 22px !important;
             text-align: center;
             z-index: 20;
+            backdrop-filter: blur(4px);
         }
 
         /* Popup slide arrows */
@@ -121,40 +123,41 @@
             position: absolute;
             top: 50%;
             transform: translateY(-50%);
-            width: 28px;
-            height: 28px;
+            width: 26px;
+            height: 26px;
             border-radius: 50%;
-            background: rgba(255, 255, 255, .92);
+            background: rgba(255,255,255,.95);
             border: none;
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 700;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 1px 5px rgba(0, 0, 0, .25);
+            box-shadow: 0 1px 6px rgba(0,0,0,.22);
             color: #111;
             z-index: 5;
+            transition: background .15s, transform .15s;
+        }
+        .bpop-arr:hover {
+            background: #fff;
+            transform: translateY(-50%) scale(1.1);
         }
 
-        .bpop-arr-l {
-            left: 8px;
-        }
-
-        .bpop-arr-r {
-            right: 8px;
-        }
+        .bpop-arr-l { left: 7px; }
+        .bpop-arr-r { right: 7px; }
 
         .bpop-ct {
             position: absolute;
-            bottom: 8px;
-            right: 8px;
-            background: rgba(0, 0, 0, .5);
+            bottom: 7px;
+            right: 7px;
+            background: rgba(0,0,0,.48);
             color: #fff;
-            font-size: 11px;
-            padding: 2px 8px;
+            font-size: 10px;
+            padding: 2px 7px;
             border-radius: 10px;
             font-weight: 600;
+            backdrop-filter: blur(3px);
         }
     </style>
 
@@ -258,26 +261,21 @@
             var arrows = hasMany ?
                 '<button class="bpop-arr bpop-arr-l" onclick="__bpopNav(\'' + popId + '\',-1)">&#8249;</button>' +
                 '<button class="bpop-arr bpop-arr-r" onclick="__bpopNav(\'' + popId + '\',1)">&#8250;</button>' +
-                '<div id="' + popId + '-ct" class="bpop-ct"></div>' :
-                '';
+                '<div id="' + popId + '-ct" class="bpop-ct"></div>' : '';
 
-            return '<div>'
-                // Image area 155px tall
-                +
-                '<div style="position:relative;height:155px;overflow:hidden;background:#f3f4f6;">' +
-                '<div id="' + popId + '-imgwrap" style="width:100%;height:100%;"></div>' +
-                arrows +
-                '</div>'
-                // Body
-                +
-                '<div style="padding:11px 14px 14px;">' +
-                '<p id="' + popId +
-                '-name" style="font-size:13px;font-weight:700;color:#111827;margin:0 0 5px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.45;min-height:2.2em;"></p>' +
-                '<p id="' + popId + '-price" style="font-size:15px;font-weight:800;color:#111827;margin:0 0 11px;"></p>' +
-                '<a id="' + popId +
-                '-btn" href="#" style="display:block;background:#0f766e;color:#fff;font-size:12px;font-weight:700;text-align:center;padding:8px;border-radius:9px;text-decoration:none;" onclick="return this.href!==\'#\'">Đặt ngay →</a>' +
-                '</div>' +
-                '</div>';
+            return '<div style="background:#fff;">'
+                + '<div style="position:relative;height:138px;overflow:hidden;background:#f3f4f6;">'
+                +   '<div id="' + popId + '-imgwrap" style="width:100%;height:100%;"></div>'
+                +   arrows
+                + '</div>'
+                + '<div style="padding:10px 12px 12px;">'
+                +   '<p id="' + popId + '-name" style="font-size:12.5px;font-weight:700;color:#111827;margin:0 0 3px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.4;"></p>'
+                +   '<p id="' + popId + '-price" style="font-size:14px;font-weight:800;color:#0f766e;margin:0 0 9px;"></p>'
+                +   '<a id="' + popId + '-btn" href="#" '
+                +     'style="display:block;background:#0f766e;color:#fff;font-size:12px;font-weight:700;text-align:center;padding:7px 10px;border-radius:8px;text-decoration:none;letter-spacing:.01em;" '
+                +     'onclick="return this.href!==\'#\'">Xem phòng →</a>'
+                + '</div>'
+                + '</div>';
         }
 
         // ─── Map init ────────────────────────────────────────────────────────────────
@@ -356,10 +354,7 @@
                 if (card) {
                     card.addEventListener('click', function() {
                         activateCard();
-                        if (hasCoords) map.flyTo([lat, lng], 15, {
-                            duration: 0.5,
-                            easeLinearity: 0.4
-                        });
+                        if (hasCoords) lm.openPopup();
                     });
                 }
 
@@ -390,17 +385,30 @@
                 // Popup
                 var popupHtml = buildPopupHtml(popId, rooms);
                 lm.bindPopup(popupHtml, {
-                    maxWidth: 260,
-                    minWidth: 260,
+                    maxWidth: 244,
+                    minWidth: 244,
                     closeButton: true,
                     autoPan: true,
-                    offset: L.point(0, -10)
+                    autoPanPaddingTopLeft: L.point(16, 16),
+                    autoPanPaddingBottomRight: L.point(16, 16),
+                    offset: L.point(0, -6)
                 });
 
                 // Render popup content sau khi DOM sẵn sàng
                 lm.on('popupopen', function() {
                     __popups[popId].idx = 0;
                     __bpopRender(popId);
+
+                    // Đưa marker vào giữa map, offset lên trên ~30% để popup hiện bên trên không bị cắt
+                    var mapSize = map.getSize();
+                    var markerPx = map.latLngToContainerPoint([lat, lng]);
+                    var popupH = 280; // chiều cao popup ước tính
+                    var targetY = mapSize.y / 2 + popupH / 2 - 10;
+                    var dy = markerPx.y - targetY;
+                    if (Math.abs(dy) > 20) {
+                        map.panBy([0, dy], { animate: true, duration: 0.35, easeLinearity: 0.5 });
+                    }
+
                     // Activate pin style
                     var pinEl = lm.getElement();
                     if (pinEl) {
@@ -408,10 +416,7 @@
                         if (b) b.classList.add('active');
                     }
                     activateCard();
-                    if (card) card.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'nearest'
-                    });
+                    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 });
 
                 lm.on('popupclose', function() {

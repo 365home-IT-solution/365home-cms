@@ -59,10 +59,14 @@ class SearchResultsGrid extends Component
         if ($checkOut->lte($checkIn)) return [];
 
         // Overlap condition: checkin_date < $checkOut AND checkout_date > $checkIn
-        return OrderItem::whereHas('order', fn ($q) => $q->whereIn('status', ['paid', 'deposit', 'shipped']))
+        return OrderItem::whereHas('order', fn ($q) => $q->whereIn('status', ['paid', 'deposit', 'shipped', 'confirmed']))
+            ->whereNotNull('product_id')
+            ->whereNotNull('checkin_date')
+            ->whereNotNull('checkout_date')
             ->where('checkin_date', '<', $checkOut)
             ->where('checkout_date', '>', $checkIn)
             ->pluck('product_id')
+            ->filter()
             ->unique()
             ->values()
             ->toArray();

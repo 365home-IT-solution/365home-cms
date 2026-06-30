@@ -8,7 +8,7 @@
     @livewire('bladethemev1::drawer-menu')
 
     {{-- Hero Section --}}
-    {{-- @livewire('bladethemev1::hero-section') --}}
+    @livewire('bladethemev1::hero-section')
 
     {{-- Flash Sale --}}
     @livewire('bladethemev1::flash-sale')
