@@ -23,14 +23,6 @@
                 const s = $el.querySelector('section');
                 if (s) _heroH = s.offsetHeight;
             });
-            window.addEventListener('scroll', () => {
-                const threshold = window.__heroScrollThreshold ?? (_heroH > 0 ? _heroH - 80 : 300);
-                const shrunk = window.scrollY > threshold;
-                if (shrunk !== heroShrunk) {
-                    heroShrunk = shrunk;
-                    window.dispatchEvent(new CustomEvent(shrunk ? 'hero-shrunk' : 'hero-expanded'));
-                }
-            }, { passive: true });
             const _hideHeader = () => {
                 const h = document.getElementById('main-header-bar');
                 if (!h) return;
@@ -47,6 +39,28 @@
                 h.style.opacity = '';
                 h.style.pointerEvents = '';
             };
+            const _onScroll = () => {
+                // Tự huỷ nếu hero-section không còn nằm trong trang (VD: đã chuyển trang qua wire:navigate
+                // nhưng listener cũ vẫn còn sống) — tránh ẩn nhầm header ở trang không có hero-section.
+                if (!$el.isConnected) {
+                    window.removeEventListener('scroll', _onScroll);
+                    _showHeader();
+                    return;
+                }
+                const threshold = window.__heroScrollThreshold ?? (_heroH > 0 ? _heroH - 80 : 300);
+                const shrunk = window.scrollY > threshold;
+                if (shrunk !== heroShrunk) {
+                    heroShrunk = shrunk;
+                    window.dispatchEvent(new CustomEvent(shrunk ? 'hero-shrunk' : 'hero-expanded'));
+                }
+            };
+            window.addEventListener('scroll', _onScroll, { passive: true });
+            // Gỡ listener + trả header về trạng thái bình thường khi rời trang qua wire:navigate,
+            // tránh listener của trang này còn sống và ẩn header ở trang kế tiếp không có hero-section.
+            document.addEventListener('livewire:navigating', () => {
+                window.removeEventListener('scroll', _onScroll);
+                _showHeader();
+            }, { once: true });
             $watch('heroShrunk', val => {
                 if (val) { _hideHeader(); compactTop = '0px'; }
                 else { _showHeader(); compactTop = document.getElementById('main-header-bar')?.offsetHeight + 'px' || '0px'; }
@@ -78,24 +92,52 @@
                 checkInMin: 0,
                 checkOutHour: 12,
                 checkOutMin: 0,
+                checkInHourOpen: false,
+                checkOutHourOpen: false,
+                checkInHourPos: { openUp: true, top: 0, bottom: 0, left: 0, width: 0 },
+                checkOutHourPos: { openUp: true, top: 0, bottom: 0, left: 0, width: 0 },
+                _hourDropdownCleanup: null,
+                computeHourDropdownPos(boxEl) {
+                    const r = boxEl.getBoundingClientRect();
+                    const panelH = 180; // ước lượng chiều cao dropdown (max-height panel)
+                    const openUp = r.top - 6 >= panelH || (window.innerHeight - r.bottom - 6) < panelH;
+                    return openUp
+                        ? { openUp: true, bottom: window.innerHeight - r.top + 6, top: 0, left: r.left, width: Math.max(r.width, 160) }
+                        : { openUp: false, top: r.bottom + 6, bottom: 0, left: r.left, width: Math.max(r.width, 160) };
+                },
+                openHourDropdown(which, boxEl) {
+                    if (this._hourDropdownCleanup) { this._hourDropdownCleanup(); this._hourDropdownCleanup = null; }
+
+                    const otherKey = which === 'checkIn' ? 'checkOutHourOpen' : 'checkInHourOpen';
+                    const openKey = which === 'checkIn' ? 'checkInHourOpen' : 'checkOutHourOpen';
+                    const posKey = which === 'checkIn' ? 'checkInHourPos' : 'checkOutHourPos';
+
+                    this[otherKey] = false;
+                    const willOpen = !this[openKey];
+                    this[openKey] = willOpen;
+
+                    if (!willOpen) return;
+
+                    const update = () => { this[posKey] = this.computeHourDropdownPos(boxEl); };
+                    update();
+
+                    // scroll không nổi bọt (bubble) nên phải bắt ở pha capture để nghe được cả scroll trong khung con
+                    window.addEventListener('scroll', update, true);
+                    window.addEventListener('resize', update);
+                    this._hourDropdownCleanup = () => {
+                        window.removeEventListener('scroll', update, true);
+                        window.removeEventListener('resize', update);
+                    };
+                    this.$watch(openKey, val => {
+                        if (!val && this._hourDropdownCleanup) {
+                            this._hourDropdownCleanup();
+                            this._hourDropdownCleanup = null;
+                        }
+                    });
+                },
                 viewMonth: null,
                 viewYear: null,
                 openField: null,
-                locOpen: false,
-                buoiOpen: false,
-                guestsOpen: false,
-                get anyOpen() { return this.locOpen || this.open || this.buoiOpen || this.guestsOpen; },
-                pillLeft: 0,
-                pillWidth: 0,
-                _updatePill(field) {
-                    const bar = this.$el.querySelector('[data-bar]');
-                    const el = bar && bar.querySelector(`[data-field="${field}"]`);
-                    if (!bar || !el) return;
-                    const br = bar.getBoundingClientRect();
-                    const fr = el.getBoundingClientRect();
-                    this.pillLeft = fr.left - br.left;
-                    this.pillWidth = fr.width;
-                },
                 monthNames: ['Tháng 1', 'Tháng 2', 'Tháng 3', 'Tháng 4', 'Tháng 5', 'Tháng 6',
                     'Tháng 7', 'Tháng 8', 'Tháng 9', 'Tháng 10', 'Tháng 11', 'Tháng 12'
                 ],
@@ -106,9 +148,9 @@
                     this.viewMonth = now.getMonth();
                     this.viewYear = now.getFullYear();
                     const correct = () => this.$nextTick(() => this.ensureCheckOutAfterCheckIn());
-                    this.$watch('checkIn', correct);
-                    this.$watch('checkInHour', correct);
-                    this.$watch('checkInMin', correct);
+                    this.$watch('checkIn', () => { this.ensureCheckInNotPast(); correct(); });
+                    this.$watch('checkInHour', () => { this.ensureCheckInNotPast(); correct(); });
+                    this.$watch('checkInMin', () => { this.ensureCheckInNotPast(); correct(); });
                     this.$watch('checkOut', correct);
                     this.$watch('checkOutHour', correct);
                 },
@@ -186,6 +228,42 @@
                     if (!this.isSameDayBooking || this.checkOutHour !== this.checkInHour) return this.minutes;
                     return this.minutes.filter(m => m > this.checkInMin);
                 },
+                get isCheckInToday() {
+                    return !!(this.checkIn && this.isSameDay(this.checkIn, new Date()));
+                },
+                get minCheckInHour() {
+                    return this.isCheckInToday ? new Date().getHours() : 0;
+                },
+                get availableCheckInHours() {
+                    if (!this.isCheckInToday) return this.hours;
+                    const now = new Date();
+                    return this.hours.filter(h => {
+                        if (h > now.getHours()) return true;
+                        if (h === now.getHours()) return this.minutes.some(m => m > now.getMinutes());
+                        return false;
+                    });
+                },
+                get availableCheckInMinutes() {
+                    if (!this.isCheckInToday) return this.minutes;
+                    const now = new Date();
+                    if (this.checkInHour > now.getHours()) return this.minutes;
+                    if (this.checkInHour === now.getHours()) return this.minutes.filter(m => m > now.getMinutes());
+                    return [];
+                },
+                ensureCheckInNotPast() {
+                    if (!this.isCheckInToday) return;
+                    const now = new Date();
+                    const nowH = now.getHours(), nowM = now.getMinutes();
+                    if (this.checkInHour > nowH) return;
+                    if (this.checkInHour === nowH) {
+                        if (this.minutes.some(m => m > nowM && m === this.checkInMin)) return;
+                    }
+                    const nextH = this.availableCheckInHours[0];
+                    if (nextH === undefined) return;
+                    this.checkInHour = nextH;
+                    const validMins = nextH === nowH ? this.minutes.filter(m => m > nowM) : this.minutes;
+                    this.checkInMin = validMins[0] ?? 0;
+                },
                 get displayCheckIn() {
                     if (!this.checkIn) return '';
                     return `${this.formatDisplay(this.checkIn)} ${String(this.checkInHour).padStart(2,'0')}:${String(this.checkInMin).padStart(2,'0')}`;
@@ -215,12 +293,19 @@
                     if (newH !== this.checkOutHour) this.checkOutHour = newH;
                     if (newM !== this.checkOutMin) this.checkOutMin = newM;
                 },
-                confirm() {
-                    this.open = false;
+                async confirm() {
                     if (this.checkIn) {
-                        $wire.set('checkIn', this.displayCheckIn);
-                        $wire.set('checkOut', this.displayCheckOut);
+                        await this.$wire.set('checkIn', this.displayCheckIn);
+                        await this.$wire.set('checkOut', this.displayCheckOut);
                     }
+                    this.open = false;
+                },
+                async submitSearch() {
+                    if (this.checkIn) {
+                        await this.$wire.set('checkIn', this.displayCheckIn);
+                        await this.$wire.set('checkOut', this.displayCheckOut);
+                    }
+                    await this.$wire.search();
                 },
                 cancel() { this.open = false; },
             };
@@ -228,11 +313,6 @@
     </script>
 
     <style>
-        .search-pill {
-            transition: left 300ms cubic-bezier(0.4, 0, 0.2, 1),
-                        width 300ms cubic-bezier(0.4, 0, 0.2, 1),
-                        opacity 200ms ease;
-        }
         .menu-drawer {
             display: flex;
             flex-direction: column;
@@ -285,7 +365,9 @@
                 {{-- Room type tabs --}}
                 <div class="mb-6">
                     <div class="flex flex-wrap gap-2">
-                        <button wire:click="$set('selectedRoomType', 'all')"
+                        <button
+                        type="button"
+                        wire:click.stop="setRoomType('all')"
                             :class="'{{ $selectedRoomType }}' === 'all'
                                 ? 'bg-teal-800 text-white border-teal-800/60 shadow-md'
                                 : '{{ $tabInactive }}'"
@@ -293,7 +375,8 @@
                             Tất cả
                         </button>
                         @foreach ($roomTypes as $type)
-                            <button wire:click="$set('selectedRoomType', '{{ $type['slug'] }}')"
+                            <button type="button" wire:click.stop="setRoomType(@js($type['slug']))"
+                                wire:key="room-type-{{ $type['slug'] }}"
                                 :class="'{{ $selectedRoomType }}' === '{{ $type['slug'] }}'
                                     ? 'bg-teal-800 text-white border-teal-800/60 shadow-md'
                                     : '{{ $tabInactive }}'"
@@ -305,31 +388,34 @@
                 </div>
 
                 {{-- Search bar — Airbnb style --}}
-                <div data-bar class="relative flex items-stretch rounded-2xl transition-all duration-300"
-                    :class="anyOpen ? 'bg-gray-100 shadow-2xl' : 'bg-white border border-gray-200 shadow-lg'"
+                <div data-bar
+                    x-data="{ locOpen: false, buoiOpen: false, guestsOpen: false }"
+                    @click.outside="locOpen = false; buoiOpen = false; guestsOpen = false"
+                    class="relative flex items-stretch rounded-2xl transition-all duration-300"
+                    :class="open ? 'bg-gray-100 shadow-2xl' : 'bg-white border border-gray-200 shadow-lg'"
                     style="overflow:visible;">
 
-                    {{-- Sliding highlight pill --}}
-                    <div class="search-pill absolute rounded-xl bg-white shadow-md pointer-events-none"
-                         style="z-index:5;"
-                         :style="{ top:'6px', bottom:'6px', left:pillLeft+'px', width:pillWidth+'px', opacity:anyOpen?1:0 }"></div>
+                    {{-- Highlight trượt theo field đang chọn (đo pixel thật của field, không dùng % cố định) --}}
+                    <div class="absolute rounded-xl bg-gray-200 pointer-events-none transition-all duration-300 ease-out" style="top:8px;bottom:8px;z-index:0;"
+                        x-effect="
+                            const active = locOpen ? 'loc' : open ? 'date' : buoiOpen ? 'buoi' : guestsOpen ? 'guests' : null;
+                            if (!active) { $el.style.opacity = 0; }
+                            else {
+                                const target = $el.parentElement.querySelector('[data-field=' + active + ']');
+                                if (target) {
+                                    $el.style.opacity = 1;
+                                    $el.style.left = target.offsetLeft + 'px';
+                                    $el.style.width = target.offsetWidth + 'px';
+                                }
+                            }
+                        "></div>
 
                     {{-- Địa điểm --}}
-                    <div @click.outside="locOpen = false" data-field="loc" class="relative z-10 flex-[3] min-w-0">
-                        <button @click="if(!locOpen)_updatePill('loc'); locOpen=!locOpen; buoiOpen=false; guestsOpen=false; open=false"
-                            class="w-full h-16 px-5 flex flex-col justify-center rounded-l-2xl transition-colors"
-                            :class="!locOpen && anyOpen ? 'hover:bg-black/[0.04]' : !anyOpen ? 'hover:bg-gray-50' : ''">
-                            <span :class="locOpen ? 'text-teal-600' : 'text-gray-500'"
-                                class="text-[10px] font-bold uppercase tracking-widest leading-none flex items-center gap-1.5 transition-colors duration-200">
-                                <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
-                                </svg>
-                                Địa điểm
-                            </span>
-                            <span class="text-sm font-semibold mt-0.5 truncate {{ $selectedLocation ? 'text-gray-900' : 'text-gray-400' }}">
-                                {{ $locationLabel }}
-                            </span>
+                    <div data-field="loc" class="relative z-10 flex-[3] min-w-0">
+                        <button type="button" @click="locOpen = !locOpen; buoiOpen = false; guestsOpen = false"
+                            class="w-full h-16 px-5 flex flex-col justify-center items-start text-left rounded-l-2xl transition-colors">
+                            <span class="text-[10px] font-bold uppercase tracking-widest leading-none text-gray-500">Địa điểm</span>
+                            <span class="text-sm font-semibold mt-0.5 truncate {{ $selectedLocation ? 'text-gray-900' : 'text-gray-400' }}">{{ $locationLabel }}</span>
                         </button>
                         <div x-show="locOpen" x-cloak
                             x-transition:enter="transition ease-out duration-150"
@@ -339,26 +425,16 @@
                             x-transition:leave-start="opacity-100 translate-y-0"
                             x-transition:leave-end="opacity-0 translate-y-1"
                             class="absolute top-[calc(100%+8px)] left-0 w-72 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 py-2">
-                            <div class="px-4 py-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Khu vực</div>
-                            <button @click="$wire.set('selectedLocation', ''); locOpen = false"
-                                class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center gap-3 transition-colors {{ !$selectedLocation ? 'text-teal-700 font-semibold' : 'text-gray-700' }}">
-                                <span class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
-                                    <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064"/>
-                                    </svg>
-                                </span>
+                            <button type="button" wire:click.stop="setLocation('')" @click="locOpen = false"
+                                wire:key="location-all"
+                                class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ !$selectedLocation ? 'font-semibold text-teal-700' : 'text-gray-700' }}">
                                 <span>Tất cả địa điểm</span>
                                 @if(!$selectedLocation) {!! $checkmarkSvg !!} @endif
                             </button>
                             @foreach($locations as $loc)
-                            <button @click="$wire.set('selectedLocation', '{{ $loc['slug'] }}'); locOpen = false"
-                                class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center gap-3 transition-colors {{ $selectedLocation === $loc['slug'] ? 'text-teal-700 font-semibold' : 'text-gray-700' }}">
-                                <span class="w-8 h-8 rounded-full bg-teal-50 flex items-center justify-center shrink-0">
-                                    <svg class="w-4 h-4 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
-                                    </svg>
-                                </span>
+                            <button type="button" wire:click.stop="setLocation(@js($loc['slug']))" @click="locOpen = false"
+                                wire:key="location-{{ $loc['slug'] }}"
+                                class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ $selectedLocation === $loc['slug'] ? 'font-semibold text-teal-700' : 'text-gray-700' }}">
                                 <span>{{ $loc['name'] }}</span>
                                 @if($selectedLocation === $loc['slug']) {!! $checkmarkSvg !!} @endif
                             </button>
@@ -366,14 +442,11 @@
                         </div>
                     </div>
 
-                    <div class="w-px bg-gray-300 my-3 shrink-0 transition-opacity duration-200"
-                        :class="locOpen || open ? 'opacity-0' : 'opacity-100'"></div>
 
                     {{-- Thời gian --}}
                     <div @click.outside="open = false" data-field="date" class="relative z-10 flex-[4] min-w-0">
-                        <button @click="if(!open)_updatePill('date'); open=!open; locOpen=false; buoiOpen=false; guestsOpen=false"
-                            class="w-full h-16 px-5 flex items-center gap-3 rounded-xl transition-colors"
-                            :class="!open && anyOpen ? 'hover:bg-black/[0.04]' : !anyOpen ? 'hover:bg-gray-50' : ''">
+                        <button type="button" @click="open=!open"
+                            class="w-full h-16 px-5 flex items-center gap-3 rounded-xl transition-colors">
                             <svg class="w-4 h-4 shrink-0 transition-colors duration-200"
                                 :class="open ? 'text-teal-600' : 'text-teal-500'"
                                 fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -411,7 +484,7 @@
                             class="absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 w-[640px] bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-y-auto"
                             style="max-height:75vh;">
                     <div class="py-5 px-6">
-                        <div class="flex items-center justify-between mb-5">
+                        {{-- <div class="flex items-center justify-between mb-5">
                             <h3 class="text-base font-semibold text-gray-800">Chọn ngày &amp; giờ</h3>
                             <button @click="cancel()"
                                 class="p-1.5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
@@ -419,7 +492,7 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                                 </svg>
                             </button>
-                        </div>
+                        </div> --}}
 
                         <div class="flex items-center justify-between mb-4">
                             <button @click="prevMonth()"
@@ -507,21 +580,47 @@
                             <div>
                                 <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Giờ nhận phòng</p>
                                 <div class="flex items-start gap-2">
-                                    <div class="flex-1">
+                                    <div class="flex-1 relative" x-ref="checkInHourBox">
                                         <p class="text-[10px] text-gray-400 uppercase tracking-wide mb-1.5">Giờ</p>
                                         <div class="flex items-center gap-1.5 border border-gray-200 rounded-xl px-2.5 py-2">
-                                            <button @click="checkInHour = Math.max(0, checkInHour - 1)"
-                                                class="w-6 h-6 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500 font-bold transition-colors select-none">−</button>
-                                            <span class="flex-1 text-center text-sm font-semibold text-gray-900" x-text="String(checkInHour).padStart(2,'0')"></span>
+                                            <button @click="checkInHour = Math.max(minCheckInHour, checkInHour - 1)"
+                                                :class="checkInHour <= minCheckInHour ? 'opacity-25 cursor-not-allowed' : 'hover:bg-gray-100'"
+                                                :disabled="checkInHour <= minCheckInHour"
+                                                class="w-6 h-6 rounded-full flex items-center justify-center text-gray-500 font-bold transition-colors select-none">−</button>
+                                            <button type="button" @click="openHourDropdown('checkIn', $refs.checkInHourBox)"
+                                                class="flex-1 text-center text-sm font-semibold text-gray-900 hover:text-teal-600 transition-colors" x-text="checkInHour + 'h'"></button>
                                             <button @click="checkInHour = Math.min(23, checkInHour + 1)"
                                                 class="w-6 h-6 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500 font-bold transition-colors select-none">+</button>
                                         </div>
                                     </div>
+                                    <template x-teleport="body">
+                                        <div x-show="checkInHourOpen" x-cloak
+                                            @click.outside="checkInHourOpen = false"
+                                            x-transition:enter="transition ease-out duration-150"
+                                            x-transition:enter-start="opacity-0 -translate-y-1"
+                                            x-transition:enter-end="opacity-100 translate-y-0"
+                                            x-transition:leave="transition ease-in duration-100"
+                                            x-transition:leave-start="opacity-100 translate-y-0"
+                                            x-transition:leave-end="opacity-0 -translate-y-1"
+                                            :style="checkInHourPos.openUp ? { position: 'fixed', bottom: checkInHourPos.bottom + 'px', left: checkInHourPos.left + 'px', width: checkInHourPos.width + 'px', zIndex: 9999 } : { position: 'fixed', top: checkInHourPos.top + 'px', left: checkInHourPos.left + 'px', width: checkInHourPos.width + 'px', zIndex: 9999 }"
+                                            style="max-height:12rem; overflow-y:auto;"
+                                            class="bg-white rounded-xl border border-gray-200 shadow-xl p-1.5 grid grid-cols-4 gap-1">
+                                            <template x-for="h in availableCheckInHours" :key="h">
+                                                <button type="button" @click.stop="checkInHour = h; checkInHourOpen = false"
+                                                    :class="checkInHour === h
+                                                        ? 'bg-teal-700 text-white border-teal-700'
+                                                        : 'bg-white text-gray-600 border-gray-200 hover:border-teal-400 hover:text-teal-600'"
+                                                    class="py-2 rounded-lg border text-xs font-semibold transition-colors text-center"
+                                                    x-text="h + 'h'">
+                                                </button>
+                                            </template>
+                                        </div>
+                                    </template>
                                     <div class="text-gray-300 text-lg font-light pt-6">:</div>
                                     <div class="flex-1">
                                         <p class="text-[10px] text-gray-400 uppercase tracking-wide mb-1.5">Phút</p>
                                         <div class="grid grid-cols-4 gap-1">
-                                            <template x-for="m in minutes" :key="m">
+                                            <template x-for="m in availableCheckInMinutes" :key="m">
                                                 <button @click="checkInMin = m"
                                                     :class="checkInMin === m
                                                         ? 'bg-teal-700 text-white border-teal-700'
@@ -541,18 +640,42 @@
                                     <span x-show="isSameDayBooking" class="text-teal-600 normal-case font-normal ml-1">(cùng ngày)</span>
                                 </p>
                                 <div class="flex items-start gap-2">
-                                    <div class="flex-1">
+                                    <div class="flex-1 relative" x-ref="checkOutHourBox">
                                         <p class="text-[10px] text-gray-400 uppercase tracking-wide mb-1.5">Giờ</p>
                                         <div class="flex items-center gap-1.5 border border-gray-200 rounded-xl px-2.5 py-2">
                                             <button @click="if(checkOutHour > 0){ checkOutHour--; ensureCheckOutAfterCheckIn(); }"
                                                 :class="(isSameDayBooking && checkOutHour <= checkInHour) ? 'opacity-25 cursor-not-allowed' : 'hover:bg-gray-100'"
                                                 :disabled="isSameDayBooking && checkOutHour <= checkInHour"
                                                 class="w-6 h-6 rounded-full flex items-center justify-center text-gray-500 font-bold transition-colors select-none">−</button>
-                                            <span class="flex-1 text-center text-sm font-semibold text-gray-900" x-text="String(checkOutHour).padStart(2,'0')"></span>
+                                            <button type="button" @click="openHourDropdown('checkOut', $refs.checkOutHourBox)"
+                                                class="flex-1 text-center text-sm font-semibold text-gray-900 hover:text-teal-600 transition-colors" x-text="checkOutHour + 'h'"></button>
                                             <button @click="if(checkOutHour < 23){ checkOutHour++; ensureCheckOutAfterCheckIn(); }"
                                                 class="w-6 h-6 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500 font-bold transition-colors select-none">+</button>
                                         </div>
                                     </div>
+                                    <template x-teleport="body">
+                                        <div x-show="checkOutHourOpen" x-cloak
+                                            @click.outside="checkOutHourOpen = false"
+                                            x-transition:enter="transition ease-out duration-150"
+                                            x-transition:enter-start="opacity-0 -translate-y-1"
+                                            x-transition:enter-end="opacity-100 translate-y-0"
+                                            x-transition:leave="transition ease-in duration-100"
+                                            x-transition:leave-start="opacity-100 translate-y-0"
+                                            x-transition:leave-end="opacity-0 -translate-y-1"
+                                            :style="checkOutHourPos.openUp ? { position: 'fixed', bottom: checkOutHourPos.bottom + 'px', left: checkOutHourPos.left + 'px', width: checkOutHourPos.width + 'px', zIndex: 9999 } : { position: 'fixed', top: checkOutHourPos.top + 'px', left: checkOutHourPos.left + 'px', width: checkOutHourPos.width + 'px', zIndex: 9999 }"
+                                            style="max-height:12rem; overflow-y:auto;"
+                                            class="bg-white rounded-xl border border-gray-200 shadow-xl p-1.5 grid grid-cols-4 gap-1">
+                                            <template x-for="h in availableCheckoutHours" :key="h">
+                                                <button type="button" @click.stop="checkOutHour = h; ensureCheckOutAfterCheckIn(); checkOutHourOpen = false"
+                                                    :class="checkOutHour === h
+                                                        ? 'bg-teal-700 text-white border-teal-700'
+                                                        : 'bg-white text-gray-600 border-gray-200 hover:border-teal-400 hover:text-teal-600'"
+                                                    class="py-2 rounded-lg border text-xs font-semibold transition-colors text-center"
+                                                    x-text="h + 'h'">
+                                                </button>
+                                            </template>
+                                        </div>
+                                    </template>
                                     <div class="text-gray-300 text-lg font-light pt-6">:</div>
                                     <div class="flex-1">
                                         <p class="text-[10px] text-gray-400 uppercase tracking-wide mb-1.5">Phút</p>
@@ -572,7 +695,7 @@
                             </div>
                         </div>
 
-                        <div class="flex items-center justify-between mt-5 pt-4 border-t border-gray-100">
+                        {{-- <div class="flex items-center justify-between mt-5 pt-4 border-t border-gray-100">
                             <button @click="checkIn = null; checkOut = null"
                                 class="text-sm text-gray-500 hover:text-gray-700 underline underline-offset-2 transition-colors">
                                 Xóa ngày
@@ -587,26 +710,17 @@
                                     Xác nhận
                                 </button>
                             </div>
-                        </div>
+                        </div> --}}
                     </div>
                         </div>
                     </div>
 
-                    <div class="w-px bg-gray-300 my-3 shrink-0 transition-opacity duration-200"
-                        :class="open || buoiOpen ? 'opacity-0' : 'opacity-100'"></div>
 
                     {{-- Loại đặt --}}
-                    <div @click.outside="buoiOpen = false" data-field="buoi" class="relative z-10 flex-[2] min-w-0">
-                        <button @click="if(!buoiOpen)_updatePill('buoi'); buoiOpen=!buoiOpen; locOpen=false; guestsOpen=false; open=false"
-                            class="w-full h-16 px-5 flex flex-col justify-center rounded-xl transition-colors"
-                            :class="!buoiOpen && anyOpen ? 'hover:bg-black/[0.04]' : !anyOpen ? 'hover:bg-gray-50' : ''">
-                            <span :class="buoiOpen ? 'text-teal-600' : 'text-gray-500'"
-                                class="text-[10px] font-bold uppercase tracking-widest leading-none flex items-center gap-1.5 transition-colors duration-200">
-                                <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                                </svg>
-                                Loại đặt
-                            </span>
+                    <div data-field="buoi" class="relative z-10 flex-[2] min-w-0">
+                        <button type="button" @click="buoiOpen = !buoiOpen; locOpen = false; guestsOpen = false"
+                            class="w-full h-16 px-5 flex flex-col justify-center items-start text-left rounded-xl transition-colors">
+                            <span class="text-[10px] font-bold uppercase tracking-widest leading-none text-gray-500">Loại đặt</span>
                             <span class="text-sm font-semibold mt-0.5 {{ $selectedBuoi ? 'text-gray-900' : 'text-gray-400' }}">{{ $buoiLabel }}</span>
                         </button>
                         <div x-show="buoiOpen" x-cloak
@@ -619,30 +733,22 @@
                             class="absolute top-[calc(100%+8px)] left-0 w-48 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 py-2">
                             @php $buoiOpts = ['' => 'Tất cả', '1' => 'Theo giờ', '2' => 'Theo ngày']; @endphp
                             @foreach($buoiOpts as $bVal => $bLbl)
-                            <button @click="$wire.set('selectedBuoi', '{{ $bVal }}'); buoiOpen = false"
+                            <button type="button" wire:click.stop="setBuoi(@js($bVal))" @click="buoiOpen = false"
+                                wire:key="buoi-{{ $bVal ?: 'all' }}"
                                 class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ (!$bVal && !$selectedBuoi) || ($bVal && $selectedBuoi === $bVal) ? 'font-semibold text-teal-700' : 'text-gray-700' }}">
-                                {{ $bLbl }}
+                                <span>{{ $bLbl }}</span>
                                 @if((!$bVal && !$selectedBuoi) || ($bVal && $selectedBuoi === $bVal)) {!! $checkmarkSvg !!} @endif
                             </button>
                             @endforeach
                         </div>
                     </div>
 
-                    <div class="w-px bg-gray-300 my-3 shrink-0 transition-opacity duration-200"
-                        :class="buoiOpen || guestsOpen ? 'opacity-0' : 'opacity-100'"></div>
 
                     {{-- Số người --}}
-                    <div @click.outside="guestsOpen = false" data-field="guests" class="relative z-10 flex-[2] min-w-0">
-                        <button @click="if(!guestsOpen)_updatePill('guests'); guestsOpen=!guestsOpen; locOpen=false; buoiOpen=false; open=false"
-                            class="w-full h-16 px-5 flex flex-col justify-center rounded-xl transition-colors"
-                            :class="!guestsOpen && anyOpen ? 'hover:bg-black/[0.04]' : !anyOpen ? 'hover:bg-gray-50' : ''">
-                            <span :class="guestsOpen ? 'text-teal-600' : 'text-gray-500'"
-                                class="text-[10px] font-bold uppercase tracking-widest leading-none flex items-center gap-1.5 transition-colors duration-200">
-                                <svg class="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
-                                </svg>
-                                Số người
-                            </span>
+                    <div data-field="guests" class="relative z-10 flex-[2] min-w-0">
+                        <button type="button" @click="guestsOpen = !guestsOpen; locOpen = false; buoiOpen = false"
+                            class="w-full h-16 px-5 flex flex-col justify-center items-start text-left rounded-xl transition-colors">
+                            <span class="text-[10px] font-bold uppercase tracking-widest leading-none text-gray-500">Số người</span>
                             <span class="text-sm font-semibold mt-0.5 {{ $selectedGuests ? 'text-gray-900' : 'text-gray-400' }}">{{ $guestsLabel }}</span>
                         </button>
                         <div x-show="guestsOpen" x-cloak
@@ -655,9 +761,10 @@
                             class="absolute top-[calc(100%+8px)] right-0 w-52 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 py-2">
                             @php $guestOpts = ['' => 'Tất cả', '1' => '1 người', '2' => '2 người', '3' => '3 người', '4' => '4 người', '5' => '5+ người']; @endphp
                             @foreach($guestOpts as $gVal => $gLbl)
-                            <button @click="$wire.set('selectedGuests', '{{ $gVal }}'); guestsOpen = false"
+                            <button type="button" wire:click.stop="setGuests(@js($gVal))" @click="guestsOpen = false"
+                                wire:key="guests-{{ $gVal ?: 'all' }}"
                                 class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ (!$gVal && !$selectedGuests) || ($gVal && $selectedGuests === $gVal) ? 'font-semibold text-teal-700' : 'text-gray-700' }}">
-                                {{ $gLbl }}
+                                <span>{{ $gLbl }}</span>
                                 @if((!$gVal && !$selectedGuests) || ($gVal && $selectedGuests === $gVal)) {!! $checkmarkSvg !!} @endif
                             </button>
                             @endforeach
@@ -666,12 +773,8 @@
 
                     {{-- Nút tìm kiếm --}}
                     <div class="flex items-center px-3 shrink-0">
-                        <button
-                            x-on:click.prevent="(async () => {
-                                if (checkIn) await $wire.set('checkIn', displayCheckIn);
-                                if (checkIn) await $wire.set('checkOut', displayCheckOut);
-                                $wire.search();
-                            })()"
+                        <button type="button"
+                            x-on:click.stop.prevent="submitSearch()"
                             class="w-12 h-12 bg-teal-600 hover:bg-teal-700 text-white rounded-full
                             transition-all shadow-md hover:shadow-lg active:scale-95 flex items-center justify-center">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -709,7 +812,13 @@
 
         {{-- Pill thu gọn --}}
         <div x-show="!formOpen"
-             style="background:#fff; border-bottom:1px solid #f0f0f0; box-shadow:0 2px 12px rgba(0,0,0,.07); padding:9px 64px 9px 16px; position:relative; display:flex; align-items:center;">
+             style="background:#fff; border-bottom:1px solid #f0f0f0; box-shadow:0 2px 12px rgba(0,0,0,.07); padding:9px 64px; position:relative; display:flex; align-items:center;">
+
+            {{-- Logo — về trang chủ --}}
+            <a href="{{ url('/') }}"
+               style="position:absolute; left:16px; top:50%; transform:translateY(-50%); width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                <img src="{{ asset('/storage/'.$logo) }}" alt="Logo" style="max-width:100%; max-height:100%; object-fit:contain;">
+            </a>
 
             <button @click="formOpen = true"
                     style="flex:1; display:flex; align-items:center; gap:0; border:1.5px solid #e5e7eb; border-radius:99px; background:#fff; box-shadow:0 1px 6px rgba(0,0,0,.08); cursor:pointer; overflow:hidden; max-width:52rem; margin:0 auto; transition:box-shadow .2s, border-color .2s;"
@@ -781,7 +890,7 @@
                     {{-- Tabs --}}
                     <div class="mb-5">
                         <div class="flex flex-wrap gap-2">
-                            <button wire:click="$set('selectedRoomType', 'all')"
+                            <button type="button" wire:click.stop="setRoomType('all')"
                                 :class="'{{ $selectedRoomType }}' === 'all'
                                     ? 'bg-teal-800 text-white border-teal-800/60 shadow-md'
                                     : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200 hover:text-gray-800'"
@@ -789,8 +898,9 @@
                                 Tất cả
                             </button>
                             @foreach ($roomTypes as $type)
-                                <button wire:click="$set('selectedRoomType', '{{ $type['slug'] }}')"
-                                    :class="'{{ $selectedRoomType }}' === '{{ $type['slug'] }}'
+                                <button type="button" wire:click.stop="setRoomType(@js($type['slug']))"
+                                    wire:key="expanded-room-type-{{ $type['slug'] }}"
+                                        :class="'{{ $selectedRoomType }}' === '{{ $type['slug'] }}'
                                         ? 'bg-teal-800 text-white border-teal-800/60 shadow-md'
                                         : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200 hover:text-gray-800'"
                                     class="px-5 py-2 rounded-full text-sm font-semibold border transition-all duration-200">
@@ -801,50 +911,65 @@
                     </div>
 
                     {{-- Search bar --}}
-                    <div data-bar class="relative flex items-stretch rounded-2xl transition-all duration-300"
-                        :class="anyOpen ? 'bg-gray-100 shadow-xl' : 'bg-white border border-gray-200 shadow-sm'"
+                    <div data-bar
+                        x-data="{ locOpen: false, buoiOpen: false, guestsOpen: false }"
+                        @click.outside="locOpen = false; buoiOpen = false; guestsOpen = false"
+                        class="relative flex items-stretch rounded-2xl transition-all duration-300"
+                        :class="open ? 'bg-gray-100 shadow-xl' : 'bg-white border border-gray-200 shadow-sm'"
                         style="overflow:visible;">
 
-                        {{-- Sliding highlight pill --}}
-                        <div class="search-pill absolute rounded-xl bg-white shadow-md pointer-events-none"
-                             style="z-index:5;"
-                             :style="{ top:'6px', bottom:'6px', left:pillLeft+'px', width:pillWidth+'px', opacity:anyOpen?1:0 }"></div>
+                        {{-- Highlight trượt theo field đang chọn (vị trí tính theo tỉ lệ flex cố định: loc=3, date=4, buoi=2, guests=2 / tổng 11) --}}
+                        <div class="absolute rounded-xl bg-gray-200 pointer-events-none transition-all duration-300 ease-out" style="top:8px;bottom:8px;z-index:0;"
+                            x-effect="
+                                const active = locOpen ? 'loc' : open ? 'date' : buoiOpen ? 'buoi' : guestsOpen ? 'guests' : null;
+                                if (!active) { $el.style.opacity = 0; }
+                                else {
+                                    const target = $el.parentElement.querySelector('[data-field=' + active + ']');
+                                    if (target) {
+                                        $el.style.opacity = 1;
+                                        $el.style.left = target.offsetLeft + 'px';
+                                        $el.style.width = target.offsetWidth + 'px';
+                                    }
+                                }
+                            "></div>
 
                         {{-- Địa điểm --}}
-                        <div @click.outside="locOpen = false" data-field="loc" class="relative z-10 flex-[3] min-w-0">
-                            <button @click="if(!locOpen)_updatePill('loc'); locOpen=!locOpen; buoiOpen=false; guestsOpen=false; open=false"
-                                class="w-full h-14 px-4 flex flex-col justify-center rounded-l-2xl transition-colors"
-                                :class="!locOpen && anyOpen ? 'hover:bg-black/[0.04]' : !anyOpen ? 'hover:bg-gray-50' : ''">
-                                <span :class="locOpen ? 'text-teal-600' : 'text-gray-500'"
-                                    class="text-[10px] font-bold uppercase tracking-widest leading-none transition-colors duration-200">Địa điểm</span>
+                        <div data-field="loc" class="relative z-10 flex-[3] min-w-0">
+                            <button type="button" @click="locOpen = !locOpen; buoiOpen = false; guestsOpen = false"
+                                class="w-full h-14 px-4 flex flex-col justify-center items-start text-left rounded-l-2xl transition-colors">
+                                <span class="text-[10px] font-bold uppercase tracking-widest leading-none text-gray-500">Địa điểm</span>
                                 <span class="text-sm font-semibold mt-0.5 truncate {{ $selectedLocation ? 'text-gray-900' : 'text-gray-400' }}">{{ $locationLabel }}</span>
                             </button>
                             <div x-show="locOpen" x-cloak
-                                x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 translate-y-1" x-transition:enter-end="opacity-100 translate-y-0"
+                                x-transition:enter="transition ease-out duration-150"
+                                x-transition:enter-start="opacity-0 translate-y-1"
+                                x-transition:enter-end="opacity-100 translate-y-0"
+                                x-transition:leave="transition ease-in duration-100"
+                                x-transition:leave-start="opacity-100 translate-y-0"
+                                x-transition:leave-end="opacity-0 translate-y-1"
                                 class="absolute top-[calc(100%+6px)] left-0 w-64 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 py-2">
-                                <button @click="$wire.set('selectedLocation', ''); locOpen = false"
+                                <button type="button" wire:click.stop="setLocation('')" @click="locOpen = false"
+                                    wire:key="expanded-location-all"
                                     class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ !$selectedLocation ? 'font-semibold text-teal-700' : 'text-gray-700' }}">
-                                    Tất cả địa điểm
+                                    <span>Tất cả địa điểm</span>
                                     @if(!$selectedLocation) {!! $checkmarkSvg !!} @endif
                                 </button>
                                 @foreach($locations as $loc)
-                                <button @click="$wire.set('selectedLocation', '{{ $loc['slug'] }}'); locOpen = false"
+                                <button type="button" wire:click.stop="setLocation(@js($loc['slug']))" @click="locOpen = false"
+                                    wire:key="expanded-location-{{ $loc['slug'] }}"
                                     class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ $selectedLocation === $loc['slug'] ? 'font-semibold text-teal-700' : 'text-gray-700' }}">
-                                    {{ $loc['name'] }}
+                                    <span>{{ $loc['name'] }}</span>
                                     @if($selectedLocation === $loc['slug']) {!! $checkmarkSvg !!} @endif
                                 </button>
                                 @endforeach
                             </div>
                         </div>
 
-                        <div class="w-px bg-gray-300 my-2.5 shrink-0 transition-opacity duration-200"
-                            :class="locOpen || open ? 'opacity-0' : 'opacity-100'"></div>
 
                         {{-- Thời gian --}}
                         <div @click.outside="open = false" data-field="date" class="relative z-10 flex-[4] min-w-0">
-                            <button @click="if(!open)_updatePill('date'); open=!open; locOpen=false; buoiOpen=false; guestsOpen=false"
-                                class="w-full h-14 px-4 flex items-center gap-3 rounded-xl transition-colors"
-                                :class="!open && anyOpen ? 'hover:bg-black/[0.04]' : !anyOpen ? 'hover:bg-gray-50' : ''">
+                            <button type="button" @click="open=!open"
+                                class="w-full h-14 px-4 flex items-center gap-3 rounded-xl transition-colors">
                                 <svg class="w-4 h-4 shrink-0 transition-colors duration-200"
                                     :class="open ? 'text-teal-600' : 'text-teal-500'"
                                     fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -877,12 +1002,12 @@
                                 class="absolute top-[calc(100%+6px)] left-1/2 -translate-x-1/2 w-[640px] bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-y-auto"
                                 style="max-height:75vh;">
                         <div class="py-5 px-6">
-                            <div class="flex items-center justify-between mb-5">
+                            {{-- <div class="flex items-center justify-between mb-5">
                                 <h3 class="text-base font-semibold text-gray-800">Chọn ngày &amp; giờ</h3>
                                 <button @click="cancel()" class="p-1.5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                                 </button>
-                            </div>
+                            </div> --}}
                             <div class="flex items-center justify-between mb-4">
                                 <button @click="prevMonth()" class="p-2 rounded-full hover:bg-gray-100 text-gray-500 transition-colors">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
@@ -935,19 +1060,43 @@
                                 <div>
                                     <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Giờ nhận phòng</p>
                                     <div class="flex items-start gap-2">
-                                        <div class="flex-1">
+                                        <div class="flex-1 relative" x-ref="checkInHourBox2">
                                             <p class="text-[10px] text-gray-400 uppercase tracking-wide mb-1.5">Giờ</p>
                                             <div class="flex items-center gap-1.5 border border-gray-200 rounded-xl px-2.5 py-2">
-                                                <button @click="checkInHour = Math.max(0, checkInHour - 1)" class="w-6 h-6 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500 font-bold transition-colors select-none">−</button>
-                                                <span class="flex-1 text-center text-sm font-semibold text-gray-900" x-text="String(checkInHour).padStart(2,'0')"></span>
+                                                <button @click="checkInHour = Math.max(minCheckInHour, checkInHour - 1)"
+                                                    :class="checkInHour <= minCheckInHour ? 'opacity-25 cursor-not-allowed' : 'hover:bg-gray-100'"
+                                                    :disabled="checkInHour <= minCheckInHour"
+                                                    class="w-6 h-6 rounded-full flex items-center justify-center text-gray-500 font-bold transition-colors select-none">−</button>
+                                                <button type="button" @click="openHourDropdown('checkIn', $refs.checkInHourBox2)"
+                                                    class="flex-1 text-center text-sm font-semibold text-gray-900 hover:text-teal-600 transition-colors" x-text="String(checkInHour).padStart(2,'0')"></button>
                                                 <button @click="checkInHour = Math.min(23, checkInHour + 1)" class="w-6 h-6 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500 font-bold transition-colors select-none">+</button>
                                             </div>
                                         </div>
+                                        <template x-teleport="body">
+                                            <div x-show="checkInHourOpen" x-cloak
+                                                @click.outside="checkInHourOpen = false"
+                                                x-transition:enter="transition ease-out duration-150"
+                                                x-transition:enter-start="opacity-0 -translate-y-1"
+                                                x-transition:enter-end="opacity-100 translate-y-0"
+                                                x-transition:leave="transition ease-in duration-100"
+                                                x-transition:leave-start="opacity-100 translate-y-0"
+                                                x-transition:leave-end="opacity-0 -translate-y-1"
+                                                :style="checkInHourPos.openUp ? { position: 'fixed', bottom: checkInHourPos.bottom + 'px', left: checkInHourPos.left + 'px', width: checkInHourPos.width + 'px', zIndex: 9999 } : { position: 'fixed', top: checkInHourPos.top + 'px', left: checkInHourPos.left + 'px', width: checkInHourPos.width + 'px', zIndex: 9999 }"
+                                                style="max-height:12rem; overflow-y:auto;"
+                                                class="bg-white rounded-xl border border-gray-200 shadow-xl p-1.5 grid grid-cols-4 gap-1">
+                                                <template x-for="h in availableCheckInHours" :key="h">
+                                                    <button type="button" @click.stop="checkInHour = h; checkInHourOpen = false"
+                                                        :class="checkInHour === h ? 'bg-teal-700 text-white border-teal-700' : 'bg-white text-gray-600 border-gray-200 hover:border-teal-400 hover:text-teal-600'"
+                                                        class="py-2 rounded-lg border text-xs font-semibold transition-colors text-center"
+                                                        x-text="String(h).padStart(2,'0')"></button>
+                                                </template>
+                                            </div>
+                                        </template>
                                         <div class="text-gray-300 text-lg font-light pt-6">:</div>
                                         <div class="flex-1">
                                             <p class="text-[10px] text-gray-400 uppercase tracking-wide mb-1.5">Phút</p>
                                             <div class="grid grid-cols-4 gap-1">
-                                                <template x-for="m in minutes" :key="m">
+                                                <template x-for="m in availableCheckInMinutes" :key="m">
                                                     <button @click="checkInMin = m"
                                                         :class="checkInMin === m ? 'bg-teal-700 text-white border-teal-700' : 'bg-white text-gray-600 border-gray-200 hover:border-teal-400 hover:text-teal-600'"
                                                         class="py-2 rounded-lg border text-xs font-semibold transition-colors text-center"
@@ -963,17 +1112,38 @@
                                         <span x-show="isSameDayBooking" class="text-teal-600 normal-case font-normal ml-1">(cùng ngày)</span>
                                     </p>
                                     <div class="flex items-start gap-2">
-                                        <div class="flex-1">
+                                        <div class="flex-1 relative" x-ref="checkOutHourBox2">
                                             <p class="text-[10px] text-gray-400 uppercase tracking-wide mb-1.5">Giờ</p>
                                             <div class="flex items-center gap-1.5 border border-gray-200 rounded-xl px-2.5 py-2">
                                                 <button @click="if(checkOutHour > 0){ checkOutHour--; ensureCheckOutAfterCheckIn(); }"
                                                     :class="(isSameDayBooking && checkOutHour <= checkInHour) ? 'opacity-25 cursor-not-allowed' : 'hover:bg-gray-100'"
                                                     :disabled="isSameDayBooking && checkOutHour <= checkInHour"
                                                     class="w-6 h-6 rounded-full flex items-center justify-center text-gray-500 font-bold transition-colors select-none">−</button>
-                                                <span class="flex-1 text-center text-sm font-semibold text-gray-900" x-text="String(checkOutHour).padStart(2,'0')"></span>
+                                                <button type="button" @click="openHourDropdown('checkOut', $refs.checkOutHourBox2)"
+                                                    class="flex-1 text-center text-sm font-semibold text-gray-900 hover:text-teal-600 transition-colors" x-text="String(checkOutHour).padStart(2,'0')"></button>
                                                 <button @click="if(checkOutHour < 23){ checkOutHour++; ensureCheckOutAfterCheckIn(); }" class="w-6 h-6 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500 font-bold transition-colors select-none">+</button>
                                             </div>
                                         </div>
+                                        <template x-teleport="body">
+                                            <div x-show="checkOutHourOpen" x-cloak
+                                                @click.outside="checkOutHourOpen = false"
+                                                x-transition:enter="transition ease-out duration-150"
+                                                x-transition:enter-start="opacity-0 -translate-y-1"
+                                                x-transition:enter-end="opacity-100 translate-y-0"
+                                                x-transition:leave="transition ease-in duration-100"
+                                                x-transition:leave-start="opacity-100 translate-y-0"
+                                                x-transition:leave-end="opacity-0 -translate-y-1"
+                                                :style="checkOutHourPos.openUp ? { position: 'fixed', bottom: checkOutHourPos.bottom + 'px', left: checkOutHourPos.left + 'px', width: checkOutHourPos.width + 'px', zIndex: 9999 } : { position: 'fixed', top: checkOutHourPos.top + 'px', left: checkOutHourPos.left + 'px', width: checkOutHourPos.width + 'px', zIndex: 9999 }"
+                                                style="max-height:12rem; overflow-y:auto;"
+                                                class="bg-white rounded-xl border border-gray-200 shadow-xl p-1.5 grid grid-cols-4 gap-1">
+                                                <template x-for="h in availableCheckoutHours" :key="h">
+                                                    <button type="button" @click.stop="checkOutHour = h; ensureCheckOutAfterCheckIn(); checkOutHourOpen = false"
+                                                        :class="checkOutHour === h ? 'bg-teal-700 text-white border-teal-700' : 'bg-white text-gray-600 border-gray-200 hover:border-teal-400 hover:text-teal-600'"
+                                                        class="py-2 rounded-lg border text-xs font-semibold transition-colors text-center"
+                                                        x-text="String(h).padStart(2,'0')"></button>
+                                                </template>
+                                            </div>
+                                        </template>
                                         <div class="text-gray-300 text-lg font-light pt-6">:</div>
                                         <div class="flex-1">
                                             <p class="text-[10px] text-gray-400 uppercase tracking-wide mb-1.5">Phút</p>
@@ -989,61 +1159,66 @@
                                     </div>
                                 </div>
                             </div>
-                            <div class="flex items-center justify-between mt-5 pt-4 border-t border-gray-100">
+                            {{-- <div class="flex items-center justify-between mt-5 pt-4 border-t border-gray-100">
                                 <button @click="checkIn = null; checkOut = null" class="text-sm text-gray-500 hover:text-gray-700 underline underline-offset-2 transition-colors">Xóa ngày</button>
                                 <div class="flex gap-3">
                                     <button @click="cancel()" class="px-5 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50 transition-colors font-medium">Hủy</button>
                                     <button @click="confirm()" class="px-5 py-2.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm">Xác nhận</button>
                                 </div>
-                            </div>
+                            </div> --}}
                         </div>
                             </div>
                         </div>
-
-                        <div class="w-px bg-gray-300 my-2.5 shrink-0 transition-opacity duration-200"
-                            :class="open || buoiOpen ? 'opacity-0' : 'opacity-100'"></div>
 
                         {{-- Loại đặt --}}
-                        <div @click.outside="buoiOpen = false" data-field="buoi" class="relative z-10 flex-[2] min-w-0">
-                            <button @click="if(!buoiOpen)_updatePill('buoi'); buoiOpen=!buoiOpen; locOpen=false; guestsOpen=false; open=false"
-                                class="w-full h-14 px-4 flex flex-col justify-center rounded-xl transition-colors"
-                                :class="!buoiOpen && anyOpen ? 'hover:bg-black/[0.04]' : !anyOpen ? 'hover:bg-gray-50' : ''">
-                                <span :class="buoiOpen ? 'text-teal-600' : 'text-gray-500'"
-                                    class="text-[10px] font-bold uppercase tracking-widest leading-none transition-colors duration-200">Loại đặt</span>
+                        <div data-field="buoi" class="relative z-10 flex-[2] min-w-0">
+                            <button type="button" @click="buoiOpen = !buoiOpen; locOpen = false; guestsOpen = false"
+                                class="w-full h-14 px-4 flex flex-col justify-center items-start text-left rounded-xl transition-colors">
+                                <span class="text-[10px] font-bold uppercase tracking-widest leading-none text-gray-500">Loại đặt</span>
                                 <span class="text-sm font-semibold mt-0.5 {{ $selectedBuoi ? 'text-gray-900' : 'text-gray-400' }}">{{ $buoiLabel }}</span>
                             </button>
                             <div x-show="buoiOpen" x-cloak
-                                x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 translate-y-1" x-transition:enter-end="opacity-100 translate-y-0"
-                                class="absolute top-[calc(100%+6px)] left-0 w-44 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 py-2">
+                                x-transition:enter="transition ease-out duration-150"
+                                x-transition:enter-start="opacity-0 translate-y-1"
+                                x-transition:enter-end="opacity-100 translate-y-0"
+                                x-transition:leave="transition ease-in duration-100"
+                                x-transition:leave-start="opacity-100 translate-y-0"
+                                x-transition:leave-end="opacity-0 translate-y-1"
+                                class="absolute top-[calc(100%+6px)] left-0 w-48 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 py-2">
+                                @php $buoiOpts = ['' => 'Tất cả', '1' => 'Theo giờ', '2' => 'Theo ngày']; @endphp
                                 @foreach($buoiOpts as $bVal => $bLbl)
-                                <button @click="$wire.set('selectedBuoi', '{{ $bVal }}'); buoiOpen = false"
+                                <button type="button" wire:click.stop="setBuoi(@js($bVal))" @click="buoiOpen = false"
+                                    wire:key="expanded-buoi-{{ $bVal ?: 'all' }}"
                                     class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ (!$bVal && !$selectedBuoi) || ($bVal && $selectedBuoi === $bVal) ? 'font-semibold text-teal-700' : 'text-gray-700' }}">
-                                    {{ $bLbl }}
+                                    <span>{{ $bLbl }}</span>
                                     @if((!$bVal && !$selectedBuoi) || ($bVal && $selectedBuoi === $bVal)) {!! $checkmarkSvg !!} @endif
                                 </button>
                                 @endforeach
                             </div>
                         </div>
 
-                        <div class="w-px bg-gray-300 my-2.5 shrink-0 transition-opacity duration-200"
-                            :class="buoiOpen || guestsOpen ? 'opacity-0' : 'opacity-100'"></div>
 
                         {{-- Số người --}}
-                        <div @click.outside="guestsOpen = false" data-field="guests" class="relative z-10 flex-[2] min-w-0">
-                            <button @click="if(!guestsOpen)_updatePill('guests'); guestsOpen=!guestsOpen; locOpen=false; buoiOpen=false; open=false"
-                                class="w-full h-14 px-4 flex flex-col justify-center rounded-xl transition-colors"
-                                :class="!guestsOpen && anyOpen ? 'hover:bg-black/[0.04]' : !anyOpen ? 'hover:bg-gray-50' : ''">
-                                <span :class="guestsOpen ? 'text-teal-600' : 'text-gray-500'"
-                                    class="text-[10px] font-bold uppercase tracking-widest leading-none transition-colors duration-200">Số người</span>
+                        <div data-field="guests" class="relative z-10 flex-[2] min-w-0">
+                            <button type="button" @click="guestsOpen = !guestsOpen; locOpen = false; buoiOpen = false"
+                                class="w-full h-14 px-4 flex flex-col justify-center items-start text-left rounded-xl transition-colors">
+                                <span class="text-[10px] font-bold uppercase tracking-widest leading-none text-gray-500">Số người</span>
                                 <span class="text-sm font-semibold mt-0.5 {{ $selectedGuests ? 'text-gray-900' : 'text-gray-400' }}">{{ $guestsLabel }}</span>
                             </button>
                             <div x-show="guestsOpen" x-cloak
-                                x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 translate-y-1" x-transition:enter-end="opacity-100 translate-y-0"
-                                class="absolute top-[calc(100%+6px)] right-0 w-44 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 py-2">
+                                x-transition:enter="transition ease-out duration-150"
+                                x-transition:enter-start="opacity-0 translate-y-1"
+                                x-transition:enter-end="opacity-100 translate-y-0"
+                                x-transition:leave="transition ease-in duration-100"
+                                x-transition:leave-start="opacity-100 translate-y-0"
+                                x-transition:leave-end="opacity-0 translate-y-1"
+                                class="absolute top-[calc(100%+6px)] right-0 w-52 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 py-2">
+                                @php $guestOpts = ['' => 'Tất cả', '1' => '1 người', '2' => '2 người', '3' => '3 người', '4' => '4 người', '5' => '5+ người']; @endphp
                                 @foreach($guestOpts as $gVal => $gLbl)
-                                <button @click="$wire.set('selectedGuests', '{{ $gVal }}'); guestsOpen = false"
+                                <button type="button" wire:click.stop="setGuests(@js($gVal))" @click="guestsOpen = false"
+                                    wire:key="expanded-guests-{{ $gVal ?: 'all' }}"
                                     class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ (!$gVal && !$selectedGuests) || ($gVal && $selectedGuests === $gVal) ? 'font-semibold text-teal-700' : 'text-gray-700' }}">
-                                    {{ $gLbl }}
+                                    <span>{{ $gLbl }}</span>
                                     @if((!$gVal && !$selectedGuests) || ($gVal && $selectedGuests === $gVal)) {!! $checkmarkSvg !!} @endif
                                 </button>
                                 @endforeach
@@ -1052,13 +1227,8 @@
 
                         {{-- Search --}}
                         <div class="flex items-center px-3 shrink-0">
-                            <button
-                                x-on:click.prevent="(async () => {
-                                    if (checkIn) await $wire.set('checkIn', displayCheckIn);
-                                    if (checkIn) await $wire.set('checkOut', displayCheckOut);
-                                    formOpen = false;
-                                    $wire.search();
-                                })()"
+                            <button type="button"
+                                x-on:click.stop.prevent="formOpen = false; submitSearch()"
                                 class="w-11 h-11 bg-teal-600 hover:bg-teal-700 text-white rounded-full
                                 transition-all shadow-md hover:shadow-lg active:scale-95 flex items-center justify-center">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1098,7 +1268,7 @@
          x-transition:leave-end="translate-x-full">
 
         {{-- Topbar: logo + close --}}
-        <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f3f4f6; flex-shrink:0;">
+        {{-- <div style="display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid #f3f4f6; flex-shrink:0;">
             <span style="font-size:16px; font-weight:700; color:#111827; letter-spacing:-.3px;">Menu</span>
             <button @click="menuOpen = false"
                     style="width:34px; height:34px; border-radius:50%; background:#f3f4f6; border:none; color:#6b7280; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:background .2s;"
@@ -1107,17 +1277,18 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>
                 </svg>
             </button>
-        </div>
+        </div> --}}
 
         {{-- Nav items --}}
         <div style="padding:8px 0; flex:1;">
             @foreach($navLinks as $link)
             <a href="{{ $link['url'] }}"
+               wire:key="nav-link-{{ $link['url'] }}"
                @click="menuOpen = false"
                style="display:flex; align-items:center; gap:14px; padding:13px 20px; text-decoration:none; color:#374151; transition:all .15s; cursor:pointer;"
                onmouseover="this.style.background='#f9fafb'; this.style.color='#0f766e';"
                onmouseout="this.style.background=''; this.style.color='#374151';">
-                <span style="width:34px; height:34px; border-radius:9px; background:#f3f4f6; display:flex; align-items:center; justify-content:center; flex-shrink:0;">{!! $link['icon'] !!}</span>
+                {{-- <span style="width:34px; height:34px; border-radius:9px; background:#f3f4f6; display:flex; align-items:center; justify-content:center; flex-shrink:0;">{!! $link['icon'] !!}</span> --}}
                 <span style="font-size:14px; font-weight:600; flex:1;">{{ $link['label'] }}</span>
                 <svg style="width:13px;height:13px;color:#d1d5db; flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>

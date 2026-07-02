@@ -89,7 +89,7 @@
         'header-hero-transparent': !isSticky && {{ $header_style ? 'true' : 'false' }},
         'header-hero-sticky': isSticky || {{ !$header_style ? 'true' : 'false' }},
      }"
-     class="w-full z-50 transition-all duration-300 ease-in-out {{ $header_style ? 'fixed top-0 left-0 right-0' : '' }}">
+     class="w-full z-[1200] transition-all duration-300 ease-in-out {{ $header_style ? 'fixed top-0 left-0 right-0' : 'relative' }}">
 
     <div class="flex items-center transition-all duration-300 ease-in-out"
          :style="{ height: '{{ $headerHeight }}', backgroundColor: (isSticky || {{ !$header_style ? 'true' : 'false' }}) ? 'white' : '{{ $initBgColor }}' }">

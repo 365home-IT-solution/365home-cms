@@ -244,8 +244,9 @@ class SearchResultsGrid extends Component
             'lat'        => $lat,
             'lng'        => $lng,
             'address'    => $address,
-            'room_count' => count($branchProducts),
-            'rooms'      => $rooms,
+            'room_count'   => count($branchProducts),
+            'booking_url'  => route('branch.booking', ['slug' => $cat->slug]),
+            'rooms'        => $rooms,
         ];
     }
 

@@ -19,7 +19,13 @@
    
 
     <style>
-        #main-header-bar { z-index: 1050 !important; }
+        #main-header-bar {
+            z-index: 1150 !important;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+        }
         #search-layout {
             display: flex;
             height: calc(100vh - 112px);
@@ -252,6 +258,9 @@
             var btnEl = document.getElementById(popId + '-btn');
             if (btnEl) btnEl.href = room.url || '#';
 
+            var bookingEl = document.getElementById(popId + '-booking');
+            if (bookingEl) bookingEl.href = p.bookingUrl || '#';
+
             var ctEl = document.getElementById(popId + '-ct');
             if (ctEl) ctEl.textContent = (p.idx + 1) + '/' + p.rooms.length;
         }
@@ -274,6 +283,9 @@
                 +   '<a id="' + popId + '-btn" href="#" '
                 +     'style="display:block;background:#0f766e;color:#fff;font-size:12px;font-weight:700;text-align:center;padding:7px 10px;border-radius:8px;text-decoration:none;letter-spacing:.01em;" '
                 +     'onclick="return this.href!==\'#\'">Xem phòng →</a>'
+                +   '<a id="' + popId + '-booking" href="#" '
+                +     'style="display:block;margin-top:7px;background:#111827;color:#fff;font-size:12px;font-weight:800;text-align:center;padding:7px 10px;border-radius:8px;text-decoration:none;letter-spacing:.01em;" '
+                +     'onclick="return this.href!==\'#\'">Đặt phòng chi nhánh →</a>'
                 + '</div>'
                 + '</div>';
         }
@@ -365,7 +377,8 @@
                 var popId = 'bp' + idx;
                 __popups[popId] = {
                     rooms: rooms,
-                    idx: 0
+                    idx: 0,
+                    bookingUrl: branch.booking_url || '#'
                 };
 
                 // Marker

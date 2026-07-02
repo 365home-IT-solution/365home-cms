@@ -3,6 +3,7 @@
 namespace Modules\BladeThemeV1\Livewire;
 
 use App\Models\Province;
+use App\Settings\GeneralSettings;
 use Livewire\Component;
 use Modules\Product\App\Models\RoomType;
 
@@ -11,6 +12,7 @@ class HeroSection extends Component
     public $locations = [];
     public $roomTypes = [];
     public array $navLinks = [];
+    public string $logo = '';
 
     public bool   $noBanner        = false;
 
@@ -30,6 +32,8 @@ class HeroSection extends Component
 
     public function mount(): void
     {
+        $this->logo = (new GeneralSettings())->brand_logo;
+
         $this->roomTypes = RoomType::where('is_active', true)
             ->orderBy('sort_order')
             ->get(['id', 'name', 'slug', 'icon_url'])
@@ -69,6 +73,27 @@ class HeroSection extends Component
         //     ->orderBy('name')
         //     ->get(['id', 'name', 'slug'])
         //     ->toArray();
+    }
+
+    public function setLocation(string $slug): void
+    {
+        $this->selectedLocation = $slug;
+    }
+
+    public function setBuoi(string $val): void
+    {
+        $this->selectedBuoi = $val;
+    }
+
+    public function setGuests(string $val): void
+    {
+        $this->selectedGuests = $val;
+    }
+
+    public function setRoomType(string $slug): void
+    {
+        $this->selectedRoomType = $slug;
+        $this->loadLocations($slug === 'all' ? null : $slug);
     }
 
     // Khi checkInHour thay đổi → tự correct checkOutHour nếu cùng ngày

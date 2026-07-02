@@ -211,7 +211,7 @@
 
         <div id="default-styled-tab-content">
             @foreach ($get_pd_by_cate_tab as $category)
-            <div class="hidden pb-10 relative" id="styled-{{ \Str::slug($category['name']) }}" role="tabpanel"
+            <div class="{{ $loop->first ? '' : 'hidden' }} pb-10 relative" id="styled-{{ \Str::slug($category['name']) }}" role="tabpanel"
                 aria-labelledby="styled-{{ \Str::slug($category['name']) }}-tab">
 
                 @php

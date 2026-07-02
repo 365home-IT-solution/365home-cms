@@ -69,6 +69,7 @@
                 data-address="{{ e($branch['address']) }}"
                 data-image="{{ $branch['image'] ?? '' }}"
                 data-room-count="{{ $branch['room_count'] }}"
+                data-booking-url="{{ $branch['booking_url'] }}"
                 style="background:#fff;border-radius:14px;border:1.5px solid #f3f4f6;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06);cursor:pointer;transition:border-color .15s,box-shadow .15s;"
                 onmouseover="this.style.borderColor='#0f766e';this.style.boxShadow='0 3px 12px rgba(0,0,0,.1)'"
                 onmouseout="this.style.borderColor='#f3f4f6';this.style.boxShadow='0 1px 3px rgba(0,0,0,.06)'">
@@ -103,6 +104,11 @@
                         {{ $branch['address'] }}
                     </p>
                     @endif
+                    <a class="branch-booking-btn" href="{{ $branch['booking_url'] }}"
+                        onclick="event.stopPropagation()"
+                        style="display:block;margin-top:9px;background:#0f766e;color:#fff;font-size:12px;font-weight:800;text-align:center;padding:8px 10px;border-radius:8px;text-decoration:none;letter-spacing:.01em;">
+                        Đặt phòng →
+                    </a>
                 </div>
             </div>
             @endforeach

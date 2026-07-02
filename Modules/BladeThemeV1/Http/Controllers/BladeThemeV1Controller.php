@@ -455,6 +455,65 @@ class BladeThemeV1Controller extends Controller
         ]);
     }
 
+    public function bookingBoard(string $slug)
+    {
+        $branch = Category::where('slug', $slug)->first();
+
+        abort_unless($branch, 404);
+
+        $categoryIds = array_merge(
+            [$branch->id],
+            Category::where('parent_id', $branch->id)->pluck('id')->toArray()
+        );
+
+        $products = Product::where('is_activated', true)
+            ->where('is_in_stock', true)
+            ->where(function ($q) {
+                $q->where('styles', 1)->orWhereNull('styles');
+            })
+            ->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $categoryIds))
+            ->whereHas('roomTimeSlots.timeSlot')
+            ->orderBy('sort_order')
+            ->get(['id'])
+            ->pluck('id')
+            ->values()
+            ->toArray();
+
+        $bookConfig = [
+            'bookable_room_count' => count($products),
+            'component' => [
+                'choose_room' => json_encode([
+                    'categories' => [
+                        [
+                            'category_id' => $branch->id,
+                            'products' => $products,
+                        ],
+                    ],
+                ], JSON_UNESCAPED_UNICODE),
+                'title_booking' => 'Đặt phòng ' . $branch->name,
+                'sub_title_booking' => 'Chọn phòng và mốc thời gian phù hợp tại chi nhánh này.',
+                'image_event' => '',
+            ],
+        ];
+
+        $seoData = [
+            'seo_title' => 'Đặt phòng ' . $branch->name . ' | 365 HOME',
+            'seo_description' => 'Bảng đặt phòng theo khung giờ tại chi nhánh ' . $branch->name . '.',
+            'seo_keywords' => 'đặt phòng, khung giờ, ' . $branch->name,
+            'og_type' => 'website',
+        ];
+
+        return view('bladethemev1::pages.booking-board', [
+            'seoData' => $seoData,
+            'primaryColor' => $this->primaryColor,
+            'primaryColorRgb' => $this->primaryColorRgb,
+            'heavyPrimaryColor' => $this->heavyPrimaryColor,
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+            'branch' => $branch,
+            'bookConfig' => $bookConfig,
+        ]);
+    }
+
     public function cartPage()
     {
         return view('bladethemev1::pages.cart.cart', [

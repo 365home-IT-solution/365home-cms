@@ -1,12 +1,14 @@
 @php
-    $isActive = function ($item) {
+    $menuUrl = fn ($item) => $item->branch_booking_url ?: $item->getFullUrl();
+
+    $isActive = function ($item) use ($menuUrl) {
         $currentUrl = request()->url();
-        if ($currentUrl == $item->getFullUrl()) {
+        if ($currentUrl == $menuUrl($item)) {
             return true;
         }
-        return $item->children->contains(function ($child) use ($currentUrl) {
-            return $currentUrl == $child->getFullUrl() || $child->children->contains(function ($grandchild) use ($currentUrl) {
-                return $currentUrl == $grandchild->getFullUrl();
+        return $item->children->contains(function ($child) use ($currentUrl, $menuUrl) {
+            return $currentUrl == $menuUrl($child) || $child->children->contains(function ($grandchild) use ($currentUrl, $menuUrl) {
+                return $currentUrl == $menuUrl($grandchild);
             });
         });
     };
@@ -15,7 +17,7 @@
 
 <li class="relative text-[18px] menu-group @if($depth > 1) p-1 @endif">
     @if ($menuItem->children->isEmpty())
-        <a href="{{ $menuItem->getFullUrl() }}"
+        <a href="{{ $menuUrl($menuItem) }}"
            class="@if($depth === 1)
                     main-menu-item w-full flex items-center justify-between {{$sizeClassess}} {{ $navUppercase }} font-medium pl-[20px] h-[40px] transition-all duration-300 ease-in-out relative {{ $menuItemActive ? 'menu-active' : '' }}
                  @else
