@@ -218,10 +218,11 @@
     <div class="w-full mx-auto">
         @include('bladethemev1::livewire.book._header')
 
-        <div id="default-styled-tab-content">
-            @foreach ($get_pd_by_cate_tab as $category)
-            <div class="{{ $loop->first ? '' : 'hidden' }} pb-10 relative" id="styled-{{ \Str::slug($category['name']) }}" role="tabpanel"
-                aria-labelledby="styled-{{ \Str::slug($category['name']) }}-tab">
+        <div id="default-styled-tab-content" wire:loading.class="opacity-50 pointer-events-none" wire:target="setActiveCategoryTab">
+            @if(!empty($activeCategoryData))
+            @php $category = $activeCategoryData; @endphp
+            <div class="pb-10 relative" id="styled-{{ \Str::slug($category['name']) }}" role="tabpanel"
+                aria-labelledby="styled-{{ \Str::slug($category['name']) }}-tab" wire:key="book-category-{{ $category['id'] }}">
 
                 @php
                 $dates = $this->getDatesForOneMonth();
