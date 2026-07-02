@@ -2,7 +2,7 @@
 
 namespace Modules\BladeThemeV1\Services\AccessCode;
 
-use App\Services\TTLockService;
+use Modules\TTLock\App\Services\TTLockService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -11,7 +11,6 @@ use Modules\Payment\Entities\Order;
 
 class AccessCodeService
 {
-    public function __construct(protected TTLockService $ttlock) {}
 
     /**
      * Lấy mã access code VALID cho chi nhánh
@@ -113,7 +112,7 @@ class AccessCodeService
         // Tự sinh mã 6 chữ số để đảm bảo đồng nhất
         $generatedCode = str_pad((string) random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
 
-        $ttlock = \App\Services\TTLockService::forCategory($categoryId);
+        $ttlock = TTLockService::forCategory($categoryId);
 
         if (!$ttlock) {
             Log::info('No TTLock account for category, falling back to manual pool', [
@@ -258,10 +257,11 @@ class AccessCodeService
                 if ($ac->ttlock_keyboard_pwd_id) {
                     // Mã tự động → xóa khỏi TTLock
                     $lockIds = $this->getLockIdForOrder($orderId);
-                    if ($lockIds) {
-                        $this->ttlock->deletePasscode((int) $lockIds['checkin'], (int) $ac->ttlock_keyboard_pwd_id);
+                    $ttlock  = TTLockService::forCategory($ac->category_id);
+                    if ($lockIds && $ttlock) {
+                        $ttlock->deletePasscode((int) $lockIds['checkin'], (int) $ac->ttlock_keyboard_pwd_id);
                         if ($ac->ttlock_keyboard_pwd_id_checkout && $lockIds['checkout']) {
-                            $this->ttlock->deletePasscode((int) $lockIds['checkout'], (int) $ac->ttlock_keyboard_pwd_id_checkout);
+                            $ttlock->deletePasscode((int) $lockIds['checkout'], (int) $ac->ttlock_keyboard_pwd_id_checkout);
                         }
                     }
                     // Xóa AccessCode record tự động (không còn dùng cho đơn nào)
@@ -344,7 +344,8 @@ class AccessCodeService
             // Nếu là mã TTLock → xóa + tạo lại với cùng mã nhưng thời gian mới
             if ($ac->ttlock_keyboard_pwd_id) {
                 $lockIds = $this->getLockIdForOrder($orderId);
-                if (!$lockIds) {
+                $ttlock  = TTLockService::forCategory($ac->category_id);
+                if (!$lockIds || !$ttlock) {
                     continue;
                 }
 
@@ -352,12 +353,12 @@ class AccessCodeService
                 $code = (string) $ac->code;
 
                 // --- Khóa checkin: xóa mã cũ, thêm lại mã mới ---
-                $this->ttlock->deletePasscode(
+                $ttlock->deletePasscode(
                     lockId:        (int) $lockIds['checkin'],
                     keyboardPwdId: (int) $ac->ttlock_keyboard_pwd_id,
                 );
 
-                $newCheckin = $this->ttlock->addCustomPasscode(
+                $newCheckin = $ttlock->addCustomPasscode(
                     lockId:    (int) $lockIds['checkin'],
                     code:      $code,
                     startDate: $startMs,
@@ -377,12 +378,12 @@ class AccessCodeService
 
                 // --- Khóa checkout: xóa mã cũ, thêm lại mã mới ---
                 if ($ac->ttlock_keyboard_pwd_id_checkout && $lockIds['checkout']) {
-                    $this->ttlock->deletePasscode(
+                    $ttlock->deletePasscode(
                         lockId:        (int) $lockIds['checkout'],
                         keyboardPwdId: (int) $ac->ttlock_keyboard_pwd_id_checkout,
                     );
 
-                    $newCheckout = $this->ttlock->addCustomPasscode(
+                    $newCheckout = $ttlock->addCustomPasscode(
                         lockId:    (int) $lockIds['checkout'],
                         code:      $code,
                         startDate: $startMs,

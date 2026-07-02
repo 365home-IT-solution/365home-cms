@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace App\Filament\Resources\TtlockAccountResource\Pages;
+namespace Modules\TTLock\App\Filament\Resources\TtlockAccountResource\Pages;
 
-use App\Filament\Resources\TtlockAccountResource;
+use Modules\TTLock\App\Filament\Resources\TtlockAccountResource;
 use Filament\Resources\Pages\CreateRecord;
 
 class CreateTtlockAccount extends CreateRecord

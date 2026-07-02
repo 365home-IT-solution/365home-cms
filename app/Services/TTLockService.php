@@ -22,12 +22,12 @@ class TTLockService
     private string $cachePrefix;
 
     public function __construct(
-        string $clientId     = '',
-        string $clientSecret = '',
-        string $username     = '',
-        string $password     = '',
-        string $apiBase      = '',
-        string $cachePrefix  = 'ttlock_env'
+        string $clientId,
+        string $clientSecret,
+        string $username,
+        string $password,
+        string $apiBase      = 'https://euapi.ttlock.com',
+        string $cachePrefix  = 'ttlock_db'
     ) {
         $this->clientId     = $clientId     ?: (config('services.ttlock.client_id') ?? '');
         $this->clientSecret = $clientSecret ?: (config('services.ttlock.client_secret') ?? '');

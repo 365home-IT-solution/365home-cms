@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\AccessCode\App\Filament\Resources\AccessCodeResource\Tables\Actions;
 
-use App\Services\TTLockService;
+use Modules\TTLock\App\Services\TTLockService;
 use Carbon\Carbon;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\CheckboxList;

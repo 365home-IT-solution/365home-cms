@@ -29,14 +29,16 @@
             @if(!empty($menu->menuItems))
                 @foreach ($menu->menuItems as $menuItem)
                     @php
-                        $isActive = function ($item) {
+                        $menuUrl = fn ($item) => $item->branch_booking_url ?: $item->getFullUrl();
+
+                        $isActive = function ($item) use ($menuUrl) {
                             $currentUrl = request()->url();
-                            if ($currentUrl == $item->getFullUrl()) {
+                            if ($currentUrl == $menuUrl($item)) {
                                 return true;
                             }
-                            return $item->children->contains(function ($child) use ($currentUrl) {
-                                return $currentUrl == $child->getFullUrl() || $child->children->contains(function ($grandchild) use ($currentUrl) {
-                                    return $currentUrl == $grandchild->getFullUrl();
+                            return $item->children->contains(function ($child) use ($currentUrl, $menuUrl) {
+                                return $currentUrl == $menuUrl($child) || $child->children->contains(function ($grandchild) use ($currentUrl, $menuUrl) {
+                                    return $currentUrl == $menuUrl($grandchild);
                                 });
                             });
                         };
@@ -48,7 +50,7 @@
                         x-data="{ openMenuSidebar: {{ $menuItemActive ? 'true' : 'false' }}, isHovered: false, menuItemActive: {{$menuItemActive ? 'true' : 'false'}} }"
                         class="rounded-lg overflow-hidden">
                         @if ($menuItem->children->isEmpty())
-                            <a href="{{ $menuItem->getFullUrl() }}"
+                            <a href="{{ $menuUrl($menuItem) }}"
                                class="flex items-center w-full px-6 py-4 text-gray-700 transition-all duration-300 hover:bg-primary hover:text-borderGray hover:shadow-md hover:scale-[1.02] rounded-lg group {{ $menuItemActive ? 'bg-primary text-white shadow-lg' : 'hover:bg-gray-50' }}">
                                 <span class="text-base font-medium">{{$menuItem->title}}</span>
                                 <div class="ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
@@ -89,7 +91,7 @@
                                         x-data="{ openChildMenu: {{ $childActive ? 'true' : 'false' }}, childActive: {{ $childActive ? 'true' : 'false' }} }"
                                         class="mx-2 rounded-md overflow-hidden">
                                         @if ($child->children->isEmpty())
-                                            <a href="{{ $child->getFullUrl() }}"
+                                            <a href="{{ $menuUrl($child) }}"
                                                class="flex items-center w-full px-4 py-3 text-gray-600 transition-all duration-300 hover:bg-borderGray hover:text-primary rounded-md group relative {{ $childActive ? 'bg-primary text-white shadow-md' : 'hover:bg-white/70' }}">
                                                 <div class="w-2 h-2 bg-current rounded-full mr-3 opacity-60"></div>
                                                 <span class="text-sm font-medium">{{$child->title}}</span>
@@ -126,7 +128,7 @@
                                                         $grandchildActive = $isActive($grandchild);
                                                     @endphp
                                                     <li class="mx-2">
-                                                        <a href="{{ $grandchild->getFullUrl() }}"
+                                                        <a href="{{ $menuUrl($grandchild) }}"
                                                            class="flex items-center w-full px-4 py-2 text-gray-600 transition-all duration-300 hover:bg-primary hover:text-borderGray rounded-md group {{ $grandchildActive ? 'bg-primary text-white shadow-md' : 'hover:bg-gray-100' }}">
                                                             <div class="w-1 h-1 bg-current rounded-full mr-3 opacity-60"></div>
                                                             <span class="text-sm">{{$grandchild->title}}</span>

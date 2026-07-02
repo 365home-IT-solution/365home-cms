@@ -1,10 +1,11 @@
-@php 
-    $headerStyle = false;
-    $headerStyleClassess = $headerStyle ? "fixed z-50 w-full" : "relative";
+@php
+    $isHomePage = request()->is('/');
+    $headerStyle = $isHomePage;
 @endphp
 
-<header class="{{ $headerStyleClassess }}">
-    @if ($topbarConfig['show_top_bar'] && !$headerStyle)
+<header class="relative">
+
+    @if ($topbarConfig['show_top_bar'] && !$isHomePage)
         <x-bladethemev1::header.topbar
             :height="$topbarConfig['height']"
             :background_color="$topbarConfig['background_color']"
@@ -31,4 +32,3 @@
         :authHeaderEnabled="$authHeaderEnabled"
     />
 </header>
-

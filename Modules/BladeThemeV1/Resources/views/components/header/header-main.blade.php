@@ -25,7 +25,7 @@
 
     // Navigation bar configs
     $navStyle = $data->navConfig['navigation_style'];
-    $navSize = $data->navConfig['nav_size'];
+    $navSize = 14;
     $navSpacing = $data->navConfig['nav_spacing'];
     $navUppercase = $data->navConfig['uppercase'];
 
@@ -60,44 +60,50 @@
     };
 
     $initialBackground = $header_style ? 'background-color: transparent;' : "background-color: $headerBackgroundColor;";
+    $initBgColor = $header_style ? 'transparent' : $headerBackgroundColor;
+    // Homepage: transparent→white khi scroll, logo invert→gốc. Non-homepage: luôn trắng, logo gốc
+    $logoFilterExpr = $header_style
+        ? "!isSticky ? 'brightness(0) invert(1)' : 'none'"
+        : "'none'";
 @endphp
 
-<div x-data="{
+<div id="main-header-bar"
+     x-data="{
         isSticky: false,
         mobileMenuOpen: false
     }"
-     x-init="@if($headerSticky) window.addEventListener('scroll', () => {
-        const topbar = document.querySelector('header.shadow-2xl');
-        const topbarHeight = topbar ? topbar.offsetHeight : 0;
-        if (window.scrollY > topbarHeight) {
-            $el.classList.add('fixed-header');
-            isSticky = true;
+     x-init="window.addEventListener('scroll', () => {
+        isSticky = window.scrollY > 60;
+        @if($headerSticky && !$header_style)
+        if (isSticky) {
+            $el.classList.add('fixed', 'top-0', 'left-0', 'right-0');
         } else {
-            $el.classList.remove('fixed-header');
-            isSticky = false;
+            $el.classList.remove('fixed', 'top-0', 'left-0', 'right-0');
         }
-    }) @endif"
+        @endif
+    }, { passive: true })"
      :class="{
-        'shadow-md': isSticky && {{ $addShadow ? 'true' : 'false' }},
-        'bg-primary backdrop-blur-md': isSticky && {{ $headerSticky }},
-        'fixed-header': isSticky && {{ $headerSticky }}
-    }"
-     class="w-full z-50 transition-all duration-300 ease-in-out">
+        'shadow-md': (isSticky || {{ !$header_style ? 'true' : 'false' }}) && {{ $addShadow ? 'true' : 'false' }},
+        'border-b border-gray-100': isSticky || {{ !$header_style ? 'true' : 'false' }},
+        'backdrop-blur-sm': !isSticky && {{ $header_style ? 'true' : 'false' }},
+        'header-hero-transparent': !isSticky && {{ $header_style ? 'true' : 'false' }},
+        'header-hero-sticky': isSticky || {{ !$header_style ? 'true' : 'false' }},
+     }"
+     class="w-full z-[1200] transition-all duration-300 ease-in-out {{ $header_style ? 'fixed top-0 left-0 right-0' : 'relative' }}">
 
-    <div class="flex items-center transition-colors duration-1000 ease-in-out"
-         :style="isSticky && {{ $headerSticky }} ? '' : '{{ $initialBackground }}'"
-         style="height: {{ $headerHeight }}; background-color: {{ $headerBackgroundColor; }}">
+    <div class="flex items-center transition-all duration-300 ease-in-out"
+         :style="{ height: '{{ $headerHeight }}', backgroundColor: (isSticky || {{ !$header_style ? 'true' : 'false' }}) ? 'white' : '{{ $initBgColor }}' }">
 
         <div class="w-full md:px-8 px-4 mx-auto py-[8px]">
-                <div class='flex flex-wrap items-center justify-between'>
+                <div class='flex flex-wrap items-center justify-between relative'>
                     <!-- Mobile Header - Improved Layout -->
                     <div class="flex items-center justify-between w-full lg:hidden">
                         <!-- Mobile Logo -->
                         <a href="{{ $logoLink }}" class="flex items-center flex-shrink-0">
-                            <img style="height: {{ $logoHeightMobile }}; width: auto; max-width: 250px; filter: brightness(0) invert(1);"
+                            <img :style="{ height: '{{ $logoHeightMobile }}', maxWidth: '250px', filter: {{ $logoFilterExpr }} }"
                                  src="{{ asset('/storage/'.$logo) }}"
                                  alt="Logo"
-                                 class="max-w-none"/>
+                                 class="max-w-none transition-all duration-300"/>
                         </a>
 
                         <!-- Mobile Actions -->
@@ -135,7 +141,9 @@
                     <!-- Desktop Logo -->
                     <a href="{{ $logoLink }}"
                        class="hidden lg:flex items-center flex-shrink-0">
-                        <img style="height: {{ $logoHeight }}; filter: brightness(0) invert(1);" src="{{ asset('/storage/'.$logo) }}" alt="Logo"/>
+                        <img :style="{ height: '{{ $logoHeight }}', filter: {{ $logoFilterExpr }} }"
+                             src="{{ asset('/storage/'.$logo) }}" alt="Logo"
+                             class="transition-all duration-300"/>
                     </a>
 
                     <!-- Desktop Navigation -->
@@ -149,7 +157,6 @@
                                     'loop' => $loop,
                                     'navStyle' => $navStyle,
                                     'navSize' => $navSize,
-                                    'navUppercase' => $navUppercase,
                                     ], key($menuItem->id))
                                 @endforeach
                             @endif
@@ -184,6 +191,18 @@
 </div>
 
 <style>
+    /* Sau khi scroll xuống (nền trắng): chữ màu primary, gạch chân primary */
+    .header-hero-sticky .main-menu-item {
+        color: var(--color-primary) !important;
+    }
+    .header-hero-sticky .main-menu-item:hover {
+        color: var(--color-primary) !important;
+        opacity: 0.8;
+    }
+    .header-hero-sticky .main-menu-item::after {
+        background: var(--color-primary) !important;
+    }
+
     /* Custom styles for mobile optimization */
     .fixed-header {
         position: fixed;

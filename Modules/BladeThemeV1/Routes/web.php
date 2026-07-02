@@ -71,6 +71,7 @@ Route::get('/robots.txt',  [SitemapController::class, 'robots'])->name('robots')
 
 Route::get('/bai-viet/{slug}', [BladeThemeV1Controller::class, 'postDetail'])->name('post.detail');
 Route::get('/san-pham/tim-kiem', [BladeThemeV1Controller::class, 'searchProduct'])->name('product.search');
+Route::get('/branch/{slug}', [BladeThemeV1Controller::class, 'bookingBoard'])->name('branch.booking');
 Route::get('/room/{slug}/', [BladeThemeV1Controller::class, 'productDetail'])->name('product.detail');
 //Route::get('/local/home-{slug}/', [BladeThemeV1Controller::class, 'categoryDetail'])->name('category.detail');
 Route::get('/mau-giao-dien/{slug}', [BladeThemeV1Controller::class, 'templateDetail'])->name('template.detail');

@@ -119,6 +119,16 @@
   box-shadow: 0 4px 12px rgba(var(--color-primary-rgb), 0.3);
 }
 
+/* Header active: chỉ dùng gạch chân, không dùng màu nền */
+.main-menu-item.menu-active {
+  background: transparent;
+  box-shadow: none;
+}
+
+.main-menu-item.menu-active::after {
+  width: 40px;
+}
+
 .main-menu-item {
   position: relative;
   overflow: visible;

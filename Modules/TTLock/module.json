@@ -1,0 +1,11 @@
+{
+    "name": "TTLock",
+    "alias": "ttlock",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\TTLock\\App\\Providers\\TTLockServiceProvider"
+    ],
+    "files": []
+}
