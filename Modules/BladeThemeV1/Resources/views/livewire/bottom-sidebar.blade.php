@@ -114,6 +114,34 @@
                 },
                 go() {
                     if (this.isLoggedIn) {
+                        window.location.href = '/tai-khoan#orders-section';
+                    } else {
+                        window.dispatchEvent(new CustomEvent('open-auth-modal'));
+                    }
+                },
+            }"
+            class="contents"
+        >
+            <a @click.prevent="go()" href="/tai-khoan#orders-section" class="nav-item-1">
+                <div class="nav-icon-1">
+                    <x-heroicon-o-clipboard-document-list />
+                </div>
+                <span class="nav-label-1">Đơn hàng</span>
+            </a>
+        </div>
+
+        <div
+            x-data="{
+                isLoggedIn: false,
+                init() {
+                    this.check();
+                    window.addEventListener('auth-state-changed', () => this.check());
+                },
+                check() {
+                    this.isLoggedIn = !!(localStorage.getItem('auth_token') && localStorage.getItem('auth_user'));
+                },
+                go() {
+                    if (this.isLoggedIn) {
                         window.location.href = '/tai-khoan';
                     } else {
                         window.dispatchEvent(new CustomEvent('open-auth-modal'));

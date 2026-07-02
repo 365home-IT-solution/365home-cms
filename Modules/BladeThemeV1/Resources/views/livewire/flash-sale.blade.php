@@ -1,119 +1,109 @@
-<div>
-    <section class="py-10 bg-white">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6">
-            {{-- Banner thông báo khuyến mãi --}}
-            <div style="background:linear-gradient(90deg,#dc2626,#ea580c,#f59e0b); padding:12px 16px;">
-                <div
-                    style="max-width:80rem; margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-
-                    {{-- Icon + nội dung --}}
-                    <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:0;">
-                        {{-- Icon sét --}}
-                        <div
-                            style="background:rgba(255,255,255,0.2); border-radius:50%; width:32px; height:32px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
-                            <svg style="width:16px;height:16px;color:#fff;" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd"
-                                    d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z"
-                                    clip-rule="evenodd" />
-                            </svg>
-                        </div>
-
-                        {{-- Badge + text --}}
-                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                            <span
-                                style="background:rgba(255,255,255,0.25); color:#fff; font-size:11px; font-weight:800; padding:2px 10px; border-radius:99px; letter-spacing:.05em; text-transform:uppercase; white-space:nowrap;">
-                                Flash Sale
-                            </span>
-                            <span style="color:#fff; font-size:14px; font-weight:600;">
-                                Ưu đãi đặc biệt — Giảm đến <strong style="font-size:16px;">30%</strong> tất cả phòng hôm
-                                nay!
-                            </span>
-                            <span style="color:rgba(255,255,255,0.75); font-size:12px;">
-                                🕐 Chỉ hôm nay, áp dụng khi đặt trước 22:00
-                            </span>
-                        </div>
-                    </div>
-
-                    {{-- Nút CTA --}}
-                    <a href="{{ route('product.search') }}"
-                        style="background:#fff; color:#dc2626; font-size:13px; font-weight:700; padding:6px 18px; border-radius:99px; text-decoration:none; white-space:nowrap; flex-shrink:0; box-shadow:0 2px 8px rgba(0,0,0,0.15); transition:opacity .15s;"
-                        onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
-                        Đặt ngay →
-                    </a>
-                </div>
-            </div>
-        </div>
-    </section>
-    {{-- ============================================================
-    CODE CŨ (flash sale danh sách sản phẩm) — giữ lại, không xóa
-    ================================================================
-
-    <section class="py-10 bg-gradient-to-br from-red-50 via-orange-50 to-yellow-50">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6">
-
-            <div class="flex items-center justify-between mb-6">
-                <div class="flex items-center gap-3">
-                    <div class="flex items-center gap-2 bg-red-500 text-white px-4 py-2 rounded-full shadow-md">
-                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd"/>
-                        </svg>
-                        <span class="font-extrabold text-sm tracking-wider uppercase">Flash Sale</span>
-                    </div>
-                    <p class="text-gray-500 text-sm font-medium">Giá ưu đãi đặc biệt hôm nay</p>
-                </div>
-                <a href="{{ route('product.search') }}"
-                    class="text-sm font-semibold text-red-500 hover:text-red-600 flex items-center gap-1 transition-colors">
-                    Xem tất cả
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-                    </svg>
-                </a>
-            </div>
-
-            <div class="flex gap-4 overflow-x-auto pb-4 scrollbar-hide snap-x snap-mandatory">
-                @foreach ($products as $product)
-                <a href="{{ route('product.detail', ['slug' => $product['slug']]) }}"
-                    class="snap-start flex-none w-44 sm:w-52 bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-all duration-200 group border border-red-100">
-
-                    <div class="relative pt-[70%] overflow-hidden">
-                        @if ($product['image'])
-                            <img src="{{ $product['image'] }}"
-                                alt="{{ $product['name'] }}"
-                                class="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                        @else
-                            <div class="absolute inset-0 bg-gray-100"></div>
-                        @endif
-
-                        @if ($product['discount'] > 0)
-                        <div class="absolute top-2 left-2 bg-red-500 text-white text-[11px] font-bold px-2 py-0.5 rounded-full shadow">
-                            -{{ number_format($product['discount']) }}đ
-                        </div>
-                        @endif
-                    </div>
-
-                    <div class="p-3">
-                        <p class="text-xs font-semibold text-gray-800 line-clamp-2 leading-snug min-h-[2.5rem]">
-                            {{ $product['name'] }}
-                        </p>
-                        <p class="text-[11px] text-gray-400 mt-0.5 line-clamp-1">{{ $product['category'] }}</p>
-                        <div class="mt-2">
-                            <div class="text-xs text-gray-400 line-through">
-                                {{ number_format($product['original_price']) }}đ
-                                @if ($product['time_unit'])/{{ $product['time_unit'] }}@endif
-                            </div>
-                            <div class="text-sm font-bold text-red-500">
-                                {{ number_format($product['sale_price']) }}đ
-                                @if ($product['time_unit'])
-                                    <span class="text-xs font-normal text-gray-400">/{{ $product['time_unit'] }}</span>
-                                @endif
+<div
+    x-data="homeSections()"
+    x-init="init()"
+    x-cloak
+>
+    <template x-for="section in sections" :key="section.type + '-' + section.id">
+        <div>
+            {{-- ============== PROMOTION LIST (Flash Sale) ============== --}}
+            <template x-if="section.type === 'promotion_list'">
+                <section class="py-6 bg-white">
+                    <div class="max-w-7xl mx-auto px-4 sm:px-6">
+                        <div style="background:linear-gradient(90deg,#dc2626,#ea580c,#f59e0b); padding:12px 16px; border-radius:12px;">
+                            <div style="max-width:80rem; margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+                                <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:0;">
+                                    <div style="background:rgba(255,255,255,0.2); border-radius:50%; width:32px; height:32px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                                        <template x-if="section.icon_url">
+                                            <img :src="section.icon_url" alt="" style="width:18px;height:18px;object-fit:contain;">
+                                        </template>
+                                        <template x-if="!section.icon_url">
+                                            <svg style="width:16px;height:16px;color:#fff;" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd"/>
+                                            </svg>
+                                        </template>
+                                    </div>
+                                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                        <span style="background:rgba(255,255,255,0.25); color:#fff; font-size:11px; font-weight:800; padding:2px 10px; border-radius:99px; letter-spacing:.05em; text-transform:uppercase; white-space:nowrap;" x-text="section.title || 'Flash Sale'"></span>
+                                        <span style="color:#fff; font-size:14px; font-weight:600;">Ưu đãi đặc biệt hôm nay!</span>
+                                    </div>
+                                </div>
+                                <a href="{{ route('product.search') }}"
+                                    style="background:#fff; color:#dc2626; font-size:13px; font-weight:700; padding:6px 18px; border-radius:99px; text-decoration:none; white-space:nowrap; flex-shrink:0; box-shadow:0 2px 8px rgba(0,0,0,0.15);">
+                                    Đặt ngay →
+                                </a>
                             </div>
                         </div>
-                    </div>
-                </a>
-                @endforeach
-            </div>
-        </div>
-    </section>
---}}
 
+                        <template x-if="section.rooms && section.rooms.length">
+                            <div style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding:14px 2px 4px;" class="hide-scrollbar">
+                                <template x-for="room in section.rooms" :key="'promo-' + room.id">
+                                    <div x-html="roomCardHtml(room)"></div>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                </section>
+            </template>
+
+            {{-- ============== SUGGESTION LIST ============== --}}
+            <template x-if="section.type === 'suggestion_list'">
+                <section class="py-4 bg-white">
+                    <div class="max-w-7xl mx-auto px-4 sm:px-6">
+                        <template x-if="!section.items || !section.items.length">
+                            <div style="padding:14px 16px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px; display:flex; align-items:center; gap:8px;">
+                                <svg style="width:18px;height:18px;color:#9ca3af;flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0zM15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                </svg>
+                                <span style="font-size:13px; color:#6b7280;" x-text="section.message || 'Chưa có gợi ý phù hợp.'"></span>
+                            </div>
+                        </template>
+
+                        <template x-if="section.items && section.items.length">
+                            <div>
+                                <h2 style="font-size:1.1rem; font-weight:800; color:#111827; margin:0 0 14px;">Gợi ý cho bạn</h2>
+                                <div style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:4px;" class="hide-scrollbar">
+                                    <template x-for="item in section.items" :key="'sugg-' + (item.id ?? item.slug)">
+                                        <div x-html="section.suggestion_type === 'branch' ? branchCardHtml(item) : roomCardHtml(item)"></div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </section>
+            </template>
+
+            {{-- ============== ROOM LIST ============== --}}
+            <template x-if="section.type === 'room_list' && section.rooms && section.rooms.length">
+                <section class="py-4 bg-white">
+                    <div class="max-w-7xl mx-auto px-4 sm:px-6">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:12px;">
+                            <div>
+                                <h2 style="font-size:1.1rem; font-weight:800; color:#111827; margin:0; text-transform:uppercase; letter-spacing:.02em;" x-text="section.title"></h2>
+                                <p x-show="section.subtitle" style="font-size:12px; color:#9ca3af; margin:2px 0 0;" x-text="section.subtitle"></p>
+                            </div>
+                            <a x-show="section.show_arrow" :href="section.view_all_url || '{{ route('product.search') }}'"
+                                style="font-size:13px; font-weight:600; color:var(--color-primary); text-decoration:none; display:flex; align-items:center; gap:3px; white-space:nowrap; flex-shrink:0;">
+                                Xem tất cả
+                                <svg style="width:14px;height:14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                                </svg>
+                            </a>
+                        </div>
+
+                        <div style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:4px;" class="hide-scrollbar">
+                            <template x-for="room in section.rooms" :key="'room-' + room.id">
+                                <div x-html="roomCardHtml(room)"></div>
+                            </template>
+                        </div>
+                    </div>
+                </section>
+            </template>
+        </div>
+    </template>
+
+    <style>
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+    </style>
+
+    <script src="{{ asset('js/home-sections.js') }}"></script>
 </div>

@@ -113,11 +113,6 @@
                                 <x-bladethemev1::header.actions.search :searchButtonConfig="$searchButtonConfig"/>
                             @endif
 
-                            <!-- Auth Button Mobile -->
-                            @if($authHeaderEnabled)
-                                <x-bladethemev1::header.actions.auth-button />
-                            @endif
-
                             <!-- Mobile Menu Toggle -->
                             <button data-drawer-target="drawer-navigation" data-drawer-show="drawer-navigation"
                                     class="inline-flex border border-borderGray text-borderGray p-2 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-gray-200 transition duration-300 ease-in-out min-w-[30px] min-h-[30px]">
