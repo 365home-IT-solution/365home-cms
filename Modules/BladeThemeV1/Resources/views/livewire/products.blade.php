@@ -4,7 +4,7 @@
 @if (!empty($searchSections))
     @foreach ($searchSections as $sIndex => $section)
     @php $trackId = 'pt-' . $sIndex; @endphp
-    <section style="padding:28px 0 0;">
+    <section class="w-full mx-auto">
         <div style="max-width:80rem; margin:0 auto; padding:0 1.25rem;">
 
             {{-- Header --}}

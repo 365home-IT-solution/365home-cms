@@ -4,7 +4,7 @@
 
 @section('content')
 
-    @livewire('bladethemev1::header')
+    <!-- @livewire('bladethemev1::header') -->
     @livewire('bladethemev1::drawer-menu')
 
     {{-- Hero Section --}}

@@ -24,11 +24,11 @@
                                 style="background:rgba(255,255,255,0.25); color:#fff; font-size:11px; font-weight:800; padding:2px 10px; border-radius:99px; letter-spacing:.05em; text-transform:uppercase; white-space:nowrap;">
                                 Flash Sale
                             </span>
-                            <span style="color:#fff; font-size:14px; font-weight:600; white-space:nowrap;">
+                            <span style="color:#fff; font-size:14px; font-weight:600;">
                                 Ưu đãi đặc biệt — Giảm đến <strong style="font-size:16px;">30%</strong> tất cả phòng hôm
                                 nay!
                             </span>
-                            <span style="color:rgba(255,255,255,0.75); font-size:12px; white-space:nowrap;">
+                            <span style="color:rgba(255,255,255,0.75); font-size:12px;">
                                 🕐 Chỉ hôm nay, áp dụng khi đặt trước 22:00
                             </span>
                         </div>

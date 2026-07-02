@@ -5,14 +5,24 @@ namespace Modules\BladeThemeV1\Livewire;
 use App\Models\Province;
 use App\Settings\GeneralSettings;
 use Livewire\Component;
+use Modules\BladeThemeV1\Enums\HeaderSection;
+use Modules\BladeThemeV1\Traits\HandleSectionCfgTrait;
 use Modules\Product\App\Models\RoomType;
+use Modules\ThemeSetting\App\Models\ThemeSection;
 
 class HeroSection extends Component
 {
+    use HandleSectionCfgTrait;
+
+    private const DEFAULT_LOGO_HEIGHT = '42';
+
     public $locations = [];
     public $roomTypes = [];
     public array $navLinks = [];
     public string $logo = '';
+    public string $logoHeight = self::DEFAULT_LOGO_HEIGHT;
+
+    private ?ThemeSection $section = null;
 
     public bool   $noBanner        = false;
 
@@ -33,6 +43,7 @@ class HeroSection extends Component
     public function mount(): void
     {
         $this->logo = (new GeneralSettings())->brand_logo;
+        $this->logoHeight = $this->getHeaderLogoHeight();
 
         $this->roomTypes = RoomType::where('is_active', true)
             ->orderBy('sort_order')
@@ -146,6 +157,19 @@ class HeroSection extends Component
     public function updatedSelectedRoomType(string $value): void
     {
         $this->loadLocations($value === 'all' ? null : $value);
+    }
+
+    private function getHeaderLogoHeight(): string
+    {
+        $this->section = ThemeSection::where('name', 'header')->with(['children'])->first();
+
+        if (! $this->section) {
+            return self::DEFAULT_LOGO_HEIGHT;
+        }
+
+        $logoConfig = $this->getChildSectionConfigs(HeaderSection::LOGO->value);
+
+        return (string) ($logoConfig['height'] ?? self::DEFAULT_LOGO_HEIGHT);
     }
 
     private function loadLocations(?string $roomTypeSlug = null): void
