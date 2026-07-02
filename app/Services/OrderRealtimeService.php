@@ -50,6 +50,62 @@ class OrderRealtimeService
     }
 
     /**
+     * Broadcast thông báo đơn hàng bị xóa (admin xóa) → app ẩn đơn ngay.
+     */
+    public function broadcastOrderDeleted(string $orderCode, ?int $customerId = null): void
+    {
+        $url = $this->wsUrl();
+        if (empty($url)) {
+            return;
+        }
+
+        try {
+            Http::withHeaders(['x-internal-key' => $this->wsKey()])
+                ->timeout(2)
+                ->post("{$url}/internal/order-deleted", [
+                    'order_code'  => $orderCode,
+                    'customer_id' => $customerId,
+                ]);
+        } catch (\Throwable $e) {
+            Log::warning('WS order-deleted push failed', [
+                'order_code' => $orderCode,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Broadcast xác nhận mở cổng thành công (check-in hoặc check-out).
+     *
+     * @param  string       $type        'checkin' | 'checkout'
+     * @param  string|null  $checkedInAt ISO timestamp của thời điểm check-in (chỉ dùng khi type=checkin)
+     */
+    public function broadcastCheckin(string $orderCode, string $type, ?string $checkedInAt = null, ?int $customerId = null): void
+    {
+        $url = $this->wsUrl();
+        if (empty($url)) {
+            return;
+        }
+
+        try {
+            Http::withHeaders(['x-internal-key' => $this->wsKey()])
+                ->timeout(2)
+                ->post("{$url}/internal/order-checkin", [
+                    'order_code'    => $orderCode,
+                    'customer_id'   => $customerId,
+                    'type'          => $type,
+                    'checked_in_at' => $checkedInAt,
+                ]);
+        } catch (\Throwable $e) {
+            Log::warning('WS order-checkin push failed', [
+                'order_code' => $orderCode,
+                'type'       => $type,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
      * Broadcast thông báo mã cổng/phòng thay đổi.
      *
      * @param  string    $orderCode

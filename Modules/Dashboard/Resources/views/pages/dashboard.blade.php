@@ -4,6 +4,8 @@
 
 <x-filament-panels::page>
 
+<livewire:book::block-timeslot-modal />
+
 <div class="ta-wrap">
 <div class="ta-inner">
 

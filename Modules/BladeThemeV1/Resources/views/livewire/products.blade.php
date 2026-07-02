@@ -164,25 +164,15 @@
                             $hiddenCount = $hasMore ? ($totalTags - ($maxVisible - 1)) : 0;
                                 @endphp
                                 @foreach ($displayTags as $tag)
-                                <div class="tooltip-container">
-                                    <div
-                                        class="flex items-center justify-center p-2 bg-gray-50 w-10 h-10 rounded-full hover:bg-gray-100 hover:shadow-md transition-all duration-300 cursor-default border border-gray-100 hover:border-gray-300">
-                                        <img src="{{ asset('storage/' . $tag['image']) }}"
-                                                                alt="{{ $tag['name'] }}"
-                                                                class="w-6 h-6 object-contain filter hover:brightness-110 transition-all duration-300">
-                                    </div>
-
-                                    <div class="tooltip">
-                                        {{ $tag['name'] }}
-                                    </div>
+                                <div class="flex items-center justify-center p-2 bg-gray-50 w-10 h-10 rounded-full cursor-default border border-gray-100">
+                                    <img src="{{ asset('storage/' . $tag['image']) }}"
+                                                            alt="{{ $tag['name'] }}"
+                                                            class="w-6 h-6 object-contain filter">
                                 </div>
                                 @endforeach
                                 @if ($hasMore)
-                                <div class="tooltip-container">
-                                    <div class="flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 border border-gray-300 text-gray-500 font-bold text-xs cursor-default select-none">
-                                        ...
-                                    </div>
-                                    <div class="tooltip">+{{ $hiddenCount }} tiện nghi khác</div>
+                                <div class="flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 border border-gray-300 text-gray-500 font-bold text-xs cursor-default select-none">
+                                    ...
                                 </div>
                                 @endif
                                 @endif
@@ -307,15 +297,6 @@
     @endif
 
     <script>
-        // Tooltip follow mouse (fixed position để không bị card clip)
-        document.addEventListener('mousemove', function(e) {
-            var tooltip = document.querySelector('.tooltip-container:hover .tooltip');
-            if (tooltip) {
-                tooltip.style.left = e.clientX + 'px';
-                tooltip.style.top = e.clientY + 'px';
-            }
-        });
-
         if (typeof window.roomCalendar === 'undefined') {
             window.roomCalendar = function(bookedRanges, productUrl, basePrice, discount, dayPrices, datePrices) {
                 return {
@@ -453,44 +434,6 @@
 
         #sub-tab-all button[aria-selected="true"] {
             border-bottom-width: 2px !important;
-        }
-
-        .tooltip-container {
-            position: relative;
-        }
-
-        .tooltip {
-            visibility: hidden;
-            opacity: 0;
-            position: fixed;
-            background-color: rgba(0, 0, 0, 0.9);
-            color: white;
-            text-align: center;
-            border-radius: 8px;
-            padding: 6px 12px;
-            font-size: 12px;
-            font-weight: 500;
-            z-index: 99999;
-            white-space: nowrap;
-            pointer-events: none;
-            transform: translateX(-50%) translateY(-100%) translateY(-8px);
-            transition: opacity 0.2s, visibility 0.2s;
-        }
-
-        .tooltip::after {
-            content: "";
-            position: absolute;
-            top: 100%;
-            left: 50%;
-            margin-left: -5px;
-            border-width: 5px;
-            border-style: solid;
-            border-color: rgba(0, 0, 0, 0.9) transparent transparent transparent;
-        }
-
-        .tooltip-container:hover .tooltip {
-            visibility: visible;
-            opacity: 1;
         }
 
         .owl-nav {

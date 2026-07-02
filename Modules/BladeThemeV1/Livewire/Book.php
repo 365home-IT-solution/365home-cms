@@ -20,8 +20,24 @@ class Book extends Component
 {
     use HandleConfigTrait, BookTrait;
 
-    public $choose_room, $title_booking, $sub_title_booking, $get_pd_by_cate_tab;
+    public $choose_room, $title_booking, $sub_title_booking;
     public $blindBag, $image_event;
+
+    /** Danh sách tab (id + name) cho tất cả danh mục — nhẹ, không kèm sản phẩm/timeslot. */
+    public array $categoryTabs = [];
+
+    /** Danh mục đang active. */
+    public ?int $activeCategoryId = null;
+
+    /** Dữ liệu đầy đủ (sản phẩm + timeslot + đơn đã đặt) — chỉ load cho danh mục active. */
+    public array $activeCategoryData = [];
+
+    /** Số ngày đang hiển thị trong bảng lịch — bắt đầu nhỏ, mở rộng dần qua loadMoreDays(). */
+    public int $visibleDays = self::INITIAL_VISIBLE_DAYS;
+
+    const INITIAL_VISIBLE_DAYS = 10;
+    const MAX_VISIBLE_DAYS = 31;
+    const LOAD_MORE_DAYS_STEP = 10;
 
     public function mount($config)
     {
@@ -36,62 +52,113 @@ class Book extends Component
         $this->title_booking = $this->getConfig('title_booking', 'Tiêu đề đang cập nhật.');
         $this->sub_title_booking = $this->getConfig('sub_title_booking', '');
         $this->image_event = $this->getConfig('image_event', '');
-        $this->get_pd_by_cate_tab = $this->getProductbyCateTab($this->choose_room['categories'] ?? []);
+
+        $categories = $this->choose_room['categories'] ?? [];
+        $this->categoryTabs = $this->buildCategoryTabs($categories);
+
+        if (!empty($this->categoryTabs)) {
+            $this->activeCategoryId = (int) $this->categoryTabs[0]['id'];
+            $this->loadActiveCategoryData();
+        }
     }
 
-    public function getProductbyCateTab(array $categories)
+    /**
+     * Chỉ lấy id + tên danh mục để render các nút tab — không query sản phẩm/timeslot
+     * cho những danh mục chưa được xem tới (đó là việc của loadActiveCategoryData()).
+     */
+    protected function buildCategoryTabs(array $categories): array
+    {
+        $categoryIds = collect($categories)->pluck('category_id')->filter()->all();
+        $categoryNames = Category::whereIn('id', $categoryIds)->pluck('name', 'id');
+
+        return collect($categories)
+            ->filter(fn ($item) => !empty($item['category_id']))
+            ->map(fn ($item) => [
+                'id' => (int) $item['category_id'],
+                'name' => $categoryNames[$item['category_id']] ?? 'Danh mục không xác định',
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Đổi tab: chỉ load dữ liệu đầy đủ cho danh mục được chọn, không re-fetch
+     * nếu đã là tab hiện tại. Bắn event để Alpine reset lựa chọn cũ (thuộc danh mục khác).
+     */
+    public function setActiveCategoryTab(int $categoryId): void
+    {
+        if ($this->activeCategoryId === $categoryId) {
+            return;
+        }
+
+        $this->activeCategoryId = $categoryId;
+        $this->visibleDays = self::INITIAL_VISIBLE_DAYS;
+        $this->loadActiveCategoryData();
+        $this->dispatch('book-category-changed');
+    }
+
+    public function loadMoreDays(): void
+    {
+        $this->visibleDays = min($this->visibleDays + self::LOAD_MORE_DAYS_STEP, self::MAX_VISIBLE_DAYS);
+    }
+
+    protected function loadActiveCategoryData(): void
+    {
+        $categories = $this->choose_room['categories'] ?? [];
+        $item = collect($categories)->firstWhere('category_id', $this->activeCategoryId);
+
+        $this->activeCategoryData = $item ? $this->buildCategoryData($item) : [];
+    }
+
+    protected function buildCategoryData(array $item): array
     {
         $endDate = Carbon::now()->addMonth()->endOfDay();
         $startDate = Carbon::now()->startOfDay();
 
-        return collect($categories)->mapWithKeys(function ($item, $index) use ($endDate, $startDate) {
-            $categoryId = $item['category_id'];
-            $productIds = $this->extractProductIds($item['products']);
+        $categoryId = $item['category_id'];
+        $productIds = $this->extractProductIds($item['products']);
 
-            $category = Category::find($categoryId);
-            $categoryName = $category?->name ?? 'Danh mục không xác định';
-            $parentName = $category?->parent?->name ?? null;
+        $category = Category::find($categoryId);
+        $categoryName = $category?->name ?? 'Danh mục không xác định';
+        $parentName = $category?->parent?->name ?? null;
 
-            $productsQuery = Product::whereIn('id', $productIds)
-                ->where('is_activated', true)
-                ->where(function ($q) {
-                    // Chỉ lấy phòng cấu hình theo khung giờ (styles = 1 hoặc null mặc định)
-                    $q->where('styles', 1)->orWhereNull('styles');
-                })
-                ->with([
-                    'roomTimeSlots' => function ($query) {
-                        $query->join('time_slots', 'room_time_slots.timeslot_id', '=', 'time_slots.id')
-                            ->select('room_time_slots.*')
-                            ->orderBy('time_slots.start_time', 'asc');
-                    },
-                    'roomTimeSlots.timeSlot',
-                    'roomTimeSlots.promotions' => function ($query) {
-                        $query->where('is_active', true);
-                    },
-                    'orderItems' => function ($query) use ($endDate, $startDate) {
-                        $query->where('checkout_date', '>', $startDate)
-                            ->where('checkin_date', '<=', $endDate);
-                        $query->whereHas('order', function ($subQuery) {
-                            $subQuery->whereIn('status', ['pending', 'paid', 'shipped', 'confirmed']);
-                        });
-                    },
-                    'orderItems.order'
-                ])
-                ->get();
+        $productsQuery = Product::whereIn('id', $productIds)
+            ->where('is_activated', true)
+            ->where(function ($q) {
+                // Chỉ lấy phòng cấu hình theo khung giờ (styles = 1 hoặc null mặc định)
+                $q->where('styles', 1)->orWhereNull('styles');
+            })
+            ->with([
+                'roomTimeSlots' => function ($query) {
+                    $query->join('time_slots', 'room_time_slots.timeslot_id', '=', 'time_slots.id')
+                        ->select('room_time_slots.*')
+                        ->orderBy('time_slots.start_time', 'asc');
+                },
+                'roomTimeSlots.timeSlot',
+                'roomTimeSlots.promotions' => function ($query) {
+                    $query->where('is_active', true);
+                },
+                'orderItems' => function ($query) use ($endDate, $startDate) {
+                    $query->where('checkout_date', '>', $startDate)
+                        ->where('checkin_date', '<=', $endDate);
+                    $query->whereHas('order', function ($subQuery) {
+                        $subQuery->whereIn('status', ['pending', 'paid', 'shipped', 'confirmed']);
+                    });
+                },
+                'orderItems.order'
+            ])
+            ->get();
 
-            $products = collect($productIds)->map(function ($productId) use ($productsQuery) {
-                return $productsQuery->firstWhere('id', $productId);
-            })->filter()->values();
+        $products = collect($productIds)->map(function ($productId) use ($productsQuery) {
+            return $productsQuery->firstWhere('id', $productId);
+        })->filter()->values();
 
-            return [
-                $categoryId => [
-                    'id' => $categoryId,
-                    'name' => $categoryName,
-                    'parent_name' => $parentName,
-                    'products' => $products,
-                ],
-            ];
-        });
+        return [
+            'id' => $categoryId,
+            'name' => $categoryName,
+            'parent_name' => $parentName,
+            'products' => $products,
+        ];
     }
 
     protected function extractProductIds($products)
@@ -113,7 +180,7 @@ class Book extends Component
 
     // Nếu chưa qua 7:30 sáng, hiển thị cả ngày hôm qua
     $startDate = $now->lt($cutoff) ? Carbon::yesterday() : Carbon::today();
-    $daysCount = $now->lt($cutoff) ? 31 : 31;
+    $daysCount = $this->visibleDays;
 
     for ($i = 0; $i < $daysCount; $i++) {
         $date = $startDate->copy()->addDays($i);

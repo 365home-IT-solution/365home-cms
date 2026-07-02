@@ -144,6 +144,10 @@ return [
             'password' => env('REDIS_PASSWORD'),
             'port' => env('REDIS_PORT', '6379'),
             'database' => env('REDIS_CACHE_DB', '1'),
+            // Fail fast nếu Redis không phản hồi (vd VPS chưa cài/đang down) —
+            // tránh mỗi request bị treo nhiều giây chờ timeout mặc định rồi mới fallback.
+            'timeout' => 1.5,
+            'read_timeout' => 1.5,
         ],
 
     ],

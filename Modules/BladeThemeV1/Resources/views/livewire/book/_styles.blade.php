@@ -24,24 +24,11 @@
         right: 0;
         bottom: 0;
         border-radius: inherit;
-        background-color: #111827;
-        /* gray-900: tô đen */
+        background-color: #4e6b4c;
         z-index: 5;
     }
 
-    /* Icon khóa nhỏ ở giữa ô bị blocked */
-    .selectable.blocked::before {
-        content: "🔒";
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        font-size: 10px;
-        z-index: 10;
-        pointer-events: none;
-    }
-
-    /* Override: khi blocked có kèm promo — reset ::before, dùng ::after để phủ tối + hiện khóa */
+    /* Override: khi blocked có kèm promo — reset ::before, dùng ::after để phủ */
     .selectable.blocked.promo::before {
         content: "" !important;
         background: none !important;
@@ -51,19 +38,16 @@
     }
 
     .selectable.blocked.promo::after {
-        content: "🔒" !important;
+        content: "" !important;
         position: absolute !important;
         top: 0 !important;
         left: 0 !important;
         right: 0 !important;
         bottom: 0 !important;
-        background-color: #111827 !important;
+        background-color: #4e6b4c !important;
         border-radius: inherit !important;
         z-index: 15 !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        font-size: 10px !important;
+        display: block !important;
         pointer-events: none !important;
     }
 

@@ -15,14 +15,11 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Get;
-use Filament\Forms\Set;
 use Filament\Support\Enums\ActionSize;
 use Filament\Support\Enums\MaxWidth;
 use Filament\Support\Facades\FilamentIcon;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -51,16 +48,19 @@ class MenuItems extends Component implements HasActions, HasForms
             return;
         }
 
-        FilamentMenuBuilderPlugin::get()->getMenuItemModel()::query()
+        // Cập nhật qua instance (->update() trên từng model) thay vì query builder mass update,
+        // để Eloquent bắn event saved/updated — MenuCacheObserver cần event này để bust cache menu.
+        $items = FilamentMenuBuilderPlugin::get()->getMenuItemModel()::query()
             ->whereIn('id', $order)
-            ->update([
-                'order' => DB::raw(
-                    'case ' . collect($order)
-                        ->map(fn($recordKey, int $recordIndex): string => 'when id = ' . DB::getPdo()->quote($recordKey) . ' then ' . ($recordIndex + 1))
-                        ->implode(' ') . ' end',
-                ),
+            ->get()
+            ->keyBy('id');
+
+        foreach ($order as $index => $recordKey) {
+            $items->get($recordKey)?->update([
+                'order' => $index + 1,
                 'parent_id' => $parentId,
             ]);
+        }
     }
 
     public function reorderAction(): Action
@@ -91,10 +91,6 @@ class MenuItems extends Component implements HasActions, HasForms
             ->form([
                 TextInput::make('title')
                     ->label(__('menu::menu-builder.form.title'))
-                    ->live(onBlur: true)
-                    ->afterStateUpdated(function (Get $get, Set $set, ?string $old, ?string $state) {
-                        $set('url', '/' . Str::slug($state));
-                    })
                     ->required(),
                 TextInput::make('url')
                     ->hidden(fn(?string $state, Get $get): bool => blank($state) || filled($get('linkable_type')))
@@ -121,11 +117,14 @@ class MenuItems extends Component implements HasActions, HasForms
                     ->visible(fn(FormComponent $component) => $component->evaluate(FilamentMenuBuilderPlugin::get()->getMenuItemFields()) !== [])
                     ->schema(FilamentMenuBuilderPlugin::get()->getMenuItemFields()),
             ])
-            ->action(
-                fn(array $data, array $arguments) => FilamentMenuBuilderPlugin::get()->getMenuItemModel()::query()
+            ->action(function (array $data, array $arguments): void {
+                // ->update() trên instance (không phải query builder) để bắn event saved/updated.
+                $menuItem = FilamentMenuBuilderPlugin::get()->getMenuItemModel()::query()
                     ->where('id', $arguments['id'])
-                    ->update($data),
-            )
+                    ->first();
+
+                $menuItem?->update($data);
+            })
             ->modalWidth(MaxWidth::Medium)
             ->slideOver();
     }

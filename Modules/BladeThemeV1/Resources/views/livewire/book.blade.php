@@ -6,6 +6,15 @@
     hasFullDayBooking: false,
     fullDayDates: [], // Thêm để track ngày nào full booking
 
+    resetSelection() {
+        this.selectedSlots = [];
+        this.selectedRoomId = null;
+        this.selectedRoomIsActive = null;
+        this.fullBookingDiscount = 0;
+        this.hasFullDayBooking = false;
+        this.fullDayDates = [];
+    },
+
     toggleSlot(el, slot) {
         if (this.selectedRoomId === null) {
             this.selectedRoomId = slot.roomId;
@@ -205,14 +214,15 @@
 
         return summary;
     }
-}">
-    <div wire:ignore class="w-full mx-auto">
+}" x-on:book-category-changed.window="resetSelection()">
+    <div class="w-full mx-auto">
         @include('bladethemev1::livewire.book._header')
 
-        <div id="default-styled-tab-content">
-            @foreach ($get_pd_by_cate_tab as $category)
-            <div class="hidden pb-10 relative" id="styled-{{ \Str::slug($category['name']) }}" role="tabpanel"
-                aria-labelledby="styled-{{ \Str::slug($category['name']) }}-tab">
+        <div id="default-styled-tab-content" wire:loading.class="opacity-50 pointer-events-none" wire:target="setActiveCategoryTab">
+            @if(!empty($activeCategoryData))
+            @php $category = $activeCategoryData; @endphp
+            <div class="pb-10 relative" id="styled-{{ \Str::slug($category['name']) }}" role="tabpanel"
+                aria-labelledby="styled-{{ \Str::slug($category['name']) }}-tab" wire:key="book-category-{{ $category['id'] }}">
 
                 @php
                 $dates = $this->getDatesForOneMonth();
@@ -243,10 +253,23 @@
 
                 @include('bladethemev1::livewire.book._desktop-table')
 
+                @if ($visibleDays < \Modules\BladeThemeV1\Livewire\Book::MAX_VISIBLE_DAYS)
+                <div class="flex justify-center mt-3 mb-1">
+                    <button type="button"
+                            wire:click="loadMoreDays"
+                            wire:loading.attr="disabled"
+                            wire:target="loadMoreDays"
+                            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs md:text-sm font-bold text-primary border border-primary/40 hover:bg-primary/5 transition-all disabled:opacity-50">
+                        <span wire:loading.remove wire:target="loadMoreDays">Xem thêm ngày</span>
+                        <span wire:loading wire:target="loadMoreDays">Đang tải...</span>
+                    </button>
+                </div>
+                @endif
+
                 @include('bladethemev1::livewire.book._pricing')
 
             </div>
-            @endforeach
+            @endif
         </div>
 
         {{-- Mobile sticky pricing bar (shown after selecting a time slot) --}}
@@ -276,6 +299,5 @@
         </div>
 
         @include('bladethemev1::livewire.book._styles')
-        {{-- end wire:ignore --}}
     </div>
 </div>

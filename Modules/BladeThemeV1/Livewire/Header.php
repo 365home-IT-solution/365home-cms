@@ -9,6 +9,7 @@ use Livewire\Component;
 use Modules\Menu\Entities\Menu;
 use Modules\ThemeSetting\App\Models\ThemeSection;
 use Modules\BladeThemeV1\Enums\HeaderSection;
+use Modules\BladeThemeV1\Support\ThemeCache;
 use Modules\BladeThemeV1\Traits\HandleColorTrait;
 use Modules\BladeThemeV1\Traits\HandleSectionCfgTrait;
 
@@ -35,7 +36,7 @@ class Header extends Component
 
     #[NoReturn] public function mount(): void
     {
-        $this->generalSettings = new GeneralSettings();
+        $this->generalSettings = ThemeCache::generalSettings();
         $this->authHeaderEnabled = (bool) ($this->generalSettings->auth_header['enabled'] ?? false);
 
         $this->section = $this->getHeaderConfigs();
@@ -47,27 +48,7 @@ class Header extends Component
         $this->logoLightVersion = $this->generalSettings->brand_logo_light_version;
         $this->actionConfig = $this->getChildSectionConfigs(HeaderSection::ACTIONS->value);
         $this->cartConfig = $this->getChildSectionConfigs(HeaderSection::CART->value);
-        $this->menu = Menu::query()
-            ->with([
-                'menuItems' => function ($query) {
-                    $query->whereNull('parent_id')
-                        ->orderBy('order')
-                        ->with(['children' => function ($query) {
-                            $query->orderBy('order')
-                                ->with(['children' => function ($query) {
-                                    $query->orderBy('order');
-                                }]);
-                        }]);
-                },
-                'locations' => function ($query) {
-                    $query->where('location', 'header');
-                }
-            ])
-            ->whereHas('locations', function ($query) {
-                $query->where('location', 'header');
-            })
-            ->where('is_visible', true)
-            ->first();
+        $this->menu = ThemeCache::menuForHeader();
     }
 
     private function getHeaderConfigs()
