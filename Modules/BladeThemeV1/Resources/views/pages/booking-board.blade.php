@@ -3,14 +3,31 @@
 <x-bladethemev1::seo :seoData="$seoData" />
 
 @section('content')
+    {{-- Header: ẩn mặc định, chỉ hiện khi mở expanded hero form --}}
+    <div x-data="{ shown: false }"
+         @hero-form-open.window="shown = true"
+         @hero-form-close.window="shown = false"
+         x-show="shown"
+         style="display:none;">
+        @livewire('bladethemev1::header')
+    </div>
+
+    <script>
+        window.__heroAlwaysCompact = true;
+    </script>
+    @livewire('bladethemev1::hero-section', ['noBanner' => true])
+
     <style>
-        #main-header-bar { position: fixed !important; top: 0; left: 0; right: 0; z-index: 1000; }
+        #main-header-bar {
+            z-index: 1150 !important;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+        }
     </style>
 
-    @livewire('bladethemev1::header')
-    @livewire('bladethemev1::drawer-menu')
-
-    <main style="background:#fff; min-height:100vh; padding-top:78px;">
+    <main style="background:#fff; min-height:100vh; padding-top:80px;">
         <div style="max-width:1280px; margin:0 auto; padding:0 16px 24px;">
             <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin:10px 0 14px;">
                 <div>
