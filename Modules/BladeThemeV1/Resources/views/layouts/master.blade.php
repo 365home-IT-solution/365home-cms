@@ -78,6 +78,13 @@
             scroll-behavior: smooth;
         }
 
+        /* Tắt scroll-anchoring toàn site: khi header co/giãn chiều cao (sticky search bar),
+           trình duyệt tự "neo" vào 1 phần tử bên dưới và tự điều chỉnh scrollY để giữ nó
+           đứng yên trên màn hình -> gây rung/nhấp nháy header liên tục khi cuộn. */
+        * {
+            overflow-anchor: none;
+        }
+
         /* Custom Scrollbar cho toàn website */
         ::-webkit-scrollbar {
             width: 8px;

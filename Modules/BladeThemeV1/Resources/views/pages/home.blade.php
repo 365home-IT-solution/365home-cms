@@ -7,6 +7,8 @@
     <!-- @livewire('bladethemev1::header') -->
     @livewire('bladethemev1::drawer-menu')
 
+    @livewire('bladethemev1::location-modal')
+
     {{-- Hero Section --}}
     @livewire('bladethemev1::hero-section')
 
@@ -15,9 +17,6 @@
 
     {{-- Voucher & Ưu đãi --}}
     @livewire('bladethemev1::voucher')
-
-    {{-- Danh sách tỉnh có chi nhánh --}}
-    @livewire('bladethemev1::province-list')
 
     @livewire('bladethemev1::footer')
     @livewire('bladethemev1::contact-link')

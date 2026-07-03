@@ -1,30 +1,5 @@
             <div x-data="heroDatePicker()" class="{{ $formClass }}">
 
-                {{-- Room type tabs --}}
-                <div class="mb-6">
-                    <div class="flex flex-wrap gap-2">
-                        <button
-                        type="button"
-                        wire:click.stop="setRoomType('all')"
-                            :class="'{{ $selectedRoomType }}' === 'all'
-                                ? 'bg-teal-800 text-white border-teal-800/60 shadow-md'
-                                : '{{ $tabInactive }}'"
-                            class="px-5 py-2 rounded-full text-sm font-semibold border backdrop-blur-sm transition-all duration-200">
-                            Tất cả
-                        </button>
-                        @foreach ($roomTypes as $type)
-                            <button type="button" wire:click.stop="setRoomType(@js($type['slug']))"
-                                wire:key="room-type-{{ $type['slug'] }}"
-                                :class="'{{ $selectedRoomType }}' === '{{ $type['slug'] }}'
-                                    ? 'bg-teal-800 text-white border-teal-800/60 shadow-md'
-                                    : '{{ $tabInactive }}'"
-                                class="px-5 py-2 rounded-full text-sm font-semibold border backdrop-blur-sm transition-all duration-200">
-                                {{ strtoupper($type['name']) }}
-                            </button>
-                        @endforeach
-                    </div>
-                </div>
-
                 {{-- Search bar — Airbnb style --}}
                 <div data-bar
                     x-data="{ locOpen: false, buoiOpen: false, guestsOpen: false }"
@@ -65,14 +40,14 @@
                             class="absolute top-[calc(100%+8px)] left-0 w-72 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 py-2">
                             <button type="button" wire:click.stop="setLocation('')" @click="locOpen = false"
                                 wire:key="location-all"
-                                class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ !$selectedLocation ? 'font-semibold text-teal-700' : 'text-gray-700' }}">
+                                class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ !$selectedLocation ? 'font-semibold text-[var(--color-primary)]' : 'text-gray-700' }}">
                                 <span>Tất cả địa điểm</span>
                                 @if(!$selectedLocation) {!! $checkmarkSvg !!} @endif
                             </button>
                             @foreach($locations as $loc)
                             <button type="button" wire:click.stop="setLocation(@js($loc['slug']))" @click="locOpen = false"
                                 wire:key="location-{{ $loc['slug'] }}"
-                                class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ $selectedLocation === $loc['slug'] ? 'font-semibold text-teal-700' : 'text-gray-700' }}">
+                                class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ $selectedLocation === $loc['slug'] ? 'font-semibold text-[var(--color-primary)]' : 'text-gray-700' }}">
                                 <span>{{ $loc['name'] }}</span>
                                 @if($selectedLocation === $loc['slug']) {!! $checkmarkSvg !!} @endif
                             </button>
@@ -86,13 +61,13 @@
                         <button type="button" @click="open=!open"
                             class="w-full h-16 px-5 flex items-center gap-3 rounded-xl transition-colors">
                             <svg class="w-4 h-4 shrink-0 transition-colors duration-200"
-                                :class="open ? 'text-teal-600' : 'text-teal-500'"
+                                :class="open ? 'text-[var(--color-primary)]' : 'text-[rgba(var(--color-primary-rgb),0.7)]'"
                                 fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
                             </svg>
                             <div class="flex items-center gap-3 min-w-0 flex-1">
                                 <div class="flex flex-col min-w-0">
-                                    <span :class="open ? 'text-teal-600' : 'text-gray-500'"
+                                    <span :class="open ? 'text-[var(--color-primary)]' : 'text-gray-500'"
                                         class="text-[10px] font-bold uppercase tracking-widest leading-none transition-colors duration-200">Nhận phòng</span>
                                     <span class="text-sm font-semibold mt-0.5 truncate"
                                         :class="displayCheckIn ? 'text-gray-900' : 'text-gray-400'"
@@ -102,7 +77,7 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
                                 </svg>
                                 <div class="flex flex-col min-w-0">
-                                    <span :class="open ? 'text-teal-600' : 'text-gray-500'"
+                                    <span :class="open ? 'text-[var(--color-primary)]' : 'text-gray-500'"
                                         class="text-[10px] font-bold uppercase tracking-widest leading-none transition-colors duration-200">Trả phòng</span>
                                     <span class="text-sm font-semibold mt-0.5 truncate"
                                         :class="displayCheckOut ? 'text-gray-900' : 'text-gray-400'"
@@ -165,8 +140,8 @@
                                                 <button @click="selectDate(date)" @mouseenter="hoverDate = date" @mouseleave="hoverDate = null"
                                                     :disabled="isPast(date)"
                                                     :class="{
-                                                        'bg-teal-800 text-white rounded-full': isSelected(date),
-                                                        'bg-teal-50 rounded-none': isInRange(date) && !isSelected(date),
+                                                        'bg-[var(--color-primary)] text-white rounded-full': isSelected(date),
+                                                        'bg-[rgba(var(--color-primary-rgb),0.1)] rounded-none': isInRange(date) && !isSelected(date),
                                                         'rounded-l-full': isRangeStart(date) && checkOut,
                                                         'rounded-r-full': isRangeEnd(date),
                                                         'text-gray-300 cursor-not-allowed pointer-events-none': isPast(date),
@@ -194,8 +169,8 @@
                                                 <button @click="selectDate(date)" @mouseenter="hoverDate = date" @mouseleave="hoverDate = null"
                                                     :disabled="isPast(date)"
                                                     :class="{
-                                                        'bg-teal-800 text-white rounded-full': isSelected(date),
-                                                        'bg-teal-50 rounded-none': isInRange(date) && !isSelected(date),
+                                                        'bg-[var(--color-primary)] text-white rounded-full': isSelected(date),
+                                                        'bg-[rgba(var(--color-primary-rgb),0.1)] rounded-none': isInRange(date) && !isSelected(date),
                                                         'rounded-l-full': isRangeStart(date) && checkOut,
                                                         'rounded-r-full': isRangeEnd(date),
                                                         'text-gray-300 cursor-not-allowed pointer-events-none': isPast(date),
@@ -226,7 +201,7 @@
                                                 :disabled="checkInHour <= minCheckInHour"
                                                 class="w-6 h-6 rounded-full flex items-center justify-center text-gray-500 font-bold transition-colors select-none">−</button>
                                             <button type="button" @click="openHourDropdown('checkIn', $refs.checkInHourBox)"
-                                                class="flex-1 text-center text-sm font-semibold text-gray-900 hover:text-teal-600 transition-colors" x-text="checkInHour + 'h'"></button>
+                                                class="flex-1 text-center text-sm font-semibold text-gray-900 hover:text-[var(--color-primary)] transition-colors" x-text="checkInHour + 'h'"></button>
                                             <button @click="checkInHour = Math.min(23, checkInHour + 1)"
                                                 class="w-6 h-6 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500 font-bold transition-colors select-none">+</button>
                                         </div>
@@ -246,8 +221,8 @@
                                             <template x-for="h in availableCheckInHours" :key="h">
                                                 <button type="button" @click.stop="checkInHour = h; checkInHourOpen = false"
                                                     :class="checkInHour === h
-                                                        ? 'bg-teal-700 text-white border-teal-700'
-                                                        : 'bg-white text-gray-600 border-gray-200 hover:border-teal-400 hover:text-teal-600'"
+                                                        ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)]'
+                                                        : 'bg-white text-gray-600 border-gray-200 hover:border-[rgba(var(--color-primary-rgb),0.5)] hover:text-[var(--color-primary)]'"
                                                     class="py-2 rounded-lg border text-xs font-semibold transition-colors text-center"
                                                     x-text="h + 'h'">
                                                 </button>
@@ -261,8 +236,8 @@
                                             <template x-for="m in availableCheckInMinutes" :key="m">
                                                 <button @click="checkInMin = m"
                                                     :class="checkInMin === m
-                                                        ? 'bg-teal-700 text-white border-teal-700'
-                                                        : 'bg-white text-gray-600 border-gray-200 hover:border-teal-400 hover:text-teal-600'"
+                                                        ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)]'
+                                                        : 'bg-white text-gray-600 border-gray-200 hover:border-[rgba(var(--color-primary-rgb),0.5)] hover:text-[var(--color-primary)]'"
                                                     class="py-2 rounded-lg border text-xs font-semibold transition-colors text-center"
                                                     x-text="String(m).padStart(2,'0')">
                                                 </button>
@@ -275,7 +250,7 @@
                             <div>
                                 <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
                                     Giờ trả phòng
-                                    <span x-show="isSameDayBooking" class="text-teal-600 normal-case font-normal ml-1">(cùng ngày)</span>
+                                    <span x-show="isSameDayBooking" class="text-[var(--color-primary)] normal-case font-normal ml-1">(cùng ngày)</span>
                                 </p>
                                 <div class="flex items-start gap-2">
                                     <div class="flex-1 relative" x-ref="checkOutHourBox">
@@ -286,7 +261,7 @@
                                                 :disabled="isSameDayBooking && checkOutHour <= checkInHour"
                                                 class="w-6 h-6 rounded-full flex items-center justify-center text-gray-500 font-bold transition-colors select-none">−</button>
                                             <button type="button" @click="openHourDropdown('checkOut', $refs.checkOutHourBox)"
-                                                class="flex-1 text-center text-sm font-semibold text-gray-900 hover:text-teal-600 transition-colors" x-text="checkOutHour + 'h'"></button>
+                                                class="flex-1 text-center text-sm font-semibold text-gray-900 hover:text-[var(--color-primary)] transition-colors" x-text="checkOutHour + 'h'"></button>
                                             <button @click="if(checkOutHour < 23){ checkOutHour++; ensureCheckOutAfterCheckIn(); }"
                                                 class="w-6 h-6 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-500 font-bold transition-colors select-none">+</button>
                                         </div>
@@ -306,8 +281,8 @@
                                             <template x-for="h in availableCheckoutHours" :key="h">
                                                 <button type="button" @click.stop="checkOutHour = h; ensureCheckOutAfterCheckIn(); checkOutHourOpen = false"
                                                     :class="checkOutHour === h
-                                                        ? 'bg-teal-700 text-white border-teal-700'
-                                                        : 'bg-white text-gray-600 border-gray-200 hover:border-teal-400 hover:text-teal-600'"
+                                                        ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)]'
+                                                        : 'bg-white text-gray-600 border-gray-200 hover:border-[rgba(var(--color-primary-rgb),0.5)] hover:text-[var(--color-primary)]'"
                                                     class="py-2 rounded-lg border text-xs font-semibold transition-colors text-center"
                                                     x-text="h + 'h'">
                                                 </button>
@@ -321,8 +296,8 @@
                                             <template x-for="m in (checkIn && checkOut && isSameDay(checkIn, checkOut) && checkOutHour === checkInHour ? minutes.filter(m => m > checkInMin) : minutes)" :key="m">
                                                 <button @click="checkOutMin = m; ensureCheckOutAfterCheckIn()"
                                                     :class="checkOutMin === m
-                                                        ? 'bg-teal-700 text-white border-teal-700'
-                                                        : 'bg-white text-gray-600 border-gray-200 hover:border-teal-400 hover:text-teal-600'"
+                                                        ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)]'
+                                                        : 'bg-white text-gray-600 border-gray-200 hover:border-[rgba(var(--color-primary-rgb),0.5)] hover:text-[var(--color-primary)]'"
                                                     class="py-2 rounded-lg border text-xs font-semibold transition-colors text-center"
                                                     x-text="String(m).padStart(2,'0')">
                                                 </button>
@@ -344,7 +319,7 @@
                                     Hủy
                                 </button>
                                 <button @click="confirm()"
-                                    class="px-5 py-2.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm">
+                                    class="px-5 py-2.5 bg-[var(--color-primary)] hover:opacity-90 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm">
                                     Xác nhận
                                 </button>
                             </div>
@@ -373,7 +348,7 @@
                             @foreach($buoiOpts as $bVal => $bLbl)
                             <button type="button" wire:click.stop="setBuoi(@js($bVal))" @click="buoiOpen = false"
                                 wire:key="buoi-{{ $bVal ?: 'all' }}"
-                                class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ (!$bVal && !$selectedBuoi) || ($bVal && $selectedBuoi === $bVal) ? 'font-semibold text-teal-700' : 'text-gray-700' }}">
+                                class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ (!$bVal && !$selectedBuoi) || ($bVal && $selectedBuoi === $bVal) ? 'font-semibold text-[var(--color-primary)]' : 'text-gray-700' }}">
                                 <span>{{ $bLbl }}</span>
                                 @if((!$bVal && !$selectedBuoi) || ($bVal && $selectedBuoi === $bVal)) {!! $checkmarkSvg !!} @endif
                             </button>
@@ -401,7 +376,7 @@
                             @foreach($guestOpts as $gVal => $gLbl)
                             <button type="button" wire:click.stop="setGuests(@js($gVal))" @click="guestsOpen = false"
                                 wire:key="guests-{{ $gVal ?: 'all' }}"
-                                class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ (!$gVal && !$selectedGuests) || ($gVal && $selectedGuests === $gVal) ? 'font-semibold text-teal-700' : 'text-gray-700' }}">
+                                class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ (!$gVal && !$selectedGuests) || ($gVal && $selectedGuests === $gVal) ? 'font-semibold text-[var(--color-primary)]' : 'text-gray-700' }}">
                                 <span>{{ $gLbl }}</span>
                                 @if((!$gVal && !$selectedGuests) || ($gVal && $selectedGuests === $gVal)) {!! $checkmarkSvg !!} @endif
                             </button>
@@ -413,7 +388,7 @@
                     <div class="flex items-center px-3 shrink-0">
                         <button type="button"
                             x-on:click.stop.prevent="submitSearch()"
-                            class="w-12 h-12 bg-teal-600 hover:bg-teal-700 text-white rounded-full
+                            class="w-12 h-12 bg-[var(--color-primary)] hover:opacity-90 text-white rounded-full
                             transition-all shadow-md hover:shadow-lg active:scale-95 flex items-center justify-center">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>

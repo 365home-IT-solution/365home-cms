@@ -1,7 +1,7 @@
 <div>
     @if (!empty($images))
     <section class="py-10 bg-white">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6">
+        <div class="w-full max-w-11xl mx-auto px-4 sm:px-6">
 
             {{-- Header --}}
             {{-- <div class="flex items-center justify-between mb-6">

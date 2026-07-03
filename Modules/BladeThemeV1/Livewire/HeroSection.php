@@ -25,6 +25,7 @@ class HeroSection extends Component
     private ?ThemeSection $section = null;
 
     public bool   $noBanner        = false;
+    public bool   $headerRow       = false;
 
     public string $selectedLocation = '';
     public string $selectedRoomType = 'all';

@@ -1,16 +1,8 @@
-        {{-- Pill thu gọn --}}
+        {{-- Pill thu gọn (chỉ hiện desktop) --}}
         <div x-show="!formOpen"
-             class="w-full bg-white border-b border-gray-100 shadow-[0_2px_12px_rgba(0,0,0,0.07)]">
+             class="hidden lg:block w-full bg-white border-b border-gray-100 shadow-[0_2px_12px_rgba(0,0,0,0.07)]">
 
             <div class="flex items-center gap-2 md:gap-4 w-full md:px-8 px-4 mx-auto py-[9px]">
-
-                {{-- Logo — về trang chủ --}}
-                <a href="{{ url('/') }}"
-                   class="flex items-center flex-shrink-0">
-                    <img src="{{ asset('/storage/'.$logo) }}" alt="Logo"
-                         style="height: {{ $logoHeight }}px;"
-                         class="max-w-[110px] md:max-w-[160px] object-contain">
-                </a>
 
                 <button @click="formOpen = true"
                         class="flex-1 flex items-center gap-0 min-w-0 mx-auto max-w-[52rem] overflow-hidden cursor-pointer rounded-full border-[1.5px] border-gray-200 bg-white shadow-[0_1px_6px_rgba(0,0,0,0.08)] transition-shadow duration-200 hover:border-gray-300 hover:shadow-[0_4px_14px_rgba(0,0,0,0.12)]">
@@ -43,7 +35,7 @@
                     </span>
 
                     <span class="flex-shrink-0 py-[5px] pl-0 pr-2">
-                        <span class="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-teal-700">
+                        <span class="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-[var(--color-primary)]">
                             <svg class="h-[15px] w-[15px] text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                             </svg>
@@ -53,7 +45,7 @@
 
                 {{-- Hamburger --}}
                 <button @click.stop="menuOpen = !menuOpen"
-                        class="flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-xl border-[1.5px] border-gray-200 bg-white shadow-[0_1px_6px_rgba(0,0,0,0.08)] transition-all duration-200 hover:border-teal-200 hover:bg-teal-50">
+                        class="flex h-[42px] w-[42px] flex-shrink-0 items-center justify-center rounded-xl border-[1.5px] border-gray-200 bg-white shadow-[0_1px_6px_rgba(0,0,0,0.08)] transition-all duration-200 hover:border-[rgba(var(--color-primary-rgb),0.3)] hover:bg-[rgba(var(--color-primary-rgb),0.1)]">
                     <svg class="h-[18px] w-[18px] text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
                     </svg>

@@ -3,7 +3,7 @@
     $headerStyle = $isHomePage;
 @endphp
 
-<header class="relative">
+<header style="display: contents;">
 
     @if ($topbarConfig['show_top_bar'] && !$isHomePage)
         <x-bladethemev1::header.topbar
@@ -31,4 +31,6 @@
         :topbarConfig="$topbarConfig"
         :authHeaderEnabled="$authHeaderEnabled"
     />
+
+    @livewire('bladethemev1::location-modal')
 </header>

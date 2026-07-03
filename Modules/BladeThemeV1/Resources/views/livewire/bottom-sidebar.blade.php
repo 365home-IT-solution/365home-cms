@@ -102,6 +102,13 @@
             <span class="nav-label-1">Yêu thích</span>
         </a>
 
+        <a href="/ticket-booking" class="nav-item-1 {{ $currentUrl === '/ticket-booking' ? 'active' : '' }}">
+            <div class="nav-icon-1">
+                <x-heroicon-o-ticket />
+            </div>
+            <span class="nav-label-1">Tra cứu</span>
+        </a>
+
         <div
             x-data="{
                 isLoggedIn: false,
