@@ -1,7 +1,7 @@
 <div>
 
 {{-- Sticky header --}}
-<div style="padding:12px 14px 10px; margin-top:30px; border-bottom:1px solid #f3f4f6; background:#fff; position:sticky; top:0; z-index:5;">
+<div class="mt-0 md:mt-[30px]" style="padding:12px 14px 10px; border-bottom:1px solid #f3f4f6; background:#fff; position:sticky; top:0; z-index:5;">
     @if ($filterProvinceName)
         <p style="margin:0; font-size:14px; font-weight:700; color:#111827;">
             {{ $totalFound }} chi nhánh tại {{ $filterProvinceName }}
@@ -39,7 +39,9 @@
     @endif
 </div>
 
-{{-- Danh sách theo nhóm tỉnh --}}
+{{-- Danh sách theo nhóm tỉnh. Mobile: hiển thị trong bottom-sheet kéo được — dạng slide ngang khi
+     sheet thu gọn, dạng 1 cột khi kéo full (CSS theo class .sheet-full trên #rooms-left-panel).
+     Desktop/iPad (>= md): lưới 2 cột cố định như cũ. --}}
 <div style="padding:10px 10px 32px;">
 
     @forelse ($groups as $group)
@@ -59,8 +61,8 @@
         </div>
         @endif
 
-        {{-- 2 cột chi nhánh --}}
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px;">
+        {{-- Chi nhánh: slide ngang (mobile, peek) / 1 cột (mobile, full) / 2 cột (desktop) --}}
+        <div class="branch-grid" style="margin-bottom:4px;">
             @foreach ($group['branches'] as $branch)
             <div class="branch-card"
                 data-lat="{{ $branch['lat'] }}"
@@ -75,7 +77,7 @@
                 onmouseout="this.style.borderColor='#f3f4f6';this.style.boxShadow='0 1px 3px rgba(0,0,0,.06)'">
 
                 {{-- Ảnh --}}
-                <div style="position:relative;padding-top:65%;overflow:hidden;background:#f3f4f6;">
+                <div style="position:relative;padding-top:38%;overflow:hidden;background:#f3f4f6;">
                     @if ($branch['image'])
                         <img src="{{ $branch['image'] }}" alt="{{ $branch['name'] }}" loading="lazy"
                             style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:transform .3s;"
@@ -95,18 +97,18 @@
                 </div>
 
                 {{-- Tên --}}
-                <div style="padding:9px 10px 10px;">
+                <div style="padding:8px 10px 9px;">
                     <p style="font-size:13px;font-weight:700;color:#111827;margin:0;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.4;">
                         {{ $branch['name'] }}
                     </p>
                     @if ($branch['address'])
-                    <p style="font-size:11px;color:#9ca3af;margin:4px 0 0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">
+                    <p style="font-size:11px;color:#9ca3af;margin:3px 0 0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">
                         {{ $branch['address'] }}
                     </p>
                     @endif
                     <a class="branch-booking-btn" href="{{ $branch['booking_url'] }}"
                         onclick="event.stopPropagation()"
-                        style="display:block;margin-top:9px;background:#0f766e;color:#fff;font-size:12px;font-weight:800;text-align:center;padding:8px 10px;border-radius:8px;text-decoration:none;letter-spacing:.01em;">
+                        style="display:block;margin-top:7px;background:#0f766e;color:#fff;font-size:12px;font-weight:800;text-align:center;padding:7px 10px;border-radius:8px;text-decoration:none;letter-spacing:.01em;">
                         Đặt phòng →
                     </a>
                 </div>
@@ -128,5 +130,57 @@
 
 {{-- Branch data cho map JS --}}
 <script type="application/json" id="branch-map-data">@json($branches)</script>
+
+<style>
+    /* Chi nhánh — mặc định (mobile, mọi trang dùng component này): slide ngang, mỗi lần 1 thẻ chiếm
+       trọn khung hình, vuốt ngang để chuyển hẳn sang chi nhánh tiếp theo. Từ md trở lên: lưới 2 cột
+       cố định. Trang có bottom-sheet kéo lên/xuống (vd product/search) tự override thêm khi sheet
+       mở rộng full màn hình. */
+    .branch-grid {
+        display: flex;
+        gap: 10px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scroll-snap-type: x mandatory;
+        padding-bottom: 4px;
+        -webkit-overflow-scrolling: touch;
+        cursor: grab;
+        touch-action: pan-y;
+    }
+
+    .branch-grid.branch-grid-dragging {
+        cursor: grabbing;
+        scroll-snap-type: none;
+        scroll-behavior: auto;
+    }
+
+    .branch-grid.branch-grid-dragging .branch-card {
+        pointer-events: none;
+    }
+
+    .branch-grid .branch-card {
+        flex: 0 0 100%;
+        width: 100%;
+        max-width: none;
+        scroll-snap-align: start;
+    }
+
+    @media (min-width: 768px) {
+        .branch-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            overflow: visible;
+            cursor: default;
+            touch-action: auto;
+        }
+
+        .branch-grid .branch-card {
+            width: auto;
+            max-width: none;
+            scroll-snap-align: none;
+        }
+    }
+</style>
 
 </div>

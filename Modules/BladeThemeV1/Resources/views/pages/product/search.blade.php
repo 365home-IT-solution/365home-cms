@@ -16,7 +16,7 @@
         window.__heroAlwaysCompact = true;
     </script>
     @livewire('bladethemev1::hero-section', ['noBanner' => true])
-   
+
 
     <style>
         #main-header-bar {
@@ -26,33 +26,134 @@
             left: 0 !important;
             right: 0 !important;
         }
+        /* Mobile (< md): bản đồ full màn hình phía sau, phía trên là bottom-sheet chứa danh sách chi
+           nhánh có thể kéo lên/xuống. Kéo xuống (peek) → chi nhánh dạng slide ngang. Kéo lên hết
+           (full) → chi nhánh xếp 1 cột.
+           Desktop/iPad (>= md): xếp ngang như cũ — danh sách bên trái, bản đồ cố định bên phải. */
         #search-layout {
             display: flex;
-            height: calc(100vh - 112px);
-        }
-
-        #rooms-left-panel {
-            width: 100%;
-            height: 100%;
-            overflow-y: auto;
-            border-right: 1px solid #f3f4f6;
-            flex-shrink: 0;
+            flex-direction: column;
+            position: relative;
+            height: calc(100vh - 60px);
+            overflow: hidden;
         }
 
         #map-col {
-            display: none;
-            position: relative;
-            flex-shrink: 0;
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
         }
 
-        @media (min-width: 1024px) {
+        #rooms-left-panel {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 20;
+            width: 100%;
+            height: 48%;
+            min-height: 260px;
+            max-height: 94%;
+            background: #fff;
+            border-radius: 18px 18px 0 0;
+            box-shadow: 0 -6px 24px rgba(0, 0, 0, .16);
+            display: flex;
+            flex-direction: column;
+            transition: height .32s cubic-bezier(.32, .72, 0, 1);
+        }
+
+        #rooms-left-panel.sheet-dragging {
+            transition: none;
+        }
+
+        #rooms-left-panel.sheet-full {
+            height: 94%;
+        }
+
+        #sheet-handle {
+            flex-shrink: 0;
+            display: flex;
+            justify-content: center;
+            padding: 10px 0 6px;
+            cursor: grab;
+            touch-action: none;
+        }
+
+        #sheet-handle::before {
+            content: '';
+            width: 36px;
+            height: 4px;
+            border-radius: 3px;
+            background: #d1d5db;
+        }
+
+        #sheet-scroll {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        /* Base .branch-grid (slide ngang mobile / lưới 2 cột desktop) đã khai báo trong
+           livewire.search-results-grid — dùng chung cho mọi trang. Ở đây chỉ override thêm khi
+           bottom-sheet của trang này được kéo full màn hình: chi nhánh xếp 1 cột. */
+        #rooms-left-panel.sheet-full .branch-grid {
+            display: flex;
+            flex-direction: column;
+            overflow: visible;
+        }
+
+        #rooms-left-panel.sheet-full .branch-grid .branch-card {
+            width: 100%;
+            max-width: none;
+        }
+
+        @media (min-width: 768px) {
+            #search-layout {
+                flex-direction: row;
+                height: calc(100vh - 112px);
+                overflow: visible;
+            }
+
             #rooms-left-panel {
+                position: static;
                 width: 40%;
+                height: 100%;
+                max-height: none;
+                min-height: 0;
+                border-right: 1px solid #f3f4f6;
+                border-radius: 0;
+                box-shadow: none;
+                flex-shrink: 0;
+                transition: none;
+            }
+
+            #sheet-handle {
+                display: none;
             }
 
             #map-col {
-                display: block;
+                position: relative;
+                inset: auto;
                 width: 60%;
+                height: 100%;
+            }
+
+            /* Desktop luôn giữ lưới 2 cột (đã set ở component dùng chung), kể cả khi DOM còn
+               mang class .sheet-full từ lúc ở mobile */
+            #rooms-left-panel.sheet-full .branch-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+                overflow: visible;
+            }
+
+            #rooms-left-panel.sheet-full .branch-grid .branch-card {
+                width: auto;
+                max-width: none;
+                scroll-snap-align: none;
             }
         }
 
@@ -86,6 +187,29 @@
             transform: translate(-50%, -50%) scale(1.15);
             box-shadow: 0 4px 18px rgba(15, 118, 110, .38);
             z-index: 9000 !important;
+        }
+
+        /* Badge tròn hiển thị số phòng ngay sau giá */
+        .bpm-count {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 16px;
+            height: 16px;
+            padding: 0 3px;
+            margin-left: 5px;
+            border-radius: 50%;
+            background:#0f766e;
+            color: white;
+            font-size: 10px;
+            font-weight: 800;
+            line-height: 1;
+        }
+
+        .bpm.active .bpm-count,
+        .bpm:hover .bpm-count {
+            background:#fff;
+            color: #0f766e ;
         }
 
         /* Leaflet popup — Airbnb style */
@@ -172,7 +296,10 @@
     <div id="search-layout">
 
         <div id="rooms-left-panel">
-            @livewire('bladethemev1::search-results-grid')
+            <div id="sheet-handle" class="md:hidden"></div>
+            <div id="sheet-scroll">
+                @livewire('bladethemev1::search-results-grid')
+            </div>
         </div>
 
         <div id="map-col">
@@ -213,6 +340,163 @@
 
         var __mapInitRetries = 0;
         var __activeBranchCard = null;
+
+        // ─── Bottom-sheet kéo lên/xuống (mobile < md) ──────────────────────────────────
+        (function() {
+            var sheet = null,
+                handle = null,
+                dragging = false,
+                startY = 0,
+                startH = 0,
+                containerH = 0;
+            var FULL_THRESHOLD = 0.62;
+
+            function isMobile() {
+                return window.innerWidth < 768;
+            }
+
+            window.__setSheetState = function(state) {
+                if (!sheet) return;
+                sheet.style.height = '';
+                if (state === 'full') sheet.classList.add('sheet-full');
+                else sheet.classList.remove('sheet-full');
+            };
+
+            function onStart(clientY) {
+                if (!isMobile()) return;
+                dragging = true;
+                startY = clientY;
+                containerH = sheet.parentElement.getBoundingClientRect().height;
+                startH = sheet.getBoundingClientRect().height;
+                sheet.classList.add('sheet-dragging');
+            }
+
+            function onMove(clientY) {
+                if (!dragging) return;
+                var dy = startY - clientY;
+                var newH = startH + dy;
+                var minH = containerH * 0.14;
+                var maxH = containerH * 0.94;
+                if (newH < minH) newH = minH;
+                if (newH > maxH) newH = maxH;
+                sheet.style.height = newH + 'px';
+            }
+
+            function onEnd() {
+                if (!dragging) return;
+                dragging = false;
+                sheet.classList.remove('sheet-dragging');
+                var h = sheet.getBoundingClientRect().height;
+                var ratio = containerH > 0 ? h / containerH : 0;
+                window.__setSheetState(ratio > FULL_THRESHOLD ? 'full' : 'peek');
+            }
+
+            function initSheet() {
+                sheet = document.getElementById('rooms-left-panel');
+                handle = document.getElementById('sheet-handle');
+                if (!sheet || !handle || handle.__bound) return;
+                handle.__bound = true;
+
+                handle.addEventListener('touchstart', function(e) {
+                    onStart(e.touches[0].clientY);
+                }, { passive: true });
+                handle.addEventListener('touchmove', function(e) {
+                    onMove(e.touches[0].clientY);
+                }, { passive: true });
+                handle.addEventListener('touchend', onEnd);
+
+                handle.addEventListener('mousedown', function(e) {
+                    onStart(e.clientY);
+                    function mm(ev) {
+                        onMove(ev.clientY);
+                    }
+                    function mu() {
+                        onEnd();
+                        document.removeEventListener('mousemove', mm);
+                        document.removeEventListener('mouseup', mu);
+                    }
+                    document.addEventListener('mousemove', mm);
+                    document.addEventListener('mouseup', mu);
+                });
+
+                handle.addEventListener('click', function() {
+                    if (dragging) return;
+                    var isFull = sheet.classList.contains('sheet-full');
+                    window.__setSheetState(isFull ? 'peek' : 'full');
+                });
+            }
+
+            document.addEventListener('DOMContentLoaded', initSheet);
+            document.addEventListener('livewire:navigated', function() {
+                if (handle) handle.__bound = false;
+                initSheet();
+            });
+        })();
+
+        // ─── Kéo bằng tay (chuột/chạm) cho slide chi nhánh ngang (.branch-grid, mobile peek) ──
+        (function() {
+            var grid = null,
+                startX = 0,
+                scrollStart = 0,
+                dragged = false;
+            var DRAG_THRESHOLD = 6;
+
+            function isHorizontalMode(g) {
+                if (window.innerWidth >= 768) return false;
+                var panel = document.getElementById('rooms-left-panel');
+                return !(panel && panel.classList.contains('sheet-full'));
+            }
+
+            function onDown(e) {
+                var g = e.target.closest && e.target.closest('.branch-grid');
+                if (!g || !isHorizontalMode(g)) return;
+                grid = g;
+                startX = e.clientX;
+                scrollStart = grid.scrollLeft;
+                dragged = false;
+                // Chưa bật chế độ kéo (không tắt pointer-events của card) ở bước này —
+                // nếu bật ngay từ pointerdown, một cú chạm/tap đơn giản cũng sẽ mất khả năng
+                // bắn sự kiện click trên card (do card bị pointer-events:none quá sớm), khiến
+                // không thể "chọn để hiện bản đồ" được nữa. Chỉ khi thực sự vượt ngưỡng di
+                // chuyển (kéo thật) mới coi là drag.
+            }
+
+            function onMove(e) {
+                if (!grid) return;
+                var dx = e.clientX - startX;
+                if (!dragged && Math.abs(dx) > DRAG_THRESHOLD) {
+                    dragged = true;
+                    grid.classList.add('branch-grid-dragging');
+                }
+                if (dragged) {
+                    grid.scrollLeft = scrollStart - dx;
+                    e.preventDefault();
+                }
+            }
+
+            function onUp() {
+                if (!grid) return;
+                grid.classList.remove('branch-grid-dragging');
+                if (dragged) {
+                    var g = grid;
+                    var suppressClick = function(ev) {
+                        ev.stopPropagation();
+                        ev.preventDefault();
+                        g.removeEventListener('click', suppressClick, true);
+                    };
+                    g.addEventListener('click', suppressClick, true);
+                    setTimeout(function() {
+                        g.removeEventListener('click', suppressClick, true);
+                    }, 0);
+                }
+                grid = null;
+            }
+
+            document.addEventListener('pointerdown', onDown);
+            document.addEventListener('pointermove', onMove, { passive: false });
+            document.addEventListener('pointerup', onUp);
+            document.addEventListener('pointercancel', onUp);
+        })();
 
         // ─── Popup slide data ───────────────────────────────────────────────────────
         var __popups = {};
@@ -337,6 +621,10 @@
                 var lng = parseFloat(branch.lng);
                 var rooms = branch.rooms || [];
                 var roomCount = branch.room_count || rooms.length;
+                var roomPrices = rooms
+                    .map(function(r) { return parseFloat(r.price); })
+                    .filter(function(p) { return !isNaN(p) && p > 0; });
+                var minPrice = roomPrices.length ? Math.min.apply(null, roomPrices) : null;
 
                 var hasCoords = lat && lng && !isNaN(lat) && !isNaN(lng);
 
@@ -367,6 +655,13 @@
                     card.addEventListener('click', function() {
                         activateCard();
                         if (hasCoords) lm.openPopup();
+                        // Trên mobile, nếu sheet đang kéo full (che hết bản đồ) thì thu gọn lại
+                        // để người dùng thấy pin vừa được kích hoạt trên bản đồ.
+                        var sheetEl = document.getElementById('rooms-left-panel');
+                        if (window.innerWidth < 768 && window.__setSheetState && sheetEl &&
+                            sheetEl.classList.contains('sheet-full')) {
+                            window.__setSheetState('peek');
+                        }
                     });
                 }
 
@@ -382,7 +677,10 @@
                 };
 
                 // Marker
-                var pinHtml = '<div class="bpm">' + roomCount + ' phòng</div>';
+                var pinLabel = minPrice
+                    ? 'Từ ' + Number(minPrice).toLocaleString('vi-VN') + 'đ'
+                    : 'Liên hệ';
+                var pinHtml = '<div class="bpm">' + pinLabel + '<span class="bpm-count">' + roomCount + '</span></div>';
                 var lm = L.marker([lat, lng], {
                     icon: L.divIcon({
                         className: '',
@@ -429,7 +727,7 @@
                         if (b) b.classList.add('active');
                     }
                     activateCard();
-                    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
                 });
 
                 lm.on('popupclose', function() {

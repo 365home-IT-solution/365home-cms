@@ -182,44 +182,6 @@
         border: 1px solid #d1d5db;
     }
 
-    thead {
-        position: sticky;
-        top: 0;
-        z-index: 30;
-        background: #f9fafb;
-    }
-
-    .sticky-col-header {
-        position: sticky;
-        left: 0;
-        z-index: 40;
-        background: #f9fafb;
-    }
-
-    .sticky-col-thu {
-        left: 0 !important;
-        min-width: 60px;
-    }
-
-    .sticky-col-ngay {
-        left: 60px !important;
-        min-width: 80px;
-    }
-
-    .sticky-col {
-        position: sticky;
-        z-index: 20;
-        background: #fff;
-    }
-
-    tbody .sticky-col-thu {
-        left: 0 !important;
-    }
-
-    tbody .sticky-col-ngay {
-        left: 60px !important;
-    }
-
     .selectable.past-time::after {
         content: "";
         position: absolute;
@@ -526,19 +488,6 @@
         border: 1px solid #d4e4d2;
     }
 
-    /* ── Override thead & sticky columns to green tint ── */
-    thead {
-        background: linear-gradient(135deg, #eef2ed, #dce8da) !important;
-    }
-
-    .sticky-col-header {
-        background: linear-gradient(135deg, #eef2ed, #dce8da) !important;
-    }
-
-    .sticky-col {
-        background: linear-gradient(135deg, #f8fbf7, #f4f8f3) !important;
-    }
-
     /* ── Selectable → pill shape ── */
     .selectable {
         border-radius: 999px !important;
@@ -635,27 +584,50 @@
            TWO-PANEL CARD LAYOUT  (mobile)
            ═══════════════════════════════════════════════ */
 
-    /* ── Room navigation header ── */
+    /* ── Card bao ngoài — nền màu primary của trang, 2 cột bên trong mới là khối trắng ── */
+    .book-card-outer {
+        background: var(--color-primary, #4e6b4c);
+        border-radius: 18px;
+        padding: 10px 0 12px;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
+    }
+
+    /* ── Hàng trên cùng: chừa trống phía cột "Ngày", tên phòng + nút trượt chỉ nằm phía
+         trên cột "Khung giờ" ── */
+    .book-top-row {
+        display: flex;
+        gap: 12px;
+        padding: 0 10px;
+        margin-bottom: 12px;
+    }
+
+    .book-top-spacer {
+        width: 60px;
+        flex-shrink: 0;
+    }
+
+    /* ── Room navigation header — tách riêng, nằm trên nền màu của .book-card-outer,
+         không dùng chung nền trắng với khối "Khung giờ" bên dưới ── */
     .book-room-nav-wrap {
+        flex: 1;
+        min-width: 0;
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 16px;
-        padding: 22px 16px 18px;
-        background: #4e6b4c;
-        /* fallback; overridden per-room via Alpine :style */
-        border-radius: 20px 20px 0 0;
-        transition: background 0.4s ease, color 0.3s ease;
+        gap: 10px;
+        padding: 10px 12px;
+        background: #ffffff;
+        color: #111827;
+        border-radius: 14px;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
     }
 
     .book-nav-btn {
-        background: rgba(255, 255, 255, 0.25);
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
-        border: 1.5px solid rgba(255, 255, 255, 0.5);
+        background: #f9fafb;
+        border: 1.5px solid #e5e7eb;
         color: inherit;
-        width: 40px;
-        height: 40px;
+        width: 30px;
+        height: 30px;
         border-radius: 50%;
         cursor: pointer;
         display: flex;
@@ -663,18 +635,22 @@
         justify-content: center;
         flex-shrink: 0;
         transition: background 0.2s, transform 0.15s;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    }
+
+    .book-nav-btn svg {
+        width: 16px;
+        height: 16px;
     }
 
     .book-nav-btn:hover {
-        background: rgba(255, 255, 255, 0.45);
+        background: #f3f4f6;
         transform: scale(1.08);
     }
 
     .book-room-titles-wrap {
         flex: 1;
         text-align: center;
-        min-height: 62px;
+        min-height: 36px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -688,116 +664,114 @@
     .book-room-name {
         font-family: 'Georgia', 'Times New Roman', serif;
         font-style: italic;
-        font-size: 2rem;
+        font-size: 1.15rem;
         font-weight: 700;
         color: inherit;
-        text-shadow: 0 2px 14px rgba(0, 0, 0, 0.25);
         line-height: 1.1;
         margin: 0;
     }
 
-    .book-room-sub {
-        color: inherit;
-        opacity: 0.85;
-        font-size: 0.8rem;
-        font-weight: 600;
-        margin-top: 5px;
-        letter-spacing: 0.03em;
-    }
-
-    /* ── Fixed grid header (outside scroll) ── */
+    /* ── Grid header — nằm bên trong .book-mobile-scroll (dùng chung khung cuộn với phần thân
+         nên độ rộng luôn khớp), dính ở trên cùng khi cuộn nhờ position:sticky. Nền trùng màu
+         .book-card-outer để che phần nội dung cuộn qua bên dưới. ── */
     .book-grid-header {
         display: flex;
-        gap: 10px;
-        padding: 0 14px;
-        background: color-mix(in srgb, var(--room-color, #4e6b4c) 70%, black);
+        gap: 12px;
+        padding: 0 10px;
+        background: var(--color-primary, #4e6b4c);
+        position: sticky;
+        top: 0;
+        /* Cao hơn z-index của .selectable (10) và các lớp phủ khuyến mãi bên trong (tối đa 30)
+           để hàng tiêu đề luôn nổi trên các nút chọn khung giờ khi cuộn ── */
+        z-index: 50;
     }
 
     .book-grid-header .book-col-header {
-        min-width: 82px;
-        width: 82px;
+        min-width: 60px;
+        width: 60px;
         flex-shrink: 0;
-        background: transparent;
-        border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+        background: #ffffff;
+        border: 1px solid #f0f0f0;
+        border-bottom: none;
+        border-radius: 10px 10px 0 0;
     }
 
     .book-slots-headers-wrap {
         flex: 1;
         min-width: 0;
+        overflow: hidden;
+        border-radius: 10px 10px 0 0;
     }
 
     .book-slots-headers-wrap .book-slots-header-row {
-        background: transparent;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+        background: #ffffff;
+        border: 1px solid #f0f0f0;
+        border-bottom: none;
+        border-radius: 10px 10px 0 0;
     }
 
-    /* ── Mobile vertical scroll wrapper ── */
+    /* ── Mobile vertical scroll wrapper — vẫn cuộn được, chỉ ẩn thanh cuộn để không chiếm
+         không gian ngang (tránh header/thân bị lệch độ rộng do thanh cuộn) ── */
     .book-mobile-scroll {
-        max-height: 380px;
+        max-height: 340px;
         overflow-y: auto;
         overflow-x: hidden;
-        border-radius: 0 0 20px 20px;
+        border-radius: 0 0 14px 14px;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
     }
 
     .book-mobile-scroll::-webkit-scrollbar {
-        width: 4px;
+        display: none;
+        width: 0;
+        height: 0;
     }
 
-    .book-mobile-scroll::-webkit-scrollbar-track {
-        background: color-mix(in srgb, var(--room-color, #4e6b4c) 20%, transparent);
-        border-radius: 4px;
-    }
-
-    .book-mobile-scroll::-webkit-scrollbar-thumb {
-        background: var(--room-color, #4e6b4c);
-        border-radius: 4px;
-        opacity: 0.7;
-    }
-
-    /* ── Outer gradient wrapper (bottom) ── */
+    /* ── Outer wrapper (bottom) — nền trong suốt (lộ màu .book-card-outer ở khoảng gap giữa
+         2 cột), không có padding-top để dính liền với header phía trên (.book-grid-header) ── */
     .book-grid-outer {
         display: flex;
-        gap: 10px;
-        background: #4e6b4c;
-        /* fallback; overridden per-room via Alpine :style */
-        padding: 12px 14px 20px;
+        gap: 12px;
+        background: transparent;
+        padding: 0 10px 12px;
         border-radius: 0;
         align-items: flex-start;
         min-height: 100%;
-        transition: background 0.4s ease;
     }
 
-    /* ── Left dates card ── */
+    /* ── Left dates card — dính liền với header "Ngày" phía trên (cùng nền, chỉ bo góc dưới),
+         tách hẳn khỏi khối khung giờ bên phải ── */
     .book-dates-card {
-        background: var(--room-color, #4e6b4c);
-        border-radius: 14px;
-        min-width: 82px;
-        width: 82px;
+        background: #ffffff;
+        border: 1px solid #f0f0f0;
+        border-top: none;
+        border-radius: 0 0 10px 10px;
+        min-width: 60px;
+        width: 60px;
         flex-shrink: 0;
-        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
         overflow: hidden;
     }
 
     .book-col-header {
-        height: 46px;
+        height: 40px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 0.7rem;
+        font-size: 0.65rem;
         font-weight: 700;
-        color: var(--room-text-color, #ffffff);
+        color: #374151;
         letter-spacing: 0.06em;
         text-transform: uppercase;
     }
 
     .book-date-row {
-        height: 38px;
+        height: 30px;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-        gap: 2px;
+        border-bottom: 1px solid #f3f4f6;
+        gap: 1px;
         padding: 0 4px;
     }
 
@@ -807,8 +781,8 @@
 
     .book-date-day {
         font-size: 0.62rem;
-        color: var(--room-text-color, #ffffff);
-        opacity: 0.7;
+        color: #6b7280;
+        opacity: 0.85;
         font-weight: 500;
         line-height: 1;
     }
@@ -816,30 +790,52 @@
     .book-date-num {
         font-size: 0.78rem;
         font-weight: 700;
-        color: var(--room-text-color, #ffffff);
+        color: #111827;
         line-height: 1;
     }
 
     .book-date-row.is-today .book-date-day,
     .book-date-row.is-today .book-date-num {
-        color: var(--room-text-color, #ffffff);
+        color: var(--color-primary, #0f766e);
         font-weight: 800;
         opacity: 1;
     }
 
-    /* ── Right slots outer (flex:1) ── */
+    /* ── Right slots outer (flex:1) — overflow ẩn để hiệu ứng trượt phòng không lộ ra ngoài ── */
     .book-slots-outer {
         flex: 1;
         min-width: 0;
+        overflow: hidden;
     }
 
-    /* ── Slots card per room ── */
+    /* ── Slots card per room — dính liền với header khung giờ phía trên (chỉ bo góc dưới) ── */
     .book-slots-card {
-        background: var(--room-color, #4e6b4c);
-        border-radius: 14px;
-        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
+        background: #ffffff;
+        border: 1px solid #f0f0f0;
+        border-top: none;
+        border-radius: 0 0 14px 14px;
         overflow: hidden;
         max-width: 100%;
+    }
+
+    /* ── Khi chuyển phòng: chỉ khối khung giờ trượt hẳn từ mép vào như lật trang, cột Ngày
+         đứng yên ── */
+    @keyframes bookSlideInRight {
+        from { transform: translateX(100%); opacity: 0.5; }
+        to   { transform: translateX(0); opacity: 1; }
+    }
+
+    @keyframes bookSlideInLeft {
+        from { transform: translateX(-100%); opacity: 0.5; }
+        to   { transform: translateX(0); opacity: 1; }
+    }
+
+    .book-slide-in-right {
+        animation: bookSlideInRight 1s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .book-slide-in-left {
+        animation: bookSlideInLeft 1s cubic-bezier(0.22, 1, 0.36, 1);
     }
 
     /* ── Slot column headers ── */
@@ -847,19 +843,24 @@
         display: flex;
         gap: 3px;
         padding: 0 4px;
-        height: 46px;
+        height: 40px;
         align-items: center;
     }
 
     .book-slot-th {
         flex: 1;
         text-align: center;
-        font-size: 0.55rem;
+        font-size: 0.72rem;
         font-weight: 700;
-        color: inherit;
-        letter-spacing: -0.03em;
-        line-height: 1.15;
+        color: #111827;
+        letter-spacing: -0.02em;
+        line-height: 1.2;
         min-width: 0;
+    }
+
+    /* Mobile mặc định: giờ bắt đầu/kết thúc xếp 2 dòng (dùng <br>), ẩn dấu gạch nối */
+    .book-slot-time-sep {
+        display: none;
     }
 
     .book-overnight-tag {
@@ -878,8 +879,8 @@
     .book-slots-row {
         display: flex;
         gap: 3px;
-        padding: 4px 4px;
-        height: 38px;
+        padding: 3px 4px;
+        height: 30px;
         align-items: center;
         border-bottom: 1px solid rgba(255, 255, 255, 0.12);
     }
@@ -909,7 +910,7 @@
         align-items: center;
         justify-content: space-between;
         gap: 8px;
-        padding: 8px 14px;
+        padding: 5px 10px;
         background: linear-gradient(135deg, #3a5239 0%, #4e6b4c 100%);
     }
 
@@ -917,13 +918,13 @@
         display: inline-flex;
         align-items: center;
         gap: 4px;
-        height: 30px;
-        padding: 0 12px;
+        height: 24px;
+        padding: 0 10px;
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.18);
         border: 1.5px solid rgba(255, 255, 255, 0.45);
         color: white;
-        font-size: 0.72rem;
+        font-size: 0.68rem;
         font-weight: 600;
         cursor: pointer;
         transition: background 0.15s;
@@ -952,6 +953,69 @@
         display: none !important;
     }
 
+    /* ── Nút "Xem thêm 5 ngày" (mobile) ── */
+    /* ── Hàng chứa 2 nút "Xem thêm ngày" / "Thu gọn" — chia 2 cột đều nhau, cách nhau gọn ── */
+    .book-loadmore-row {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        margin-top: 8px;
+        padding: 0 10px;
+    }
+
+    .book-loadmore-btn-disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+
+    .book-loadmore-btn-disabled:hover {
+        background: #f4f8f3;
+        border-color: rgba(78, 107, 76, 0.4);
+    }
+
+    .book-loadmore-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        flex: 0 0 auto;
+        min-width: 0;
+        margin-top: 0;
+        padding: 20px 30px;
+        border-radius: 999px;
+        border: 1.5px dashed rgba(78, 107, 76, 0.4);
+        background: #f4f8f3;
+        color: #4e6b4c;
+        font-size: 0.75rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+    }
+
+    .book-loadmore-btn:hover {
+        background: #e8f0e6;
+        border-color: #6a8f68;
+            </div>
+    }
+
+    .book-loadmore-btn span {
+        font-weight: 500;
+        color: #6b7280;
+        font-size: 0.68rem;
+    }
+
+    .book-collapse-btn {
+        border-style: solid;
+        background: white;
+        color: #6b7280;
+        border-color: rgba(107, 114, 128, 0.35);
+    }
+
+    .book-collapse-btn:hover {
+        background: white;
+        border-color: rgba(107, 114, 128, 0.5);
+    }
+
     /* ── Mobile sticky pricing bar ── */
     .book-mobile-price-bar {
         position: fixed;
@@ -962,11 +1026,86 @@
         background: white;
         border-top: 2px solid rgba(78, 107, 76, 0.2);
         box-shadow: 0 -4px 20px rgba(78, 107, 76, 0.15);
-        padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+        padding: 8px 14px calc(8px + env(safe-area-inset-bottom, 0px));
     }
 
     @media (min-width: 768px) {
         .book-mobile-price-bar { display: none !important; }
+    }
+
+    /* ── Desktop/tablet: nút chọn khung giờ cao hơn, đỡ dẹt/dài như bản mobile ── */
+    @media (min-width: 768px) {
+        .book-date-row {
+            height: 44px;
+        }
+
+        .book-slots-row {
+            height: 44px;
+        }
+
+        .book-slot-cell .selectable {
+            height: 34px !important;
+        }
+
+        .book-mobile-scroll {
+            max-height: 460px;
+        }
+
+        /* Giờ bắt đầu/kết thúc nằm ngang trên 1 dòng (không xuống dòng như mobile), chữ to hơn */
+        .book-slot-th {
+            font-size: 0.9rem;
+            white-space: nowrap;
+        }
+
+        .book-slot-time-br {
+            display: none;
+        }
+
+        .book-slot-time-sep {
+            display: inline;
+        }
+
+        /* Chữ "Qua đêm" to hơn trên desktop/tablet */
+        .book-overnight-tag {
+            font-size: 1rem;
+            padding: 2px 5px;
+            margin-top: 3px;
+        }
+
+        /* Nút "Xem thêm ngày" / "Thu gọn" to hơn trên desktop/tablet */
+        .book-loadmore-btn {
+            padding: 16px 28px;
+            font-size: 1.125rem;
+        }
+    }
+
+    /* ── Desktop (>=1024px): khu vực đặt phòng + bảng tính giá nằm chung 1 hàng, chia 2 cột,
+         dùng hết chiều ngang màn hình. Dưới 1024px giữ nguyên xếp dọc (không set gì ở đây). ── */
+    @media (min-width: 1024px) {
+        .book-desktop-layout {
+            display: grid;
+            grid-template-columns: 1fr 420px;
+            gap: 40px;
+            align-items: stretch;
+        }
+
+        /* Cả 2 cột đều là grid item nên tự giãn theo align-items:stretch — thêm height:100%
+           để nội dung bên trong (đặc biệt bảng giá) lấp đầy hết chiều cao đã giãn ra. */
+        .book-desktop-layout .book-card-outer,
+        .book-desktop-layout #book-pricing-summary {
+            height: 100%;
+            box-sizing: border-box;
+            margin-top : 0px;
+        }
+
+        /* Bảng giá xếp dọc thay vì hàng ngang, vì giờ nó nằm trong cột phụ hẹp (sidebar).
+           justify-content: space-between đẩy nút "Đặt phòng ngay" xuống sát đáy khi cột được
+           giãn cao bằng cột bên trái, tránh khoảng trắng thừa ở giữa. */
+        .book-desktop-layout #book-pricing-summary {
+            flex-direction: column;
+            align-items: stretch;
+            justify-content: space-between;
+        }
     }
 
     /* Alpine x-transition classes for slide-up bar */

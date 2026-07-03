@@ -62,7 +62,7 @@
 
 <div id="main-header-bar"
      x-data="{
-        isSticky: false,
+        isSticky: {{ $header_style ? "window.matchMedia('(max-width: 767px)').matches" : 'false' }},
         mobileMenuOpen: false
     }"
      x-init="

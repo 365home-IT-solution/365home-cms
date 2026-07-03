@@ -1,4 +1,43 @@
     <script>
+        // Dò tỉnh/thành gần nhất theo vị trí trình duyệt (Geolocation API + haversine).
+        // wireSetLocation: hàm gọi Livewire setLocation(slug); locations: mảng { slug, lat, lng, ... }.
+        window.heroLocateNearest = function(wireSetLocation, locations, onDone, onError) {
+            if (!navigator.geolocation) {
+                onError && onError('Trình duyệt không hỗ trợ định vị.');
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const { latitude, longitude } = pos.coords;
+                    const toRad = (v) => (v * Math.PI) / 180;
+                    const haversine = (lat1, lon1, lat2, lon2) => {
+                        const R = 6371;
+                        const dLat = toRad(lat2 - lat1);
+                        const dLon = toRad(lon2 - lon1);
+                        const a = Math.sin(dLat / 2) ** 2
+                            + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+                        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                    };
+
+                    let nearest = null, minDist = Infinity;
+                    (locations || []).forEach((loc) => {
+                        if (!loc.lat || !loc.lng) return;
+                        const d = haversine(latitude, longitude, loc.lat, loc.lng);
+                        if (d < minDist) { minDist = d; nearest = loc; }
+                    });
+
+                    if (nearest) {
+                        wireSetLocation(nearest.slug);
+                        onDone && onDone(nearest);
+                    } else {
+                        onError && onError('Không tìm thấy tỉnh/thành phù hợp gần bạn.');
+                    }
+                },
+                () => onError && onError('Không thể lấy vị trí của bạn. Vui lòng cho phép truy cập vị trí.'),
+                { enableHighAccuracy: true, timeout: 8000 }
+            );
+        };
+
         window.heroDatePicker = function() {
             return {
                 open: false,
@@ -216,6 +255,17 @@
                         await this.$wire.set('checkOut', this.displayCheckOut);
                     }
                     this.open = false;
+                },
+                async resetDate() {
+                    this.checkIn = null;
+                    this.checkOut = null;
+                    this.hoverDate = null;
+                    this.checkInHour = 14;
+                    this.checkInMin = 0;
+                    this.checkOutHour = 12;
+                    this.checkOutMin = 0;
+                    await this.$wire.set('checkIn', '');
+                    await this.$wire.set('checkOut', '');
                 },
                 async submitSearch() {
                     if (this.checkIn) {

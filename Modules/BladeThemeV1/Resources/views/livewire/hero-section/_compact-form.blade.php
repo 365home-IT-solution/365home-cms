@@ -1,4 +1,22 @@
-        {{-- Form mở rộng --}}
+        {{-- Form mở rộng — mobile: popup toàn màn hình; desktop/tablet: panel sổ xuống dưới pill --}}
+        <style>
+            .hero-compact-form-panel { background: #fff; }
+            @media (max-width: 767px) {
+                .hero-compact-form-panel {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 2000;
+                    overflow-y: auto;
+                    -webkit-overflow-scrolling: touch;
+                }
+            }
+            @media (min-width: 768px) {
+                .hero-compact-form-panel {
+                    border-bottom: 1px solid #e5e7eb;
+                    box-shadow: 0 4px 24px rgba(0,0,0,.12);
+                }
+            }
+        </style>
         <div x-show="formOpen"
              x-data="heroDatePicker()"
              x-cloak
@@ -8,7 +26,18 @@
              x-transition:leave="transition ease-in duration-150"
              x-transition:leave-start="opacity-100 translate-y-0"
              x-transition:leave-end="opacity-0 -translate-y-1"
-             style="background:#fff; border-bottom:1px solid #e5e7eb; box-shadow:0 4px 24px rgba(0,0,0,.12);">
+             class="hero-compact-form-panel">
+
+            {{-- Mobile: thanh tiêu đề + nút đóng popup --}}
+            <div class="md:hidden flex items-center justify-between px-4 pt-4 pb-1">
+                <span class="text-sm font-bold text-gray-900">Tìm kiếm</span>
+                <button type="button" @click="formOpen = false"
+                    class="w-9 h-9 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
 
             <div class="w-full max-w-11xl mx-auto px-4 sm:px-6 py-5">
                 <div class="rounded-2xl shadow-lg p-4 md:p-6">
@@ -38,9 +67,22 @@
 
                     {{-- Search bar --}}
                     <div data-bar
-                        x-data="{ locOpen: false, buoiOpen: false, guestsOpen: false }"
-                        @click.outside="locOpen = false; buoiOpen = false; guestsOpen = false"
-                        class="relative flex items-stretch rounded-2xl transition-all duration-300"
+                        x-data="{
+                            locOpen: false, buoiOpen: false, guestsOpen: false, mobileStep: 1, locating: false,
+                            locateMe() {
+                                this.locating = true;
+                                window.heroLocateNearest(
+                                    (slug) => $wire.setLocation(slug),
+                                    @js($locations),
+                                    () => { this.locating = false; this.locOpen = false; this.mobileStep = (this.mobileStep === 1 ? 2 : this.mobileStep); },
+                                    (msg) => { this.locating = false; alert(msg); }
+                                );
+                            }
+                        }"
+                        @click.outside="locOpen = false; buoiOpen = false; guestsOpen = false">
+
+                    {{-- Desktop / tablet: thanh ngang đầy đủ --}}
+                    <div class="relative hidden md:flex items-stretch rounded-2xl transition-all duration-300"
                         :class="open ? 'bg-gray-100 shadow-xl' : 'bg-white border border-gray-200 shadow-sm'"
                         style="overflow:visible;">
 
@@ -74,6 +116,17 @@
                                 x-transition:leave-start="opacity-100 translate-y-0"
                                 x-transition:leave-end="opacity-0 translate-y-1"
                                 class="absolute top-[calc(100%+6px)] left-0 w-64 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 py-2">
+                                <button type="button" @click="locateMe()" :disabled="locating"
+                                    class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center gap-2 text-teal-700 font-semibold transition-colors border-b border-gray-100 mb-1 disabled:opacity-60">
+                                    <svg x-show="!locating" class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                    </svg>
+                                    <svg x-show="locating" x-cloak class="w-4 h-4 shrink-0 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 12a8 8 0 018-8V2.5"/>
+                                    </svg>
+                                    <span x-text="locating ? 'Đang định vị...' : 'Vị trí của tôi'"></span>
+                                </button>
                                 <button type="button" wire:click.stop="setLocation('')" @click="locOpen = false"
                                     wire:key="expanded-location-all"
                                     class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ !$selectedLocation ? 'font-semibold text-[var(--color-primary)]' : 'text-gray-700' }}">
@@ -362,6 +415,10 @@
                                 </svg>
                             </button>
                         </div>
+                    </div>
+
+                    @include('bladethemev1::livewire.hero-section._mobile-steps', ['boxSuffix' => 'Compact', 'searchAction' => 'formOpen = false; submitSearch()'])
+
                     </div>
 
                 </div>

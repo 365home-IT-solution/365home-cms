@@ -1,4 +1,4 @@
-        {{-- Pill thu gọn (chỉ hiện desktop) --}}
+        {{-- Pill thu gọn --}}
         <div x-show="!formOpen"
              class="hidden lg:block w-full bg-white border-b border-gray-100 shadow-[0_2px_12px_rgba(0,0,0,0.07)]">
 

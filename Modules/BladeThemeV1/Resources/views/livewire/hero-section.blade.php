@@ -32,7 +32,7 @@
 </div>
 @else
 <div
-    x-data="{ heroShrunk: window.__heroAlwaysCompact || false, compactTop: '0px', formOpen: false, menuOpen: false }"
+    x-data="{ heroShrunk: window.__heroAlwaysCompact || false, compactTop: '0px', formOpen: false, menuOpen: false, pillHeight: 0 }"
     x-init="
         if (window.__heroAlwaysCompact) {
             heroShrunk = true;
@@ -85,7 +85,25 @@
                 }, 30);
             });
         }
-        document.addEventListener('livewire:navigated', () => { heroShrunk = window.__heroAlwaysCompact || false; });
+        {{-- Mobile: form thu gọn mở dạng popup toàn màn hình -> khoá scroll nền trong lúc mở --}}
+        $watch('formOpen', val => {
+            if (window.matchMedia('(max-width: 767px)').matches) {
+                document.documentElement.style.overflow = val ? 'hidden' : '';
+                document.body.style.overflow = val ? 'hidden' : '';
+            }
+        });
+        {{-- Đo chiều cao pill thu gọn để chèn khoảng đệm tương ứng (mobile), tránh nội dung
+             bên dưới bị pill (position:fixed) đè lên. --}}
+        const _measurePill = () => {
+            const pill = $refs.compactPillEl;
+            if (pill && pill.offsetHeight > 0) pillHeight = pill.offsetHeight;
+        };
+        $nextTick(_measurePill);
+        window.addEventListener('resize', _measurePill, { passive: true });
+        document.addEventListener('livewire:navigated', () => {
+            heroShrunk = window.__heroAlwaysCompact || false;
+            $nextTick(_measurePill);
+        });
     ">
     @include('bladethemev1::livewire.hero-section._script')
 

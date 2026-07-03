@@ -6,9 +6,6 @@
         </div>
         @endif
 
-        <h2 class="mt-3 mb-1 text-center text-base font-bold uppercase text-primary">{{ $title_booking }}</h2>
-        <h5 class="mb-3 text-center text-primary text-sm font-bold">{{ $sub_title_booking }}</h5>
-
         {{--
            
         <div class="flex items-center justify-center gap-3 mb-5">
