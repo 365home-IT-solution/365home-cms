@@ -17,7 +17,11 @@ export default {
                 'xs': '476px',
             },
             maxWidth: {
-                'screen-xl': '1280px'
+                'screen-xl': '1280px',
+                '8xl': '90rem',
+                '10xl': '110rem',
+                '11xl': '120rem',
+                '12xl': '130rem'
             },
             colors: {
                 primary: 'var(--color-primary)',

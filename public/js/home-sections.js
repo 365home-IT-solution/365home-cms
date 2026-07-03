@@ -4,16 +4,28 @@ if (typeof window.__homeVnd === 'undefined') {
     };
 }
 
+if (typeof window.__heartOutlineSvg === 'undefined') {
+    window.__heartOutlineSvg = '<svg xmlns="http://www.w3.org/2000/svg" fill="rgba(38,38,38,0.55)" viewBox="0 0 24 24" stroke-width="2" stroke="#fff" style="width:25px;height:25px;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6));"><path stroke-linecap="round" stroke-linejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" /></svg>';
+}
+
+if (typeof window.__heartSolidSvg === 'undefined') {
+    window.__heartSolidSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ef4444" style="width:25px;height:25px;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45));"><path d="m11.645 20.91-.007-.003-.022-.012a15.247 15.247 0 0 1-.383-.218 25.18 25.18 0 0 1-4.244-3.17C4.688 15.36 2.25 12.174 2.25 8.25 2.25 5.322 4.714 3 7.688 3A5.5 5.5 0 0 1 12 5.052 5.5 5.5 0 0 1 16.313 3c2.973 0 5.437 2.322 5.437 5.25 0 3.925-2.438 7.111-4.739 9.256a25.175 25.175 0 0 1-4.244 3.17 15.247 15.247 0 0 1-.383.219l-.022.012-.007.004-.003.001a.752.752 0 0 1-.704 0l-.003-.001Z" /></svg>';
+}
+
 if (typeof window.__homeToggleWishlist === 'undefined') {
-    window.__homeToggleWishlist = function (productId, iconEl) {
+    window.__homeToggleWishlist = function (productId, btnEl) {
         const token = localStorage.getItem('auth_token');
         if (!token) {
             window.dispatchEvent(new CustomEvent('open-auth-modal'));
             return;
         }
-        const filled = iconEl.getAttribute('data-active') === '1';
-        iconEl.setAttribute('data-active', filled ? '0' : '1');
-        iconEl.style.color = filled ? '#9ca3af' : '#ef4444';
+        const filled = btnEl.getAttribute('data-active') === '1';
+        const next = !filled;
+        btnEl.setAttribute('data-active', next ? '1' : '0');
+        btnEl.innerHTML = next ? window.__heartSolidSvg : window.__heartOutlineSvg;
+        btnEl.classList.remove('room-wishlist-pop');
+        void btnEl.offsetWidth;
+        btnEl.classList.add('room-wishlist-pop');
 
         fetch('/api/wishlist/' + productId + '/toggle', {
             method: 'POST',
@@ -22,8 +34,8 @@ if (typeof window.__homeToggleWishlist === 'undefined') {
                 'Accept': 'application/json',
             },
         }).catch(() => {
-            iconEl.setAttribute('data-active', filled ? '1' : '0');
-            iconEl.style.color = filled ? '#ef4444' : '#9ca3af';
+            btnEl.setAttribute('data-active', filled ? '1' : '0');
+            btnEl.innerHTML = filled ? window.__heartSolidSvg : window.__heartOutlineSvg;
         });
     };
 }
@@ -52,14 +64,15 @@ if (typeof window.roomCardHtml === 'undefined') {
                 + '<span style="background:#111827; color:#fff; font-size:11px; font-weight:700; padding:4px 12px; border-radius:99px;">Tạm hết phòng</span></div>'
             : '';
 
-        const wishlistHtml = (room.wishlist_status === true || room.wishlist_status === false)
-            ? '<button type="button" onclick="event.preventDefault(); event.stopPropagation(); window.__homeToggleWishlist(\'' + room.id + '\', this.firstElementChild)"'
-                + ' style="position:absolute; top:6px; right:6px; z-index:3; width:28px; height:28px; border-radius:50%; background:rgba(255,255,255,.85); border:none; display:flex; align-items:center; justify-content:center; cursor:pointer;">'
-                + '<svg data-active="' + (room.wishlist_status ? '1' : '0') + '" style="width:16px;height:16px; color:' + (room.wishlist_status ? '#ef4444' : '#9ca3af') + ';" viewBox="0 0 20 20" fill="currentColor"><path d="M9.653 16.915l-.005-.003-.019-.01a20.759 20.759 0 01-1.162-.682 22.045 22.045 0 01-2.582-1.9C4.045 12.733 2 10.352 2 7.5 2 5.015 4.015 3 6.5 3c1.256 0 2.371.514 3.5 1.51C11.129 3.514 12.244 3 13.5 3 15.985 3 18 5.015 18 7.5c0 2.852-2.044 5.233-3.885 6.82a22.049 22.049 0 01-3.744 2.582l-.019.01-.005.003h-.001a.752.752 0 01-.696 0h-.001z"/></svg>'
-                + '</button>'
-            : '';
+        const wishlistActive = room.wishlist_status === true;
+        const wishlistHtml = '<button type="button" class="room-wishlist-btn" data-active="' + (wishlistActive ? '1' : '0') + '"'
+                + ' aria-label="Yêu thích"'
+                + ' onclick="event.preventDefault(); event.stopPropagation(); window.__homeToggleWishlist(\'' + room.id + '\', this)"'
+                + '>'
+                + (wishlistActive ? window.__heartSolidSvg : window.__heartOutlineSvg)
+                + '</button>';
 
-        return '<a href="' + href + '" style="position:relative; flex:0 0 190px; scroll-snap-align:start; display:flex; flex-direction:column; gap:8px; text-decoration:none;">'
+        return '<a href="' + href + '" class="home-card" style="position:relative; scroll-snap-align:start; display:flex; flex-direction:column; gap:8px; text-decoration:none;">'
             + '<div style="position:relative; padding-top:72%; overflow:hidden; background:#f3f4f6; border-radius:14px; flex-shrink:0;">'
             + badgeHtml + wishlistHtml + unavailableHtml
             + (img ? '<img src="' + img + '" alt="" loading="lazy" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;">' : '')
@@ -78,7 +91,7 @@ if (typeof window.branchCardHtml === 'undefined') {
         const img = branch.image_url || '';
         const href = '/branch/' + branch.slug;
 
-        return '<a href="' + href + '" style="flex:0 0 190px; scroll-snap-align:start; display:flex; flex-direction:column; gap:8px; text-decoration:none;">'
+        return '<a href="' + href + '" class="home-card" style="scroll-snap-align:start; display:flex; flex-direction:column; gap:8px; text-decoration:none;">'
             + '<div style="position:relative; padding-top:72%; overflow:hidden; background:#f3f4f6; border-radius:14px; flex-shrink:0;">'
             + (img ? '<img src="' + img + '" alt="" loading="lazy" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;">' : '')
             + '</div>'
@@ -87,32 +100,105 @@ if (typeof window.branchCardHtml === 'undefined') {
     };
 }
 
+if (typeof window.carouselNav === 'undefined') {
+    window.carouselNav = function () {
+        return {
+            canScrollPrev: false,
+            canScrollNext: false,
+
+            init() {
+                this.$nextTick(() => {
+                    const el = this.$refs.track;
+                    if (!el) return;
+                    this.check();
+                    el.addEventListener('scroll', () => this.check(), { passive: true });
+                    window.addEventListener('resize', () => this.check());
+                    new MutationObserver(() => this.check()).observe(el, { childList: true });
+                });
+            },
+
+            check() {
+                const el = this.$refs.track;
+                if (!el) return;
+                const max = el.scrollWidth - el.clientWidth;
+                this.canScrollPrev = max > 4 && el.scrollLeft > 4;
+                this.canScrollNext = max > 4 && el.scrollLeft < max - 4;
+            },
+
+            prev() {
+                this.$refs.track.scrollBy({ left: -260, behavior: 'smooth' });
+            },
+
+            next() {
+                this.$refs.track.scrollBy({ left: 260, behavior: 'smooth' });
+            },
+        };
+    };
+}
+
+if (typeof window.__roomTypeImageMap === 'undefined') {
+    window.__roomTypeImageMap = {
+        homestay: 'homestay.jpg',
+        villa: 'villa.jpg',
+        motel: 'motel.jpg',
+        mini_house: 'minihouse.jpg',
+        hotel: 'hotel.jpg',
+        apartment: 'apartment.jpg',
+    };
+}
+
+if (typeof window.__roomTypeImage === 'undefined') {
+    window.__roomTypeImage = function (type) {
+        const file = window.__roomTypeImageMap[type.slug];
+        if (file) return '/images/room-types/' + file;
+        return type.icon_url || '';
+    };
+}
+
 if (typeof window.homeSections === 'undefined') {
     window.homeSections = function () {
         return {
             sections: [],
+            roomTypes: [],
             loading: true,
+            provinceName: localStorage.getItem('home_province_name') || '',
+
+            get bannerSection() {
+                return this.sections.find(s => s.type === 'banner') || null;
+            },
+
+            get otherSections() {
+                return this.sections.filter(s => s.type !== 'banner');
+            },
 
             init() {
                 this.load();
                 window.addEventListener('auth-state-changed', () => this.load());
+                window.addEventListener('province-selected', (e) => {
+                    this.provinceName = e.detail?.name || localStorage.getItem('home_province_name') || '';
+                    this.load();
+                });
             },
 
             load() {
                 this.loading = true;
                 const token = localStorage.getItem('auth_token');
+                const provinceId = localStorage.getItem('home_province_id');
                 const headers = { 'Accept': 'application/json' };
                 if (token) headers['Authorization'] = 'Bearer ' + token;
 
-                fetch('/api/v1/home', { headers })
+                const url = '/api/v1/home' + (provinceId ? '?province_id=' + encodeURIComponent(provinceId) : '');
+
+                fetch(url, { headers })
                     .then(res => res.json())
                     .then(data => {
-                        const allowed = ['promotion_list', 'suggestion_list', 'room_list'];
+                        const allowed = ['banner', 'promotion_list', 'suggestion_list', 'room_list'];
                         this.sections = (data?.home?.sections || [])
                             .filter(s => allowed.includes(s.type))
                             .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+                        this.roomTypes = data?.home?.room_types || [];
                     })
-                    .catch(() => { this.sections = []; })
+                    .catch(() => { this.sections = []; this.roomTypes = []; })
                     .finally(() => { this.loading = false; });
             },
         };
