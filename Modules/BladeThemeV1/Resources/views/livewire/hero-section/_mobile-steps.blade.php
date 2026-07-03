@@ -13,7 +13,8 @@
 @php
     $keyPrefix = 'mobile-' . \Illuminate\Support\Str::slug($boxSuffix ?: 'main') . '-';
 @endphp
-<div class="md:hidden space-y-3">
+<div class="md:hidden" style="padding-bottom:76px;">
+<div class="space-y-3">
 
     {{-- Bước 1: Địa điểm --}}
     <div class="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
@@ -154,12 +155,20 @@
                 </div>
             </div>
 
-            <button type="button" @click="confirm(); mobileStep = 3"
-                :disabled="!checkIn"
-                :class="checkIn ? 'bg-teal-700 hover:bg-teal-800' : 'bg-gray-200 cursor-not-allowed'"
-                class="w-full mt-2.5 py-2 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm">
-                Xác nhận
-            </button>
+            <div class="flex items-center gap-2 mt-2.5">
+                <button type="button" @click="resetDate()"
+                    :disabled="!checkIn"
+                    :class="checkIn ? 'border-gray-300 text-gray-700 hover:bg-gray-50' : 'border-gray-200 text-gray-300 cursor-not-allowed'"
+                    class="flex-1 py-2 border rounded-xl text-sm font-semibold transition-colors">
+                    Đặt lại
+                </button>
+                <button type="button" @click="confirm(); mobileStep = 3"
+                    :disabled="!checkIn"
+                    :class="checkIn ? 'bg-teal-700 hover:bg-teal-800' : 'bg-gray-200 cursor-not-allowed'"
+                    class="flex-1 py-2 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm">
+                    Xác nhận
+                </button>
+            </div>
         </div>
     </div>
 
@@ -245,7 +254,13 @@
         </div>
     </div>
 
-    {{-- Hàng cuối: Xoá tất cả (trái) + Tìm kiếm (phải) --}}
+
+</div>
+</div>
+
+{{-- Hàng cuối: Xoá tất cả (trái) + Tìm kiếm (phải) — luôn cố định dưới cùng màn hình trên
+     mobile, để lúc nào cũng bấm tìm kiếm được dù chưa chỉnh xong hết các bước --}}
+<div class="md:hidden" style="position:fixed; left:0; right:0; bottom:0; z-index:20; background:#fff; border-top:1px solid #f0f0f0; box-shadow:0 -4px 16px rgba(0,0,0,.08); padding:12px 16px calc(12px + env(safe-area-inset-bottom));">
     <div class="flex items-center gap-3">
         <button type="button" wire:click.stop="clearAll()"
             @click="checkIn = null; checkOut = null; mobileStep = 1"

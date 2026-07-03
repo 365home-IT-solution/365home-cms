@@ -256,6 +256,17 @@
                     }
                     this.open = false;
                 },
+                async resetDate() {
+                    this.checkIn = null;
+                    this.checkOut = null;
+                    this.hoverDate = null;
+                    this.checkInHour = 14;
+                    this.checkInMin = 0;
+                    this.checkOutHour = 12;
+                    this.checkOutMin = 0;
+                    await this.$wire.set('checkIn', '');
+                    await this.$wire.set('checkOut', '');
+                },
                 async submitSearch() {
                     if (this.checkIn) {
                         await this.$wire.set('checkIn', this.displayCheckIn);
