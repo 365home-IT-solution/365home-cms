@@ -215,6 +215,10 @@
                 aria-labelledby="styled-{{ \Str::slug($category['name']) }}-tab">
 
                 @php
+                // Chỉ dùng cho bảng mobile (_mobile.blade.php) — bảng desktop tự gọi
+                // getDatesForOneMonth() riêng, không bị ảnh hưởng. Mobile hiển thị mặc định 10 ngày,
+                // người dùng bấm "Xem thêm 5 ngày" để hiện dần các ngày còn lại (xử lý bằng Alpine
+                // x-show theo $loop->index, không cần gọi lại server).
                 $dates = $this->getDatesForOneMonth();
                 $styleOneRooms = collect($category['products'])->filter(fn($r) => ($r->styles ?? 1) == 1)->values();
                 $totalStyleOneRooms = $styleOneRooms->count();

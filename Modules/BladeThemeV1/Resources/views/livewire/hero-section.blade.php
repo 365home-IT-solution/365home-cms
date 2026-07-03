@@ -1,5 +1,5 @@
 <div
-    x-data="{ heroShrunk: window.__heroAlwaysCompact || false, compactTop: '0px', formOpen: false, menuOpen: false }"
+    x-data="{ heroShrunk: window.__heroAlwaysCompact || false, compactTop: '0px', formOpen: false, menuOpen: false, pillHeight: 0 }"
     x-init="
         if (window.__heroAlwaysCompact) {
             heroShrunk = true;
@@ -79,7 +79,25 @@
                 }
             });
         }
-        document.addEventListener('livewire:navigated', () => { heroShrunk = window.__heroAlwaysCompact || false; });
+        {{-- Mobile: form thu gọn mở dạng popup toàn màn hình -> khoá scroll nền trong lúc mở --}}
+        $watch('formOpen', val => {
+            if (window.matchMedia('(max-width: 767px)').matches) {
+                document.documentElement.style.overflow = val ? 'hidden' : '';
+                document.body.style.overflow = val ? 'hidden' : '';
+            }
+        });
+        {{-- Đo chiều cao pill thu gọn để chèn khoảng đệm tương ứng (mobile), tránh nội dung
+             bên dưới bị pill (position:fixed) đè lên. --}}
+        const _measurePill = () => {
+            const pill = $refs.compactPillEl;
+            if (pill && pill.offsetHeight > 0) pillHeight = pill.offsetHeight;
+        };
+        $nextTick(_measurePill);
+        window.addEventListener('resize', _measurePill, { passive: true });
+        document.addEventListener('livewire:navigated', () => {
+            heroShrunk = window.__heroAlwaysCompact || false;
+            $nextTick(_measurePill);
+        });
     ">
     @include('bladethemev1::livewire.hero-section._script')
 
@@ -111,7 +129,21 @@
         $checkmarkSvg = '<svg class="w-4 h-4 text-teal-600 ml-auto shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>';
     @endphp
 
-    <section @if($noBanner) x-show="!heroShrunk" x-cloak @endif class="relative flex flex-col justify-end {{ $sectionClass }}">
+    {{-- Mobile: mọi trang đều dùng thanh tìm kiếm thu gọn (compact bar) ở trên cùng thay vì
+         banner/thanh tìm kiếm rộng như desktop. Bấm vào compact bar sẽ mở popup toàn màn hình. --}}
+    <style>
+        @media (max-width: 767px) {
+            .hero-full-bar-section { display: none !important; }
+            .hero-compact-bar-wrap { display: block !important; }
+            .hero-compact-bar-spacer { display: block !important; }
+            {{-- Header thật (logo + menu ngang) không còn cần thiết trên mobile — compact bar đã có
+                 logo + nút menu riêng, và popup tìm kiếm có thanh tiêu đề + nút đóng riêng. Ẩn hẳn
+                 header thật trên mobile để tránh đè lên nút đóng popup / trùng lặp với compact bar. --}}
+            #main-header-bar { display: none !important; }
+        }
+    </style>
+
+    <section @if($noBanner) x-show="!heroShrunk" x-cloak @endif class="hero-full-bar-section relative flex flex-col justify-end {{ $sectionClass }}">
 
         @unless($noBanner)
         <div class="absolute inset-0 overflow-hidden">
@@ -139,9 +171,16 @@
         @endunless
     </section>
 
+    {{-- Khoảng đệm giữ chỗ cho pill thu gọn (position:fixed) trên mobile — chỉ cần cho các trang
+         có banner lớn (không phải noBanner), vì các trang noBanner đã tự chừa khoảng trống riêng. --}}
+    @unless($noBanner)
+        <div class="hero-compact-bar-spacer" :style="{ height: pillHeight + 'px' }" style="display:none;"></div>
+    @endunless
+
     {{-- Compact bar --}}
     <div x-show="heroShrunk"
          x-cloak
+         class="hero-compact-bar-wrap"
          :style="{ position: 'fixed', top: compactTop, left: 0, right: 0, zIndex: 1100}"
          style="display:none;"
          x-transition:enter="transition ease-out duration-250"

@@ -9,6 +9,9 @@
     slotCounts: [{{ $styleOneRooms->map(fn($r) => $r->roomTimeSlots->count())->join(', ') }}],
     categorySlug: '{{ \Str::slug($category['name']) }}',
     touchStartX: 0,
+    dateLimit: 10, totalDates: {{ count($dates) }},
+    loadMoreDates() { this.dateLimit = Math.min(this.dateLimit + 5, this.totalDates); },
+    collapseDates() { this.dateLimit = 10; },
     roomColors: [
         @foreach ($styleOneRooms as $room)
         @php $rc = $productColors[$room->id] ?? null; $rcBg = $rc['color'] ?? '#4e6b4c'; $rcText = $autoTextColor($rcBg); @endphp
@@ -55,7 +58,7 @@
         <button class="book-nav-btn" type="button"
             @click="changeRoom(-1)"
             aria-label="Phòng trước">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
             </svg>
         </button>
@@ -71,7 +74,7 @@
         <button class="book-nav-btn" type="button"
             @click="changeRoom(1)"
             aria-label="Phòng tiếp">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
             </svg>
         </button>
@@ -123,7 +126,7 @@
         <div class="book-dates-card">
             @foreach ($dates as $date)
             @php $dateShort = \Carbon\Carbon::createFromFormat('d-m-Y', $date['date'])->format('d/m'); @endphp
-            <div class="book-date-row{{ $date['is_today'] ? ' is-today' : '' }}">
+            <div class="book-date-row{{ $date['is_today'] ? ' is-today' : '' }}" x-show="{{ $loop->index }} < dateLimit" x-cloak>
                 <span class="book-date-day">{{ $date['day'] }}</span>
                 <span class="book-date-num">{{ $dateShort }}</span>
             </div>
@@ -138,7 +141,7 @@
 
                 {{-- One row per date --}}
                 @foreach ($dates as $date)
-                <div class="book-slots-row">
+                <div class="book-slots-row" x-show="{{ $loop->index }} < dateLimit" x-cloak>
                     @foreach ($room->roomTimeSlots as $roomTimeSlot)
                     @php
                     $price    = $roomTimeSlot->price ?? 0;
@@ -300,5 +303,16 @@
             @endforeach
         </div>{{-- end .book-slots-outer --}}
     </div>{{-- end .book-grid-outer --}}
+
+    {{-- ── Xem thêm / Thu gọn ngày (mỗi lần bấm hiện thêm 5 ngày, thu gọn về lại 10 ngày) ── --}}
+    <button type="button" class="book-loadmore-btn" x-show="dateLimit < totalDates" x-cloak
+        @click="loadMoreDates()">
+        Xem thêm 5 ngày
+        <span x-text="'(' + (totalDates - dateLimit) + ' ngày còn lại)'"></span>
+    </button>
+    <button type="button" class="book-loadmore-btn book-collapse-btn" x-show="dateLimit > 10" x-cloak
+        @click="collapseDates()">
+        Thu gọn
+    </button>
     </div>{{-- end .book-mobile-scroll --}}
 </div>{{-- end x-data room carousel --}}

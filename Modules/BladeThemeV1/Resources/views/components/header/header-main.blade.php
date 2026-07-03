@@ -69,11 +69,11 @@
 
 <div id="main-header-bar"
      x-data="{
-        isSticky: false,
+        isSticky: {{ $header_style ? "window.matchMedia('(max-width: 767px)').matches" : 'false' }},
         mobileMenuOpen: false
     }"
      x-init="window.addEventListener('scroll', () => {
-        isSticky = window.scrollY > 60;
+        isSticky = {{ $header_style ? "window.matchMedia('(max-width: 767px)').matches || " : '' }}window.scrollY > 60;
         @if($headerSticky && !$header_style)
         if (isSticky) {
             $el.classList.add('fixed', 'top-0', 'left-0', 'right-0');

@@ -1,17 +1,56 @@
 <div>
+    <style>
+        .fs-banner-wrap { background: linear-gradient(90deg, #dc2626, #ea580c, #f59e0b); padding: 12px 16px; }
+        .fs-banner-inner {
+            max-width: 80rem; margin: 0 auto; display: flex; align-items: center;
+            justify-content: space-between; gap: 12px; flex-wrap: wrap;
+        }
+        .fs-content { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+        .fs-icon {
+            background: rgba(255,255,255,0.2); border-radius: 50%; width: 32px; height: 32px;
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        .fs-icon svg { width: 16px; height: 16px; color: #fff; }
+        .fs-text-wrap { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+        .fs-badge {
+            background: rgba(255,255,255,0.25); color: #fff; font-size: 11px; font-weight: 800;
+            padding: 2px 10px; border-radius: 99px; letter-spacing: .05em; text-transform: uppercase;
+            white-space: nowrap; flex-shrink: 0;
+        }
+        .fs-title { color: #fff; font-size: 14px; font-weight: 600; }
+        .fs-title strong { font-size: 16px; }
+        .fs-sub { color: rgba(255,255,255,0.75); font-size: 12px; }
+        .fs-cta {
+            background: #fff; color: #dc2626; font-size: 13px; font-weight: 700; padding: 6px 18px;
+            border-radius: 99px; text-decoration: none; white-space: nowrap; flex-shrink: 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15); transition: opacity .15s;
+        }
+        .fs-cta:hover { opacity: .85; }
+
+        @media (max-width: 640px) {
+            .fs-banner-wrap { padding: 10px 12px; }
+            .fs-banner-inner { flex-direction: column; align-items: stretch; gap: 8px; text-align: center; }
+            .fs-content { flex-direction: column; text-align: center; }
+            .fs-text-wrap { justify-content: center; }
+            .fs-title, .fs-sub { white-space: normal; }
+            .fs-title { font-size: 13px; }
+            .fs-title strong { font-size: 14px; }
+            .fs-sub { font-size: 11px; }
+            .fs-cta { text-align: center; padding: 8px 18px; }
+        }
+    </style>
+
     <section class="py-10 bg-white">
         <div class="max-w-7xl mx-auto px-4 sm:px-6">
             {{-- Banner thông báo khuyến mãi --}}
-            <div style="background:linear-gradient(90deg,#dc2626,#ea580c,#f59e0b); padding:12px 16px;">
-                <div
-                    style="max-width:80rem; margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+            <div class="fs-banner-wrap">
+                <div class="fs-banner-inner">
 
                     {{-- Icon + nội dung --}}
-                    <div style="display:flex; align-items:center; gap:10px; flex:1; min-width:0;">
+                    <div class="fs-content">
                         {{-- Icon sét --}}
-                        <div
-                            style="background:rgba(255,255,255,0.2); border-radius:50%; width:32px; height:32px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
-                            <svg style="width:16px;height:16px;color:#fff;" fill="currentColor" viewBox="0 0 20 20">
+                        <div class="fs-icon">
+                            <svg fill="currentColor" viewBox="0 0 20 20">
                                 <path fill-rule="evenodd"
                                     d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z"
                                     clip-rule="evenodd" />
@@ -19,25 +58,19 @@
                         </div>
 
                         {{-- Badge + text --}}
-                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                            <span
-                                style="background:rgba(255,255,255,0.25); color:#fff; font-size:11px; font-weight:800; padding:2px 10px; border-radius:99px; letter-spacing:.05em; text-transform:uppercase; white-space:nowrap;">
-                                Flash Sale
+                        <div class="fs-text-wrap">
+                            <span class="fs-badge">Flash Sale</span>
+                            <span class="fs-title">
+                                Ưu đãi đặc biệt — Giảm đến <strong>30%</strong> tất cả phòng hôm nay!
                             </span>
-                            <span style="color:#fff; font-size:14px; font-weight:600; white-space:nowrap;">
-                                Ưu đãi đặc biệt — Giảm đến <strong style="font-size:16px;">30%</strong> tất cả phòng hôm
-                                nay!
-                            </span>
-                            <span style="color:rgba(255,255,255,0.75); font-size:12px; white-space:nowrap;">
+                            <span class="fs-sub">
                                 🕐 Chỉ hôm nay, áp dụng khi đặt trước 22:00
                             </span>
                         </div>
                     </div>
 
                     {{-- Nút CTA --}}
-                    <a href="{{ route('product.search') }}"
-                        style="background:#fff; color:#dc2626; font-size:13px; font-weight:700; padding:6px 18px; border-radius:99px; text-decoration:none; white-space:nowrap; flex-shrink:0; box-shadow:0 2px 8px rgba(0,0,0,0.15); transition:opacity .15s;"
-                        onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                    <a href="{{ route('product.search') }}" class="fs-cta">
                         Đặt ngay →
                     </a>
                 </div>

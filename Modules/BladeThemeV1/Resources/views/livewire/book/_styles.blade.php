@@ -656,11 +656,11 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 16px;
-        padding: 22px 16px 18px;
+        gap: 10px;
+        padding: 10px 12px;
         background: #4e6b4c;
         /* fallback; overridden per-room via Alpine :style */
-        border-radius: 20px 20px 0 0;
+        border-radius: 14px 14px 0 0;
         transition: background 0.4s ease, color 0.3s ease;
     }
 
@@ -670,8 +670,8 @@
         -webkit-backdrop-filter: blur(8px);
         border: 1.5px solid rgba(255, 255, 255, 0.5);
         color: inherit;
-        width: 40px;
-        height: 40px;
+        width: 30px;
+        height: 30px;
         border-radius: 50%;
         cursor: pointer;
         display: flex;
@@ -682,6 +682,11 @@
         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
     }
 
+    .book-nav-btn svg {
+        width: 16px;
+        height: 16px;
+    }
+
     .book-nav-btn:hover {
         background: rgba(255, 255, 255, 0.45);
         transform: scale(1.08);
@@ -690,7 +695,7 @@
     .book-room-titles-wrap {
         flex: 1;
         text-align: center;
-        min-height: 62px;
+        min-height: 36px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -704,7 +709,7 @@
     .book-room-name {
         font-family: 'Georgia', 'Times New Roman', serif;
         font-style: italic;
-        font-size: 2rem;
+        font-size: 1.15rem;
         font-weight: 700;
         color: inherit;
         text-shadow: 0 2px 14px rgba(0, 0, 0, 0.25);
@@ -715,23 +720,23 @@
     .book-room-sub {
         color: inherit;
         opacity: 0.85;
-        font-size: 0.8rem;
+        font-size: 0.68rem;
         font-weight: 600;
-        margin-top: 5px;
+        margin-top: 2px;
         letter-spacing: 0.03em;
     }
 
     /* ── Fixed grid header (outside scroll) ── */
     .book-grid-header {
         display: flex;
-        gap: 10px;
-        padding: 0 14px;
+        gap: 6px;
+        padding: 0 10px;
         background: color-mix(in srgb, var(--room-color, #4e6b4c) 70%, black);
     }
 
     .book-grid-header .book-col-header {
-        min-width: 82px;
-        width: 82px;
+        min-width: 60px;
+        width: 60px;
         flex-shrink: 0;
         background: transparent;
         border-bottom: 1px solid rgba(128, 128, 128, 0.25);
@@ -749,10 +754,10 @@
 
     /* ── Mobile vertical scroll wrapper ── */
     .book-mobile-scroll {
-        max-height: 380px;
+        max-height: 340px;
         overflow-y: auto;
         overflow-x: hidden;
-        border-radius: 0 0 20px 20px;
+        border-radius: 0 0 14px 14px;
     }
 
     .book-mobile-scroll::-webkit-scrollbar {
@@ -773,10 +778,10 @@
     /* ── Outer gradient wrapper (bottom) ── */
     .book-grid-outer {
         display: flex;
-        gap: 10px;
+        gap: 6px;
         background: #4e6b4c;
         /* fallback; overridden per-room via Alpine :style */
-        padding: 12px 14px 20px;
+        padding: 8px 10px 12px;
         border-radius: 0;
         align-items: flex-start;
         min-height: 100%;
@@ -786,20 +791,20 @@
     /* ── Left dates card ── */
     .book-dates-card {
         background: var(--room-color, #4e6b4c);
-        border-radius: 14px;
-        min-width: 82px;
-        width: 82px;
+        border-radius: 10px;
+        min-width: 60px;
+        width: 60px;
         flex-shrink: 0;
         box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
         overflow: hidden;
     }
 
     .book-col-header {
-        height: 46px;
+        height: 34px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 0.7rem;
+        font-size: 0.65rem;
         font-weight: 700;
         color: var(--room-text-color, #ffffff);
         letter-spacing: 0.06em;
@@ -807,13 +812,13 @@
     }
 
     .book-date-row {
-        height: 38px;
+        height: 30px;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-        gap: 2px;
+        gap: 1px;
         padding: 0 4px;
     }
 
@@ -863,7 +868,7 @@
         display: flex;
         gap: 3px;
         padding: 0 4px;
-        height: 46px;
+        height: 34px;
         align-items: center;
     }
 
@@ -894,8 +899,8 @@
     .book-slots-row {
         display: flex;
         gap: 3px;
-        padding: 4px 4px;
-        height: 38px;
+        padding: 3px 4px;
+        height: 30px;
         align-items: center;
         border-bottom: 1px solid rgba(255, 255, 255, 0.12);
     }
@@ -925,7 +930,7 @@
         align-items: center;
         justify-content: space-between;
         gap: 8px;
-        padding: 8px 14px;
+        padding: 5px 10px;
         background: linear-gradient(135deg, #3a5239 0%, #4e6b4c 100%);
     }
 
@@ -933,13 +938,13 @@
         display: inline-flex;
         align-items: center;
         gap: 4px;
-        height: 30px;
-        padding: 0 12px;
+        height: 24px;
+        padding: 0 10px;
         border-radius: 999px;
         background: rgba(255, 255, 255, 0.18);
         border: 1.5px solid rgba(255, 255, 255, 0.45);
         color: white;
-        font-size: 0.72rem;
+        font-size: 0.68rem;
         font-weight: 600;
         cursor: pointer;
         transition: background 0.15s;
@@ -968,6 +973,48 @@
         display: none !important;
     }
 
+    /* ── Nút "Xem thêm 5 ngày" (mobile) ── */
+    .book-loadmore-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        width: 100%;
+        margin-top: 8px;
+        padding: 9px 12px;
+        border-radius: 999px;
+        border: 1.5px dashed rgba(78, 107, 76, 0.4);
+        background: #f4f8f3;
+        color: #4e6b4c;
+        font-size: 0.75rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+    }
+
+    .book-loadmore-btn:hover {
+        background: #e8f0e6;
+        border-color: #6a8f68;
+    }
+
+    .book-loadmore-btn span {
+        font-weight: 500;
+        color: #6b7280;
+        font-size: 0.68rem;
+    }
+
+    .book-collapse-btn {
+        border-style: solid;
+        background: transparent;
+        color: #6b7280;
+        border-color: rgba(107, 114, 128, 0.35);
+    }
+
+    .book-collapse-btn:hover {
+        background: #f3f4f6;
+        border-color: rgba(107, 114, 128, 0.5);
+    }
+
     /* ── Mobile sticky pricing bar ── */
     .book-mobile-price-bar {
         position: fixed;
@@ -978,7 +1025,7 @@
         background: white;
         border-top: 2px solid rgba(78, 107, 76, 0.2);
         box-shadow: 0 -4px 20px rgba(78, 107, 76, 0.15);
-        padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+        padding: 8px 14px calc(8px + env(safe-area-inset-bottom, 0px));
     }
 
     @media (min-width: 768px) {

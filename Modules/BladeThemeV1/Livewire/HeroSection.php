@@ -90,6 +90,15 @@ class HeroSection extends Component
         $this->selectedGuests = $val;
     }
 
+    public function clearAll(): void
+    {
+        $this->selectedLocation = '';
+        $this->selectedBuoi     = '';
+        $this->selectedGuests   = '';
+        $this->checkIn          = '';
+        $this->checkOut         = '';
+    }
+
     public function setRoomType(string $slug): void
     {
         $this->selectedRoomType = $slug;
@@ -153,7 +162,7 @@ class HeroSection extends Component
         if (!$roomTypeSlug) {
             $this->locations = Province::whereHas('branches', fn($q) => $q->where('status', true))
                 ->orderBy('name')
-                ->get(['id', 'name', 'slug'])
+                ->get(['id', 'name', 'slug', 'lat', 'lng'])
                 ->toArray();
             return;
         }
@@ -182,7 +191,7 @@ class HeroSection extends Component
               });
         })
         ->orderBy('name')
-        ->get(['id', 'name', 'slug'])
+        ->get(['id', 'name', 'slug', 'lat', 'lng'])
         ->toArray();
 
         // Reset tỉnh đang chọn nếu không còn trong danh sách lọc

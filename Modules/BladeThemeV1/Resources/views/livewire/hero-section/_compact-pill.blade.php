@@ -1,5 +1,11 @@
         {{-- Pill thu gọn --}}
+        @php
+            $mobileLocName = $selectedLocation ? (collect($locations)->firstWhere('slug', $selectedLocation)['name'] ?? null) : null;
+            $mobileTimeSummary = $checkIn ? ($checkIn . ($checkOut ? ' → ' . $checkOut : '')) : null;
+            $mobilePillSummary = $mobileLocName ?: $mobileTimeSummary ?: 'Tìm kiếm phòng, chi nhánh...';
+        @endphp
         <div x-show="!formOpen"
+             x-ref="compactPillEl"
              style="background:#fff; border-bottom:1px solid #f0f0f0; box-shadow:0 2px 12px rgba(0,0,0,.07); padding:9px 64px; position:relative; display:flex; align-items:center;">
 
             {{-- Logo — về trang chủ --}}
@@ -13,34 +19,51 @@
                     onmouseover="this.style.boxShadow='0 4px 14px rgba(0,0,0,.12)'; this.style.borderColor='#d1d5db';"
                     onmouseout="this.style.boxShadow='0 1px 6px rgba(0,0,0,.08)'; this.style.borderColor='#e5e7eb';">
 
-                <span style="flex:1; display:flex; flex-direction:column; align-items:flex-start; padding:9px 16px; min-width:0;">
-                    <span style="font-size:9px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:.05em; line-height:1;">Địa điểm</span>
-                    <span style="font-size:12px; font-weight:600; color:#111827; margin-top:2px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; max-width:100%;">
-                        {{ $selectedLocation ? collect($locations)->firstWhere('slug', $selectedLocation)['name'] ?? 'Chọn địa điểm' : 'Tìm kiếm địa điểm' }}
+                {{-- Desktop / tablet: đủ 3 cột --}}
+                <span class="hidden md:flex" style="flex:1; align-items:flex-start; padding:9px 16px; min-width:0;">
+                    <span style="display:flex; flex-direction:column; align-items:flex-start; min-width:0; width:100%;">
+                        <span style="font-size:9px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:.05em; line-height:1;">Địa điểm</span>
+                        <span style="font-size:12px; font-weight:600; color:#111827; margin-top:2px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; max-width:100%;">
+                            {{ $selectedLocation ? collect($locations)->firstWhere('slug', $selectedLocation)['name'] ?? 'Chọn địa điểm' : 'Tìm kiếm địa điểm' }}
+                        </span>
                     </span>
                 </span>
 
-                <span style="width:1px; height:28px; background:#e5e7eb; flex-shrink:0;"></span>
+                <span class="hidden md:block" style="width:1px; height:28px; background:#e5e7eb; flex-shrink:0;"></span>
 
-                <span style="flex:1; display:flex; flex-direction:column; align-items:flex-start; padding:9px 16px; min-width:0;">
-                    <span style="font-size:9px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:.05em; line-height:1;">Thời gian</span>
-                    <span style="font-size:12px; font-weight:600; color:#111827; margin-top:2px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">
-                        {{ $checkIn ? $checkIn . ($checkOut ? ' → ' . $checkOut : '') : 'Thêm ngày' }}
+                <span class="hidden md:flex" style="flex:1; align-items:flex-start; padding:9px 16px; min-width:0;">
+                    <span style="display:flex; flex-direction:column; align-items:flex-start; min-width:0; width:100%;">
+                        <span style="font-size:9px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:.05em; line-height:1;">Thời gian</span>
+                        <span style="font-size:12px; font-weight:600; color:#111827; margin-top:2px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">
+                            {{ $checkIn ? $checkIn . ($checkOut ? ' → ' . $checkOut : '') : 'Thêm ngày' }}
+                        </span>
                     </span>
                 </span>
 
-                <span style="width:1px; height:28px; background:#e5e7eb; flex-shrink:0;"></span>
+                <span class="hidden md:block" style="width:1px; height:28px; background:#e5e7eb; flex-shrink:0;"></span>
 
-                <span style="flex:1; display:flex; flex-direction:column; align-items:flex-start; padding:9px 16px; min-width:0;">
-                    <span style="font-size:9px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:.05em; line-height:1;">Loại đặt</span>
-                    <span style="font-size:12px; font-weight:600; color:#111827; margin-top:2px;">
-                        @if ($selectedBuoi === '1') Theo giờ
-                        @elseif ($selectedBuoi === '2') Theo ngày
-                        @else Tất cả @endif
+                <span class="hidden md:flex" style="flex:1; align-items:flex-start; padding:9px 16px; min-width:0;">
+                    <span style="display:flex; flex-direction:column; align-items:flex-start; min-width:0; width:100%;">
+                        <span style="font-size:9px; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:.05em; line-height:1;">Loại đặt</span>
+                        <span style="font-size:12px; font-weight:600; color:#111827; margin-top:2px;">
+                            @if ($selectedBuoi === '1') Theo giờ
+                            @elseif ($selectedBuoi === '2') Theo ngày
+                            @else Tất cả @endif
+                        </span>
                     </span>
                 </span>
 
-                <span style="flex-shrink:0; padding:5px 8px 5px 0;">
+                {{-- Mobile: chỉ hiện 1 dòng tóm tắt (địa điểm hoặc thời gian), tránh tràn khỏi hero --}}
+                <span class="flex md:hidden" style="flex:1; align-items:center; gap:8px; padding:9px 16px; min-width:0;">
+                    <svg style="width:16px;height:16px;color:#0f766e;flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                    </svg>
+                    <span style="font-size:13px; font-weight:600; color:#111827; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; min-width:0;">
+                        {{ $mobilePillSummary }}
+                    </span>
+                </span>
+
+                <span class="hidden md:block" style="flex-shrink:0; padding:5px 8px 5px 0;">
                     <span style="display:flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:50%; background:#0f766e;">
                         <svg style="width:15px;height:15px;color:#fff;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
