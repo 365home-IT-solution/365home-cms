@@ -14,10 +14,10 @@
                             );
                         }
                     }"
-                    @click.outside="locOpen = false; buoiOpen = false; guestsOpen = false">
+                    @click.outside="open = false; locOpen = false; buoiOpen = false; guestsOpen = false">
 
                 {{-- Desktop: thanh ngang đầy đủ (đồng bộ breakpoint lg với header) --}}
-                <div class="relative hidden lg:flex items-stretch rounded-full transition-all duration-300"
+                <div class="relative hidden lg:flex items-stretch max-w-4xl mx-auto rounded-full transition-all duration-300"
                     :class="open ? 'bg-gray-100 shadow-2xl' : 'bg-white border border-gray-200 shadow-lg'"
                     style="overflow:visible;">
 
@@ -39,7 +39,7 @@
                     {{-- Địa điểm --}}
                     <div data-field="loc" class="relative z-10 flex-[3] min-w-0"
                         @mouseenter="hoverField = 'loc'" @mouseleave="hoverField = null">
-                        <button type="button" @click="locOpen = !locOpen; buoiOpen = false; guestsOpen = false"
+                        <button type="button" @click="locOpen = !locOpen; open = false; buoiOpen = false; guestsOpen = false"
                             class="w-full h-14 px-5 flex flex-col justify-center items-start text-left rounded-l-full transition-colors">
                             <span class="text-[10px] font-bold uppercase tracking-widest leading-none text-gray-500">Địa điểm</span>
                             <span class="text-sm font-semibold mt-0.5 truncate {{ $selectedLocation ? 'text-gray-900' : 'text-gray-400' }}">{{ $locationLabel }}</span>
@@ -84,7 +84,7 @@
                     {{-- Thời gian --}}
                     <div @click.outside="open = false" data-field="date" class="relative z-10 flex-[2] min-w-0"
                         @mouseenter="hoverField = 'date'" @mouseleave="hoverField = null">
-                        <button type="button" @click="open=!open"
+                        <button type="button" @click="open=!open; locOpen = false; buoiOpen = false; guestsOpen = false"
                             class="w-full h-14 px-5 flex flex-col justify-center items-start text-left rounded-xl transition-colors">
                             <span :class="open ? 'text-[var(--color-primary)]' : 'text-gray-500'"
                                 class="text-[10px] font-bold uppercase tracking-widest leading-none transition-colors duration-200">Thời gian</span>
@@ -339,7 +339,7 @@
                     {{-- Loại đặt --}}
                     <div data-field="buoi" class="relative z-10 flex-[2] min-w-0"
                         @mouseenter="hoverField = 'buoi'" @mouseleave="hoverField = null">
-                        <button type="button" @click="buoiOpen = !buoiOpen; locOpen = false; guestsOpen = false"
+                        <button type="button" @click="buoiOpen = !buoiOpen; open = false; locOpen = false; guestsOpen = false"
                             class="w-full h-14 px-5 flex flex-col justify-center items-start text-left rounded-xl transition-colors">
                             <span class="text-[10px] font-bold uppercase tracking-widest leading-none text-gray-500">Loại đặt</span>
                             <span class="text-sm font-semibold mt-0.5 {{ $selectedBuoi ? 'text-gray-900' : 'text-gray-400' }}">{{ $buoiLabel }}</span>
@@ -368,7 +368,7 @@
                     {{-- Số người --}}
                     <div data-field="guests" class="relative z-10 flex-[2] min-w-0"
                         @mouseenter="hoverField = 'guests'" @mouseleave="hoverField = null">
-                        <button type="button" @click="guestsOpen = !guestsOpen; locOpen = false; buoiOpen = false"
+                        <button type="button" @click="guestsOpen = !guestsOpen; open = false; locOpen = false; buoiOpen = false"
                             class="w-full h-14 px-5 flex flex-col justify-center items-start text-left rounded-xl transition-colors">
                             <span class="text-[10px] font-bold uppercase tracking-widest leading-none text-gray-500">Số người</span>
                             <span class="text-sm font-semibold mt-0.5 {{ $selectedGuests ? 'text-gray-900' : 'text-gray-400' }}">{{ $guestsLabel }}</span>

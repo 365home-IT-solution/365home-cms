@@ -161,7 +161,7 @@
             </div>
             @if (!empty($menu?->menuItems))
                 <div class="px-4 pb-2.5">
-                    <ul class="flex items-center gap-5 overflow-x-auto whitespace-nowrap [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    <ul class="flex items-center justify-center gap-5 overflow-x-auto whitespace-nowrap [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                         @foreach ($menu->menuItems as $menuItem)
                             @livewire('bladethemev1::menu-item', [
                             'menuItem' => $menuItem,
