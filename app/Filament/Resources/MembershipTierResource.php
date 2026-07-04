@@ -22,6 +22,7 @@ use Filament\Tables\Columns\ColorColumn;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
+use Modules\Promotion\App\Models\Coupon;
 
 class MembershipTierResource extends Resource
 {
@@ -117,13 +118,34 @@ class MembershipTierResource extends Resource
                         ->suffix(fn (Get $get) => $get('welcome_coupon_type') === 'percentage' ? '%' : 'VNĐ'),
                 ]),
 
-                TextInput::make('welcome_coupon_days')
-                    ->label('Hiệu lực coupon (ngày)')
-                    ->numeric()
-                    ->default(30)
-                    ->suffix('ngày')
-                    ->helperText('Tính từ thời điểm cấp. Đặt 0 để không hết hạn.'),
+                Grid::make(2)->schema([
+                    TextInput::make('welcome_coupon_days')
+                        ->label('Hiệu lực coupon (ngày)')
+                        ->numeric()
+                        ->default(30)
+                        ->suffix('ngày')
+                        ->helperText('Tính từ thời điểm cấp. Đặt 0 để không hết hạn.'),
+
+                    TextInput::make('welcome_coupon_usage_limit')
+                        ->label('Số lần sử dụng')
+                        ->numeric()
+                        ->minValue(1)
+                        ->default(1)
+                        ->placeholder('Không giới hạn')
+                        ->helperText('Số lần coupon được dùng. Để trống = không giới hạn.'),
+                ]),
             ])->columnSpan(1),
+
+            Section::make('Mã giảm giá gắn thêm cho hạng')->schema([
+                Select::make('coupons')
+                    ->label('Mã giảm giá')
+                    ->relationship('coupons', 'name')
+                    ->getOptionLabelFromRecordUsing(fn (Coupon $record) => $record->code . ' — ' . $record->name)
+                    ->multiple()
+                    ->searchable()
+                    ->preload()
+                    ->helperText('Chọn 1 hoặc nhiều mã giảm giá có sẵn (tạo ở mục "Mã giảm giá"). Toàn bộ khách hàng đang giữ hạng này — kể cả khách đã tạo trước đó — sẽ được phát các mã đã chọn.'),
+            ])->columnSpanFull(),
         ])->columns(2);
     }
 
@@ -159,6 +181,11 @@ class MembershipTierResource extends Resource
                 TextColumn::make('welcome_coupon_days')
                     ->label('Hiệu lực')
                     ->formatStateUsing(fn ($state) => $state ? $state . ' ngày' : 'Không giới hạn'),
+
+                TextColumn::make('welcome_coupon_usage_limit')
+                    ->label('Số lần dùng')
+                    ->formatStateUsing(fn ($state) => $state ?: 'Không giới hạn')
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('customers_count')
                     ->label('Thành viên')

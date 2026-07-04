@@ -1261,7 +1261,7 @@ class GuestBookingController extends Controller
     }
 
     /**
-     * Áp dụng coupon cho guest: chấp nhận mọi coupon active có code hợp lệ.
+     * Áp dụng coupon cho guest: chấp nhận coupon active, công khai (không cá nhân).
      */
     private function applyGuestCoupons(
         array $codes,
@@ -1286,6 +1286,14 @@ class GuestBookingController extends Controller
             $field = "coupon_codes.{$index}";
 
             if (! $coupon) {
+                throw ValidationException::withMessages([
+                    $field => ["Mã \"{$code}\" không tồn tại, đã hết hạn, hoặc không áp dụng cho đơn không đăng nhập."],
+                ]);
+            }
+
+            // Coupon cá nhân (customer_id trực tiếp hoặc gán qua coupon_customers pivot,
+            // vd: coupon gắn theo hạng thành viên) không áp dụng được cho đơn khách vãng lai.
+            if ($coupon->customer_id !== null || $coupon->customers()->exists()) {
                 throw ValidationException::withMessages([
                     $field => ["Mã \"{$code}\" không tồn tại, đã hết hạn, hoặc không áp dụng cho đơn không đăng nhập."],
                 ]);

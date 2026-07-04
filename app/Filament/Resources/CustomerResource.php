@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\CustomerResource\Pages;
+use App\Filament\Resources\CustomerResource\RelationManagers\AssignedCouponsRelationManager;
 use App\Filament\Resources\CustomerResource\RelationManagers\MembershipLogsRelationManager;
 use App\Filament\Resources\CustomerResource\RelationManagers\PersonalCouponsRelationManager;
 use App\Models\Customer;
@@ -458,6 +459,7 @@ class CustomerResource extends Resource
         return [
             MembershipLogsRelationManager::class,
             PersonalCouponsRelationManager::class,
+            AssignedCouponsRelationManager::class,
         ];
     }
 

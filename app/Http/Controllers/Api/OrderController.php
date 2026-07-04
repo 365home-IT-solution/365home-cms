@@ -1241,10 +1241,18 @@ class OrderController extends Controller
                 ]);
             }
 
-            if ($coupon->customer_id !== null && $coupon->customer_id !== $customer->id) {
-                throw ValidationException::withMessages([
-                    $field => ["Mã \"{$code}\" không thuộc về tài khoản của bạn."],
-                ]);
+            // Coupon được coi là "cá nhân" nếu có customer_id hoặc đã từng gán cho ai đó qua
+            // bảng coupon_customers (vd: coupon gắn theo hạng thành viên).
+            $isRestricted = $coupon->customer_id !== null || $coupon->customers()->exists();
+            if ($isRestricted) {
+                $owns = $coupon->customer_id === $customer->id
+                    || $coupon->customers()->where('customer_id', $customer->id)->exists();
+
+                if (! $owns) {
+                    throw ValidationException::withMessages([
+                        $field => ["Mã \"{$code}\" không thuộc về tài khoản của bạn."],
+                    ]);
+                }
             }
 
             if ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {

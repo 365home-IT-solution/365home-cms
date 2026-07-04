@@ -856,10 +856,14 @@ class BookingController extends Controller
             ]);
         }
 
-        // Kiểm tra coupon cá nhân: customer_id trực tiếp hoặc gán qua coupon_customers pivot
-        if ($coupon->customer_id !== null && $coupon->customer_id !== $customer->id) {
-            $isAssigned = $coupon->customers()->where('customer_id', $customer->id)->exists();
-            if (! $isAssigned) {
+        // Kiểm tra coupon cá nhân: customer_id trực tiếp hoặc gán qua coupon_customers pivot.
+        // Coupon được coi là "cá nhân" nếu có customer_id hoặc đã từng gán cho ai đó qua pivot.
+        $isRestricted = $coupon->customer_id !== null || $coupon->customers()->exists();
+        if ($isRestricted) {
+            $owns = $coupon->customer_id === $customer->id
+                || $coupon->customers()->where('customer_id', $customer->id)->exists();
+
+            if (! $owns) {
                 throw ValidationException::withMessages([
                     $field => ["Mã \"{$code}\" không thuộc về tài khoản của bạn."],
                 ]);
