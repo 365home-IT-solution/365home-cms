@@ -45,6 +45,7 @@ class MembershipService
         ]);
 
         $this->issueTierCoupon($customer, $tier);
+        $this->assignTierCoupons($customer, $tier);
     }
 
     /**
@@ -73,6 +74,7 @@ class MembershipService
         ]);
 
         $this->issueTierCoupon($customer, $targetTier);
+        $this->assignTierCoupons($customer, $targetTier);
     }
 
     /**
@@ -103,7 +105,42 @@ class MembershipService
 
         $tier = MembershipTier::find($toTierId);
 
-        return $tier ? $this->issueTierCoupon($customer, $tier) : null;
+        if (! $tier) {
+            return null;
+        }
+
+        $this->assignTierCoupons($customer, $tier);
+
+        return $this->issueTierCoupon($customer, $tier);
+    }
+
+    /**
+     * Phát coupon có sẵn đã gắn vào hạng cho toàn bộ customer đang giữ hạng đó.
+     * Gọi khi admin gắn/gỡ coupon khỏi hạng trong Filament.
+     */
+    public function distributeTierCoupons(MembershipTier $tier): void
+    {
+        $couponIds = $tier->coupons()->pluck('coupons.id')->all();
+
+        if (empty($couponIds)) {
+            return;
+        }
+
+        Customer::where('membership_tier_id', $tier->id)
+            ->get()
+            ->each(fn (Customer $customer) => $customer->coupons()->syncWithoutDetaching($couponIds));
+    }
+
+    /**
+     * Gán các coupon có sẵn của hạng cho một customer (khi vừa lên/đổi hạng).
+     */
+    private function assignTierCoupons(Customer $customer, MembershipTier $tier): void
+    {
+        $couponIds = $tier->coupons()->pluck('coupons.id')->all();
+
+        if (! empty($couponIds)) {
+            $customer->coupons()->syncWithoutDetaching($couponIds);
+        }
     }
 
     /**
@@ -125,10 +162,10 @@ class MembershipService
             'type'          => $tier->welcome_coupon_type,
             'value'         => $tier->welcome_coupon_value,
             'apply_type'    => 'all_rooms',
-            'usage_limit'   => 1,
+            'usage_limit'   => $tier->welcome_coupon_usage_limit,
             'used_count'    => 0,
             'start_at'      => now(),
-            'end_at'        => now()->addDays($tier->welcome_coupon_days),
+            'end_at'        => $tier->welcome_coupon_days ? now()->addDays($tier->welcome_coupon_days) : null,
             'is_active'     => true,
             'customer_id'   => $customer->id,
         ]);

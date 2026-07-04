@@ -3,9 +3,11 @@
 namespace Modules\Promotion\App\Models;
 
 use App\Models\Customer;
+use App\Models\MembershipTier;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Modules\Product\App\Models\RoomTimeSlot;
 use Modules\Product\App\Models\Product;
 
@@ -75,6 +77,15 @@ class Coupon extends Model
     public function isPersonal(): bool
     {
         return $this->customer_id !== null;
+    }
+
+    /**
+     * Các hạng thành viên mà coupon này được gắn vào.
+     */
+    public function membershipTiers(): BelongsToMany
+    {
+        return $this->belongsToMany(MembershipTier::class, 'membership_tier_coupon', 'coupon_id', 'membership_tier_id')
+            ->withTimestamps();
     }
 
     /**

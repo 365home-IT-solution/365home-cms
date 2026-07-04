@@ -49,8 +49,8 @@ class CouponTable
                     ->label('Giá trị')
                     ->formatStateUsing(fn ($record) =>
                     $record->type === 'percentage'
-                        ? $record->value . '%'
-                        : number_format($record->value, 0, ',', '.') . ' VNĐ'
+                        ? (float) $record->value . '%'
+                        : number_format((float) $record->value, 0, ',', '.') . ' VNĐ'
                     )
                     ->sortable(),
 

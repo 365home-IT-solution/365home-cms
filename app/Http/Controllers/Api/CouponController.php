@@ -98,14 +98,22 @@ class CouponController extends Controller
             ->where('is_active', true)
             ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', now()))
             ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', now()))
-            ->where(fn ($q) => $q
-                ->whereNull('customer_id')
-                ->orWhere('customer_id', $customer?->id)
-            )
             ->first();
 
         if (! $coupon) {
             return response()->json(['message' => 'Mã giảm giá không tồn tại hoặc đã hết hạn.'], 422);
+        }
+
+        // Coupon cá nhân (customer_id trực tiếp hoặc gán qua coupon_customers pivot)
+        // chỉ dùng được bởi đúng khách được gán.
+        $isRestricted = $coupon->customer_id !== null || $coupon->customers()->exists();
+        if ($isRestricted) {
+            $owns = $coupon->customer_id === $customer?->id
+                || ($customer && $coupon->customers()->where('customer_id', $customer->id)->exists());
+
+            if (! $owns) {
+                return response()->json(['message' => 'Mã giảm giá không tồn tại hoặc đã hết hạn.'], 422);
+            }
         }
 
         if ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {
