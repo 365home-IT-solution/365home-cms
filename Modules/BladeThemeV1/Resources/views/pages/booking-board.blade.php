@@ -28,7 +28,9 @@
     </style>
 
     <main style="background:#fff; min-height:100vh; padding-top:80px;">
-        <div style="max-width:1280px; margin:0 auto; padding:0 16px 24px;">
+        {{-- Chỉ desktop (lg+) mới bỏ giới hạn max-width để bảng đặt phòng + bảng tính giá dùng
+             toàn bộ chiều ngang màn hình; mobile/tablet giữ nguyên như cũ. --}}
+        <div class="max-w-[1280px] mx-auto px-4 pb-6 lg:max-w-none lg:px-10">
             <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin:10px 0 14px;">
                 <div>
                     {{-- <p style="margin:0 0 4px; font-size:12px; font-weight:700; color:#0f766e; text-transform:uppercase; letter-spacing:.08em;">Bảng booking chi nhánh</p> --}}

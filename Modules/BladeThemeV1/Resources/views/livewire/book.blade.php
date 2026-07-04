@@ -215,14 +215,22 @@
                 aria-labelledby="styled-{{ \Str::slug($category['name']) }}-tab">
 
                 @php
-                // Chỉ dùng cho bảng mobile (_mobile.blade.php) — bảng desktop tự gọi
-                // getDatesForOneMonth() riêng, không bị ảnh hưởng. Mobile hiển thị mặc định 10 ngày,
-                // người dùng bấm "Xem thêm 5 ngày" để hiện dần các ngày còn lại (xử lý bằng Alpine
-                // x-show theo $loop->index, không cần gọi lại server).
+                // Dùng chung cho _mobile.blade.php trên mọi kích thước màn hình (đã bỏ bảng
+                // riêng cho desktop). Hiển thị mặc định 10 ngày, người dùng bấm "Xem thêm 5 ngày"
+                // để hiện dần các ngày còn lại (xử lý bằng Alpine x-show theo $loop->index, không
+                // cần gọi lại server).
                 $dates = $this->getDatesForOneMonth();
                 $styleOneRooms = collect($category['products'])->filter(fn($r) => ($r->styles ?? 1) == 1)->values();
                 $totalStyleOneRooms = $styleOneRooms->count();
                 $today = now()->startOfDay();
+                // Gán mỗi phòng 1 màu riêng (xoay vòng theo bảng màu) để phần header/khung giờ
+                // đổi màu theo phòng đang chọn (room-color) — trước đây $productColors chưa từng
+                // được định nghĩa nên mọi phòng lặng lẽ dùng chung 1 màu mặc định.
+                $roomColorPalette = ['#4e6b4c', '#2563eb', '#dc2626', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d', '#ea580c', '#0f766e'];
+                $productColors = [];
+                foreach ($styleOneRooms as $roomIdx => $roomForColor) {
+                    $productColors[$roomForColor->id] = ['color' => $roomColorPalette[$roomIdx % count($roomColorPalette)]];
+                }
                 // Auto-compute contrast text color from hex background
                 $autoTextColor = function(string $hex): string {
                 $hex = ltrim($hex, '#');
@@ -241,13 +249,14 @@
 
                 @include('bladethemev1::livewire.book._legend')
 
-                <div class="md:hidden">
+                {{-- Desktop (lg+): bảng đặt phòng và bảng tính giá nằm 2 cột, dùng hết chiều
+                     ngang; mobile/tablet giữ nguyên xếp dọc như cũ. (Dùng CSS thuần trong
+                     _styles.blade.php thay vì class Tailwind để không phụ thuộc build lại.) --}}
+                <div class="book-desktop-layout">
                     @include('bladethemev1::livewire.book._mobile')
+
+                    @include('bladethemev1::livewire.book._pricing')
                 </div>
-
-                @include('bladethemev1::livewire.book._desktop-table')
-
-                @include('bladethemev1::livewire.book._pricing')
 
             </div>
             @endforeach

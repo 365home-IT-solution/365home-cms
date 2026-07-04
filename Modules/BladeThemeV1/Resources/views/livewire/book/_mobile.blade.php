@@ -18,10 +18,12 @@
         { bg: '{{ $rcBg }}', text: '{{ $rcText }}' },
         @endforeach
     ],
+    slideDir: 1,
     get totalSlotPages() { return Math.ceil((this.slotCounts[this.activeRoomIdx] ?? 5) / this.slotsPerPage); },
     changeRoom(dir) {
         const newIdx = this.activeRoomIdx + dir;
         if (newIdx >= 0 && newIdx < this.totalRooms) {
+            this.slideDir = dir;
             this.activeRoomIdx = newIdx;
             this.slotPage = 0;
             return;
@@ -53,31 +55,36 @@
     "
 >
 
-    {{-- ── Room carousel header ── --}}
-    <div class="book-room-nav-wrap" :style="{ background: roomColors[activeRoomIdx]?.bg ?? '#4e6b4c', color: roomColors[activeRoomIdx]?.text ?? '#ffffff', transition: 'background 0.4s ease, color 0.3s ease' }">
-        <button class="book-nav-btn" type="button"
-            @click="changeRoom(-1)"
-            aria-label="Phòng trước">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
-            </svg>
-        </button>
-        <div class="book-room-titles-wrap">
-            @foreach ($styleOneRooms as $ri => $roomTitle)
-            <div x-show="activeRoomIdx === {{ $ri }}"
-                class="book-room-title-block">
-                <h3 class="book-room-name">{{ $roomTitle->name }}</h3>
-                <p class="book-room-sub">{{ $category['name'] }}{{ isset($category['parent_name']) ? ', ' . $category['parent_name'] : '' }}</p>
+    <div class="book-card-outer"
+        :style="{ background: roomColors[activeRoomIdx]?.bg ?? '#4e6b4c', transition: 'background 0.4s ease' }">
+
+    {{-- ── Room carousel header — chỉ nằm phía trên cột "Khung giờ", cột "Ngày" để trống ── --}}
+    <div class="book-top-row">
+        <div class="book-top-spacer"></div>
+        <div class="book-room-nav-wrap">
+            <button class="book-nav-btn" type="button"
+                @click="changeRoom(-1)"
+                aria-label="Phòng trước">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+                </svg>
+            </button>
+            <div class="book-room-titles-wrap">
+                @foreach ($styleOneRooms as $ri => $roomTitle)
+                <div x-show="activeRoomIdx === {{ $ri }}"
+                    class="book-room-title-block">
+                    <h3 class="book-room-name">{{ $roomTitle->name }}</h3>
+                </div>
+                @endforeach
             </div>
-            @endforeach
+            <button class="book-nav-btn" type="button"
+                @click="changeRoom(1)"
+                aria-label="Phòng tiếp">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                </svg>
+            </button>
         </div>
-        <button class="book-nav-btn" type="button"
-            @click="changeRoom(1)"
-            aria-label="Phòng tiếp">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-            </svg>
-        </button>
     </div>
 
     {{-- ── Slot page navigation strip (only when room has > 5 slots) ── --}}
@@ -95,22 +102,28 @@
     @endif
     @endforeach
 
-    {{-- ── Fixed column headers (outside scroll container) ── --}}
-    <div class="book-grid-header" :style="{ '--room-color': roomColors[activeRoomIdx]?.bg ?? '#4e6b4c', '--room-text-color': roomColors[activeRoomIdx]?.text ?? '#ffffff' }">
+    {{-- ── Two-panel grid (vertically scrollable) — header nằm trong khung cuộn (position:sticky)
+         để 2 hàng luôn dùng chung 1 khung, không lệch độ rộng do thanh cuộn ── --}}
+    <div class="book-mobile-scroll">
+
+    {{-- ── Fixed column headers (sticky bên trong khung cuộn) ── --}}
+    <div class="book-grid-header"
+        :style="{ background: roomColors[activeRoomIdx]?.bg ?? '#4e6b4c', transition: 'background 0.4s ease' }">
         <div class="book-col-header">Ngày</div>
         <div class="book-slots-headers-wrap">
             @foreach ($styleOneRooms as $ri => $room)
             @php $rc = $productColors[$room->id] ?? null; $mRcBg = $rc['color'] ?? '#4e6b4c'; $mRcText = $autoTextColor($mRcBg); @endphp
-            <div x-show="activeRoomIdx === {{ $ri }}" x-cloak class="book-slots-header-row">
+            <div x-show="activeRoomIdx === {{ $ri }}" x-cloak class="book-slots-header-row"
+                :class="slideDir === 1 ? 'book-slide-in-right' : 'book-slide-in-left'">
                 @foreach ($room->roomTimeSlots as $roomTimeSlot)
                 @php
                 $startTime   = \Carbon\Carbon::parse($roomTimeSlot->timeSlot->start_time);
                 $endTime     = \Carbon\Carbon::parse($roomTimeSlot->timeSlot->end_time);
                 $isOvernight = $endTime->isNextDay() || $endTime->lt($startTime);
                 @endphp
-                <div class="book-slot-th" style="color: {{ $mRcText }};" x-show="Math.floor({{ $loop->index }} / slotsPerPage) === slotPage">
-                    {{ $startTime->format('H:i') }}<br>{{ $endTime->format('H:i') }}
-                    @if($isOvernight)<span class="book-overnight-tag">Qua đêm</span>@endif
+                <div class="book-slot-th" x-show="Math.floor({{ $loop->index }} / slotsPerPage) === slotPage">
+                    <span class="book-slot-time-start">{{ $startTime->format('H:i') }}</span><span class="book-slot-time-sep">&nbsp;–&nbsp;</span><br class="book-slot-time-br"><span class="book-slot-time-end">{{ $endTime->format('H:i') }}</span>
+                    @if($isOvernight)<span class="book-overnight-tag text-xs">Qua đêm</span>@endif
                 </div>
                 @endforeach
             </div>
@@ -118,9 +131,7 @@
         </div>
     </div>
 
-    {{-- ── Two-panel grid (vertically scrollable) ── --}}
-    <div class="book-mobile-scroll" :style="{ '--room-color': roomColors[activeRoomIdx]?.bg ?? '#4e6b4c', '--room-text-color': roomColors[activeRoomIdx]?.text ?? '#ffffff' }">
-    <div class="book-grid-outer" :style="{ background: roomColors[activeRoomIdx]?.bg ?? '#4e6b4c' }">
+    <div class="book-grid-outer">
 
         {{-- Left: Dates card --}}
         <div class="book-dates-card">
@@ -137,7 +148,8 @@
         <div class="book-slots-outer">
             @foreach ($styleOneRooms as $ri => $room)
             @php $rc = $productColors[$room->id] ?? null; $mRcBg = $rc['color'] ?? '#4e6b4c'; $mRcText = $autoTextColor($mRcBg); @endphp
-            <div x-show="activeRoomIdx === {{ $ri }}" x-cloak class="book-slots-card">
+            <div x-show="activeRoomIdx === {{ $ri }}" x-cloak class="book-slots-card"
+                :class="slideDir === 1 ? 'book-slide-in-right' : 'book-slide-in-left'">
 
                 {{-- One row per date --}}
                 @foreach ($dates as $date)
@@ -305,14 +317,19 @@
     </div>{{-- end .book-grid-outer --}}
 
     {{-- ── Xem thêm / Thu gọn ngày (mỗi lần bấm hiện thêm 5 ngày, thu gọn về lại 10 ngày) ── --}}
-    <button type="button" class="book-loadmore-btn" x-show="dateLimit < totalDates" x-cloak
-        @click="loadMoreDates()">
-        Xem thêm 5 ngày
-        <span x-text="'(' + (totalDates - dateLimit) + ' ngày còn lại)'"></span>
-    </button>
-    <button type="button" class="book-loadmore-btn book-collapse-btn" x-show="dateLimit > 10" x-cloak
-        @click="collapseDates()">
-        Thu gọn
-    </button>
+    <div class="book-loadmore-row">
+        <button type="button" class="book-loadmore-btn" x-show="dateLimit < totalDates" x-cloak
+            @click="loadMoreDates()">
+            Xem thêm 5 ngày
+        </button>
+        <button type="button" class="book-loadmore-btn bg-white book-collapse-btn"
+            :disabled="dateLimit <= 10"
+            :class="dateLimit <= 10 ? ' bg-white' : 'bg-white'"
+            @click="collapseDates()">
+            Thu gọn
+        </button>
+    </div>
     </div>{{-- end .book-mobile-scroll --}}
+
+    </div>{{-- end .book-card-outer --}}
 </div>{{-- end x-data room carousel --}}
