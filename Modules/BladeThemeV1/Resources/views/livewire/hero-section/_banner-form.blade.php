@@ -3,7 +3,7 @@
                 {{-- Search bar — Airbnb style --}}
                 <div data-bar
                     x-data="{
-                        locOpen: false, buoiOpen: false, guestsOpen: false, mobileStep: 1, locating: false,
+                        locOpen: false, buoiOpen: false, guestsOpen: false, mobileStep: 1, locating: false, hoverField: null,
                         locateMe() {
                             this.locating = true;
                             window.heroLocateNearest(
@@ -22,9 +22,9 @@
                     style="overflow:visible;">
 
                     {{-- Highlight trượt theo field đang chọn (đo pixel thật của field, không dùng % cố định) --}}
-                    <div class="absolute rounded-xl bg-gray-200 pointer-events-none transition-all duration-300 ease-out" style="top:8px;bottom:8px;z-index:0;"
+                    <div class="absolute rounded-full bg-gray-200 pointer-events-none transition-all duration-300 ease-out" style="top:0;bottom:0;z-index:0;"
                         x-effect="
-                            const active = locOpen ? 'loc' : open ? 'date' : buoiOpen ? 'buoi' : guestsOpen ? 'guests' : null;
+                            const active = locOpen ? 'loc' : open ? 'date' : buoiOpen ? 'buoi' : guestsOpen ? 'guests' : hoverField;
                             if (!active) { $el.style.opacity = 0; }
                             else {
                                 const target = $el.parentElement.querySelector('[data-field=' + active + ']');
@@ -37,7 +37,8 @@
                         "></div>
 
                     {{-- Địa điểm --}}
-                    <div data-field="loc" class="relative z-10 flex-[3] min-w-0">
+                    <div data-field="loc" class="relative z-10 flex-[3] min-w-0"
+                        @mouseenter="hoverField = 'loc'" @mouseleave="hoverField = null">
                         <button type="button" @click="locOpen = !locOpen; buoiOpen = false; guestsOpen = false"
                             class="w-full h-14 px-5 flex flex-col justify-center items-start text-left rounded-l-full transition-colors">
                             <span class="text-[10px] font-bold uppercase tracking-widest leading-none text-gray-500">Địa điểm</span>
@@ -81,7 +82,8 @@
 
 
                     {{-- Thời gian --}}
-                    <div @click.outside="open = false" data-field="date" class="relative z-10 flex-[4] min-w-0">
+                    <div @click.outside="open = false" data-field="date" class="relative z-10 flex-[2] min-w-0"
+                        @mouseenter="hoverField = 'date'" @mouseleave="hoverField = null">
                         <button type="button" @click="open=!open"
                             class="w-full h-14 px-5 flex flex-col justify-center items-start text-left rounded-xl transition-colors">
                             <span :class="open ? 'text-[var(--color-primary)]' : 'text-gray-500'"
@@ -335,7 +337,8 @@
 
 
                     {{-- Loại đặt --}}
-                    <div data-field="buoi" class="relative z-10 flex-[2] min-w-0">
+                    <div data-field="buoi" class="relative z-10 flex-[2] min-w-0"
+                        @mouseenter="hoverField = 'buoi'" @mouseleave="hoverField = null">
                         <button type="button" @click="buoiOpen = !buoiOpen; locOpen = false; guestsOpen = false"
                             class="w-full h-14 px-5 flex flex-col justify-center items-start text-left rounded-xl transition-colors">
                             <span class="text-[10px] font-bold uppercase tracking-widest leading-none text-gray-500">Loại đặt</span>
@@ -363,7 +366,8 @@
 
 
                     {{-- Số người --}}
-                    <div data-field="guests" class="relative z-10 flex-[2] min-w-0">
+                    <div data-field="guests" class="relative z-10 flex-[2] min-w-0"
+                        @mouseenter="hoverField = 'guests'" @mouseleave="hoverField = null">
                         <button type="button" @click="guestsOpen = !guestsOpen; locOpen = false; buoiOpen = false"
                             class="w-full h-14 px-5 flex flex-col justify-center items-start text-left rounded-xl transition-colors">
                             <span class="text-[10px] font-bold uppercase tracking-widest leading-none text-gray-500">Số người</span>
