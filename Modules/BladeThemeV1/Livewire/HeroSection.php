@@ -26,6 +26,7 @@ class HeroSection extends Component
 
     public bool   $noBanner        = false;
     public bool   $headerRow       = false;
+    public bool   $mobileHeaderModal = false;
 
     public string $selectedLocation = '';
     public string $selectedRoomType = 'all';

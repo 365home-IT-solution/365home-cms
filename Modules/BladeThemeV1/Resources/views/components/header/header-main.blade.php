@@ -62,7 +62,7 @@
 
 <div id="main-header-bar"
      x-data="{
-        isSticky: {{ $header_style ? "window.matchMedia('(max-width: 767px)').matches" : 'false' }},
+        isSticky: {{ $data->headerStyle ? "window.matchMedia('(max-width: 767px)').matches" : 'false' }},
         mobileMenuOpen: false
     }"
      x-init="
@@ -87,21 +87,9 @@
 
     <div style="background-color: {{ $initBgColor }};">
 
-        {{-- Hàng 1: logo / menu / actions — chiều cao cố định, không đổi khi cuộn (tránh giật) --}}
-        <div class="w-full max-w-11xl md:px-8 px-4 mx-auto py-[8px]" style="height: {{ $headerHeight }};">
+        {{-- Hàng 1: logo / menu / actions (chỉ desktop) — chiều cao cố định, không đổi khi cuộn (tránh giật) --}}
+        <div class="hidden lg:block w-full max-w-11xl md:px-8 px-4 mx-auto py-[8px]" style="height: {{ $headerHeight }};">
                 <div class='flex flex-wrap items-center justify-between relative h-full'>
-                    <!-- Mobile Header - Improved Layout -->
-                    <div class="flex items-center justify-end w-full lg:hidden">
-                        <!-- Mobile Actions -->
-                        <div class="flex items-center gap-2">
-                            <!-- Search Button Mobile (if visible) -->
-                            @if($searchButtonConfig['visible'])
-                                <x-bladethemev1::header.actions.search :searchButtonConfig="$searchButtonConfig"/>
-                            @endif
-                        </div>
-                    </div>
-
-
                     <!-- Desktop Logo -->
                     <a href="{{ $logoLink }}"
                        class="hidden lg:flex items-center flex-shrink-0 order-1">
@@ -166,10 +154,36 @@
                 </div>
             </div>
 
-        {{-- Hàng 2: form tìm kiếm đầy đủ — co/giãn mượt bằng grid-template-rows (không dùng height:auto) --}}
-        <div class="hidden lg:grid overflow-hidden transition-[grid-template-rows] duration-300 ease-in-out"
+        {{-- Mobile: thanh tìm kiếm gọn (luôn hiện) + hàng menu, đặt ngay trong header --}}
+        <div class="lg:hidden">
+            <div class="w-full px-4 pb-3 pt-3">
+                @livewire('bladethemev1::hero-section', ['mobileHeaderModal' => true])
+            </div>
+            @if (!empty($menu?->menuItems))
+                <div class="px-4 pb-2.5">
+                    <ul class="flex items-center gap-5 overflow-x-auto whitespace-nowrap [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                        @foreach ($menu->menuItems as $menuItem)
+                            @livewire('bladethemev1::menu-item', [
+                            'menuItem' => $menuItem,
+                            'depth' => 1,
+                            'loop' => $loop,
+                            'navStyle' => $navStyle,
+                            'navSize' => $navSize,
+                            ], key('mobile-' . $menuItem->id))
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
+        </div>
+
+        {{-- Hàng 2: form tìm kiếm đầy đủ — co/giãn mượt bằng grid-template-rows (không dùng height:auto).
+             overflow chỉ ẩn (hidden) lúc đang co lại/đã co (isSticky) để cắt phần tràn cho animation
+             mượt; lúc mở rộng bình thường phải overflow-visible, nếu không các dropdown (lịch, danh
+             sách địa điểm, số người...) tràn ra ngoài khung sẽ bị cắt mất/che khuất. --}}
+        <div class="hidden lg:grid transition-[grid-template-rows] duration-300 ease-in-out"
+             :class="isSticky ? 'overflow-hidden' : 'overflow-visible'"
              :style="{ gridTemplateRows: isSticky ? '0fr' : '1fr' }">
-            <div class="min-h-0 overflow-hidden">
+            <div :class="isSticky ? 'overflow-hidden' : 'overflow-visible'" class="min-h-0">
                 <div class="w-full max-w-7xl md:px-8 px-4 mx-auto pb-3">
                     @livewire('bladethemev1::hero-section', ['headerRow' => true])
                 </div>

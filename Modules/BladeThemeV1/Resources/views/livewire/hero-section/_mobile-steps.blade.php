@@ -13,7 +13,7 @@
 @php
     $keyPrefix = 'mobile-' . \Illuminate\Support\Str::slug($boxSuffix ?: 'main') . '-';
 @endphp
-<div class="md:hidden" style="padding-bottom:76px;">
+<div class="lg:hidden">
 <div class="space-y-3">
 
     {{-- Bước 1: Địa điểm --}}
@@ -251,28 +251,24 @@
                 @if((!$gVal && !$selectedGuests) || ($gVal && $selectedGuests === $gVal)) {!! $checkmarkSvg !!} @endif
             </button>
             @endforeach
+
+            {{-- Xoá tất cả + Tìm kiếm — đặt ngay dưới Số người thay vì cố định xa ở đáy màn hình --}}
+            <div class="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100">
+                <button type="button" wire:click.stop="clearAll()"
+                    @click="checkIn = null; checkOut = null; mobileStep = 1"
+                    class="flex-1 py-3 rounded-2xl border-2 border-gray-200 text-gray-700 text-sm font-semibold text-center hover:bg-gray-50 active:scale-[0.98] transition-all">
+                    Xoá tất cả
+                </button>
+                <button type="button" x-on:click.stop.prevent="{{ $searchAction }}"
+                    class="flex-1 py-3 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white text-sm font-bold text-center shadow-md hover:shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                    </svg>
+                    Tìm kiếm
+                </button>
+            </div>
         </div>
     </div>
 
-
 </div>
-</div>
-
-{{-- Hàng cuối: Xoá tất cả (trái) + Tìm kiếm (phải) — luôn cố định dưới cùng màn hình trên
-     mobile, để lúc nào cũng bấm tìm kiếm được dù chưa chỉnh xong hết các bước --}}
-<div class="md:hidden" style="position:fixed; left:0; right:0; bottom:0; z-index:20; background:#fff; border-top:1px solid #f0f0f0; box-shadow:0 -4px 16px rgba(0,0,0,.08); padding:12px 16px calc(12px + env(safe-area-inset-bottom));">
-    <div class="flex items-center gap-3">
-        <button type="button" wire:click.stop="clearAll()"
-            @click="checkIn = null; checkOut = null; mobileStep = 1"
-            class="flex-1 py-3 rounded-2xl border-2 border-gray-200 text-gray-700 text-sm font-semibold text-center hover:bg-gray-50 active:scale-[0.98] transition-all">
-            Xoá tất cả
-        </button>
-        <button type="button" x-on:click.stop.prevent="{{ $searchAction }}"
-            class="flex-1 py-3 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white text-sm font-bold text-center shadow-md hover:shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-            </svg>
-            Tìm kiếm
-        </button>
-    </div>
 </div>

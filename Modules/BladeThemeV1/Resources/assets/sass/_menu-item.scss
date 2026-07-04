@@ -72,10 +72,15 @@
   white-space: nowrap;
 }
 
-.menu-dropdown-item:hover {
-  background: var(--color-primary);
-  transform: translateX(2px);
-  color: var(--color-gray);
+/* Chỉ hover khi vừa có chuột thật vừa ở màn hình desktop (>=1024px) — nếu chỉ
+   check "hover: hover" thì khi giả lập mobile trên trình duyệt desktop (vẫn
+   dùng chuột thật) hiệu ứng hover vẫn sẽ hiện, không đúng ý muốn. */
+@media (hover: hover) and (min-width: 1024px) {
+  .menu-dropdown-item:hover {
+    background: var(--color-primary);
+    transform: translateX(2px);
+    color: var(--color-gray);
+  }
 }
 
 .menu-dropdown-item::before {
@@ -149,13 +154,18 @@
   transition: width 0.4s ease-out;
 }
 
-.main-menu-item:hover::after {
-  width: 40px;
-}
+/* Chỉ hover khi vừa có chuột thật vừa ở màn hình desktop (>=1024px) — nếu chỉ
+   check "hover: hover" thì khi giả lập mobile trên trình duyệt desktop (vẫn
+   dùng chuột thật) hiệu ứng hover vẫn sẽ hiện, không đúng ý muốn. */
+@media (hover: hover) and (min-width: 1024px) {
+  .main-menu-item:hover::after {
+    width: 40px;
+  }
 
-.main-menu-item:hover {
-  color: var(--color-gray) !important;
-  transform: translateY(-1px);
+  .main-menu-item:hover {
+    color: var(--color-gray) !important;
+    transform: translateY(-1px);
+  }
 }
 
 @media (max-width: 768px) {
@@ -192,34 +202,14 @@
     left: 15px;
   }
 
-  .main-menu-item:hover::after {
-    width: 25px;
-  }
   .main-menu-item,
   .menu-dropdown-item {
     border-radius: 6px;
     transition: background-color 0.3s ease, color 0.3s ease;
   }
 
-  /* ĐÂY LÀ FIX CHÍNH:
-     Thêm hiệu ứng hover đổi nền cho cả menu chính và menu con */
-  .main-menu-item:hover,
-  .menu-dropdown-item:hover {
-    background: var(--color-primary);
-    /* Dùng !important để đảm bảo ghi đè màu chữ (thường là sang màu trắng/sáng) */
-    color: var(--color-gray) !important;
-  }
-
-  /* Tắt hiệu ứng gạch chân (::after) trên mobile
-     vì đã có hiệu ứng đổi màu nền */
-  .main-menu-item::after {
-    display: none;
-  }
-
-  .main-menu-item:hover::after {
-    display: none;
-    width: 0;
-  }
+  /* Không dùng hover đổi nền ở màn hình <=768px (mobile) dù dùng chuột thật
+     hay chạm, vì hover không có ý nghĩa với layout mobile ở đây. */
 }
 
 @media (max-width: 1024px) and (min-width: 769px) {

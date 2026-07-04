@@ -8,7 +8,6 @@
         <section class="py-4 bg-white">
             <div class="w-full max-w-11xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;">
-                    <h2 style="font-size:1.1rem; font-weight:800; color:#111827; margin:0;">Loại hình dịch vụ</h2>
                     <div class="hidden lg:flex" style="align-items:center; gap:6px; flex-shrink:0;">
                         <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
@@ -163,6 +162,7 @@
     </template>
 
     <style>
+        .hide-scrollbar { -ms-overflow-style: none; }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
 
         .home-card {

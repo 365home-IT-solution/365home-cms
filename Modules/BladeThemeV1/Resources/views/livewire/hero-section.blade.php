@@ -1,4 +1,84 @@
-@if($headerRow)
+@if($mobileHeaderModal)
+{{-- Component Livewire độc lập, đặt trực tiếp (không teleport) trong khối mobile của header.
+     KHÔNG dùng x-teleport ở đây: wire:click bên trong nội dung bị teleport sang DOM của MỘT
+     component Livewire khác (header) sẽ gọi nhầm sang component đó thay vì hero-section này,
+     khiến setLocation()/setBuoi()/setGuests() không chạy. Nên phải là 1 Livewire component
+     riêng, nằm đúng vị trí tự nhiên, để mọi wire:click luôn trỏ đúng vào component này. --}}
+<div class="w-full">
+    @include('bladethemev1::livewire.hero-section._script')
+
+    @include('bladethemev1::livewire.hero-section._styles')
+
+    @php
+        $locationLabel = $selectedLocation
+            ? (collect($locations)->firstWhere('slug', $selectedLocation)['name'] ?? 'Chọn địa điểm')
+            : 'Chọn địa điểm';
+        $buoiLabel = match ($selectedBuoi) {
+            '1' => 'Theo giờ',
+            '2' => 'Theo ngày',
+            default => 'Tất cả',
+        };
+        $guestsLabel = match ($selectedGuests) {
+            '1', '2', '3', '4' => $selectedGuests . ' người',
+            '5' => '5+ người',
+            default => 'Số người',
+        };
+        $buoiOpts = ['' => 'Tất cả', '1' => 'Theo giờ', '2' => 'Theo ngày'];
+        $guestOpts = ['' => 'Tất cả', '1' => '1 người', '2' => '2 người', '3' => '3 người', '4' => '4 người', '5' => '5+ người'];
+
+        $checkmarkSvg = '<svg class="w-4 h-4 text-teal-600 ml-auto shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>';
+    @endphp
+
+    {{-- Lồng x-data giống hệt _banner-form.blade.php (heroDatePicker() ở ngoài, các state
+         riêng cho mobile-steps ở trong) — KHÔNG dùng spread {...heroDatePicker()} vì spread
+         sẽ gọi ngay các getter (viewMonthName, displayCheckIn, ...) và đóng băng thành giá trị
+         tĩnh, làm mất reactivity. --}}
+    <div x-data="heroDatePicker()">
+        <div x-data="{
+                mobileSearchOpen: false,
+                locOpen: false, buoiOpen: false, guestsOpen: false, mobileStep: 1, locating: false,
+                locateMe() {
+                    this.locating = true;
+                    window.heroLocateNearest(
+                        (slug) => $wire.setLocation(slug),
+                        @js($locations),
+                        () => { this.locating = false; this.locOpen = false; this.mobileStep = (this.mobileStep === 1 ? 2 : this.mobileStep); },
+                        (msg) => { this.locating = false; alert(msg); }
+                    );
+                }
+            }">
+        @include('bladethemev1::livewire.hero-section._header-compact-pill-mobile')
+
+        {{-- Modal toàn màn hình khi bấm vào thanh tìm kiếm trên mobile, mượt như Airbnb --}}
+        <div x-show="mobileSearchOpen" x-cloak
+             x-transition:enter="transition ease-out duration-250"
+             x-transition:enter-start="opacity-0"
+             x-transition:enter-end="opacity-100"
+             x-transition:leave="transition ease-in duration-200"
+             x-transition:leave-start="opacity-100"
+             x-transition:leave-end="opacity-0"
+             class="fixed inset-0 z-[2000] bg-white overflow-y-auto"
+             style="-webkit-overflow-scrolling: touch;"
+             @keydown.escape.window="mobileSearchOpen = false">
+
+            <div class="sticky top-0 z-10 flex items-center justify-between border-b border-gray-100 bg-white px-4 py-3.5">
+                <span class="text-base font-bold text-gray-900">Tìm kiếm</span>
+                <button type="button" @click="mobileSearchOpen = false"
+                    class="flex h-9 w-9 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="px-4 pt-3">
+                @include('bladethemev1::livewire.hero-section._mobile-steps', ['boxSuffix' => 'HeaderModal', 'searchAction' => 'mobileSearchOpen = false; submitSearch()'])
+            </div>
+        </div>
+        </div>
+    </div>
+</div>
+@elseif($headerRow)
 <div class="w-full">
     @include('bladethemev1::livewire.hero-section._script')
 
@@ -110,11 +190,6 @@
     @include('bladethemev1::livewire.hero-section._styles')
 
     @php
-        $labelClass   = 'text-gray-500';
-        $sectionClass = 'bg-white border-b border-gray-100 shadow-sm';
-        $contentPad   = 'pb-6 pt-6';
-        $formClass    = 'p-4 md:p-6';
-
         $locationLabel = $selectedLocation
             ? (collect($locations)->firstWhere('slug', $selectedLocation)['name'] ?? 'Chọn địa điểm')
             : 'Chọn địa điểm';
@@ -131,16 +206,6 @@
 
         $checkmarkSvg = '<svg class="w-4 h-4 text-teal-600 ml-auto shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>';
     @endphp
-
-    <section @if($noBanner) x-show="!heroShrunk" x-cloak @endif class="relative flex flex-col justify-end lg:hidden {{ $sectionClass }}">
-
-        <div class="relative z-10 w-full max-w-11xl mx-auto px-4 sm:px-6 {{ $contentPad }}">
-
-            @include('bladethemev1::livewire.hero-section._banner-form')
-        </div>
-
-    </section>
-
 
     {{-- Compact bar --}}
     <div x-show="heroShrunk"

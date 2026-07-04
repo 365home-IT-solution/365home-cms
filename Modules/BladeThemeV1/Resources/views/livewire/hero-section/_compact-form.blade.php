@@ -1,7 +1,8 @@
-        {{-- Form mở rộng — mobile: popup toàn màn hình; desktop/tablet: panel sổ xuống dưới pill --}}
+        {{-- Form mở rộng — mobile: popup toàn màn hình; desktop: panel sổ xuống dưới pill
+             (breakpoint 1024px, đồng bộ với lg: dùng trong header/banner-form) --}}
         <style>
             .hero-compact-form-panel { background: #fff; }
-            @media (max-width: 767px) {
+            @media (max-width: 1023px) {
                 .hero-compact-form-panel {
                     position: fixed;
                     inset: 0;
@@ -10,7 +11,7 @@
                     -webkit-overflow-scrolling: touch;
                 }
             }
-            @media (min-width: 768px) {
+            @media (min-width: 1024px) {
                 .hero-compact-form-panel {
                     border-bottom: 1px solid #e5e7eb;
                     box-shadow: 0 4px 24px rgba(0,0,0,.12);
@@ -29,7 +30,7 @@
              class="hero-compact-form-panel">
 
             {{-- Mobile: thanh tiêu đề + nút đóng popup --}}
-            <div class="md:hidden flex items-center justify-between px-4 pt-4 pb-1">
+            <div class="lg:hidden flex items-center justify-between px-4 pt-4 pb-1">
                 <span class="text-sm font-bold text-gray-900">Tìm kiếm</span>
                 <button type="button" @click="formOpen = false"
                     class="w-9 h-9 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100 transition-colors">
@@ -81,8 +82,8 @@
                         }"
                         @click.outside="locOpen = false; buoiOpen = false; guestsOpen = false">
 
-                    {{-- Desktop / tablet: thanh ngang đầy đủ --}}
-                    <div class="relative hidden md:flex items-stretch rounded-2xl transition-all duration-300"
+                    {{-- Desktop: thanh ngang đầy đủ (đồng bộ breakpoint lg với header) --}}
+                    <div class="relative hidden lg:flex items-stretch rounded-2xl transition-all duration-300"
                         :class="open ? 'bg-gray-100 shadow-xl' : 'bg-white border border-gray-200 shadow-sm'"
                         style="overflow:visible;">
 

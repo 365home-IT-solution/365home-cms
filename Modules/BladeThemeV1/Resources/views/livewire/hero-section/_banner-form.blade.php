@@ -16,8 +16,8 @@
                     }"
                     @click.outside="locOpen = false; buoiOpen = false; guestsOpen = false">
 
-                {{-- Desktop / tablet: thanh ngang đầy đủ --}}
-                <div class="relative hidden md:flex items-stretch rounded-2xl transition-all duration-300"
+                {{-- Desktop: thanh ngang đầy đủ (đồng bộ breakpoint lg với header) --}}
+                <div class="relative hidden lg:flex items-stretch rounded-full transition-all duration-300"
                     :class="open ? 'bg-gray-100 shadow-2xl' : 'bg-white border border-gray-200 shadow-lg'"
                     style="overflow:visible;">
 
@@ -39,7 +39,7 @@
                     {{-- Địa điểm --}}
                     <div data-field="loc" class="relative z-10 flex-[3] min-w-0">
                         <button type="button" @click="locOpen = !locOpen; buoiOpen = false; guestsOpen = false"
-                            class="w-full h-16 px-5 flex flex-col justify-center items-start text-left rounded-l-2xl transition-colors">
+                            class="w-full h-14 px-5 flex flex-col justify-center items-start text-left rounded-l-full transition-colors">
                             <span class="text-[10px] font-bold uppercase tracking-widest leading-none text-gray-500">Địa điểm</span>
                             <span class="text-sm font-semibold mt-0.5 truncate {{ $selectedLocation ? 'text-gray-900' : 'text-gray-400' }}">{{ $locationLabel }}</span>
                         </button>
@@ -83,31 +83,12 @@
                     {{-- Thời gian --}}
                     <div @click.outside="open = false" data-field="date" class="relative z-10 flex-[4] min-w-0">
                         <button type="button" @click="open=!open"
-                            class="w-full h-16 px-5 flex items-center gap-3 rounded-xl transition-colors">
-                            <svg class="w-4 h-4 shrink-0 transition-colors duration-200"
-                                :class="open ? 'text-[var(--color-primary)]' : 'text-[rgba(var(--color-primary-rgb),0.7)]'"
-                                fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                            </svg>
-                            <div class="flex items-center gap-3 min-w-0 flex-1">
-                                <div class="flex flex-col min-w-0">
-                                    <span :class="open ? 'text-[var(--color-primary)]' : 'text-gray-500'"
-                                        class="text-[10px] font-bold uppercase tracking-widest leading-none transition-colors duration-200">Nhận phòng</span>
-                                    <span class="text-sm font-semibold mt-0.5 truncate"
-                                        :class="displayCheckIn ? 'text-gray-900' : 'text-gray-400'"
-                                        x-text="displayCheckIn || '{{ $checkIn ?: 'Chọn ngày' }}'"></span>
-                                </div>
-                                <svg class="w-3.5 h-3.5 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"/>
-                                </svg>
-                                <div class="flex flex-col min-w-0">
-                                    <span :class="open ? 'text-[var(--color-primary)]' : 'text-gray-500'"
-                                        class="text-[10px] font-bold uppercase tracking-widest leading-none transition-colors duration-200">Trả phòng</span>
-                                    <span class="text-sm font-semibold mt-0.5 truncate"
-                                        :class="displayCheckOut ? 'text-gray-900' : 'text-gray-400'"
-                                        x-text="displayCheckOut || '{{ $checkOut ?: 'Chọn ngày' }}'"></span>
-                                </div>
-                            </div>
+                            class="w-full h-14 px-5 flex flex-col justify-center items-start text-left rounded-xl transition-colors">
+                            <span :class="open ? 'text-[var(--color-primary)]' : 'text-gray-500'"
+                                class="text-[10px] font-bold uppercase tracking-widest leading-none transition-colors duration-200">Thời gian</span>
+                            <span class="text-sm font-semibold mt-0.5 truncate"
+                                :class="(displayCheckIn && displayCheckOut) ? 'text-gray-900' : 'text-gray-400'"
+                                x-text="(displayCheckIn && displayCheckOut) ? (displayCheckIn + ' → ' + displayCheckOut) : '{{ ($checkIn && $checkOut) ? $checkIn . ' → ' . $checkOut : 'Thêm ngày' }}'"></span>
                         </button>
 
                         {{-- Date picker dropdown --}}
@@ -356,7 +337,7 @@
                     {{-- Loại đặt --}}
                     <div data-field="buoi" class="relative z-10 flex-[2] min-w-0">
                         <button type="button" @click="buoiOpen = !buoiOpen; locOpen = false; guestsOpen = false"
-                            class="w-full h-16 px-5 flex flex-col justify-center items-start text-left rounded-xl transition-colors">
+                            class="w-full h-14 px-5 flex flex-col justify-center items-start text-left rounded-xl transition-colors">
                             <span class="text-[10px] font-bold uppercase tracking-widest leading-none text-gray-500">Loại đặt</span>
                             <span class="text-sm font-semibold mt-0.5 {{ $selectedBuoi ? 'text-gray-900' : 'text-gray-400' }}">{{ $buoiLabel }}</span>
                         </button>
@@ -384,7 +365,7 @@
                     {{-- Số người --}}
                     <div data-field="guests" class="relative z-10 flex-[2] min-w-0">
                         <button type="button" @click="guestsOpen = !guestsOpen; locOpen = false; buoiOpen = false"
-                            class="w-full h-16 px-5 flex flex-col justify-center items-start text-left rounded-xl transition-colors">
+                            class="w-full h-14 px-5 flex flex-col justify-center items-start text-left rounded-xl transition-colors">
                             <span class="text-[10px] font-bold uppercase tracking-widest leading-none text-gray-500">Số người</span>
                             <span class="text-sm font-semibold mt-0.5 {{ $selectedGuests ? 'text-gray-900' : 'text-gray-400' }}">{{ $guestsLabel }}</span>
                         </button>
@@ -412,7 +393,7 @@
                     <div class="flex items-center px-3 shrink-0">
                         <button type="button"
                             x-on:click.stop.prevent="submitSearch()"
-                            class="w-12 h-12 bg-[var(--color-primary)] hover:opacity-90 text-white rounded-full
+                            class="w-11 h-11 bg-[var(--color-primary)] hover:opacity-90 text-white rounded-full
                             transition-all shadow-md hover:shadow-lg active:scale-95 flex items-center justify-center">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
