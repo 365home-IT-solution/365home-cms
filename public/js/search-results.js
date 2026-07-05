@@ -1,0 +1,252 @@
+// Trang tìm kiếm phòng (/s/{location}) — tải kết quả qua REST API (/api/v1/search) bằng JS
+// thuần thay vì Livewire, giống cách trang chủ đang dùng /api/v1/home + home-sections.js. Card
+// phòng tái dùng thẳng window.roomCardHtml() (đã có sẵn nút yêu thích) để đồng nhất giao diện
+// với trang chủ. Mỗi phòng thuộc về 1 chi nhánh riêng — được API gắn kèm (room.branch) — nên ở
+// đây nhóm lại theo chi nhánh, mỗi chi nhánh 1 dòng riêng, bên dưới là các card phòng của chi
+// nhánh đó.
+(function () {
+    function escapeHtml(str) {
+        return String(str == null ? '' : str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function parseLocationFromPath() {
+        var m = window.location.pathname.match(/^\/s\/([^\/?#]+)/);
+        return m ? decodeURIComponent(m[1]) : '';
+    }
+
+    function buildApiUrl() {
+        var params = new URLSearchParams(window.location.search);
+        var apiParams = new URLSearchParams();
+        var location = parseLocationFromPath();
+        if (location) apiParams.set('province', location);
+        ['type', 'buoi', 'checkin', 'checkout'].forEach(function (key) {
+            var v = params.get(key);
+            if (v) apiParams.set(key, v);
+        });
+        // per_page=100 (tối đa API cho phép) — trang tìm kiếm không phân trang, hiển thị hết
+        // phòng phù hợp trong 1 tỉnh/chi nhánh giống trải nghiệm cũ.
+        apiParams.set('per_page', '100');
+        return '/api/v1/search?' + apiParams.toString();
+    }
+
+    function chipHtml(label, tone) {
+        var colors = tone === 'muted'
+            ? 'color:#6b7280;background:#f9fafb;border:1px solid #e5e7eb;'
+            : 'color:#0f766e;background:#f0fdf4;border:1px solid #bbf7d0;';
+        return '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;' + colors + 'padding:3px 10px;border-radius:99px;">' + escapeHtml(label) + '</span>';
+    }
+
+    function renderHeader(meta, params) {
+        var total = meta.total || 0;
+        var typeParam = params.get('type');
+        var title = meta.province_name
+            ? total + ' phòng tại ' + meta.province_name
+            : (total > 0 ? (typeParam === 'homestay' ? total + ' phòng' : total + ' phòng trên toàn quốc') : '');
+        var titleHtml = title
+            ? '<p class="search-count-title">' + escapeHtml(title) + '</p>'
+            : '<p class="search-count-title" style="font-weight:500;color:#6b7280;">Không tìm thấy phòng nào phù hợp.</p>';
+
+        var chips = '';
+        var buoi = params.get('buoi');
+        var typeParam = params.get('type');
+        if (buoi === '1') chips += chipHtml('Theo giờ');
+        else if (buoi === '2') chips += chipHtml('Theo ngày');
+        if (meta.type_name && typeParam !== 'homestay') chips += chipHtml(meta.type_name);
+        var checkin = params.get('checkin');
+        var checkout = params.get('checkout');
+        if (checkin) chips += chipHtml(checkin + (checkout ? ' → ' + checkout : ''), 'muted');
+
+        var chipsHtml = chips ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:7px;">' + chips + '</div>' : '';
+
+        return titleHtml + chipsHtml;
+    }
+
+    function roomTimeLabel(room) {
+        var label = room.price && room.price.unit_label ? room.price.unit_label : '';
+        return label.replace(/^\/\s*/, '');
+    }
+
+    function branchHeaderHtml(branch, count) {
+        return '<div style="padding:14px 4px 8px;">'
+            + '<a href="/branch/' + encodeURIComponent(branch.slug) + '" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;">'
+            + '<span style="font-size:14px;font-weight:700;color:#111827;">' + escapeHtml(branch.name) + '</span>'
+            + '<span style="font-size:12px;font-weight:500;color:#9ca3af;">(' + count + ')</span>'
+            + '</a>'
+            + '</div>';
+    }
+
+    function roomsGridHtml(rooms) {
+        var cards = rooms.map(function (room) {
+            return '<div class="branch-card">' + window.roomCardHtml(room) + '</div>';
+        }).join('');
+
+        return '<div class="room-slider" style="margin-bottom:4px;">'
+            + '<div class="branch-grid">' + cards + '</div>'
+            + '<button type="button" class="room-slider-nav room-slider-prev" aria-label="Phòng trước" onclick="window.__roomSliderNav(this, -1)">'
+            + '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>'
+            + '</button>'
+            + '<button type="button" class="room-slider-nav room-slider-next" aria-label="Phòng tiếp theo" onclick="window.__roomSliderNav(this, 1)">'
+            + '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>'
+            + '</button>'
+            + '</div>';
+    }
+
+    // Nhóm theo chi nhánh (room.branch.id) — phòng không có chi nhánh (tìm kiếm toàn quốc, không
+    // xác định được tỉnh) gom vào 1 nhóm chung, hiển thị phẳng không có dòng tiêu đề. Trả về danh
+    // sách phòng ĐÃ THEO ĐÚNG THỨ TỰ HIỂN THỊ TRÊN DOM (nhóm theo chi nhánh làm xáo trộn thứ tự
+    // gốc) — dùng chung cho cả renderResults() và buildMapData() để 2 bên luôn khớp vị trí nhau
+    // (initSearchMap() ghép .branch-card với dữ liệu bản đồ theo index).
+    function groupRoomsByBranch(rooms) {
+        var branchOrder = [];
+        var branchGroups = {};
+        var noBranchRooms = [];
+
+        rooms.forEach(function (room) {
+            if (!room.branch) {
+                noBranchRooms.push(room);
+                return;
+            }
+            var key = room.branch.id;
+            if (!branchGroups[key]) {
+                branchGroups[key] = { branch: room.branch, rooms: [] };
+                branchOrder.push(key);
+            }
+            branchGroups[key].rooms.push(room);
+        });
+
+        var orderedGroups = branchOrder.map(function (key) { return branchGroups[key]; });
+        var orderedRooms = orderedGroups.reduce(function (acc, group) { return acc.concat(group.rooms); }, []).concat(noBranchRooms);
+
+        return { groups: orderedGroups, noBranchRooms: noBranchRooms, orderedRooms: orderedRooms };
+    }
+
+    function renderResults(grouped) {
+        if (!grouped.orderedRooms.length) {
+            return '<div style="padding:3rem 1rem;text-align:center;">'
+                + '<svg style="width:48px;height:48px;color:#d1d5db;margin:0 auto 12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+                + '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>'
+                + '</svg>'
+                + '<p style="color:#6b7280;font-size:14px;margin:0;">Không tìm thấy phòng nào phù hợp.</p>'
+                + '</div>';
+        }
+
+        var html = '';
+        grouped.groups.forEach(function (group) {
+            html += branchHeaderHtml(group.branch, group.rooms.length) + roomsGridHtml(group.rooms);
+        });
+        if (grouped.noBranchRooms.length) {
+            html += roomsGridHtml(grouped.noBranchRooms);
+        }
+
+        return html;
+    }
+
+    // Giữ nguyên vị trí kể cả khi phòng không có toạ độ (lat/lng null) — initSearchMap() tự bỏ
+    // qua pin cho phần tử không có toạ độ nhưng vẫn cần đúng index để khớp với .branch-card.
+    function buildMapData(orderedRooms) {
+        return orderedRooms.map(function (room) {
+            return {
+                slug: room.slug,
+                name: room.name,
+                image: room.thumbnail_url,
+                price: room.price ? room.price.amount : null,
+                time: roomTimeLabel(room),
+                url: '/room/' + room.slug + '/',
+                lat: room.latitude || null,
+                lng: room.longitude || null,
+                address: room.address,
+            };
+        });
+    }
+
+    function reinitMap() {
+        var mapEl = document.getElementById('search-map');
+        if (mapEl && mapEl._leaflet_id && window.__searchMapInstance) {
+            window.__searchMapInstance.remove();
+            window.__searchMapInstance = null;
+        }
+        window.__activeBranchCard = null;
+        window.__popups = {};
+        if (typeof window.initSearchMap === 'function') {
+            window.initSearchMap();
+        }
+    }
+
+    async function loadSearchResults() {
+        var mount = document.getElementById('search-results-mount');
+        if (!mount) return;
+
+        var headerEl = mount.querySelector('.search-count-header');
+        var bodyEl = mount.querySelector('#search-results-body');
+        if (headerEl) headerEl.innerHTML = '<p class="search-count-title" style="font-weight:500;color:#6b7280;">Đang tải kết quả...</p>';
+
+        var params = new URLSearchParams(window.location.search);
+        var token = localStorage.getItem('auth_token');
+        var headers = { Accept: 'application/json' };
+        if (token) headers.Authorization = 'Bearer ' + token;
+
+        var rooms = [];
+        var meta = {};
+        try {
+            var res = await fetch(buildApiUrl(), { headers: headers });
+            var json = await res.json();
+            rooms = json.data || [];
+            meta = json.meta || {};
+        } catch (e) {
+            console.error('search results fetch error', e);
+        }
+
+        var grouped = groupRoomsByBranch(rooms);
+
+        if (headerEl) headerEl.innerHTML = renderHeader(meta, params);
+        if (bodyEl) bodyEl.innerHTML = renderResults(grouped);
+
+        var mapDataEl = document.getElementById('branch-map-data');
+        if (mapDataEl) mapDataEl.textContent = JSON.stringify(buildMapData(grouped.orderedRooms));
+
+        reinitMap();
+        if (typeof window.__roomSliderInit === 'function') window.__roomSliderInit();
+    }
+
+    document.addEventListener('DOMContentLoaded', loadSearchResults);
+    document.addEventListener('livewire:navigated', loadSearchResults);
+
+    // ─── Nút prev/next cho slide ngang trên mobile (thay cho vuốt tay) ─────────────
+    if (typeof window.__roomSliderNav === 'undefined') {
+        window.__roomSliderNav = function (btn, dir) {
+            var grid = btn.closest('.room-slider')?.querySelector('.branch-grid');
+            if (!grid) return;
+            grid.scrollBy({ left: dir * grid.clientWidth, behavior: 'smooth' });
+        };
+
+        window.__roomSliderUpdateNavState = function (slider) {
+            var grid = slider.querySelector('.branch-grid');
+            var prev = slider.querySelector('.room-slider-prev');
+            var next = slider.querySelector('.room-slider-next');
+            if (!grid || !prev || !next) return;
+            var max = grid.scrollWidth - grid.clientWidth;
+            prev.disabled = grid.scrollLeft <= 4;
+            next.disabled = max <= 4 || grid.scrollLeft >= max - 4;
+        };
+
+        window.__roomSliderInit = function () {
+            document.querySelectorAll('.room-slider').forEach(function (slider) {
+                if (slider.__sliderBound) return;
+                slider.__sliderBound = true;
+                var grid = slider.querySelector('.branch-grid');
+                if (!grid) return;
+                window.__roomSliderUpdateNavState(slider);
+                grid.addEventListener('scroll', function () {
+                    window.__roomSliderUpdateNavState(slider);
+                }, { passive: true });
+                window.addEventListener('resize', function () {
+                    window.__roomSliderUpdateNavState(slider);
+                });
+            });
+        };
+    }
+})();

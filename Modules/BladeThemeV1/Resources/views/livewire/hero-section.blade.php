@@ -13,17 +13,11 @@
         $locationLabel = $selectedLocation
             ? (collect($locations)->firstWhere('slug', $selectedLocation)['name'] ?? 'Chọn địa điểm')
             : 'Chọn địa điểm';
-        $buoiLabel = match ($selectedBuoi) {
-            '1' => 'Theo giờ',
-            '2' => 'Theo ngày',
-            default => 'Tất cả',
-        };
         $guestsLabel = match ($selectedGuests) {
             '1', '2', '3', '4' => $selectedGuests . ' người',
             '5' => '5+ người',
-            default => 'Số người',
+            default => 'Thêm khách',
         };
-        $buoiOpts = ['' => 'Tất cả', '1' => 'Theo giờ', '2' => 'Theo ngày'];
         $guestOpts = ['' => 'Tất cả', '1' => '1 người', '2' => '2 người', '3' => '3 người', '4' => '4 người', '5' => '5+ người'];
 
         $checkmarkSvg = '<svg class="w-4 h-4 text-teal-600 ml-auto shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>';
@@ -33,16 +27,17 @@
          riêng cho mobile-steps ở trong) — KHÔNG dùng spread {...heroDatePicker()} vì spread
          sẽ gọi ngay các getter (viewMonthName, displayCheckIn, ...) và đóng băng thành giá trị
          tĩnh, làm mất reactivity. --}}
-    <div x-data="heroDatePicker()">
+    <div x-data="heroDatePicker({{ $selectedBuoi === '2' ? 'true' : 'false' }})">
         <div x-data="{
                 mobileSearchOpen: false,
-                locOpen: false, buoiOpen: false, guestsOpen: false, mobileStep: 1, locating: false,
+                locOpen: false, guestsOpen: false, mobileStep: 1, locating: false,
+                locationSearch: '', selectedLocationSlug: '{{ $selectedLocation }}', mobileLocations: @js($locations),
                 locateMe() {
                     this.locating = true;
                     window.heroLocateNearest(
                         (slug) => $wire.setLocation(slug),
                         @js($locations),
-                        () => { this.locating = false; this.locOpen = false; this.mobileStep = (this.mobileStep === 1 ? 2 : this.mobileStep); },
+                        (loc) => { this.locating = false; this.locOpen = false; this.selectedLocationSlug = loc.slug; this.mobileStep = (this.mobileStep === 1 ? 2 : this.mobileStep); },
                         (msg) => { this.locating = false; alert(msg); }
                     );
                 }
@@ -79,6 +74,12 @@
     </div>
 </div>
 @elseif($headerRow)
+{{-- QUAN TRỌNG: phải có comment/dòng trống giữa @elseif và <div> bên dưới. Livewire chèn
+     marker <!--[if BLOCK]--> ngay trước tag gốc; nếu marker đó dính liền <div> (không có
+     ký tự xuống dòng ở giữa), regex xác định "root tag" của Livewire (Utils::insertAttributesIntoHtmlRoot,
+     yêu cầu \n ngay trước tag) sẽ bỏ qua <div> này và gắn nhầm wire:id vào <script> bên trong
+     (từ _script.blade.php) — khiến wire:click ở component này bị submit lên component cha (header)
+     thay vì hero-section, gây lỗi "Public method ... not found on component". --}}
 <div class="w-full">
     @include('bladethemev1::livewire.hero-section._script')
 
@@ -90,15 +91,10 @@
         $locationLabel = $selectedLocation
             ? (collect($locations)->firstWhere('slug', $selectedLocation)['name'] ?? 'Chọn địa điểm')
             : 'Chọn địa điểm';
-        $buoiLabel = match ($selectedBuoi) {
-            '1' => 'Theo giờ',
-            '2' => 'Theo ngày',
-            default => 'Tất cả',
-        };
         $guestsLabel = match ($selectedGuests) {
             '1', '2', '3', '4' => $selectedGuests . ' người',
             '5' => '5+ người',
-            default => 'Số người',
+            default => 'Thêm khách',
         };
 
         $checkmarkSvg = '<svg class="w-4 h-4 text-teal-600 ml-auto shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>';
@@ -111,6 +107,9 @@
     </template>
 </div>
 @else
+{{-- Xem giải thích ở nhánh @elseif($headerRow) phía trên: bắt buộc phải có comment/dòng trống
+     ngay sau @else để tránh marker <!--[if BLOCK]--> của Livewire dính liền <div>, làm regex
+     nhận diện root tag gắn nhầm wire:id vào phần tử con bên trong thay vì <div> này. --}}
 <div
     x-data="{ heroShrunk: window.__heroAlwaysCompact || false, compactTop: '0px', formOpen: false, menuOpen: false, pillHeight: 0 }"
     x-init="
@@ -193,15 +192,10 @@
         $locationLabel = $selectedLocation
             ? (collect($locations)->firstWhere('slug', $selectedLocation)['name'] ?? 'Chọn địa điểm')
             : 'Chọn địa điểm';
-        $buoiLabel = match ($selectedBuoi) {
-            '1' => 'Theo giờ',
-            '2' => 'Theo ngày',
-            default => 'Tất cả',
-        };
         $guestsLabel = match ($selectedGuests) {
             '1', '2', '3', '4' => $selectedGuests . ' người',
             '5' => '5+ người',
-            default => 'Số người',
+            default => 'Thêm khách',
         };
 
         $checkmarkSvg = '<svg class="w-4 h-4 text-teal-600 ml-auto shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>';

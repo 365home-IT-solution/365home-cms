@@ -3,29 +3,19 @@
 <x-bladethemev1::seo :seoData="$seoData" />
 
 @section('content')
-    {{-- Header: ẩn mặc định, chỉ hiện khi mở expanded hero form --}}
-    <div x-data="{ shown: false }"
-         @hero-form-open.window="shown = true"
-         @hero-form-close.window="shown = false"
-         x-show="shown"
-         style="display:none;">
-        @livewire('bladethemev1::header')
-    </div>
-
     <script>
-        window.__heroAlwaysCompact = true;
+        // Trang tìm kiếm có bản đồ sticky neo theo chiều cao header — nếu header tự thu gọn khi
+        // cuộn (như các trang khác) thì bản đồ bị giật theo mỗi lần chiều cao đó đổi. Khoá header
+        // ở trạng thái đầy đủ trong lúc ở trang này; trả lại hành vi bình thường khi rời trang.
+        window.__headerAlwaysExpanded = true;
+        document.addEventListener('livewire:navigating', function () {
+            window.__headerAlwaysExpanded = false;
+        }, { once: true });
     </script>
-    @livewire('bladethemev1::hero-section', ['noBanner' => true])
-
+    @livewire('bladethemev1::header')
+    @livewire('bladethemev1::drawer-menu')
 
     <style>
-        #main-header-bar {
-            z-index: 1150 !important;
-            position: fixed !important;
-            top: 0 !important;
-            left: 0 !important;
-            right: 0 !important;
-        }
         /* Mobile (< md): bản đồ full màn hình phía sau, phía trên là bottom-sheet chứa danh sách chi
            nhánh có thể kéo lên/xuống. Kéo xuống (peek) → chi nhánh dạng slide ngang. Kéo lên hết
            (full) → chi nhánh xếp 1 cột.
@@ -34,7 +24,7 @@
             display: flex;
             flex-direction: column;
             position: relative;
-            height: calc(100vh - 60px);
+            height: calc(100vh - var(--search-header-h, 60px));
             overflow: hidden;
         }
 
@@ -94,15 +84,174 @@
             min-height: 0;
             overflow-y: auto;
             -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
         }
 
-        /* Base .branch-grid (slide ngang mobile / lưới 2 cột desktop) đã khai báo trong
-           livewire.search-results-grid — dùng chung cho mọi trang. Ở đây chỉ override thêm khi
-           bottom-sheet của trang này được kéo full màn hình: chi nhánh xếp 1 cột. */
+        #sheet-scroll::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* Tiêu đề số lượng kết quả — mobile: thanh nhỏ dính trên cùng bottom-sheet. Desktop:
+           tiêu đề lớn nằm trong luồng trang bình thường (không sticky), giống Airbnb. */
+        .search-count-header {
+            padding: 12px 14px 10px;
+            border-bottom: 1px solid #f3f4f6;
+            background: #fff;
+            position: sticky;
+            top: 0;
+            z-index: 5;
+        }
+
+        .search-count-title {
+            margin: 0;
+            font-size: 14px;
+            font-weight: 700;
+            color: #111827;
+        }
+
+        @media (min-width: 768px) {
+            .search-count-header {
+                position: static;
+                border-bottom: none;
+                padding: 4px 4px 18px;
+            }
+
+            .search-count-title {
+                font-size: 22px;
+                font-weight: 800;
+            }
+        }
+
+        /* Phòng — mặc định (mobile): slide ngang, mỗi lần 1 thẻ chiếm trọn khung hình, có nút
+           prev/next thay vì vuốt tay. Từ md trở lên: lưới cố định 3 cột (kiểu Airbnb). Sheet kéo
+           full màn hình (mobile) tự override thêm ở dưới: chi nhánh xếp 1 cột. */
+        .room-slider {
+            position: relative;
+        }
+
+        .branch-grid {
+            display: flex;
+            gap: 10px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            scroll-snap-type: x mandatory;
+            padding-bottom: 4px;
+            -webkit-overflow-scrolling: touch;
+            cursor: grab;
+            touch-action: pan-y;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        .branch-grid::-webkit-scrollbar {
+            display: none;
+        }
+
+        .branch-grid.branch-grid-dragging {
+            cursor: grabbing;
+            scroll-snap-type: none;
+            scroll-behavior: auto;
+        }
+
+        .branch-grid.branch-grid-dragging .branch-card {
+            pointer-events: none;
+        }
+
+        .branch-grid .branch-card {
+            flex: 0 0 100%;
+            width: 100%;
+            max-width: none;
+            scroll-snap-align: start;
+        }
+
+        /* Card phòng dùng chung window.roomCardHtml() (giống trang chủ) — .home-card vốn có
+           bề rộng cố định cho carousel ngang trên trang chủ; ở đây nó nằm trong .branch-card (đã
+           được .branch-grid quyết định bề rộng theo slide/lưới) nên cho lấp đầy 100%. */
+        .branch-card .home-card {
+            width: 100%;
+            max-width: none;
+            flex: none;
+        }
+
+        .room-slider-nav {
+            position: absolute;
+            top: 36%;
+            transform: translateY(-50%);
+            z-index: 4;
+            width: 30px;
+            height: 30px;
+            border: none;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, .92);
+            box-shadow: 0 1px 6px rgba(0, 0, 0, .22);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            cursor: pointer;
+        }
+
+        .room-slider-nav svg {
+            width: 16px;
+            height: 16px;
+            color: #111827;
+        }
+
+        .room-slider-nav.room-slider-prev {
+            left: 6px;
+        }
+
+        .room-slider-nav.room-slider-next {
+            right: 6px;
+        }
+
+        .room-slider-nav[disabled] {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .room-wishlist-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            z-index: 3;
+            width: 28px;
+            height: 28px;
+            border: none;
+            border-radius: 50%;
+            background: transparent;
+            box-shadow: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            cursor: pointer;
+            transition: transform .15s ease;
+        }
+        .room-wishlist-btn:active { transform: scale(.86); }
+        .room-wishlist-btn.room-wishlist-pop { animation: roomWishlistPop .3s ease; }
+
+        @media (hover: hover) {
+            .room-wishlist-btn:hover { transform: scale(1.08); }
+        }
+
+        @keyframes roomWishlistPop {
+            0% { transform: scale(1); }
+            35% { transform: scale(1.35); }
+            100% { transform: scale(1); }
+        }
+
         #rooms-left-panel.sheet-full .branch-grid {
             display: flex;
             flex-direction: column;
             overflow: visible;
+        }
+
+        /* Sheet kéo full màn hình: chi nhánh xếp 1 cột dọc, không còn slide ngang nên ẩn
+           nút prev/next của .room-slider. */
+        #rooms-left-panel.sheet-full .room-slider-nav {
+            display: none;
         }
 
         #rooms-left-panel.sheet-full .branch-grid .branch-card {
@@ -111,19 +260,24 @@
         }
 
         @media (min-width: 768px) {
+            /* Bỏ khung cao cố định + scroll riêng của mobile: desktop cuộn theo trang bình
+               thường (1 thanh cuộn duy nhất), bản đồ dùng position:sticky để luôn hiện trong
+               khung nhìn khi cuộn danh sách — giống cách Airbnb làm. */
             #search-layout {
                 flex-direction: row;
-                height: calc(100vh - 112px);
+                align-items: flex-start;
+                height: auto;
                 overflow: visible;
+                gap: 40px;
             }
 
             #rooms-left-panel {
                 position: static;
-                width: 40%;
-                height: 100%;
+                width: 46%;
+                height: auto;
                 max-height: none;
                 min-height: 0;
-                border-right: 1px solid #f3f4f6;
+                border-right: none;
                 border-radius: 0;
                 box-shadow: none;
                 flex-shrink: 0;
@@ -134,26 +288,48 @@
                 display: none;
             }
 
+            #sheet-scroll {
+                flex: none;
+                min-height: 0;
+                overflow-y: visible;
+            }
+
             #map-col {
-                position: relative;
+                position: sticky;
                 inset: auto;
-                width: 60%;
-                height: 100%;
+                top: var(--search-header-h, 0px);
+                align-self: flex-start;
+                flex: 1 1 auto;
+                width: auto;
+                height: calc(100vh - var(--search-header-h, 0px) - 24px);
+                padding: 4px 0 24px;
             }
 
-            /* Desktop luôn giữ lưới 2 cột (đã set ở component dùng chung), kể cả khi DOM còn
-               mang class .sheet-full từ lúc ở mobile */
-            #rooms-left-panel.sheet-full .branch-grid {
+            /* Desktop: lưới cố định 3 cột (giống Airbnb) */
+            .branch-grid {
                 display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 10px;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 20px 14px;
                 overflow: visible;
+                cursor: default;
+                touch-action: auto;
             }
 
-            #rooms-left-panel.sheet-full .branch-grid .branch-card {
+            .branch-grid .branch-card {
                 width: auto;
                 max-width: none;
                 scroll-snap-align: none;
+            }
+
+            .room-slider-nav {
+                display: none;
+            }
+
+            /* Bo tròn bản đồ + hở lề (giống Airbnb) — chỉ áp dụng ở desktop, mobile bản đồ
+               vẫn full màn hình phía sau bottom-sheet nên không bo góc. */
+            #search-map {
+                border-radius: 16px;
+                overflow: hidden;
             }
         }
 
@@ -293,12 +469,18 @@
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
-    <div id="search-layout">
+    <div id="search-layout" class="md:max-w-11xl md:mx-auto md:px-6">
 
         <div id="rooms-left-panel">
             <div id="sheet-handle" class="md:hidden"></div>
             <div id="sheet-scroll">
-                @livewire('bladethemev1::search-results-grid')
+                <div id="search-results-mount">
+                    <div class="mt-0 md:mt-[30px] search-count-header">
+                        <p class="search-count-title" style="font-weight:500;color:#6b7280;">Đang tải kết quả...</p>
+                    </div>
+                    <div style="padding:10px 10px 32px;" id="search-results-body"></div>
+                </div>
+                <script type="application/json" id="branch-map-data">[]</script>
             </div>
         </div>
 
@@ -321,8 +503,7 @@
         </div>
     </div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        onload="typeof initSearchMap === 'function' && initSearchMap()"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
         var __searchMapConfig = {
@@ -340,6 +521,24 @@
 
         var __mapInitRetries = 0;
         var __activeBranchCard = null;
+
+        // ─── Đo chiều cao thực tế của header (#main-header-bar) và set CSS var ────────
+        // #search-layout dùng calc(100vh - var(--search-header-h)) để lấp đầy đúng phần
+        // còn lại bên dưới header — không đoán cứng 1 con số vì header co giãn theo cấu
+        // hình logo/menu và theo mobile/desktop.
+        (function() {
+            function measureHeaderHeight() {
+                var hdr = document.getElementById('main-header-bar');
+                if (hdr && hdr.offsetHeight > 0) {
+                    document.documentElement.style.setProperty('--search-header-h', hdr.offsetHeight + 'px');
+                }
+            }
+            document.addEventListener('DOMContentLoaded', measureHeaderHeight);
+            window.addEventListener('resize', measureHeaderHeight, { passive: true });
+            document.addEventListener('livewire:navigated', measureHeaderHeight);
+            setTimeout(measureHeaderHeight, 50);
+            setTimeout(measureHeaderHeight, 300);
+        })();
 
         // ─── Bottom-sheet kéo lên/xuống (mobile < md) ──────────────────────────────────
         (function() {
@@ -542,9 +741,6 @@
             var btnEl = document.getElementById(popId + '-btn');
             if (btnEl) btnEl.href = room.url || '#';
 
-            var bookingEl = document.getElementById(popId + '-booking');
-            if (bookingEl) bookingEl.href = p.bookingUrl || '#';
-
             var ctEl = document.getElementById(popId + '-ct');
             if (ctEl) ctEl.textContent = (p.idx + 1) + '/' + p.rooms.length;
         }
@@ -567,9 +763,6 @@
                 +   '<a id="' + popId + '-btn" href="#" '
                 +     'style="display:block;background:#0f766e;color:#fff;font-size:12px;font-weight:700;text-align:center;padding:7px 10px;border-radius:8px;text-decoration:none;letter-spacing:.01em;" '
                 +     'onclick="return this.href!==\'#\'">Xem phòng →</a>'
-                +   '<a id="' + popId + '-booking" href="#" '
-                +     'style="display:block;margin-top:7px;background:#111827;color:#fff;font-size:12px;font-weight:800;text-align:center;padding:7px 10px;border-radius:8px;text-decoration:none;letter-spacing:.01em;" '
-                +     'onclick="return this.href!==\'#\'">Đặt phòng chi nhánh →</a>'
                 + '</div>'
                 + '</div>';
         }
@@ -589,14 +782,15 @@
                 return;
             }
 
-            // Đọc branch data từ JSON script tag (an toàn, không bị HTML encode)
-            var branchData = [];
+            // Đọc room data từ JSON script tag (an toàn, không bị HTML encode) — mỗi phần tử
+            // là 1 phòng (đã lọc theo tiêu chí tìm kiếm), 1 pin trên bản đồ = 1 phòng.
+            var roomData = [];
             var dataEl = document.getElementById('branch-map-data');
             if (dataEl) {
                 try {
-                    branchData = JSON.parse(dataEl.textContent);
+                    roomData = JSON.parse(dataEl.textContent);
                 } catch (e) {
-                    console.error('branch data parse error', e);
+                    console.error('room data parse error', e);
                 }
             }
 
@@ -616,71 +810,54 @@
             var cards = document.querySelectorAll('.branch-card');
             var bounds = [];
 
-            branchData.forEach(function(branch, idx) {
-                var lat = parseFloat(branch.lat);
-                var lng = parseFloat(branch.lng);
-                var rooms = branch.rooms || [];
-                var roomCount = branch.room_count || rooms.length;
+            // Gom các phòng theo toạ độ (làm tròn 5 chữ số thập phân, sai số ~1m) để nhiều phòng ở
+            // cùng 1 địa điểm chỉ có 1 pin duy nhất trên bản đồ — tránh đè chồng giá lên nhau. Bấm/
+            // hover vào pin đó sẽ mở popup có nút prev/next (đã có sẵn trong buildPopupHtml khi
+            // rooms.length > 1) để lướt qua từng phòng tại địa điểm này.
+            var coordGroups = {};
+            var groupOrder = [];
+            roomData.forEach(function(room, idx) {
+                var lat = parseFloat(room.lat);
+                var lng = parseFloat(room.lng);
+                var hasCoords = lat && lng && !isNaN(lat) && !isNaN(lng);
+                var card = cards[idx] || null;
+                if (!hasCoords) return;
+
+                var key = lat.toFixed(5) + ',' + lng.toFixed(5);
+                if (!coordGroups[key]) {
+                    coordGroups[key] = { lat: lat, lng: lng, rooms: [], cards: [] };
+                    groupOrder.push(key);
+                }
+                coordGroups[key].rooms.push(room);
+                coordGroups[key].cards.push(card);
+            });
+
+            groupOrder.forEach(function(key, groupIdx) {
+                var group = coordGroups[key];
+                var lat = group.lat;
+                var lng = group.lng;
+                var rooms = group.rooms;
+                var groupCards = group.cards;
+
+                bounds.push([lat, lng]);
+
                 var roomPrices = rooms
                     .map(function(r) { return parseFloat(r.price); })
                     .filter(function(p) { return !isNaN(p) && p > 0; });
                 var minPrice = roomPrices.length ? Math.min.apply(null, roomPrices) : null;
 
-                var hasCoords = lat && lng && !isNaN(lat) && !isNaN(lng);
-
-                var card = cards[idx] || null;
-
-                // Hàm highlight card bên trái
-                function activateCard() {
-                    cards.forEach(function(c) {
-                        c.style.borderColor = '#f3f4f6';
-                    });
-                    if (card) {
-                        card.style.borderColor = '#0f766e';
-                    }
-
-                    // Reset marker cũ
-                    if (__activeBranchCard && __activeBranchCard.__leafletPin) {
-                        var oldEl = __activeBranchCard.__leafletPin.getElement();
-                        if (oldEl) {
-                            var b = oldEl.querySelector('.bpm');
-                            if (b) b.classList.remove('active');
-                        }
-                    }
-                    __activeBranchCard = card;
-                }
-
-                // Click trên card bên trái
-                if (card) {
-                    card.addEventListener('click', function() {
-                        activateCard();
-                        if (hasCoords) lm.openPopup();
-                        // Trên mobile, nếu sheet đang kéo full (che hết bản đồ) thì thu gọn lại
-                        // để người dùng thấy pin vừa được kích hoạt trên bản đồ.
-                        var sheetEl = document.getElementById('rooms-left-panel');
-                        if (window.innerWidth < 768 && window.__setSheetState && sheetEl &&
-                            sheetEl.classList.contains('sheet-full')) {
-                            window.__setSheetState('peek');
-                        }
-                    });
-                }
-
-                if (!hasCoords) return;
-                bounds.push([lat, lng]);
-
                 // Unique popup id
-                var popId = 'bp' + idx;
+                var popId = 'bp' + groupIdx;
                 __popups[popId] = {
                     rooms: rooms,
-                    idx: 0,
-                    bookingUrl: branch.booking_url || '#'
+                    idx: 0
                 };
 
                 // Marker
                 var pinLabel = minPrice
-                    ? 'Từ ' + Number(minPrice).toLocaleString('vi-VN') + 'đ'
+                    ? (rooms.length > 1 ? 'Từ ' : '') + Number(minPrice).toLocaleString('vi-VN') + 'đ'
                     : 'Liên hệ';
-                var pinHtml = '<div class="bpm">' + pinLabel + '<span class="bpm-count">' + roomCount + '</span></div>';
+                var pinHtml = '<div class="bpm">' + pinLabel + '</div>';
                 var lm = L.marker([lat, lng], {
                     icon: L.divIcon({
                         className: '',
@@ -691,7 +868,26 @@
                     zIndexOffset: 0
                 }).addTo(map);
 
-                if (card) card.__leafletPin = lm;
+                // Hover trên card bên trái -> mở đúng phòng đó trong popup của pin cùng vị trí
+                // (nhiều phòng dùng chung 1 pin + nút prev/next), không tô viền màu trên card list.
+                // Card giờ là link điều hướng thẳng đến trang phòng nên dùng hover thay vì click.
+                groupCards.forEach(function(card, roomIdxInGroup) {
+                    if (!card) return;
+                    card.__leafletPin = lm;
+                    card.addEventListener('mouseenter', function() {
+                        if (__activeBranchCard && __activeBranchCard.__leafletPin && __activeBranchCard.__leafletPin !== lm) {
+                            __activeBranchCard.__leafletPin.closePopup();
+                        }
+                        __activeBranchCard = card;
+                        __popups[popId].idx = roomIdxInGroup;
+                        __bpopRender(popId);
+                        lm.openPopup();
+                    });
+                    card.addEventListener('mouseleave', function() {
+                        lm.closePopup();
+                        if (__activeBranchCard === card) __activeBranchCard = null;
+                    });
+                });
 
                 // Popup
                 var popupHtml = buildPopupHtml(popId, rooms);
@@ -705,9 +901,9 @@
                     offset: L.point(0, -6)
                 });
 
-                // Render popup content sau khi DOM sẵn sàng
+                // Render popup content sau khi DOM sẵn sàng (giữ nguyên idx đã set từ hover ở trên;
+                // nếu popup mở do bấm thẳng vào pin thì dùng idx hiện có, mặc định 0 lần đầu).
                 lm.on('popupopen', function() {
-                    __popups[popId].idx = 0;
                     __bpopRender(popId);
 
                     // Đưa marker vào giữa map, offset lên trên ~30% để popup hiện bên trên không bị cắt
@@ -726,8 +922,9 @@
                         var b = pinEl.querySelector('.bpm');
                         if (b) b.classList.add('active');
                     }
-                    activateCard();
-                    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                    var activeCard = groupCards[__popups[popId].idx] || groupCards[0];
+                    __activeBranchCard = activeCard || null;
+                    if (activeCard) activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
                 });
 
                 lm.on('popupclose', function() {
@@ -758,18 +955,13 @@
             }, 150);
         }
 
-        document.addEventListener('DOMContentLoaded', initSearchMap);
-        document.addEventListener('livewire:navigated', function() {
-            var mapEl = document.getElementById('search-map');
-            if (mapEl && mapEl._leaflet_id && window.__searchMapInstance) {
-                window.__searchMapInstance.remove();
-                window.__searchMapInstance = null;
-            }
-            __activeBranchCard = null;
-            __popups = {};
-            initSearchMap();
-        });
+        // Không tự gọi initSearchMap() ở đây nữa — search-results.js gọi sau khi fetch xong dữ
+        // liệu phòng và đổ vào #branch-map-data, tránh init bản đồ với dữ liệu rỗng rồi bị khoá
+        // (initSearchMap có guard mapEl._leaflet_id, gọi lại lần 2 sẽ không dựng lại marker).
     </script>
+
+    <script src="{{ asset('js/home-sections.js') }}"></script>
+    <script src="{{ asset('js/search-results.js') }}"></script>
  @livewire('bladethemev1::footer')
     @livewire('bladethemev1::contact-link')
     @livewire('bladethemev1::notification')

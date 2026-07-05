@@ -265,6 +265,42 @@ class BladeThemeV1Controller extends Controller
 //        ]);
 //    }
 
+    public function favoritesPage(Request $request)
+    {
+        $seoData = [
+            'seo_title' => 'Yêu thích',
+            'seo_description' => 'Danh sách phòng đã lưu',
+            'seo_keywords' => 'yêu thích, phòng nghỉ, 365 home',
+            'og_type' => 'website',
+        ];
+
+        return view('bladethemev1::pages.favorites', [
+            'seoData' => $seoData,
+            'primaryColor' => $this->primaryColor,
+            'primaryColorRgb' => $this->primaryColorRgb,
+            'heavyPrimaryColor' => $this->heavyPrimaryColor,
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+        ]);
+    }
+
+    public function postsPage()
+    {
+        $seoData = [
+            'seo_title' => 'Tin tức',
+            'seo_description' => 'Tin tức và bài viết mới nhất',
+            'seo_keywords' => 'tin tức, bài viết, 365 home',
+            'og_type' => 'website',
+        ];
+
+        return view('bladethemev1::pages.posts', [
+            'seoData' => $seoData,
+            'primaryColor' => $this->primaryColor,
+            'primaryColorRgb' => $this->primaryColorRgb,
+            'heavyPrimaryColor' => $this->heavyPrimaryColor,
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+        ]);
+    }
+
     public function productDetail($slug)
     {
         $product = Product::where([
@@ -416,9 +452,11 @@ class BladeThemeV1Controller extends Controller
         ]);
     }
 
-    public function searchProduct(Request $request)
+    public function searchProduct(Request $request, string $location = '')
     {
-        $location  = $request->query('location', '');
+        // Ưu tiên location trên path (kiểu /s/ho-chi-minh), fallback query string
+        // ?location=... để không phá các link cũ đã chia sẻ/bookmark trước khi đổi cấu trúc URL.
+        $location = $location ?: $request->query('location', '');
 
         // Resolve province for map
         $province = null;
@@ -449,6 +487,7 @@ class BladeThemeV1Controller extends Controller
             'heavyPrimaryColor' => $this->heavyPrimaryColor,
             'lightPrimaryColor' => $this->lightPrimaryColor,
             'province'         => $province,
+            'location'         => $location,
             'mapLat'           => $mapLat,
             'mapLng'           => $mapLng,
             'mapZoom'          => $mapZoom,

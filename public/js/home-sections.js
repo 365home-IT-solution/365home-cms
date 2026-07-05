@@ -5,7 +5,7 @@ if (typeof window.__homeVnd === 'undefined') {
 }
 
 if (typeof window.__heartOutlineSvg === 'undefined') {
-    window.__heartOutlineSvg = '<svg xmlns="http://www.w3.org/2000/svg" fill="rgba(38,38,38,0.55)" viewBox="0 0 24 24" stroke-width="2" stroke="#fff" style="width:25px;height:25px;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6));"><path stroke-linecap="round" stroke-linejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" /></svg>';
+    window.__heartOutlineSvg = '<svg xmlns="http://www.w3.org/2000/svg" fill="rgba(38,38,38,0.55)" viewBox="0 0 24 24" stroke-width="1" stroke="#fff" style="width:25px;height:25px;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6));"><path stroke-linecap="round" stroke-linejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" /></svg>';
 }
 
 if (typeof window.__heartSolidSvg === 'undefined') {
@@ -55,7 +55,9 @@ if (typeof window.roomCardHtml === 'undefined') {
                 + Number(room.rating).toFixed(1) + '</span>'
             : '';
 
-        const badgeHtml = room.badge && room.badge.label
+        const roomTypeSlug = room.room_type?.slug || room.type_slug || room.type || '';
+        const isHomestay = String(roomTypeSlug).toLowerCase() === 'homestay' || String(room.type).toLowerCase() === 'homestay';
+        const badgeHtml = !isHomestay && room.badge && room.badge.label
             ? '<div style="position:absolute; top:8px; left:8px; background:' + (room.badge.bg_color || '#ef4444') + '; color:' + (room.badge.text_color || '#fff') + '; font-size:10px; font-weight:800; padding:3px 9px; border-radius:99px; z-index:2;">' + room.badge.label + '</div>'
             : '';
 

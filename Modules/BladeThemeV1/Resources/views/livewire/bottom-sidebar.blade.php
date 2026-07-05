@@ -95,11 +95,18 @@
             <span class="nav-label-1">Khám phá</span>
         </a>
 
-        <a href="#" class="nav-item-1">
+        <a href="/yeu-thich" class="nav-item-1 {{ $currentUrl === '/yeu-thich' ? 'active' : '' }}">
             <div class="nav-icon-1">
                 <x-heroicon-o-heart />
             </div>
             <span class="nav-label-1">Yêu thích</span>
+        </a>
+
+        <a href="/tin-tuc" class="nav-item-1 {{ $currentUrl === '/tin-tuc' ? 'active' : '' }}">
+            <div class="nav-icon-1">
+                <x-heroicon-o-newspaper />
+            </div>
+            <span class="nav-label-1">Tin tức</span>
         </a>
 
         <a href="/ticket-booking" class="nav-item-1 {{ $currentUrl === '/ticket-booking' ? 'active' : '' }}">
@@ -108,34 +115,6 @@
             </div>
             <span class="nav-label-1">Tra cứu</span>
         </a>
-
-        <div
-            x-data="{
-                isLoggedIn: false,
-                init() {
-                    this.check();
-                    window.addEventListener('auth-state-changed', () => this.check());
-                },
-                check() {
-                    this.isLoggedIn = !!(localStorage.getItem('auth_token') && localStorage.getItem('auth_user'));
-                },
-                go() {
-                    if (this.isLoggedIn) {
-                        window.location.href = '/tai-khoan#orders-section';
-                    } else {
-                        window.dispatchEvent(new CustomEvent('open-auth-modal'));
-                    }
-                },
-            }"
-            class="contents"
-        >
-            <a @click.prevent="go()" href="/tai-khoan#orders-section" class="nav-item-1">
-                <div class="nav-icon-1">
-                    <x-heroicon-o-clipboard-document-list />
-                </div>
-                <span class="nav-label-1">Đơn hàng</span>
-            </a>
-        </div>
 
         <div
             x-data="{

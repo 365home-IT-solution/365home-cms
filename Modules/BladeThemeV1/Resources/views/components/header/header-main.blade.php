@@ -62,13 +62,17 @@
 
 <div id="main-header-bar"
      x-data="{
-        isSticky: {{ $data->headerStyle ? "window.matchMedia('(max-width: 767px)').matches" : 'false' }},
-        mobileMenuOpen: false
+        isSticky: {{ $data->headerStyle ? "(window.__headerAlwaysExpanded ? false : window.matchMedia('(max-width: 767px)').matches)" : 'false' }},
+        mobileMenuOpen: false,
+        searchExpanded: false
     }"
      x-init="
         let ticking = false;
         window.addEventListener('scroll', () => {
-            if (ticking) return;
+            // Một số trang (vd tìm kiếm) cần header giữ nguyên kích thước cố định vì có phần tử
+            // sticky khác (bản đồ) neo theo chiều cao header — nếu header co giãn khi cuộn, phần
+            // tử đó bị giật theo. window.__headerAlwaysExpanded = true tắt hẳn hành vi thu gọn này.
+            if (ticking || window.__headerAlwaysExpanded) return;
             ticking = true;
             requestAnimationFrame(() => {
                 // Hysteresis: ngưỡng bật (80px) khác ngưỡng tắt (40px) để tránh isSticky
@@ -78,7 +82,11 @@
                 ticking = false;
             });
         }, { passive: true });
+        // Khi cuộn lại lên đầu (isSticky tắt) thì thanh tìm kiếm đầy đủ đã hiện sẵn rồi,
+        // reset searchExpanded để lần cuộn xuống kế tiếp lại bắt đầu từ trạng thái thu gọn.
+        $watch('isSticky', val => { if (!val) searchExpanded = false; });
     "
+     @click.outside="searchExpanded = false"
      :class="{
         'shadow-md': {{ $addShadow ? 'true' : 'false' }} && isSticky,
      }"
@@ -87,13 +95,18 @@
 
     <div style="background-color: {{ $initBgColor }};">
 
-        {{-- Hàng 1: logo / menu / actions (chỉ desktop) — chiều cao cố định, không đổi khi cuộn (tránh giật) --}}
-        <div class="hidden lg:block w-full max-w-11xl md:px-8 px-4 mx-auto py-[8px]" style="height: {{ $headerHeight }};">
-                <div class='flex flex-wrap items-center justify-between relative h-full'>
+        {{-- Hàng 1: logo / menu / actions (chỉ desktop) — cao tối thiểu theo cấu hình, tự giãn thêm
+             nếu logo được set cao hơn mức đó (tránh bị cắt/đè lên hàng dưới). --}}
+        <div class="hidden lg:block w-full max-w-11xl md:px-8 px-4 mx-auto py-[8px]" style="min-height: {{ $headerHeight }};">
+                <div class='flex flex-wrap items-center justify-between relative'>
                     <!-- Desktop Logo -->
                     <a href="{{ $logoLink }}"
                        class="hidden lg:flex items-center flex-shrink-0 order-1">
-                        <img :style="{ height: '{{ $logoHeight }}', filter: {{ $logoFilterExpr }} }"
+                        {{-- Style render thẳng từ server (không dùng Alpine :style) để chiều cao logo
+                             có ngay từ lần vẽ đầu tiên — nếu chỉ dùng :style, trước khi Alpine kịp
+                             chạy thì ảnh hiển thị ở kích thước gốc (rất to) rồi mới co lại, gây
+                             giật/lỗi giao diện mỗi lần tải trang. --}}
+                        <img style="height: {{ $logoHeight }}; filter: {{ trim($logoFilterExpr, "'") }};"
                              src="{{ asset('/storage/'.$logo) }}" alt="Logo"
                              class="transition-all duration-300"/>
                     </a>
@@ -102,9 +115,9 @@
                          Dùng grid xếp chồng 1 ô (thay vì flex chia đều) để trong lúc crossfade,
                          menu và pill KHÔNG cùng chiếm chỗ ngang hàng -> tránh bị bóp/wrap chữ. -->
                     <div class="hidden lg:grid flex-1 min-w-0 px-6 order-2" style="grid-template-columns: minmax(0,1fr);">
-                        <!-- Desktop Navigation: ẩn khi cuộn (isSticky) -->
+                        <!-- Desktop Navigation: ẩn khi cuộn (isSticky), hiện lại khi searchExpanded (đang thao tác thanh tìm kiếm) -->
                         <div class="col-start-1 row-start-1 flex items-center justify-center min-w-0"
-                             x-show="!isSticky"
+                             x-show="!isSticky || searchExpanded"
                              x-transition:enter="transition ease-out duration-200"
                              x-transition:enter-start="opacity-0"
                              x-transition:enter-end="opacity-100"
@@ -129,7 +142,7 @@
                         {{-- Chỗ trống để thanh tìm kiếm gọn (compact pill) "teleport" vào khi cuộn --}}
                         <div id="header-search-slot"
                              class="col-start-1 row-start-1 flex w-full min-w-0 items-center justify-center"
-                             x-show="isSticky" x-cloak></div>
+                             x-show="isSticky && !searchExpanded" x-cloak></div>
                     </div>
 
                     <!-- Desktop Action buttons -->
@@ -156,36 +169,21 @@
 
         {{-- Mobile: thanh tìm kiếm gọn (luôn hiện) + hàng menu, đặt ngay trong header --}}
         <div class="lg:hidden">
-            <div class="w-full px-4 pb-3 pt-3">
-                @livewire('bladethemev1::hero-section', ['mobileHeaderModal' => true])
+            <div class="w-full px-4 pb-1 pt-3">
+                @livewire('bladethemev1::hero-section', ['mobileHeaderModal' => true], key('hero-section-mobile'))
             </div>
-            @if (!empty($menu?->menuItems))
-                <div class="px-4 pb-2.5">
-                    <ul class="flex items-center justify-center gap-5 overflow-x-auto whitespace-nowrap [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                        @foreach ($menu->menuItems as $menuItem)
-                            @livewire('bladethemev1::menu-item', [
-                            'menuItem' => $menuItem,
-                            'depth' => 1,
-                            'loop' => $loop,
-                            'navStyle' => $navStyle,
-                            'navSize' => $navSize,
-                            ], key('mobile-' . $menuItem->id))
-                        @endforeach
-                    </ul>
-                </div>
-            @endif
         </div>
 
         {{-- Hàng 2: form tìm kiếm đầy đủ — co/giãn mượt bằng grid-template-rows (không dùng height:auto).
              overflow chỉ ẩn (hidden) lúc đang co lại/đã co (isSticky) để cắt phần tràn cho animation
              mượt; lúc mở rộng bình thường phải overflow-visible, nếu không các dropdown (lịch, danh
              sách địa điểm, số người...) tràn ra ngoài khung sẽ bị cắt mất/che khuất. --}}
-        <div class="hidden lg:grid transition-[grid-template-rows] duration-300 ease-in-out"
-             :class="isSticky ? 'overflow-hidden' : 'overflow-visible'"
-             :style="{ gridTemplateRows: isSticky ? '0fr' : '1fr' }">
-            <div :class="isSticky ? 'overflow-hidden' : 'overflow-visible'" class="min-h-0">
-                <div class="w-full max-w-7xl md:px-8 px-4 mx-auto pb-3">
-                    @livewire('bladethemev1::hero-section', ['headerRow' => true])
+        <div class="hidden lg:grid transition-[grid-template-rows] duration-150 ease-in-out"
+             :class="(isSticky && !searchExpanded) ? 'overflow-hidden' : 'overflow-visible'"
+             :style="{ gridTemplateRows: (isSticky && !searchExpanded) ? '0fr' : '1fr' }">
+            <div :class="(isSticky && !searchExpanded) ? 'overflow-hidden' : 'overflow-visible'" class="min-h-0">
+                <div class="w-full max-w-7xl md:px-8 px-4 mx-auto pb-5">
+                    @livewire('bladethemev1::hero-section', ['headerRow' => true], key('hero-section-header-row'))
                 </div>
             </div>
         </div>

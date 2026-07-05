@@ -1,13 +1,17 @@
 {{--
-    Mobile step-by-step search (kiểu Airbnb): Địa điểm -> Ngày & giờ -> Loại đặt -> Số người.
-    Mỗi bước chọn xong tự chuyển sang bước kế tiếp; bước cuối (Số người) gộp luôn nút tìm kiếm
-    thay vì có nút tìm kiếm riêng như bản desktop.
+    Mobile step-by-step search (kiểu Airbnb): Địa điểm -> Thời gian -> Khách.
+    Mỗi bước có hàng tiêu đề 1 dòng (nhãn trái, giá trị phải) — bấm vào mới mở rộng nội dung
+    bên dưới. Bước cuối (Khách) gộp luôn nút tìm kiếm thay vì có nút tìm kiếm riêng như bản desktop.
 
     Include từ _banner-form.blade.php và _compact-form.blade.php — kế thừa:
-    $locations, $selectedLocation, $locationLabel, $buoiOpts, $selectedBuoi, $buoiLabel,
+    $locations, $selectedLocation, $locationLabel, $selectedBuoi,
     $guestOpts, $selectedGuests, $guestsLabel, $checkmarkSvg, $checkIn, $checkOut, $searchAction
 
-    $boxSuffix: chuỗi (VD: 'Banner' / 'Compact') để x-ref và wire:key không trùng nhau giữa
+    Ngoài ra dùng các state Alpine đã khai báo ở x-data cha (banner-form/compact-form/hero-section):
+    locationSearch, selectedLocationSlug, mobileLocations — phục vụ tìm kiếm địa điểm client-side
+    không cần round-trip Livewire mỗi lần gõ chữ.
+
+    $boxSuffix: chuỗi (VD: 'Banner' / 'Compact') để wire:key không trùng nhau giữa
     hai bản banner-form và compact-form (cùng render trong 1 Livewire component).
 --}}
 @php
@@ -20,63 +24,99 @@
     <div class="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
         <button type="button" @click="mobileStep = (mobileStep === 1 ? 0 : 1)"
             class="w-full px-4 py-3.5 flex items-center justify-between gap-3 text-left">
-            <div class="min-w-0">
-                <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500">Địa điểm</span>
-                <span class="block text-sm font-semibold mt-0.5 truncate {{ $selectedLocation ? 'text-gray-900' : 'text-gray-400' }}">{{ $locationLabel }}</span>
+            <span class="text-base font-bold text-gray-900 shrink-0">Địa điểm</span>
+            <div class="flex items-center gap-2 min-w-0">
+                <span class="text-base font-medium truncate {{ $selectedLocation ? 'text-gray-900' : 'text-gray-400' }}">{{ $locationLabel }}</span>
+                <svg class="w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200" :class="mobileStep === 1 ? 'rotate-180' : ''"
+                    fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
             </div>
-            <svg class="w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200" :class="mobileStep === 1 ? 'rotate-180' : ''"
-                fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-            </svg>
         </button>
         <div x-show="mobileStep === 1" x-cloak
             x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
-            class="px-2 pb-3">
+            class="px-3 pb-3">
+
+            {{-- Ô tìm kiếm điểm đến --}}
+            <div class="relative mb-4">
+                <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
+                <input type="text" x-model="locationSearch" placeholder="Tìm kiếm điểm đến"
+                    class="w-full pl-11 pr-4 py-3.5 border border-gray-200 rounded-2xl text-base text-gray-800 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
+            </div>
+
             <button type="button" @click="locateMe()" :disabled="locating"
-                class="w-full px-3 py-2.5 text-left text-sm rounded-xl hover:bg-gray-50 flex items-center gap-2 text-teal-700 font-semibold transition-colors border-b border-gray-100 mb-1 disabled:opacity-60">
-                <svg x-show="!locating" class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                class="w-full px-4 py-3.5 text-left text-base rounded-2xl hover:bg-gray-50 flex items-center gap-3 text-teal-700 font-semibold transition-colors border-b border-gray-100 mb-1 disabled:opacity-60">
+                <svg x-show="!locating" class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
                 </svg>
-                <svg x-show="locating" x-cloak class="w-4 h-4 shrink-0 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg x-show="locating" x-cloak class="w-5 h-5 shrink-0 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 12a8 8 0 018-8V2.5"/>
                 </svg>
-                <span x-text="locating ? 'Đang định vị...' : 'Vị trí của tôi'"></span>
+                <span x-text="locating ? 'Đang định vị...' : 'Lân cận'"></span>
             </button>
-            <button type="button" wire:click.stop="setLocation('')" @click="mobileStep = 2"
+
+            <button type="button" wire:click.stop="setLocation('')" @click="selectedLocationSlug = ''; mobileStep = 2"
                 wire:key="{{ $keyPrefix }}location-all"
-                class="w-full px-3 py-2.5 text-left text-sm rounded-xl hover:bg-gray-50 flex items-center justify-between transition-colors {{ !$selectedLocation ? 'font-semibold text-teal-700 bg-teal-50/60' : 'text-gray-700' }}">
+                class="w-full px-4 py-3.5 text-left text-base rounded-2xl hover:bg-gray-50 flex items-center justify-between transition-colors"
+                :class="selectedLocationSlug === '' ? 'font-semibold text-teal-700 bg-teal-50/60' : 'text-gray-700'">
                 <span>Tất cả địa điểm</span>
-                @if(!$selectedLocation) {!! $checkmarkSvg !!} @endif
+                <svg x-show="selectedLocationSlug === ''" class="w-5 h-5 text-teal-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                </svg>
             </button>
-            @foreach($locations as $loc)
-            <button type="button" wire:click.stop="setLocation(@js($loc['slug']))" @click="mobileStep = 2"
-                wire:key="{{ $keyPrefix }}location-{{ $loc['slug'] }}"
-                class="w-full px-3 py-2.5 text-left text-sm rounded-xl hover:bg-gray-50 flex items-center justify-between transition-colors {{ $selectedLocation === $loc['slug'] ? 'font-semibold text-teal-700 bg-teal-50/60' : 'text-gray-700' }}">
-                <span>{{ $loc['name'] }}</span>
-                @if($selectedLocation === $loc['slug']) {!! $checkmarkSvg !!} @endif
-            </button>
-            @endforeach
+
+            <p class="text-sm font-semibold text-gray-500 mt-3 mb-1 px-4">Điểm đến được đề xuất</p>
+
+            <template x-for="loc in mobileLocations.filter(l => !locationSearch.trim() || l.name.toLowerCase().includes(locationSearch.trim().toLowerCase()))" :key="loc.slug">
+                <button type="button" @click="selectedLocationSlug = loc.slug; $wire.setLocation(loc.slug); mobileStep = 2"
+                    class="w-full px-4 py-3.5 text-left text-base rounded-2xl hover:bg-gray-50 flex items-center justify-between transition-colors"
+                    :class="selectedLocationSlug === loc.slug ? 'font-semibold text-teal-700 bg-teal-50/60' : 'text-gray-700'">
+                    <span x-text="loc.name"></span>
+                    <svg x-show="selectedLocationSlug === loc.slug" class="w-5 h-5 text-teal-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                    </svg>
+                </button>
+            </template>
+            <p class="text-base text-gray-400 text-center py-4"
+                x-show="locationSearch.trim() && !mobileLocations.some(l => l.name.toLowerCase().includes(locationSearch.trim().toLowerCase()))">
+                Không tìm thấy địa điểm phù hợp
+            </p>
         </div>
     </div>
 
-    {{-- Bước 2: Ngày & giờ --}}
+    {{-- Bước 2: Thời gian --}}
     <div class="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
         <button type="button" @click="mobileStep = (mobileStep === 2 ? 0 : 2)"
-            class="w-full px-4 py-3.5 flex items-center gap-3 text-left">
-            <div class="flex-1 min-w-0">
-                <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500">Ngày &amp; giờ</span>
-                <span class="block text-sm font-semibold mt-0.5 truncate"
+            class="w-full px-4 py-3.5 flex items-center justify-between gap-3 text-left">
+            <span class="text-base font-bold text-gray-900 shrink-0">Thời gian</span>
+            <div class="flex items-center gap-2 min-w-0">
+                <span class="text-base font-medium truncate"
                     :class="checkIn ? 'text-gray-900' : 'text-gray-400'"
-                    x-text="(checkIn && checkOut) ? (displayCheckIn + ' → ' + displayCheckOut) : '{{ ($checkIn && $checkOut) ? $checkIn . ' → ' . $checkOut : 'Chọn ngày & giờ' }}'"></span>
+                    x-text="(checkIn && checkOut) ? (displayCheckIn + ' → ' + displayCheckOut) : '{{ ($checkIn && $checkOut) ? $checkIn . ' → ' . $checkOut : 'Thêm ngày' }}'"></span>
+                <svg class="w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200" :class="mobileStep === 2 ? 'rotate-180' : ''"
+                    fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
             </div>
-            <svg class="w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200" :class="mobileStep === 2 ? 'rotate-180' : ''"
-                fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-            </svg>
         </button>
 
         <div x-show="mobileStep === 2" x-cloak class="px-3 pb-3">
+
+            {{-- Tabs Theo giờ / Theo ngày --}}
+            <div class="flex items-center gap-1.5 mb-3 p-1 bg-gray-100 rounded-full w-fit mx-auto">
+                <button type="button" wire:click.stop="setBuoi('1')" @click="dayMode = false; if (checkIn) { checkOut = checkIn }"
+                    class="px-4 py-1.5 rounded-full text-xs font-semibold transition-colors {{ $selectedBuoi !== '2' ? 'bg-white text-teal-700 shadow-sm' : 'text-gray-500' }}">
+                    Theo giờ
+                </button>
+                <button type="button" wire:click.stop="setBuoi('2')" @click="dayMode = true"
+                    class="px-4 py-1.5 rounded-full text-xs font-semibold transition-colors {{ $selectedBuoi === '2' ? 'bg-white text-teal-700 shadow-sm' : 'text-gray-500' }}">
+                    Theo ngày
+                </button>
+            </div>
+
             {{-- Lịch (1 tháng, điều hướng bằng mũi tên) --}}
             <div class="flex items-center justify-between mb-1.5">
                 <button type="button" @click="prevMonth()" class="p-1 rounded-full hover:bg-gray-100 text-gray-500 transition-colors">
@@ -96,7 +136,7 @@
                 <template x-for="(date, idx) in getCalendarDays(viewYear, viewMonth)" :key="idx">
                     <div class="flex items-center justify-center aspect-square">
                         <template x-if="date !== null">
-                            <button type="button" @click="selectDate(date)" :disabled="isPast(date)"
+                            <button type="button" @click="{{ $selectedBuoi === '2' ? 'selectDate(date)' : 'selectSingleDate(date)' }}" :disabled="isPast(date)"
                                 :class="{
                                     'bg-teal-800 text-white rounded-full': isSelected(date),
                                     'bg-teal-50 rounded-none': isInRange(date) && !isSelected(date),
@@ -112,48 +152,35 @@
                 </template>
             </div>
 
-            {{-- Giờ nhận / trả phòng — dùng select gọn, không cần dropdown/scroll riêng --}}
-            <div class="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-gray-100">
-                {{-- Check-in --}}
+            @if($selectedBuoi !== '2')
+            {{-- Badge giờ nhận / trả phòng (chỉ hiện ở tab Theo giờ) --}}
+            <div class="mt-2.5 pt-2.5 border-t border-gray-100 space-y-2.5">
                 <div>
-                    <p class="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-1">Nhận phòng</p>
-                    <div class="flex items-center gap-1">
-                        <select x-model.number="checkInHour"
-                            class="flex-1 min-w-0 border border-gray-200 rounded-lg px-1 py-1.5 text-[12px] font-semibold text-gray-900 bg-white">
-                            <template x-for="h in availableCheckInHours" :key="h">
-                                <option :value="h" x-text="String(h).padStart(2,'0') + 'h'"></option>
-                            </template>
-                        </select>
-                        <select x-model.number="checkInMin"
-                            class="flex-1 min-w-0 border border-gray-200 rounded-lg px-1 py-1.5 text-[12px] font-semibold text-gray-900 bg-white">
-                            <template x-for="m in availableCheckInMinutes" :key="m">
-                                <option :value="m" x-text="String(m).padStart(2,'0')"></option>
-                            </template>
-                        </select>
+                    <p class="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Giờ nhận phòng</p>
+                    <div class="flex flex-wrap gap-1.5">
+                        <template x-for="h in hourBadges" :key="'in-' + h">
+                            <button type="button" x-show="availableStartHourBadges.includes(h)"
+                                @click="checkInHour = h"
+                                :class="checkInHour === h ? 'bg-teal-700 text-white border-teal-700' : 'bg-white text-gray-600 border-gray-200'"
+                                class="px-2.5 py-1 rounded-full border text-[11px] font-semibold transition-colors"
+                                x-text="String(h).padStart(2,'0') + ':00'"></button>
+                        </template>
                     </div>
                 </div>
-                {{-- Check-out --}}
                 <div>
-                    <p class="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-1 truncate">
-                        Trả phòng
-                        <span x-show="isSameDayBooking" class="text-teal-600 normal-case font-normal">(cùng ngày)</span>
-                    </p>
-                    <div class="flex items-center gap-1">
-                        <select x-model.number="checkOutHour" @change="ensureCheckOutAfterCheckIn()"
-                            class="flex-1 min-w-0 border border-gray-200 rounded-lg px-1 py-1.5 text-[12px] font-semibold text-gray-900 bg-white">
-                            <template x-for="h in availableCheckoutHours" :key="h">
-                                <option :value="h" x-text="String(h).padStart(2,'0') + 'h'"></option>
-                            </template>
-                        </select>
-                        <select x-model.number="checkOutMin" @change="ensureCheckOutAfterCheckIn()"
-                            class="flex-1 min-w-0 border border-gray-200 rounded-lg px-1 py-1.5 text-[12px] font-semibold text-gray-900 bg-white">
-                            <template x-for="m in (checkIn && checkOut && isSameDay(checkIn, checkOut) && checkOutHour === checkInHour ? minutes.filter(m => m > checkInMin) : minutes)" :key="m">
-                                <option :value="m" x-text="String(m).padStart(2,'0')"></option>
-                            </template>
-                        </select>
+                    <p class="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Giờ trả phòng</p>
+                    <div class="flex flex-wrap gap-1.5">
+                        <template x-for="h in hourBadges" :key="'out-' + h">
+                            <button type="button" x-show="availableEndHourBadges.includes(h)"
+                                @click="checkOutHour = h"
+                                :class="checkOutHour === h ? 'bg-teal-700 text-white border-teal-700' : 'bg-white text-gray-600 border-gray-200'"
+                                class="px-2.5 py-1 rounded-full border text-[11px] font-semibold transition-colors"
+                                x-text="String(h).padStart(2,'0') + ':00'"></button>
+                        </template>
                     </div>
                 </div>
             </div>
+            @endif
 
             <div class="flex items-center gap-2 mt-2.5">
                 <button type="button" @click="resetDate()"
@@ -172,102 +199,46 @@
         </div>
     </div>
 
-    {{-- Bước 3: Loại đặt --}}
+    {{-- Bước 3: Khách --}}
     <div class="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
         <button type="button" @click="mobileStep = (mobileStep === 3 ? 0 : 3)"
             class="w-full px-4 py-3.5 flex items-center justify-between gap-3 text-left">
-            <div class="min-w-0">
-                <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500">Loại đặt</span>
-                <span class="block text-sm font-semibold mt-0.5 {{ $selectedBuoi ? 'text-gray-900' : 'text-gray-400' }}">{{ $buoiLabel }}</span>
+            <span class="text-base font-bold text-gray-900 shrink-0">Khách</span>
+            <div class="flex items-center gap-2 min-w-0">
+                <span class="text-base font-medium truncate {{ $selectedGuests ? 'text-gray-900' : 'text-gray-400' }}">{{ $guestsLabel }}</span>
+                <svg class="w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200" :class="mobileStep === 3 ? 'rotate-180' : ''"
+                    fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
             </div>
-            <svg class="w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200" :class="mobileStep === 3 ? 'rotate-180' : ''"
-                fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-            </svg>
         </button>
-        <div x-show="mobileStep === 3" x-cloak
-            x-transition:enter="transition ease-out duration-200"
-            x-transition:enter-start="opacity-0 -translate-y-1"
-            x-transition:enter-end="opacity-100 translate-y-0"
-            class="px-3 pb-4 space-y-2.5">
-            @php
-                $buoiMeta = [
-                    ''  => ['icon' => 'grid', 'desc' => 'Xem tất cả loại phòng đang có'],
-                    '1' => ['icon' => 'clock', 'desc' => 'Đặt theo từng khung giờ ngắn'],
-                    '2' => ['icon' => 'calendar', 'desc' => 'Đặt trọn ngày, nhận – trả phòng cố định'],
-                ];
-            @endphp
-            @foreach($buoiOpts as $bVal => $bLbl)
-            @php
-                $isSel = (!$bVal && !$selectedBuoi) || ($bVal && $selectedBuoi === $bVal);
-                $bIcon = $buoiMeta[$bVal]['icon'] ?? 'grid';
-                $bDesc = $buoiMeta[$bVal]['desc'] ?? '';
-            @endphp
-            <button type="button" wire:click.stop="setBuoi(@js($bVal))" @click="mobileStep = 4"
-                wire:key="{{ $keyPrefix }}buoi-{{ $bVal ?: 'all' }}"
-                class="w-full flex items-center gap-3 p-3 rounded-2xl border-2 text-left transition-all duration-200 active:scale-[0.98] {{ $isSel ? 'border-teal-600 bg-teal-50/70 shadow-sm' : 'border-gray-100 bg-white hover:border-gray-200 hover:bg-gray-50' }}">
-                <span class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-colors duration-200 {{ $isSel ? 'bg-teal-600 text-white' : 'bg-gray-100 text-gray-500' }}">
-                    @if($bIcon === 'clock')
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                    @elseif($bIcon === 'calendar')
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-                    @else
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
-                    @endif
-                </span>
-                <span class="flex-1 min-w-0">
-                    <span class="block text-sm font-bold {{ $isSel ? 'text-teal-800' : 'text-gray-900' }}">{{ $bLbl }}</span>
-                    <span class="block text-xs text-gray-500 mt-0.5">{{ $bDesc }}</span>
-                </span>
-                <span class="w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors duration-200 {{ $isSel ? 'border-teal-600 bg-teal-600' : 'border-gray-300' }}">
-                    @if($isSel)
-                    <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
-                    @endif
-                </span>
+        <div x-show="mobileStep === 3" x-cloak class="px-2 pb-3">
+            @foreach($guestOpts as $gVal => $gLbl)
+            <button type="button" wire:click.stop="setGuests(@js($gVal))" @click="mobileStep = 0"
+                wire:key="{{ $keyPrefix }}guests-{{ $gVal ?: 'all' }}"
+                class="w-full px-4 py-3.5 text-left text-base rounded-2xl hover:bg-gray-50 flex items-center justify-between transition-colors {{ (!$gVal && !$selectedGuests) || ($gVal && $selectedGuests === $gVal) ? 'font-semibold text-teal-700 bg-teal-50/60' : 'text-gray-700' }}">
+                <span>{{ $gLbl }}</span>
+                @if((!$gVal && !$selectedGuests) || ($gVal && $selectedGuests === $gVal)) {!! $checkmarkSvg !!} @endif
             </button>
             @endforeach
         </div>
     </div>
 
-    {{-- Bước 4: Số người --}}
-    <div class="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-        <button type="button" @click="mobileStep = (mobileStep === 4 ? 0 : 4)"
-            class="w-full px-4 py-3.5 flex items-center justify-between gap-3 text-left">
-            <div class="min-w-0">
-                <span class="text-[10px] font-bold uppercase tracking-widest text-gray-500">Số người</span>
-                <span class="block text-sm font-semibold mt-0.5 {{ $selectedGuests ? 'text-gray-900' : 'text-gray-400' }}">{{ $guestsLabel }}</span>
-            </div>
-            <svg class="w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200" :class="mobileStep === 4 ? 'rotate-180' : ''"
-                fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-            </svg>
+    {{-- Xoá tất cả + Tìm kiếm — luôn hiển thị bất kể đang ở bước nào (giống Airbnb),
+         không phụ thuộc vào việc bước Khách có đang mở hay không. --}}
+    <div class="flex items-center gap-3 pt-1">
+        <button type="button" wire:click.stop="clearAll()"
+            @click="checkIn = null; checkOut = null; selectedLocationSlug = ''; locationSearch = ''; mobileStep = 1"
+            class="flex-1 py-3.5 rounded-2xl border-2 border-gray-200 text-gray-700 text-base font-semibold text-center hover:bg-gray-50 active:scale-[0.98] transition-all">
+            Xoá tất cả
         </button>
-        <div x-show="mobileStep === 4" x-cloak class="px-2 pb-3">
-            @foreach($guestOpts as $gVal => $gLbl)
-            <button type="button" wire:click.stop="setGuests(@js($gVal))" @click="mobileStep = 0"
-                wire:key="{{ $keyPrefix }}guests-{{ $gVal ?: 'all' }}"
-                class="w-full px-3 py-2.5 text-left text-sm rounded-xl hover:bg-gray-50 flex items-center justify-between transition-colors {{ (!$gVal && !$selectedGuests) || ($gVal && $selectedGuests === $gVal) ? 'font-semibold text-teal-700 bg-teal-50/60' : 'text-gray-700' }}">
-                <span>{{ $gLbl }}</span>
-                @if((!$gVal && !$selectedGuests) || ($gVal && $selectedGuests === $gVal)) {!! $checkmarkSvg !!} @endif
-            </button>
-            @endforeach
-
-            {{-- Xoá tất cả + Tìm kiếm — đặt ngay dưới Số người thay vì cố định xa ở đáy màn hình --}}
-            <div class="flex items-center gap-3 mt-3 pt-3 border-t border-gray-100">
-                <button type="button" wire:click.stop="clearAll()"
-                    @click="checkIn = null; checkOut = null; mobileStep = 1"
-                    class="flex-1 py-3 rounded-2xl border-2 border-gray-200 text-gray-700 text-sm font-semibold text-center hover:bg-gray-50 active:scale-[0.98] transition-all">
-                    Xoá tất cả
-                </button>
-                <button type="button" x-on:click.stop.prevent="{{ $searchAction }}"
-                    class="flex-1 py-3 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white text-sm font-bold text-center shadow-md hover:shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-                    </svg>
-                    Tìm kiếm
-                </button>
-            </div>
-        </div>
+        <button type="button" x-on:click.stop.prevent="{{ $searchAction }}"
+            class="flex-1 py-3.5 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white text-base font-bold text-center shadow-md hover:shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
+            Tìm kiếm
+        </button>
     </div>
 
 </div>

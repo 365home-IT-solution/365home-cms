@@ -418,7 +418,8 @@
                                     @keyframes pdPulse { 0%,100%{opacity:1;transform:translate(-50%,-50%) scale(1)} 50%{opacity:.9;transform:translate(-50%,-50%) scale(1.05)} }
                                     /* ── Desktop card & sticky cols ── */
                                     .pd-book-card { background:#fff; border-radius:20px; box-shadow:0 8px 32px rgba(78,107,76,.12),0 2px 8px rgba(0,0,0,.04); border:1px solid #d4e4d2; }
-                                    .pd-book-card-scroll { overflow:auto; max-height:500px; border-radius:20px; }
+                                    .pd-book-card-scroll { overflow:auto; max-height:500px; border-radius:20px; scrollbar-width:none; -ms-overflow-style:none; }
+                                    .pd-book-card-scroll::-webkit-scrollbar { display:none; width:0; height:0; }
                                     thead { position:sticky; top:0; z-index:30; background: var(--pd-room-color, #4e6b4c) !important; }
                                     .sticky-col-header { position:sticky; left:0; z-index:40; background: var(--pd-room-color, #4e6b4c) !important; color: var(--pd-room-text, #ffffff) !important; }
                                     .sticky-col-thu  { left:0   !important; min-width:45px; }
@@ -438,9 +439,8 @@
                                     .pd-slots-header-row    { display:flex; gap:3px; padding:0 4px; height:46px; align-items:center; border-bottom:1px solid rgba(255,255,255,.15); }
                                     .pd-slot-th    { flex:1; text-align:center; font-size:.55rem; font-weight:700; letter-spacing:-.03em; line-height:1.15; min-width:0; }
                                     .pd-overnight-tag { display:block; font-size:.48rem; font-weight:600; background:rgba(0,0,0,.25); color:#fff; border-radius:3px; padding:1px 2px; margin-top:1px; }
-                                    .pd-mobile-scroll { max-height:380px; overflow-y:auto; overflow-x:hidden; border-radius:0 0 20px 20px; }
-                                    .pd-mobile-scroll::-webkit-scrollbar { width:4px; }
-                                    .pd-mobile-scroll::-webkit-scrollbar-thumb { background:var(--pd-room-color,#4e6b4c); border-radius:4px; }
+                                    .pd-mobile-scroll { max-height:380px; overflow-y:auto; overflow-x:hidden; border-radius:0 0 20px 20px; scrollbar-width:none; -ms-overflow-style:none; }
+                                    .pd-mobile-scroll::-webkit-scrollbar { display:none; width:0; height:0; }
                                     .pd-grid-outer  { display:flex; gap:10px; padding:12px 14px 20px; align-items:flex-start; }
                                     .pd-dates-card  { border-radius:14px; min-width:72px; width:72px; flex-shrink:0; box-shadow:0 6px 24px rgba(0,0,0,.2); overflow:clip; background:var(--pd-room-color,#4e6b4c); }
                                     .pd-date-row    { height:38px; display:flex; flex-direction:column; align-items:center; justify-content:center; border-bottom:1px solid rgba(255,255,255,.12); gap:2px; padding:0 4px; }

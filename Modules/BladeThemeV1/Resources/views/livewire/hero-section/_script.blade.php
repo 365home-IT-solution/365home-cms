@@ -38,58 +38,38 @@
             );
         };
 
-        window.heroDatePicker = function() {
+        window.heroDatePicker = function(dayModeInit) {
             return {
                 open: false,
+                // false = tab "Theo giờ" (1 ngày + badge giờ nhận/trả), true = tab "Theo ngày" (khoảng ngày, giờ cố định 14:00/12:00)
+                dayMode: dayModeInit === true,
                 checkIn: null,
                 checkOut: null,
                 hoverDate: null,
                 checkInHour: 14,
-                checkInMin: 0,
-                checkOutHour: 12,
-                checkOutMin: 0,
-                checkInHourOpen: false,
-                checkOutHourOpen: false,
-                checkInHourPos: { openUp: true, top: 0, bottom: 0, left: 0, width: 0 },
-                checkOutHourPos: { openUp: true, top: 0, bottom: 0, left: 0, width: 0 },
-                _hourDropdownCleanup: null,
-                computeHourDropdownPos(boxEl) {
-                    const r = boxEl.getBoundingClientRect();
-                    const panelH = 180; // ước lượng chiều cao dropdown (max-height panel)
-                    const openUp = r.top - 6 >= panelH || (window.innerHeight - r.bottom - 6) < panelH;
-                    return openUp
-                        ? { openUp: true, bottom: window.innerHeight - r.top + 6, top: 0, left: r.left, width: Math.max(r.width, 160) }
-                        : { openUp: false, top: r.bottom + 6, bottom: 0, left: r.left, width: Math.max(r.width, 160) };
+                checkOutHour: 16,
+                // Badge giờ tròn: 06:00 → 22:00, mỗi badge cách nhau 1 tiếng
+                hourBadges: Array.from({ length: 17 }, (_, i) => i + 6),
+                _dateDropdownCleanup: null,
+                // Giữ popup lịch (rộng cố định 640px, canh giữa theo field) luôn nằm trong màn hình.
+                // Không làm thế thì ở màn hình hẹp, popup tràn ra ngoài viewport → xuất hiện thanh
+                // cuộn ngang → toàn trang bị "rung/giật" mỗi khi mở/đóng hoặc đổi kích thước cửa sổ.
+                positionDateDropdown(popupEl) {
+                    if (!popupEl || !popupEl.parentElement) return;
+                    const box = popupEl.parentElement.getBoundingClientRect();
+                    const w = popupEl.offsetWidth || 640;
+                    const margin = 12;
+                    let left = (box.left + box.width / 2) - w / 2;
+                    left = Math.min(Math.max(left, margin), window.innerWidth - w - margin);
+                    popupEl.style.left = (left - box.left) + 'px';
+                    popupEl.style.transform = 'none';
                 },
-                openHourDropdown(which, boxEl) {
-                    if (this._hourDropdownCleanup) { this._hourDropdownCleanup(); this._hourDropdownCleanup = null; }
-
-                    const otherKey = which === 'checkIn' ? 'checkOutHourOpen' : 'checkInHourOpen';
-                    const openKey = which === 'checkIn' ? 'checkInHourOpen' : 'checkOutHourOpen';
-                    const posKey = which === 'checkIn' ? 'checkInHourPos' : 'checkOutHourPos';
-
-                    this[otherKey] = false;
-                    const willOpen = !this[openKey];
-                    this[openKey] = willOpen;
-
-                    if (!willOpen) return;
-
-                    const update = () => { this[posKey] = this.computeHourDropdownPos(boxEl); };
-                    update();
-
-                    // scroll không nổi bọt (bubble) nên phải bắt ở pha capture để nghe được cả scroll trong khung con
-                    window.addEventListener('scroll', update, true);
+                openDateDropdown(popupEl) {
+                    this.$nextTick(() => this.positionDateDropdown(popupEl));
+                    if (this._dateDropdownCleanup) { this._dateDropdownCleanup(); this._dateDropdownCleanup = null; }
+                    const update = () => this.positionDateDropdown(popupEl);
                     window.addEventListener('resize', update);
-                    this._hourDropdownCleanup = () => {
-                        window.removeEventListener('scroll', update, true);
-                        window.removeEventListener('resize', update);
-                    };
-                    this.$watch(openKey, val => {
-                        if (!val && this._hourDropdownCleanup) {
-                            this._hourDropdownCleanup();
-                            this._hourDropdownCleanup = null;
-                        }
-                    });
+                    this._dateDropdownCleanup = () => window.removeEventListener('resize', update);
                 },
                 viewMonth: null,
                 viewYear: null,
@@ -97,18 +77,18 @@
                 monthNames: ['Tháng 1', 'Tháng 2', 'Tháng 3', 'Tháng 4', 'Tháng 5', 'Tháng 6',
                     'Tháng 7', 'Tháng 8', 'Tháng 9', 'Tháng 10', 'Tháng 11', 'Tháng 12'
                 ],
-                hours: Array.from({ length: 24 }, (_, i) => i),
-                minutes: [0, 15, 30, 45],
                 init() {
                     const now = new Date();
                     this.viewMonth = now.getMonth();
                     this.viewYear = now.getFullYear();
-                    const correct = () => this.$nextTick(() => this.ensureCheckOutAfterCheckIn());
-                    this.$watch('checkIn', () => { this.ensureCheckInNotPast(); correct(); });
-                    this.$watch('checkInHour', () => { this.ensureCheckInNotPast(); correct(); });
-                    this.$watch('checkInMin', () => { this.ensureCheckInNotPast(); correct(); });
-                    this.$watch('checkOut', correct);
-                    this.$watch('checkOutHour', correct);
+                    this.$watch('checkIn', () => this.ensureStartHourNotPast());
+                    this.$watch('checkInHour', () => this.ensureEndAfterStart());
+                    this.$watch('open', val => {
+                        if (!val && this._dateDropdownCleanup) {
+                            this._dateDropdownCleanup();
+                            this._dateDropdownCleanup = null;
+                        }
+                    });
                 },
                 get viewMonthName() { return this.monthNames[this.viewMonth]; },
                 get nextViewMonth() { return this.viewMonth === 11 ? 0 : this.viewMonth + 1; },
@@ -131,6 +111,7 @@
                     for (let d = 1; d <= this.getDaysInMonth(year, month); d++) days.push(new Date(year, month, d));
                     return days;
                 },
+                // Tab "Theo ngày": chọn khoảng ngày (check-in / check-out khác nhau)
                 selectDate(date) {
                     if (!date || this.isPast(date)) return;
                     if (!this.checkIn) {
@@ -149,7 +130,12 @@
                             this.checkOut = date;
                         }
                     }
-                    this.ensureCheckOutAfterCheckIn();
+                },
+                // Tab "Theo giờ": luôn chỉ 1 ngày duy nhất (check-in = check-out)
+                selectSingleDate(date) {
+                    if (!date || this.isPast(date)) return;
+                    this.checkIn = date;
+                    this.checkOut = date;
                 },
                 isPast(date) {
                     const today = new Date();
@@ -172,82 +158,40 @@
                     if (!date) return '';
                     return `${String(date.getDate()).padStart(2,'0')}/${String(date.getMonth()+1).padStart(2,'0')}/${date.getFullYear()}`;
                 },
-                get availableCheckoutHours() {
-                    if (!this.isSameDayBooking) return this.hours;
-                    return this.hours.filter(h => {
-                        if (h > this.checkInHour) return true;
-                        if (h === this.checkInHour) return this.minutes.some(m => m > this.checkInMin);
-                        return false;
-                    });
-                },
-                get availableCheckoutMinutes() {
-                    if (!this.isSameDayBooking || this.checkOutHour !== this.checkInHour) return this.minutes;
-                    return this.minutes.filter(m => m > this.checkInMin);
-                },
                 get isCheckInToday() {
                     return !!(this.checkIn && this.isSameDay(this.checkIn, new Date()));
                 },
-                get minCheckInHour() {
-                    return this.isCheckInToday ? new Date().getHours() : 0;
+                // Badge giờ nhận phòng còn hợp lệ (loại bỏ giờ đã qua nếu chọn ngày hôm nay)
+                get availableStartHourBadges() {
+                    if (!this.isCheckInToday) return this.hourBadges;
+                    const nowH = new Date().getHours();
+                    return this.hourBadges.filter(h => h >= nowH);
                 },
-                get availableCheckInHours() {
-                    if (!this.isCheckInToday) return this.hours;
-                    const now = new Date();
-                    return this.hours.filter(h => {
-                        if (h > now.getHours()) return true;
-                        if (h === now.getHours()) return this.minutes.some(m => m > now.getMinutes());
-                        return false;
-                    });
+                // Badge giờ trả phòng: phải sau giờ nhận phòng
+                get availableEndHourBadges() {
+                    return this.hourBadges.filter(h => h > this.checkInHour);
                 },
-                get availableCheckInMinutes() {
-                    if (!this.isCheckInToday) return this.minutes;
-                    const now = new Date();
-                    if (this.checkInHour > now.getHours()) return this.minutes;
-                    if (this.checkInHour === now.getHours()) return this.minutes.filter(m => m > now.getMinutes());
-                    return [];
-                },
-                ensureCheckInNotPast() {
+                ensureStartHourNotPast() {
                     if (!this.isCheckInToday) return;
-                    const now = new Date();
-                    const nowH = now.getHours(), nowM = now.getMinutes();
-                    if (this.checkInHour > nowH) return;
-                    if (this.checkInHour === nowH) {
-                        if (this.minutes.some(m => m > nowM && m === this.checkInMin)) return;
-                    }
-                    const nextH = this.availableCheckInHours[0];
-                    if (nextH === undefined) return;
-                    this.checkInHour = nextH;
-                    const validMins = nextH === nowH ? this.minutes.filter(m => m > nowM) : this.minutes;
-                    this.checkInMin = validMins[0] ?? 0;
+                    if (this.availableStartHourBadges.includes(this.checkInHour)) return;
+                    const next = this.availableStartHourBadges[0];
+                    if (next !== undefined) this.checkInHour = next;
+                },
+                ensureEndAfterStart() {
+                    if (this.availableEndHourBadges.includes(this.checkOutHour)) return;
+                    const next = this.availableEndHourBadges[0];
+                    this.checkOutHour = next !== undefined ? next : 22;
                 },
                 get displayCheckIn() {
                     if (!this.checkIn) return '';
-                    return `${this.formatDisplay(this.checkIn)} ${String(this.checkInHour).padStart(2,'0')}:${String(this.checkInMin).padStart(2,'0')}`;
+                    if (this.dayMode) return `${this.formatDisplay(this.checkIn)} 14:00`;
+                    return `${this.formatDisplay(this.checkIn)} ${String(this.checkInHour).padStart(2,'0')}:00`;
                 },
                 get displayCheckOut() {
                     const date = this.checkOut || this.checkIn;
                     if (!date) return '';
-                    return `${this.formatDisplay(date)} ${String(this.checkOutHour).padStart(2,'0')}:${String(this.checkOutMin).padStart(2,'0')}`;
-                },
-                get isSameDayBooking() {
-                    return !!(this.checkIn && this.checkOut && this.isSameDay(this.checkIn, this.checkOut));
-                },
-                ensureCheckOutAfterCheckIn(forceOutHour) {
-                    if (!this.isSameDayBooking) return;
-                    const inH = this.checkInHour, inM = this.checkInMin;
-                    const outH = (forceOutHour !== undefined) ? Number(forceOutHour) : this.checkOutHour;
-                    const outM = this.checkOutMin;
-                    let newH = outH, newM = outM;
-                    if (outH < inH) {
-                        newH = inH;
-                        const nxt = this.minutes.find(m => m > inM);
-                        if (nxt !== undefined) { newM = nxt; } else { newH = Math.min(inH + 1, 23); newM = 0; }
-                    } else if (outH === inH && outM <= inM) {
-                        const nxt = this.minutes.find(m => m > inM);
-                        if (nxt !== undefined) { newM = nxt; } else { newH = Math.min(inH + 1, 23); newM = 0; }
-                    }
-                    if (newH !== this.checkOutHour) this.checkOutHour = newH;
-                    if (newM !== this.checkOutMin) this.checkOutMin = newM;
+                    if (this.dayMode) return `${this.formatDisplay(date)} 12:00`;
+                    return `${this.formatDisplay(date)} ${String(this.checkOutHour).padStart(2,'0')}:00`;
                 },
                 async confirm() {
                     if (this.checkIn) {
@@ -261,9 +205,7 @@
                     this.checkOut = null;
                     this.hoverDate = null;
                     this.checkInHour = 14;
-                    this.checkInMin = 0;
-                    this.checkOutHour = 12;
-                    this.checkOutMin = 0;
+                    this.checkOutHour = 16;
                     await this.$wire.set('checkIn', '');
                     await this.$wire.set('checkOut', '');
                 },

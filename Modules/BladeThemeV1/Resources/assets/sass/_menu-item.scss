@@ -196,10 +196,13 @@
     transform: rotate(90deg);
   }
 
+  // Gạch chân canh giữa theo chữ (không phải theo padding trái cố định như bản
+  // desktop), vì tên menu item mobile dài ngắn khác nhau nên left cố định sẽ lệch.
   .main-menu-item::after {
     bottom: 0;
     height: 2px;
-    left: 15px;
+    left: 50%;
+    transform: translateX(-50%);
   }
 
   .main-menu-item,

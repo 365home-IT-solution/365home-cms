@@ -41,7 +41,7 @@
                 <div class="swiper-wrapper">
                     @foreach ($provinces as $province)
                     <div class="swiper-slide">
-                        <a href="{{ route('product.search') }}?location={{ $province['slug'] }}"
+                        <a href="{{ route('product.search', ['location' => $province['slug']]) }}"
                             class="group block overflow-hidden rounded-2xl shadow-md hover:shadow-xl transition-shadow duration-300"
                             style="position:relative; padding-top:72%;">
 

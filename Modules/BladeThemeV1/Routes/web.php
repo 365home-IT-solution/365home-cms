@@ -70,7 +70,7 @@ Route::get('/sitemap.xml', [SitemapController::class, 'index'])->name('sitemap')
 Route::get('/robots.txt',  [SitemapController::class, 'robots'])->name('robots');
 
 Route::get('/bai-viet/{slug}', [BladeThemeV1Controller::class, 'postDetail'])->name('post.detail');
-Route::get('/san-pham/tim-kiem', [BladeThemeV1Controller::class, 'searchProduct'])->name('product.search');
+Route::get('/s/{location?}', [BladeThemeV1Controller::class, 'searchProduct'])->name('product.search');
 Route::get('/branch/{slug}', [BladeThemeV1Controller::class, 'bookingBoard'])->name('branch.booking');
 Route::get('/room/{slug}/', [BladeThemeV1Controller::class, 'productDetail'])->name('product.detail');
 //Route::get('/local/home-{slug}/', [BladeThemeV1Controller::class, 'categoryDetail'])->name('category.detail');
@@ -93,6 +93,8 @@ Route::get('/api/check-domain', function (\Illuminate\Http\Request $request) {
 });
 Route::get('/thong-tin-dat-phong/{code}', [BladeThemeV1Controller::class, 'bookingDetail'])->name('booking.detail');
 Route::get('/tai-khoan', [BladeThemeV1Controller::class, 'accountPage'])->name('account.page');
+Route::get('/yeu-thich', [BladeThemeV1Controller::class, 'favoritesPage'])->name('favorites.page');
+Route::get('/tin-tuc', [BladeThemeV1Controller::class, 'postsPage'])->name('posts.page');
 // routes/web.php
 Route::get('/theme.css', function () {
     $theme = ThemeCache::generalSettings()->site_theme;

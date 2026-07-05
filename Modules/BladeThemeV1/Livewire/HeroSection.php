@@ -30,17 +30,11 @@ class HeroSection extends Component
 
     public string $selectedLocation = '';
     public string $selectedRoomType = 'all';
-    public string $selectedBuoi = '';
+    // '1' = Theo giờ (1 ngày + giờ nhận/trả), '2' = Theo ngày (khoảng ngày, giờ cố định 14:00/12:00)
+    public string $selectedBuoi = '1';
     public string $selectedGuests = '';
     public string $checkIn  = '';
     public string $checkOut = '';
-
-    // Giờ / phút — quản lý bởi Livewire để PHP render disabled options chính xác
-    public int  $checkInHour  = 14;
-    public int  $checkInMin   = 0;
-    public int  $checkOutHour = 16;
-    public int  $checkOutMin  = 0;
-    public bool $isSameDay    = true;
 
     public function mount(): void
     {
@@ -106,7 +100,7 @@ class HeroSection extends Component
     public function clearAll(): void
     {
         $this->selectedLocation = '';
-        $this->selectedBuoi     = '';
+        $this->selectedBuoi     = '1';
         $this->selectedGuests   = '';
         $this->checkIn          = '';
         $this->checkOut         = '';
@@ -116,53 +110,6 @@ class HeroSection extends Component
     {
         $this->selectedRoomType = $slug;
         $this->loadLocations($slug === 'all' ? null : $slug);
-    }
-
-    // Khi checkInHour thay đổi → tự correct checkOutHour nếu cùng ngày
-    public function updatedCheckInHour(): void
-    {
-        $this->correctCheckOut();
-    }
-
-    // Khi checkInMin thay đổi → tự correct checkOutMin nếu cùng giờ
-    public function updatedCheckInMin(): void
-    {
-        $this->correctCheckOut();
-    }
-
-    // Alpine gọi khi người dùng chọn ngày (isSameDay có thể thay đổi)
-    public function setIsSameDay(bool $value): void
-    {
-        $this->isSameDay = $value;
-        if ($value) {
-            $this->correctCheckOut();
-        }
-    }
-
-    private function correctCheckOut(): void
-    {
-        if (! $this->isSameDay) return;
-
-        $minutes = [0, 15, 30, 45];
-
-        if ($this->checkOutHour < $this->checkInHour) {
-            $this->checkOutHour = $this->checkInHour;
-            $next = collect($minutes)->first(fn ($m) => $m > $this->checkInMin);
-            if ($next !== null) {
-                $this->checkOutMin = $next;
-            } else {
-                $this->checkOutHour = min($this->checkInHour + 1, 23);
-                $this->checkOutMin  = 0;
-            }
-        } elseif ($this->checkOutHour === $this->checkInHour && $this->checkOutMin <= $this->checkInMin) {
-            $next = collect($minutes)->first(fn ($m) => $m > $this->checkInMin);
-            if ($next !== null) {
-                $this->checkOutMin = $next;
-            } else {
-                $this->checkOutHour = min($this->checkInHour + 1, 23);
-                $this->checkOutMin  = 0;
-            }
-        }
     }
 
     public function updatedSelectedRoomType(string $value): void
@@ -231,16 +178,20 @@ class HeroSection extends Component
 
     public function search(): void
     {
+        // location đi vào path (/s/{location}, kiểu Airbnb), phần còn lại vẫn ở
+        // query string với tên gần với Airbnb hơn (checkin/checkout/adults thay vì check_in/
+        // check_out/guests); type/buoi là khái niệm riêng của mình, không có tương đương ở Airbnb
+        // nên giữ nguyên tên.
         $params = array_filter([
-            'location'  => $this->selectedLocation,
-            'type'      => $this->selectedRoomType !== 'all' ? $this->selectedRoomType : '',
-            'guests'    => $this->selectedGuests,
-            'check_in'  => $this->checkIn,
-            'check_out' => $this->checkOut,
-            'buoi'      => $this->selectedBuoi,
+            'type'     => $this->selectedRoomType !== 'all' ? $this->selectedRoomType : '',
+            'adults'   => $this->selectedGuests,
+            'checkin'  => $this->checkIn,
+            'checkout' => $this->checkOut,
+            'buoi'     => $this->selectedBuoi,
         ]);
 
-        $this->redirect(route('product.search') . (count($params) ? '?' . http_build_query($params) : ''), navigate: true);
+        $path = route('product.search', $this->selectedLocation ? ['location' => $this->selectedLocation] : []);
+        $this->redirect($path . (count($params) ? '?' . http_build_query($params) : ''), navigate: true);
     }
 
     public function render()

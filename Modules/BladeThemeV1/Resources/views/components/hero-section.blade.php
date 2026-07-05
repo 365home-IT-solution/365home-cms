@@ -200,7 +200,7 @@
 
                 {{-- Địa điểm --}}
                 <div class="flex flex-col gap-1.5 flex-[3] min-w-0">
-                    <label class="text-xs font-bold text-white/90 uppercase tracking-widest pl-1">Địa điểm</label>
+                    <label class="text-xs font-bold text-white/90  tracking-widest pl-1">Địa điểm</label>
                     <div class="relative">
                         <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-500 pointer-events-none"
                             fill="none" stroke="currentColor" viewBox="0 0 24 24">

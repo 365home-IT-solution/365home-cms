@@ -23,17 +23,6 @@
                         </span>
                     </span>
 
-                    <span class="h-7 w-px flex-shrink-0 bg-gray-200"></span>
-
-                    <span class="flex flex-1 flex-col items-start min-w-0 px-2 md:px-4 py-[9px]">
-                        <span class="w-full overflow-hidden text-ellipsis whitespace-nowrap text-[9px] font-bold uppercase leading-none tracking-wide text-gray-500">Loại đặt</span>
-                        <span class="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-xs font-semibold text-gray-900">
-                            @if ($selectedBuoi === '1') Theo giờ
-                            @elseif ($selectedBuoi === '2') Theo ngày
-                            @else Tất cả @endif
-                        </span>
-                    </span>
-
                     <span class="flex-shrink-0 py-[5px] pl-0 pr-2">
                         <span class="flex h-[34px] w-[34px] items-center justify-center rounded-full bg-[var(--color-primary)]">
                             <svg class="h-[15px] w-[15px] text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
