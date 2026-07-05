@@ -3,6 +3,7 @@
 namespace Modules\BladeThemeV1\Livewire;
 
 use App\Models\Customer;
+use App\Models\MembershipTier;
 use App\Settings\GeneralSettings;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
@@ -30,8 +31,26 @@ class AccountPage extends Component
     public ?string $cccdBackUrl  = null;
     public bool    $hasCccd      = false;
 
+    // Hạng thành viên (customers.membership_tier_id)
+    public ?string $membershipTierName    = null;
+    public ?string $membershipTierColor   = null;
+    public ?string $membershipTierCardImg = null; // membership/{slug}.png (thẻ + huy hiệu)
+    public ?string $membershipTierBgImg   = null; // membership/background/{slug}.png (texture nền)
+    public string  $discountIconUrl       = '';   // membership/icons/vourcher.png
+    public string  $coinIconUrl           = '';   // membership/icons/coin.png
+    public string  $staffIconUrl          = '';   // membership/icons/staff.png
+
+    // Tiến độ lên hạng
+    public float   $totalSpending        = 0;
+    public float   $tierProgressPercent  = 0;    // 0-100
+    public ?string $nextTierName         = null;
+    public ?float  $amountToNextTier     = null; // null = đã đạt hạng cao nhất
+
     // Đơn của trang hiện tại
     public array $orders = [];
+
+    // Voucher của khách hàng
+    public array $discountCodes = [];
 
     // Pagination
     public ?string $customerId = null; // UUID của customer đã xác thực
@@ -64,6 +83,16 @@ class AccountPage extends Component
                     + 0.587 * hexdec(substr($hex, 2, 2))
                     + 0.114 * hexdec(substr($hex, 4, 2))) / 255;
         $this->textOnPrimary = $luminance > 0.5 ? '#1a1e25' : '#ffffff';
+
+        $this->discountIconUrl = Storage::disk('public')->exists('membership/icons/vourcher.png')
+            ? Storage::disk('public')->url('membership/icons/vourcher.png')
+            : '';
+        $this->coinIconUrl = Storage::disk('public')->exists('membership/icons/coin.png')
+            ? Storage::disk('public')->url('membership/icons/coin.png')
+            : '';
+        $this->staffIconUrl = Storage::disk('public')->exists('membership/icons/staff.png')
+            ? Storage::disk('public')->url('membership/icons/staff.png')
+            : '';
     }
 
     // ── Xác thực token, load profile + stats + trang đầu ──────────────────────
@@ -124,8 +153,49 @@ class AccountPage extends Component
             : null;
         $this->hasCccd = !empty($customer->cccd_front) && !empty($customer->cccd_back);
 
-        // ── Bước 3: Load đơn hàng (nếu lỗi → giữ isLoggedIn = true, orders rỗng) ──
+        $tier                       = $customer->membershipTier;
+        $this->membershipTierName  = $tier?->name;
+        $this->membershipTierColor = $tier?->color;
+
+        if ($tier?->slug) {
+            $cardPath = "membership/{$tier->slug}.png";
+            $bgPath   = "membership/background/{$tier->slug}.png";
+            $version  = $customer->updated_at?->timestamp ?? time();
+
+            $this->membershipTierCardImg = Storage::disk('public')->exists($cardPath)
+                ? Storage::disk('public')->url($cardPath) . '?v=' . $version
+                : null;
+            $this->membershipTierBgImg = Storage::disk('public')->exists($bgPath)
+                ? Storage::disk('public')->url($bgPath) . '?v=' . $version
+                : null;
+        }
+
+        $this->totalSpending = (float) ($customer->total_spending ?? 0);
+
+        $nextTier = MembershipTier::where('is_active', true)
+            ->where('min_spending', '>', (float) ($tier?->min_spending ?? 0))
+            ->orderBy('min_spending')
+            ->first();
+
+        if ($nextTier) {
+            $floor    = (float) ($tier?->min_spending ?? 0);
+            $ceil     = (float) $nextTier->min_spending;
+            $range    = $ceil - $floor;
+            $progress = $range > 0 ? (($this->totalSpending - $floor) / $range) * 100 : 100;
+
+            $this->nextTierName        = $nextTier->name;
+            $this->amountToNextTier    = max(0, $ceil - $this->totalSpending);
+            $this->tierProgressPercent = max(0, min(100, $progress));
+        } else {
+            $this->nextTierName        = null;
+            $this->amountToNextTier    = null;
+            $this->tierProgressPercent = 100;
+        }
+
+        // ── Bước 3: Load đơn hàng + voucher (nếu lỗi → giữ isLoggedIn = true, dữ liệu rỗng) ──
         try {
+            $this->loadDiscountCodes($customer);
+
             $phoneQ = $this->phoneQuery();
 
             // Stats tổng (không filter chi nhánh)
@@ -150,6 +220,47 @@ class AccountPage extends Component
         } finally {
             $this->isLoading = false;
         }
+    }
+
+    // ── Load mã giảm giá của khách hàng (gán riêng qua customer_id + qua bảng coupon_customers) ──
+    private function loadDiscountCodes(Customer $customer): void
+    {
+        $now = now();
+
+        $personal = $customer->personalCoupons()->get();
+        $assigned = $customer->coupons()->get();
+
+        $this->discountCodes = $personal->merge($assigned)
+            ->unique('id')
+            ->sortByDesc(fn ($c) => $c->end_at ?? $c->created_at)
+            ->map(function ($coupon) use ($now) {
+                if (!$coupon->is_active) {
+                    $status = ['label' => 'Đã tắt', 'class' => 'bg-gray-100 text-gray-500 border-gray-200'];
+                } elseif ($coupon->start_at && $now->lt($coupon->start_at)) {
+                    $status = ['label' => 'Sắp diễn ra', 'class' => 'bg-blue-50 text-blue-600 border-blue-200'];
+                } elseif ($coupon->end_at && $now->gt($coupon->end_at)) {
+                    $status = ['label' => 'Hết hạn', 'class' => 'bg-gray-100 text-gray-500 border-gray-200'];
+                } elseif ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {
+                    $status = ['label' => 'Đã hết lượt', 'class' => 'bg-gray-100 text-gray-500 border-gray-200'];
+                } else {
+                    $status = ['label' => 'Có thể dùng', 'class' => 'bg-emerald-50 text-emerald-600 border-emerald-200'];
+                }
+
+                return [
+                    'id'              => $coupon->id,
+                    'code'            => $coupon->code,
+                    'name'            => $coupon->name,
+                    'description'     => $coupon->description,
+                    'value_label'     => $coupon->type === 'percentage'
+                        ? rtrim(rtrim(number_format((float) $coupon->value, 2), '0'), '.') . '%'
+                        : number_format((float) $coupon->value, 0, ',', '.') . 'đ',
+                    'min_order_value' => $coupon->min_order_value,
+                    'end_at'          => $coupon->end_at?->format('d/m/Y'),
+                    'status'          => $status,
+                ];
+            })
+            ->values()
+            ->toArray();
     }
 
     // ── Chuyển trang ──────────────────────────────────────────────────────────
@@ -251,6 +362,15 @@ class AccountPage extends Component
         $this->cccdFrontUrl      = null;
         $this->cccdBackUrl       = null;
         $this->hasCccd           = false;
+        $this->membershipTierName    = null;
+        $this->membershipTierColor   = null;
+        $this->membershipTierCardImg = null;
+        $this->membershipTierBgImg   = null;
+        $this->totalSpending         = 0;
+        $this->tierProgressPercent   = 0;
+        $this->nextTierName          = null;
+        $this->amountToNextTier      = null;
+        $this->discountCodes     = [];
         $this->totalOrders       = 0;
         $this->paidOrders        = 0;
         $this->pendingOrders     = 0;
