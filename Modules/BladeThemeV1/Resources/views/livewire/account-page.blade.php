@@ -19,6 +19,7 @@
 
         // ── Profile Edit ───────────────────────────────────────────────────────
         editOpen: false,
+        mobileEditOpen: false,
         editLoading: false,
         editError: '',
         editSuccess: '',
@@ -220,10 +221,12 @@
         $nextTick(() => {
             const token = localStorage.getItem('auth_token');
             $wire.loadUserOrders(token || '');
+            openEdit();
         });
         window.addEventListener('auth-state-changed', () => {
             const t = localStorage.getItem('auth_token');
             $wire.loadUserOrders(t || '');
+            openEdit();
         });
         window.addEventListener('auth-force-logout', () => {
             localStorage.removeItem('auth_token');
@@ -231,7 +234,7 @@
             window.dispatchEvent(new CustomEvent('auth-state-changed'));
         });
     "
-    class="max-w-screen-md mx-auto px-4 md:px-6 py-10 space-y-5"
+    class="max-w-[1600px] mx-auto px-4 md:px-8 py-10 space-y-5"
 >
 
     {{-- ── INITIAL LOADING ── --}}
@@ -246,7 +249,7 @@
 
     {{-- ── NOT LOGGED IN ── --}}
     @elseif(!$isLoggedIn)
-    <div class="flex flex-col items-center justify-center min-h-[55vh] text-center py-16">
+    <div class="flex flex-col items-center justify-center min-h-[55vh]  text-center py-16">
         <div class="w-20 h-20 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center mb-5 shadow-sm">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-9 h-9 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
@@ -271,9 +274,12 @@
     {{-- ── LOGGED IN ── --}}
     @else
 
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-6 items-start">
+    <div class="md:col-span-3 space-y-6">
+
     {{-- Profile Card --}}
     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div class="h-20 w-full" style="background: linear-gradient(135deg, {{ $primaryHex }} 0%, {{ $primaryHex }}55 60%, {{ $primaryHex }}11 100%);"></div>
+        <div class="h-20 w-full" ></div>
 
         <div class="px-6 pb-6 -mt-10 flex flex-col sm:flex-row sm:items-end gap-4">
             {{-- Avatar --}}
@@ -294,8 +300,20 @@
             <div class="flex-1 min-w-0 sm:mb-1">
                 <div class="flex items-center gap-2 flex-wrap">
                     <h1 class="text-xl font-bold text-gray-900 truncate">{{ $fullname }}</h1>
-                    <button @click="openEdit()"
-                        class="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg border border-gray-200 text-gray-500 hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50 transition-colors">
+                    @if($membershipTierName)
+                    <span class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border"
+                        style="background-color: {{ $membershipTierColor ?? '#9ca3af' }}18; border-color: {{ $membershipTierColor ?? '#9ca3af' }}55; color: {{ $membershipTierColor ?? '#6b7280' }};">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 2l2.39 6.545 6.98.104-5.593 4.29 2.083 6.71L12 15.9l-5.86 3.75 2.083-6.71-5.593-4.29 6.98-.104L12 2z"/>
+                        </svg>
+                        {{ $membershipTierName }}
+                    </span>
+                    @endif
+
+                    <button
+                        @click="mobileEditOpen = true; $nextTick(() => $refs.editPanel.scrollIntoView({ behavior: 'smooth', block: 'start' }))"
+                        class="md:hidden ml-auto inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg border border-gray-200 text-gray-500 hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50 transition-colors shrink-0"
+                    >
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125"/>
                         </svg>
@@ -358,6 +376,122 @@
             </div>
         </div>
     </div>
+
+    {{-- Membership Tier Card --}}
+    @if($membershipTierName)
+    <div class="relative rounded-2xl overflow-hidden p-6 text-white shadow-sm"
+         style="background-color: {{ $membershipTierColor ?? $primaryHex }};
+                @if($membershipTierCardImg) background-image: linear-gradient(160deg, rgba(0,0,0,.25) 0%, rgba(0,0,0,.6) 100%), url('{{ $membershipTierCardImg }}'); background-size: cover; background-position: center; @endif">
+        <p class="text-xs font-semibold uppercase tracking-wider opacity-80">Hạng thành viên</p>
+        <h2 class="text-2xl sm:text-3xl font-extrabold uppercase mt-1 tracking-wide">{{ $membershipTierName }}</h2>
+
+        <div class="mt-6 flex items-end justify-between gap-3">
+            <span class="text-sm opacity-90">Tổng chi tiêu</span>
+            <span class="text-xl font-bold">{{ number_format($totalSpending, 0, ',', '.') }}đ</span>
+        </div>
+        <div class="mt-2 h-2 rounded-full bg-white/25 overflow-hidden">
+            <div class="h-full rounded-full bg-white transition-all" style="width: {{ $tierProgressPercent }}%"></div>
+        </div>
+
+        <p class="mt-3 text-sm opacity-95">
+            @if($nextTierName)
+                Còn <span class="font-bold">{{ number_format($amountToNextTier, 0, ',', '.') }}đ</span> để lên hạng <span class="font-bold">{{ $nextTierName }}</span>
+            @else
+                Bạn đang ở hạng thành viên cao nhất 🎉
+            @endif
+        </p>
+    </div>
+    @endif
+
+    {{-- Privileges Section --}}
+    @if($membershipTierName)
+    <div>
+        <h2 class="text-lg font-bold text-gray-900 mb-3">Những đặc quyền bạn có thể tận hưởng</h2>
+        <div class="grid grid-cols-3 gap-2 sm:gap-3">
+            @php
+                $privileges = [
+                    ['icon' => $coinIconUrl, 'text' => 'Nhận Xu gấp 1.5 lần'],
+                    ['icon' => $discountIconUrl, 'text' => 'Giảm giá khách sạn lên đến 15%'],
+                    ['icon' => $staffIconUrl, 'text' => 'Chăm sóc khách hàng VIP'],
+                ];
+            @endphp
+            @foreach($privileges as $privilege)
+            <div class="relative rounded-2xl overflow-hidden p-2.5 sm:p-4 flex flex-col justify-between min-h-[125px] sm:min-h-[140px] text-white shadow-sm"
+                 style="background-color: {{ $membershipTierColor ?? $primaryHex }};
+                        @if($membershipTierBgImg) background-image: linear-gradient(160deg, rgba(0,0,0,.25) 0%, rgba(0,0,0,.6) 100%), url('{{ $membershipTierBgImg }}'); background-size: cover; background-position: center; @endif">
+                @if($privilege['icon'])
+                <img src="{{ $privilege['icon'] }}" alt="" class="w-12 h-12 sm:w-12 sm:h-12 object-contain">
+                @endif
+                <p class="text-[11px] sm:text-sm font-semibold leading-snug mt-2 sm:mt-3">{{ $privilege['text'] }}</p>
+            </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
+    {{-- Discount Codes Section --}}
+    @if(count($discountCodes) > 0)
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div class="px-6 py-4 flex items-center justify-between border-b border-gray-100">
+            <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background-color: {{ $primaryHex }}22;">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" style="color: {{ $primaryHex }};" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6z"/>
+                    </svg>
+                </div>
+                <h2 class="text-base font-semibold text-gray-800">Mã giảm giá của tôi</h2>
+            </div>
+            <span class="text-xs font-medium text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">
+                {{ count($discountCodes) }} mã
+            </span>
+        </div>
+
+        <div class="divide-y divide-gray-50">
+            @foreach($discountCodes as $code)
+            <div class="flex items-center gap-4 px-5 py-4" x-data="{ copied: false }">
+                <div class="shrink-0 w-[92px] text-xl font-extrabold leading-tight" style="color: {{ $primaryHex }};">
+                    {{ $code['value_label'] }}
+                </div>
+
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <p class="text-sm font-semibold text-gray-900 truncate">{{ $code['name'] ?? 'Mã giảm giá' }}</p>
+                        <span class="shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border {{ $code['status']['class'] }}">
+                            {{ $code['status']['label'] }}
+                        </span>
+                    </div>
+                    <p class="text-xs text-gray-400 font-mono mt-0.5">{{ $code['code'] }}</p>
+                    @if($code['min_order_value'] || $code['end_at'])
+                    <p class="text-[11px] text-gray-400 mt-0.5">
+                        @if($code['min_order_value'])
+                            Đơn tối thiểu {{ number_format((float) $code['min_order_value'], 0, ',', '.') }}đ
+                        @endif
+                        @if($code['min_order_value'] && $code['end_at']) &middot; @endif
+                        @if($code['end_at'])
+                            HSD: {{ $code['end_at'] }}
+                        @endif
+                    </p>
+                    @endif
+                </div>
+
+                <button
+                    @click="navigator.clipboard.writeText('{{ $code['code'] }}'); copied = true; setTimeout(() => copied = false, 1500)"
+                    class="shrink-0 w-10 h-10 rounded-xl border border-gray-200 flex items-center justify-center text-gray-400 hover:text-gray-700 hover:border-gray-300 transition-colors"
+                    title="Sao chép mã"
+                >
+                    <svg x-show="!copied" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124M15.75 17.25h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75"/>
+                    </svg>
+                    <svg x-show="copied" x-cloak xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
+                    </svg>
+                </button>
+            </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
 
     {{-- Orders Section --}}
     <div id="orders-section" class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -574,47 +708,24 @@
         </button>
     </div>
 
-    {{-- ── EDIT PROFILE MODAL ── --}}
-    <template x-teleport="body">
-        <div
-            x-show="editOpen"
-            x-transition:enter="transition ease-out duration-200"
-            x-transition:enter-start="opacity-0"
-            x-transition:enter-end="opacity-100"
-            x-transition:leave="transition ease-in duration-150"
-            x-transition:leave-start="opacity-100"
-            x-transition:leave-end="opacity-0"
-            class="fixed inset-0 z-[9999] flex items-center justify-center px-4 py-6"
-            style="display:none;"
-            @keydown.escape.window="editOpen = false"
-        >
-            {{-- Backdrop --}}
-            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="editOpen = false"></div>
+    </div>{{-- /left column --}}
 
-            {{-- Dialog --}}
-            <div
-                x-show="editOpen"
-                x-transition:enter="transition ease-out duration-200"
-                x-transition:enter-start="opacity-0 scale-95"
-                x-transition:enter-end="opacity-100 scale-100"
-                x-transition:leave="transition ease-in duration-150"
-                x-transition:leave-start="opacity-100 scale-100"
-                x-transition:leave-end="opacity-0 scale-95"
-                class="relative w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden"
-                @click.stop
-            >
-                {{-- Header --}}
-                <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-                    <h2 class="text-base font-semibold text-gray-900">Chỉnh sửa hồ sơ</h2>
-                    <button @click="editOpen = false"
-                        class="p-1.5 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                        </svg>
-                    </button>
-                </div>
+    {{-- ── EDIT PROFILE PANEL (right column) ── --}}
+    <div x-ref="editPanel" x-cloak
+         class="md:col-span-2 md:sticky md:top-6 md:!block"
+         :class="mobileEditOpen ? 'block' : 'hidden'">
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            {{-- Header --}}
+            <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                <h2 class="text-base font-semibold text-gray-900">Chỉnh sửa hồ sơ</h2>
+                <button @click="mobileEditOpen = false" class="md:hidden p-1.5 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
 
-                <div class="p-5 space-y-5 overflow-y-auto max-h-[70vh]">
+            <div class="p-5 space-y-5">
 
                     {{-- Thông tin cơ bản --}}
                     <div class="space-y-3">
@@ -814,8 +925,9 @@
 
                 </div>
             </div>
-        </div>
-    </template>
+    </div>{{-- /right column --}}
+
+    </div>{{-- /grid --}}
 
     @endif
 </div>

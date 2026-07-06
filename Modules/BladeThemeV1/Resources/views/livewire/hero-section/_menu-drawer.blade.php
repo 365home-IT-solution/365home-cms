@@ -86,11 +86,18 @@
                 </button>
             </template>
             <template x-if="authUser">
-                <div style="display:flex; align-items:center; gap:12px; padding:12px 16px; background:#f9fafb; border:1.5px solid #e5e7eb; border-radius:12px;">
+                <a href="/tai-khoan"
+                   @click="menuOpen = false"
+                   style="display:flex; align-items:center; gap:12px; padding:12px 16px; background:#f9fafb; border:1.5px solid #e5e7eb; border-radius:12px; text-decoration:none; cursor:pointer; transition:all .15s;"
+                   onmouseover="this.style.background='#f0fdfa'; this.style.borderColor='#99f6e4';"
+                   onmouseout="this.style.background='#f9fafb'; this.style.borderColor='#e5e7eb';">
                     <span style="width:34px; height:34px; border-radius:50%; background:#0f766e; display:flex; align-items:center; justify-content:center; flex-shrink:0; color:white; font-size:14px; font-weight:700;"
                           x-text="authUser.fullname ? authUser.fullname.charAt(0).toUpperCase() : '?'"></span>
                     <span style="font-size:14px; font-weight:600; color:#111827; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" x-text="authUser.fullname"></span>
-                </div>
+                    <svg style="width:13px;height:13px;color:#d1d5db; flex-shrink:0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </a>
             </template>
         </div>
     </div>
