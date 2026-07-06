@@ -39,6 +39,11 @@ class ProvinceResource extends Resource
     protected static ?string $pluralModelLabel = 'Tỉnh/Thành phố';
     protected static ?int    $navigationSort   = 10;
 
+    public static function canViewAny(): bool
+    {
+        return auth()->user()?->isSuperAdmin() ?? false;
+    }
+
     public static function form(Form $form): Form
     {
         return $form->schema([

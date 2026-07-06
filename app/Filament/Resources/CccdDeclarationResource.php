@@ -31,6 +31,11 @@ class CccdDeclarationResource extends Resource
     protected static ?string $pluralModelLabel = 'Khai báo lưu trú';
     protected static ?int    $navigationSort   = 30;
 
+    public static function canViewAny(): bool
+    {
+        return auth()->user()?->isSuperAdmin() ?? false;
+    }
+
     public static function form(Form $form): Form
     {
         return $form->schema([
