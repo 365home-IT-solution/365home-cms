@@ -13,18 +13,32 @@
                             return loc ? loc.name : 'Chọn địa điểm';
                         },
                         get guestsLabel() { return this.guestOptions[this.selectedGuestsVal] || 'Thêm khách'; },
+                        // this.open = true đặt trong setTimeout (không phải ngay lập tức): click chọn
+                        // địa điểm xảy ra ngoài phạm vi field Thời gian, nên @click.outside đóng field
+                        // đó cũng bắn ra trong cùng lượt sự kiện này — nếu set open=true ngay thì sẽ
+                        // bị handler đó ghi đè lại thành false ngay sau (cùng tick đồng bộ). Đợi 1 tick
+                        // (setTimeout 0) để chắc chắn chạy sau handler đó.
                         pickLocation(slug) {
                             this.selectedLocationSlug = slug;
                             this.locOpen = false;
-                            this.open = true;
-                            this.$nextTick(() => this.openDateDropdown(this.$refs.dateDropdownDesktop));
+                            setTimeout(() => {
+                                this.open = true;
+                                this.$nextTick(() => this.openDateDropdown(this.$refs.dateDropdownDesktop));
+                            });
                         },
                         locateMe() {
                             this.locating = true;
                             window.heroLocateNearest(
                                 (slug) => {},
                                 @js($locations),
-                                (loc) => { this.locating = false; this.locOpen = false; this.selectedLocationSlug = loc.slug; this.mobileStep = (this.mobileStep === 1 ? 2 : this.mobileStep); this.open = true; this.$nextTick(() => this.openDateDropdown(this.$refs.dateDropdownDesktop)); },
+                                (loc) => {
+                                    this.locating = false; this.locOpen = false; this.selectedLocationSlug = loc.slug;
+                                    this.mobileStep = (this.mobileStep === 1 ? 2 : this.mobileStep);
+                                    setTimeout(() => {
+                                        this.open = true;
+                                        this.$nextTick(() => this.openDateDropdown(this.$refs.dateDropdownDesktop));
+                                    });
+                                },
                                 (msg) => { this.locating = false; alert(msg); }
                             );
                         },

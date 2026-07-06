@@ -79,18 +79,30 @@
                                 return loc ? loc.name : 'Chọn địa điểm';
                             },
                             get guestsLabel() { return this.guestOptions[this.selectedGuestsVal] || 'Thêm khách'; },
+                            // this.open = true đặt trong setTimeout: xem giải thích chi tiết ở
+                            // _banner-form.blade.php (tránh bị @click.outside của field Thời gian
+                            // ghi đè lại thành false trong cùng lượt sự kiện).
                             pickLocation(slug) {
                                 this.selectedLocationSlug = slug;
                                 this.locOpen = false;
-                                this.open = true;
-                                this.$nextTick(() => this.openDateDropdown(this.$refs.dateDropdownCompact));
+                                setTimeout(() => {
+                                    this.open = true;
+                                    this.$nextTick(() => this.openDateDropdown(this.$refs.dateDropdownCompact));
+                                });
                             },
                             locateMe() {
                                 this.locating = true;
                                 window.heroLocateNearest(
                                     (slug) => {},
                                     @js($locations),
-                                    (loc) => { this.locating = false; this.locOpen = false; this.selectedLocationSlug = loc.slug; this.mobileStep = (this.mobileStep === 1 ? 2 : this.mobileStep); this.open = true; this.$nextTick(() => this.openDateDropdown(this.$refs.dateDropdownCompact)); },
+                                    (loc) => {
+                                        this.locating = false; this.locOpen = false; this.selectedLocationSlug = loc.slug;
+                                        this.mobileStep = (this.mobileStep === 1 ? 2 : this.mobileStep);
+                                        setTimeout(() => {
+                                            this.open = true;
+                                            this.$nextTick(() => this.openDateDropdown(this.$refs.dateDropdownCompact));
+                                        });
+                                    },
                                     (msg) => { this.locating = false; alert(msg); }
                                 );
                             }
