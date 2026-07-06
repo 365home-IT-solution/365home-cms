@@ -31,6 +31,26 @@ function dateRangePicker(pricePerNight) {
         promoLabels: @json($promoLabels),
         surchargeData: @json($surchargeData),
         couponDiscountAmount: @entangle('couponDiscountAmount'),
+        // Tổng tiền THẬT của cả chuyến (phòng + phụ thu khách + dịch vụ thêm - coupon),
+        // do server tính (calculateDateRangeTotal) — luôn đồng bộ dù widget này có wire:ignore.
+        serverTotalAmount: @entangle('totalAmount'),
+        extraFeeAmount: @entangle('extraFee'),
+        guestsCount: @entangle('guests'),
+        selectedServicesQty: @entangle('selectedServices'),
+        showTotalDetail: false,
+        additionalServicesList: @json($additionalServices ? $additionalServices->map(fn($s) => ['id' => $s->id, 'name' => $s->name, 'price' => (int) $s->price])->values() : []),
+        get selectedServicesDetail() {
+            var self = this, result = [];
+            var qtyMap = this.selectedServicesQty || {};
+            this.additionalServicesList.forEach(function(svc) {
+                var qty = parseInt(qtyMap[svc.id] || 0);
+                if (qty > 0) result.push({ id: svc.id, name: svc.name, price: svc.price, qty: qty, lineTotal: svc.price * qty });
+            });
+            return result;
+        },
+        get selectedServicesTotal() {
+            return this.selectedServicesDetail.reduce(function(sum, s) { return sum + s.lineTotal; }, 0);
+        },
 
         init() {
             var ci = null, co = null;
@@ -62,7 +82,6 @@ function dateRangePicker(pricePerNight) {
                     try {
                         self.$wire.set('startTime', self.startDate);
                         self.$wire.set('endTime', self.endDate);
-                        self.$wire.set('totalAmount', self.totalPrice);
                     } catch(e) {}
                 });
             }
@@ -360,11 +379,11 @@ function dateRangePicker(pricePerNight) {
      x-init="
          $watch('endDate', function(val) {
              if (val && startDate) {
-                 try { $wire.set('startTime', startDate); $wire.set('endTime', val); $wire.set('totalAmount', totalPrice); } catch(e){}
+                 try { $wire.set('startTime', startDate); $wire.set('endTime', val); } catch(e){}
              }
          });
          $watch('startDate', function(val) {
-             if (!val) { try { $wire.set('startTime', ''); $wire.set('endTime', ''); $wire.set('totalAmount', 0); } catch(e){} }
+             if (!val) { try { $wire.set('startTime', ''); $wire.set('endTime', ''); } catch(e){} }
          });
      "
      class="w-full">
@@ -473,9 +492,9 @@ function dateRangePicker(pricePerNight) {
                 <div x-show="startDate && endDate"
                      class="flex-1 overflow-y-auto px-3 py-3 space-y-2 md:max-h-[580px]">
 
-                    {{-- Tổng tạm tính --}}
+                    {{-- Giá phòng tạm tính (chưa gồm dịch vụ thêm / phụ thu khách) --}}
                     <div class="rounded-xl p-3" style="background:rgba(var(--color-primary-rgb),0.08); border:1px solid rgba(var(--color-primary-rgb),0.2)">
-                        <p class="text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--color-primary)">Tổng tạm tính</p>
+                        <p class="text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--color-primary)">Giá phòng tạm tính</p>
                         <p class="text-2xl font-extrabold leading-none" style="color:var(--color-primary)"
                            x-text="finalDisplayTotal.toLocaleString('vi-VN') + 'đ'"></p>
                         <div class="mt-2 space-y-1 text-[11px]">
@@ -497,6 +516,78 @@ function dateRangePicker(pricePerNight) {
                             </div>
                         </div>
                     </div>
+
+                    {{-- Tổng cộng cho cả chuyến — số THẬT từ server, luôn cập nhật ngay khi đổi dịch vụ/số khách,
+                         không cần bấm "Đặt phòng" mới thấy --}}
+                    <div class="rounded-xl p-3" style="background:#111827;">
+                        <p class="text-[10px] font-bold uppercase tracking-wider mb-1 text-gray-300">Tổng cộng cho cả chuyến</p>
+                        <p class="text-2xl font-extrabold leading-none text-white"
+                           x-text="Number(serverTotalAmount || 0).toLocaleString('vi-VN') + 'đ'"></p>
+                        <div class="flex items-center justify-between mt-1">
+                            <p class="text-[11px] text-gray-400">Đã gồm phụ thu khách &amp; dịch vụ thêm (nếu có)</p>
+                            <button type="button" @click="showTotalDetail = true"
+                                    class="shrink-0 text-[11px] font-semibold underline text-gray-300 hover:text-white transition-colors">
+                                Xem chi tiết
+                            </button>
+                        </div>
+                    </div>
+
+                    {{-- Popup chi tiết: dịch vụ đã chọn (kèm số lượng) + phụ thu khách --}}
+                    <template x-teleport="body">
+                        <div x-show="showTotalDetail" x-cloak
+                             class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+                             style="background:rgba(0,0,0,0.5)"
+                             @click.self="showTotalDetail = false">
+                            <div x-show="showTotalDetail"
+                                 x-transition:enter="transition ease-out duration-150"
+                                 x-transition:enter-start="opacity-0 scale-95"
+                                 x-transition:enter-end="opacity-100 scale-100"
+                                 class="bg-white rounded-2xl shadow-xl w-full max-w-sm max-h-[80vh] overflow-y-auto">
+                                <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                                    <h4 class="text-sm font-bold text-gray-800">Chi tiết tổng tiền</h4>
+                                    <button type="button" @click="showTotalDetail = false"
+                                            class="w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                                    </button>
+                                </div>
+                                <div class="px-4 py-3 space-y-3">
+                                    <div class="flex items-center justify-between text-sm">
+                                        <span class="text-gray-500">Giá phòng (<span x-text="nightCount"></span> đêm)</span>
+                                        <span class="font-semibold text-gray-800" x-text="finalDisplayTotal.toLocaleString('vi-VN') + 'đ'"></span>
+                                    </div>
+
+                                    <div class="flex items-center justify-between text-sm" x-show="Number(extraFeeAmount || 0) > 0">
+                                        <span class="text-gray-500">Phụ thu <span x-text="guestsCount"></span> khách</span>
+                                        <span class="font-semibold text-gray-800" x-text="Number(extraFeeAmount || 0).toLocaleString('vi-VN') + 'đ'"></span>
+                                    </div>
+
+                                    <template x-if="selectedServicesDetail.length > 0">
+                                        <div class="space-y-1.5">
+                                            <p class="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Dịch vụ đã chọn</p>
+                                            <template x-for="svc in selectedServicesDetail" :key="svc.id">
+                                                <div class="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                                                    <span class="text-xs text-gray-700">
+                                                        <span x-text="svc.name"></span>
+                                                        <span class="text-gray-400">× <span x-text="svc.qty"></span></span>
+                                                    </span>
+                                                    <span class="text-xs font-semibold text-gray-800" x-text="svc.lineTotal.toLocaleString('vi-VN') + 'đ'"></span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </template>
+                                    <template x-if="selectedServicesDetail.length === 0">
+                                        <p class="text-xs text-gray-400 italic">Chưa chọn dịch vụ thêm nào</p>
+                                    </template>
+
+                                    <div class="border-t border-gray-100 pt-3 flex items-center justify-between">
+                                        <span class="text-sm font-bold text-gray-800">Tổng cộng</span>
+                                        <span class="text-lg font-extrabold" style="color:var(--color-primary)"
+                                              x-text="Number(serverTotalAmount || 0).toLocaleString('vi-VN') + 'đ'"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
 
                     {{-- Danh sách khuyến mãi trong khoảng ngày --}}
                     <template x-if="rangePromos.length > 0">
