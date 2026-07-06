@@ -36,9 +36,23 @@
                     <div class="w-full lg:w-2/3">
                         <div class="p-3 overflow-hidden rounded-none lg:rounded-lg bg-white">
                             
-                            <h1 class="text-6xl font-extrabold mb-4 text-gray-900 transition-all duration-300 hover:text-primary-500">
-                                {{ $product->name ?? 'Tên sản phẩm không có' }}
-                            </h1>
+                            <div class="flex items-start justify-between gap-3 mb-4">
+                                <h1 class="text-6xl font-extrabold text-gray-900 transition-all duration-300 hover:text-primary-500">
+                                    {{ $product->name ?? 'Tên sản phẩm không có' }}
+                                </h1>
+                                <button
+                                    type="button"
+                                    id="pd-wishlist-btn"
+                                    data-product-id="{{ $product->id }}"
+                                    data-active="0"
+                                    aria-label="Yêu thích"
+                                    class="shrink-0 mt-2 flex h-11 w-11 items-center justify-center rounded-full border border-gray-200 bg-white shadow-sm hover:border-gray-300 transition-colors"
+                                >
+                                    <svg id="pd-wishlist-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" class="h-5 w-5 text-gray-400">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" />
+                                    </svg>
+                                </button>
+                            </div>
                             
                             {{-- Ảnh phòng --}}
                             @php
@@ -1288,4 +1302,60 @@
     });
 </script>
 @endif
+
+<script>
+    (function () {
+        const btn = document.getElementById('pd-wishlist-btn');
+        if (!btn) return;
+
+        const icon      = document.getElementById('pd-wishlist-icon');
+        const productId = btn.getAttribute('data-product-id');
+        const heartOutline = 'M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z';
+        const heartSolid    = 'm11.645 20.91-.007-.003-.022-.012a15.247 15.247 0 0 1-.383-.218 25.18 25.18 0 0 1-4.244-3.17C4.688 15.36 2.25 12.174 2.25 8.25 2.25 5.322 4.714 3 7.688 3A5.5 5.5 0 0 1 12 5.052 5.5 5.5 0 0 1 16.313 3c2.973 0 5.437 2.322 5.437 5.25 0 3.925-2.438 7.111-4.739 9.256a25.175 25.175 0 0 1-4.244 3.17 15.247 15.247 0 0 1-.383.219l-.022.012-.007.004-.003.001a.752.752 0 0 1-.704 0l-.003-.001Z';
+
+        const paintIcon = (active) => {
+            icon.setAttribute('fill', active ? '#ef4444' : 'none');
+            icon.classList.toggle('text-red-500', active);
+            icon.classList.toggle('text-gray-400', !active);
+            icon.querySelector('path').setAttribute('d', active ? heartSolid : heartOutline);
+        };
+
+        const setActive = (active) => {
+            btn.setAttribute('data-active', active ? '1' : '0');
+            paintIcon(active);
+        };
+
+        // Xác định trạng thái yêu thích ban đầu (nếu đã đăng nhập)
+        const token = localStorage.getItem('auth_token');
+        if (token) {
+            fetch('/api/wishlist', {
+                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
+            })
+                .then((res) => res.json())
+                .then((json) => {
+                    const saved = (json.data || []).some((room) => String(room.id) === String(productId));
+                    setActive(saved);
+                })
+                .catch(() => {});
+        }
+
+        btn.addEventListener('click', () => {
+            const currentToken = localStorage.getItem('auth_token');
+            if (!currentToken) {
+                window.dispatchEvent(new CustomEvent('open-auth-modal'));
+                return;
+            }
+
+            const next = btn.getAttribute('data-active') !== '1';
+            setActive(next);
+
+            fetch('/api/wishlist/' + productId + '/toggle', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + currentToken, 'Accept': 'application/json' },
+            }).catch(() => {
+                setActive(!next);
+            });
+        });
+    })();
+</script>
 @endpush

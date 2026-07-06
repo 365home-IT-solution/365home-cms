@@ -19,7 +19,6 @@
 
         // ── Profile Edit ───────────────────────────────────────────────────────
         editOpen: false,
-        mobileEditOpen: false,
         editLoading: false,
         editError: '',
         editSuccess: '',
@@ -298,28 +297,7 @@
 
             {{-- Info --}}
             <div class="flex-1 min-w-0 sm:mb-1">
-                <div class="flex items-center gap-2 flex-wrap">
-                    <h1 class="text-xl font-bold text-gray-900 truncate">{{ $fullname }}</h1>
-                    @if($membershipTierName)
-                    <span class="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border"
-                        style="background-color: {{ $membershipTierColor ?? '#9ca3af' }}18; border-color: {{ $membershipTierColor ?? '#9ca3af' }}55; color: {{ $membershipTierColor ?? '#6b7280' }};">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M12 2l2.39 6.545 6.98.104-5.593 4.29 2.083 6.71L12 15.9l-5.86 3.75 2.083-6.71-5.593-4.29 6.98-.104L12 2z"/>
-                        </svg>
-                        {{ $membershipTierName }}
-                    </span>
-                    @endif
-
-                    <button
-                        @click="mobileEditOpen = true; $nextTick(() => $refs.editPanel.scrollIntoView({ behavior: 'smooth', block: 'start' }))"
-                        class="md:hidden ml-auto inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg border border-gray-200 text-gray-500 hover:text-gray-800 hover:border-gray-300 hover:bg-gray-50 transition-colors shrink-0"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125"/>
-                        </svg>
-                        Chỉnh sửa
-                    </button>
-                </div>
+                <h1 class="text-xl font-bold text-gray-900 truncate">{{ $fullname }}</h1>
                 <div class="flex flex-wrap items-center gap-3 mt-1.5">
                     @if($phone)
                     <span class="flex items-center gap-1.5 text-sm text-gray-500">
@@ -415,10 +393,11 @@
                     ['icon' => $staffIconUrl, 'text' => 'Chăm sóc khách hàng VIP'],
                 ];
             @endphp
+            @php $privilegeBgImg = $membershipTierBgImg ?? $membershipTierCardImg; @endphp
             @foreach($privileges as $privilege)
             <div class="relative rounded-2xl overflow-hidden p-2.5 sm:p-4 flex flex-col justify-between min-h-[125px] sm:min-h-[140px] text-white shadow-sm"
                  style="background-color: {{ $membershipTierColor ?? $primaryHex }};
-                        @if($membershipTierBgImg) background-image: linear-gradient(160deg, rgba(0,0,0,.25) 0%, rgba(0,0,0,.6) 100%), url('{{ $membershipTierBgImg }}'); background-size: cover; background-position: center; @endif">
+                        @if($privilegeBgImg) background-image: linear-gradient(160deg, rgba(0,0,0,.25) 0%, rgba(0,0,0,.6) 100%), url('{{ $privilegeBgImg }}'); background-size: cover; background-position: center; @endif">
                 @if($privilege['icon'])
                 <img src="{{ $privilege['icon'] }}" alt="" class="w-12 h-12 sm:w-12 sm:h-12 object-contain">
                 @endif
@@ -429,25 +408,35 @@
     </div>
     @endif
 
-    {{-- Discount Codes Section --}}
-    @if(count($discountCodes) > 0)
-    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div class="px-6 py-4 flex items-center justify-between border-b border-gray-100">
-            <div class="flex items-center gap-2.5">
-                <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background-color: {{ $primaryHex }}22;">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" style="color: {{ $primaryHex }};" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/>
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6z"/>
-                    </svg>
-                </div>
-                <h2 class="text-base font-semibold text-gray-800">Mã giảm giá của tôi</h2>
-            </div>
-            <span class="text-xs font-medium text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">
-                {{ count($discountCodes) }} mã
-            </span>
+    {{-- Đơn đặt phòng & Mã giảm giá --}}
+    <div id="orders-section" x-data="{ accountTab: 'orders' }" class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        {{-- Tabs --}}
+        <div class="flex border-b border-gray-100">
+            <button
+                @click="accountTab = 'orders'"
+                class="flex-1 px-4 py-4 text-sm font-semibold text-center transition-colors border-b-2"
+                :class="accountTab === 'orders' ? '' : 'border-transparent text-gray-400 hover:text-gray-600'"
+                :style="accountTab === 'orders' ? 'border-color: {{ $primaryHex }}; color: {{ $primaryHex }};' : ''"
+            >
+                Lịch sử đặt phòng
+                <span class="ml-1 font-normal text-gray-400">({{ $totalCount }})</span>
+            </button>
+            @if(count($discountCodes) > 0)
+            <button
+                @click="accountTab = 'coupons'"
+                class="flex-1 px-4 py-4 text-sm font-semibold text-center transition-colors border-b-2"
+                :class="accountTab === 'coupons' ? '' : 'border-transparent text-gray-400 hover:text-gray-600'"
+                :style="accountTab === 'coupons' ? 'border-color: {{ $primaryHex }}; color: {{ $primaryHex }};' : ''"
+            >
+                Mã giảm giá của tôi
+                <span class="ml-1 font-normal text-gray-400">({{ count($discountCodes) }})</span>
+            </button>
+            @endif
         </div>
 
-        <div class="divide-y divide-gray-50">
+        {{-- Tab: Mã giảm giá --}}
+        @if(count($discountCodes) > 0)
+        <div x-show="accountTab === 'coupons'" x-cloak class="divide-y divide-gray-50">
             @foreach($discountCodes as $code)
             <div class="flex items-center gap-4 px-5 py-4" x-data="{ copied: false }">
                 <div class="shrink-0 w-[92px] text-xl font-extrabold leading-tight" style="color: {{ $primaryHex }};">
@@ -490,44 +479,10 @@
             </div>
             @endforeach
         </div>
-    </div>
-    @endif
-
-    {{-- Orders Section --}}
-    <div id="orders-section" class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        {{-- Header --}}
-        <div class="px-6 py-4 flex items-center justify-between border-b border-gray-100">
-            <div class="flex items-center gap-2.5">
-                <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background-color: {{ $primaryHex }}22;">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" style="color: {{ $primaryHex }};" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z"/>
-                    </svg>
-                </div>
-                <h2 class="text-base font-semibold text-gray-800">Lịch sử đặt phòng</h2>
-            </div>
-            <span class="text-xs font-medium text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full">
-                {{ $totalCount }} đơn
-            </span>
-        </div>
-
-        {{-- Branch Filter --}}
-        @if(count($branches) > 1)
-        <div class="px-4 py-2.5 border-b border-gray-100 flex gap-2 overflow-x-auto"
-             style="scrollbar-width:none; -ms-overflow-style:none;">
-            <button
-                wire:click="filterBranch(null)"
-                class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap"
-                style="{{ $selectedBranchId === null ? 'background-color:' . $primaryHex . '; color:' . $textOnPrimary . ';' : 'background-color:#f3f4f6; color:#6b7280;' }}"
-            >Tất cả</button>
-            @foreach($branches as $branch)
-            <button
-                wire:click="filterBranch({{ $branch['id'] }})"
-                class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap"
-                style="{{ $selectedBranchId === $branch['id'] ? 'background-color:' . $primaryHex . '; color:' . $textOnPrimary . ';' : 'background-color:#f3f4f6; color:#6b7280;' }}"
-            >{{ $branch['name'] }}</button>
-            @endforeach
-        </div>
         @endif
+
+        {{-- Tab: Lịch sử đặt phòng --}}
+        <div x-show="accountTab === 'orders'">
 
         {{-- Empty state --}}
         @if(count($orders) === 0)
@@ -672,6 +627,7 @@
         </div>
         @endif
         @endif
+        </div>{{-- /tab: orders --}}
     </div>
 
     {{-- Quick Actions --}}
@@ -711,18 +667,11 @@
     </div>{{-- /left column --}}
 
     {{-- ── EDIT PROFILE PANEL (right column) ── --}}
-    <div x-ref="editPanel" x-cloak
-         class="md:col-span-2 md:sticky md:top-6 md:!block"
-         :class="mobileEditOpen ? 'block' : 'hidden'">
+    <div class="md:col-span-2 md:sticky md:top-6">
         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             {{-- Header --}}
-            <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+            <div class="px-5 py-4 border-b border-gray-100">
                 <h2 class="text-base font-semibold text-gray-900">Chỉnh sửa hồ sơ</h2>
-                <button @click="mobileEditOpen = false" class="md:hidden p-1.5 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                    </svg>
-                </button>
             </div>
 
             <div class="p-5 space-y-5">

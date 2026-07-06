@@ -38,11 +38,14 @@
             );
         };
 
-        window.heroDatePicker = function(dayModeInit) {
+        window.heroDatePicker = function(dayModeInit, roomTypeInit) {
             return {
                 open: false,
                 // false = tab "Theo giờ" (1 ngày + badge giờ nhận/trả), true = tab "Theo ngày" (khoảng ngày, giờ cố định 14:00/12:00)
                 dayMode: dayModeInit === true,
+                // Loại hình dịch vụ (homestay/villa/...) — chỉ compact-form có tab chọn, khai báo
+                // ở scope ngoài cùng này (thay vì trong data-bar) vì các tab đó nằm NGOÀI data-bar.
+                selectedRoomType: roomTypeInit || 'all',
                 checkIn: null,
                 checkOut: null,
                 hoverDate: null,
@@ -126,10 +129,21 @@
                         } else if (date < this.checkIn) {
                             this.checkOut = this.checkIn;
                             this.checkIn = date;
+                            this.advanceAfterDateRange();
                         } else {
                             this.checkOut = date;
+                            this.advanceAfterDateRange();
                         }
                     }
+                },
+                // Vừa chọn xong khoảng ngày (tab Theo ngày) — tự đóng lịch, mở luôn phần Khách,
+                // giống hành vi tự chuyển bước của Airbnb (không cần bấm ra ngoài rồi bấm lại).
+                advanceAfterDateRange() {
+                    if (!this.dayMode) return;
+                    this.$nextTick(() => {
+                        this.open = false;
+                        this.guestsOpen = true;
+                    });
                 },
                 // Tab "Theo giờ": luôn chỉ 1 ngày duy nhất (check-in = check-out)
                 selectSingleDate(date) {
@@ -193,28 +207,40 @@
                     if (this.dayMode) return `${this.formatDisplay(date)} 12:00`;
                     return `${this.formatDisplay(date)} ${String(this.checkOutHour).padStart(2,'0')}:00`;
                 },
-                async confirm() {
-                    if (this.checkIn) {
-                        await this.$wire.set('checkIn', this.displayCheckIn);
-                        await this.$wire.set('checkOut', this.displayCheckOut);
-                    }
+                confirm() {
                     this.open = false;
                 },
-                async resetDate() {
+                resetDate() {
                     this.checkIn = null;
                     this.checkOut = null;
                     this.hoverDate = null;
                     this.checkInHour = 14;
                     this.checkOutHour = 16;
-                    await this.$wire.set('checkIn', '');
-                    await this.$wire.set('checkOut', '');
                 },
-                async submitSearch() {
+                // Toàn bộ lựa chọn (địa điểm, ngày giờ, khách, loại hình) đều chỉ là state Alpine
+                // phía client — không có round-trip Livewire nào cho tới tận lúc bấm Tìm kiếm, để
+                // mọi thao tác chọn cảm thấy tức thì (không phải chờ mạng) giống Airbnb. Lúc bấm
+                // Tìm kiếm mới build URL và điều hướng thẳng sang trang kết quả (JS tự fetch qua
+                // /api/v1/search ở trang đó), không cần gọi $wire cho bước này nữa.
+                submitSearch() {
+                    const params = {};
+                    if (this.selectedRoomType && this.selectedRoomType !== 'all') params.type = this.selectedRoomType;
+                    if (this.selectedGuestsVal) params.adults = this.selectedGuestsVal;
                     if (this.checkIn) {
-                        await this.$wire.set('checkIn', this.displayCheckIn);
-                        await this.$wire.set('checkOut', this.displayCheckOut);
+                        params.checkin  = this.displayCheckIn;
+                        params.checkout = this.displayCheckOut;
                     }
-                    await this.$wire.search();
+                    params.buoi = this.dayMode ? '2' : '1';
+
+                    const query = new URLSearchParams(params).toString();
+                    const path  = '/s/' + (this.selectedLocationSlug ? encodeURIComponent(this.selectedLocationSlug) : '');
+                    const url   = path + (query ? '?' + query : '');
+
+                    if (window.Livewire && typeof window.Livewire.navigate === 'function') {
+                        window.Livewire.navigate(url);
+                    } else {
+                        window.location.href = url;
+                    }
                 },
                 cancel() { this.open = false; },
             };

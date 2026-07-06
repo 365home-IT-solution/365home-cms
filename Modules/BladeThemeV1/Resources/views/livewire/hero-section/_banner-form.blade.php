@@ -5,12 +5,26 @@
                     x-data="{
                         locOpen: false, guestsOpen: false, mobileStep: 1, locating: false, hoverField: null,
                         locationSearch: '', selectedLocationSlug: '{{ $selectedLocation }}', mobileLocations: @js($locations),
+                        selectedGuestsVal: '{{ $selectedGuests }}', selectedRoomType: '{{ $selectedRoomType }}',
+                        guestOptions: { '': 'Tất cả', '1': '1 người', '2': '2 người', '3': '3 người', '4': '4 người', '5': '5+ người' },
+                        get locationLabel() {
+                            if (!this.selectedLocationSlug) return 'Chọn địa điểm';
+                            const loc = this.mobileLocations.find(l => l.slug === this.selectedLocationSlug);
+                            return loc ? loc.name : 'Chọn địa điểm';
+                        },
+                        get guestsLabel() { return this.guestOptions[this.selectedGuestsVal] || 'Thêm khách'; },
+                        pickLocation(slug) {
+                            this.selectedLocationSlug = slug;
+                            this.locOpen = false;
+                            this.open = true;
+                            this.$nextTick(() => this.openDateDropdown(this.$refs.dateDropdownDesktop));
+                        },
                         locateMe() {
                             this.locating = true;
                             window.heroLocateNearest(
-                                (slug) => $wire.setLocation(slug),
+                                (slug) => {},
                                 @js($locations),
-                                (loc) => { this.locating = false; this.locOpen = false; this.selectedLocationSlug = loc.slug; this.mobileStep = (this.mobileStep === 1 ? 2 : this.mobileStep); },
+                                (loc) => { this.locating = false; this.locOpen = false; this.selectedLocationSlug = loc.slug; this.mobileStep = (this.mobileStep === 1 ? 2 : this.mobileStep); this.open = true; this.$nextTick(() => this.openDateDropdown(this.$refs.dateDropdownDesktop)); },
                                 (msg) => { this.locating = false; alert(msg); }
                             );
                         },
@@ -68,7 +82,7 @@
                         <button type="button" @click="locOpen = !locOpen; open = false; guestsOpen = false"
                             class="w-full h-16 px-5 flex flex-col justify-center items-start text-left rounded-l-full transition-colors">
                             <span class="text-sm font-bold leading-none text-gray-900">Địa điểm</span>
-                            <span class="text-sm font-medium mt-1 truncate {{ $selectedLocation ? 'text-gray-900' : 'text-gray-400' }}">{{ $locationLabel }}</span>
+                            <span class="text-sm font-medium mt-1 truncate" :class="selectedLocationSlug ? 'text-gray-900' : 'text-gray-400'" x-text="locationLabel"></span>
                         </button>
                         <div x-show="locOpen" x-cloak
                             x-transition:enter="transition ease-out duration-150"
@@ -89,18 +103,18 @@
                                 </svg>
                                 <span x-text="locating ? 'Đang định vị...' : 'Vị trí của tôi'"></span>
                             </button>
-                            <button type="button" wire:click.stop="setLocation('')" @click="locOpen = false"
-                                wire:key="location-all"
-                                class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ !$selectedLocation ? 'font-semibold text-[var(--color-primary)]' : 'text-gray-700' }}">
+                            <button type="button" @click="pickLocation('')"
+                                class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors"
+                                :class="!selectedLocationSlug ? 'font-semibold text-[var(--color-primary)]' : 'text-gray-700'">
                                 <span>Tất cả địa điểm</span>
-                                @if(!$selectedLocation) {!! $checkmarkSvg !!} @endif
+                                <span x-show="!selectedLocationSlug">{!! $checkmarkSvg !!}</span>
                             </button>
                             @foreach($locations as $loc)
-                            <button type="button" wire:click.stop="setLocation(@js($loc['slug']))" @click="locOpen = false"
-                                wire:key="location-{{ $loc['slug'] }}"
-                                class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ $selectedLocation === $loc['slug'] ? 'font-semibold text-[var(--color-primary)]' : 'text-gray-700' }}">
+                            <button type="button" @click="pickLocation(@js($loc['slug']))"
+                                class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors"
+                                :class="selectedLocationSlug === @js($loc['slug']) ? 'font-semibold text-[var(--color-primary)]' : 'text-gray-700'">
                                 <span>{{ $loc['name'] }}</span>
-                                @if($selectedLocation === $loc['slug']) {!! $checkmarkSvg !!} @endif
+                                <span x-show="selectedLocationSlug === @js($loc['slug'])">{!! $checkmarkSvg !!}</span>
                             </button>
                             @endforeach
                         </div>
@@ -128,23 +142,27 @@
                             x-transition:leave="transition ease-in duration-100"
                             x-transition:leave-start="opacity-100 translate-y-0"
                             x-transition:leave-end="opacity-0 translate-y-1"
-                            class="absolute top-[calc(100%+8px)] left-1/2 {{ $selectedBuoi === '2' ? 'w-[640px]' : 'w-[380px]' }} bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-y-auto"
+                            class="absolute top-[calc(100%+8px)] left-1/2 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-y-auto"
+                            :class="dayMode ? 'w-[640px]' : 'w-[380px]'"
                             style="max-height:75vh; transform:translateX(-50%);">
                     <div class="py-5 px-6">
 
                         {{-- Tabs Theo giờ / Theo ngày --}}
                         <div class="flex items-center gap-1 mb-5 p-1 bg-gray-100 rounded-full w-fit mx-auto">
-                            <button type="button" wire:click.stop="setBuoi('1')" @click="dayMode = false; if (checkIn) { checkOut = checkIn }"
-                                class="px-5 py-2 rounded-full text-sm font-semibold transition-colors {{ $selectedBuoi !== '2' ? 'bg-white text-[var(--color-primary)] shadow-sm' : 'text-gray-500 hover:text-gray-700' }}">
+                            <button type="button" @click="dayMode = false; if (checkIn) { checkOut = checkIn }"
+                                class="px-5 py-2 rounded-full text-sm font-semibold transition-colors"
+                                :class="!dayMode ? 'bg-white text-[var(--color-primary)] shadow-sm' : 'text-gray-500 hover:text-gray-700'">
                                 Theo giờ
                             </button>
-                            <button type="button" wire:click.stop="setBuoi('2')" @click="dayMode = true"
-                                class="px-5 py-2 rounded-full text-sm font-semibold transition-colors {{ $selectedBuoi === '2' ? 'bg-white text-[var(--color-primary)] shadow-sm' : 'text-gray-500 hover:text-gray-700' }}">
+                            <button type="button" @click="dayMode = true"
+                                class="px-5 py-2 rounded-full text-sm font-semibold transition-colors"
+                                :class="dayMode ? 'bg-white text-[var(--color-primary)] shadow-sm' : 'text-gray-500 hover:text-gray-700'">
                                 Theo ngày
                             </button>
                         </div>
 
-                        @if($selectedBuoi === '2')
+                        <template x-if="dayMode">
+                        <div>
                         {{-- THEO NGÀY: lịch 2 tháng, chọn khoảng ngày, giờ nhận/trả cố định 14:00 / 12:00 --}}
                         <div class="flex items-center justify-between mb-4">
                             <button @click="prevMonth()"
@@ -225,7 +243,10 @@
                                 </div>
                             </div>
                         </div>
-                        @else
+                        </div>
+                        </template>
+                        <template x-if="!dayMode">
+                        <div>
                         {{-- THEO GIỜ: lịch 1 tháng, chọn đúng 1 ngày + badge giờ nhận/trả --}}
                         <div class="flex items-center justify-between mb-4">
                             <button @click="prevMonth()"
@@ -303,7 +324,8 @@
                                 </div>
                             </div>
                         </div>
-                        @endif
+                        </div>
+                        </template>
                     </div>
                         </div>
                     </div>
@@ -316,7 +338,7 @@
                         <button type="button" @click="guestsOpen = !guestsOpen; open = false; locOpen = false"
                             class="w-full h-16 px-5 flex flex-col justify-center items-start text-left rounded-xl transition-colors">
                             <span class="text-sm font-bold leading-none text-gray-900">Khách</span>
-                            <span class="text-sm font-medium mt-1 {{ $selectedGuests ? 'text-gray-900' : 'text-gray-400' }}">{{ $guestsLabel }}</span>
+                            <span class="text-sm font-medium mt-1" :class="selectedGuestsVal ? 'text-gray-900' : 'text-gray-400'" x-text="guestsLabel"></span>
                         </button>
                         <div x-show="guestsOpen" x-cloak
                             x-transition:enter="transition ease-out duration-150"
@@ -328,11 +350,11 @@
                             class="absolute top-[calc(100%+8px)] right-0 w-52 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 py-2">
                             @php $guestOpts = ['' => 'Tất cả', '1' => '1 người', '2' => '2 người', '3' => '3 người', '4' => '4 người', '5' => '5+ người']; @endphp
                             @foreach($guestOpts as $gVal => $gLbl)
-                            <button type="button" wire:click.stop="setGuests(@js($gVal))" @click="guestsOpen = false"
-                                wire:key="guests-{{ $gVal ?: 'all' }}"
-                                class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors {{ (!$gVal && !$selectedGuests) || ($gVal && $selectedGuests === $gVal) ? 'font-semibold text-[var(--color-primary)]' : 'text-gray-700' }}">
+                            <button type="button" @click="selectedGuestsVal = @js($gVal); guestsOpen = false"
+                                class="w-full px-4 py-2.5 text-left text-sm hover:bg-gray-50 flex items-center justify-between transition-colors"
+                                :class="selectedGuestsVal === @js($gVal) ? 'font-semibold text-[var(--color-primary)]' : 'text-gray-700'">
                                 <span>{{ $gLbl }}</span>
-                                @if((!$gVal && !$selectedGuests) || ($gVal && $selectedGuests === $gVal)) {!! $checkmarkSvg !!} @endif
+                                <span x-show="selectedGuestsVal === @js($gVal)">{!! $checkmarkSvg !!}</span>
                             </button>
                             @endforeach
                         </div>

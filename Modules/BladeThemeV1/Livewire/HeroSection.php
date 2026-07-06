@@ -82,30 +82,6 @@ class HeroSection extends Component
         //     ->toArray();
     }
 
-    public function setLocation(string $slug): void
-    {
-        $this->selectedLocation = $slug;
-    }
-
-    public function setBuoi(string $val): void
-    {
-        $this->selectedBuoi = $val;
-    }
-
-    public function setGuests(string $val): void
-    {
-        $this->selectedGuests = $val;
-    }
-
-    public function clearAll(): void
-    {
-        $this->selectedLocation = '';
-        $this->selectedBuoi     = '1';
-        $this->selectedGuests   = '';
-        $this->checkIn          = '';
-        $this->checkOut         = '';
-    }
-
     public function setRoomType(string $slug): void
     {
         $this->selectedRoomType = $slug;
@@ -174,24 +150,6 @@ class HeroSection extends Component
                 $this->selectedLocation = '';
             }
         }
-    }
-
-    public function search(): void
-    {
-        // location đi vào path (/s/{location}, kiểu Airbnb), phần còn lại vẫn ở
-        // query string với tên gần với Airbnb hơn (checkin/checkout/adults thay vì check_in/
-        // check_out/guests); type/buoi là khái niệm riêng của mình, không có tương đương ở Airbnb
-        // nên giữ nguyên tên.
-        $params = array_filter([
-            'type'     => $this->selectedRoomType !== 'all' ? $this->selectedRoomType : '',
-            'adults'   => $this->selectedGuests,
-            'checkin'  => $this->checkIn,
-            'checkout' => $this->checkOut,
-            'buoi'     => $this->selectedBuoi,
-        ]);
-
-        $path = route('product.search', $this->selectedLocation ? ['location' => $this->selectedLocation] : []);
-        $this->redirect($path . (count($params) ? '?' . http_build_query($params) : ''), navigate: true);
     }
 
     public function render()

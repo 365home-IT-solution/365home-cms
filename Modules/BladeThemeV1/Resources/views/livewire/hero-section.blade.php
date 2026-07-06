@@ -32,10 +32,18 @@
                 mobileSearchOpen: false,
                 locOpen: false, guestsOpen: false, mobileStep: 1, locating: false,
                 locationSearch: '', selectedLocationSlug: '{{ $selectedLocation }}', mobileLocations: @js($locations),
+                selectedGuestsVal: '{{ $selectedGuests }}',
+                guestOptions: { '': 'Tất cả', '1': '1 người', '2': '2 người', '3': '3 người', '4': '4 người', '5': '5+ người' },
+                get locationLabel() {
+                    if (!this.selectedLocationSlug) return 'Chọn địa điểm';
+                    const loc = this.mobileLocations.find(l => l.slug === this.selectedLocationSlug);
+                    return loc ? loc.name : 'Chọn địa điểm';
+                },
+                get guestsLabel() { return this.guestOptions[this.selectedGuestsVal] || 'Thêm khách'; },
                 locateMe() {
                     this.locating = true;
                     window.heroLocateNearest(
-                        (slug) => $wire.setLocation(slug),
+                        (slug) => {},
                         @js($locations),
                         (loc) => { this.locating = false; this.locOpen = false; this.selectedLocationSlug = loc.slug; this.mobileStep = (this.mobileStep === 1 ? 2 : this.mobileStep); },
                         (msg) => { this.locating = false; alert(msg); }

@@ -4,12 +4,53 @@ declare(strict_types=1);
 
 namespace App\Http\Concerns;
 
+use App\Models\ProvinceBranch;
 use Carbon\Carbon;
+use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\TimeSlot;
 
 trait BuildsRoomCard
 {
+    // Toàn bộ chi nhánh đang active trên hệ thống + map category con → category chi nhánh cha
+    // (dùng khi không có bộ lọc tỉnh/ward cụ thể — vd trang yêu thích, tìm kiếm toàn quốc).
+    private function globalBranchLookup(): array
+    {
+        $branchCatIds = ProvinceBranch::where('status', true)->pluck('categorie_id')->unique()->values()->toArray();
+
+        if (empty($branchCatIds)) {
+            return ['cats' => collect(), 'childMap' => []];
+        }
+
+        $childMap = Category::whereIn('parent_id', $branchCatIds)->get(['id', 'parent_id'])->pluck('parent_id', 'id')->toArray();
+        $cats     = Category::whereIn('id', $branchCatIds)->get(['id', 'name', 'slug'])->keyBy('id');
+
+        return ['cats' => $cats, 'childMap' => $childMap];
+    }
+
+    // Chi nhánh mà 1 phòng thuộc về (trực tiếp hoặc qua category con) — $room->categories phải
+    // được eager-load trước khi gọi.
+    private function resolveBranch(Product $room, \Illuminate\Support\Collection $branchCats, array $branchChildMap): ?array
+    {
+        if ($branchCats->isEmpty()) {
+            return null;
+        }
+
+        foreach ($room->categories as $cat) {
+            $branchCatId = null;
+            if ($branchCats->has($cat->id)) {
+                $branchCatId = $cat->id;
+            } elseif (isset($branchChildMap[$cat->id])) {
+                $branchCatId = $branchChildMap[$cat->id];
+            }
+            if ($branchCatId && $branchCats->has($branchCatId)) {
+                $branch = $branchCats->get($branchCatId);
+                return ['id' => $branch->id, 'name' => $branch->name, 'slug' => $branch->slug];
+            }
+        }
+
+        return null;
+    }
     private function mapRoom(Product $room, ?bool $wishlistStatus = null, ?string $timeFrom = null, ?string $timeTo = null): array
     {
         $badge    = $room->badge;

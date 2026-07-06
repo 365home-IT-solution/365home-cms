@@ -109,12 +109,27 @@
             <span class="nav-label-1">Tin tức</span>
         </a>
 
-        <a href="/ticket-booking" class="nav-item-1 {{ $currentUrl === '/ticket-booking' ? 'active' : '' }}">
-            <div class="nav-icon-1">
-                <x-heroicon-o-ticket />
-            </div>
-            <span class="nav-label-1">Tra cứu</span>
-        </a>
+        <div
+            x-data="{
+                isLoggedIn: false,
+                init() {
+                    this.check();
+                    window.addEventListener('auth-state-changed', () => this.check());
+                },
+                check() {
+                    this.isLoggedIn = !!(localStorage.getItem('auth_token') && localStorage.getItem('auth_user'));
+                },
+            }"
+            class="contents"
+        >
+            <a :href="isLoggedIn ? '/tai-khoan#orders-section' : '/ticket-booking'"
+               class="nav-item-1 {{ $currentUrl === '/ticket-booking' ? 'active' : '' }}">
+                <div class="nav-icon-1">
+                    <x-heroicon-o-ticket />
+                </div>
+                <span class="nav-label-1" x-text="isLoggedIn ? 'Đơn hàng' : 'Tra cứu đơn'"></span>
+            </a>
+        </div>
 
         <div
             x-data="{
