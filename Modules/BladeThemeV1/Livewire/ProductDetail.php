@@ -1187,6 +1187,7 @@ public function confirmBooking()
                 'order_code'      => time() . rand(1000, 9999),
                 'buyer_name'      => $verifiedBuyerName,
                 'buyer_phone'     => $verifiedBuyerPhone,
+                'buyer_email'     => $this->buyerEmail ?: null,
                 'user_id'         => $verifiedUserId,
                 'amount'          => $paymentAmount,
                 'full_amount'     => $fullAmount,
@@ -1561,6 +1562,8 @@ public function confirmBooking()
                 'orderItems.order'
             ]
         )
+            ->withCount('ratings')
+            ->withAvg('ratings', 'star')
             ->where([
                 'is_activated' => true,
                 'type' => 'simple'

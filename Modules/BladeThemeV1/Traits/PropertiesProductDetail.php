@@ -18,6 +18,7 @@ trait PropertiesProductDetail
     public $roomTimeSlots = [];
     public $buyerName = '';
     public $buyerPhone = '';
+    public $buyerEmail = '';
     public $guests = 2;
     public $startTime = '';
     public $endTime = '';
