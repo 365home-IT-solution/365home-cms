@@ -28,6 +28,11 @@ class AskUserResource extends Resource
     protected static ?string $pluralModelLabel = 'Thông báo vào app';
     protected static ?int    $navigationSort   = 20;
 
+    public static function canViewAny(): bool
+    {
+        return auth()->user()?->isSuperAdmin() ?? false;
+    }
+
     public static function form(Form $form): Form
     {
         return $form->schema([

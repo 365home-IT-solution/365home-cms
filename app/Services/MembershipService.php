@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Models\Customer;
 use App\Models\CustomerMembershipLog;
 use App\Models\MembershipTier;
+use App\Models\User;
 use Illuminate\Support\Str;
 use Modules\Promotion\App\Models\Coupon;
 
@@ -168,6 +169,16 @@ class MembershipService
             'end_at'        => $tier->welcome_coupon_days ? now()->addDays($tier->welcome_coupon_days) : null,
             'is_active'     => true,
             'customer_id'   => $customer->id,
+            'created_by'    => $this->superAdminId(),
         ]);
+    }
+
+    /**
+     * ID của super_admin dùng làm created_by cho coupon tự động cấp,
+     * tránh created_by = null khiến coupon hiển thị ở mọi role (xem CouponResource::getEloquentQuery).
+     */
+    private function superAdminId(): ?string
+    {
+        return User::role(config('filament-shield.super_admin.name'))->value('id');
     }
 }

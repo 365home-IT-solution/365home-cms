@@ -65,8 +65,9 @@ class CouponResource extends Resource
         $overlappingUserIds = UserBranchPermission::whereIn('category_id', $allowedBranchIds)
             ->pluck('user_id');
 
-        return $query->where(function (Builder $q) use ($permittedRoomIds, $overlappingUserIds) {
+        return $query->where(function (Builder $q) use ($permittedRoomIds, $overlappingUserIds, $user) {
             $q->whereIn('room_id', $permittedRoomIds)
+                ->orWhere('created_by', $user->id)
                 ->orWhere(function (Builder $q2) use ($overlappingUserIds) {
                     $q2->where('apply_type', 'all_rooms')
                         ->where(function (Builder $q3) use ($overlappingUserIds) {

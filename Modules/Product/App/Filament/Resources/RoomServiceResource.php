@@ -46,6 +46,11 @@ class RoomServiceResource extends Resource
         return (string) static::getModel()::count();
     }
 
+    public static function canViewAny(): bool
+    {
+        return auth()->user()?->isSuperAdmin() ?? false;
+    }
+
     public static function form(Form $form): Form
     {
         return RoomServiceForm::form($form);
