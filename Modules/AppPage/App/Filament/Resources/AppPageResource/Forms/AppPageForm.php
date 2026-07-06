@@ -211,7 +211,7 @@ class AppPageForm
                                 ->disk('public')
                                 ->directory('promotion-icons')
                                 ->imagePreviewHeight('60')
-                                ->maxSize(512),
+                                ->maxSize(4096),
 
                             TextInput::make('title')
                                 ->label('Tiêu đề')

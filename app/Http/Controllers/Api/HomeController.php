@@ -134,12 +134,31 @@ class HomeController extends Controller
             'sort_order'   => $index + 1,
             'title'        => $data['title'] ?? null,
             'subtitle'     => $data['subtitle'] ?? null,
-            'view_all_url' => $data['view_all_url'] ?? null,
+            'view_all_url' => $this->buildViewAllUrl($data, $displayMode, $province) ?? ($data['view_all_url'] ?? null),
             'show_arrow'   => (bool) ($data['show_arrow'] ?? true),
             'layout'       => $data['layout'] ?? 'horizontal_scroll',
             'display_mode' => $displayMode,
             'rooms'        => $rooms,
         ];
+    }
+
+    // "Xem tất cả" của 1 khối phòng nên đưa thẳng người dùng đến đúng phạm vi phòng mà khối đó
+    // đang hiển thị: theo khu vực (tỉnh đang chọn) hoặc theo (các) chi nhánh cụ thể đã cấu hình —
+    // thay vì luôn trỏ về trang tìm kiếm chung chung không có bộ lọc.
+    private function buildViewAllUrl(array $data, string $displayMode, ?Province $province): ?string
+    {
+        if ($displayMode === 'by_region') {
+            return $province ? '/s/' . $province->slug : null;
+        }
+
+        $branchIds = array_filter((array) ($data['branch_ids'] ?? []));
+        if (empty($branchIds)) {
+            return null;
+        }
+
+        $slugs = Category::whereIn('id', $branchIds)->pluck('slug');
+
+        return $slugs->isNotEmpty() ? '/s/' . $slugs->implode(',') : null;
     }
 
     private function getRooms(array $data, string $displayMode, ?array $wishlistedIds, ?int $tabRoomTypeId, ?Province $province = null): array
@@ -196,25 +215,41 @@ class HomeController extends Controller
                 $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
             }
 
-            $orderBy = $data['order_by'] ?? 'latest';
-            match ($orderBy) {
-                'price_asc'  => $query->orderBy('price'),
-                'price_desc' => $query->orderByDesc('price'),
-                default      => $query->latest(),
-            };
+            if ($displayMode !== 'by_region') {
+                $orderBy = $data['order_by'] ?? 'latest';
+                match ($orderBy) {
+                    'price_asc'  => $query->orderBy('price'),
+                    'price_desc' => $query->orderByDesc('price'),
+                    default      => $query->latest(),
+                };
+            }
+        }
+
+        // Block "Theo khu vực": ưu tiên phòng đánh giá cao và nhiều đơn đặt (đã thanh toán/đặt
+        // cọc) của khu vực đó lên trước, bất kể order_by cấu hình gì — thay cho ordering mặc định.
+        if ($displayMode === 'by_region') {
+            $query->withCount(['orderItems as bookings_count' => function ($q) {
+                $q->whereHas('order', fn ($oq) => $oq->whereIn('status', ['paid', 'deposit']));
+            }])
+                ->orderByDesc('rating_score')
+                ->orderByDesc('bookings_count');
         }
 
         if ($tabRoomTypeId !== null) {
             $query->where('room_type_id', $tabRoomTypeId);
         }
 
-        return $query
-            ->with(['roomTimeSlots.timeSlot', 'media', 'roomType'])
-            ->get()
-            ->map(function ($room) use ($wishlistedIds) {
-                $status = $wishlistedIds === null ? null : \in_array($room->id, $wishlistedIds);
+        $branchLookup = $this->globalBranchLookup();
 
-                return $this->mapRoom($room, $status);
+        return $query
+            ->with(['roomTimeSlots.timeSlot', 'media', 'roomType', 'categories'])
+            ->get()
+            ->map(function ($room) use ($wishlistedIds, $branchLookup) {
+                $status = $wishlistedIds === null ? null : \in_array($room->id, $wishlistedIds);
+                $card   = $this->mapRoom($room, $status);
+                $card['branch'] = $this->resolveBranch($room, $branchLookup['cats'], $branchLookup['childMap']);
+
+                return $card;
             })
             ->toArray();
     }
@@ -225,12 +260,13 @@ class HomeController extends Controller
     {
         $icon = $data['icon'] ?? null;
         $base = [
-            'type'       => 'promotion_list',
-            'id'         => $index + 1,
-            'sort_order' => $index + 1,
-            'icon_url'   => $icon ? Storage::disk('public')->url($icon) : null,
-            'title'      => $data['title'] ?? null,
-            'rooms'      => [],
+            'type'         => 'promotion_list',
+            'id'           => $index + 1,
+            'sort_order'   => $index + 1,
+            'icon_url'     => $icon ? Storage::disk('public')->url($icon) : null,
+            'title'        => $data['title'] ?? null,
+            'view_all_url' => $province ? '/s/' . $province->slug : null,
+            'rooms'        => [],
         ];
 
         if ($province === null) {
@@ -254,15 +290,20 @@ class HomeController extends Controller
         $childIds  = Category::whereIn('parent_id', $provinceBranchIds)->pluck('id');
         $filterIds = collect($provinceBranchIds)->merge($childIds)->unique()->values();
 
+        $branchLookup = $this->globalBranchLookup();
+
         $rooms = Product::whereIn('id', $productIds)
             ->where('is_activated', true)
             ->where('is_in_stock', true)
             ->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds))
-            ->with(['roomTimeSlots.timeSlot', 'media', 'roomType'])
+            ->with(['roomTimeSlots.timeSlot', 'media', 'roomType', 'categories'])
             ->get()
-            ->map(function ($room) use ($wishlistedIds) {
+            ->map(function ($room) use ($wishlistedIds, $branchLookup) {
                 $status = $wishlistedIds === null ? null : \in_array($room->id, $wishlistedIds);
-                return $this->mapRoom($room, $status);
+                $card   = $this->mapRoom($room, $status);
+                $card['branch'] = $this->resolveBranch($room, $branchLookup['cats'], $branchLookup['childMap']);
+
+                return $card;
             })
             ->values()
             ->toArray();
@@ -281,6 +322,10 @@ class HomeController extends Controller
             'id'              => $index + 1,
             'sort_order'      => $index + 1,
             'suggestion_type' => $type,
+            // Loại "Chi nhánh" → xem tất cả dẫn đến danh sách chi nhánh của khu vực (không phải phòng).
+            'view_all_url'    => $province
+                ? '/s/' . $province->slug . ($type === 'branch' ? '?view=branches' : '')
+                : null,
         ];
 
         if ($province === null) {
@@ -301,6 +346,7 @@ class HomeController extends Controller
     {
         return $province->branches()
             ->where('status', true)
+            ->whereHas('category', fn ($q) => $q->where('status', true))
             ->with('category')
             ->get()
             ->map(fn ($branch) => [
@@ -329,14 +375,17 @@ class HomeController extends Controller
         $childIds  = Category::whereIn('parent_id', $branchCategoryIds)->pluck('id');
         $filterIds = collect($branchCategoryIds)->merge($childIds)->unique()->values();
 
+        $branchLookup = $this->globalBranchLookup();
+
         return Product::where('is_activated', true)
             ->where('is_in_stock', true)
             ->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds))
-            ->with(['roomTimeSlots.timeSlot', 'media', 'roomType'])
+            ->with(['roomTimeSlots.timeSlot', 'media', 'roomType', 'categories'])
             ->get()
-            ->map(function ($room) use ($wishlistedIds) {
+            ->map(function ($room) use ($wishlistedIds, $branchLookup) {
                 $status = $wishlistedIds === null ? null : \in_array($room->id, $wishlistedIds);
                 $card   = $this->mapRoom($room, $status);
+                $card['branch'] = $this->resolveBranch($room, $branchLookup['cats'], $branchLookup['childMap']);
 
                 $card['image_url'] = $card['thumbnail_url'];
                 unset($card['thumbnail_url']);

@@ -81,6 +81,9 @@ if (typeof window.roomCardHtml === 'undefined') {
             + '</div>'
             + '<div style="padding:0 2px; display:flex; flex-direction:column; gap:3px;">'
             + '<p style="font-size:13px; font-weight:600; color:#111827; margin:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">' + (room.name || '') + '</p>'
+            + (room.branch && room.branch.name
+                ? '<p style="font-size:11px; color:#9ca3af; margin:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;">' + room.branch.name + '</p>'
+                : '')
             + '<div style="display:flex; align-items:center; justify-content:space-between; gap:6px;">'
             + '<p style="font-size:13px; color:#111827; margin:0; white-space:nowrap;">' + priceHtml + '</p>'
             + ratingHtml

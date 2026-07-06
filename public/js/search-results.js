@@ -33,11 +33,50 @@
         return '/api/v1/search?' + apiParams.toString();
     }
 
+    // ?view=branches (từ "Xem tất cả" của block Gợi ý điểm đến loại Chi nhánh) — liệt kê chi
+    // nhánh của khu vực thay vì phòng.
+    function isBranchesView() {
+        return new URLSearchParams(window.location.search).get('view') === 'branches';
+    }
+
+    function buildBranchesApiUrl() {
+        var apiParams = new URLSearchParams();
+        var location = parseLocationFromPath();
+        if (location) apiParams.set('province', location);
+        return '/api/v1/search/branches?' + apiParams.toString();
+    }
+
+    function renderBranchesResults(branches) {
+        if (!branches.length) {
+            return '<div style="padding:3rem 1rem;text-align:center;">'
+                + '<svg style="width:48px;height:48px;color:#d1d5db;margin:0 auto 12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+                + '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>'
+                + '</svg>'
+                + '<p style="color:#6b7280;font-size:14px;margin:0;">Không tìm thấy chi nhánh nào phù hợp.</p>'
+                + '</div>';
+        }
+
+        var cards = branches.map(function (branch) {
+            return window.branchCardHtml(branch);
+        }).join('');
+
+        return '<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:16px 14px; padding:4px 0 12px;">' + cards + '</div>';
+    }
+
     function chipHtml(label, tone) {
         var colors = tone === 'muted'
             ? 'color:#6b7280;background:#f9fafb;border:1px solid #e5e7eb;'
             : 'color:#0f766e;background:#f0fdf4;border:1px solid #bbf7d0;';
         return '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;' + colors + 'padding:3px 10px;border-radius:99px;">' + escapeHtml(label) + '</span>';
+    }
+
+    function renderBranchesHeader(meta) {
+        var total = meta.total || 0;
+        var title = meta.province_name
+            ? total + ' chi nhánh tại ' + meta.province_name
+            : 'Không tìm thấy chi nhánh nào phù hợp.';
+
+        return '<p class="search-count-title"' + (meta.province_name ? '' : ' style="font-weight:500;color:#6b7280;"') + '>' + escapeHtml(title) + '</p>';
     }
 
     function renderHeader(meta, params) {
@@ -188,6 +227,24 @@
         var token = localStorage.getItem('auth_token');
         var headers = { Accept: 'application/json' };
         if (token) headers.Authorization = 'Bearer ' + token;
+
+        // ?view=branches — liệt kê chi nhánh của khu vực (từ "Gợi ý điểm đến" loại Chi nhánh),
+        // không cần bản đồ/slider phòng như luồng tìm phòng thông thường bên dưới.
+        if (isBranchesView()) {
+            var branches = [];
+            var branchMeta = {};
+            try {
+                var bRes = await fetch(buildBranchesApiUrl(), { headers: headers });
+                var bJson = await bRes.json();
+                branches = bJson.data || [];
+                branchMeta = bJson.meta || {};
+            } catch (e) {
+                console.error('branches fetch error', e);
+            }
+            if (headerEl) headerEl.innerHTML = renderBranchesHeader(branchMeta);
+            if (bodyEl) bodyEl.innerHTML = renderBranchesResults(branches);
+            return;
+        }
 
         var rooms = [];
         var meta = {};

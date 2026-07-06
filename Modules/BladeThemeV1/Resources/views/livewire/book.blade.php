@@ -233,28 +233,6 @@
                 $styleOneRooms = collect($category['products'])->filter(fn($r) => ($r->styles ?? 1) == 1)->values();
                 $totalStyleOneRooms = $styleOneRooms->count();
                 $today = now()->startOfDay();
-                // Gán mỗi phòng 1 màu riêng (xoay vòng theo bảng màu) để phần header/khung giờ
-                // đổi màu theo phòng đang chọn (room-color) — trước đây $productColors chưa từng
-                // được định nghĩa nên mọi phòng lặng lẽ dùng chung 1 màu mặc định.
-                $roomColorPalette = ['#4e6b4c', '#2563eb', '#dc2626', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#65a30d', '#ea580c', '#0f766e'];
-                $productColors = [];
-                foreach ($styleOneRooms as $roomIdx => $roomForColor) {
-                    $productColors[$roomForColor->id] = ['color' => $roomColorPalette[$roomIdx % count($roomColorPalette)]];
-                }
-                // Auto-compute contrast text color from hex background
-                $autoTextColor = function(string $hex): string {
-                $hex = ltrim($hex, '#');
-                if (strlen($hex) === 3) {
-                $hex = $hex[0].$hex[0].$hex[1].$hex[1].$hex[2].$hex[2];
-                }
-                $r = hexdec(substr($hex, 0, 2));
-                $g = hexdec(substr($hex, 2, 2));
-                $b = hexdec(substr($hex, 4, 2));
-                return (0.299 * $r + 0.587 * $g + 0.114 * $b) > 128 ? '#111827' : '#ffffff';
-                };
-                // Xây dựng bản đồ màu theo thứ tự xuất hiện của order_id trong category
-                // Đảm bảo mỗi đơn có màu riêng, không trùng giữa các phòng khác nhau
-               $orderColorMap = [];
                 @endphp
 
                 @include('bladethemev1::livewire.book._legend')

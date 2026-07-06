@@ -155,7 +155,7 @@
                 <div class="nav-icon-1">
                     <x-heroicon-o-user-circle />
                 </div>
-                <span class="nav-label-1">Đăng nhập</span>
+                <span class="nav-label-1" x-text="isLoggedIn ? 'Tài khoản' : 'Đăng nhập'"></span>
             </a>
         </div>
     </div>

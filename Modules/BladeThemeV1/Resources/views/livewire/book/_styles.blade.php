@@ -488,20 +488,23 @@
         border: 1px solid #d4e4d2;
     }
 
-    /* ── Selectable → pill shape ── */
+    /* ── Selectable → pill shape, 1 màu xám nhạt trắng duy nhất (không đổi theo sản phẩm),
+         box-shadow inset kiểu Tailwind (shadow-inner) để trông "chìm" nhẹ, dễ nhận biết là
+         có thể bấm chọn ── */
     .selectable {
         border-radius: 999px !important;
-        background: linear-gradient(135deg, #eef2ed, #e8f0e6) !important;
-        border: 1.5px solid #a8c4a0 !important;
-        color: #4e6b4c !important;
+        background: #f9fafb !important;
+        border: 1px solid #e5e7eb !important;
+        box-shadow: inset 0 2px 4px 0 rgb(0 0 0 / 0.05);
+        color: #374151 !important;
         transition: all 0.18s ease;
         height: 32px;
     }
 
     .selectable:hover:not([style*="pointer-events:none"]) {
-        background: linear-gradient(135deg, #d4e4d2, #c8dcc6) !important;
-        border-color: #6a8f68 !important;
-        box-shadow: 0 4px 12px rgba(78, 107, 76, 0.3);
+        background: #f3f4f6 !important;
+        border-color: var(--color-primary, #4e6b4c) !important;
+        box-shadow: inset 0 2px 4px 0 rgb(0 0 0 / 0.05), 0 4px 12px rgba(0, 0, 0, 0.08);
         transform: translateY(-1px);
     }
 
@@ -547,17 +550,18 @@
         border: 1px solid #d4e4d2;
     }
 
-    /* ── Gradient CTA button ── */
+    /* ── CTA button — dùng đúng màu primary của theme (trước đây cứng màu xanh lá, sai với
+         theme thực tế của trang) ── */
     .book-cta-btn {
         padding: 14px 36px;
         border-radius: 999px;
         font-weight: 800;
         font-size: 1rem;
         color: white;
-        background: linear-gradient(135deg, #4e6b4c, #6a8f68, #5a7d58);
+        background: var(--color-primary, #4e6b4c);
         border: none;
         cursor: pointer;
-        box-shadow: 0 8px 24px rgba(78, 107, 76, 0.35);
+        box-shadow: 0 8px 24px rgba(var(--color-primary-rgb, 78, 107, 76), 0.35);
         transition: all 0.3s ease;
         letter-spacing: 0.04em;
         width: 100%;
@@ -566,7 +570,8 @@
 
     .book-cta-btn:hover:not(:disabled) {
         transform: translateY(-2px);
-        box-shadow: 0 12px 32px rgba(78, 107, 76, 0.45);
+        box-shadow: 0 12px 32px rgba(var(--color-primary-rgb, 78, 107, 76), 0.45);
+        filter: brightness(1.08);
     }
 
     .book-cta-btn:disabled {
@@ -584,26 +589,21 @@
            TWO-PANEL CARD LAYOUT  (mobile)
            ═══════════════════════════════════════════════ */
 
-    /* ── Card bao ngoài — nền màu primary của trang, 2 cột bên trong mới là khối trắng ── */
+    /* ── Card bao ngoài — 1 màu xám nhạt trắng duy nhất cho mọi phòng (không đổi theo sản
+         phẩm), 2 cột bên trong là khối trắng nổi lên trên ── */
     .book-card-outer {
-        background: var(--color-primary, #4e6b4c);
+        background: #f3f4f6;
         border-radius: 18px;
         padding: 10px 0 12px;
-        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.06);
     }
 
-    /* ── Hàng trên cùng: chừa trống phía cột "Ngày", tên phòng + nút trượt chỉ nằm phía
-         trên cột "Khung giờ" ── */
+    /* ── Hàng trên cùng: tên phòng + nút trượt trải rộng hết chiều ngang (w-full) ── */
     .book-top-row {
         display: flex;
         gap: 12px;
         padding: 0 10px;
         margin-bottom: 12px;
-    }
-
-    .book-top-spacer {
-        width: 60px;
-        flex-shrink: 0;
     }
 
     /* ── Room navigation header — tách riêng, nằm trên nền màu của .book-card-outer,
@@ -678,7 +678,7 @@
         display: flex;
         gap: 12px;
         padding: 0 10px;
-        background: var(--color-primary, #4e6b4c);
+        background: #f3f4f6;
         position: sticky;
         top: 0;
         /* Cao hơn z-index của .selectable (10) và các lớp phủ khuyến mãi bên trong (tối đa 30)
@@ -740,12 +740,14 @@
     }
 
     /* ── Left dates card — dính liền với header "Ngày" phía trên (cùng nền, chỉ bo góc dưới),
-         tách hẳn khỏi khối khung giờ bên phải ── */
+         tách hẳn khỏi khối khung giờ bên phải. box-shadow inset kiểu Tailwind (shadow-inner)
+         để trông "chìm" nhẹ so với 2 khối trắng nổi bên cạnh ── */
     .book-dates-card {
-        background: #ffffff;
+        background: #f9fafb;
         border: 1px solid #f0f0f0;
         border-top: none;
         border-radius: 0 0 10px 10px;
+        box-shadow: inset 0 2px 4px 0 rgb(0 0 0 / 0.05);
         min-width: 60px;
         width: 60px;
         flex-shrink: 0;
@@ -953,24 +955,12 @@
         display: none !important;
     }
 
-    /* ── Nút "Xem thêm 5 ngày" (mobile) ── */
-    /* ── Hàng chứa 2 nút "Xem thêm ngày" / "Thu gọn" — chia 2 cột đều nhau, cách nhau gọn ── */
+    /* ── Nút "Xem thêm ngày" (mobile) — 1 nút duy nhất, tự ẩn khi đã hiện hết ngày ── */
     .book-loadmore-row {
         display: flex;
         justify-content: center;
-        gap: 10px;
         margin-top: 8px;
         padding: 0 10px;
-    }
-
-    .book-loadmore-btn-disabled {
-        opacity: 0.45;
-        cursor: not-allowed;
-    }
-
-    .book-loadmore-btn-disabled:hover {
-        background: #f4f8f3;
-        border-color: rgba(78, 107, 76, 0.4);
     }
 
     .book-loadmore-btn {
@@ -981,7 +971,7 @@
         flex: 0 0 auto;
         min-width: 0;
         margin-top: 0;
-        padding: 20px 30px;
+        padding: 12px 30px;
         border-radius: 999px;
         border: 1.5px dashed rgba(78, 107, 76, 0.4);
         background: #f4f8f3;
@@ -989,31 +979,21 @@
         font-size: 0.75rem;
         font-weight: 700;
         cursor: pointer;
-        transition: background 0.15s, border-color 0.15s;
+        transition: background 0.15s, border-color 0.15s, transform 0.15s;
     }
 
     .book-loadmore-btn:hover {
         background: #e8f0e6;
         border-color: #6a8f68;
-            </div>
+        transform: translateY(1px);
     }
 
-    .book-loadmore-btn span {
-        font-weight: 500;
-        color: #6b7280;
-        font-size: 0.68rem;
+    .book-loadmore-btn svg {
+        transition: transform 0.15s;
     }
 
-    .book-collapse-btn {
-        border-style: solid;
-        background: white;
-        color: #6b7280;
-        border-color: rgba(107, 114, 128, 0.35);
-    }
-
-    .book-collapse-btn:hover {
-        background: white;
-        border-color: rgba(107, 114, 128, 0.5);
+    .book-loadmore-btn:hover svg {
+        transform: translateY(1px);
     }
 
     /* ── Mobile sticky pricing bar ── */
@@ -1072,10 +1052,10 @@
             margin-top: 3px;
         }
 
-        /* Nút "Xem thêm ngày" / "Thu gọn" to hơn trên desktop/tablet */
+        /* Nút "Xem thêm ngày" to hơn trên desktop/tablet */
         .book-loadmore-btn {
-            padding: 16px 28px;
-            font-size: 1.125rem;
+            padding: 12px 28px;
+            font-size: 0.95rem;
         }
     }
 

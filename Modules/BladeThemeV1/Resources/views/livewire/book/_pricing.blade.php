@@ -1,5 +1,5 @@
                 <!-- Summary của book.blade -->
-                <div id="book-pricing-summary" class="book-pricing-card flex md:flex-row flex-col md:justify-between justify-start items-center mt-5 gap-4">
+                <div id="book-pricing-summary" class="book-pricing-card flex flex-col items-stretch mt-5 gap-4">
                     <div class="w-full text-left font-semibold">
 
                         <!-- Giá cơ bản -->

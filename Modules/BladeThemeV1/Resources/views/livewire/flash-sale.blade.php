@@ -90,7 +90,7 @@
                                 </button>
                             </div>
                             <div class="flex lg:hidden">
-                                <a href="{{ route('product.search') }}" class="carousel-nav-btn" aria-label="Xem tất cả" style="text-decoration:none;">
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" class="carousel-nav-btn" aria-label="Xem tất cả" style="text-decoration:none;">
                                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                                 </a>
                             </div>
@@ -120,7 +120,7 @@
                                 </button>
                             </div>
                             <div class="flex lg:hidden">
-                                <a href="{{ route('product.search') }}" class="carousel-nav-btn" aria-label="Xem tất cả" style="text-decoration:none;">
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" class="carousel-nav-btn" aria-label="Xem tất cả" style="text-decoration:none;">
                                     <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                                 </a>
                             </div>
@@ -174,9 +174,9 @@
         .hide-scrollbar::-webkit-scrollbar { display: none; }
 
         .home-card {
-            flex: 0 0 calc(50vw - 23px);
-            width: calc(50vw - 23px);
-            max-width: calc(50vw - 23px);
+            flex: 0 0 calc(46vw - 20px);
+            width: calc(46vw - 20px);
+            max-width: calc(46vw - 20px);
         }
         @media (min-width: 768px) {
             .home-card {
@@ -194,9 +194,9 @@
             border-radius: 20px;
             min-height: 168px;
             background: #e5e7eb;
-            flex: 0 0 calc(50vw - 23px);
-            width: calc(50vw - 23px);
-            max-width: calc(50vw - 23px);
+            flex: 0 0 calc(46vw - 20px);
+            width: calc(46vw - 20px);
+            max-width: calc(46vw - 20px);
             flex-shrink: 0;
             scroll-snap-align: start;
             transition: transform .25s ease;

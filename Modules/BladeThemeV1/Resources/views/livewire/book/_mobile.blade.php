@@ -1,7 +1,7 @@
 {{--
     Mobile two-panel booking grid.
     Included from book.blade.php — inherits:
-      $dates, $styleOneRooms, $totalStyleOneRooms, $today, $category, $productColors
+      $dates, $styleOneRooms, $totalStyleOneRooms, $today, $category
 --}}
 <div x-data="{
     activeRoomIdx: 0, totalRooms: {{ $totalStyleOneRooms }},
@@ -10,14 +10,8 @@
     categorySlug: '{{ \Str::slug($category['name']) }}',
     touchStartX: 0,
     dateLimit: 10, totalDates: {{ count($dates) }},
+    get remainingDates() { return Math.max(0, Math.min(5, this.totalDates - this.dateLimit)); },
     loadMoreDates() { this.dateLimit = Math.min(this.dateLimit + 5, this.totalDates); },
-    collapseDates() { this.dateLimit = 10; },
-    roomColors: [
-        @foreach ($styleOneRooms as $room)
-        @php $rc = $productColors[$room->id] ?? null; $rcBg = $rc['color'] ?? '#4e6b4c'; $rcText = $autoTextColor($rcBg); @endphp
-        { bg: '{{ $rcBg }}', text: '{{ $rcText }}' },
-        @endforeach
-    ],
     slideDir: 1,
     get totalSlotPages() { return Math.ceil((this.slotCounts[this.activeRoomIdx] ?? 5) / this.slotsPerPage); },
     changeRoom(dir) {
@@ -55,13 +49,12 @@
     "
 >
 
-    <div class="book-card-outer"
-        :style="{ background: roomColors[activeRoomIdx]?.bg ?? '#4e6b4c', transition: 'background 0.4s ease' }">
+    <div class="book-card-outer">
 
-    {{-- ── Room carousel header — chỉ nằm phía trên cột "Khung giờ", cột "Ngày" để trống ── --}}
+    {{-- ── Room carousel header — trải rộng hết chiều ngang (w-full), không còn chừa trống
+         phía trên cột "Ngày" như trước ── --}}
     <div class="book-top-row">
-        <div class="book-top-spacer"></div>
-        <div class="book-room-nav-wrap">
+        <div class="book-room-nav-wrap w-full">
             <button class="book-nav-btn" type="button"
                 @click="changeRoom(-1)"
                 aria-label="Phòng trước">
@@ -107,12 +100,10 @@
     <div class="book-mobile-scroll">
 
     {{-- ── Fixed column headers (sticky bên trong khung cuộn) ── --}}
-    <div class="book-grid-header"
-        :style="{ background: roomColors[activeRoomIdx]?.bg ?? '#4e6b4c', transition: 'background 0.4s ease' }">
+    <div class="book-grid-header">
         <div class="book-col-header">Ngày</div>
         <div class="book-slots-headers-wrap">
             @foreach ($styleOneRooms as $ri => $room)
-            @php $rc = $productColors[$room->id] ?? null; $mRcBg = $rc['color'] ?? '#4e6b4c'; $mRcText = $autoTextColor($mRcBg); @endphp
             <div x-show="activeRoomIdx === {{ $ri }}" x-cloak class="book-slots-header-row"
                 :class="slideDir === 1 ? 'book-slide-in-right' : 'book-slide-in-left'">
                 @foreach ($room->roomTimeSlots as $roomTimeSlot)
@@ -147,7 +138,6 @@
         {{-- Right: Scrollable slots per room --}}
         <div class="book-slots-outer">
             @foreach ($styleOneRooms as $ri => $room)
-            @php $rc = $productColors[$room->id] ?? null; $mRcBg = $rc['color'] ?? '#4e6b4c'; $mRcText = $autoTextColor($mRcBg); @endphp
             <div x-show="activeRoomIdx === {{ $ri }}" x-cloak class="book-slots-card"
                 :class="slideDir === 1 ? 'book-slide-in-right' : 'book-slide-in-left'">
 
@@ -316,17 +306,13 @@
         </div>{{-- end .book-slots-outer --}}
     </div>{{-- end .book-grid-outer --}}
 
-    {{-- ── Xem thêm / Thu gọn ngày (mỗi lần bấm hiện thêm 5 ngày, thu gọn về lại 10 ngày) ── --}}
-    <div class="book-loadmore-row">
-        <button type="button" class="book-loadmore-btn" x-show="dateLimit < totalDates" x-cloak
-            @click="loadMoreDates()">
-            Xem thêm 5 ngày
-        </button>
-        <button type="button" class="book-loadmore-btn bg-white book-collapse-btn"
-            :disabled="dateLimit <= 10"
-            :class="dateLimit <= 10 ? ' bg-white' : 'bg-white'"
-            @click="collapseDates()">
-            Thu gọn
+    {{-- ── Xem thêm ngày (mỗi lần bấm hiện thêm tối đa 5 ngày kế tiếp, tự ẩn khi đã hiện hết) ── --}}
+    <div class="book-loadmore-row" x-show="dateLimit < totalDates" x-cloak>
+        <button type="button" class="book-loadmore-btn" @click="loadMoreDates()">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+            </svg>
+            <span x-text="'Xem thêm ' + remainingDates + ' ngày'"></span>
         </button>
     </div>
     </div>{{-- end .book-mobile-scroll --}}

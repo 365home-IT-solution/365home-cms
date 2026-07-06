@@ -103,6 +103,7 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     Route::prefix('search')->name('search.')->group(function () {
         Route::get('suggestions', [SearchController::class, 'suggestions'])->name('suggestions');
         Route::get('locations',   [SearchController::class, 'locations'])->name('locations');
+        Route::get('branches',    [SearchController::class, 'branches'])->name('branches');
         Route::get('/',           [SearchController::class, 'index'])->name('index');
     });
 });

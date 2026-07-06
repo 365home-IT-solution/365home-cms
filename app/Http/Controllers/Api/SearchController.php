@@ -12,6 +12,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Modules\Category\Entities\Category;
 use Modules\Payment\Entities\OrderItem;
@@ -66,6 +67,41 @@ class SearchController extends Controller
         return response()->json(['data' => collect([$nearby])->merge($locations)->values()]);
     }
 
+    // ─── GET /v1/search/branches ─────────────────────────────────────────────
+    // Dùng cho "Xem tất cả" của block Gợi ý điểm đến (loại Chi nhánh) trên mobile —
+    // trả về danh sách chi nhánh của khu vực thay vì danh sách phòng.
+    public function branches(Request $request): JsonResponse
+    {
+        $province = $this->resolveProvince($request);
+
+        if ($province === null) {
+            return response()->json([
+                'data' => [],
+                'meta' => ['province_name' => null, 'total' => 0],
+            ]);
+        }
+
+        $branches = $province->branches()
+            ->where('status', true)
+            ->with('category')
+            ->get()
+            ->filter(fn ($branch) => $branch->category && $branch->category->status)
+            ->map(fn ($branch) => [
+                'id'        => $branch->category->id,
+                'name'      => $branch->category->name,
+                'slug'      => $branch->category->slug,
+                'image_url' => $branch->category->image
+                    ? Storage::disk('public')->url($branch->category->image)
+                    : null,
+            ])
+            ->values();
+
+        return response()->json([
+            'data' => $branches,
+            'meta' => ['province_name' => $province->name, 'total' => $branches->count()],
+        ]);
+    }
+
     // ─── GET /v1/search ──────────────────────────────────────────────────────
 
     public function index(Request $request): JsonResponse
@@ -106,6 +142,22 @@ class SearchController extends Controller
 
         // Auto-filter theo khu vực đã lưu (customer hoặc guest ?province_id=)
         $province = $this->resolveProvince($request);
+
+        // "location" (path /s/{location} → query ?province=) có thể là slug tỉnh (ở trên) hoặc —
+        // khi nút "Xem tất cả" của 1 khối phòng theo chi nhánh cụ thể được bấm — slug của 1 hoặc
+        // nhiều chi nhánh (category cha, cách nhau bởi dấu phẩy), vd /s/254-xuan-thuy-an-binh-can-tho
+        // hoặc /s/branch-a,branch-b khi khối đó chọn nhiều chi nhánh cùng lúc.
+        $branchCategories = null;
+        if ($province === null && $request->filled('province')) {
+            $slugs = array_values(array_filter(array_map('trim', explode(',', (string) $request->query('province')))));
+            if (! empty($slugs)) {
+                $branchCategories = Category::whereIn('slug', $slugs)
+                    ->whereNull('parent_id')
+                    ->where('category_type', 'product')
+                    ->get();
+            }
+        }
+
         if ($province !== null) {
             $provinceBranchIds = $province->branches()
                 ->where('status', true)
@@ -121,6 +173,19 @@ class SearchController extends Controller
                 $branchChildMap = $childCats->pluck('parent_id', 'id')->toArray();
             } else {
                 // Province tồn tại nhưng không có branch active → trả về rỗng
+                $query->whereRaw('1 = 0');
+            }
+        } elseif ($branchCategories !== null) {
+            if ($branchCategories->isNotEmpty()) {
+                $branchIds = $branchCategories->pluck('id')->toArray();
+                $childCats = Category::whereIn('parent_id', $branchIds)->get(['id', 'parent_id']);
+                $filterIds = collect($branchIds)->merge($childCats->pluck('id'))->unique()->values();
+                $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
+
+                $branchCatIds   = $branchIds;
+                $branchChildMap = $childCats->pluck('parent_id', 'id')->toArray();
+            } else {
+                // location không khớp cả tỉnh lẫn chi nhánh nào → trả về rỗng thay vì hiện lố toàn quốc
                 $query->whereRaw('1 = 0');
             }
         }
@@ -309,6 +374,9 @@ class SearchController extends Controller
             return $card;
         });
 
+        $locationName = $province?->name
+            ?? ($branchCategories?->isNotEmpty() ? $branchCategories->pluck('name')->implode(', ') : null);
+
         return response()->json([
             'data' => $data,
             'meta' => [
@@ -316,7 +384,7 @@ class SearchController extends Controller
                 'last_page'     => $rooms->lastPage(),
                 'per_page'      => $rooms->perPage(),
                 'total'         => $rooms->total(),
-                'province_name' => $province?->name,
+                'province_name' => $locationName,
                 'type_name'     => $typeName,
             ],
         ]);
