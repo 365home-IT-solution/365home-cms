@@ -22,6 +22,16 @@ class RoomAmenityAssignResource extends Resource
 
     protected static ?int $navigationSort = 5;
 
+    public static function getModelLabel(): string
+    {
+        return 'Gán Tiện Ích Phòng';
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return 'Gán Tiện Ích Phòng';
+    }
+
     public static function getNavigationBadge(): ?string
     {
         return (string) static::getModel()::where('is_activated', true)->count();
@@ -37,7 +47,7 @@ class RoomAmenityAssignResource extends Resource
 
     public static function canViewAny(): bool
     {
-        return auth()->user()?->can('view_any_room::amenity::assign') ?? false;
+        return auth()->user()?->isSuperAdmin() ?? false;
     }
 
     public static function canCreate(): bool
@@ -47,16 +57,16 @@ class RoomAmenityAssignResource extends Resource
 
     public static function canEdit($record): bool
     {
-        return auth()->user()?->can('update_room::amenity::assign') ?? false;
+        return auth()->user()?->isSuperAdmin() ?? false;
     }
 
     public static function canDelete($record): bool
     {
-        return auth()->user()?->can('delete_room::amenity::assign') ?? false;
+        return auth()->user()?->isSuperAdmin() ?? false;
     }
 
     public static function canDeleteAny(): bool
     {
-        return auth()->user()?->can('delete_any_room::amenity::assign') ?? false;
+        return auth()->user()?->isSuperAdmin() ?? false;
     }
 }
