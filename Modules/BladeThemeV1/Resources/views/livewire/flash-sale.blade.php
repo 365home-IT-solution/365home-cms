@@ -16,14 +16,6 @@
                             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                         </button>
                     </div>
-                    <div class="flex lg:hidden items-center gap-2" style="flex-shrink:0;">
-                        <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                        </button>
-                        <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                        </button>
-                    </div>
                 </div>
 
                 <div x-ref="track" style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:4px;" class="hide-scrollbar">
@@ -80,19 +72,26 @@
                             <div style="display:flex; align-items:center; gap:8px; min-width:0;">
                                 <img x-show="section.icon_url" :src="section.icon_url" alt="" style="width:20px;height:20px;object-fit:contain;flex-shrink:0;">
                                 <h2 style="font-size:1.1rem; font-weight:800; color:#111827; margin:0; text-transform:uppercase; letter-spacing:.02em;" x-text="section.title || 'Flash Sale'"></h2>
-                            </div>
-                            <div class="hidden lg:flex" style="align-items:center; gap:6px; flex-shrink:0;">
-                                <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
-                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                                </button>
-                                <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
-                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                                </button>
-                            </div>
-                            <div class="flex lg:hidden">
-                                <a :href="section.view_all_url || '{{ route('product.search') }}'" class="carousel-nav-btn" aria-label="Xem tất cả" style="text-decoration:none;">
-                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link hidden lg:flex" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
+                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                                    </svg>
                                 </a>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link flex lg:hidden" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
+                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                                    </svg>
+                                </a>
+                                <div class="hidden lg:flex" style="align-items:center; gap:6px; flex-shrink:0;">
+                                    <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                                    </button>
+                                    <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
@@ -110,19 +109,28 @@
                 <section class="py-4 bg-white">
                     <div class="w-full max-w-11xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;">
-                            <h2 style="font-size:1.1rem; font-weight:800; color:#111827; margin:0;">Gợi ý cho bạn</h2>
-                            <div class="hidden lg:flex" style="align-items:center; gap:6px; flex-shrink:0;">
-                                <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
-                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                                </button>
-                                <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
-                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                                </button>
-                            </div>
-                            <div class="flex lg:hidden">
-                                <a :href="section.view_all_url || '{{ route('product.search') }}'" class="carousel-nav-btn" aria-label="Xem tất cả" style="text-decoration:none;">
-                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                            <div style="display:flex; align-items:center; gap:12px;">
+                                <h2 style="font-size:1.1rem; font-weight:800; color:#111827; margin:0;">Gợi ý cho bạn</h2>
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link hidden lg:flex" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
+                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                                    </svg>
                                 </a>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link flex lg:hidden" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
+                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                                    </svg>
+                                </a>
+                                <div class="hidden lg:flex" style="align-items:center; gap:6px; flex-shrink:0;">
+                                    <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                                    </button>
+                                    <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                         <div x-ref="track" style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:4px;" class="hide-scrollbar">
@@ -139,22 +147,31 @@
                 <section class="py-4 bg-white">
                     <div class="w-full max-w-11xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
                         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:12px;">
-                            <div style="min-width:0;">
-                                <h2 style="font-size:1.1rem; font-weight:800; color:#111827; margin:0; text-transform:uppercase; letter-spacing:.02em;" x-text="section.title"></h2>
-                                <p x-show="section.subtitle" style="font-size:12px; color:#9ca3af; margin:2px 0 0;" x-text="section.subtitle"></p>
-                            </div>
-                            <div class="hidden lg:flex" style="align-items:center; gap:6px; flex-shrink:0;">
-                                <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
-                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                                </button>
-                                <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
-                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                                </button>
-                            </div>
-                            <div class="flex lg:hidden">
-                                <a :href="section.view_all_url || '{{ route('product.search') }}'" class="carousel-nav-btn" aria-label="Xem tất cả" style="text-decoration:none;">
-                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                            <div style="display:flex; align-items:center; gap:12px;">
+                                <div style="min-width:0;">
+                                    <h2 style="font-size:1.1rem; font-weight:800; color:#111827; margin:0; text-transform:uppercase; letter-spacing:.02em;" x-text="section.title"></h2>
+                                    <p x-show="section.subtitle" style="font-size:12px; color:#9ca3af; margin:2px 0 0;" x-text="section.subtitle"></p>
+                                </div>
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link hidden lg:flex" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
+                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                                    </svg>
                                 </a>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link flex lg:hidden" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
+                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                                    </svg>
+                                </a>
+                                <div class="hidden lg:flex" style="align-items:center; gap:6px; flex-shrink:0;">
+                                    <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                                    </button>
+                                    <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
@@ -199,13 +216,6 @@
             max-width: calc(46vw - 20px);
             flex-shrink: 0;
             scroll-snap-align: start;
-            transition: transform .25s ease;
-        }
-        @media (hover: hover) {
-            .room-type-card:hover {
-                transform: translateY(-3px);
-            }
-            .room-type-card:hover .rtc-bg { transform: scale(1.07); }
         }
         @media (min-width: 768px) {
             .room-type-card {
@@ -221,7 +231,6 @@
             width: 100%;
             height: 100%;
             object-fit: cover;
-            transition: transform .4s ease;
         }
         .room-type-card .rtc-gradient {
             position: absolute;

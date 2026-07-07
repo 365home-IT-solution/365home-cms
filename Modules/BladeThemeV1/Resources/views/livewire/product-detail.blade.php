@@ -1,4 +1,4 @@
-<div class="bg-white" x-data="{ showModal: false, slotPickerOpen: false }">
+<div class="bg-white" x-data="{ showModal: false, slotPickerOpen: true }">
     @if (session('booking_conflict_error'))
         <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 12000)"
             x-transition:leave="transition ease-in duration-500" x-transition:leave-start="opacity-100 translate-y-0"
@@ -22,12 +22,12 @@
         </div>
     @endif
 
-    <div class="max-w-8xl md:px-8 px-4 mx-auto booking-confirmation-modal">
+    <div class="max-w-11xl md:px-8 px-4 mx-auto booking-confirmation-modal">
         <div id="seo-data" data-seo-title="{{ $product->name ?? 'Phòng' }}"
             data-seo-description="{{ $short_description ?? 'Phòng' }}"
             data-seo-keyword="{{ $product->seo_keywords ?? 'Phòng' }}">
         </div>
-        <div class="py-6">
+        <div class="pt-6 md:pt-10 pb-6">
             <div>
                 <div class="p-3 lg:px-0 overflow-hidden rounded-none bg-white">
 
@@ -362,8 +362,8 @@
                         }
                     }" @keydown.window="onKey($event)">
 
-                        {{-- Ảnh chính — mobile: 1 ảnh + số đếm (ẩn khi đến từ trang booking) --}}
-                        <div class="pd-single-wrap md:hidden{{ $fromBookingPage ? ' pd-from-book-hide' : '' }}">
+                        {{-- Ảnh chính — mobile: 1 ảnh + số đếm (luôn hiện, kể cả khi đến từ trang booking) --}}
+                        <div class="pd-single-wrap md:hidden">
                             <img src="{{ $mainImg }}" alt="{{ $product->name ?? 'Ảnh chính' }}"
                                 @if ($totalImgCount > 1) @click="show(0)" style="cursor:pointer;" @endif>
                             @if ($totalImgCount > 1)
@@ -411,7 +411,7 @@
                         <div style="display:flex;gap:8px;margin-bottom:1.25rem;flex-wrap:wrap;">
                             @if ($totalImgCount > 1)
                                 <button type="button"
-                                    class="pd-view-btn pd-mobile-only{{ $fromBookingPage ? ' pd-from-book-hide' : '' }}"
+                                    class="pd-view-btn pd-mobile-only"
                                     @click="show(0)">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
                                         stroke="currentColor" stroke-width="2">
@@ -425,78 +425,14 @@
                             @endif
                             @if ($hasVideoPd)
                                 <button type="button"
-                                    class="pd-view-btn{{ $fromBookingPage ? ' pd-from-book-hide' : '' }}"
+                                    class="pd-view-btn"
                                     style="background:var(--color-primary);color:#fff;border-color:transparent;box-shadow:0 3px 12px rgba(var(--color-primary-rgb),.35);"
                                     @click="$dispatch('pd-open-video')">
-                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                                         <circle cx="12" cy="12" r="10" fill="rgba(255,255,255,.25)" />
                                         <polygon points="10,8 10,16 17,12" fill="white" />
                                     </svg>
                                     Xem video phòng
-                                </button>
-                            @endif
-                            {{-- Nút xem thông tin phòng (bảng giá + tiện ích) — chỉ hiện khi đến từ trang book, ẩn trên desktop --}}
-                            @if ($fromBookingPage)
-                                <div x-data="{ roomInfoOpen: false }" class="contents">
-                                    <button type="button" class="pd-view-btn pd-mobile-only"
-                                        @click="roomInfoOpen = true">
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="2">
-                                            <circle cx="12" cy="12" r="10" />
-                                            <line x1="12" y1="16" x2="12" y2="12" />
-                                            <line x1="12" y1="8" x2="12.01" y2="8" />
-                                        </svg>
-                                        Thông tin phòng
-                                    </button>
-                                    <template x-teleport="body">
-                                        <div x-show="roomInfoOpen" x-cloak
-                                            x-transition:enter="transition ease-out duration-200"
-                                            x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
-                                            x-transition:leave="transition ease-in duration-150"
-                                            x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
-                                            @keydown.escape.window="roomInfoOpen = false"
-                                            style="position:fixed;inset:0;z-index:10001;">
-                                            {{-- Backdrop --}}
-                                            <div style="position:absolute;inset:0;background:rgba(0,0,0,.65);backdrop-filter:blur(4px);"
-                                                @click="roomInfoOpen = false"></div>
-                                            {{-- Slide panel --}}
-                                            <div @click.stop
-                                                style="position:fixed;top:0;right:0;height:100%;width:min(100vw,680px);background:#fff;overflow-y:auto;z-index:2;box-shadow:-8px 0 40px rgba(0,0,0,.25);">
-                                                {{-- Header cố định --}}
-                                                <div
-                                                    style="position:sticky;top:0;background:#fff;border-bottom:1px solid #e5e7eb;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;z-index:10;">
-                                                    <div>
-                                                        <h2
-                                                            style="font-size:1.1rem;font-weight:700;color:#111827;margin:0;">
-                                                            {{ $product->name }}</h2>
-                                                        <p style="font-size:0.8rem;color:#6b7280;margin:4px 0 0;">Tiện
-                                                            ích & Bảng giá phòng</p>
-                                                    </div>
-                                                    <button @click="roomInfoOpen = false"
-                                                        style="background:none;border:1px solid #d1d5db;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:22px;color:#6b7280;line-height:1;">
-                                                        &times;
-                                                    </button>
-                                                </div>
-                                                {{-- Nội dung cuộn --}}
-                                                <div style="padding:20px;">
-                                                    @include('bladethemev1::components.product-detail.amenities')
-                                                    {{-- @include('bladethemev1::components.product-detail.pricing-room') --}}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </template>
-                                </div>
-                                <button type="button" class="pd-view-btn pd-mobile-only"
-                                    @click="slotPickerOpen = true">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                                        stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                                        stroke-linejoin="round">
-                                        <rect x="3" y="4" width="18" height="18" rx="2" />
-                                        <line x1="16" y1="2" x2="16" y2="6" />
-                                        <line x1="8" y1="2" x2="8" y2="6" />
-                                        <line x1="3" y1="10" x2="21" y2="10" />
-                                    </svg>
-                                    Chọn lại khung giờ
                                 </button>
                             @endif
                         </div>
@@ -561,7 +497,7 @@
 
                 </div>{{-- /p-3 header+gallery wrapper --}}
 
-                <div class="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-0 lg:gap-12 items-start">
+                <div class="grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-0 lg:gap-12 items-start">
                     <div class="w-full">
                         <div class="p-3 overflow-hidden rounded-none lg:rounded-lg bg-white">
 
@@ -661,19 +597,11 @@
                             @php $videoButtonInGallery = true; @endphp
                             @include('bladethemev1::components.product-detail.video-room')
 
-                            {{-- Tiện nghi phòng (ẩn trên mobile khi đến từ trang booking, luôn hiện trên desktop) --}}
-                            @if (!$fromBookingPage)
-                                @include('bladethemev1::components.product-detail.amenities')
-                                <hr class="border-gray-200 my-8">
-                                {{-- Dịch vụ phòng --}}
-                                @include('bladethemev1::components.product-detail.additional-services')
-                            @else
-                                <div class="hidden md:block">
-                                    @include('bladethemev1::components.product-detail.amenities')
-                                    <hr class="border-gray-200 my-8">
-                                </div>
-                                @include('bladethemev1::components.product-detail.additional-services')
-                            @endif
+                            {{-- Tiện nghi phòng --}}
+                            @include('bladethemev1::components.product-detail.amenities')
+                            <hr class="border-gray-200 my-8">
+                            {{-- Dịch vụ phòng --}}
+                            @include('bladethemev1::components.product-detail.additional-services')
 
                             <hr class="border-gray-200 my-8">
 
@@ -687,248 +615,126 @@
                                     </div>
                                 @endif --}}
 
-                                {{-- Thông báo có thể chọn lại khung giờ (chỉ hiện trên mobile) --}}
-                                @if ($fromBookingPage)
-                                    <div class="md:hidden"
-                                        style="background:#f0fdf4;border:1px solid #86efac;border-radius:12px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px;">
-                                        <svg style="flex-shrink:0;margin-top:1px;" width="18" height="18"
-                                            viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2"
-                                            stroke-linecap="round" stroke-linejoin="round">
-                                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                                        </svg>
-                                        <p style="font-size:0.85rem;color:#166534;font-weight:600;margin:0;">Khung giờ
-                                            đã được chọn từ trang đặt phòng. Bạn có thể nhấn vào ô bên dưới để thay đổi
-                                            nếu cần.</p>
-                                    </div>
-                                @endif
-
-                                @if ($fromBookingPage)
-                                    {{-- Trên desktop: hiển thị inline. Trên mobile: modal fullscreen toggled bởi nút "Chọn lại khung giờ" --}}
-                                    <div x-data="{ isMd: window.matchMedia('(min-width:768px)').matches }" x-init="window.matchMedia('(min-width:768px)').addEventListener('change', e => isMd = e.matches)"
-                                        x-show="isMd || slotPickerOpen" x-cloak
-                                        x-transition:enter="transition ease-out duration-250"
-                                        x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
-                                        x-transition:leave="transition ease-in duration-150"
-                                        x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
-                                        @keydown.escape.window="if(!isMd) slotPickerOpen = false"
-                                        :style="!isMd ?
-                                            'position:fixed;inset:0;z-index:10002;overflow-y:auto;background:rgba(0,0,0,.7);' :
-                                            ''">
-                                        <div @click.stop
-                                            :style="!isMd ? 'background:#fff;min-height:100%;max-width:960px;margin:0 auto;' :
-                                                ''">
-                                            <div x-show="!isMd"
-                                                style="position:sticky;top:0;background:#fff;border-bottom:1px solid #e5e7eb;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;z-index:10;">
-                                                <div>
-                                                    <h3
-                                                        style="font-size:1.1rem;font-weight:700;color:#111827;margin:0;">
-                                                        Chọn lại khung giờ</h3>
-                                                    <p style="font-size:0.8rem;color:#6b7280;margin:4px 0 0;">
-                                                        {{ $product->name }}</p>
-                                                </div>
-                                                <button @click="slotPickerOpen = false"
-                                                    style="background:none;border:1px solid #d1d5db;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:22px;color:#6b7280;line-height:1;">
-                                                    &times;
-                                                </button>
-                                            </div>
-                                            <div :style="!isMd ? 'padding:20px;' : ''">
-                                @endif
-
                                 <!-- Chọn khung giờ -->
                                 @php
-                                    $pdRoomConfig = $productColors[$product->id] ?? null;
-                                    $pdRoomBg = $pdRoomConfig['color'] ?? '#4e6b4c';
-                                    $pdRoomText = $pdRoomConfig['color_text'] ?? null;
-                                    if (!$pdRoomText) {
-                                        $hex = ltrim($pdRoomBg, '#');
-                                        if (strlen($hex) === 3) {
-                                            $hex = $hex[0] . $hex[0] . $hex[1] . $hex[1] . $hex[2] . $hex[2];
-                                        }
-                                        $r = hexdec(substr($hex, 0, 2));
-                                        $g = hexdec(substr($hex, 2, 2));
-                                        $b = hexdec(substr($hex, 4, 2));
-                                        $pdRoomText =
-                                            0.299 * $r + 0.587 * $g + 0.114 * $b > 128 ? '#111827' : '#ffffff';
-                                    }
                                     $pdSlotCount = count($timeSlots);
                                     $pdSlotsPerPage = 5;
                                     $pdTotalSlotPages = (int) ceil($pdSlotCount / max($pdSlotsPerPage, 1));
                                 @endphp
                                 <div class="space-y-5">
-                                    <div>
-                                        <h2 class="text-xl font-bold text-gray-900">Lịch đặt phòng</h2>
-                                        <p class="text-sm text-gray-500 mt-0.5">Chọn khung giờ phù hợp với bạn</p>
-                                    </div>
+                                    <div class="md:flex md:items-center md:justify-between md:gap-6">
+                                        <div>
+                                            <h2 class="text-xl font-bold text-gray-900">Lịch đặt phòng</h2>
+                                            <p class="text-sm text-gray-500 mt-0.5">Chọn khung giờ phù hợp với bạn</p>
+                                        </div>
 
-                                    {{-- ── Legend ── --}}
-                                    <div class="md:flex gap-4 text-xs text-gray-500 mb-4 grid grid-cols-2 gap-3">
+                                        {{-- ── Legend ── --}}
+                                        <div class="md:flex gap-4 text-xs text-gray-500 mb-4 md:mb-0 mt-3 md:mt-0 grid grid-cols-2 gap-3">
                                         <div class="flex items-center gap-1.5">
                                             <span
-                                                class="inline-flex w-4 h-4 rounded border border-primary bg-white"></span>
+                                                class="inline-flex w-4 h-4 rounded border border-[#DDDDDD] bg-white"></span>
                                             Còn trống
                                         </div>
                                         <div class="flex items-center gap-1.5">
-                                            <span
-                                                class="inline-flex w-4 h-4 rounded bg-primary border border-primary"></span>
+                                            <span class="inline-flex w-4 h-4 rounded"
+                                                style="background: var(--color-primary); border: 1px solid var(--color-primary);"></span>
                                             Đã đặt
                                         </div>
                                         <div class="flex items-center gap-1.5">
                                             <span
-                                                class="inline-flex w-4 h-4 rounded bg-tickGray border border-tickGray"></span>
+                                                class="inline-flex w-4 h-4 rounded bg-gray-900 border border-gray-900"></span>
                                             Đang chọn
                                         </div>
                                         <div class="flex items-center gap-1.5">
                                             <span
-                                                class="selectable-mini promo-mini inline-flex items-center justify-center w-5 h-5 rounded">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
-                                                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                                                    class="w-3 h-3 relative z-10 text-red-500">
-                                                    <path
-                                                        d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z">
-                                                    </path>
-                                                    <circle cx="7.5" cy="7.5" r=".5" fill="currentColor">
-                                                    </circle>
-                                                </svg>
-                                            </span>
+                                                class="selectable-mini promo-mini inline-flex items-center justify-center w-4 h-4 rounded"></span>
                                             Khuyến mãi
+                                        </div>
                                         </div>
                                     </div>
 
                                     {{-- ── CSS cho lịch đặt phòng (selectable + mobile card) ── --}}
                                     <style id="pd-booking-redesign">
-                                        /* ── selectable pill ── */
+                                        /* ── selectable box (trung tính, không theo màu phòng) ── */
                                         .selectable {
                                             position: relative;
                                             z-index: 10;
                                             height: 32px;
                                             padding: 0 .5rem;
                                             font-weight: 700;
-                                            border-radius: 999px !important;
-                                            background: linear-gradient(135deg, #eef2ed, #e8f0e6) !important;
-                                            border: 1.5px solid #a8c4a0 !important;
-                                            color: #4e6b4c !important;
+                                            border-radius: 8px !important;
+                                            background: #fff !important;
+                                            border: 1.5px solid #d1d5db !important;
+                                            color: #374151 !important;
                                             display: flex;
                                             align-items: center;
                                             justify-content: center;
                                             overflow: visible;
                                             transition: all .18s ease;
+                                            box-shadow: inset 0 1px 3px rgba(0, 0, 0, .08);
                                         }
 
                                         .selectable:hover:not([style*="pointer-events"]) {
-                                            background: linear-gradient(135deg, #d4e4d2, #c8dcc6) !important;
-                                            border-color: #6a8f68 !important;
-                                            box-shadow: 0 4px 12px rgba(78, 107, 76, .3);
+                                            background: #f3f4f6 !important;
+                                            border-color: #9ca3af !important;
+                                            box-shadow: inset 0 1px 3px rgba(0, 0, 0, .08), 0 4px 12px rgba(0, 0, 0, .08);
                                             transform: translateY(-1px);
                                         }
 
-                                        .selectable.active::after {
-                                            content: "";
-                                            position: absolute;
-                                            inset: 0;
-                                            border-radius: 999px !important;
-                                            background-color: var(--color-tickGray) !important;
-                                        }
-
-                                        .selectable.booked::after {
-                                            content: "";
-                                            position: absolute;
-                                            inset: 0;
-                                            border-radius: 999px !important;
-                                            background: var(--order-color, #4e6b4c) !important;
-                                        }
-
-                                        .selectable.pending::after {
-                                            content: "";
-                                            position: absolute;
-                                            inset: 0;
-                                            border-radius: 999px !important;
-                                            background: var(--order-color, #9ca3af) !important;
-                                            opacity: 0.75;
-                                        }
-
-                                        .selectable.past-time {
-                                            border: 1px solid #d1d5db;
-                                        }
-
-                                        .selectable.past-time::after {
-                                            content: "";
-                                            position: absolute;
-                                            inset: 0;
-                                            border-radius: 999px !important;
-                                            background-color: #f3f4f6;
-                                        }
-
-                                        .selectable.blocked {
+                                        .selectable.booked {
+                                            background: var(--color-primary) !important;
+                                            border-color: var(--color-primary) !important;
                                             cursor: not-allowed !important;
                                             pointer-events: none;
                                         }
 
-                                        .selectable.blocked::after {
-                                            content: "";
-                                            position: absolute;
-                                            inset: 0;
-                                            border-radius: 999px !important;
-                                            background-color: #4e6b4c;
-                                            z-index: 5;
+                                        .selectable.pending {
+                                            background: #CFDC74 !important;
+                                            border-color: #CFDC74 !important;
+                                            cursor: not-allowed !important;
+                                            pointer-events: none;
                                         }
 
-                                        .selectable.blocked::before {
-                                            content: "";
+                                        .selectable.blocked {
+                                            background: #e5e7eb !important;
+                                            border-color: #d1d5db !important;
+                                            cursor: not-allowed !important;
+                                            pointer-events: none;
                                         }
 
-                                        .selectable.promo::before {
-                                            content: "";
-                                            position: absolute;
-                                            inset: 0;
-                                            border-radius: 999px;
-                                            background: linear-gradient(270deg, #f00, #f90, #3f0, #0ff, #30f, #f0c, #f00);
-                                            background-size: 300% 300%;
-                                            animation: pdBorderFlow 10s linear infinite;
-                                            z-index: -10;
-                                            filter: blur(5px);
+                                        /* Đặt sau cùng để "đang chọn" luôn thắng dù ô đó cũng đang booked/pending
+                                           (trường hợp reselect lại slot thuộc chính đơn đang chờ của khách).
+                                           opacity:1 !important để thắng luôn cả style inline opacity:0.6 gắn
+                                           theo !$isSelectable — nếu không màu đen sẽ bị pha loãng thành xám. */
+                                        .selectable.active {
+                                            background: #111827 !important;
+                                            border-color: #111827 !important;
+                                            opacity: 1 !important;
                                         }
 
-                                        .selectable.promo::after {
-                                            content: "";
-                                            position: absolute;
-                                            inset: 0;
-                                            border-radius: 999px;
-                                            background: #fff;
+                                        .selectable.past-time {
+                                            background: #f3f4f6 !important;
+                                            border: 1px solid #e5e7eb !important;
+                                        }
+
+                                        .lock-icon {
+                                            width: 14px;
+                                            height: 14px;
+                                            color: #9ca3af;
+                                            position: relative;
+                                            z-index: 15;
                                         }
 
                                         .selectable-mini {
                                             position: relative;
                                             z-index: 1;
-                                            background: linear-gradient(135deg, #eef2ed, #e8f0e6) !important;
-                                            border: 1.5px solid #a8c4a0 !important;
-                                            border-radius: 999px !important;
+                                            background: #fff !important;
+                                            border: 1.5px solid #dddddd !important;
+                                            border-radius: 6px !important;
                                             overflow: visible;
-                                        }
-
-                                        .promo-mini::before {
-                                            content: "";
-                                            position: absolute;
-                                            top: -2px;
-                                            left: -2px;
-                                            right: -2px;
-                                            bottom: -2px;
-                                            border-radius: inherit;
-                                            background: linear-gradient(270deg, #f44, #fb4, #7f7, #7ff, #77f, #f7e, #f44);
-                                            background-size: 200% 200%;
-                                            animation: pdBorderFlow 15s linear infinite;
-                                            z-index: -1;
-                                            filter: blur(3px);
-                                        }
-
-                                        .promo-mini::after {
-                                            content: "";
-                                            position: absolute;
-                                            inset: 0;
-                                            border-radius: inherit;
-                                            background: #fff;
-                                            z-index: 0;
+                                            display: flex;
+                                            align-items: center;
+                                            justify-content: center;
                                         }
 
                                         .promotion-corner-image {
@@ -969,16 +775,6 @@
                                             animation: pdPulse 2.5s ease-in-out infinite;
                                         }
 
-                                        @keyframes pdBorderFlow {
-                                            0% {
-                                                background-position: 0% 50%
-                                            }
-
-                                            100% {
-                                                background-position: 300% 50%
-                                            }
-                                        }
-
                                         @keyframes pdBounce {
 
                                             0%,
@@ -1005,74 +801,142 @@
                                             }
                                         }
 
-                                        /* ── Desktop card & sticky cols ── */
-                                        .pd-book-card {
-                                            background: #fff;
-                                            border-radius: 20px;
-                                            box-shadow: 0 8px 32px rgba(78, 107, 76, .12), 0 2px 8px rgba(0, 0, 0, .04);
-                                            border: 1px solid #d4e4d2;
+                                        /* ── Desktop: bảng 2 khối tách rời (giống cấu trúc mobile) — cột
+                                             "Thời gian" và khối khung giờ là 2 card riêng, có khoảng cách
+                                             thật ở giữa, không dùng <table> nữa (table không tạo được
+                                             khoảng trống thật giữa các cột). ── */
+                                        .pd-dt-header {
+                                            display: flex;
+                                            gap: 14px;
+                                            margin-bottom: 14px;
                                         }
 
-                                        .pd-book-card-scroll {
-                                            overflow: auto;
-                                            max-height: 500px;
-                                            border-radius: 20px;
+                                        .pd-dt-col-header {
+                                            width: 110px;
+                                            flex-shrink: 0;
+                                            min-height: 50px;
+                                            display: flex;
+                                            align-items: center;
+                                            justify-content: center;
+                                            font-size: 10px;
+                                            font-weight: 700;
+                                            letter-spacing: .06em;
+                                            text-transform: uppercase;
+                                            color: #111827;
+                                            background: #fff;
+                                            border: 1px solid #e5e7eb;
+                                            border-radius: 14px;
+                                        }
+
+                                        .pd-dt-slots-header-row {
+                                            flex: 1;
+                                            display: flex;
+                                            gap: 8px;
+                                            padding: 6px 10px;
+                                            min-height: 50px;
+                                            align-items: center;
+                                            background: #fff;
+                                            border: 1px solid #e5e7eb;
+                                            border-radius: 14px;
+                                        }
+
+                                        .pd-dt-slot-th {
+                                            flex: 1;
+                                            min-width: 90px;
+                                            text-align: center;
+                                            font-size: 11px;
+                                            font-weight: 700;
+                                            color: #111827;
+                                        }
+
+                                        /* Khung (border/bo góc/nền) đứng yên cố định — chỉ phần NỘI DUNG bên
+                                           trong (.pd-dt-dates-scroll / .pd-dt-slots-scroll) cuộn dọc, đồng bộ
+                                           2 chiều bằng Alpine (@scroll) để 2 cột luôn khớp hàng với nhau. */
+                                        .pd-dt-grid-outer {
+                                            display: flex;
+                                            gap: 14px;
+                                            align-items: stretch;
+                                        }
+
+                                        .pd-dt-dates-card {
+                                            width: 110px;
+                                            flex-shrink: 0;
+                                            height: 460px;
+                                            background: #fff;
+                                            border: 1px solid #e5e7eb;
+                                            border-radius: 14px;
+                                            overflow: hidden;
+                                        }
+
+                                        .pd-dt-dates-scroll,
+                                        .pd-dt-slots-scroll {
+                                            height: 100%;
+                                            overflow-y: auto;
                                             scrollbar-width: none;
                                             -ms-overflow-style: none;
                                         }
 
-                                        .pd-book-card-scroll::-webkit-scrollbar {
+                                        .pd-dt-dates-scroll::-webkit-scrollbar,
+                                        .pd-dt-slots-scroll::-webkit-scrollbar {
                                             display: none;
                                             width: 0;
                                             height: 0;
                                         }
 
-                                        thead {
-                                            position: sticky;
-                                            top: 0;
-                                            z-index: 30;
-                                            background: var(--pd-room-color, #4e6b4c) !important;
+                                        .pd-dt-date-row {
+                                            height: 48px;
+                                            display: flex;
+                                            flex-direction: column;
+                                            align-items: center;
+                                            justify-content: center;
+                                            border-bottom: 1px solid #f3f4f6;
+                                            text-align: center;
                                         }
 
-                                        .sticky-col-header {
-                                            position: sticky;
-                                            left: 0;
-                                            z-index: 40;
-                                            background: var(--pd-room-color, #4e6b4c) !important;
-                                            color: var(--pd-room-text, #ffffff) !important;
+                                        .pd-dt-date-row:last-child {
+                                            border-bottom: none;
                                         }
 
-                                        .sticky-col-thu {
-                                            left: 0 !important;
-                                            min-width: 45px;
+                                        .pd-dt-date-row.is-today {
+                                            background: #f9fafb;
                                         }
 
-                                        .sticky-col-ngay {
-                                            left: 45px !important;
-                                            min-width: 60px;
+                                        .pd-dt-slots-outer {
+                                            flex: 1;
+                                            min-width: 0;
                                         }
 
-                                        .sticky-col {
-                                            position: sticky;
-                                            z-index: 20;
-                                            background: var(--pd-room-color, #4e6b4c) !important;
-                                            color: var(--pd-room-text, #ffffff) !important;
+                                        .pd-dt-slots-card {
+                                            height: 460px;
+                                            background: #fff;
+                                            border: 1px solid #e5e7eb;
+                                            border-radius: 14px;
+                                            overflow: hidden;
                                         }
 
-                                        tbody .sticky-col-thu {
-                                            left: 0 !important;
+                                        .pd-dt-slots-row {
+                                            display: flex;
+                                            gap: 8px;
+                                            padding: 6px 10px;
+                                            height: 48px;
+                                            align-items: center;
+                                            border-bottom: 1px solid #f3f4f6;
                                         }
 
-                                        tbody .sticky-col-ngay {
-                                            left: 45px !important;
+                                        .pd-dt-slots-row:last-child {
+                                            border-bottom: none;
                                         }
 
-                                        .pd-slot-td {
-                                            background: var(--pd-room-color, #4e6b4c);
+                                        .pd-dt-slots-row:hover {
+                                            background-color: #f9fafb;
                                         }
 
-                                        tbody tr:hover td {
-                                            background-color: color-mix(in srgb, var(--pd-room-color, #4e6b4c) 85%, black) !important;
+                                        .pd-dt-slot-cell {
+                                            flex: 1;
+                                            min-width: 90px;
+                                            display: flex;
+                                            align-items: center;
+                                            justify-content: center;
                                         }
 
                                         /* ── Mobile two-panel card ── */
@@ -1081,23 +945,22 @@
                                             align-items: center;
                                             justify-content: center;
                                             padding: 18px 16px 14px;
-                                            transition: background .4s;
+                                            background: #fff;
+                                            border-bottom: 1px solid #e5e7eb;
                                         }
 
                                         .pd-room-name {
                                             font-family: 'Georgia', 'Times New Roman', serif;
                                             font-style: italic;
-                                            font-size: 1.6rem;
+                                            font-size: 1.4rem;
                                             font-weight: 700;
-                                            color: inherit;
-                                            text-shadow: 0 2px 14px rgba(0, 0, 0, .25);
+                                            color: #111827;
                                             line-height: 1.1;
                                             margin: 0;
                                         }
 
                                         .pd-room-sub {
-                                            color: inherit;
-                                            opacity: .85;
+                                            color: #6b7280;
                                             font-size: .8rem;
                                             font-weight: 600;
                                             margin-top: 5px;
@@ -1108,6 +971,7 @@
                                             display: flex;
                                             gap: 10px;
                                             padding: 0 14px;
+                                            margin-top: 14px;
                                         }
 
                                         .pd-col-header {
@@ -1122,7 +986,10 @@
                                             font-weight: 700;
                                             letter-spacing: .06em;
                                             text-transform: uppercase;
-                                            border-bottom: 1px solid rgba(128, 128, 128, .25);
+                                            color: #111827;
+                                            background: #fff;
+                                            border: 1px solid #e5e7eb;
+                                            border-radius: 14px;
                                         }
 
                                         .pd-slots-headers-wrap {
@@ -1136,7 +1003,9 @@
                                             padding: 0 4px;
                                             height: 46px;
                                             align-items: center;
-                                            border-bottom: 1px solid rgba(255, 255, 255, .15);
+                                            background: #fff;
+                                            border: 1px solid #e5e7eb;
+                                            border-radius: 14px;
                                         }
 
                                         .pd-slot-th {
@@ -1147,14 +1016,15 @@
                                             letter-spacing: -.03em;
                                             line-height: 1.15;
                                             min-width: 0;
+                                            color: #111827;
                                         }
 
                                         .pd-overnight-tag {
                                             display: block;
                                             font-size: .48rem;
                                             font-weight: 600;
-                                            background: rgba(0, 0, 0, .25);
-                                            color: #fff;
+                                            background: #e5e7eb;
+                                            color: #374151;
                                             border-radius: 3px;
                                             padding: 1px 2px;
                                             margin-top: 1px;
@@ -1167,6 +1037,7 @@
                                             border-radius: 0 0 20px 20px;
                                             scrollbar-width: none;
                                             -ms-overflow-style: none;
+                                            background: #fff;
                                         }
 
                                         .pd-mobile-scroll::-webkit-scrollbar {
@@ -1180,6 +1051,7 @@
                                             gap: 10px;
                                             padding: 12px 14px 20px;
                                             align-items: flex-start;
+                                            background: #fff;
                                         }
 
                                         .pd-dates-card {
@@ -1187,9 +1059,9 @@
                                             min-width: 72px;
                                             width: 72px;
                                             flex-shrink: 0;
-                                            box-shadow: 0 6px 24px rgba(0, 0, 0, .2);
+                                            border: 1px solid #e5e7eb;
                                             overflow: clip;
-                                            background: var(--pd-room-color, #4e6b4c);
+                                            background: #fff;
                                         }
 
                                         .pd-date-row {
@@ -1198,7 +1070,7 @@
                                             flex-direction: column;
                                             align-items: center;
                                             justify-content: center;
-                                            border-bottom: 1px solid rgba(255, 255, 255, .12);
+                                            border-bottom: 1px solid #f3f4f6;
                                             gap: 2px;
                                             padding: 0 4px;
                                         }
@@ -1209,8 +1081,7 @@
 
                                         .pd-date-day {
                                             font-size: .62rem;
-                                            color: var(--pd-room-text, #fff);
-                                            opacity: .7;
+                                            color: #6b7280;
                                             font-weight: 500;
                                             line-height: 1;
                                         }
@@ -1218,13 +1089,16 @@
                                         .pd-date-num {
                                             font-size: .78rem;
                                             font-weight: 700;
-                                            color: var(--pd-room-text, #fff);
+                                            color: #111827;
                                             line-height: 1;
+                                        }
+
+                                        .pd-date-row.is-today {
+                                            background: #f3f4f6;
                                         }
 
                                         .pd-date-row.is-today .pd-date-day,
                                         .pd-date-row.is-today .pd-date-num {
-                                            opacity: 1;
                                             font-weight: 800;
                                         }
 
@@ -1235,10 +1109,10 @@
 
                                         .pd-slots-card {
                                             border-radius: 14px;
-                                            box-shadow: 0 6px 24px rgba(0, 0, 0, .2);
+                                            border: 1px solid #e5e7eb;
                                             overflow: clip;
                                             max-width: 100%;
-                                            background: var(--pd-room-color, #4e6b4c);
+                                            background: #fff;
                                         }
 
                                         .pd-slots-row {
@@ -1247,7 +1121,7 @@
                                             padding: 4px;
                                             height: 38px;
                                             align-items: center;
-                                            border-bottom: 1px solid rgba(255, 255, 255, .12);
+                                            border-bottom: 1px solid #f3f4f6;
                                         }
 
                                         .pd-slots-row:last-child {
@@ -1265,7 +1139,12 @@
                                         .pd-slot-cell .selectable {
                                             width: 100%;
                                             height: 22px !important;
-                                            border-radius: 999px !important;
+                                            border-radius: 6px !important;
+                                        }
+
+                                        .pd-slot-cell .lock-icon {
+                                            width: 10px;
+                                            height: 10px;
                                         }
 
                                         /* ── Slot pagination strip ── */
@@ -1275,16 +1154,17 @@
                                             justify-content: space-between;
                                             gap: 8px;
                                             padding: 8px 14px;
-                                            background: linear-gradient(135deg, #3a5239, #4e6b4c);
+                                            background: #f3f4f6;
+                                            border-bottom: 1px solid #e5e7eb;
                                         }
 
                                         .slot-pg-btn {
                                             display: inline-flex;
                                             align-items: center;
                                             gap: 4px;
-                                            background: rgba(255, 255, 255, .15);
-                                            border: 1px solid rgba(255, 255, 255, .3);
-                                            color: #fff;
+                                            background: #fff;
+                                            border: 1px solid #d1d5db;
+                                            color: #374151;
                                             border-radius: 999px;
                                             padding: 4px 12px;
                                             font-size: .75rem;
@@ -1294,7 +1174,7 @@
                                         }
 
                                         .slot-pg-btn:hover:not(:disabled) {
-                                            background: rgba(255, 255, 255, .3);
+                                            background: #e5e7eb;
                                         }
 
                                         .slot-pg-btn:disabled {
@@ -1303,30 +1183,9 @@
                                         }
 
                                         .slot-pg-info {
-                                            color: rgba(255, 255, 255, .85);
+                                            color: #6b7280;
                                             font-size: .75rem;
                                             font-weight: 600;
-                                        }
-
-                                        /* ── blocked + promo: đặt cuối để thắng cascade (3-class > 2-class specificity) ── */
-                                        .selectable.blocked.promo::after {
-                                            content: "" !important;
-                                            position: absolute !important;
-                                            inset: 0 !important;
-                                            border-radius: 999px !important;
-                                            background-color: #4e6b4c !important;
-                                            z-index: 15 !important;
-                                            display: block !important;
-                                            animation: none !important;
-                                            filter: none !important;
-                                        }
-
-                                        .selectable.blocked.promo::before {
-                                            content: "" !important;
-                                            background: none !important;
-                                            filter: none !important;
-                                            animation: none !important;
-                                            opacity: 0 !important;
                                         }
                                     </style>
 
@@ -1352,8 +1211,7 @@
                                         <div class="md:hidden mb-4 rounded-[20px] overflow-hidden shadow-lg">
 
                                             {{-- Tiêu đề phòng --}}
-                                            <div class="pd-room-header"
-                                                style="background: {{ $pdRoomBg }}; color: {{ $pdRoomText }}; border-radius: 20px 20px 0 0;">
+                                            <div class="pd-room-header" style="border-radius: 20px 20px 0 0;">
                                                 <div class="text-center">
                                                     <h3 class="pd-room-name">{{ $product->name }}</h3>
                                                     <p class="pd-room-sub">
@@ -1379,9 +1237,8 @@
                                             @endif
 
                                             {{-- Header cột giờ (ngoài scroll) --}}
-                                            <div class="pd-grid-header"
-                                                style="background: color-mix(in srgb, {{ $pdRoomBg }} 70%, black);">
-                                                <div class="pd-col-header" style="color: {{ $pdRoomText }};">Ngày
+                                            <div class="pd-grid-header">
+                                                <div class="pd-col-header">Ngày
                                                 </div>
                                                 <div class="pd-slots-headers-wrap">
                                                     <div class="pd-slots-header-row">
@@ -1395,7 +1252,6 @@
                                                                     ($timeSlot['over_night'] ?? 0) == 1;
                                                             @endphp
                                                             <div class="pd-slot-th"
-                                                                style="color: {{ $pdRoomText }};"
                                                                 x-show="Math.floor({{ $loop->index }} / slotsPerPage) === slotPage">
                                                                 {{ $mhSt->format('H:i') }}<br>{{ $mhEt->format('H:i') }}
                                                                 @if ($mhOv)
@@ -1408,9 +1264,8 @@
                                             </div>
 
                                             {{-- Two-panel cuộn dọc --}}
-                                            <div class="pd-mobile-scroll"
-                                                style="--pd-room-color: {{ $pdRoomBg }}; --pd-room-text: {{ $pdRoomText }};">
-                                                <div class="pd-grid-outer" style="background: {{ $pdRoomBg }};">
+                                            <div class="pd-mobile-scroll">
+                                                <div class="pd-grid-outer">
 
                                                     {{-- Cột Ngày --}}
                                                     <div class="pd-dates-card">
@@ -1588,8 +1443,18 @@
                                                                                 :class="selectedSlots.some(s => s
                                                                                     .key === '{{ $date['carbon_date']->format('Y-m-d') }}-{{ $timeSlot['timeslot_id'] }}'
                                                                                 ) ? 'active' : ''"
-                                                                                style="{{ !$mIsSelectable ? 'pointer-events:none;opacity:0.6;' : 'cursor:pointer;' }}{{ $mOrderColor ? '--order-color:' . $mOrderColor . ';' : '' }}"
+                                                                                style="{{ !$mIsSelectable ? 'pointer-events:none;opacity:0.6;' : 'cursor:pointer;' }}"
                                                                                 @click="toggleSlot('{{ $date['carbon_date']->format('Y-m-d') }}','{{ $timeSlot['timeslot_id'] }}','{{ $mFinal }}','{{ $mPAI }}','{{ $mBase }}','{{ $mInc }}','{{ $mPromo }}','{{ \Carbon\Carbon::parse($timeSlot['start_time'])->format('H:i') }}','{{ \Carbon\Carbon::parse($timeSlot['end_time'])->format('H:i') }}','{{ $mStatus }}','{{ $product['id'] }}','{{ $product['name'] }}','{{ $timeSlot['timeslot_label'] }}','{{ $timeSlot['over_night'] ?? 0 }}')">
+                                                                                @if (str_contains($mClasses, 'blocked'))
+                                                                                    <svg class="lock-icon" viewBox="0 0 24 24"
+                                                                                        fill="none" stroke="currentColor"
+                                                                                        stroke-width="2" stroke-linecap="round"
+                                                                                        stroke-linejoin="round">
+                                                                                        <rect x="4" y="11" width="16"
+                                                                                            height="9" rx="2" />
+                                                                                        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                                                                                    </svg>
+                                                                                @endif
                                                                             </div>
                                                                         </div>
                                                                     @endforeach
@@ -1601,89 +1466,82 @@
                                             </div>
                                         </div>{{-- /mobile --}}
 
-                                        {{-- ═════ DESKTOP: styled table (hidden md:block) ═════ --}}
+                                        {{-- ═════ DESKTOP: 2 khối tách rời, có khoảng cách (hidden md:block) ═════ --}}
                                         <div class="hidden md:block">
-                                            <div class="pd-book-card"
-                                                style="--pd-room-color: {{ $pdRoomBg }}; --pd-room-text: {{ $pdRoomText }};">
-                                                <div class="pd-book-card-scroll">
-                                                    <table
-                                                        class="w-full text-[11px] text-center min-w-[400px] border-collapse">
-                                                        <thead class="sticky top-0 z-40">
-                                                            <tr>
-                                                                <th colspan="2"
-                                                                    class="py-1 px-2 border sticky-col-header">Chi
-                                                                    nhánh</th>
-                                                                <th colspan="{{ count($timeSlots) }}"
-                                                                    class="py-1 px-2 border"
-                                                                    style="background: {{ $pdRoomBg }}; color: {{ $pdRoomText }};">
-                                                                    Home - {{ $categories['c3'] }},
-                                                                    {{ $categories['c2'] }}</th>
-                                                            </tr>
-                                                            <tr>
-                                                                <th colspan="2"
-                                                                    class="py-1 px-2 border sticky-col-header"
-                                                                    style="background: {{ $pdRoomBg }}; color: {{ $pdRoomText }};">
-                                                                    Tên phòng</th>
-                                                                <th colspan="{{ count($timeSlots) }}"
-                                                                    class="py-1 px-2 border"
-                                                                    style="background: {{ $pdRoomBg }}; color: {{ $pdRoomText }};">
-                                                                    {{ $product['name'] }}</th>
-                                                            </tr>
-                                                            <tr>
-                                                                <th
-                                                                    class="py-1 px-2 border min-w-[45px] sticky-col-header sticky-col-thu">
-                                                                    Thứ</th>
-                                                                <th class="py-1 px-2 border sticky-col-header sticky-col-ngay"
-                                                                    style="border-right: 2px solid rgba(255,255,255,0.25);">
-                                                                    Ngày</th>
-                                                                @foreach ($timeSlots as $timeSlot)
-                                                                    @php
-                                                                        $startTime = \Carbon\Carbon::parse(
-                                                                            $timeSlot['start_time'],
-                                                                        );
-                                                                        $endTime = \Carbon\Carbon::parse(
-                                                                            $timeSlot['end_time'],
-                                                                        );
-                                                                        $isOvernight =
-                                                                            $endTime->isNextDay() ||
-                                                                            $endTime->lt($startTime) ||
-                                                                            $timeSlot['over_night'] == 1;
-                                                                    @endphp
-                                                                    <th class="py-1 px-2 border min-w-[90px]"
-                                                                        style="background: {{ $pdRoomBg }}; color: {{ $pdRoomText }};">
-                                                                        {{ $startTime->format('H:i') }} -
-                                                                        {{ $endTime->format('H:i') }}
-                                                                        <br>
-                                                                        @if ($isOvernight)
-                                                                            <span class="text-xs"
-                                                                                style="color: {{ $pdRoomText }};">(Qua
-                                                                                đêm)</span>
-                                                                        @else
-                                                                            <svg class="w-4 h-4 inline"
-                                                                                style="color: {{ $pdRoomText }};"
-                                                                                xmlns="http://www.w3.org/2000/svg"
-                                                                                viewBox="0 0 16 16"
-                                                                                fill="currentColor">
-                                                                                <path
-                                                                                    d="M8 1a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 1ZM10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM12.95 4.11a.75.75 0 1 0-1.06-1.06l-1.062 1.06a.75.75 0 0 0 1.061 1.062l1.06-1.061ZM15 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 15 8ZM11.89 12.95a.75.75 0 0 0 1.06-1.06l-1.06-1.062a.75.75 0 0 0-1.062 1.061l1.061 1.06ZM8 12a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 12ZM5.172 11.89a.75.75 0 0 0-1.061-1.062L3.05 11.89a.75.75 0 1 0 1.06 1.06l1.06-1.06ZM4 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 4 8ZM4.11 5.172A.75.75 0 0 0 5.173 4.11L4.11 3.05a.75.75 0 1 0-1.06 1.06l1.06 1.06Z" />
-                                                                            </svg>
-                                                                        @endif
-                                                                    </th>
-                                                                @endforeach
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody>
-                                                            @foreach ($dates as $date)
-                                                                <tr class="border-t">
-                                                                    <td class="py-1 border sticky-col sticky-col-thu {{ $date['is_today'] ? 'font-extrabold' : '' }}"
-                                                                        style="{{ $date['is_today'] ? 'background: color-mix(in srgb, var(--pd-room-color) 60%, white) !important;' : '' }}">
-                                                                        {{ $date['day'] }}
-                                                                    </td>
-                                                                    <td class="py-1 border sticky-col sticky-col-ngay {{ $date['is_today'] ? 'font-extrabold' : '' }}"
-                                                                        style="border-right: 2px solid rgba(255,255,255,0.25); {{ $date['is_today'] ? 'background: color-mix(in srgb, var(--pd-room-color) 60%, white) !important;' : '' }}">
-                                                                        {{ $date['date'] }}
-                                                                    </td>
+                                            {{-- Header (ngoài scroll) --}}
+                                            <div class="pd-dt-header">
+                                                <div class="pd-dt-col-header">Thời gian</div>
+                                                <div class="pd-dt-slots-header-row">
+                                                    @foreach ($timeSlots as $timeSlot)
+                                                        @php
+                                                            $startTime = \Carbon\Carbon::parse(
+                                                                $timeSlot['start_time'],
+                                                            );
+                                                            $endTime = \Carbon\Carbon::parse(
+                                                                $timeSlot['end_time'],
+                                                            );
+                                                            $isOvernight =
+                                                                $endTime->isNextDay() ||
+                                                                $endTime->lt($startTime) ||
+                                                                $timeSlot['over_night'] == 1;
+                                                        @endphp
+                                                        <div class="pd-dt-slot-th">
+                                                            {{ $startTime->format('H:i') }} -
+                                                            {{ $endTime->format('H:i') }}
+                                                            <br>
+                                                            @if ($isOvernight)
+                                                                <svg class="w-4 h-4 inline"
+                                                                    style="color: #1e3a8a;"
+                                                                    xmlns="http://www.w3.org/2000/svg"
+                                                                    viewBox="0 0 24 24"
+                                                                    fill="currentColor">
+                                                                    <path fill-rule="evenodd"
+                                                                        d="M9.528 1.718a.75.75 0 0 1 .162.819A8.97 8.97 0 0 0 9 6a9 9 0 0 0 9 9 8.97 8.97 0 0 0 3.463-.69.75.75 0 0 1 .981.98 10.503 10.503 0 0 1-9.694 6.46c-5.799 0-10.5-4.7-10.5-10.5 0-4.368 2.667-8.112 6.46-9.694a.75.75 0 0 1 .818.162Z"
+                                                                        clip-rule="evenodd" />
+                                                                </svg>
+                                                                <span class="text-xs"
+                                                                    style="color: #1e3a8a;">(Qua
+                                                                    đêm)</span>
+                                                            @else
+                                                                <svg class="w-4 h-4 inline"
+                                                                    style="color: #eab308;"
+                                                                    xmlns="http://www.w3.org/2000/svg"
+                                                                    viewBox="0 0 16 16"
+                                                                    fill="currentColor">
+                                                                    <path
+                                                                        d="M8 1a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 1ZM10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM12.95 4.11a.75.75 0 1 0-1.06-1.06l-1.062 1.06a.75.75 0 0 0 1.061 1.062l1.06-1.061ZM15 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 15 8ZM11.89 12.95a.75.75 0 0 0 1.06-1.06l-1.06-1.062a.75.75 0 0 0-1.062 1.061l1.061 1.06ZM8 12a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 12ZM5.172 11.89a.75.75 0 0 0-1.061-1.062L3.05 11.89a.75.75 0 1 0 1.06 1.06l1.06-1.06ZM4 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 4 8ZM4.11 5.172A.75.75 0 0 0 5.173 4.11L4.11 3.05a.75.75 0 1 0-1.06 1.06l1.06 1.06Z" />
+                                                                </svg>
+                                                            @endif
+                                                        </div>
+                                                    @endforeach
+                                                </div>
+                                            </div>
 
+                                            {{-- Thân: 2 card tách rời — khung (viền/bo góc) đứng yên, chỉ nội
+                                                 dung bên trong mỗi card cuộn dọc, đồng bộ 2 chiều qua @scroll --}}
+                                            <div class="pd-dt-grid-outer">
+                                                {{-- Cột Ngày --}}
+                                                <div class="pd-dt-dates-card">
+                                                    <div class="pd-dt-dates-scroll" x-ref="pdDatesScroll"
+                                                        @scroll="$refs.pdSlotsScroll.scrollTop = $event.target.scrollTop">
+                                                        @foreach ($dates as $date)
+                                                            <div class="pd-dt-date-row {{ $date['is_today'] ? 'is-today' : '' }}">
+                                                                <div class="font-extrabold">
+                                                                    {{ $date['day'] }}</div>
+                                                                <div class="text-[10px] text-gray-500 font-normal">
+                                                                    {{ $date['date'] }}</div>
+                                                            </div>
+                                                        @endforeach
+                                                    </div>
+                                                </div>
+
+                                                {{-- Khối khung giờ --}}
+                                                <div class="pd-dt-slots-outer">
+                                                    <div class="pd-dt-slots-card">
+                                                        <div class="pd-dt-slots-scroll" x-ref="pdSlotsScroll"
+                                                            @scroll="$refs.pdDatesScroll.scrollTop = $event.target.scrollTop">
+                                                            @foreach ($dates as $date)
+                                                                <div class="pd-dt-slots-row">
                                                                     @foreach ($timeSlots as $timeSlot)
                                                                         @php
                                                                             $price = $timeSlot['timeslot_price'] ?? 0;
@@ -1897,13 +1755,12 @@
                                                                             $timeslotStatus = $status;
                                                                         @endphp
 
-                                                                        <td
-                                                                            class="pd-slot-td border p-1.5 relative overflow-visible">
+                                                                        <div class="pd-dt-slot-cell">
                                                                             <div class="w-full selectable {{ $classes }}"
                                                                                 :class="selectedSlots.some(slot => slot
                                                                                     .key === '{{ $date['carbon_date']->format('Y-m-d') }}-{{ $timeSlot['timeslot_id'] }}'
                                                                                 ) ? 'active' : ''"
-                                                                                style="{{ !$isSelectable ? 'pointer-events: none; opacity: 0.6;' : 'cursor: pointer;' }}{{ $orderColor ? '--order-color:' . $orderColor . ';' : '' }}"
+                                                                                style="{{ !$isSelectable ? 'pointer-events: none; opacity: 0.6;' : 'cursor: pointer;' }}"
                                                                                 x-on:click="toggleSlot(
                                                                 '{{ $date['carbon_date']->format('Y-m-d') }}',
                                                                 '{{ $timeSlot['timeslot_id'] }}',
@@ -1921,6 +1778,17 @@
                                                                 '{{ $timeSlot['over_night'] ?? 0 }}'
                                                              )">
 
+                                                                                @if (str_contains($classes, 'blocked'))
+                                                                                    <svg class="lock-icon" viewBox="0 0 24 24"
+                                                                                        fill="none" stroke="currentColor"
+                                                                                        stroke-width="2" stroke-linecap="round"
+                                                                                        stroke-linejoin="round">
+                                                                                        <rect x="4" y="11" width="16"
+                                                                                            height="9" rx="2" />
+                                                                                        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                                                                                    </svg>
+                                                                                @endif
+
                                                                                 @if ($hasIncreasePromotion && $displayPromotion && $displayPromotion->image)
                                                                                     <div
                                                                                         class="promotion-corner-image">
@@ -1936,422 +1804,20 @@
                                                                                         {{ $displayPromotion->lable_client }}
                                                                                     </div>
                                                                                 @endif
-
-                                                                                @if ($showPromotion)
-                                                                                    <span
-                                                                                        class="font-bold text-[11px] leading-tight relative z-20 text-red-600">
-                                                                                        <!-- {{ number_format($finalPrice / 1000, 0, ',', '.') }}K -->
-                                                                                    </span>
-                                                                                @endif
                                                                             </div>
-                                                                        </td>
+                                                                        </div>
                                                                     @endforeach
-                                                                </tr>
+                                                                </div>
                                                             @endforeach
-                                                        </tbody>
-
-                                                    </table>
-                                                </div>{{-- /pd-book-card-scroll --}}
-                                            </div>{{-- /pd-book-card --}}
+                                                        </div>{{-- /pd-dt-slots-scroll --}}
+                                                    </div>{{-- /pd-dt-slots-card --}}
+                                                </div>{{-- /pd-dt-slots-outer --}}
+                                            </div>{{-- /pd-dt-grid-outer --}}
                                         </div>{{-- /desktop --}}
                                     </div>{{-- /shared x-data --}}
 
-                                    <div class="w-full mt-6 bg-gray-50 rounded-lg p-4 border-2 border-gray-200">
-                                        <h3 class="text-lg font-bold mb-4 pb-2 border-b border-gray-300">Chi tiết thanh
-                                            toán</h3>
-
-                                        <span wire:loading wire:target="selectedSlots"
-                                            class="text-gray-400 italic animate-pulse block text-center py-4">
-                                            <svg class="animate-spin h-5 w-5 mx-auto mb-2"
-                                                xmlns="http://www.w3.org/2000/svg" fill="none"
-                                                viewBox="0 0 24 24">
-                                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                                    stroke="currentColor" stroke-width="4"></circle>
-                                                <path class="opacity-75" fill="currentColor"
-                                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                                </path>
-                                            </svg>
-                                            Đang tính toán...
-                                        </span>
-
-                                        <div wire:loading.remove wire:target="selectedSlots"
-                                            class="w-full text-left font-semibold space-y-2">
-
-                                            {{-- Giá cơ bản --}}
-                                            <p class="text-base text-gray-800 mb-2">
-                                                Giá cơ bản: <span
-                                                    class="font-bold">{{ number_format($originalTotalAmount, 0, ',', '.') }}đ</span>
-                                            </p>
-
-                                            {{-- Chi tiết phụ thu --}}
-                                            @if ($increaseAmount > 0)
-                                                <div class="ml-4 mb-2">
-                                                    <p
-                                                        class="text-sm text-orange-600 font-semibold flex items-center gap-1.5">
-                                                        <svg xmlns="http://www.w3.org/2000/svg"
-                                                            class="w-4 h-4 shrink-0" viewBox="0 0 24 24"
-                                                            fill="none" stroke="currentColor" stroke-width="2"
-                                                            stroke-linecap="round" stroke-linejoin="round">
-                                                            <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
-                                                            <polyline points="16 7 22 7 22 13" />
-                                                        </svg>
-                                                        Phụ thu:
-                                                    </p>
-                                                    {{-- Bạn có thể thêm chi tiết phụ thu ở đây nếu có --}}
-                                                    <p
-                                                        class="text-sm text-orange-600 font-bold ml-4 mt-1 border-t border-orange-200 pt-1">
-                                                        Tổng phụ thu:
-                                                        <span>+{{ number_format($increaseAmount, 0, ',', '.') }}đ</span>
-                                                    </p>
-                                                </div>
-                                            @endif
-
-                                            {{-- Phụ phí khách --}}
-                                            @if ($extraFee > 0)
-                                                <div class="ml-4 mb-2">
-                                                    <p
-                                                        class="text-sm text-orange-600 font-semibold flex items-center gap-1.5">
-                                                        <svg xmlns="http://www.w3.org/2000/svg"
-                                                            class="w-4 h-4 shrink-0" viewBox="0 0 24 24"
-                                                            fill="none" stroke="currentColor" stroke-width="2"
-                                                            stroke-linecap="round" stroke-linejoin="round">
-                                                            <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
-                                                            <polyline points="16 7 22 7 22 13" />
-                                                        </svg>
-                                                        Phụ phí:
-                                                    </p>
-                                                    <p class="text-xs text-orange-500 ml-4">
-                                                        • Phụ phí ({{ $guests - 2 }} khách):
-                                                        <span>+{{ number_format($extraFee, 0, ',', '.') }}đ</span>
-                                                    </p>
-                                                </div>
-                                            @endif
-
-                                            {{-- Chi tiết khuyến mãi (CHỈ hiển thị nếu KHÔNG phải full booking) --}}
-                                            @if ($promoDiscountAmount > 0 && !$hasFullDayBooking)
-                                                <div class="ml-4 mb-2">
-                                                    <p
-                                                        class="text-sm text-red-600 font-semibold flex items-center gap-1.5">
-                                                        <svg xmlns="http://www.w3.org/2000/svg"
-                                                            class="w-4 h-4 shrink-0" viewBox="0 0 24 24"
-                                                            fill="none" stroke="currentColor" stroke-width="2"
-                                                            stroke-linecap="round" stroke-linejoin="round">
-                                                            <polyline points="20 12 20 22 4 22 4 12" />
-                                                            <rect x="2" y="7" width="20" height="5" />
-                                                            <line x1="12" y1="22" x2="12"
-                                                                y2="7" />
-                                                            <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z" />
-                                                            <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" />
-                                                        </svg>
-                                                        Khuyến mãi:
-                                                    </p>
-                                                    {{-- Chi tiết khuyến mãi từ promotions --}}
-                                                    <p class="text-xs text-red-500 ml-4">
-                                                        • Khuyến mãi áp dụng:
-                                                        <span>-{{ number_format($promoDiscountAmount, 0, ',', '.') }}đ</span>
-                                                    </p>
-                                                    <p
-                                                        class="text-sm text-red-600 font-bold ml-4 mt-1 border-t border-red-200 pt-1">
-                                                        Tổng khuyến mãi:
-                                                        <span>-{{ number_format($promoDiscountAmount, 0, ',', '.') }}đ</span>
-                                                    </p>
-                                                </div>
-                                            @endif
-
-
-                                            {{-- Giảm giá từ coupon --}}
-                                            @if ($appliedCoupon && $couponDiscountAmount > 0)
-                                                <div class="ml-4 mb-2">
-                                                    <p
-                                                        class="text-sm text-green-600 font-semibold flex items-center gap-1.5">
-                                                        <svg xmlns="http://www.w3.org/2000/svg"
-                                                            class="w-4 h-4 shrink-0" viewBox="0 0 24 24"
-                                                            fill="none" stroke="currentColor" stroke-width="2"
-                                                            stroke-linecap="round" stroke-linejoin="round">
-                                                            <path
-                                                                d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z" />
-                                                            <path d="M13 5v2" />
-                                                            <path d="M13 17v2" />
-                                                            <path d="M13 11v2" />
-                                                        </svg>
-                                                        Mã giảm giá:
-                                                    </p>
-                                                    <p class="text-xs text-green-500 ml-4">
-                                                        • Mã giảm giá ({{ $appliedCoupon->code }}):
-                                                        <span>-{{ number_format($couponDiscountAmount, 0, ',', '.') }}đ</span>
-                                                    </p>
-                                                </div>
-                                            @endif
-
-                                            {{-- Giảm giá book nhiều giờ (CHỈ khi KHÔNG phải full booking) --}}
-                                            @if (!$hasFullDayBooking && $bulkDiscountAmount > 0 && count($selectedSlots) >= 2)
-                                                <p
-                                                    class="text-sm text-green-600 font-semibold ml-4 mb-2 flex items-center gap-1.5">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0"
-                                                        viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                        stroke-width="2" stroke-linecap="round"
-                                                        stroke-linejoin="round">
-                                                        <circle cx="12" cy="12" r="10" />
-                                                        <path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" />
-                                                        <path d="M12 18V6" />
-                                                    </svg>
-                                                    Giảm giá đặt nhiều khung giờ:
-                                                    <span>-{{ number_format($bulkDiscountAmount, 0, ',', '.') }}đ</span>
-                                                </p>
-                                            @endif
-
-
-                                            @if (!$hasFullDayBooking && count($selectedSlots) >= 2)
-                                                <div
-                                                    class="ml-4 mb-2 mt-1 flex items-center gap-2 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2">
-                                                    <svg xmlns="http://www.w3.org/2000/svg"
-                                                        class="w-5 h-5 shrink-0 text-amber-600" viewBox="0 0 24 24"
-                                                        fill="none" stroke="currentColor" stroke-width="2"
-                                                        stroke-linecap="round" stroke-linejoin="round">
-                                                        <polyline points="20 12 20 22 4 22 4 12" />
-                                                        <rect x="2" y="7" width="20" height="5" />
-                                                        <line x1="12" y1="22" x2="12"
-                                                            y2="7" />
-                                                        <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z" />
-                                                        <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" />
-                                                    </svg>
-                                                    <p class="text-sm text-amber-700 font-semibold">
-                                                        Bạn được tặng: <span class="text-amber-800">2 Nước Ngọt + 1
-                                                            Snack</span>
-                                                        <span
-                                                            class="block text-xs font-normal text-amber-600 mt-0.5">Nhận
-                                                            tại quầy sau khi thanh toán</span>
-                                                    </p>
-                                                </div>
-                                            @endif
-
-                                            {{-- Giảm giá Full booking --}}
-                                            @if ($fullBookingDiscount > 0)
-                                                <p class="text-sm font-bold ml-4 mb-2 flex items-center gap-1.5"
-                                                    style="color:#4e6b4c">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0"
-                                                        viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                        stroke-width="2" stroke-linecap="round"
-                                                        stroke-linejoin="round">
-                                                        <polygon
-                                                            points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                                                    </svg>
-                                                    Giảm giá đặt Full phòng:
-                                                    <span>-{{ number_format($fullBookingDiscount, 0, ',', '.') }}đ</span>
-                                                </p>
-                                            @endif
-
-                                            {{-- Thông báo khuyến mãi khi đặt full --}}
-                                            @if ($hasFullDayBooking)
-                                                <div class="ml-4 mb-2 bg-red-50 p-3 rounded border border-red-200">
-                                                    <p
-                                                        class="text-sm text-red-600 font-semibold mb-1 flex items-center gap-1.5">
-                                                        <svg xmlns="http://www.w3.org/2000/svg"
-                                                            class="w-4 h-4 shrink-0" viewBox="0 0 24 24"
-                                                            fill="none" stroke="currentColor" stroke-width="2"
-                                                            stroke-linecap="round" stroke-linejoin="round">
-                                                            <polyline points="20 12 20 22 4 22 4 12" />
-                                                            <rect x="2" y="7" width="20" height="5" />
-                                                            <line x1="12" y1="22" x2="12"
-                                                                y2="7" />
-                                                            <path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z" />
-                                                            <path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" />
-                                                        </svg>
-                                                        Khuyến mãi:
-                                                    </p>
-                                                    <p class="text-xs text-red-500 ml-4">
-                                                        • Giảm giá khi đặt full khung giờ trong ngày:
-                                                        <span
-                                                            class="font-bold">-{{ number_format($fullBookingDiscount, 0, ',', '.') }}đ</span>
-                                                    </p>
-                                                </div>
-                                            @endif
-
-                                            {{-- Dịch vụ thêm --}}
-                                            @php
-                                                $serviceTotal = 0;
-                                                if (!empty($selectedServices) && $additionalServices) {
-                                                    foreach ($selectedServices as $id => $qty) {
-                                                        $service = $additionalServices->firstWhere('id', $id);
-                                                        if ($service && $qty > 0) {
-                                                            $serviceTotal += $service->price * $qty;
-                                                        }
-                                                    }
-                                                }
-                                                $serviceCount = array_sum($selectedServices ?? []);
-                                            @endphp
-                                            @if ($serviceTotal > 0)
-                                                <div class="ml-4 mb-2">
-                                                    <p
-                                                        class="text-sm text-blue-600 font-semibold flex items-center gap-1.5">
-                                                        <svg xmlns="http://www.w3.org/2000/svg"
-                                                            class="w-4 h-4 shrink-0" viewBox="0 0 24 24"
-                                                            fill="none" stroke="currentColor" stroke-width="2"
-                                                            stroke-linecap="round" stroke-linejoin="round">
-                                                            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                                                            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                                                        </svg>
-                                                        Dịch vụ thêm ({{ $serviceCount }} dịch vụ):
-                                                    </p>
-                                                    <p class="text-xs text-blue-500 ml-4">
-                                                        • Tổng dịch vụ:
-                                                        <span>+{{ number_format($serviceTotal, 0, ',', '.') }}đ</span>
-                                                    </p>
-                                                </div>
-                                            @endif
-
-                                            {{-- Tổng tiền --}}
-                                            <div class="mt-3 pt-3 border-t-2" style="border-color:#4e6b4c">
-                                                <p class="text-xl font-bold flex items-center gap-2"
-                                                    style="color:#4e6b4c">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 shrink-0"
-                                                        viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                        stroke-width="2" stroke-linecap="round"
-                                                        stroke-linejoin="round">
-                                                        <rect x="1" y="4" width="22" height="16"
-                                                            rx="2" ry="2" />
-                                                        <line x1="1" y1="10" x2="23"
-                                                            y2="10" />
-                                                    </svg>
-                                                    Tổng tiền tạm tính:
-                                                    <span
-                                                        class="text-2xl">{{ number_format($totalAmount, 0, ',', '.') }}đ</span>
-                                                </p>
-                                            </div>
-
-                                            {{-- Tổng tiết kiệm --}}
-                                            @php
-                                                $totalSaved =
-                                                    $promoDiscountAmount +
-                                                    $couponDiscountAmount +
-                                                    $bulkDiscountAmount +
-                                                    $fullBookingDiscount;
-                                            @endphp
-                                            @if ($totalSaved > 0)
-                                                <div
-                                                    class="bg-green-100 border-2 border-green-300 rounded-lg p-3 mt-3">
-                                                    <div class="flex items-center justify-between">
-                                                        <span
-                                                            class="text-green-700 font-medium flex items-center gap-2">
-                                                            <svg xmlns="http://www.w3.org/2000/svg"
-                                                                class="w-5 h-5 shrink-0" viewBox="0 0 24 24"
-                                                                fill="none" stroke="currentColor" stroke-width="2"
-                                                                stroke-linecap="round" stroke-linejoin="round">
-                                                                <path
-                                                                    d="M19 5c-1.5 0-2.8 1.4-3 2-3.5-1.5-11-.3-11 5 0 1.8 0 3 2 4.5V20h4v-2h3v2h4v-4c1-.5 1.7-1 2-2h2v-4h-2c0-1-.5-1.5-1-2h0V5z" />
-                                                                <path d="M2 9v1a2 2 0 0 0 2 2h1" />
-                                                                <path d="M16 11h0" />
-                                                            </svg>
-                                                            Bạn đã tiết kiệm:
-                                                        </span>
-                                                        <span class="text-green-700 font-bold text-lg">
-                                                            {{ number_format($totalSaved, 0, ',', '.') }}đ
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            @endif
-
-                                            {{-- Ghi chú --}}
-                                            <div class="mt-2 text-xs text-gray-600 italic">
-                                                @if (!$hasFullDayBooking)
-                                                    @php
-                                                        $bulkRules = $product->bulk_discount_rules ?? [];
-                                                        $bulkRuleText = collect($bulkRules)
-                                                            ->sortBy('slots')
-                                                            ->map(
-                                                                fn(
-                                                                    $r,
-                                                                ) => "{$r['discount']}% khi đặt {$r['slots']} khung giờ",
-                                                            )
-                                                            ->implode(', ');
-                                                    @endphp
-                                                    @if ($bulkRuleText)
-                                                        <p class="flex items-center gap-1">
-                                                            <svg xmlns="http://www.w3.org/2000/svg"
-                                                                class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24"
-                                                                fill="none" stroke="currentColor" stroke-width="2"
-                                                                stroke-linecap="round" stroke-linejoin="round">
-                                                                <circle cx="12" cy="12" r="10" />
-                                                                <line x1="12" y1="16" x2="12"
-                                                                    y2="12" />
-                                                                <line x1="12" y1="8" x2="12"
-                                                                    y2="8.01" />
-                                                            </svg>
-                                                            Giảm thêm {{ $bulkRuleText }}
-                                                        </p>
-                                                    @endif
-                                                @endif
-                                                @if ($hasFullDayBooking)
-                                                    <div>
-                                                        <p class="font-semibold flex items-center gap-1"
-                                                            style="color:#4e6b4c">
-                                                            <svg xmlns="http://www.w3.org/2000/svg"
-                                                                class="w-4 h-4 shrink-0" viewBox="0 0 24 24"
-                                                                fill="none" stroke="currentColor" stroke-width="2"
-                                                                stroke-linecap="round" stroke-linejoin="round">
-                                                                <polygon
-                                                                    points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                                                            </svg>
-                                                            Đã áp dụng ưu đãi đặc biệt cho Full phòng!
-                                                        </p>
-                                                        <p
-                                                            class="text-orange-600 text-xs mt-1 flex items-center gap-1">
-                                                            <svg xmlns="http://www.w3.org/2000/svg"
-                                                                class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24"
-                                                                fill="none" stroke="currentColor" stroke-width="2"
-                                                                stroke-linecap="round" stroke-linejoin="round">
-                                                                <circle cx="12" cy="12" r="10" />
-                                                                <line x1="12" y1="16" x2="12"
-                                                                    y2="12" />
-                                                                <line x1="12" y1="8" x2="12"
-                                                                    y2="8.01" />
-                                                            </svg>
-                                                            Các khuyến mãi giảm giá khác không áp dụng khi đặt full
-                                                            phòng
-                                                        </p>
-                                                    </div>
-                                                @endif
-                                            </div>
-                                        </div>
-                                    </div>
-                                    {{-- Lưu ý giảm giá - CẬP NHẬT --}}
-                                    <div class="text-left mt-4">
-                                        @if ($hasFullDayBooking)
-                                            <p class="text-primary text-sm font-bold italic">
-                                                <svg xmlns="http://www.w3.org/2000/svg"
-                                                    class="w-4 h-4 inline-block shrink-0 align-middle"
-                                                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                    <path
-                                                        d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
-                                                </svg>
-                                                Chúc mừng! Bạn đã đặt FULL phòng và nhận được ưu đãi đặc biệt
-                                            </p>
-                                        @else
-                                            @php
-                                                $bulkRules = $product->bulk_discount_rules ?? [];
-                                                $bulkRuleHint = collect($bulkRules)
-                                                    ->sortBy('slots')
-                                                    ->map(
-                                                        fn($r) => "{$r['discount']}% khi chọn {$r['slots']} khung giờ",
-                                                    )
-                                                    ->implode(', ');
-                                            @endphp
-                                            @if ($bulkRuleHint)
-                                                <p class="text-red-600 text-sm italic">
-                                                    ** Khách hàng được giảm thêm {{ $bulkRuleHint }}
-                                                </p>
-                                            @endif
-                                        @endif
-                                    </div>
-
                                 </div>
-                                @if ($fromBookingPage)
-                        </div>{{-- /padding --}}
-                    </div>{{-- /modal container --}}
-                </div>{{-- /modal overlay --}}
-                @endif
-            @elseif(!$fromBookingPage && $bookingStyle == 2)
+            @elseif($bookingStyle == 2)
                 {{-- Style 2: Daterange picker hiển thị ngay dưới ảnh/tiện ích --}}
                 @php
                     $product->loadMissing(['roomTimeSlots.timeSlot', 'roomTimeSlots.promotions']);
@@ -2457,13 +1923,326 @@
             </div>
         </div>
 
-        <div class="w-full lg:sticky lg:top-24" id="pd-booking-form">
+        <div class="w-full lg:sticky lg:top-32" id="pd-booking-form">
             {{-- Thông tin đặt phòng --}}
             @include('bladethemev1::components.product-detail.infomation-book-room')
+
+            @if ($bookingStyle == 1)
+                                    <div class="w-full mt-6 bg-white rounded-lg p-4 border-2 border-gray-200">
+                                        <h3 class="text-lg font-bold mb-4">Chi tiết thanh
+                                            toán</h3>
+
+                                        <span wire:loading wire:target="selectedSlots"
+                                            class="text-gray-400 italic animate-pulse block text-center py-4">
+                                            <svg class="animate-spin h-5 w-5 mx-auto mb-2"
+                                                xmlns="http://www.w3.org/2000/svg" fill="none"
+                                                viewBox="0 0 24 24">
+                                                <circle class="opacity-25" cx="12" cy="12" r="10"
+                                                    stroke="currentColor" stroke-width="4"></circle>
+                                                <path class="opacity-75" fill="currentColor"
+                                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                                </path>
+                                            </svg>
+                                            Đang tính toán...
+                                        </span>
+
+                                        <div wire:loading.remove wire:target="selectedSlots"
+                                            class="w-full text-left font-semibold space-y-2">
+
+                                            {{-- Giá cơ bản --}}
+                                            <p class="text-base text-gray-800 mb-2">
+                                                Giá cơ bản: <span
+                                                    class="font-bold">{{ number_format($originalTotalAmount, 0, ',', '.') }}đ</span>
+                                            </p>
+
+                                            {{-- Chi tiết phụ thu --}}
+                                            @if ($increaseAmount > 0)
+                                                <div class="ml-4 mb-2">
+                                                    <p
+                                                        class="text-sm text-orange-600 font-semibold flex items-center gap-1.5">
+                                                
+                                                        Phụ thu:
+                                                    </p>
+                                                    {{-- Bạn có thể thêm chi tiết phụ thu ở đây nếu có --}}
+                                                    <p
+                                                        class="text-sm text-orange-600 font-bold ml-4 mt-1 border-t border-orange-200 pt-1">
+                                                        Tổng phụ thu:
+                                                        <span>+{{ number_format($increaseAmount, 0, ',', '.') }}đ</span>
+                                                    </p>
+                                                </div>
+                                            @endif
+
+                                            {{-- Phụ phí khách --}}
+                                            @if ($extraFee > 0)
+                                                <div class="ml-4 mb-2">
+                                                    <p
+                                                        class="text-sm text-orange-600 font-semibold flex items-center gap-1.5">
+                                                        
+                                                        Phụ phí:
+                                                    </p>
+                                                    <p class="text-xs text-orange-500 ml-4">
+                                                        • Phụ phí ({{ $guests - 2 }} khách):
+                                                        <span>+{{ number_format($extraFee, 0, ',', '.') }}đ</span>
+                                                    </p>
+                                                </div>
+                                            @endif
+
+                                            {{-- Chi tiết khuyến mãi (CHỈ hiển thị nếu KHÔNG phải full booking) --}}
+                                            @if ($promoDiscountAmount > 0 && !$hasFullDayBooking)
+                                                <div class="ml-4 mb-2">
+                                                    <p
+                                                        class="text-sm text-red-600 font-semibold flex items-center gap-1.5">
+                                                        
+                                                        Khuyến mãi:
+                                                    </p>
+                                                    {{-- Chi tiết khuyến mãi từ promotions --}}
+                                                    <p class="text-xs text-red-500 ml-4">
+                                                        • Khuyến mãi áp dụng:
+                                                        <span>-{{ number_format($promoDiscountAmount, 0, ',', '.') }}đ</span>
+                                                    </p>
+                                                    <p
+                                                        class="text-sm text-red-600 font-bold ml-4 mt-1 border-t border-red-200 pt-1">
+                                                        Tổng khuyến mãi:
+                                                        <span>-{{ number_format($promoDiscountAmount, 0, ',', '.') }}đ</span>
+                                                    </p>
+                                                </div>
+                                            @endif
+
+
+                                            {{-- Giảm giá từ coupon --}}
+                                            @if ($appliedCoupon && $couponDiscountAmount > 0)
+                                                <div class="ml-4 mb-2">
+                                                    <p
+                                                        class="text-sm text-green-600 font-semibold flex items-center gap-1.5">
+                                                       
+                                                        Mã giảm giá:
+                                                    </p>
+                                                    <p class="text-xs text-green-500 ml-4">
+                                                        • Mã giảm giá ({{ $appliedCoupon->code }}):
+                                                        <span>-{{ number_format($couponDiscountAmount, 0, ',', '.') }}đ</span>
+                                                    </p>
+                                                </div>
+                                            @endif
+
+                                            {{-- Giảm giá book nhiều giờ (CHỈ khi KHÔNG phải full booking) --}}
+                                            @if (!$hasFullDayBooking && $bulkDiscountAmount > 0 && count($selectedSlots) >= 2)
+                                                <p
+                                                    class="text-sm text-green-600 font-semibold ml-4 mb-2 flex items-center gap-1.5">
+                                                    
+                                                    Giảm giá đặt nhiều khung giờ:
+                                                    <span>-{{ number_format($bulkDiscountAmount, 0, ',', '.') }}đ</span>
+                                                </p>
+                                            @endif
+
+
+                                            @if (!$hasFullDayBooking && count($selectedSlots) >= 2)
+                                                <div
+                                                    class="ml-4 mb-2 mt-1 flex items-center gap-2 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2">
+                                                  
+                                                    <p class="text-sm text-amber-700 font-semibold">
+                                                        Bạn được tặng: <span class="text-amber-800">2 Nước Ngọt + 1
+                                                            Snack</span>
+                                                        <span
+                                                            class="block text-xs font-normal text-amber-600 mt-0.5">Nhận
+                                                            tại quầy sau khi thanh toán</span>
+                                                    </p>
+                                                </div>
+                                            @endif
+
+                                            {{-- Giảm giá Full booking --}}
+                                            @if ($fullBookingDiscount > 0)
+                                                <p class="text-sm font-bold ml-4 mb-2 flex items-center gap-1.5"
+                                                    style="color:#4e6b4c">
+                                                   
+                                                    Giảm giá đặt Full phòng:
+                                                    <span>-{{ number_format($fullBookingDiscount, 0, ',', '.') }}đ</span>
+                                                </p>
+                                            @endif
+
+                                            {{-- Thông báo khuyến mãi khi đặt full --}}
+                                            @if ($hasFullDayBooking)
+                                                <div class="ml-4 mb-2 bg-red-50 p-3 rounded border border-red-200">
+                                                    <p
+                                                        class="text-sm text-red-600 font-semibold mb-1 flex items-center gap-1.5">
+                                                       
+                                                        Khuyến mãi:
+                                                    </p>
+                                                    <p class="text-xs text-red-500 ml-4">
+                                                        • Giảm giá khi đặt full khung giờ trong ngày:
+                                                        <span
+                                                            class="font-bold">-{{ number_format($fullBookingDiscount, 0, ',', '.') }}đ</span>
+                                                    </p>
+                                                </div>
+                                            @endif
+
+                                            {{-- Dịch vụ thêm --}}
+                                            @php
+                                                $serviceTotal = 0;
+                                                if (!empty($selectedServices) && $additionalServices) {
+                                                    foreach ($selectedServices as $id => $qty) {
+                                                        $service = $additionalServices->firstWhere('id', $id);
+                                                        if ($service && $qty > 0) {
+                                                            $serviceTotal += $service->price * $qty;
+                                                        }
+                                                    }
+                                                }
+                                                $serviceCount = array_sum($selectedServices ?? []);
+                                            @endphp
+                                            @if ($serviceTotal > 0)
+                                                <div class="ml-4 mb-2">
+                                                    <p
+                                                        class="text-sm text-blue-600 font-semibold flex items-center gap-1.5">
+                                                        <svg xmlns="http://www.w3.org/2000/svg"
+                                                            class="w-4 h-4 shrink-0" viewBox="0 0 24 24"
+                                                            fill="none" stroke="currentColor" stroke-width="2"
+                                                            stroke-linecap="round" stroke-linejoin="round">
+                                                            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                                                            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                                                        </svg>
+                                                        Dịch vụ thêm ({{ $serviceCount }} dịch vụ):
+                                                    </p>
+                                                    <p class="text-xs text-blue-500 ml-4">
+                                                        • Tổng dịch vụ:
+                                                        <span>+{{ number_format($serviceTotal, 0, ',', '.') }}đ</span>
+                                                    </p>
+                                                </div>
+                                            @endif
+
+                                            {{-- Tổng tiền --}}
+                                            <div class="mt-3 pt-3 border-t-2 border-primary">
+                                                <p class="text-xl font-bold flex items-center gap-2 text-primary">
+                                                    
+                                                    Tổng tiền tạm tính:
+                                                    <span
+                                                        class="text-2xl">{{ number_format($totalAmount, 0, ',', '.') }}đ</span>
+                                                </p>
+                                            </div>
+
+                                            {{-- Tổng tiết kiệm --}}
+                                            @php
+                                                $totalSaved =
+                                                    $promoDiscountAmount +
+                                                    $couponDiscountAmount +
+                                                    $bulkDiscountAmount +
+                                                    $fullBookingDiscount;
+                                            @endphp
+                                            @if ($totalSaved > 0)
+                                                <div
+                                                    class="bg-green-100 border-2 border-green-300 rounded-lg p-3 mt-3">
+                                                    <div class="flex items-center justify-between">
+                                                        <span
+                                                            class="text-green-700 font-medium flex items-center gap-2">
+                                                           
+                                                            Bạn đã tiết kiệm:
+                                                        </span>
+                                                        <span class="text-green-700 font-bold text-lg">
+                                                            {{ number_format($totalSaved, 0, ',', '.') }}đ
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            @endif
+
+                                            {{-- Ghi chú --}}
+                                            <div class="mt-2 text-xs text-gray-600 italic">
+                                                @if (!$hasFullDayBooking)
+                                                    @php
+                                                        $bulkRules = $product->bulk_discount_rules ?? [];
+                                                        $bulkRuleText = collect($bulkRules)
+                                                            ->sortBy('slots')
+                                                            ->map(
+                                                                fn(
+                                                                    $r,
+                                                                ) => "{$r['discount']}% khi đặt {$r['slots']} khung giờ",
+                                                            )
+                                                            ->implode(', ');
+                                                    @endphp
+                                                    @if ($bulkRuleText)
+                                                        <p class="flex items-center gap-1">
+                                                            <svg xmlns="http://www.w3.org/2000/svg"
+                                                                class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24"
+                                                                fill="none" stroke="currentColor" stroke-width="2"
+                                                                stroke-linecap="round" stroke-linejoin="round">
+                                                                <circle cx="12" cy="12" r="10" />
+                                                                <line x1="12" y1="16" x2="12"
+                                                                    y2="12" />
+                                                                <line x1="12" y1="8" x2="12"
+                                                                    y2="8.01" />
+                                                            </svg>
+                                                            Giảm thêm {{ $bulkRuleText }}
+                                                        </p>
+                                                    @endif
+                                                @endif
+                                                @if ($hasFullDayBooking)
+                                                    <div>
+                                                        <p class="font-semibold flex items-center gap-1"
+                                                            style="color:#4e6b4c">
+                                                            <svg xmlns="http://www.w3.org/2000/svg"
+                                                                class="w-4 h-4 shrink-0" viewBox="0 0 24 24"
+                                                                fill="none" stroke="currentColor" stroke-width="2"
+                                                                stroke-linecap="round" stroke-linejoin="round">
+                                                                <polygon
+                                                                    points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                                                            </svg>
+                                                            Đã áp dụng ưu đãi đặc biệt cho Full phòng!
+                                                        </p>
+                                                        <p
+                                                            class="text-orange-600 text-xs mt-1 flex items-center gap-1">
+                                                            <svg xmlns="http://www.w3.org/2000/svg"
+                                                                class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24"
+                                                                fill="none" stroke="currentColor" stroke-width="2"
+                                                                stroke-linecap="round" stroke-linejoin="round">
+                                                                <circle cx="12" cy="12" r="10" />
+                                                                <line x1="12" y1="16" x2="12"
+                                                                    y2="12" />
+                                                                <line x1="12" y1="8" x2="12"
+                                                                    y2="8.01" />
+                                                            </svg>
+                                                            Các khuyến mãi giảm giá khác không áp dụng khi đặt full
+                                                            phòng
+                                                        </p>
+                                                    </div>
+                                                @endif
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {{-- Lưu ý giảm giá - CẬP NHẬT --}}
+                                    <div class="text-left mt-4">
+                                        @if ($hasFullDayBooking)
+                                            <p class="text-primary text-sm font-bold italic">
+                                                <svg xmlns="http://www.w3.org/2000/svg"
+                                                    class="w-4 h-4 inline-block shrink-0 align-middle"
+                                                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path
+                                                        d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+                                                </svg>
+                                                Chúc mừng! Bạn đã đặt FULL phòng và nhận được ưu đãi đặc biệt
+                                            </p>
+                                        @else
+                                            @php
+                                                $bulkRules = $product->bulk_discount_rules ?? [];
+                                                $bulkRuleHint = collect($bulkRules)
+                                                    ->sortBy('slots')
+                                                    ->map(
+                                                        fn($r) => "{$r['discount']}% khi chọn {$r['slots']} khung giờ",
+                                                    )
+                                                    ->implode(', ');
+                                            @endphp
+                                            @if ($bulkRuleHint)
+                                                <p class="text-red-600 text-sm italic">
+                                                    ** Khách hàng được giảm thêm {{ $bulkRuleHint }}
+                                                </p>
+                                            @endif
+                                        @endif
+                                    </div>
+            @endif
         </div>
     </div>
 </div>
 </div>
+
+{{-- Đặt ngoài #pd-booking-form (nơi có transform tạo containing block) để modal luôn hiển thị full màn hình --}}
+@include('bladethemev1::components.payments.booking-confirmation-modal')
 
 {{-- Mô tả phòng và Bình luận --}}
 @include('bladethemev1::components.product-detail.description-comment')
@@ -2485,7 +2264,7 @@
         : null;
 @endphp
 @if ($pdAddress)
-    <div class="mt-10 pt-8 border-t border-gray-200">
+    <div class="mt-10 pt-8 pb-6 md:pb-14 border-t border-gray-200">
         <div class="flex items-start justify-between gap-4 mb-4">
             <div>
                 <h2 class="text-xl font-bold text-gray-900">Địa chỉ</h2>
@@ -2611,39 +2390,46 @@
             };
         }
     </script>
-    @if ($fromBookingPage)
-        <script>
-            document.addEventListener('DOMContentLoaded', function() {
-                if (window.innerWidth < 768) {
-                    const el = document.getElementById('pd-booking-form');
-                    if (el) {
-                        setTimeout(() => el.scrollIntoView({
-                            behavior: 'smooth',
-                            block: 'start'
-                        }), 300);
-                    }
-                }
-            });
-        </script>
-    @endif
-
     <script>
         function pdShareRoom() {
-            const shareData = {
-                title: document.title,
-                url: window.location.href
-            };
-            if (navigator.share) {
-                navigator.share(shareData).catch(() => {});
-            } else if (navigator.clipboard) {
-                navigator.clipboard.writeText(window.location.href);
+            const shareUrl = window.location.href;
+
+            const notify = (message, type) => {
                 window.dispatchEvent(new CustomEvent('notify', {
-                    detail: {
-                        message: 'Đã sao chép liên kết',
-                        type: 'success'
-                    }
+                    detail: { message, type }
                 }));
+            };
+
+            const fallbackCopy = () => {
+                try {
+                    const input = document.createElement('textarea');
+                    input.value = shareUrl;
+                    input.setAttribute('readonly', '');
+                    input.style.position = 'fixed';
+                    input.style.opacity = '0';
+                    document.body.appendChild(input);
+                    input.select();
+                    input.setSelectionRange(0, shareUrl.length);
+                    const ok = document.execCommand('copy');
+                    document.body.removeChild(input);
+                    return ok;
+                } catch (e) {
+                    return false;
+                }
+            };
+
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(shareUrl)
+                    .then(() => notify('Đã sao chép liên kết', 'success'))
+                    .catch(() => {
+                        const ok = fallbackCopy();
+                        notify(ok ? 'Đã sao chép liên kết' : 'Không thể sao chép liên kết', ok ? 'success' : 'error');
+                    });
+                return;
             }
+
+            const ok = fallbackCopy();
+            notify(ok ? 'Đã sao chép liên kết' : 'Không thể sao chép liên kết', ok ? 'success' : 'error');
         }
 
         (function() {
@@ -2652,6 +2438,12 @@
             if (!btns.length) return;
 
             const productId = btns[0].getAttribute('data-product-id');
+
+            const notify = (message, type) => {
+                window.dispatchEvent(new CustomEvent('notify', {
+                    detail: { message, type }
+                }));
+            };
 
             const paintIcon = (active) => {
                 btns.forEach((btn) => {
@@ -2700,9 +2492,15 @@
                             'Authorization': 'Bearer ' + currentToken,
                             'Accept': 'application/json'
                         },
-                    }).catch(() => {
-                        setActive(!next);
-                    });
+                    })
+                        .then((res) => {
+                            if (!res.ok) throw new Error('toggle failed');
+                            notify(next ? 'Đã lưu vào yêu thích' : 'Đã bỏ khỏi yêu thích', 'success');
+                        })
+                        .catch(() => {
+                            setActive(!next);
+                            notify('Không thể cập nhật yêu thích. Vui lòng thử lại.', 'error');
+                        });
                 });
             });
         })();

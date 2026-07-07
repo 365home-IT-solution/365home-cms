@@ -182,7 +182,7 @@
              :class="(isSticky && !searchExpanded) ? 'overflow-hidden' : 'overflow-visible'"
              :style="{ gridTemplateRows: (isSticky && !searchExpanded) ? '0fr' : '1fr' }">
             <div :class="(isSticky && !searchExpanded) ? 'overflow-hidden' : 'overflow-visible'" class="min-h-0">
-                <div class="w-full max-w-7xl md:px-8 px-4 mx-auto pb-5">
+                <div class="w-full max-w-7xl md:px-8 px-4 mx-auto">
                     @livewire('bladethemev1::hero-section', ['headerRow' => true], key('hero-section-header-row'))
                 </div>
             </div>

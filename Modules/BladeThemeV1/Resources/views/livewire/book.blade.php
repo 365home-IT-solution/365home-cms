@@ -7,6 +7,7 @@
     fullDayDates: [], // Thêm để track ngày nào full booking
 
     resetSelection() {
+        document.querySelectorAll('.selectable.active').forEach(el => el.classList.remove('active'));
         this.selectedSlots = [];
         this.selectedRoomId = null;
         this.selectedRoomIsActive = null;
@@ -237,42 +238,44 @@
 
                 @include('bladethemev1::livewire.book._legend')
 
-                {{-- Desktop (lg+): bảng đặt phòng và bảng tính giá nằm 2 cột, dùng hết chiều
-                     ngang; mobile/tablet giữ nguyên xếp dọc như cũ. (Dùng CSS thuần trong
-                     _styles.blade.php thay vì class Tailwind để không phụ thuộc build lại.) --}}
-                <div class="book-desktop-layout">
+                {{-- Bảng đặt phòng, và bên dưới là bảng tính giá (Giá cơ bản, tổng tiền tạm
+                     tính) — luôn xếp dọc (cả mobile lẫn desktop). Trên mobile, bảng tính giá này
+                     bị ẩn và thay bằng bottom sheet (bên dưới) để không chiếm chỗ khi chưa chọn
+                     khung giờ. --}}
+                <div class="book-panel">
                     @include('bladethemev1::livewire.book._mobile')
 
-                    @include('bladethemev1::livewire.book._pricing')
+                    <div class="book-pricing-desktop">
+                        @include('bladethemev1::livewire.book._pricing')
+                    </div>
                 </div>
 
             </div>
             @endif
         </div>
 
-        {{-- Mobile sticky pricing bar (shown after selecting a time slot) --}}
-        <div class="book-mobile-price-bar"
+        {{-- Mobile bottom sheet: hiện bảng tính giá đầy đủ sau khi user chọn khung giờ.
+             Không dùng backdrop toàn màn hình nữa — trước đây backdrop phủ inset:0 chặn
+             luôn cả click vào bảng khung giờ phía trên sheet, khiến không chọn thêm được
+             khung giờ thứ 2 (chỉ bấm được nút "X" hoặc bấm ra ngoài để đóng). Giờ người
+             dùng có thể chọn tiếp trong khi sheet vẫn hiện, đóng bằng nút "X". --}}
+        <div class="book-bottom-sheet"
              x-show="selectedSlots.length > 0"
-             x-transition:enter="bar-enter"
-             x-transition:enter-start="bar-enter-from"
-             x-transition:enter-end="bar-enter-to"
-             x-transition:leave="bar-leave"
-             x-transition:leave-start="bar-leave-from"
-             x-transition:leave-end="bar-leave-to"
+             x-transition:enter="sheet-enter"
+             x-transition:enter-start="sheet-enter-from"
+             x-transition:enter-end="sheet-enter-to"
+             x-transition:leave="sheet-leave"
+             x-transition:leave-start="sheet-leave-from"
+             x-transition:leave-end="sheet-leave-to"
              style="display:none">
-            <div class="flex items-center justify-between gap-3">
-                <div class="min-w-0">
-                    <p style="font-size:0.7rem;color:#6b7280;font-weight:500;margin:0 0 2px;">Tổng tiền tạm tính</p>
-                    <p style="font-size:1.1rem;font-weight:800;color:#4e6b4c;margin:0;line-height:1.2;" x-text="totalAfterAllDiscounts.toLocaleString() + ' đ'"></p>
-                    <p style="font-size:0.65rem;color:#9ca3af;margin:0;" x-text="selectedSlots.length + ' khung giờ đã chọn'"></p>
-                </div>
-                <div x-show="selectedRoomIsActive === true || selectedRoomId === null" style="flex-shrink:0">
-                    <button @click="$wire.saveAndRedirect(selectedSlots)"
-                            :disabled="selectedSlots.length === 0"
-                            style="padding:10px 22px;border-radius:999px;font-weight:800;font-size:0.85rem;color:white;background:linear-gradient(135deg,#4e6b4c,#6a8f68,#5a7d58);border:none;cursor:pointer;box-shadow:0 6px 18px rgba(78,107,76,0.35);white-space:nowrap;">
-                        Đặt phòng ngay
-                    </button>
-                </div>
+            <div class="book-sheet-handle-row">
+                <span class="book-sheet-handle"></span>
+                <button type="button" class="book-sheet-close" @click="resetSelection()" aria-label="Đóng">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="book-sheet-scroll">
+                @include('bladethemev1::livewire.book._pricing')
             </div>
         </div>
 

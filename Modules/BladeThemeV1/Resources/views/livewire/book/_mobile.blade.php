@@ -95,11 +95,8 @@
     @endif
     @endforeach
 
-    {{-- ── Two-panel grid (vertically scrollable) — header nằm trong khung cuộn (position:sticky)
-         để 2 hàng luôn dùng chung 1 khung, không lệch độ rộng do thanh cuộn ── --}}
-    <div class="book-mobile-scroll">
-
-    {{-- ── Fixed column headers (sticky bên trong khung cuộn) ── --}}
+    {{-- ── Fixed column headers (ngoài khung cuộn — không còn cần position:sticky vì cuộn
+         giờ nằm bên trong từng card thân) ── --}}
     <div class="book-grid-header">
         <div class="book-col-header">Ngày</div>
         <div class="book-slots-headers-wrap">
@@ -122,17 +119,22 @@
         </div>
     </div>
 
+    {{-- ── Thân: khung (viền/bo góc) của mỗi card đứng yên cố định, chỉ nội dung bên trong
+         cuộn dọc, đồng bộ 2 chiều qua @scroll để cột Ngày và khung giờ luôn khớp hàng ── --}}
     <div class="book-grid-outer">
 
         {{-- Left: Dates card --}}
         <div class="book-dates-card">
-            @foreach ($dates as $date)
-            @php $dateShort = \Carbon\Carbon::createFromFormat('d-m-Y', $date['date'])->format('d/m'); @endphp
-            <div class="book-date-row{{ $date['is_today'] ? ' is-today' : '' }}" x-show="{{ $loop->index }} < dateLimit" x-cloak>
-                <span class="book-date-day">{{ $date['day'] }}</span>
-                <span class="book-date-num">{{ $dateShort }}</span>
+            <div class="book-dates-scroll" x-ref="bookDatesScroll"
+                @scroll="$refs['bookSlotsScroll' + activeRoomIdx].scrollTop = $event.target.scrollTop">
+                @foreach ($dates as $date)
+                @php $dateShort = \Carbon\Carbon::createFromFormat('d-m-Y', $date['date'])->format('d/m'); @endphp
+                <div class="book-date-row{{ $date['is_today'] ? ' is-today' : '' }}" x-show="{{ $loop->index }} < dateLimit" x-cloak>
+                    <span class="book-date-day">{{ $date['day'] }}</span>
+                    <span class="book-date-num">{{ $dateShort }}</span>
+                </div>
+                @endforeach
             </div>
-            @endforeach
         </div>
 
         {{-- Right: Scrollable slots per room --}}
@@ -140,6 +142,8 @@
             @foreach ($styleOneRooms as $ri => $room)
             <div x-show="activeRoomIdx === {{ $ri }}" x-cloak class="book-slots-card"
                 :class="slideDir === 1 ? 'book-slide-in-right' : 'book-slide-in-left'">
+                <div class="book-slots-scroll" x-ref="bookSlotsScroll{{ $ri }}"
+                    @scroll="$refs.bookDatesScroll.scrollTop = $event.target.scrollTop">
 
                 {{-- One row per date --}}
                 @foreach ($dates as $date)
@@ -279,6 +283,12 @@
                                 discountPromotions: {{ json_encode($discountPromotionsData) }},
                                 increasePromotions: {{ json_encode($increasePromotionsData) }}
                             })">
+                            @if (str_contains($classes, 'blocked') || str_contains($classes, 'booked'))
+                            <svg class="lock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="4" y="11" width="16" height="9" rx="2" />
+                                <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                            </svg>
+                            @endif
                             @if ($hasIncreasePromotion && $displayPromotion && $displayPromotion->image)
                             <div class="promotion-corner-image">
                                 <img src="{{ asset('storage/' . $displayPromotion->image) }}" alt="{{ $displayPromotion->name }}" class="corner-img">
@@ -301,6 +311,7 @@
                 </div>
                 @endforeach
 
+                </div>{{-- end .book-slots-scroll --}}
             </div>
             @endforeach
         </div>{{-- end .book-slots-outer --}}
@@ -315,7 +326,6 @@
             <span x-text="'Xem thêm ' + remainingDates + ' ngày'"></span>
         </button>
     </div>
-    </div>{{-- end .book-mobile-scroll --}}
 
     </div>{{-- end .book-card-outer --}}
 </div>{{-- end x-data room carousel --}}

@@ -286,7 +286,7 @@ class Book extends Component
 
         $firstRoomSlug = Product::where('id', $enrichedSlots[0]['roomId'])->value('slug');
 
-        return redirect()->route('product.detail', ['slug' => $firstRoomSlug ?? 'default-slug', 'from_book' => 1]);
+        return redirect()->route('product.detail', ['slug' => $firstRoomSlug ?? 'default-slug']);
     }
 
     /**

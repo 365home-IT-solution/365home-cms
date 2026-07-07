@@ -1,5 +1,10 @@
 <div
-    class="bg-white p-0 rounded-2xl lg:rounded-2xl border border-[#DDDDDD] shadow-[0_2px_16px_rgba(0,0,0,0.08)] overflow-hidden">
+    class="bg-white p-0 rounded-2xl lg:rounded-2xl border border-[#DDDDDD] shadow-[0_2px_16px_rgba(0,0,0,0.08)] overflow-hidden"
+    id="pd-book-card">
+    {{-- Drag handle (mobile bottom-sheet only) --}}
+    <div class="lg:hidden" id="pd-book-sheet-handle"></div>
+
+    <div id="pd-book-sheet-scroll">
     <div class="px-6 pt-6 pb-2">
         <p class="text-xl font-semibold text-[#222222]">Thông tin Đặt phòng</p>
     </div>
@@ -19,72 +24,24 @@
 
         <hr class="border-[#DDDDDD] -mx-6">
 
-        {{-- Số lượng khách --}}
-        @php
-            $cfg = $product->room_config ?? [];
-            $maxFreeG = (int) ($cfg['max_free_guests'] ?? 2);
-            $feeEachG = (int) ($cfg['extra_guest_fee'] ?? 50000);
-        @endphp
-        <div wire:ignore x-data="{
-            guestCount: {{ (int) $guests }},
-            dec() { if (this.guestCount > 1) { this.guestCount--;
-                    $wire.set('guests', this.guestCount); } },
-            inc() { this.guestCount++;
-                $wire.set('guests', this.guestCount); }
-        }">
-            <div class="flex items-center justify-between rounded-xl border border-[#DDDDDD] px-3.5 py-2.5">
-                <div class="flex items-center gap-2 text-sm text-[#222222]">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
-                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round" class="h-4 w-4 text-[#717171]">
-                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
-                        <circle cx="9" cy="7" r="4"></circle>
-                        <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
-                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-                    </svg>
-                    <span class="font-medium">Khách</span>
-                </div>
-                <div class="flex items-center gap-3">
-                    <button type="button" @click="dec()"
-                        class="h-7 w-7 rounded-full border flex items-center justify-center transition-colors border-[#717171] text-[#717171] hover:border-[#222222] hover:text-[#222222]">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
-                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                            stroke-linejoin="round" class="h-3 w-3">
-                            <path d="M5 12h14"></path>
-                        </svg>
-                    </button>
-                    <span class="text-sm font-semibold text-[#222222] w-4 text-center tabular-nums"
-                        x-text="guestCount"></span>
-                    <button type="button" @click="inc()"
-                        class="h-7 w-7 rounded-full border flex items-center justify-center transition-colors border-[#717171] text-[#717171] hover:border-[#222222] hover:text-[#222222]">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
-                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                            stroke-linejoin="round" class="h-3 w-3">
-                            <path d="M5 12h14"></path>
-                            <path d="M12 5v14"></path>
-                        </svg>
-                    </button>
-                </div>
-            </div>
-            {{-- Ghi chú phụ thu --}}
-            {{-- <p class="text-[11px] text-[#717171] mt-1.5">
-                * Nếu > {{ $maxFreeG }} khách, phụ thu {{ number_format($feeEachG, 0, ',', '.') }}đ/người thêm,
-                tính từ
-                người thứ {{ $maxFreeG + 1 }} về sau.
-            </p>
-            @if ($bookingStyle != 2)
-                <p class="text-[11px] text-[#717171] mt-1">* Home chỉ nhận tối đa 2 khách nếu
-                    khách book có khung giờ qua đêm.</p>
-            @endif --}}
-        </div>
         <input type="hidden" wire:model="startTime" id="startTimeInput">
         <input type="hidden" wire:model="endTime" id="endTimeInput">
-
-        <hr class="border-[#DDDDDD] -mx-6">
 
         @php
             $canApplyCoupon = $bookingStyle == 2 ? !empty($startTime) && !empty($endTime) : !empty($selectedSlots);
         @endphp
+
+        {{-- Tổng tiền tạm tính (mobile) — reactive qua Alpine @entangle, cập nhật ngay khi Livewire trả về --}}
+        <div class="lg:hidden"
+            x-data="{ liveTotal: @entangle('totalAmount') }"
+            x-show="liveTotal > 0"
+            x-cloak>
+            <div class="flex items-center justify-between rounded-xl bg-primary/5 px-3.5 py-2.5">
+                <span class="text-sm font-bold text-[#222222]">Tổng tiền tạm tính</span>
+                <span class="text-base font-bold text-primary"
+                    x-text="new Intl.NumberFormat('vi-VN').format(liveTotal) + 'đ'"></span>
+            </div>
+        </div>
 
         <p class="text-xs font-semibold tracking-wider uppercase text-[#717171]">Thông tin liên hệ</p>
 
@@ -156,10 +113,58 @@
             @endif
         </p>
 
+        {{-- Số lượng khách (gọn, ngay dưới số điện thoại) --}}
+        <div class="space-y-1.5">
+            <label class="block text-[10px] font-semibold tracking-wider uppercase text-[#717171]">Số lượng
+                khách</label>
+            <div wire:ignore x-data="{
+                guestCount: {{ (int) $guests }},
+                dec() { if (this.guestCount > 1) { this.guestCount--;
+                        $wire.set('guests', this.guestCount); } },
+                inc() { this.guestCount++;
+                    $wire.set('guests', this.guestCount); }
+            }" class="flex items-center justify-between rounded-lg border border-[#DDDDDD] h-10 px-2.5">
+                <div class="flex items-center gap-1.5 text-sm text-[#222222]">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" class="h-3.5 w-3.5 text-[#717171] shrink-0">
+                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="9" cy="7" r="4"></circle>
+                        <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                    <span>Khách</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" @click="dec()"
+                        class="rounded-full border transition-colors border-primary text-primary hover:bg-primary hover:text-white shrink-0"
+                        style="display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:22px;height:22px;min-width:22px;min-height:22px;max-width:22px;max-height:22px;padding:0;line-height:1;font-size:0;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"
+                            stroke-linejoin="round" style="display:block;">
+                            <path d="M5 12h14"></path>
+                        </svg>
+                    </button>
+                    <span class="text-sm font-semibold text-[#222222] w-3 text-center tabular-nums"
+                        x-text="guestCount"></span>
+                    <button type="button" @click="inc()"
+                        class="rounded-full border transition-colors border-primary text-primary hover:bg-primary hover:text-white shrink-0"
+                        style="display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:22px;height:22px;min-width:22px;min-height:22px;max-width:22px;max-height:22px;padding:0;line-height:1;font-size:0;">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"
+                            stroke-linejoin="round" style="display:block;">
+                            <path d="M5 12h14"></path>
+                            <path d="M12 5v14"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- MÃ GIẢM GIÁ -->
-        <div class="bg-gray-50 rounded-lg p-4">
-            <h3 class="text-xl font-semibold mb-3 flex items-center gap-2">
-                <svg class="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div class="rounded-xl border border-[#DDDDDD] p-3.5">
+            <h3 class="text-sm font-semibold mb-2.5 flex items-center gap-1.5 text-[#222222]">
+                <svg class="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
                 </svg>
@@ -168,19 +173,19 @@
 
             @if ($appliedCoupon)
                 {{-- Hiển thị khi đã áp dụng coupon --}}
-                <div class="bg-green-50 border-2 border-green-300 rounded-lg p-4">
-                    <div class="flex items-start justify-between gap-3">
-                        <div class="flex-1">
-                            <div class="flex items-center gap-2 mb-2">
+                <div class="bg-green-50 border border-green-300 rounded-lg p-3">
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-1.5 mb-1 flex-wrap">
                                 <span
-                                    class="inline-block bg-green-500 text-white px-3 py-1 rounded-full text-sm font-bold">
+                                    class="inline-block bg-green-500 text-white px-2 py-0.5 rounded-full text-xs font-bold">
                                     {{ $appliedCoupon->code }}
                                 </span>
-                                <span class="text-green-700 font-medium">
+                                <span class="text-green-700 font-medium text-xs truncate">
                                     {{ $appliedCoupon->name }}
                                 </span>
                             </div>
-                            <p class="text-sm text-gray-700">
+                            <p class="text-xs text-gray-700">
                                 @if ($appliedCoupon->type === 'percentage')
                                     Giảm {{ $appliedCoupon->value }}%
                                     @if ($appliedCoupon->max_discount)
@@ -190,13 +195,13 @@
                                     Giảm {{ number_format($appliedCoupon->value, 0, ',', '.') }}đ
                                 @endif
                             </p>
-                            <p class="text-sm font-bold text-green-600 mt-1">
+                            <p class="text-xs font-bold text-green-600 mt-0.5">
                                 Bạn được giảm: {{ number_format($couponDiscountAmount, 0, ',', '.') }}đ
                             </p>
                         </div>
                         <button type="button" wire:click="removeCoupon"
-                            class="text-red-500 hover:text-red-700 transition p-1" title="Xóa mã giảm giá">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            class="text-red-500 hover:text-red-700 transition p-1 shrink-0" title="Xóa mã giảm giá">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                     d="M6 18L18 6M6 6l12 12" />
                             </svg>
@@ -205,14 +210,15 @@
                 </div>
             @else
                 {{-- Form nhập mã coupon --}}
-                <div class="space-y-3">
-                    <div class="flex gap-2">
+                <div class="space-y-2">
+                    <div class="flex gap-2 items-stretch">
                         <input type="text" wire:model.defer="couponCode"
-                            placeholder="Nhập mã giảm giá (VD: SUMMER2024)"
-                            class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent uppercase"
-                            style="text-transform: uppercase;" @if (!$canApplyCoupon) disabled @endif>
+                            placeholder="Nhập mã giảm giá"
+                            class="flex-1 min-w-0 self-stretch border border-[#DDDDDD] rounded-lg focus:outline-none focus-visible:ring-1 focus-visible:ring-primary focus:border-primary uppercase"
+                            style="box-sizing:border-box;padding:0 10px;font-size:11px;text-transform: uppercase;" @if (!$canApplyCoupon) disabled @endif>
                         <button type="button" wire:click="applyCoupon"
-                            class="px-6 py-2 bg-primary text-white rounded-lg font-medium hover:bg-opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                            class="bg-primary text-white rounded-lg font-semibold hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed shrink-0 h-9"
+                            style="box-sizing:border-box;padding:0 10px;font-size:11px;white-space:nowrap;line-height:1;"
                             @if (!$canApplyCoupon) disabled @endif>
                             Áp dụng
                         </button>
@@ -221,8 +227,8 @@
                     {{-- Thông báo lỗi --}}
                     @if ($couponErrorMessage)
                         <div
-                            class="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-sm flex items-start gap-2">
-                            <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                            class="bg-red-50 border border-red-200 text-red-700 px-2.5 py-1.5 rounded-lg text-xs flex items-start gap-1.5">
+                            <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                                 <path fill-rule="evenodd"
                                     d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
                                     clip-rule="evenodd" />
@@ -233,15 +239,15 @@
 
                     {{-- Helper text --}}
                     @if ($canApplyCoupon)
-                        <p class="text-sm text-gray-500">
+                        <p class="text-xs text-gray-500">
                             Có mã giảm giá? Nhập và áp dụng để được ưu đãi!
                         </p>
                     @elseif($bookingStyle == 2)
-                        <p class="text-sm text-gray-500 italic">
+                        <p class="text-xs text-gray-500 italic">
                             * Vui lòng chọn ngày nhận và trả phòng trước khi áp dụng mã giảm giá
                         </p>
                     @else
-                        <p class="text-sm text-gray-500 italic">
+                        <p class="text-xs text-gray-500 italic">
                             * Vui lòng chọn khung giờ trước khi áp dụng mã giảm giá
                         </p>
                     @endif
@@ -429,11 +435,207 @@
         <hr class="border-[#DDDDDD] -mx-6">
 
         <button type="submit" wire:loading.attr="disabled" wire:target="datPhong"
-            class="w-full h-12 rounded-xl font-semibold text-base shadow-sm transition-all active:scale-[0.98] bg-[#222222] hover:bg-[#111111] text-white disabled:opacity-50 disabled:cursor-not-allowed">
+            class="w-full h-12 rounded-xl font-semibold text-base shadow-sm transition-all active:scale-[0.98] bg-primary hover:opacity-90 text-white disabled:opacity-50 disabled:cursor-not-allowed">
             <span wire:loading.remove wire:target="datPhong">Đặt phòng</span>
             <span wire:loading wire:target="datPhong">Đang xử lý...</span>
         </button>
     </form>
 
-    @include('bladethemev1::components.payments.booking-confirmation-modal')
+    </div>{{-- /pd-book-sheet-scroll --}}
 </div>
+
+<style>
+    @media (max-width: 1023px) {
+        #pd-booking-form {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 40;
+            height: calc(100vh * 0.45);
+            min-height: calc(130px + var(--pd-bottom-nav-h, 64px));
+            max-height: calc(100vh * 0.9);
+            transition: height .32s cubic-bezier(.32, .72, 0, 1);
+            background: #fff;
+            border-radius: 20px 20px 0 0;
+            -webkit-transform: translateZ(0);
+            transform: translateZ(0);
+        }
+
+        #pd-booking-form.pd-sheet-dragging {
+            transition: none;
+        }
+
+        #pd-booking-form.pd-sheet-full {
+            height: calc(100vh * 0.9);
+        }
+
+        #pd-book-card {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            border-radius: 20px 20px 0 0 !important;
+            box-shadow: 0 -8px 30px rgba(0, 0, 0, .18) !important;
+        }
+
+        #pd-book-sheet-handle {
+            flex-shrink: 0;
+            display: flex;
+            justify-content: center;
+            padding: 10px 0 6px;
+            cursor: grab;
+            touch-action: none;
+            background: #fff;
+        }
+
+        #pd-book-sheet-handle::before {
+            content: '';
+            width: 36px;
+            height: 4px;
+            border-radius: 3px;
+            background: #d1d5db;
+        }
+
+        #pd-book-sheet-scroll {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            background: #fff;
+            padding-bottom: var(--pd-bottom-nav-h, 64px);
+        }
+
+        #pd-book-sheet-scroll::-webkit-scrollbar {
+            display: none;
+        }
+    }
+</style>
+
+@push('scripts')
+    <script>
+        // ─── Bottom-sheet kéo lên/xuống cho Thông tin đặt phòng (mobile < lg) ──────────
+        (function() {
+            var sheet = null,
+                handle = null,
+                dragging = false,
+                startY = 0,
+                startH = 0,
+                containerH = 0;
+            var PEEK_RATIO = 0.45;
+            var FULL_RATIO = 0.9;
+
+            function isMobile() {
+                return window.innerWidth < 1024;
+            }
+
+            function navOffset() {
+                var v = getComputedStyle(document.documentElement).getPropertyValue('--pd-bottom-nav-h');
+                var n = parseFloat(v);
+                return isNaN(n) ? 64 : n;
+            }
+
+            function availH() {
+                return window.innerHeight;
+            }
+
+            function measureBottomNav() {
+                var nav = document.querySelector('.bottom-navigation-1');
+                if (nav && nav.offsetHeight > 0) {
+                    document.documentElement.style.setProperty('--pd-bottom-nav-h', nav.offsetHeight + 'px');
+                } else {
+                    document.documentElement.style.setProperty('--pd-bottom-nav-h', '0px');
+                }
+            }
+
+            function setState(state) {
+                if (!sheet) return;
+                sheet.style.height = '';
+                if (state === 'full') sheet.classList.add('pd-sheet-full');
+                else sheet.classList.remove('pd-sheet-full');
+            }
+
+            function onStart(clientY) {
+                if (!isMobile()) return;
+                dragging = true;
+                containerH = availH();
+                startY = clientY;
+                startH = sheet.getBoundingClientRect().height;
+                sheet.classList.add('pd-sheet-dragging');
+            }
+
+            function onMove(clientY) {
+                if (!dragging) return;
+                var dy = startY - clientY;
+                var newH = startH + dy;
+                var minH = containerH * 0.14;
+                var maxH = containerH * FULL_RATIO;
+                if (newH < minH) newH = minH;
+                if (newH > maxH) newH = maxH;
+                sheet.style.height = newH + 'px';
+            }
+
+            function onEnd() {
+                if (!dragging) return;
+                dragging = false;
+                sheet.classList.remove('pd-sheet-dragging');
+                var h = sheet.getBoundingClientRect().height;
+                var peekPx = containerH * PEEK_RATIO;
+                var fullPx = containerH * FULL_RATIO;
+                var mid = (peekPx + fullPx) / 2;
+                setState(h > mid ? 'full' : 'peek');
+            }
+
+            function initSheet() {
+                sheet = document.getElementById('pd-booking-form');
+                handle = document.getElementById('pd-book-sheet-handle');
+                if (!sheet || !handle || handle.__pdBound) return;
+                handle.__pdBound = true;
+
+                handle.addEventListener('touchstart', function(e) {
+                    onStart(e.touches[0].clientY);
+                }, { passive: true });
+                handle.addEventListener('touchmove', function(e) {
+                    onMove(e.touches[0].clientY);
+                }, { passive: true });
+                handle.addEventListener('touchend', onEnd);
+
+                handle.addEventListener('mousedown', function(e) {
+                    onStart(e.clientY);
+                    function mm(ev) {
+                        onMove(ev.clientY);
+                    }
+                    function mu() {
+                        onEnd();
+                        document.removeEventListener('mousemove', mm);
+                        document.removeEventListener('mouseup', mu);
+                    }
+                    document.addEventListener('mousemove', mm);
+                    document.addEventListener('mouseup', mu);
+                });
+
+                handle.addEventListener('click', function() {
+                    if (dragging) return;
+                    var isFull = sheet.classList.contains('pd-sheet-full');
+                    setState(isFull ? 'peek' : 'full');
+                });
+            }
+
+            document.addEventListener('DOMContentLoaded', initSheet);
+            document.addEventListener('livewire:navigated', function() {
+                if (handle) handle.__pdBound = false;
+                initSheet();
+            });
+            initSheet();
+
+            document.addEventListener('DOMContentLoaded', measureBottomNav);
+            window.addEventListener('resize', measureBottomNav, { passive: true });
+            document.addEventListener('livewire:navigated', measureBottomNav);
+            measureBottomNav();
+            setTimeout(measureBottomNav, 50);
+            setTimeout(measureBottomNav, 300);
+        })();
+    </script>
+@endpush

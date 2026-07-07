@@ -20,6 +20,20 @@
             right: 0 !important;
         }
 
+        /* Header ép fixed nên nội dung bên dưới cần padding-top bù lại — nhưng chiều cao
+           header khác nhau giữa mobile (1 hàng gọn) và desktop (2 hàng: nav + tìm kiếm đầy
+           đủ), nên phải chia theo breakpoint thay vì 1 giá trị cố định (không thì mobile bị
+           dư khoảng trắng rất to, còn desktop lại thiếu và bị che tiêu đề). */
+        .branch-page-main {
+            padding-top: 96px;
+        }
+
+        @media (min-width: 1024px) {
+            .branch-page-main {
+                padding-top: 168px;
+            }
+        }
+
         /* Khung danh sách card phòng — tái dùng đúng khung của trang chủ (.home-card, ló 1 phần
            card tiếp theo trên mobile để gợi ý vuốt ngang). */
         .hide-scrollbar { -ms-overflow-style: none; }
@@ -95,31 +109,91 @@
             35% { transform: scale(1.35); }
             100% { transform: scale(1); }
         }
+
+        /* Trang chi nhánh: 2 cột — Cột 1 danh sách phòng, Cột 2 bảng đặt lịch khung giờ.
+           Mobile: xếp dọc, cột 1 ở trên, cột 2 ở dưới (thứ tự DOM mặc định). */
+        .branch-columns { display: block; }
+        .branch-col-rooms { margin-bottom: 28px; }
+
+        @media (min-width: 1024px) {
+            .branch-columns {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 32px;
+                align-items: stretch;
+            }
+            .branch-col-rooms {
+                margin-bottom: 0;
+                position: sticky;
+                top: 96px;
+                /* align-items: stretch ở trên khiến cột này cao bằng cột lịch (cột 2) —
+                   max-height chỉ để chặn không cho box cao hơn khung nhìn, tránh sticky
+                   bị tràn khi màn hình thấp; vẫn cuộn được (overflow-y:auto) nhưng ẩn hẳn
+                   thanh cuộn dọc cho gọn mắt. */
+                max-height: calc(100vh - 120px);
+                overflow-y: auto;
+                scrollbar-width: none;
+                -ms-overflow-style: none;
+            }
+            .branch-col-rooms::-webkit-scrollbar {
+                display: none;
+                width: 0;
+                height: 0;
+            }
+            .branch-col-booking {
+                max-width: 760px;
+            }
+
+            /* Danh sách phòng: carousel ngang (mobile) -> lưới 3 cột kiểu ảnh trên/chữ dưới
+               (desktop), lấy theo đúng kiểu thẻ phòng của trang kết quả tìm kiếm
+               (.branch-grid/.branch-card ở search.blade.php). */
+            #branch-rooms-root [x-ref="track"] {
+                display: grid !important;
+                grid-template-columns: repeat(3, 1fr) !important;
+                gap: 20px 14px !important;
+                overflow: visible !important;
+                scroll-snap-type: none !important;
+            }
+            #branch-rooms-root .home-card {
+                width: 100% !important;
+                max-width: 100% !important;
+                flex: none !important;
+            }
+            #branch-rooms-root .branch-carousel-nav { display: none !important; }
+        }
     </style>
 
-    <main style="background:#fff; min-height:100vh; padding-top:80px;">
+    <main class="branch-page-main" style="background:#fff; min-height:100vh;">
         <div class="w-full max-w-11xl mx-auto px-4 sm:px-6 pb-6">
-            <div style="margin:10px 0 14px;">
-                <p style="margin:0 0 4px; font-size:12px; font-weight:700; color:#0f766e; text-transform:uppercase; letter-spacing:.08em;">Chi nhánh</p>
-                <h1 style="margin:0; font-size:24px; line-height:1.25; font-weight:800; color:#111827;">{{ $branch->name }}</h1>
-            </div>
-
-            {{-- Danh sách phòng thuộc chi nhánh này — dùng chung khung carousel của trang chủ --}}
-            <div id="branch-rooms-root" x-data="carouselNav()" x-init="init()" style="min-height:80px;"></div>
-
-            <div style="margin:36px 0 16px;">
-                <h2 style="margin:0; font-size:20px; line-height:1.3; font-weight:800; color:#111827;">
-                    Chọn khung giờ tại {{ $branch->name }}
-                </h2>
-            </div>
-
-            @if(empty($bookConfig['bookable_room_count']))
-                <div style="padding:40px 16px; text-align:center; border:1px solid #f3f4f6; border-radius:14px; background:#f9fafb;">
-                    <p style="margin:0; color:#6b7280; font-size:14px;">Chi nhánh này chưa có phòng theo khung giờ để hiển thị.</p>
+            <div class="branch-columns">
+                {{-- Cột 1: Danh sách phòng thuộc chi nhánh này — dùng chung khung carousel của
+                     trang chủ (carousel ngang trên mobile, danh sách dọc trên desktop).
+                     Tiêu đề chi nhánh chuyển vào đây (thay vì nằm riêng phía trên 2 cột) để
+                     ngang hàng với "Chọn khung giờ tại..." của cột 2. --}}
+                <div class="branch-col-rooms">
+                    <div style="margin:0 0 16px;">
+                        <h1 class="branch-col-heading" style="margin:0; font-size:20px; line-height:1.3; font-weight:800; color:#111827;">
+                            {{ $branch->name }}
+                        </h1>
+                    </div>
+                    <div id="branch-rooms-root" x-data="carouselNav()" x-init="init()" style="min-height:80px;"></div>
                 </div>
-            @else
-                @livewire('bladethemev1::book', ['config' => $bookConfig])
-            @endif
+
+                {{-- Cột 2: Bảng đặt lịch khung giờ của từng phòng --}}
+                <div class="branch-col-booking">
+                    <div style="margin:0 0 16px;">
+                    
+                    </div>
+
+                    @if(empty($bookConfig['bookable_room_count']))
+                        <div style="padding:40px 16px; text-align:center; border:1px solid #f3f4f6; border-radius:14px; background:#f9fafb;">
+                            <p style="margin:0; color:#6b7280; font-size:14px;">Chi nhánh này chưa có phòng theo khung giờ để hiển thị.</p>
+                        </div>
+                    @else
+                        @livewire('bladethemev1::book', ['config' => $bookConfig])
+                    @endif
+                </div>
+            </div>
         </div>
     </main>
 
@@ -153,9 +227,9 @@
 
                     const cards = rooms.map((room) => window.roomCardHtml ? window.roomCardHtml(room) : '').join('');
 
-                    root.innerHTML = '<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;">'
-                        + '<h2 style="font-size:1.1rem; font-weight:800; color:#111827; margin:0; text-transform:uppercase; letter-spacing:.02em;">Danh sách phòng</h2>'
-                        + '<div class="hidden lg:flex" style="align-items:center; gap:6px; flex-shrink:0;">'
+                    root.innerHTML = '<div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px;">'
+                        + '<h2 class="branch-col-heading" style="font-size:16px; line-height:1.3; font-weight:800; color:#111827; margin:0;">Danh sách phòng <span style="color:#9ca3af; font-weight:600;">(' + rooms.length + ')</span></h2>'
+                        + '<div class="branch-carousel-nav hidden lg:flex" style="align-items:center; gap:6px; flex-shrink:0;">'
                         + '<button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()">'
                         + '<svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>'
                         + '</button>'

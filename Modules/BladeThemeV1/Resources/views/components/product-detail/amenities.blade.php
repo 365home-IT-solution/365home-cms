@@ -1,7 +1,7 @@
 @php
 $productTagsCollection = collect($productTags);
 $totalTags = $productTagsCollection->count();
-$visibleTags = $productTagsCollection->take(6);
+$visibleTags = $productTagsCollection->take(9);
 $groupedTags = $productTagsCollection->groupBy(fn($tag) => $tag->tag_type ?: 'Khác');
 @endphp
 
@@ -9,10 +9,10 @@ $groupedTags = $productTagsCollection->groupBy(fn($tag) => $tag->tag_type ?: 'Kh
     x-init="$watch('showAmenities', v => $dispatch(v ? 'amenities-modal-open' : 'amenities-modal-close'))">
     <h3 class="text-3xl font-bold my-8">Tiện nghi phòng</h3>
 
-    {{-- Grid hiển thị tối đa 6 items (3 hàng × 2 cột) --}}
-    <div class="grid grid-cols-2 gap-8">
+    {{-- Grid hiển thị tối đa 6 items (mobile: 3 hàng × 2 cột) / 9 items (desktop: 3 hàng × 3 cột) --}}
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-8">
         @forelse ($visibleTags as $tag)
-        <div class="flex items-center gap-3">
+        <div class="{{ $loop->index >= 6 ? 'hidden md:flex' : 'flex' }} items-center gap-3">
             <div class="w-8 h-8 shrink-0">
                 @if (!empty($tag->tag_image))
                 <img src="{{ asset('storage/'.$tag->tag_image) }}"
@@ -37,7 +37,7 @@ $groupedTags = $productTagsCollection->groupBy(fn($tag) => $tag->tag_type ?: 'Kh
     @if ($totalTags > 6)
     <button type="button"
                 @click="showAmenities = true"
-                class="mt-6 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border border-gray-900 text-gray-900 font-semibold text-sm hover:bg-gray-100 transition-colors">
+                class="mt-6 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border border-primary text-primary font-semibold text-sm hover:bg-primary hover:text-white transition-colors">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
             </svg>

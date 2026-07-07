@@ -85,7 +85,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             $this->product = $this->product->load('categories');
             $this->initializeProductData();
 
-            if (Session::has('booking_data') && request()->query('from_book') == 1) {
+            if (Session::has('booking_data')) {
                 $this->fromBookingPage = true;
                 $bookingData = Session::get('booking_data');
                 Session::forget('booking_data');

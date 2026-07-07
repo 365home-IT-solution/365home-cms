@@ -589,15 +589,6 @@
            TWO-PANEL CARD LAYOUT  (mobile)
            ═══════════════════════════════════════════════ */
 
-    /* ── Card bao ngoài — 1 màu xám nhạt trắng duy nhất cho mọi phòng (không đổi theo sản
-         phẩm), 2 cột bên trong là khối trắng nổi lên trên ── */
-    .book-card-outer {
-        background: #f3f4f6;
-        border-radius: 18px;
-        padding: 10px 0 12px;
-        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.06);
-    }
-
     /* ── Hàng trên cùng: tên phòng + nút trượt trải rộng hết chiều ngang (w-full) ── */
     .book-top-row {
         display: flex;
@@ -671,24 +662,17 @@
         margin: 0;
     }
 
-    /* ── Grid header — nằm bên trong .book-mobile-scroll (dùng chung khung cuộn với phần thân
-         nên độ rộng luôn khớp), dính ở trên cùng khi cuộn nhờ position:sticky. Nền trùng màu
-         .book-card-outer để che phần nội dung cuộn qua bên dưới. ── */
+    /* ── Grid header — nằm NGOÀI khung cuộn (không còn position:sticky vì không cần thiết
+         nữa: phần cuộn giờ nằm bên trong từng card thân, header đứng yên tự nhiên phía trên). ── */
     .book-grid-header {
         display: flex;
         gap: 12px;
         padding: 0 10px;
-        background: #f3f4f6;
-        position: sticky;
-        top: 0;
-        /* Cao hơn z-index của .selectable (10) và các lớp phủ khuyến mãi bên trong (tối đa 30)
-           để hàng tiêu đề luôn nổi trên các nút chọn khung giờ khi cuộn ── */
-        z-index: 50;
     }
 
     .book-grid-header .book-col-header {
-        min-width: 60px;
-        width: 60px;
+        min-width: 75px;
+        width: 75px;
         flex-shrink: 0;
         background: #ffffff;
         border: 1px solid #f0f0f0;
@@ -710,18 +694,20 @@
         border-radius: 10px 10px 0 0;
     }
 
-    /* ── Mobile vertical scroll wrapper — vẫn cuộn được, chỉ ẩn thanh cuộn để không chiếm
-         không gian ngang (tránh header/thân bị lệch độ rộng do thanh cuộn) ── */
-    .book-mobile-scroll {
-        max-height: 340px;
+    /* ── Khung (viền/bo góc) của mỗi card đứng yên cố định — chỉ phần NỘI DUNG bên trong
+         (.book-dates-scroll / .book-slots-scroll) cuộn dọc, đồng bộ 2 chiều bằng Alpine
+         (@scroll) để cột Ngày và khung giờ luôn khớp hàng nhau khi cuộn. ── */
+    .book-dates-scroll,
+    .book-slots-scroll {
+        height: 100%;
         overflow-y: auto;
         overflow-x: hidden;
-        border-radius: 0 0 14px 14px;
         scrollbar-width: none;
         -ms-overflow-style: none;
     }
 
-    .book-mobile-scroll::-webkit-scrollbar {
+    .book-dates-scroll::-webkit-scrollbar,
+    .book-slots-scroll::-webkit-scrollbar {
         display: none;
         width: 0;
         height: 0;
@@ -735,21 +721,22 @@
         background: transparent;
         padding: 0 10px 12px;
         border-radius: 0;
-        align-items: flex-start;
-        min-height: 100%;
+        align-items: stretch;
     }
 
     /* ── Left dates card — dính liền với header "Ngày" phía trên (cùng nền, chỉ bo góc dưới),
          tách hẳn khỏi khối khung giờ bên phải. box-shadow inset kiểu Tailwind (shadow-inner)
-         để trông "chìm" nhẹ so với 2 khối trắng nổi bên cạnh ── */
+         để trông "chìm" nhẹ so với 2 khối trắng nổi bên cạnh. Chiều cao cố định (340px, xem
+         thêm ở @media 768px) để khung không di chuyển theo khi cuộn nội dung bên trong. ── */
     .book-dates-card {
+        height: 340px;
         background: #f9fafb;
         border: 1px solid #f0f0f0;
         border-top: none;
         border-radius: 0 0 10px 10px;
         box-shadow: inset 0 2px 4px 0 rgb(0 0 0 / 0.05);
-        min-width: 60px;
-        width: 60px;
+        min-width: 75px;
+        width: 75px;
         flex-shrink: 0;
         overflow: hidden;
     }
@@ -810,8 +797,10 @@
         overflow: hidden;
     }
 
-    /* ── Slots card per room — dính liền với header khung giờ phía trên (chỉ bo góc dưới) ── */
+    /* ── Slots card per room — dính liền với header khung giờ phía trên (chỉ bo góc dưới).
+         Chiều cao cố định khớp .book-dates-card để khung không di chuyển khi cuộn. ── */
     .book-slots-card {
+        height: 340px;
         background: #ffffff;
         border: 1px solid #f0f0f0;
         border-top: none;
@@ -996,22 +985,92 @@
         transform: translateY(1px);
     }
 
-    /* ── Mobile sticky pricing bar ── */
-    .book-mobile-price-bar {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        z-index: 9999;
-        background: white;
-        border-top: 2px solid rgba(78, 107, 76, 0.2);
-        box-shadow: 0 -4px 20px rgba(78, 107, 76, 0.15);
-        padding: 8px 14px calc(8px + env(safe-area-inset-bottom, 0px));
+    /* ── Bảng tính giá (Giá cơ bản, tổng tiền tạm tính): ẩn trên mobile (chỉ hiện trong
+         bottom sheet), luôn hiện bên dưới bảng đặt phòng trên desktop. ── */
+    .book-pricing-desktop {
+        display: none;
     }
 
-    @media (min-width: 768px) {
-        .book-mobile-price-bar { display: none !important; }
+    @media (min-width: 1024px) {
+        .book-pricing-desktop {
+            display: block;
+        }
     }
+
+    /* ── Mobile bottom sheet — hiện sau khi user chọn khung giờ, chứa đầy đủ bảng tính giá.
+         Không còn backdrop toàn màn hình (đã bỏ — chặn mất click chọn thêm khung giờ),
+         chỉ còn box-shadow của chính sheet để tách biệt về mặt thị giác. ── */
+    .book-bottom-sheet {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 10999;
+        background: white;
+        border-radius: 20px 20px 0 0;
+        box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.18);
+        max-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    .book-sheet-handle-row {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        padding: 10px 14px 2px;
+    }
+
+    .book-sheet-handle {
+        width: 40px;
+        height: 4px;
+        border-radius: 999px;
+        background: #d1d5db;
+    }
+
+    .book-sheet-close {
+        position: absolute;
+        right: 14px;
+        top: 8px;
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: none;
+        background: #f3f4f6;
+        color: #6b7280;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+    }
+
+    .book-sheet-scroll {
+        overflow-y: auto;
+        padding: 0 18px 18px;
+    }
+
+    .book-sheet-scroll .book-pricing-card {
+        box-shadow: none;
+        border: none;
+        padding: 4px 0 0;
+    }
+
+    @media (min-width: 1024px) {
+        .book-bottom-sheet {
+            display: none !important;
+        }
+    }
+
+    /* Alpine x-transition classes for the bottom sheet */
+    .sheet-enter { transition: transform 0.3s ease; }
+    .sheet-enter-from { transform: translateY(100%); }
+    .sheet-enter-to { transform: translateY(0); }
+    .sheet-leave { transition: transform 0.25s ease; }
+    .sheet-leave-from { transform: translateY(0); }
+    .sheet-leave-to { transform: translateY(100%); }
 
     /* ── Desktop/tablet: nút chọn khung giờ cao hơn, đỡ dẹt/dài như bản mobile ── */
     @media (min-width: 768px) {
@@ -1027,8 +1086,9 @@
             height: 34px !important;
         }
 
-        .book-mobile-scroll {
-            max-height: 460px;
+        .book-dates-card,
+        .book-slots-card {
+            height: 460px;
         }
 
         /* Giờ bắt đầu/kết thúc nằm ngang trên 1 dòng (không xuống dòng như mobile), chữ to hơn */
@@ -1059,40 +1119,230 @@
         }
     }
 
-    /* ── Desktop (>=1024px): khu vực đặt phòng + bảng tính giá nằm chung 1 hàng, chia 2 cột,
-         dùng hết chiều ngang màn hình. Dưới 1024px giữ nguyên xếp dọc (không set gì ở đây). ── */
+    /* ── Desktop (>=1024px): bảng tính giá nằm bên dưới bảng đặt phòng, dùng hết chiều
+         ngang cột đặt phòng (không còn chia 2 cột trong nội bộ book component nữa — việc chia
+         cột "danh sách phòng" / "bảng đặt lịch" giờ do trang chi nhánh đảm nhiệm). Bỏ
+         max-width cũ (520px) để chiếm full chiều rộng cột thay vì co lại một khoảng hẹp. ── */
     @media (min-width: 1024px) {
-        .book-desktop-layout {
-            display: grid;
-            grid-template-columns: 1fr 420px;
-            gap: 40px;
-            align-items: stretch;
+        .book-pricing-desktop {
+            margin-top: 24px;
+            width: 100%;
         }
+    }
+</style>
 
-        /* Cả 2 cột đều là grid item nên tự giãn theo align-items:stretch — thêm height:100%
-           để nội dung bên trong (đặc biệt bảng giá) lấp đầy hết chiều cao đã giãn ra. */
-        .book-desktop-layout .book-card-outer,
-        .book-desktop-layout #book-pricing-summary {
-            height: 100%;
-            box-sizing: border-box;
-            margin-top : 0px;
-        }
+{{-- ═══════════════════════════════════════════════════════════════════════════
+     Đồng bộ giao diện lịch đặt phòng với trang chi tiết sản phẩm (product-detail):
+     box bo góc vuông nhẹ (không còn pill tròn), nền/viền trung tính, "đã đặt" = màu
+     primary (không icon), "đang chờ" (pending) = vàng (không icon), "đang chọn" = đen
+     thật, "bị khóa" (blocked, admin khóa ngày) = xám + icon ổ khóa. Đặt ở cuối cùng
+     (sau #book-redesign) và dùng !important để thắng các rule màu/pill cũ phía trên,
+     kể cả 2 rule 3-class ".selectable.blocked.promo::before/::after" có độ đặc hiệu
+     cao hơn (0,0,3,0) so với các rule 2-class còn lại. ═══════════════════════════ --}}
+<style id="book-sync-product-detail">
+    .selectable {
+        border-radius: 8px !important;
+        background: #fff !important;
+        border: 1.5px solid #d1d5db !important;
+        color: #374151 !important;
+        box-shadow: inset 0 1px 3px rgba(0, 0, 0, .08) !important;
+    }
 
-        /* Bảng giá xếp dọc thay vì hàng ngang, vì giờ nó nằm trong cột phụ hẹp (sidebar).
-           justify-content: space-between đẩy nút "Đặt phòng ngay" xuống sát đáy khi cột được
-           giãn cao bằng cột bên trái, tránh khoảng trắng thừa ở giữa. */
-        .book-desktop-layout #book-pricing-summary {
-            flex-direction: column;
-            align-items: stretch;
-            justify-content: space-between;
+    .selectable:hover:not([style*="pointer-events:none"]) {
+        background: #f3f4f6 !important;
+        border-color: #9ca3af !important;
+        box-shadow: inset 0 1px 3px rgba(0, 0, 0, .08), 0 4px 12px rgba(0, 0, 0, .08) !important;
+    }
+
+    .book-slot-cell .selectable,
+    .selectable-mini {
+        border-radius: 6px !important;
+    }
+
+    /* Tắt hẳn các lớp phủ ::before/::after màu cũ (order-color, tickGray, rainbow promo…)
+       để nền/màu đặt trực tiếp trên .selectable phía dưới được hiển thị đúng. */
+    .selectable.active::after,
+    .selectable.booked::after,
+    .selectable.pending::after,
+    .selectable.blocked::after,
+    .selectable.blocked.promo::after,
+    .selectable.blocked.promo::before,
+    .selectable.past-time::after,
+    .selectable.past-date::after,
+    .selectable.promo::before,
+    .selectable.promo::after {
+        content: none !important;
+    }
+
+    .selectable.booked {
+        background: var(--color-primary) !important;
+        border-color: var(--color-primary) !important;
+    }
+
+    .selectable.pending {
+        background: #CFDC74 !important;
+        border-color: #CFDC74 !important;
+        opacity: 1 !important;
+    }
+
+    .selectable.blocked {
+        background: #e5e7eb !important;
+        border-color: #d1d5db !important;
+    }
+
+    .selectable.past-time,
+    .selectable.past-date {
+        background: #f3f4f6 !important;
+        border: 1px solid #e5e7eb !important;
+    }
+
+    .lock-icon {
+        width: 14px;
+        height: 14px;
+        color: #9ca3af;
+        position: relative;
+        z-index: 15;
+    }
+
+    .book-slot-cell .lock-icon {
+        width: 10px;
+        height: 10px;
+    }
+
+    /* Đặt sau cùng để "đang chọn" luôn thắng dù ô đó cũng đang booked/pending (trường hợp
+       khách quay lại chọn lại đúng slot thuộc đơn đang chờ của họ). opacity:1 !important để
+       thắng luôn style inline opacity gắn theo !isSelectable, tránh đen bị pha loãng thành xám. */
+    .selectable.active {
+        background: #111827 !important;
+        border-color: #111827 !important;
+        opacity: 1 !important;
+    }
+
+    /* Hover vào ô đang chọn (active) phải vẫn giữ đen — không rơi về style hover trắng/xám
+       chung của .selectable, nếu không trông như bị bỏ chọn khi rê chuột qua. */
+    .selectable.active:hover {
+        background: #111827 !important;
+        border-color: #111827 !important;
+        box-shadow: none !important;
+        transform: none !important;
+    }
+
+    /* ── Legend ── */
+    .selectable-mini {
+        background: #fff !important;
+        border: 1.5px solid #dddddd !important;
+    }
+
+    .promo-mini::before,
+    .promo-mini::after {
+        content: none !important;
+    }
+
+    /* ── Tách riêng cột "Ngày" và khối khung giờ thành 2 card độc lập, có khoảng cách ở
+       giữa theo chiều ngang (theo ảnh mẫu) — header + thân của MỖI cột vẫn liền nhau theo
+       chiều dọc (header bo góc trên, thân bo góc dưới, không viền giữa) để trông như 1 card
+       duy nhất cho từng cột; chỉ tách rời 2 cột với nhau bằng khoảng cách + bóng đổ riêng. */
+    .book-grid-header,
+    .book-grid-outer {
+        gap: 12px !important;
+    }
+
+    .book-grid-header .book-col-header {
+        border: 1px solid #e5e7eb !important;
+        border-bottom: none !important;
+        border-radius: 14px 14px 0 0 !important;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, .06) !important;
+    }
+
+    .book-dates-card {
+        border: 1px solid #e5e7eb !important;
+        border-top: none !important;
+        border-radius: 0 0 14px 14px !important;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, .06) !important;
+    }
+
+    .book-slots-headers-wrap {
+        border-radius: 14px 14px 0 0 !important;
+        overflow: hidden !important;
+    }
+
+    .book-slots-headers-wrap .book-slots-header-row {
+        border: 1px solid #e5e7eb !important;
+        border-bottom: none !important;
+        border-radius: 14px 14px 0 0 !important;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, .06) !important;
+    }
+
+    .book-slots-card {
+        border: 1px solid #e5e7eb !important;
+        border-top: none !important;
+        border-radius: 0 0 14px 14px !important;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, .06) !important;
+    }
+
+    /* ── Phần còn lại vẫn dùng tông "Forest Green" cũ (#4e6b4c) — trung tính hoá nốt cho
+       khớp bảng màu trắng/xám/đen của trang chi tiết. ── */
+    .slot-page-strip {
+        background: #f3f4f6 !important;
+        border-bottom: 1px solid #e5e7eb !important;
+    }
+
+    .slot-pg-btn {
+        background: #fff !important;
+        border-color: #d1d5db !important;
+        color: #374151 !important;
+    }
+
+    .slot-pg-btn:hover:not(:disabled) {
+        background: #e5e7eb !important;
+    }
+
+    .slot-pg-info {
+        color: #6b7280 !important;
+    }
+
+    .book-loadmore-btn {
+        border: 1.5px dashed #d1d5db !important;
+        background: #f9fafb !important;
+        color: #374151 !important;
+    }
+
+    .book-loadmore-btn:hover {
+        background: #f3f4f6 !important;
+        border-color: #9ca3af !important;
+    }
+
+    .book-pricing-card {
+        box-shadow: 0 8px 32px rgba(0, 0, 0, .08), 0 2px 8px rgba(0, 0, 0, .04) !important;
+        border-color: #e5e7eb !important;
+    }
+
+    /* Gọn lại kích thước khung Summary cho vừa nội dung (bớt đệm/bo góc quá lớn), full
+       chiều rộng cột thay vì co hẹp một khoảng như trước. */
+    @media (min-width: 1024px) {
+        .book-pricing-card {
+            padding: 18px 20px !important;
+            border-radius: 16px !important;
         }
     }
 
-    /* Alpine x-transition classes for slide-up bar */
-    .bar-enter  { transition: transform 0.3s ease, opacity 0.3s ease; }
-    .bar-enter-from { transform: translateY(100%); opacity: 0; }
-    .bar-enter-to   { transform: translateY(0);    opacity: 1; }
-    .bar-leave  { transition: transform 0.2s ease, opacity 0.2s ease; }
-    .bar-leave-from { transform: translateY(0);    opacity: 1; }
-    .bar-leave-to   { transform: translateY(100%); opacity: 0; }
+    .book-cta-btn {
+        box-shadow: 0 8px 24px rgba(0, 0, 0, .18) !important;
+    }
+
+    .book-cta-btn:hover:not(:disabled) {
+        box-shadow: 0 12px 32px rgba(0, 0, 0, .22) !important;
+    }
+
+    tbody tr:hover td {
+        background-color: #f9fafb !important;
+    }
+
+    /* Icon ổ khóa trên nền màu primary (ô "Đã đặt") cần màu trắng mới đủ tương phản,
+       khác với nền xám nhạt của ô "blocked" (giữ màu xám #9ca3af mặc định). */
+    .selectable.booked .lock-icon {
+        color: #fff;
+        opacity: .9;
+    }
+
 </style>
