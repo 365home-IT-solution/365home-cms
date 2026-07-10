@@ -143,8 +143,21 @@ class AppPageForm
                                 ])
                                 ->default('fixed')
                                 ->required()
+                                ->live()
                                 ->helperText('Cố định: hiển thị tất cả phòng đã chọn. Theo khu vực: ẩn section khi guest/user chưa chọn khu vực hoặc khu vực đó không có phòng.')
                                 ->columnSpanFull(),
+
+                            Select::make('region_content_type')
+                                ->label('Nội dung hiển thị theo khu vực')
+                                ->options([
+                                    'rooms'    => 'Phòng',
+                                    'branches' => 'Chi nhánh',
+                                ])
+                                ->default('rooms')
+                                ->required()
+                                ->helperText('Phòng: danh sách phòng của khu vực (như hiện tại). Chi nhánh: danh sách chi nhánh của khu vực.')
+                                ->columnSpanFull()
+                                ->visible(fn (Get $get) => ($get('display_mode') ?? 'fixed') === 'by_region'),
 
                             Select::make('branch_ids')
                                 ->label('Chọn chi nhánh')

@@ -116,16 +116,20 @@ class HomeController extends Controller
     private function buildRoomList(array $data, int $index, ?array $wishlistedIds, ?int $tabRoomTypeId, ?Province $province = null): ?array
     {
         $displayMode = $data['display_mode'] ?? 'fixed';
+        // Chỉ có ý nghĩa khi display_mode=by_region — fixed luôn là danh sách phòng.
+        $contentType = $displayMode === 'by_region' ? ($data['region_content_type'] ?? 'rooms') : 'rooms';
 
         // by_region: ẩn section khi chưa có khu vực
         if ($displayMode === 'by_region' && $province === null) {
             return null;
         }
 
-        $rooms = $this->getRooms($data, $displayMode, $wishlistedIds, $tabRoomTypeId, $province);
+        $items = $contentType === 'branches'
+            ? $this->getRegionBranches($province)
+            : $this->getRooms($data, $displayMode, $wishlistedIds, $tabRoomTypeId, $province);
 
-        // by_region: ẩn section khi khu vực không có phòng
-        if ($displayMode === 'by_region' && empty($rooms)) {
+        // by_region: ẩn section khi khu vực không có phòng/chi nhánh
+        if ($displayMode === 'by_region' && empty($items)) {
             return null;
         }
 
@@ -139,8 +143,35 @@ class HomeController extends Controller
             'show_arrow'   => (bool) ($data['show_arrow'] ?? true),
             'layout'       => $data['layout'] ?? 'horizontal_scroll',
             'display_mode' => $displayMode,
-            'rooms'        => $rooms,
+            'content_type' => $contentType,
+            'rooms'        => $items,
         ];
+    }
+
+    // Danh sách chi nhánh của khu vực — dùng khi display_mode=by_region &&
+    // region_content_type=branches. Shape khớp với SearchController::branches() để app tái dùng
+    // component card chi nhánh đã có.
+    private function getRegionBranches(?Province $province): array
+    {
+        if ($province === null) {
+            return [];
+        }
+
+        return $province->branches()
+            ->where('status', true)
+            ->with('category')
+            ->get()
+            ->filter(fn ($branch) => $branch->category && $branch->category->status)
+            ->map(fn ($branch) => [
+                'id'        => $branch->category->id,
+                'name'      => $branch->category->name,
+                'slug'      => $branch->category->slug,
+                'image_url' => $branch->category->image
+                    ? Storage::disk('public')->url($branch->category->image)
+                    : null,
+            ])
+            ->values()
+            ->toArray();
     }
 
     // "Xem tất cả" của 1 khối phòng nên đưa thẳng người dùng đến đúng phạm vi phòng mà khối đó
