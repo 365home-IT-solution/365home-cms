@@ -34,36 +34,36 @@
         </section>
     </template>
 
-    {{-- ============== BANNER ============== --}}
-    <template x-if="bannerSection && bannerSection.items && bannerSection.items.length">
-        <section class="py-4 bg-white">
-            <div class="w-full max-w-11xl mx-auto px-4 sm:px-6" style="position:relative;" x-data="carouselNav()" x-init="init()">
-                <div x-ref="track" style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none;" class="hide-scrollbar">
-                    <template x-for="banner in bannerSection.items" :key="'banner-' + (banner.url || banner.image_url)">
-                        <a :href="banner.url || '#'" class="banner-card"
-                            :style="{ display: 'block', overflow: 'hidden', borderRadius: '12px', pointerEvents: banner.url ? 'auto' : 'none', scrollSnapAlign: 'start', flexShrink: 0 }">
-                            <div style="position:relative; width:100%; padding-top:32%; border-radius:12px; overflow:hidden;">
-                                <img :src="banner.image_url" :alt="banner.title || ''"
-                                    style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;">
-                            </div>
-                        </a>
-                    </template>
-                </div>
-
-                <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()"
-                    style="position:absolute; left:8px; top:calc(50% - 16px); box-shadow:0 2px 8px rgba(0,0,0,.18);">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                </button>
-                <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()"
-                    style="position:absolute; right:8px; top:calc(50% - 16px); box-shadow:0 2px 8px rgba(0,0,0,.18);">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                </button>
-            </div>
-        </section>
-    </template>
-
-    <template x-for="section in otherSections" :key="section.type + '-' + section.id">
+    <template x-for="section in sections" :key="section.type + '-' + section.id">
         <div>
+            {{-- ============== BANNER ============== --}}
+            <template x-if="section.type === 'banner' && section.items && section.items.length">
+                <section class="py-4 bg-white">
+                    <div class="w-full max-w-11xl mx-auto px-4 sm:px-6" style="position:relative;" x-data="carouselNav()" x-init="init()">
+                        <div x-ref="track" style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none;" class="hide-scrollbar">
+                            <template x-for="banner in section.items" :key="'banner-' + (banner.url || banner.image_url)">
+                                <a :href="banner.url || '#'" class="banner-card"
+                                    :style="{ display: 'block', overflow: 'hidden', borderRadius: '12px', pointerEvents: banner.url ? 'auto' : 'none', scrollSnapAlign: 'start', flexShrink: 0 }">
+                                    <div style="position:relative; width:100%; padding-top:32%; border-radius:12px; overflow:hidden;">
+                                        <img :src="banner.image_url" :alt="banner.title || ''"
+                                            style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;">
+                                    </div>
+                                </a>
+                            </template>
+                        </div>
+
+                        <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()"
+                            style="position:absolute; left:8px; top:calc(50% - 16px); box-shadow:0 2px 8px rgba(0,0,0,.18);">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                        </button>
+                        <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()"
+                            style="position:absolute; right:8px; top:calc(50% - 16px); box-shadow:0 2px 8px rgba(0,0,0,.18);">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                        </button>
+                    </div>
+                </section>
+            </template>
+
             {{-- ============== PROMOTION LIST (phòng khuyến mãi) ============== --}}
             <template x-if="section.type === 'promotion_list' && section.rooms && section.rooms.length">
                 <section class="py-4 bg-white">

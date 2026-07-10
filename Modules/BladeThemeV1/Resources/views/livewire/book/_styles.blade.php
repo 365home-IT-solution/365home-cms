@@ -1115,7 +1115,8 @@
      Đồng bộ giao diện lịch đặt phòng với trang chi tiết sản phẩm (product-detail):
      box bo góc vuông nhẹ (không còn pill tròn), nền/viền trung tính, "đã đặt" = màu
      primary (không icon), "đang chờ" (pending) = vàng (không icon), "đang chọn" = đen
-     thật, "bị khóa" (blocked, admin khóa ngày) = xám + icon ổ khóa. Đặt ở cuối cùng
+     thật, "bị khóa" (blocked, admin khóa ngày) = giống hệt "đã đặt" (màu primary, không
+     icon) — khách không cần phân biệt lý do không đặt được. Đặt ở cuối cùng
      (sau #book-redesign) và dùng !important để thắng các rule màu/pill cũ phía trên,
      kể cả 2 rule 3-class ".selectable.blocked.promo::before/::after" có độ đặc hiệu
      cao hơn (0,0,3,0) so với các rule 2-class còn lại. ═══════════════════════════ --}}
@@ -1168,7 +1169,8 @@
         content: none !important;
     }
 
-    .selectable.booked {
+    .selectable.booked,
+    .selectable.blocked {
         background: var(--color-primary) !important;
         border-color: var(--color-primary) !important;
     }
@@ -1179,28 +1181,10 @@
         opacity: 1 !important;
     }
 
-    .selectable.blocked {
-        background: #e5e7eb !important;
-        border-color: #d1d5db !important;
-    }
-
     .selectable.past-time,
     .selectable.past-date {
         background: #f3f4f6 !important;
         border: 1px solid #e5e7eb !important;
-    }
-
-    .lock-icon {
-        width: 14px;
-        height: 14px;
-        color: #9ca3af;
-        position: relative;
-        z-index: 15;
-    }
-
-    .book-slot-cell .lock-icon {
-        width: 10px;
-        height: 10px;
     }
 
     /* Đặt sau cùng để "đang chọn" luôn thắng dù ô đó cũng đang booked/pending (trường hợp
@@ -1325,13 +1309,6 @@
 
     tbody tr:hover td {
         background-color: #f9fafb !important;
-    }
-
-    /* Icon ổ khóa trên nền màu primary (ô "Đã đặt") cần màu trắng mới đủ tương phản,
-       khác với nền xám nhạt của ô "blocked" (giữ màu xám #9ca3af mặc định). */
-    .selectable.booked .lock-icon {
-        color: #fff;
-        opacity: .9;
     }
 
 </style>

@@ -165,14 +165,6 @@ if (typeof window.homeSections === 'undefined') {
             loading: true,
             provinceName: localStorage.getItem('home_province_name') || '',
 
-            get bannerSection() {
-                return this.sections.find(s => s.type === 'banner') || null;
-            },
-
-            get otherSections() {
-                return this.sections.filter(s => s.type !== 'banner');
-            },
-
             init() {
                 this.load();
                 window.addEventListener('auth-state-changed', () => this.load());

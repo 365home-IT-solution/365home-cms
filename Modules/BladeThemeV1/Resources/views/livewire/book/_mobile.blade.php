@@ -279,12 +279,6 @@
                                 discountPromotions: {{ json_encode($discountPromotionsData) }},
                                 increasePromotions: {{ json_encode($increasePromotionsData) }}
                             })">
-                            @if (str_contains($classes, 'blocked') || str_contains($classes, 'booked'))
-                            <svg class="lock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="4" y="11" width="16" height="9" rx="2" />
-                                <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-                            </svg>
-                            @endif
                             @if ($hasIncreasePromotion && $displayPromotion && $displayPromotion->image)
                             <div class="promotion-corner-image">
                                 <img src="{{ asset('storage/' . $displayPromotion->image) }}" alt="{{ $displayPromotion->name }}" class="corner-img">
