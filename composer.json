@@ -54,6 +54,7 @@
         "spatie/laravel-tags": "^4.0",
         "symfony/yaml": "^7.0",
         "thiktak/filament-simple-list-entry": "^1.0",
+        "webonyx/graphql-php": "^15.34",
         "wikimedia/composer-merge-plugin": "2.1",
         "z3d0x/filament-logger": "^0.7.2"
     },

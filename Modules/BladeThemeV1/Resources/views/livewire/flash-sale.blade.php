@@ -216,6 +216,14 @@
             max-width: calc(46vw - 20px);
             flex-shrink: 0;
             scroll-snap-align: start;
+            /* Bóng đổ ra ngoài để thẻ nổi nhẹ trên nền trắng, kết hợp inset: 1 viền sáng mảnh
+               phía trong (cảm giác "kính cường lực" cao cấp) + 1 vùng tối inset ở đáy làm nền
+               chữ tương phản tốt hơn mà không cần lớp gradient phủ quá đậm như trước. */
+            box-shadow:
+                0 1px 2px rgba(17, 24, 39, .04),
+                0 10px 24px -12px rgba(17, 24, 39, .28),
+                inset 0 0 0 1px rgba(255, 255, 255, .10),
+                inset 0 -46px 34px -22px rgba(0, 0, 0, .38);
         }
         @media (min-width: 768px) {
             .room-type-card {
@@ -235,7 +243,8 @@
         .room-type-card .rtc-gradient {
             position: absolute;
             inset: 0;
-            background: linear-gradient(to top, rgba(0,0,0,.72) 0%, rgba(0,0,0,.28) 45%, rgba(0,0,0,0) 75%);
+            background: linear-gradient(to top, rgba(0,0,0,.58) 0%, rgba(0,0,0,.16) 42%, rgba(0,0,0,0) 70%);
+            pointer-events: none;
         }
         .room-type-card .rtc-arrow {
             position: absolute;
@@ -244,11 +253,14 @@
             width: 30px;
             height: 30px;
             border-radius: 50%;
-            background: rgba(255,255,255,.9);
+            background: rgba(255,255,255,.85);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
             display: flex;
             align-items: center;
             justify-content: center;
             z-index: 2;
+            box-shadow: 0 2px 6px rgba(17, 24, 39, .18);
         }
         .room-type-card .rtc-arrow svg { width: 15px; height: 15px; }
         .room-type-card .rtc-title {
@@ -256,10 +268,11 @@
             left: 16px;
             right: 16px;
             bottom: 14px;
-            font-size: 14px;
+            font-size: 15px;
             font-weight: 800;
+            letter-spacing: .01em;
             color: #fff;
-            text-shadow: 0 1px 4px rgba(0,0,0,.45);
+            text-shadow: 0 1px 6px rgba(0,0,0,.5);
             line-height: 1.25;
             z-index: 2;
         }
@@ -348,5 +361,5 @@
         }
     </style>
 
-    <script src="{{ asset('js/home-sections.js') }}"></script>
+    <script src="{{ asset('js/home-sections.js') }}?v={{ filemtime(public_path('js/home-sections.js')) }}"></script>
 </div>

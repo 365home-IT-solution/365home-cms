@@ -1,4 +1,74 @@
     <script>
+        // Trang kết quả tìm kiếm /s/{slug} không truyền $selectedLocation vào hero-section (component
+        // dùng chung nhiều nơi, không biết route hiện tại) — đọc thẳng slug từ URL để ô Địa điểm khớp
+        // đúng nơi đang xem. Không có URL khớp thì trả '' (giữ nguyên hành vi cũ — để trống).
+        window.parseLocationSlugFromUrl = function () {
+            const m = window.location.pathname.match(/^\/s\/([^\/?#]+)/);
+            if (!m) return '';
+            // /s/branch-a,branch-b (xem tất cả nhiều chi nhánh cùng lúc) — không phải 1 tỉnh/thành
+            // đơn, ô Địa điểm không có lựa chọn nào khớp nên bỏ qua, để trống như cũ.
+            const slug = decodeURIComponent(m[1]);
+            return slug.includes(',') ? '' : slug;
+        };
+
+        // Cùng lý do như trên — đọc lại ?checkin=&checkout=&buoi= (format submitSearch() đã ghi:
+        // "dd/mm/yyyy HH:mm") và ?adults= để ô Thời gian/Khách khớp đúng lựa chọn trước đó, không
+        // rơi về placeholder trống khi vào trang kết quả.
+        window.parseDateFromUrl = function () {
+            const params = new URLSearchParams(window.location.search);
+            const result = { dayMode: params.get('buoi') === '2', checkIn: null, checkOut: null, checkInHour: null, checkOutHour: null };
+
+            const parseOne = (str) => {
+                const m = str && str.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/);
+                if (!m) return null;
+                return { date: new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])), hour: Number(m[4]) };
+            };
+
+            const inParsed  = parseOne(params.get('checkin'));
+            const outParsed = parseOne(params.get('checkout'));
+            if (inParsed)  { result.checkIn  = inParsed.date;  result.checkInHour  = inParsed.hour; }
+            if (outParsed) { result.checkOut = outParsed.date; result.checkOutHour = outParsed.hour; }
+            return result;
+        };
+
+        window.parseGuestsFromUrl = function () {
+            return new URLSearchParams(window.location.search).get('adults') || '';
+        };
+
+        // Lưu lại tỉnh/thành khách vừa chọn ở thanh tìm kiếm — dùng chung 1 hàm với location-modal
+        // (cùng quy ước: có auth_token thì gửi kèm Bearer, không thì gửi device_token của guest) để
+        // trang chủ (home-sections.js) và các nơi khác đọc localStorage home_province_id đều nhất quán.
+        window.persistProvinceSelection = function (province) {
+            if (!province || !province.id) return;
+
+            localStorage.setItem('home_province_id', province.id);
+            if (province.name) localStorage.setItem('home_province_name', province.name);
+            window.dispatchEvent(new CustomEvent('province-selected', { detail: province }));
+
+            const token = localStorage.getItem('auth_token');
+            const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+            const body = { province_id: province.id };
+
+            if (token) {
+                headers['Authorization'] = 'Bearer ' + token;
+            } else {
+                let deviceToken = localStorage.getItem('guest_device_token');
+                if (!deviceToken) {
+                    deviceToken = (window.crypto && crypto.randomUUID)
+                        ? crypto.randomUUID()
+                        : Date.now() + '-' + Math.random().toString(36).slice(2);
+                    localStorage.setItem('guest_device_token', deviceToken);
+                }
+                body.device_token = deviceToken;
+            }
+
+            fetch('/api/v1/provinces/select', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(body),
+            }).catch(() => {});
+        };
+
         // Dò tỉnh/thành gần nhất theo vị trí trình duyệt (Geolocation API + haversine).
         // wireSetLocation: hàm gọi Livewire setLocation(slug); locations: mảng { slug, lat, lng, ... }.
         window.heroLocateNearest = function(wireSetLocation, locations, onDone, onError) {
@@ -84,6 +154,7 @@
                     const now = new Date();
                     this.viewMonth = now.getMonth();
                     this.viewYear = now.getFullYear();
+                    this.syncDateFromUrl();
                     this.$watch('checkIn', () => this.ensureStartHourNotPast());
                     this.$watch('checkInHour', () => this.ensureEndAfterStart());
                     this.$watch('open', val => {
@@ -92,6 +163,21 @@
                             this._dateDropdownCleanup = null;
                         }
                     });
+                },
+                // Trang /s/{slug}?checkin=...&checkout=...&buoi=... không truyền $checkIn/$checkOut
+                // vào component này — đọc lại từ URL để ô Thời gian khớp đúng lựa chọn trước đó
+                // thay vì rơi về placeholder "Thêm ngày".
+                syncDateFromUrl() {
+                    if (this.checkIn) return;
+                    const parsed = window.parseDateFromUrl ? window.parseDateFromUrl() : null;
+                    if (!parsed || !parsed.checkIn) return;
+                    this.dayMode = parsed.dayMode;
+                    this.checkIn = parsed.checkIn;
+                    this.checkOut = parsed.checkOut || parsed.checkIn;
+                    if (parsed.checkInHour !== null) this.checkInHour = parsed.checkInHour;
+                    if (parsed.checkOutHour !== null) this.checkOutHour = parsed.checkOutHour;
+                    this.viewMonth = this.checkIn.getMonth();
+                    this.viewYear = this.checkIn.getFullYear();
                 },
                 get viewMonthName() { return this.monthNames[this.viewMonth]; },
                 get nextViewMonth() { return this.viewMonth === 11 ? 0 : this.viewMonth + 1; },
@@ -229,6 +315,18 @@
                     if (this.checkIn) {
                         params.checkin  = this.displayCheckIn;
                         params.checkout = this.displayCheckOut;
+
+                        // Tab "Theo giờ": ngoài checkin/checkout (chỉ dùng để loại phòng đã bị đặt
+                        // trùng), gửi thêm time_type=slot + date + time_from/time_to để API lọc luôn
+                        // theo khung giờ (chỉ phòng có khung giờ NẰM GỌN trong [time_from, time_to]
+                        // mới hợp lệ — xem RoomSearchService::search()), không chỉ lọc phòng đã đặt.
+                        if (!this.dayMode) {
+                            const d = this.checkIn;
+                            params.time_type = 'slot';
+                            params.date      = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+                            params.time_from = String(this.checkInHour).padStart(2, '0') + ':00';
+                            params.time_to   = String(this.checkOutHour).padStart(2, '0') + ':00';
+                        }
                     }
                     params.buoi = this.dayMode ? '2' : '1';
 

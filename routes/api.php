@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Auth\ZaloOtpController;
 use App\Http\Controllers\Api\ConfigController;
+use App\Http\Controllers\Api\GraphQLController;
 use App\Http\Controllers\Api\MembershipController;
 use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\Admin\ChatController as AdminChatController;
@@ -73,7 +74,7 @@ Route::get('v1/room-types/{id}', [RoomTypeController::class, 'show'])->name('api
 |--------------------------------------------------------------------------
 */
 Route::prefix('v1')->name('api.v1.')->group(function () {
-    Route::get('home', HomeController::class)->name('home');
+    Route::get('home', HomeController::class)->name('home')->middleware('throttle:public-api');
 
     Route::prefix('provinces')->name('provinces.')->group(function () {
         Route::get('/',       [ProvinceController::class, 'index'])->name('index');
@@ -100,13 +101,21 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     | GET /api/v1/search/locations   → Autocomplete địa điểm khi gõ
     |--------------------------------------------------------------------------
     */
-    Route::prefix('search')->name('search.')->group(function () {
+    Route::prefix('search')->name('search.')->middleware('throttle:public-api')->group(function () {
         Route::get('suggestions', [SearchController::class, 'suggestions'])->name('suggestions');
         Route::get('locations',   [SearchController::class, 'locations'])->name('locations');
         Route::get('branches',    [SearchController::class, 'branches'])->name('branches');
         Route::get('/',           [SearchController::class, 'index'])->name('index');
     });
 });
+
+/*
+|--------------------------------------------------------------------------
+| GraphQL (pilot — chỉ phục vụ trang kết quả tìm kiếm)
+| POST /api/graphql — xem App\Http\Controllers\Api\GraphQLController
+|--------------------------------------------------------------------------
+*/
+Route::post('graphql', [GraphQLController::class, 'handle'])->name('graphql')->middleware('throttle:public-api');
 
 /*
 |--------------------------------------------------------------------------

@@ -70,7 +70,7 @@
             <p class="text-sm font-semibold text-gray-500 mt-3 mb-1 px-4">Điểm đến được đề xuất</p>
 
             <template x-for="loc in mobileLocations.filter(l => !locationSearch.trim() || l.name.toLowerCase().includes(locationSearch.trim().toLowerCase()))" :key="loc.slug">
-                <button type="button" @click="selectedLocationSlug = loc.slug; mobileStep = 2"
+                <button type="button" @click="selectedLocationSlug = loc.slug; window.persistProvinceSelection(loc); mobileStep = 2"
                     class="w-full px-4 py-3.5 text-left text-base rounded-2xl hover:bg-gray-50 flex items-center justify-between transition-colors"
                     :class="selectedLocationSlug === loc.slug ? 'font-semibold text-teal-700 bg-teal-50/60' : 'text-gray-700'">
                     <span x-text="loc.name"></span>

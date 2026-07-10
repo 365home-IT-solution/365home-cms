@@ -38,6 +38,7 @@ class HomeController extends Controller
         $province = $this->resolveProvince($request);
 
         $roomTypes = RoomType::where('is_active', true)
+            ->whereHas('products', fn ($q) => $q->where('is_activated', true)->where('is_in_stock', true))
             ->orderBy('sort_order')
             ->get(['id', 'slug', 'name', 'icon', 'icon_url'])
             ->toArray();

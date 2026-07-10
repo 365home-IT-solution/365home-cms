@@ -809,26 +809,6 @@
         max-width: 100%;
     }
 
-    /* ── Khi chuyển phòng: chỉ khối khung giờ trượt hẳn từ mép vào như lật trang, cột Ngày
-         đứng yên ── */
-    @keyframes bookSlideInRight {
-        from { transform: translateX(100%); opacity: 0.5; }
-        to   { transform: translateX(0); opacity: 1; }
-    }
-
-    @keyframes bookSlideInLeft {
-        from { transform: translateX(-100%); opacity: 0.5; }
-        to   { transform: translateX(0); opacity: 1; }
-    }
-
-    .book-slide-in-right {
-        animation: bookSlideInRight 1s cubic-bezier(0.22, 1, 0.36, 1);
-    }
-
-    .book-slide-in-left {
-        animation: bookSlideInLeft 1s cubic-bezier(0.22, 1, 0.36, 1);
-    }
-
     /* ── Slot column headers ── */
     .book-slots-header-row {
         display: flex;
@@ -1159,18 +1139,32 @@
         border-radius: 6px !important;
     }
 
-    /* Tắt hẳn các lớp phủ ::before/::after màu cũ (order-color, tickGray, rainbow promo…)
-       để nền/màu đặt trực tiếp trên .selectable phía dưới được hiển thị đúng. */
+    /* Tắt hẳn các lớp phủ ::before/::after màu cũ (order-color, tickGray…) để nền/màu đặt trực
+       tiếp trên .selectable phía dưới được hiển thị đúng. Không tắt .selectable.promo (không
+       kèm trạng thái khác) — giữ nguyên hiệu ứng lóe màu cầu vồng "Khuyến mãi" giống trang chi
+       tiết phòng. */
     .selectable.active::after,
     .selectable.booked::after,
     .selectable.pending::after,
     .selectable.blocked::after,
-    .selectable.blocked.promo::after,
-    .selectable.blocked.promo::before,
     .selectable.past-time::after,
     .selectable.past-date::after,
-    .selectable.promo::before,
-    .selectable.promo::after {
+    /* Ô vừa ở trạng thái khác (đã đặt/đang chờ/bị khóa/đang chọn/quá giờ/quá ngày) vừa có
+       khuyến mãi: trạng thái đó phải thắng, tắt CẢ gradient lẫn lớp phủ trắng của promo — nếu
+       chỉ tắt ::after (lớp phủ trắng) mà để ::before (gradient) sống thì gradient hiện trần ra
+       không có gì che, đúng lỗi đã gặp với past-date.promo. */
+    .selectable.active.promo::before,
+    .selectable.active.promo::after,
+    .selectable.booked.promo::before,
+    .selectable.booked.promo::after,
+    .selectable.pending.promo::before,
+    .selectable.pending.promo::after,
+    .selectable.blocked.promo::before,
+    .selectable.blocked.promo::after,
+    .selectable.past-time.promo::before,
+    .selectable.past-time.promo::after,
+    .selectable.past-date.promo::before,
+    .selectable.past-date.promo::after {
         content: none !important;
     }
 
@@ -1231,11 +1225,6 @@
     .selectable-mini {
         background: #fff !important;
         border: 1.5px solid #dddddd !important;
-    }
-
-    .promo-mini::before,
-    .promo-mini::after {
-        content: none !important;
     }
 
     /* ── Tách riêng cột "Ngày" và khối khung giờ thành 2 card độc lập, có khoảng cách ở

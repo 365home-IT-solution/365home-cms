@@ -9,15 +9,13 @@
     slotCounts: [{{ $styleOneRooms->map(fn($r) => $r->roomTimeSlots->count())->join(', ') }}],
     categorySlug: '{{ \Str::slug($category['name']) }}',
     touchStartX: 0,
-    dateLimit: 10, totalDates: {{ count($dates) }},
-    get remainingDates() { return Math.max(0, Math.min(5, this.totalDates - this.dateLimit)); },
-    loadMoreDates() { this.dateLimit = Math.min(this.dateLimit + 5, this.totalDates); },
-    slideDir: 1,
+    dateLimit: {{ \Modules\BladeThemeV1\Livewire\Book::INITIAL_VISIBLE_DAYS }}, totalDates: {{ count($dates) }},
+    get remainingDates() { return Math.max(0, Math.min({{ \Modules\BladeThemeV1\Livewire\Book::LOAD_MORE_DAYS_STEP }}, this.totalDates - this.dateLimit)); },
+    loadMoreDates() { this.dateLimit = Math.min(this.dateLimit + {{ \Modules\BladeThemeV1\Livewire\Book::LOAD_MORE_DAYS_STEP }}, this.totalDates); },
     get totalSlotPages() { return Math.ceil((this.slotCounts[this.activeRoomIdx] ?? 5) / this.slotsPerPage); },
     changeRoom(dir) {
         const newIdx = this.activeRoomIdx + dir;
         if (newIdx >= 0 && newIdx < this.totalRooms) {
-            this.slideDir = dir;
             this.activeRoomIdx = newIdx;
             this.slotPage = 0;
             return;
@@ -101,8 +99,7 @@
         <div class="book-col-header">Ngày</div>
         <div class="book-slots-headers-wrap">
             @foreach ($styleOneRooms as $ri => $room)
-            <div x-show="activeRoomIdx === {{ $ri }}" x-cloak class="book-slots-header-row"
-                :class="slideDir === 1 ? 'book-slide-in-right' : 'book-slide-in-left'">
+            <div x-show="activeRoomIdx === {{ $ri }}" x-cloak class="book-slots-header-row">
                 @foreach ($room->roomTimeSlots as $roomTimeSlot)
                 @php
                 $startTime   = \Carbon\Carbon::parse($roomTimeSlot->timeSlot->start_time);
@@ -140,8 +137,7 @@
         {{-- Right: Scrollable slots per room --}}
         <div class="book-slots-outer">
             @foreach ($styleOneRooms as $ri => $room)
-            <div x-show="activeRoomIdx === {{ $ri }}" x-cloak class="book-slots-card"
-                :class="slideDir === 1 ? 'book-slide-in-right' : 'book-slide-in-left'">
+            <div x-show="activeRoomIdx === {{ $ri }}" x-cloak class="book-slots-card">
                 <div class="book-slots-scroll" x-ref="bookSlotsScroll{{ $ri }}"
                     @scroll="$refs.bookDatesScroll.scrollTop = $event.target.scrollTop">
 
@@ -317,7 +313,7 @@
         </div>{{-- end .book-slots-outer --}}
     </div>{{-- end .book-grid-outer --}}
 
-    {{-- ── Xem thêm ngày (mỗi lần bấm hiện thêm tối đa 5 ngày kế tiếp, tự ẩn khi đã hiện hết) ── --}}
+    {{-- ── Xem thêm ngày (mỗi lần bấm hiện thêm tối đa 10 ngày kế tiếp, tự ẩn khi đã hiện hết) ── --}}
     <div class="book-loadmore-row" x-show="dateLimit < totalDates" x-cloak>
         <button type="button" class="book-loadmore-btn" @click="loadMoreDates()">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">

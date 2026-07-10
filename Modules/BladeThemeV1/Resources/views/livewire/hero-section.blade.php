@@ -40,6 +40,36 @@
                     return loc ? loc.name : 'Chọn địa điểm';
                 },
                 get guestsLabel() { return this.guestOptions[this.selectedGuestsVal] || 'Thêm khách'; },
+                init() {
+                    this.syncLocationFromUrl();
+                    this.autoFillLocation();
+                    this.syncGuestsFromUrl();
+                    window.addEventListener('province-selected', () => this.autoFillLocation());
+                },
+                // Xem giải thích chi tiết ở _banner-form.blade.php.
+                syncGuestsFromUrl() {
+                    if (this.selectedGuestsVal) return;
+                    const adults = window.parseGuestsFromUrl ? window.parseGuestsFromUrl() : '';
+                    if (adults && this.guestOptions[adults] !== undefined) this.selectedGuestsVal = adults;
+                },
+                // Xem giải thích chi tiết ở _banner-form.blade.php.
+                syncLocationFromUrl() {
+                    if (this.selectedLocationSlug) return;
+                    const slug = window.parseLocationSlugFromUrl ? window.parseLocationSlugFromUrl() : '';
+                    if (!slug) return;
+                    const loc = this.mobileLocations.find(l => l.slug === slug);
+                    if (loc) this.selectedLocationSlug = loc.slug;
+                },
+                // Khách đã đăng nhập và có province_id trên tài khoản: xem giải thích chi tiết ở
+                // _banner-form.blade.php.
+                autoFillLocation() {
+                    if (this.selectedLocationSlug) return;
+                    if (!localStorage.getItem('auth_token')) return;
+                    const provinceId = localStorage.getItem('home_province_id');
+                    if (!provinceId) return;
+                    const loc = this.mobileLocations.find(l => String(l.id) === String(provinceId));
+                    if (loc) this.selectedLocationSlug = loc.slug;
+                },
                 locateMe() {
                     this.locating = true;
                     window.heroLocateNearest(

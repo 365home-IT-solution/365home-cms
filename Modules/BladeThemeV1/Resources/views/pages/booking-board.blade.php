@@ -201,13 +201,24 @@
     @livewire('bladethemev1::contact-link')
     @livewire('bladethemev1::notification')
 
-    <script src="{{ asset('js/home-sections.js') }}"></script>
+    <script src="{{ asset('js/home-sections.js') }}?v={{ filemtime(public_path('js/home-sections.js')) }}"></script>
     <script>
         (function () {
             const root = document.getElementById('branch-rooms-root');
             if (!root) return;
 
             const branchSlug = @json($branch->slug);
+
+            const emptyStateHtml = '<div style="padding:2.5rem 1rem; text-align:center;">'
+                + '<svg style="width:40px;height:40px;color:#d1d5db;margin:0 auto 12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">'
+                + '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>'
+                + '</svg>'
+                + '<p style="color:#6b7280;font-size:14px;margin:0;">Không tìm thấy phòng nào phù hợp.</p>'
+                + '</div>';
+
+            const errorStateHtml = '<div style="padding:2.5rem 1rem; text-align:center;">'
+                + '<p style="color:#6b7280;font-size:14px;margin:0;">Không tải được danh sách phòng. Vui lòng thử lại.</p>'
+                + '</div>';
 
             const load = async () => {
                 const token = localStorage.getItem('auth_token');
@@ -221,7 +232,7 @@
                     const rooms = json.data || [];
 
                     if (!rooms.length) {
-                        root.innerHTML = '';
+                        root.innerHTML = emptyStateHtml;
                         return;
                     }
 
@@ -246,7 +257,7 @@
                         window.Alpine.initTree(root);
                     }
                 } catch (e) {
-                    root.innerHTML = '';
+                    root.innerHTML = errorStateHtml;
                 }
             };
 

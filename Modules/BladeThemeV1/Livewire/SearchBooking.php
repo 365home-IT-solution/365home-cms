@@ -62,8 +62,18 @@ class SearchBooking extends Component
     {
         $this->depositError = '';
 
+        $phone = preg_replace('/[^0-9]/', '', $this->sdt);
+
+        if (empty($phone)) {
+            $this->depositError = 'Vui lòng tra cứu đơn bằng số điện thoại trước khi thanh toán.';
+            return;
+        }
+
         try {
-            $order = Order::with('items')->where('order_code', $orderCode)->firstOrFail();
+            $order = Order::with('items')
+                ->where('order_code', $orderCode)
+                ->where('buyer_phone', $phone)
+                ->firstOrFail();
 
             if ($order->status !== 'deposit' || $order->deposit_percent === null) {
                 $this->depositError = 'Đơn này không ở trạng thái chờ thanh toán cọc.';
@@ -127,8 +137,18 @@ class SearchBooking extends Component
     {
         $this->remainingError = '';
 
+        $phone = preg_replace('/[^0-9]/', '', $this->sdt);
+
+        if (empty($phone)) {
+            $this->remainingError = 'Vui lòng tra cứu đơn bằng số điện thoại trước khi thanh toán.';
+            return;
+        }
+
         try {
-            $order = Order::with('items')->where('order_code', $orderCode)->firstOrFail();
+            $order = Order::with('items')
+                ->where('order_code', $orderCode)
+                ->where('buyer_phone', $phone)
+                ->firstOrFail();
 
             if ($order->status !== 'deposit') {
                 $this->remainingError = 'Đơn này không ở trạng thái chờ thanh toán còn lại.';

@@ -227,7 +227,7 @@
 
                 @php
                 // Dùng chung cho _mobile.blade.php trên mọi kích thước màn hình (đã bỏ bảng
-                // riêng cho desktop). Hiển thị mặc định 10 ngày, người dùng bấm "Xem thêm 5 ngày"
+                // riêng cho desktop). Hiển thị mặc định 10 ngày, người dùng bấm "Xem thêm 10 ngày"
                 // để hiện dần các ngày còn lại (xử lý bằng Alpine x-show theo $loop->index, không
                 // cần gọi lại server).
                 $dates = $this->getDatesForOneMonth();
@@ -236,19 +236,28 @@
                 $today = now()->startOfDay();
                 @endphp
 
-                @include('bladethemev1::livewire.book._legend')
+                @if($totalStyleOneRooms > 0)
+                    @include('bladethemev1::livewire.book._legend')
 
-                {{-- Bảng đặt phòng, và bên dưới là bảng tính giá (Giá cơ bản, tổng tiền tạm
-                     tính) — luôn xếp dọc (cả mobile lẫn desktop). Trên mobile, bảng tính giá này
-                     bị ẩn và thay bằng bottom sheet (bên dưới) để không chiếm chỗ khi chưa chọn
-                     khung giờ. --}}
-                <div class="book-panel">
-                    @include('bladethemev1::livewire.book._mobile')
+                    {{-- Bảng đặt phòng, và bên dưới là bảng tính giá (Giá cơ bản, tổng tiền tạm
+                         tính) — luôn xếp dọc (cả mobile lẫn desktop). Trên mobile, bảng tính giá này
+                         bị ẩn và thay bằng bottom sheet (bên dưới) để không chiếm chỗ khi chưa chọn
+                         khung giờ. --}}
+                    <div class="book-panel">
+                        @include('bladethemev1::livewire.book._mobile')
 
-                    <div class="book-pricing-desktop">
-                        @include('bladethemev1::livewire.book._pricing')
+                        <div class="book-pricing-desktop">
+                            @include('bladethemev1::livewire.book._pricing')
+                        </div>
                     </div>
-                </div>
+                @else
+                    <div style="padding:2.5rem 1rem; text-align:center;">
+                        <svg style="width:40px;height:40px;color:#d1d5db;margin:0 auto 12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        <p style="color:#6b7280;font-size:14px;margin:0;">Không có phòng khả dụng cho danh mục này.</p>
+                    </div>
+                @endif
 
             </div>
             @endif

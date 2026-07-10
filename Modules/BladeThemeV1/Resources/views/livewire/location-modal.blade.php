@@ -9,14 +9,47 @@
         error: '',
 
         init() {
-            if (!localStorage.getItem('home_province_id')) {
-                this.open = true;
-                this.loadProvinces();
-            }
+            this.initProvince();
             window.addEventListener('open-location-modal', () => {
                 this.open = true;
                 if (!this.loaded) this.loadProvinces();
             });
+        },
+
+        // Khách đã đăng nhập và có sẵn province_id trên tài khoản (chọn từ trước, ở thiết bị khác...)
+        // thì ưu tiên dùng ngay giá trị đó, không hỏi lại — kể cả khi localStorage của trình duyệt
+        // này chưa có/đã khác. Chỉ khi không đăng nhập hoặc tài khoản chưa có province_id mới rơi về
+        // hành vi cũ: dựa vào localStorage, thiếu thì mới mở modal hỏi khu vực.
+        initProvince() {
+            const token = localStorage.getItem('auth_token');
+            if (!token) {
+                if (!localStorage.getItem('home_province_id')) {
+                    this.open = true;
+                    this.loadProvinces();
+                }
+                return;
+            }
+
+            fetch('/api/v1/provinces/select', {
+                headers: { 'Accept': 'application/json', 'Authorization': 'Bearer ' + token },
+            })
+                .then(res => (res.status === 204 ? null : res.json()))
+                .then(data => {
+                    if (data && data.id) {
+                        localStorage.setItem('home_province_id', data.id);
+                        localStorage.setItem('home_province_name', data.name);
+                        window.dispatchEvent(new CustomEvent('province-selected', { detail: data }));
+                    } else if (!localStorage.getItem('home_province_id')) {
+                        this.open = true;
+                        this.loadProvinces();
+                    }
+                })
+                .catch(() => {
+                    if (!localStorage.getItem('home_province_id')) {
+                        this.open = true;
+                        this.loadProvinces();
+                    }
+                });
         },
 
         get filteredProvinces() {

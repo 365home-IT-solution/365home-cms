@@ -960,7 +960,7 @@
         // (initSearchMap có guard mapEl._leaflet_id, gọi lại lần 2 sẽ không dựng lại marker).
     </script>
 
-    <script src="{{ asset('js/home-sections.js') }}"></script>
+    <script src="{{ asset('js/home-sections.js') }}?v={{ filemtime(public_path('js/home-sections.js')) }}"></script>
     <script src="{{ asset('js/search-results.js') }}"></script>
  @livewire('bladethemev1::footer')
     @livewire('bladethemev1::contact-link')

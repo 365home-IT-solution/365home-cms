@@ -1,5 +1,6 @@
-// Trang tìm kiếm phòng (/s/{location}) — tải kết quả qua REST API (/api/v1/search) bằng JS
-// thuần thay vì Livewire, giống cách trang chủ đang dùng /api/v1/home + home-sections.js. Card
+// Trang tìm kiếm phòng (/s/{location}) — tải kết quả qua GraphQL (POST /api/graphql, pilot
+// Automatic Persisted Queries — xem crystalline-toasting-sunrise.md) bằng JS thuần thay vì
+// Livewire, giống cách trang chủ đang dùng /api/v1/home + home-sections.js. Card
 // phòng tái dùng thẳng window.roomCardHtml() (đã có sẵn nút yêu thích) để đồng nhất giao diện
 // với trang chủ. Mỗi phòng thuộc về 1 chi nhánh riêng — được API gắn kèm (room.branch) — nên ở
 // đây nhóm lại theo chi nhánh, mỗi chi nhánh 1 dòng riêng, bên dưới là các card phòng của chi
@@ -18,19 +19,64 @@
         return m ? decodeURIComponent(m[1]) : '';
     }
 
-    function buildApiUrl() {
+    // Field kiểu Int trong SearchFiltersInput (xem app/GraphQL/SearchSchema.php) — GraphQL ép kiểu
+    // chặt, string "2" bị từ chối (khác REST tự nới lỏng), nên phải Number() trước khi gửi.
+    var INT_FILTER_KEYS = ['adults', 'month', 'year', 'ward_code', 'province_id', 'page', 'per_page'];
+
+    function buildSearchFilters() {
         var params = new URLSearchParams(window.location.search);
-        var apiParams = new URLSearchParams();
+        var filters = {};
         var location = parseLocationFromPath();
-        if (location) apiParams.set('province', location);
-        ['type', 'buoi', 'checkin', 'checkout'].forEach(function (key) {
+        if (location) filters.province = location;
+        ['type', 'buoi', 'checkin', 'checkout', 'time_type', 'date', 'time_from', 'time_to', 'adults'].forEach(function (key) {
             var v = params.get(key);
-            if (v) apiParams.set(key, v);
+            if (!v) return;
+            filters[key] = INT_FILTER_KEYS.indexOf(key) !== -1 ? parseInt(v, 10) : v;
         });
         // per_page=100 (tối đa API cho phép) — trang tìm kiếm không phân trang, hiển thị hết
         // phòng phù hợp trong 1 tỉnh/chi nhánh giống trải nghiệm cũ.
-        apiParams.set('per_page', '100');
-        return '/api/v1/search?' + apiParams.toString();
+        filters.per_page = 100;
+        return filters;
+    }
+
+    // ─── Pilot GraphQL + Automatic Persisted Queries (APQ) ─────────────────────
+    // Chỉ trang này (kết quả tìm kiếm) dùng GraphQL — xem
+    // /Users/nitert/.claude/plans/crystalline-toasting-sunrise.md để biết bối cảnh. Query cố
+    // định, không đổi lúc chạy, nên hash SHA-256 được tính sẵn 1 lần (không cần Web Crypto API).
+    // Nếu sửa SEARCH_QUERY, phải tính lại hash: python3 -c "import hashlib; print(hashlib.sha256('<query>'.encode()).hexdigest())"
+    var SEARCH_QUERY = 'query SearchRooms($filters: SearchFiltersInput) { search(filters: $filters) { data { id slug name thumbnail_url room_style badge { label type bg_color text_color } price { amount unit_label } rating wishlist_status is_available latitude longitude address branch { id name slug } distance } meta { current_page last_page per_page total province_name type_name } } }';
+    var SEARCH_QUERY_HASH = '90ad5239e427fa9f1d90611c279e9ec91b4cc4bfc6428d28b7d7f5c38c18d84c';
+
+    async function graphqlRequest(body, headers) {
+        var res = await fetch('/api/graphql', {
+            method: 'POST',
+            headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
+            body: JSON.stringify(body),
+        });
+        return res.json();
+    }
+
+    // Gửi hash trước (payload nhỏ); nếu server chưa cache được query (PersistedQueryNotFound)
+    // thì gửi lại 1 lần kèm query text đầy đủ, giống Apollo Automatic Persisted Queries.
+    async function graphqlSearch(filters, headers) {
+        var json = await graphqlRequest({
+            variables: { filters: filters },
+            extensions: { persistedQuery: { version: 1, sha256Hash: SEARCH_QUERY_HASH } },
+        }, headers);
+
+        var notFound = json.errors && json.errors.some(function (e) { return e.message === 'PersistedQueryNotFound'; });
+        if (notFound) {
+            json = await graphqlRequest({
+                query: SEARCH_QUERY,
+                variables: { filters: filters },
+                extensions: { persistedQuery: { version: 1, sha256Hash: SEARCH_QUERY_HASH } },
+            }, headers);
+        }
+
+        return {
+            data: (json.data && json.data.search && json.data.search.data) || [],
+            meta: (json.data && json.data.search && json.data.search.meta) || {},
+        };
     }
 
     // ?view=branches (từ "Xem tất cả" của block Gợi ý điểm đến loại Chi nhánh) — liệt kê chi
@@ -249,10 +295,9 @@
         var rooms = [];
         var meta = {};
         try {
-            var res = await fetch(buildApiUrl(), { headers: headers });
-            var json = await res.json();
-            rooms = json.data || [];
-            meta = json.meta || {};
+            var result = await graphqlSearch(buildSearchFilters(), headers);
+            rooms = result.data;
+            meta = result.meta;
         } catch (e) {
             console.error('search results fetch error', e);
         }

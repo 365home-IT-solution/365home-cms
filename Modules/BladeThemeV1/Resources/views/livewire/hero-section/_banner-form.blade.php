@@ -13,6 +13,41 @@
                             return loc ? loc.name : 'Chọn địa điểm';
                         },
                         get guestsLabel() { return this.guestOptions[this.selectedGuestsVal] || 'Thêm khách'; },
+                        init() {
+                            this.syncLocationFromUrl();
+                            this.autoFillLocation();
+                            this.syncGuestsFromUrl();
+                            window.addEventListener('province-selected', () => this.autoFillLocation());
+                        },
+                        // Trang /s/{slug}?adults=... không truyền $selectedGuests vào component này
+                        // — đọc lại từ URL để ô Khách khớp đúng lựa chọn trước đó.
+                        syncGuestsFromUrl() {
+                            if (this.selectedGuestsVal) return;
+                            const adults = window.parseGuestsFromUrl ? window.parseGuestsFromUrl() : '';
+                            if (adults && this.guestOptions[adults] !== undefined) this.selectedGuestsVal = adults;
+                        },
+                        // Trang /s/{slug} không truyền $selectedLocation vào component này — tự đọc
+                        // từ URL trước tiên (ưu tiên cao nhất, khớp đúng nơi đang xem) để bấm tìm
+                        // kiếm lại không bị rơi mất địa điểm, biến thành tìm toàn quốc ngoài ý muốn.
+                        syncLocationFromUrl() {
+                            if (this.selectedLocationSlug) return;
+                            const slug = window.parseLocationSlugFromUrl ? window.parseLocationSlugFromUrl() : '';
+                            if (!slug) return;
+                            const loc = this.mobileLocations.find(l => l.slug === slug);
+                            if (loc) this.selectedLocationSlug = loc.slug;
+                        },
+                        // Khách đã đăng nhập và có province_id trên tài khoản (được location-modal
+                        // ghi vào localStorage lúc vào trang — xem location-modal.blade.php) thì tự
+                        // hiển thị khu vực đó ở ô Địa điểm, không bắt chọn lại. Không đụng tới nếu ô
+                        // đã có giá trị sẵn (từ URL hoặc khách đã tự chọn) hoặc khách chưa đăng nhập.
+                        autoFillLocation() {
+                            if (this.selectedLocationSlug) return;
+                            if (!localStorage.getItem('auth_token')) return;
+                            const provinceId = localStorage.getItem('home_province_id');
+                            if (!provinceId) return;
+                            const loc = this.mobileLocations.find(l => String(l.id) === String(provinceId));
+                            if (loc) this.selectedLocationSlug = loc.slug;
+                        },
                         // this.open = true đặt trong setTimeout (không phải ngay lập tức): click chọn
                         // địa điểm xảy ra ngoài phạm vi field Thời gian, nên @click.outside đóng field
                         // đó cũng bắn ra trong cùng lượt sự kiện này — nếu set open=true ngay thì sẽ
@@ -21,6 +56,8 @@
                         pickLocation(slug) {
                             this.selectedLocationSlug = slug;
                             this.locOpen = false;
+                            const loc = this.mobileLocations.find(l => l.slug === slug);
+                            if (loc) window.persistProvinceSelection(loc);
                             setTimeout(() => {
                                 this.open = true;
                                 this.$nextTick(() => this.openDateDropdown(this.$refs.dateDropdownDesktop));
@@ -33,6 +70,7 @@
                                 @js($locations),
                                 (loc) => {
                                     this.locating = false; this.locOpen = false; this.selectedLocationSlug = loc.slug;
+                                    window.persistProvinceSelection(loc);
                                     this.mobileStep = (this.mobileStep === 1 ? 2 : this.mobileStep);
                                     setTimeout(() => {
                                         this.open = true;

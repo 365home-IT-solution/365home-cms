@@ -67,6 +67,12 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(10)->by($request->ip());
         });
 
+        // public-api: 40/phút/IP — siết chặt hơn mức mặc định 60/phút cho các endpoint
+        // public "nặng" (home, search) dễ bị scraper dò toàn bộ dữ liệu phòng/giá.
+        RateLimiter::for('public-api', function (Request $request) {
+            return Limit::perMinute(40)->by($request->user()?->id ?: $request->ip());
+        });
+
         $this->routes(function () {
             Route::middleware('api')
                 ->prefix('api')

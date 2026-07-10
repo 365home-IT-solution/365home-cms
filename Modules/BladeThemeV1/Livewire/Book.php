@@ -32,9 +32,8 @@ class Book extends Component
     /** Dữ liệu đầy đủ (sản phẩm + timeslot + đơn đã đặt) — chỉ load cho danh mục active. */
     public array $activeCategoryData = [];
 
-    /** Số ngày đang hiển thị trong bảng lịch — bắt đầu nhỏ, mở rộng dần qua loadMoreDays(). */
-    public int $visibleDays = self::INITIAL_VISIBLE_DAYS;
-
+    // Số ngày hiện mặc định / tối đa trong bảng lịch — book/_mobile.blade.php dùng Alpine
+    // (dateLimit) để hiện dần, không round-trip server.
     const INITIAL_VISIBLE_DAYS = 10;
     const MAX_VISIBLE_DAYS = 31;
     const LOAD_MORE_DAYS_STEP = 10;
@@ -92,14 +91,8 @@ class Book extends Component
         }
 
         $this->activeCategoryId = $categoryId;
-        $this->visibleDays = self::INITIAL_VISIBLE_DAYS;
         $this->loadActiveCategoryData();
         $this->dispatch('book-category-changed');
-    }
-
-    public function loadMoreDays(): void
-    {
-        $this->visibleDays = min($this->visibleDays + self::LOAD_MORE_DAYS_STEP, self::MAX_VISIBLE_DAYS);
     }
 
     protected function loadActiveCategoryData(): void
@@ -180,7 +173,9 @@ class Book extends Component
 
     // Nếu chưa qua 7:30 sáng, hiển thị cả ngày hôm qua
     $startDate = $now->lt($cutoff) ? Carbon::yesterday() : Carbon::today();
-    $daysCount = $this->visibleDays;
+    // Luôn build đủ MAX_VISIBLE_DAYS — chỉ hiện dần ở phía Alpine (dateLimit trong
+    // book/_mobile.blade.php), không cần round-trip server khi bấm "Xem thêm ngày".
+    $daysCount = self::MAX_VISIBLE_DAYS;
 
     for ($i = 0; $i < $daysCount; $i++) {
         $date = $startDate->copy()->addDays($i);

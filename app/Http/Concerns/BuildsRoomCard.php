@@ -110,6 +110,10 @@ trait BuildsRoomCard
             ->whereNotIn('status', ['booked']);
 
         if ($timeFrom !== null && $timeTo !== null) {
+            // OVERLAP — khung giờ chỉ cần giao với [timeFrom, timeTo] là tính hợp lệ, không bắt
+            // buộc nằm trọn trong khoảng tìm. Phải khớp đúng logic filter DB ở
+            // RoomSearchService::search(), nếu không phòng khớp tìm kiếm (overlap) có thể rơi vào
+            // đây bị lọc hết slot (containment), khiến card hiển thị giá null dù đã match search.
             $slots = $slots->filter(function ($roomSlot) use ($timeFrom, $timeTo) {
                 if ($roomSlot->over_night) {
                     return false;
@@ -118,8 +122,8 @@ trait BuildsRoomCard
                 if (! $ts || ! $ts->start_time || ! $ts->end_time) {
                     return false;
                 }
-                return substr($ts->start_time, 0, 5) >= $timeFrom
-                    && substr($ts->end_time, 0, 5) <= $timeTo;
+                return substr($ts->start_time, 0, 5) < $timeTo
+                    && substr($ts->end_time, 0, 5) > $timeFrom;
             });
         }
 

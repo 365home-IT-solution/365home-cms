@@ -127,7 +127,7 @@
         }
     </style>
 
-    <script src="{{ asset('js/home-sections.js') }}"></script>
+    <script src="{{ asset('js/home-sections.js') }}?v={{ filemtime(public_path('js/home-sections.js')) }}"></script>
 
     <script>
         (function () {
