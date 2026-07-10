@@ -6,7 +6,6 @@ namespace Modules\TTLock\App\Filament\Resources;
 
 use Modules\TTLock\App\Filament\Resources\TtlockAccountResource\Pages;
 use Modules\TTLock\Entities\TtlockAccount;
-use Illuminate\Database\Eloquent\Builder;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -32,35 +31,7 @@ class TtlockAccountResource extends Resource
 
     public static function canViewAny(): bool
     {
-        $user = auth()->user();
-        if (! $user) {
-            return false;
-        }
-        if ($user->isSuperAdmin()) {
-            return true;
-        }
-        return ! empty($user->allowedBranchIds());
-    }
-
-    public static function getEloquentQuery(): Builder
-    {
-        $query = parent::getEloquentQuery();
-        $user  = auth()->user();
-
-        if (! $user || $user->isSuperAdmin()) {
-            return $query;
-        }
-
-        $branchIds = $user->allowedBranchIds();
-
-        if (empty($branchIds)) {
-            return $query->whereRaw('1 = 0');
-        }
-
-        return $query->whereHas(
-            'categories',
-            fn ($q) => $q->whereIn('categories.id', $branchIds)
-        );
+        return auth()->user()?->isSuperAdmin() ?? false;
     }
 
     public static function form(Form $form): Form
@@ -132,17 +103,7 @@ class TtlockAccountResource extends Resource
                             ->relationship(
                                 'categories',
                                 'name',
-                                function ($query) {
-                                    $query->where('category_type', 'product')
-                                        ->orderBy('name');
-
-                                    $user = auth()->user();
-                                    if ($user && ! $user->isSuperAdmin()) {
-                                        $query->whereIn('id', $user->allowedBranchIds());
-                                    }
-
-                                    return $query;
-                                }
+                                fn ($query) => $query->where('category_type', 'product')->orderBy('name')
                             )
                             ->searchable()
                             ->preload(),
