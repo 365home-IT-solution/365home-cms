@@ -1,5 +1,6 @@
 /.phpunit.cache
 /node_modules
+/websocket/node_modules
 /public/build
 /public/build-bladethemev1
 /public/build-post
