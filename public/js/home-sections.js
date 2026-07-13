@@ -1,3 +1,87 @@
+// ── Center Mode carousel cho lịch đặt phòng theo phòng (book/_desktop-grid.blade.php) ──
+// Đặt ở đây (thay vì 1 <script> nằm trong chính view của Book) vì view đó chỉ xuất hiện trong DOM
+// SAU KHI Livewire morph vào (Book mount với config rỗng trước, nạp chi nhánh đầu tiên qua sự
+// kiện 'load-branch' — xem homeBookingBoard() bên dưới) — trình duyệt KHÔNG tự thực thi <script>
+// được chèn qua DOM patching kiểu đó, chỉ có directive Alpine (x-init) mới được Livewire+Alpine
+// tự động re-init trên nội dung mới morph vào. File này thì load bình thường qua <script src>
+// ngay từ đầu ở mọi trang dùng Book.php (flash-sale.blade.php, search.blade.php,
+// booking-board.blade.php) nên luôn sẵn sàng trước khi x-init cần gọi tới.
+if (typeof window.mountBookDtSwiper === 'undefined') {
+    // idempotent: destroy instance cũ trước khi tạo mới — an toàn khi Livewire morph lại DOM của
+    // carousel (đổi chi nhánh, đổi tỉnh...) làm mất hết class active/next/prev do Swiper gán ra.
+    window.mountBookDtSwiper = function (wrapEl) {
+        if (typeof Swiper === 'undefined' || !wrapEl) return;
+        const container = wrapEl.querySelector('.book-dt-swiper');
+        if (!container || !container.querySelector('.swiper-slide')) return;
+        if (container.swiper) container.swiper.destroy(true, true);
+
+        const alpineData = window.Alpine ? window.Alpine.$data(wrapEl) : null;
+
+        // Mặc định mở ở phòng thứ 2 (không phải phòng đầu) khi có từ 3 phòng trở lên, để ngay
+        // lần đầu vào trang đã thấy peek 2 bên (cảm giác "có phòng bên cạnh") thay vì phải bấm
+        // next 1 lần mới thấy — phòng đầu tiên (index 0) không có gì phía trước nên luôn chỉ
+        // peek được 1 bên dù có centeredSlides.
+        const slideCount = container.querySelectorAll('.swiper-slide').length;
+        const initialSlide = slideCount >= 3 ? 1 : 0;
+
+        new Swiper(container, {
+            centeredSlides: true,
+            initialSlide,
+            slideToClickedSlide: true,
+            grabCursor: true,
+            observer: true,
+            observeParents: true,
+            slidesPerView: 1.9,
+            spaceBetween: 16,
+            breakpoints: {
+                1280: { slidesPerView: 2.0, spaceBetween: 18 },
+                1536: { slidesPerView: 2.1, spaceBetween: 20 },
+            },
+            navigation: {
+                nextEl: wrapEl.querySelector('.book-dt-nav-next'),
+                prevEl: wrapEl.querySelector('.book-dt-nav-prev'),
+            },
+            pagination: {
+                el: wrapEl.querySelector('.book-dt-pagination'),
+                clickable: true,
+            },
+            on: {
+                slideChange(sw) {
+                    if (!alpineData) return;
+                    alpineData.activeRoomIdx = sw.activeIndex;
+                    // Giữ nguyên vị trí cuộn dọc khi đổi phòng (mọi phòng dùng chung 1 dải ngày).
+                    requestAnimationFrame(() => {
+                        const dateCol = wrapEl.querySelector('.book-dt-dates-scroll');
+                        const target = container.querySelectorAll('.swiper-slide')[sw.activeIndex]?.querySelector('.book-dt-slots-scroll');
+                        if (dateCol && target) target.scrollTop = dateCol.scrollTop;
+                    });
+                },
+            },
+        });
+
+        // Swiper không bắn 'slideChange' cho initialSlide lúc khởi tạo — đồng bộ tay để scroll
+        // 2 chiều (cột Ngày ⇄ khung giờ phòng) khớp đúng phòng đang hiện ra ngay từ đầu.
+        if (alpineData) alpineData.activeRoomIdx = initialSlide;
+    };
+}
+
+// Hook toàn cục (đăng ký 1 lần): mỗi khi Livewire morph lại 1 vùng chứa (hoặc nằm trong)
+// .book-dt-wrap — ví dụ đổi chi nhánh, hoặc lần đầu nạp dữ liệu sau khi mount rỗng — gắn lại
+// Swiper để không bị mất class active/next/prev do morph ghi đè DOM.
+if (typeof window.__bookDtMorphHookRegistered === 'undefined') {
+    window.__bookDtMorphHookRegistered = true;
+    document.addEventListener('livewire:init', () => {
+        Livewire.hook('morph.updated', ({ el }) => {
+            const wraps = el.classList && el.classList.contains('book-dt-wrap')
+                ? [el]
+                : (el.querySelectorAll ? Array.from(el.querySelectorAll('.book-dt-wrap')) : []);
+            const ancestorWrap = el.closest ? el.closest('.book-dt-wrap') : null;
+            if (ancestorWrap && !wraps.includes(ancestorWrap)) wraps.push(ancestorWrap);
+            wraps.forEach((wrapEl) => window.mountBookDtSwiper(wrapEl));
+        });
+    });
+}
+
 if (typeof window.__homeVnd === 'undefined') {
     window.__homeVnd = function (amount) {
         return Number(amount || 0).toLocaleString('vi-VN') + 'đ';
@@ -116,6 +200,12 @@ if (typeof window.carouselNav === 'undefined') {
                     el.addEventListener('scroll', () => this.check(), { passive: true });
                     window.addEventListener('resize', () => this.check());
                     new MutationObserver(() => this.check()).observe(el, { childList: true });
+                    // ResizeObserver bắt luôn trường hợp track đổi từ display:none (x-show="false"
+                    // lúc chưa có dữ liệu) sang hiện thật — lúc đó childList có thể đã đổi trước khi
+                    // box thật sự hiện ra nên MutationObserver một mình đo hụt (ra 0x0).
+                    if (typeof ResizeObserver !== 'undefined') {
+                        new ResizeObserver(() => this.check()).observe(el);
+                    }
                 });
             },
 
@@ -157,11 +247,30 @@ if (typeof window.__roomTypeImage === 'undefined') {
     };
 }
 
+// Icon đứng cạnh/trên tên loại hình dịch vụ ở hàng nút "Loại hình dịch vụ" (xem flash-sale.blade.php).
+if (typeof window.__roomTypeIconMap === 'undefined') {
+    window.__roomTypeIconMap = {
+        homestay: '/images/homestay.png',
+        hotel: '/images/hotel.png',
+        motel: '/images/motel.png',
+        villa: '/images/villa.png',
+        apartment: '/images/apartment.png',
+        mini_house: '/images/minihouse.png',
+    };
+}
+
+if (typeof window.__roomTypeIcon === 'undefined') {
+    window.__roomTypeIcon = function (type) {
+        return window.__roomTypeIconMap[type.slug] || type.icon_url || '';
+    };
+}
+
 if (typeof window.homeSections === 'undefined') {
     window.homeSections = function () {
         return {
             sections: [],
             roomTypes: [],
+            bannerSection: null,
             loading: true,
             provinceName: localStorage.getItem('home_province_name') || '',
 
@@ -191,9 +300,179 @@ if (typeof window.homeSections === 'undefined') {
                             .filter(s => allowed.includes(s.type))
                             .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
                         this.roomTypes = data?.home?.room_types || [];
+                        // Banner đầu tiên được kéo ra hiển thị chung hàng với loại hình dịch vụ
+                        // (2 cột center-mode carousel) — vẫn giữ nguyên trong `sections` để branch
+                        // banner ở vòng lặp bên dưới có thể so sánh và bỏ qua nó (tránh render
+                        // trùng), phòng khi CMS cấu hình nhiều hơn 1 block banner.
+                        this.bannerSection = this.sections.find(s => s.type === 'banner' && s.items && s.items.length) || null;
+                        this.$nextTick(() => {
+                            this.mountRoomTypeSwiper();
+                            this.mountBannerSwiper();
+                        });
                     })
-                    .catch(() => { this.sections = []; this.roomTypes = []; })
+                    .catch(() => { this.sections = []; this.roomTypes = []; this.bannerSection = null; })
                     .finally(() => { this.loading = false; });
+            },
+
+            // Peek rất nhỏ ở 2 bên (chỉ đủ hé 1 chút mép ảnh kế cận để biết còn ảnh khác) — ảnh
+            // chính gần như lấp đầy trọn cột. Dùng chung cho cả 2 carousel.
+            _centerBreakpoints: {
+                0: { slidesPerView: 1.04, spaceBetween: 6 },
+                480: { slidesPerView: 1.05, spaceBetween: 6 },
+                640: { slidesPerView: 1.05, spaceBetween: 8 },
+                768: { slidesPerView: 1.06, spaceBetween: 8 },
+                1024: { slidesPerView: 1.04, spaceBetween: 8 },
+                1280: { slidesPerView: 1.05, spaceBetween: 8 },
+                1536: { slidesPerView: 1.06, spaceBetween: 10 },
+            },
+
+            mountRoomTypeSwiper() {
+                this._mountCenterSwiper(this.$refs.roomTypeSwiperEl, {
+                    breakpoints: this._centerBreakpoints,
+                    loop: this.roomTypes.length > 3,
+                    navId: 'hs-roomtype',
+                });
+            },
+
+            mountBannerSwiper() {
+                if (!this.bannerSection) return;
+                this._mountCenterSwiper(this.$refs.bannerSwiperEl, {
+                    breakpoints: this._centerBreakpoints,
+                    // Banner tự động chuyển slide — bật loop khi có từ 2 banner trở lên để tự
+                    // quay vòng lại từ đầu thay vì dừng khựng ở slide cuối.
+                    loop: this.bannerSection.items.length > 1,
+                    navId: 'hs-banner',
+                    autoplay: { delay: 4000, disableOnInteraction: false, pauseOnMouseEnter: true },
+                });
+            },
+
+            // Dùng chung cho cả 2 carousel "Center Mode" (loại hình dịch vụ + banner). Mỗi lần
+            // dữ liệu load lại (đổi tỉnh, đăng nhập/xuất) sẽ destroy instance cũ rồi tạo mới —
+            // đơn giản và an toàn hơn cố gắng update() từng phần, tần suất reload thấp nên không
+            // đáng lo hiệu năng.
+            _mountCenterSwiper(container, opts) {
+                if (typeof Swiper === 'undefined' || !container) return;
+                if (container.swiper) container.swiper.destroy(true, true);
+                if (!container.querySelector('.swiper-slide')) return;
+
+                new Swiper(container, {
+                    centeredSlides: true,
+                    slidesPerView: opts.breakpoints[0].slidesPerView,
+                    spaceBetween: opts.breakpoints[0].spaceBetween,
+                    loop: opts.loop,
+                    autoplay: opts.autoplay || false,
+                    grabCursor: true,
+                    observer: true,
+                    observeParents: true,
+                    watchOverflow: true,
+                    navigation: {
+                        nextEl: '#' + opts.navId + '-next',
+                        prevEl: '#' + opts.navId + '-prev',
+                    },
+                    pagination: {
+                        el: '#' + opts.navId + '-pagination',
+                        clickable: true,
+                    },
+                    breakpoints: opts.breakpoints,
+                });
+            },
+        };
+    };
+}
+
+if (typeof window.homeBookingBoard === 'undefined') {
+    window.homeBookingBoard = function () {
+        return {
+            provinces: [],
+            branches: [],
+            activeProvinceId: null,
+            activeBranchSlug: null,
+            loadingBranches: false,
+
+            init() {
+                this.activeProvinceId = localStorage.getItem('home_province_id') || null;
+                this.loadProvinces();
+                window.addEventListener('province-selected', (e) => {
+                    const id = String(e.detail?.id || localStorage.getItem('home_province_id') || '');
+                    if (id && id !== this.activeProvinceId) {
+                        this.activeProvinceId = id;
+                        this.loadBranches();
+                    }
+                });
+            },
+
+            loadProvinces() {
+                fetch('/api/v1/provinces')
+                    .then(res => res.json())
+                    .then(data => {
+                        this.provinces = data.provinces || [];
+                        if (!this.activeProvinceId && this.provinces.length) {
+                            this.activeProvinceId = String(this.provinces[0].id);
+                        }
+                        this.loadBranches();
+                    })
+                    .catch(() => { this.provinces = []; });
+            },
+
+            // Đồng bộ localStorage + bắn 'province-selected' giống location-modal.blade.php, để
+            // phần còn lại của trang chủ (home-sections) cũng phản ứng nhất quán nếu user đổi
+            // tỉnh từ đúng widget này.
+            selectProvince(p) {
+                if (String(p.id) === this.activeProvinceId) return;
+                this.activeProvinceId = String(p.id);
+                localStorage.setItem('home_province_id', p.id);
+                localStorage.setItem('home_province_name', p.name);
+                window.dispatchEvent(new CustomEvent('province-selected', { detail: p }));
+                this.loadBranches();
+            },
+
+            loadBranches() {
+                if (!this.activeProvinceId) return;
+                this.loadingBranches = true;
+                this.branches = [];
+                fetch('/api/v1/search/branches?province_id=' + encodeURIComponent(this.activeProvinceId))
+                    .then(res => res.json())
+                    .then(data => {
+                        this.branches = data.data || [];
+                        if (this.branches.length) {
+                            this.selectBranch(this.branches[0]);
+                        }
+                    })
+                    .catch(() => { this.branches = []; })
+                    .finally(() => { this.loadingBranches = false; });
+            },
+
+            // Chặn dispatch 'load-branch' lặp lại cho cùng 1 chi nhánh — init() có thể chạy 2 lần
+            // (Alpine re-init khi Livewire morph dựng lại DOM của <section> này lúc trang chủ mới
+            // hydrate xong), mỗi lần gọi loadProvinces() → loadBranches() → selectBranch() riêng.
+            // Không có guard này, 2 lần dispatch gần như đồng thời làm Book morph lại 2 lần liên
+            // tiếp, gây giật/nhảy chiều cao khung lịch (và cả trang) trong chốc lát lúc mới vào trang.
+            selectBranch(b) {
+                if (this.activeBranchSlug === b.slug) return;
+                this.activeBranchSlug = b.slug;
+                window.Livewire.dispatch('load-branch', { slug: b.slug });
+            },
+
+            // Nút prev/next của hàng chi nhánh (home-booking-board.blade.php) gọi hàm này thay vì
+            // carouselNav().prev()/next() thuần cuộn — bấm prev/next giờ tự động active luôn chi
+            // nhánh liền trước/sau (không chỉ cuộn cho xem), đồng thời cuộn thẻ đó vào giữa khung
+            // nhìn. Dùng document.querySelector() (DOM thường, không phải this.$el/$nextTick của
+            // Alpine) vì nút prev/next nằm trong x-data="carouselNav()" lồng bên trong — magic
+            // $el/$nextTick của Alpine phân giải theo x-data GẦN NHẤT tại chỗ directive được viết
+            // (tức carouselNav, không phải homeBookingBoard nơi stepBranch được định nghĩa), nên
+            // gọi qua nút bấm thực tế bị lệch scope và không cuộn (đã xác nhận bằng test: gọi thẳng
+            // qua Alpine.$data() thì chạy đúng, còn bấm nút thật thì scrollLeft luôn đứng yên ở 0).
+            // Các thẻ chi nhánh luôn có sẵn trong DOM (x-for không gỡ bỏ khi đổi active), nên không
+            // cần chờ tick nào cả — query và cuộn ngay trong cùng lệnh gọi đồng bộ.
+            stepBranch(dir) {
+                if (!this.branches.length) return;
+                const idx = this.branches.findIndex(b => b.slug === this.activeBranchSlug);
+                const newIdx = Math.max(0, Math.min(this.branches.length - 1, (idx === -1 ? 0 : idx) + dir));
+                const target = this.branches[newIdx];
+                if (!target) return;
+                this.selectBranch(target);
+                const el = document.querySelector('[data-branch-slug="' + target.slug + '"]');
+                if (el) el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
             },
         };
     };

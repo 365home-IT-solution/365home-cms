@@ -16,7 +16,7 @@
         // rơi về placeholder trống khi vào trang kết quả.
         window.parseDateFromUrl = function () {
             const params = new URLSearchParams(window.location.search);
-            const result = { dayMode: params.get('buoi') === '2', checkIn: null, checkOut: null, checkInHour: null, checkOutHour: null };
+            const result = { dayMode: params.get('buoi') === '2', overnight: params.get('overnight') === '1', checkIn: null, checkOut: null, checkInHour: null, checkOutHour: null };
 
             const parseOne = (str) => {
                 const m = str && str.match(/^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,2}):(\d{2})$/);
@@ -113,6 +113,10 @@
                 open: false,
                 // false = tab "Theo giờ" (1 ngày + badge giờ nhận/trả), true = tab "Theo ngày" (khoảng ngày, giờ cố định 14:00/12:00)
                 dayMode: dayModeInit === true,
+                // Tab đang chọn ở hàng tab phía trên thanh tìm kiếm (hour/overnight/day) — "Qua đêm"
+                // dùng chung dayMode=false với "Theo giờ" (cùng UI chọn 1 ngày + badge giờ), chỉ khác
+                // là gửi kèm overnight=1 khi tìm kiếm để lọc phòng hỗ trợ qua đêm (xem submitSearch()).
+                activeTab: dayModeInit === true ? 'day' : 'hour',
                 // Loại hình dịch vụ (homestay/villa/...) — chỉ compact-form có tab chọn, khai báo
                 // ở scope ngoài cùng này (thay vì trong data-bar) vì các tab đó nằm NGOÀI data-bar.
                 selectedRoomType: roomTypeInit || 'all',
@@ -172,6 +176,7 @@
                     const parsed = window.parseDateFromUrl ? window.parseDateFromUrl() : null;
                     if (!parsed || !parsed.checkIn) return;
                     this.dayMode = parsed.dayMode;
+                    this.activeTab = parsed.dayMode ? 'day' : (parsed.overnight ? 'overnight' : 'hour');
                     this.checkIn = parsed.checkIn;
                     this.checkOut = parsed.checkOut || parsed.checkIn;
                     if (parsed.checkInHour !== null) this.checkInHour = parsed.checkInHour;
@@ -329,6 +334,9 @@
                         }
                     }
                     params.buoi = this.dayMode ? '2' : '1';
+                    // Tab "Qua đêm": vẫn tìm kiểu "Theo giờ" (buoi=1) nhưng thêm cờ lọc riêng —
+                    // chỉ hiện phòng hỗ trợ ở qua đêm (xem RoomSearchService::search()).
+                    if (this.activeTab === 'overnight') params.overnight = '1';
 
                     const query = new URLSearchParams(params).toString();
                     const path  = '/s/' + (this.selectedLocationSlug ? encodeURIComponent(this.selectedLocationSlug) : '');

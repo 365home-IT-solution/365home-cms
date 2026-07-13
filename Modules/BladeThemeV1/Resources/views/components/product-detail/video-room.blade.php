@@ -105,7 +105,7 @@
         <button
             @click="videoOpen = false"
             type="button"
-            style="position:fixed;top:16px;right:20px;z-index:10010;background:rgba(0,0,0,.6);border:2px solid rgba(255,255,255,.5);color:#fff;font-size:28px;line-height:1;cursor:pointer;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background .2s;"
+            style="position:fixed;top:4px;right:13px;z-index:10010;background:rgba(0,0,0,.6);border:2px solid rgba(255,255,255,.5);color:#fff;font-size:28px;line-height:1;cursor:pointer;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background .2s;"
             onmouseover="this.style.background='rgba(0,0,0,.85)'"
             onmouseout="this.style.background='rgba(0,0,0,.6)'">
             &times;

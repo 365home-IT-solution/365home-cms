@@ -3,6 +3,14 @@
 <x-bladethemev1::seo :seoData="$seoData" />
 
 @section('content')
+    @php
+        // ?view=branches — panel bên phải hiển thị danh sách phòng + bảng đặt khung giờ của chi
+        // nhánh được chọn (thay cho bản đồ, không có ý nghĩa khi đang liệt kê chi nhánh). Livewire
+        // Book component mount 1 lần với config rỗng, "load-branch" (search-results.js) nạp lại
+        // dữ liệu chi nhánh mỗi khi người dùng bấm 1 card — xem Book::loadBranch().
+        $isBranchesView = request()->query('view') === 'branches';
+    @endphp
+
     <script>
         // Trang tìm kiếm có bản đồ sticky neo theo chiều cao header — nếu header tự thu gọn khi
         // cuộn (như các trang khác) thì bản đồ bị giật theo mỗi lần chiều cao đó đổi. Khoá header
@@ -52,6 +60,22 @@
             display: flex;
             flex-direction: column;
             transition: height .32s cubic-bezier(.32, .72, 0, 1);
+        }
+
+        /* ?view=branches: danh sách chi nhánh vẫn là bottom sheet nổi như bình thường, chỉ cao
+           hơn (peek lớn hơn) để thấy trọn 4 card (2 hàng x 2 cột, card giữ nguyên kích thước bình
+           thường — không thu nhỏ card để nhồi thêm cột) thay vì chỉ hé 1 hàng. #search-layout vẫn
+           giữ đúng khung 100vh + overflow:hidden mặc định (map luôn hiện ở #map-col phía sau,
+           không còn nhánh "panel đặt lịch" auto-height như trước) nên position kế thừa mặc định
+           (absolute theo #search-layout) là đủ, không cần position:fixed riêng. CHỈ áp dụng < 768px
+           — nếu để unscoped, "#rooms-left-panel.branches-peek" (1 id + 1 class) có độ đặc hiệu cao
+           hơn rule desktop "#rooms-left-panel" trong @media(min-width:768px) (chỉ 1 id), nên sẽ đè
+           chiều cao lên cả desktop bất kể thứ tự khai báo — phá layout 2 cột. */
+        @media (max-width: 767px) {
+            #rooms-left-panel.branches-peek {
+                height: 54%;
+                min-height: 420px;
+            }
         }
 
         #rooms-left-panel.sheet-dragging {
@@ -120,6 +144,17 @@
             .search-count-title {
                 font-size: 22px;
                 font-weight: 800;
+            }
+        }
+
+        /* Lề trái/phải khớp với .search-count-header ở cùng breakpoint để nội dung (card chi
+           nhánh, danh sách phòng) thẳng hàng với tiêu đề phía trên, không bị thụt vào trong. */
+        #search-results-body {
+            padding: 10px 14px 32px;
+        }
+        @media (min-width: 768px) {
+            #search-results-body {
+                padding: 4px 4px 20px;
             }
         }
 
@@ -301,6 +336,11 @@
                 align-self: flex-start;
                 flex: 1 1 auto;
                 width: auto;
+                /* min-width mặc định của flex item là "auto" — cho phép nó nới rộng vượt khỏi
+                   phần được flex-grow cấp phát để chứa vừa nội dung con (vd carousel phòng rộng
+                   hơn khung nhìn ở panel chi nhánh), phá luôn layout sticky/bản đồ. Ép về 0 để
+                   #map-col luôn bám đúng chiều rộng cột phải, phần con tự cuộn riêng. */
+                min-width: 0;
                 height: calc(100vh - var(--search-header-h, 0px) - 24px);
                 padding: 4px 0 24px;
             }
@@ -465,25 +505,84 @@
             font-weight: 600;
             backdrop-filter: blur(3px);
         }
+
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* Grid chi nhánh — bình thường, không nền/không đổ bóng. padding:0 để card thẳng hàng
+           với tiêu đề "X chi nhánh tại..." phía trên (cùng mốc trái với #search-results-body).
+           2 card/hàng ở mọi kích thước — không thu nhỏ card để nhồi thêm cột; muốn thấy nhiều
+           chi nhánh hơn (4 card = 2 hàng) thì tăng CHIỀU CAO bottom sheet (xem .branches-peek). */
+        #search-results-body .branches-track {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        #search-results-body .branches-track a.home-card {
+            border-radius: 16px;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Danh sách phòng trong panel chi nhánh (#branch-detail-rooms) — carousel ngang, mỗi
+           card kích thước cố định để tối đa ~3 card lọt khung nhìn, dư ra thì cuộn/bấm prev-next
+           (carouselNav() trong home-sections.js) thay vì hiện hết theo lưới dọc dài vô hạn. */
+        #branch-detail-rooms .home-card {
+            flex: 0 0 calc(46vw - 20px);
+            width: calc(46vw - 20px);
+            max-width: calc(46vw - 20px);
+        }
+        @media (min-width: 768px) {
+            #branch-detail-rooms .home-card {
+                flex: 0 0 240px;
+                width: 240px;
+                max-width: 240px;
+            }
+        }
+
+        .carousel-nav-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #f3f4f6;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            flex-shrink: 0;
+            padding: 0;
+            transition: background .15s ease;
+        }
+        .carousel-nav-btn:hover { background: #e5e7eb; }
+        .carousel-nav-btn svg { width: 16px; height: 16px; color: #374151; }
     </style>
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
     <div id="search-layout" class="md:max-w-11xl md:mx-auto md:px-6">
 
-        <div id="rooms-left-panel">
+        <div id="rooms-left-panel" class="{{ $isBranchesView ? 'branches-peek' : '' }}">
             <div id="sheet-handle" class="md:hidden"></div>
             <div id="sheet-scroll">
                 <div id="search-results-mount">
                     <div class="mt-0 md:mt-[30px] search-count-header">
                         <p class="search-count-title" style="font-weight:500;color:#6b7280;">Đang tải kết quả...</p>
                     </div>
-                    <div style="padding:10px 10px 32px;" id="search-results-body"></div>
+                    <div id="search-results-body"></div>
                 </div>
                 <script type="application/json" id="branch-map-data">[]</script>
             </div>
         </div>
 
+        {{-- Luôn hiện bản đồ ở đây, kể cả ?view=branches (trước đây bị thay bằng panel đặt lịch
+             inline khi chọn 1 chi nhánh — đã bỏ, card chi nhánh giờ điều hướng thẳng sang
+             /branch/{slug} thay vì load inline, xem search-results.js). --}}
         <div id="map-col">
             <div id="search-map"></div>
 
@@ -565,7 +664,11 @@
                 if (!isMobile()) return;
                 dragging = true;
                 startY = clientY;
-                containerH = sheet.parentElement.getBoundingClientRect().height;
+                // window.innerHeight chứ không phải sheet.parentElement — ở ?view=branches, sheet
+                // là position:fixed theo viewport, còn #search-layout (parent) giờ cao tự nhiên
+                // theo nội dung (bảng đặt khung giờ dài), không còn bằng chiều cao màn hình nữa.
+                // Dùng parent height làm mốc % sẽ tính sai tỉ lệ khi kéo/nhấn mở full.
+                containerH = window.innerHeight;
                 startH = sheet.getBoundingClientRect().height;
                 sheet.classList.add('sheet-dragging');
             }
@@ -626,10 +729,15 @@
             }
 
             document.addEventListener('DOMContentLoaded', initSheet);
-            document.addEventListener('livewire:navigated', function() {
-                if (handle) handle.__bound = false;
-                initSheet();
-            });
+            // Không reset handle.__bound = false ở đây nữa — "livewire:navigated" có thể bắn ra
+            // ngay cả khi #sheet-handle vẫn là ĐÚNG node cũ (không bị Livewire thay thế), khiến
+            // initSheet() gắn listener touchstart/mousedown/click thêm 1 lần nữa lên cùng 1 phần
+            // tử. 2 listener "click" cùng chạy trong 1 lần tap sẽ tự triệt tiêu nhau (bật full
+            // rồi tắt ngay lập tức) — đúng như bug quan sát được. initSheet() tự the guard bằng
+            // handle.__bound nên chỉ cần gọi lại, nó sẽ tự no-op nếu node chưa đổi; nếu Livewire
+            // thực sự thay node mới thì node mới vốn dĩ chưa có __bound (undefined), không cần
+            // reset tay.
+            document.addEventListener('livewire:navigated', initSheet);
         })();
 
         // ─── Kéo bằng tay (chuột/chạm) cho slide chi nhánh ngang (.branch-grid, mobile peek) ──
@@ -958,10 +1066,102 @@
         // Không tự gọi initSearchMap() ở đây nữa — search-results.js gọi sau khi fetch xong dữ
         // liệu phòng và đổ vào #branch-map-data, tránh init bản đồ với dữ liệu rỗng rồi bị khoá
         // (initSearchMap có guard mapEl._leaflet_id, gọi lại lần 2 sẽ không dựng lại marker).
+
+        // ─── Map cho ?view=branches — mỗi pin là 1 CHI NHÁNH (không phải phòng) ────────
+        // Hàm riêng, không tái dùng initSearchMap(): dữ liệu/mục đích khác hẳn (không có giá
+        // phòng, không cần gom toạ độ trùng + carousel nhiều phòng chung 1 điểm vì mỗi chi nhánh
+        // vốn đã là 1 vị trí riêng biệt) — tách riêng để không đụng/rủi ro tới luồng tìm phòng
+        // thường (initSearchMap) đang chạy tốt. search-results.js gọi hàm này sau khi fetch xong
+        // danh sách chi nhánh (kèm latitude/longitude từ API /v1/search/branches).
+        var __branchMapInitRetries = 0;
+        function initBranchesMap(branches) {
+            if (typeof L === 'undefined') {
+                if (__branchMapInitRetries++ < 25) setTimeout(function () { initBranchesMap(branches); }, 200);
+                return;
+            }
+            __branchMapInitRetries = 0;
+
+            var mapEl = document.getElementById('search-map');
+            if (!mapEl) return;
+            if (mapEl._leaflet_id && window.__searchMapInstance) {
+                window.__searchMapInstance.remove();
+                window.__searchMapInstance = null;
+            }
+
+            var cfg = __searchMapConfig;
+            var map = L.map(mapEl, { zoomControl: true, scrollWheelZoom: true }).setView([cfg.lat, cfg.lng], cfg.zoom);
+            window.__searchMapInstance = map;
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            }).addTo(map);
+
+            function esc(s) {
+                return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+                    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+                });
+            }
+
+            // Ghim theo slug — search-results.js dùng để lấy lại đúng marker khi bấm 1 card chi
+            // nhánh ở panel trái (pan bản đồ tới khu vực đó + mở popup, xem window.__panToBranch).
+            var branchMarkers = {};
+
+            var bounds = [];
+            (branches || []).forEach(function (branch) {
+                var lat = parseFloat(branch.latitude);
+                var lng = parseFloat(branch.longitude);
+                if (!lat || !lng || isNaN(lat) || isNaN(lng)) return;
+                bounds.push([lat, lng]);
+
+                var pinLabel = branch.room_count != null ? branch.room_count + ' phòng' : '';
+                var marker = L.marker([lat, lng], {
+                    icon: L.divIcon({ className: '', html: '<div class="bpm">' + esc(pinLabel) + '</div>', iconSize: null })
+                }).addTo(map);
+
+                // Card trong popup: ảnh chi nhánh + nút "Xem chi tiết" điều hướng sang trang chi
+                // tiết — khớp đúng nội dung branchCardHtml() (image_url/name/slug) đã có sẵn.
+                var imgHtml = branch.image_url
+                    ? '<img src="' + esc(branch.image_url) + '" alt="" style="width:100%;height:96px;object-fit:cover;border-radius:8px;display:block;margin-bottom:8px;">'
+                    : '';
+                var popupHtml = '<div style="padding:2px;min-width:190px;">'
+                    + imgHtml
+                    + '<p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#111827;">' + esc(branch.name) + '</p>'
+                    + '<a href="/branch/' + encodeURIComponent(branch.slug) + '" style="display:block;background:#0f766e;color:#fff;font-size:12px;font-weight:700;text-align:center;padding:7px 10px;border-radius:8px;text-decoration:none;">Xem chi tiết →</a>'
+                    + '</div>';
+                marker.bindPopup(popupHtml, { maxWidth: 220, minWidth: 200, closeButton: true, autoPan: true });
+
+                branchMarkers[branch.slug] = { marker: marker, lat: lat, lng: lng };
+            });
+            window.__branchMarkers = branchMarkers;
+
+            if (bounds.length > 0) {
+                try {
+                    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
+                } catch (e) {
+                    if (cfg.provinceLat) map.setView([cfg.provinceLat, cfg.provinceLng], 12);
+                }
+            } else if (cfg.provinceLat) {
+                map.setView([cfg.provinceLat, cfg.provinceLng], 12);
+            }
+
+            setTimeout(function () { map.invalidateSize(); }, 150);
+        }
+        window.initBranchesMap = initBranchesMap;
+
+        // Bấm 1 card chi nhánh ở panel trái (search-results.js) gọi hàm này thay vì điều hướng
+        // ngay — pan/zoom bản đồ tới đúng khu vực chi nhánh đó rồi mở popup (ảnh + nút "Xem chi
+        // tiết" mới thật sự điều hướng sang /branch/{slug}).
+        window.__panToBranch = function (slug) {
+            var entry = window.__branchMarkers && window.__branchMarkers[slug];
+            if (!entry || !window.__searchMapInstance) return;
+            window.__searchMapInstance.setView([entry.lat, entry.lng], 15, { animate: true });
+            entry.marker.openPopup();
+        };
     </script>
 
     <script src="{{ asset('js/home-sections.js') }}?v={{ filemtime(public_path('js/home-sections.js')) }}"></script>
-    <script src="{{ asset('js/search-results.js') }}"></script>
+    <script src="{{ asset('js/search-results.js') }}?v={{ filemtime(public_path('js/search-results.js')) }}"></script>
  @livewire('bladethemev1::footer')
     @livewire('bladethemev1::contact-link')
     @livewire('bladethemev1::notification')

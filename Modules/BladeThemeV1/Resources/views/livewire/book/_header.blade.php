@@ -1,3 +1,20 @@
+        @if($showBranchHeader && !empty($title_booking))
+        <div class="book-branch-header">
+            <div class="book-branch-header-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                </svg>
+            </div>
+            <div class="min-w-0">
+                <p class="book-branch-header-title">{{ $title_booking }}</p>
+                @if(!empty($sub_title_booking))
+                    <p class="book-branch-header-sub">{{ $sub_title_booking }}</p>
+                @endif
+            </div>
+        </div>
+        @endif
+
         @if(!empty($image_event))
         <div class="flex justify-center mb-4">
             <div class="w-full md:w-[380px] md:h-[120px] overflow-hidden">

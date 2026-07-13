@@ -96,6 +96,7 @@ class SearchSchema
                 'category'    => Type::string(),
                 'type'        => Type::string(),
                 'buoi'        => Type::string(),
+                'overnight'   => Type::string(),
                 'checkin'     => Type::string(),
                 'checkout'    => Type::string(),
                 'q'           => Type::string(),

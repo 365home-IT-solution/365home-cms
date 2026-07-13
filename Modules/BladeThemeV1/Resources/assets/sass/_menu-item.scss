@@ -154,19 +154,8 @@
   transition: width 0.4s ease-out;
 }
 
-/* Chỉ hover khi vừa có chuột thật vừa ở màn hình desktop (>=1024px) — nếu chỉ
-   check "hover: hover" thì khi giả lập mobile trên trình duyệt desktop (vẫn
-   dùng chuột thật) hiệu ứng hover vẫn sẽ hiện, không đúng ý muốn. */
-@media (hover: hover) and (min-width: 1024px) {
-  .main-menu-item:hover::after {
-    width: 40px;
-  }
-
-  .main-menu-item:hover {
-    color: var(--color-gray) !important;
-    transform: translateY(-1px);
-  }
-}
+/* Bỏ hiệu ứng gạch chân/nhấc lên khi hover — chỉ còn gạch chân cho item active
+   (.main-menu-item.menu-active::after phía trên) làm điểm nhấn duy nhất. */
 
 @media (max-width: 768px) {
   .menu-dropdown {

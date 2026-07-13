@@ -4,6 +4,7 @@
                 <div data-bar
                     x-data="{
                         locOpen: false, guestsOpen: false, mobileStep: 1, locating: false, hoverField: null,
+                        pinnedToHeader: false,
                         locationSearch: '', selectedLocationSlug: '{{ $selectedLocation }}', mobileLocations: @js($locations),
                         selectedGuestsVal: '{{ $selectedGuests }}', selectedRoomType: '{{ $selectedRoomType }}',
                         guestOptions: { '': 'Tất cả', '1': '1 người', '2': '2 người', '3': '3 người', '4': '4 người', '5': '5+ người' },
@@ -100,13 +101,69 @@
                             }, 180);
                         }
                     }"
+                    {{-- Các x-on dưới đây chỉ gắn cho ĐÚNG 1 instance thật sự nằm trong header
+                         (skipHeaderPill rỗng/false) — bản sao độc lập đè lên banner trang chủ
+                         (skipHeaderPill=true, xem flash-sale.blade.php) KHÔNG lắng nghe các event
+                         này: 2 khung tìm kiếm giờ tách biệt hoàn toàn, không chia sẻ trạng thái
+                         pill/tab/field-mở với nhau nữa. --}}
+                    @unless($skipHeaderPill ?? false)
                     x-on:hero-open-field.window="handleHeroOpenField($event.detail)"
+                    {{-- Nghe 2 CustomEvent bắn từ header-main.blade.php (khác cây Alpine, không
+                         đọc/ghi thẳng biến của nhau được): 'header-form-pin' báo form này đang ở
+                         chế độ ghim dưới header (ẩn bớt hàng tab riêng vì header đã có hàng tab
+                         ngoài rồi — xem x-show ở khối Tabs bên dưới); 'hero-set-tab' do đúng hàng
+                         tab đó bắn lên khi người dùng bấm, đổi activeTab/dayMode thật ở đây. --}}
+                    x-on:header-form-pin.window="pinnedToHeader = $event.detail.pinned"
+                    x-on:hero-set-tab.window="activeTab = $event.detail.tab; dayMode = ($event.detail.tab === 'day'); if ($event.detail.tab !== 'day' && checkIn) { checkOut = checkIn }"
+                    @endunless
                     @click.outside="open = false; locOpen = false; guestsOpen = false">
 
-                {{-- Desktop: thanh ngang đầy đủ (đồng bộ breakpoint lg với header) --}}
-                <div class="relative hidden lg:flex items-stretch max-w-4xl mx-auto rounded-full border transition-all duration-300"
-                    :class="(open || locOpen || guestsOpen) ? 'bg-gray-100 border-gray-100 shadow-2xl' : 'bg-white border-gray-200 shadow-lg'"
-                    style="overflow:visible;">
+                {{-- Desktop: khung thẻ có hàng tab (Theo giờ / Qua đêm / Theo ngày) phía trên + hàng
+                     field bên dưới, giống mẫu tham khảo. "Qua đêm" chỉ khác về mặt hiển thị (icon +
+                     tô sáng tab) — dùng chung logic với "Theo giờ" (dayMode=false); activeTab không
+                     ảnh hưởng gì tới dữ liệu tìm kiếm thật, chỉ để biết tab nào đang được tô sáng
+                     (dayMode chỉ có 2 giá trị nên không tự phân biệt được "Theo giờ" với "Qua đêm"). --}}
+                {{-- activeTab sống ở scope ngoài cùng (heroDatePicker(), _script.blade.php) — không
+                     khai báo x-data riêng ở đây nữa để submitSearch() (cũng ở scope đó) đọc/gửi
+                     được overnight=1 khi tab "Qua đêm" đang chọn. x-effect tự đồng bộ lại nếu
+                     dayMode bị đổi bởi nơi khác (vd tab Theo giờ/Theo ngày bên trong dropdown lịch). --}}
+                {{-- Chỉ bắn 'hero-active-tab-changed' (đồng bộ activeTabMirror ở header) khi đây là
+                     instance thật trong header — bản sao độc lập đè banner không cần báo lên
+                     header vì 2 khung không còn chia sẻ trạng thái tab nữa (xem giải thích ở
+                     x-on:header-form-pin phía trên). --}}
+                <div class="hidden lg:block"
+                    x-effect="(() => { activeTab = dayMode ? 'day' : (activeTab === 'day' ? 'hour' : activeTab); @unless($skipHeaderPill ?? false) window.dispatchEvent(new CustomEvent('hero-active-tab-changed', { detail: { tab: activeTab } })); @endunless })()">
+
+                    {{-- Tabs — ẩn khi form đang ghim dưới header (pinnedToHeader): lúc đó header
+                         (header-main.blade.php) đã tự hiện 1 hàng tab riêng ngay trong hàng 1 của
+                         nó rồi, hàng tab ở đây thành dư thừa (xem 'header-form-pin'/'hero-set-tab'
+                         ở data-bar phía trên). --}}
+                    <div class="flex items-center justify-center gap-10 mb-4" x-show="!pinnedToHeader">
+                        <button type="button" @click="activeTab = 'hour'; dayMode = false; if (checkIn) { checkOut = checkIn }"
+                            class="flex flex-col items-center gap-1.5 pb-2 border-b-2 transition-colors"
+                            :class="activeTab === 'hour' ? 'border-[var(--color-primary)] text-[var(--color-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'">
+                            <img src="{{ asset('images/hourglass.gif') }}" alt="" class="w-5 h-5 object-contain">
+                            <span class="text-sm font-semibold">Theo giờ</span>
+                        </button>
+                        <button type="button" @click="activeTab = 'overnight'; dayMode = false; if (checkIn) { checkOut = checkIn }"
+                            class="flex flex-col items-center gap-1.5 pb-2 border-b-2 transition-colors"
+                            :class="activeTab === 'overnight' ? 'border-[var(--color-primary)] text-[var(--color-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'">
+                            <img src="{{ asset('images/night.gif') }}" alt="" class="w-5 h-5 object-contain">
+                            <span class="text-sm font-semibold">Qua đêm</span>
+                        </button>
+                        <button type="button" @click="activeTab = 'day'; dayMode = true"
+                            class="flex flex-col items-center gap-1.5 pb-2 border-b-2 transition-colors"
+                            :class="activeTab === 'day' ? 'border-[var(--color-primary)] text-[var(--color-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'">
+                            <img src="{{ asset('images/building.gif') }}" alt="" class="w-5 h-5 object-contain">
+                            <span class="text-sm font-semibold">Theo ngày</span>
+                        </button>
+                    </div>
+
+                {{-- max-width:57rem — "5xl" riêng của hệ thống này (912px), khác 64rem mặc định của
+                     Tailwind (.max-w-5xl), nên dùng inline style thay vì class tiện ích có sẵn. --}}
+                <div class="relative flex items-stretch mx-auto rounded-full border transition-all duration-300"
+                    :class="(open || locOpen || guestsOpen) ? 'bg-gray-100 border-gray-100' : 'bg-white border-gray-200'"
+                    style="overflow:visible; max-width:57rem;">
 
                     {{-- Highlight trượt theo field đang chọn (đo pixel thật của field, không dùng % cố định).
                          Field đang thực sự mở (không chỉ hover) → nền trắng nổi khối trên nền xám của
@@ -132,9 +189,15 @@
                     <div data-field="loc" class="relative z-10 flex-[3] min-w-0"
                         @mouseenter="hoverField = 'loc'" @mouseleave="hoverField = null">
                         <button type="button" @click="locOpen = !locOpen; open = false; guestsOpen = false"
-                            class="w-full h-16 px-5 flex flex-col justify-center items-start text-left rounded-l-full transition-colors">
-                            <span class="text-sm font-bold leading-none text-gray-900">Địa điểm</span>
-                            <span class="text-sm font-medium mt-1 truncate" :class="selectedLocationSlug ? 'text-gray-900' : 'text-gray-400'" x-text="locationLabel"></span>
+                            class="w-full h-16 px-5 flex items-center gap-2.5 text-left rounded-l-full transition-colors">
+                            <svg class="w-5 h-5 shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/>
+                            </svg>
+                            <span class="min-w-0">
+                                <span class="block text-sm font-bold leading-none text-gray-900">Địa điểm</span>
+                                <span class="block text-sm font-medium mt-1 truncate" :class="selectedLocationSlug ? 'text-gray-900' : 'text-gray-400'" x-text="locationLabel"></span>
+                            </span>
                         </button>
                         <div x-show="locOpen" x-cloak
                             x-transition:enter="transition ease-out duration-150"
@@ -174,16 +237,38 @@
 
                     <div class="relative z-10 self-center w-px h-8 bg-gray-200 shrink-0"></div>
 
-                    {{-- Thời gian --}}
-                    <div @click.outside="open = false" data-field="date" class="relative z-10 flex-[3] min-w-0"
+                    {{-- Thời gian — tách 2 cột Nhận phòng / Trả phòng (giống mẫu tham khảo) nhưng vẫn
+                         cùng 1 data-field="date" bọc ngoài để highlight-slider đo trọn khối này, và
+                         cả 2 nút đều mở chung 1 dropdown lịch (x-ref="dateDropdownDesktop") như cũ —
+                         không tách rời logic chọn ngày, chỉ tách hiển thị. --}}
+                    <div @click.outside="open = false" data-field="date" class="relative z-10 flex-[5] min-w-0 flex"
                         @mouseenter="hoverField = 'date'" @mouseleave="hoverField = null">
                         <button type="button" @click="open=!open; locOpen = false; guestsOpen = false; if (open) openDateDropdown($refs.dateDropdownDesktop)"
-                            class="w-full h-16 px-5 flex flex-col justify-center items-start text-left rounded-xl transition-colors">
-                            <span :class="open ? 'text-[var(--color-primary)]' : 'text-gray-900'"
-                                class="text-sm font-bold leading-none transition-colors duration-200">Thời gian</span>
-                            <span class="text-sm font-medium mt-1 truncate"
-                                :class="(displayCheckIn && displayCheckOut) ? 'text-gray-900' : 'text-gray-400'"
-                                x-text="(displayCheckIn && displayCheckOut) ? (displayCheckIn + ' → ' + displayCheckOut) : '{{ ($checkIn && $checkOut) ? $checkIn . ' → ' . $checkOut : 'Thêm ngày' }}'"></span>
+                            class="flex-1 h-16 px-5 flex items-center gap-2.5 text-left rounded-l-xl transition-colors min-w-0">
+                            <svg class="w-5 h-5 shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l3 3m0 0l-3 3m3-3H3"/>
+                            </svg>
+                            <span class="min-w-0">
+                                <span :class="open ? 'text-[var(--color-primary)]' : 'text-gray-900'"
+                                    class="block text-sm font-bold leading-none transition-colors duration-200 whitespace-nowrap">Nhận phòng</span>
+                                <span class="block text-sm font-medium mt-1 truncate"
+                                    :class="displayCheckIn ? 'text-gray-900' : 'text-gray-400'"
+                                    x-text="displayCheckIn || '{{ $checkIn ?: 'Bất kỳ' }}'"></span>
+                            </span>
+                        </button>
+                        <span class="relative z-10 self-center w-px h-8 bg-gray-200 shrink-0"></span>
+                        <button type="button" @click="open=!open; locOpen = false; guestsOpen = false; if (open) openDateDropdown($refs.dateDropdownDesktop)"
+                            class="flex-1 h-16 px-5 flex items-center gap-2.5 text-left rounded-r-xl transition-colors min-w-0">
+                            <svg class="w-5 h-5 shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 9V5.25A2.25 2.25 0 0110.5 3h6a2.25 2.25 0 012.25 2.25v13.5A2.25 2.25 0 0116.5 21h-6a2.25 2.25 0 01-2.25-2.25V15m-3-3h12m0 0l-3-3m3 3l-3 3"/>
+                            </svg>
+                            <span class="min-w-0">
+                                <span :class="open ? 'text-[var(--color-primary)]' : 'text-gray-900'"
+                                    class="block text-sm font-bold leading-none transition-colors duration-200 whitespace-nowrap">Trả phòng</span>
+                                <span class="block text-sm font-medium mt-1 truncate"
+                                    :class="displayCheckOut ? 'text-gray-900' : 'text-gray-400'"
+                                    x-text="displayCheckOut || '{{ $checkOut ?: 'Bất kỳ' }}'"></span>
+                            </span>
                         </button>
 
                         {{-- Date picker dropdown --}}
@@ -195,8 +280,7 @@
                             x-transition:leave-start="opacity-100 translate-y-0"
                             x-transition:leave-end="opacity-0 translate-y-1"
                             class="absolute top-[calc(100%+8px)] left-1/2 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-y-auto"
-                            :class="dayMode ? 'w-[640px]' : 'w-[380px]'"
-                            style="max-height:75vh; transform:translateX(-50%);">
+                            :style="{ maxHeight: '75vh', transform: 'translateX(-50%)', width: (dayMode ? '640px' : '600px') }">
                     <div class="py-5 px-6">
 
                         {{-- Tabs Theo giờ / Theo ngày --}}
@@ -299,80 +383,84 @@
                         </template>
                         <template x-if="!dayMode">
                         <div>
-                        {{-- THEO GIỜ: lịch 1 tháng, chọn đúng 1 ngày + badge giờ nhận/trả --}}
-                        <div class="flex items-center justify-between mb-4">
-                            <button @click="prevMonth()"
-                                class="p-2 rounded-full hover:bg-gray-100 text-gray-500 transition-colors">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
-                                </svg>
-                            </button>
-                            <span class="text-sm font-semibold text-gray-700" x-text="viewMonthName + ' ' + viewYear"></span>
-                            <button @click="nextMonth()"
-                                class="p-2 rounded-full hover:bg-gray-100 text-gray-500 transition-colors">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-                                </svg>
-                            </button>
-                        </div>
-
-                        <div class="max-w-[280px] mx-auto">
-                            <div class="grid grid-cols-7 mb-2">
-                                <template x-for="d in ['CN','T2','T3','T4','T5','T6','T7']">
-                                    <div class="text-center text-xs font-medium text-gray-400 py-1" x-text="d"></div>
-                                </template>
-                            </div>
-                            <div class="grid grid-cols-7 gap-y-1">
-                                <template x-for="(date, idx) in getCalendarDays(viewYear, viewMonth)" :key="idx">
-                                    <div class="flex items-center justify-center">
-                                        <template x-if="date !== null">
-                                            <button @click="selectSingleDate(date)"
-                                                :disabled="isPast(date)"
-                                                :class="{
-                                                    'bg-[var(--color-primary)] text-white': isSelected(date),
-                                                    'text-gray-300 cursor-not-allowed pointer-events-none': isPast(date),
-                                                    'hover:bg-gray-100 cursor-pointer': !isPast(date) && !isSelected(date),
-                                                }"
-                                                class="w-9 h-9 rounded-full text-sm font-medium flex items-center justify-center transition-colors"
-                                                x-text="date.getDate()">
-                                            </button>
-                                        </template>
-                                        <template x-if="date === null"><div class="w-9 h-9"></div></template>
-                                    </div>
-                                </template>
-                            </div>
-                        </div>
-
-                        {{-- Badge giờ nhận / trả phòng --}}
-                        <div class="mt-5 pt-5 border-t border-gray-100 space-y-4">
+                        {{-- THEO GIỜ: lịch 1 tháng bên trái, badge giờ nhận/trả bên phải — layout ngang 2 cột để không phải cuộn --}}
+                        <div class="grid grid-cols-2 gap-6">
                             <div>
-                                <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Giờ nhận phòng</p>
-                                <div class="flex flex-wrap gap-2">
-                                    <template x-for="h in hourBadges" :key="'in-' + h">
-                                        <button type="button" x-show="availableStartHourBadges.includes(h)"
-                                            @click="checkInHour = h"
-                                            :class="checkInHour === h
-                                                ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)]'
-                                                : 'bg-white text-gray-600 border-gray-200 hover:border-[rgba(var(--color-primary-rgb),0.5)] hover:text-[var(--color-primary)]'"
-                                            class="w-14 h-9 rounded-full border text-xs font-semibold transition-colors"
-                                            x-text="String(h).padStart(2,'0') + ':00'">
-                                        </button>
-                                    </template>
+                                <div class="flex items-center justify-between mb-4">
+                                    <button @click="prevMonth()"
+                                        class="p-2 rounded-full hover:bg-gray-100 text-gray-500 transition-colors">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                                        </svg>
+                                    </button>
+                                    <span class="text-sm font-semibold text-gray-700" x-text="viewMonthName + ' ' + viewYear"></span>
+                                    <button @click="nextMonth()"
+                                        class="p-2 rounded-full hover:bg-gray-100 text-gray-500 transition-colors">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                                        </svg>
+                                    </button>
+                                </div>
+
+                                <div>
+                                    <div class="grid grid-cols-7 mb-2">
+                                        <template x-for="d in ['CN','T2','T3','T4','T5','T6','T7']">
+                                            <div class="text-center text-xs font-medium text-gray-400 py-1" x-text="d"></div>
+                                        </template>
+                                    </div>
+                                    <div class="grid grid-cols-7 gap-y-1">
+                                        <template x-for="(date, idx) in getCalendarDays(viewYear, viewMonth)" :key="idx">
+                                            <div class="flex items-center justify-center">
+                                                <template x-if="date !== null">
+                                                    <button @click="selectSingleDate(date)"
+                                                        :disabled="isPast(date)"
+                                                        :class="{
+                                                            'bg-[var(--color-primary)] text-white': isSelected(date),
+                                                            'text-gray-300 cursor-not-allowed pointer-events-none': isPast(date),
+                                                            'hover:bg-gray-100 cursor-pointer': !isPast(date) && !isSelected(date),
+                                                        }"
+                                                        class="w-9 h-9 rounded-full text-sm font-medium flex items-center justify-center transition-colors"
+                                                        x-text="date.getDate()">
+                                                    </button>
+                                                </template>
+                                                <template x-if="date === null"><div class="w-9 h-9"></div></template>
+                                            </div>
+                                        </template>
+                                    </div>
                                 </div>
                             </div>
-                            <div>
-                                <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Giờ trả phòng</p>
-                                <div class="flex flex-wrap gap-2">
-                                    <template x-for="h in hourBadges" :key="'out-' + h">
-                                        <button type="button" x-show="availableEndHourBadges.includes(h)"
-                                            @click="checkOutHour = h"
-                                            :class="checkOutHour === h
-                                                ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)]'
-                                                : 'bg-white text-gray-600 border-gray-200 hover:border-[rgba(var(--color-primary-rgb),0.5)] hover:text-[var(--color-primary)]'"
-                                            class="w-14 h-9 rounded-full border text-xs font-semibold transition-colors"
-                                            x-text="String(h).padStart(2,'0') + ':00'">
-                                        </button>
-                                    </template>
+
+                            {{-- Badge giờ nhận / trả phòng --}}
+                            <div class="border-l border-gray-100 pl-4 space-y-4">
+                                <div>
+                                    <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Giờ nhận phòng</p>
+                                    <div class="flex flex-wrap gap-2">
+                                        <template x-for="h in hourBadges" :key="'in-' + h">
+                                            <button type="button" x-show="availableStartHourBadges.includes(h)"
+                                                @click="checkInHour = h"
+                                                :class="checkInHour === h
+                                                    ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)]'
+                                                    : 'bg-white text-gray-600 border-gray-200 hover:border-[rgba(var(--color-primary-rgb),0.5)] hover:text-[var(--color-primary)]'"
+                                                class="w-14 h-9 rounded-full border text-xs font-semibold transition-colors"
+                                                x-text="String(h).padStart(2,'0') + ':00'">
+                                            </button>
+                                        </template>
+                                    </div>
+                                </div>
+                                <div>
+                                    <p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Giờ trả phòng</p>
+                                    <div class="flex flex-wrap gap-2">
+                                        <template x-for="h in hourBadges" :key="'out-' + h">
+                                            <button type="button" x-show="availableEndHourBadges.includes(h)"
+                                                @click="checkOutHour = h"
+                                                :class="checkOutHour === h
+                                                    ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)]'
+                                                    : 'bg-white text-gray-600 border-gray-200 hover:border-[rgba(var(--color-primary-rgb),0.5)] hover:text-[var(--color-primary)]'"
+                                                class="w-14 h-9 rounded-full border text-xs font-semibold transition-colors"
+                                                x-text="String(h).padStart(2,'0') + ':00'">
+                                            </button>
+                                        </template>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -412,17 +500,19 @@
                         </div>
                     </div>
 
-                    {{-- Nút tìm kiếm --}}
-                    <div class="flex items-center px-3 shrink-0">
+                    {{-- Nút tìm kiếm — đổi từ hình tròn chỉ icon sang pill có chữ, giống mẫu tham khảo --}}
+                    <div class="flex items-center pr-2 shrink-0">
                         <button type="button"
                             x-on:click.stop.prevent="submitSearch()"
-                            class="w-12 h-12 bg-[var(--color-primary)] hover:opacity-90 text-white rounded-full
-                            transition-all shadow-md hover:shadow-lg active:scale-95 flex items-center justify-center">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            class="h-12 pl-5 pr-6 bg-[var(--color-primary)] hover:opacity-90 text-white rounded-full text-sm font-semibold
+                            transition-all shadow-md hover:shadow-lg active:scale-95 flex items-center gap-2 whitespace-nowrap">
+                            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                             </svg>
+                            Tìm kiếm
                         </button>
                     </div>
+                </div>
                 </div>
 
                 @include('bladethemev1::livewire.hero-section._mobile-steps', ['boxSuffix' => 'Banner', 'searchAction' => 'submitSearch()'])

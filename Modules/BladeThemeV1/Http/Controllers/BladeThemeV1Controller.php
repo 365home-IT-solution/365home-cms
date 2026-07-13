@@ -9,6 +9,7 @@ use Modules\Category\Entities\Category;
 use Modules\Page\Entities\Page;
 use Modules\Page\Entities\PageComponent;
 use Modules\BladeThemeV1\Traits\HandleColorTrait;
+use Modules\BladeThemeV1\Support\BranchBookConfig;
 use Modules\Post\Entities\Post;
 use Modules\Product\App\Models\Product;
 use App\Models\Province;
@@ -496,44 +497,12 @@ class BladeThemeV1Controller extends Controller
 
     public function bookingBoard(string $slug)
     {
-        $branch = Category::where('slug', $slug)->first();
+        $result = BranchBookConfig::build($slug);
 
-        abort_unless($branch, 404);
+        abort_unless($result, 404);
 
-        $categoryIds = array_merge(
-            [$branch->id],
-            Category::where('parent_id', $branch->id)->pluck('id')->toArray()
-        );
-
-        $products = Product::where('is_activated', true)
-            ->where('is_in_stock', true)
-            ->where(function ($q) {
-                $q->where('styles', 1)->orWhereNull('styles');
-            })
-            ->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $categoryIds))
-            ->whereHas('roomTimeSlots.timeSlot')
-            ->orderBy('sort_order')
-            ->get(['id'])
-            ->pluck('id')
-            ->values()
-            ->toArray();
-
-        $bookConfig = [
-            'bookable_room_count' => count($products),
-            'component' => [
-                'choose_room' => json_encode([
-                    'categories' => [
-                        [
-                            'category_id' => $branch->id,
-                            'products' => $products,
-                        ],
-                    ],
-                ], JSON_UNESCAPED_UNICODE),
-                'title_booking' => 'Đặt phòng ' . $branch->name,
-                'sub_title_booking' => 'Chọn phòng và mốc thời gian phù hợp tại chi nhánh này.',
-                'image_event' => '',
-            ],
-        ];
+        $branch = $result['branch'];
+        $bookConfig = $result['bookConfig'];
 
         $seoData = [
             'seo_title' => 'Đặt phòng ' . $branch->name . ' | 365 HOME',

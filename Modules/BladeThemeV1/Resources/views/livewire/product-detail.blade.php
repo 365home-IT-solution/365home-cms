@@ -22,7 +22,7 @@
         </div>
     @endif
 
-    <div class="max-w-11xl md:px-8 px-4 mx-auto booking-confirmation-modal">
+    <div class="max-w-7xl md:px-8 px-4 mx-auto booking-confirmation-modal">
         <div id="seo-data" data-seo-title="{{ $product->name ?? 'Phòng' }}"
             data-seo-description="{{ $short_description ?? 'Phòng' }}"
             data-seo-keyword="{{ $product->seo_keywords ?? 'Phòng' }}">
@@ -336,6 +336,61 @@
                                 display: none !important;
                             }
                         }
+
+                        /* --- mobile slider: video (nếu có) + ảnh, vuốt ngang bằng scroll-snap
+                             gốc trình duyệt (không cần JS kéo tay) --- */
+                        .pd-mobile-slider {
+                            display: flex;
+                            width: 100%;
+                            height: 100%;
+                            overflow-x: auto;
+                            scroll-snap-type: x mandatory;
+                            -webkit-overflow-scrolling: touch;
+                            scrollbar-width: none;
+                            -ms-overflow-style: none;
+                        }
+
+                        .pd-mobile-slider::-webkit-scrollbar {
+                            display: none;
+                        }
+
+                        .pd-mobile-slide {
+                            flex: 0 0 100%;
+                            width: 100%;
+                            height: 100%;
+                            scroll-snap-align: start;
+                            position: relative;
+                        }
+
+                        .pd-mobile-slide img {
+                            width: 100%;
+                            height: 100%;
+                            object-fit: cover;
+                            display: block;
+                        }
+
+                        .pd-mobile-play-btn {
+                            position: absolute;
+                            top: 50%;
+                            left: 50%;
+                            transform: translate(-50%, -50%);
+                            width: 60px;
+                            height: 60px;
+                            border-radius: 50%;
+                            background: rgba(255, 255, 255, .94);
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            box-shadow: 0 4px 20px rgba(0, 0, 0, .35);
+                        }
+
+                        .pd-mobile-play-btn svg {
+                            width: 24px;
+                            height: 24px;
+                            /* Lệch phải nhẹ để icon tam giác trông cân giữa hình tròn (điểm nặng
+                               thị giác của tam giác lệch trái so với tâm hình học của nó). */
+                            margin-left: 3px;
+                        }
                     </style>
 
                     {{-- Alpine gallery component --}}
@@ -362,14 +417,36 @@
                         }
                     }" @keydown.window="onKey($event)">
 
-                        {{-- Ảnh chính — mobile: 1 ảnh + số đếm (luôn hiện, kể cả khi đến từ trang booking) --}}
-                        <div class="pd-single-wrap md:hidden">
-                            <img src="{{ $mainImg }}" alt="{{ $product->name ?? 'Ảnh chính' }}"
-                                @if ($totalImgCount > 1) @click="show(0)" style="cursor:pointer;" @endif>
-                            @if ($totalImgCount > 1)
+                        {{-- Ảnh + video chính — mobile: slider vuốt ngang (scroll-snap gốc trình
+                             duyệt), video (nếu có) là slide đầu tiên với nút play ở giữa, vuốt
+                             sang phải thì thấy ảnh. Thay cho ảnh tĩnh + nút "Xem video" riêng
+                             trước đây (đã bỏ 2 nút "Xem ảnh"/"Xem video" ở mobile). --}}
+                        @php $pdMobileSlideCount = $totalImgCount + ($hasVideoPd ? 1 : 0); @endphp
+                        <div class="pd-single-wrap md:hidden" x-data="{ slideIdx: 0 }">
+                            <div class="pd-mobile-slider"
+                                @scroll="slideIdx = Math.round($event.target.scrollLeft / $event.target.clientWidth)">
+                                @if ($hasVideoPd)
+                                    <div class="pd-mobile-slide" style="cursor:pointer;"
+                                        @click="$dispatch('pd-open-video')">
+                                        <img src="{{ $mainImg }}" alt="{{ $product->name ?? 'Video phòng' }}">
+                                        <span class="pd-mobile-play-btn">
+                                            <svg viewBox="0 0 24 24" fill="#111827">
+                                                <polygon points="6,4 20,12 6,20" />
+                                            </svg>
+                                        </span>
+                                    </div>
+                                @endif
+                                @foreach ($allImgs->values() as $i => $img)
+                                    <div class="pd-mobile-slide"
+                                        @if ($totalImgCount > 1) style="cursor:pointer;" @click="show({{ $i }})" @endif>
+                                        <img src="{{ $img }}" alt="{{ $product->name ?? 'Ảnh' }} {{ $i + 1 }}">
+                                    </div>
+                                @endforeach
+                            </div>
+                            @if ($pdMobileSlideCount > 1)
                                 <div
-                                    class="absolute bottom-5 right-3 z-10 rounded-full bg-black/50 px-2.5 py-0.5 text-xs text-white font-medium">
-                                    1/{{ $totalImgCount }}</div>
+                                    class="absolute bottom-5 right-3 z-10 rounded-full bg-black/50 px-2.5 py-0.5 text-xs text-white font-medium"
+                                    x-text="(slideIdx + 1) + '/' + {{ $pdMobileSlideCount }}"></div>
                             @endif
                         </div>
 
@@ -392,48 +469,38 @@
                                     @endif
                                 </div>
                             @endfor
-                            @if ($totalImgCount > 1)
-                                <button type="button" @click="show(0)"
-                                    class="absolute bottom-4 right-4 inline-flex items-center gap-2 rounded-lg border border-gray-900 bg-white px-3.5 py-1.5 text-sm font-semibold text-gray-900 shadow-sm hover:bg-gray-50 transition-colors">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none"
-                                        viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
-                                        stroke-linecap="round" stroke-linejoin="round">
-                                        <path d="M12 3v18"></path>
-                                        <path d="M3 12h18"></path>
-                                        <rect x="3" y="3" width="18" height="18" rx="2"></rect>
-                                    </svg>
-                                    Hiển thị tất cả ảnh
-                                </button>
-                            @endif
-                        </div>
-
-                        {{-- Nút hành động: Xem ảnh + Xem video (cạnh nhau) --}}
-                        <div style="display:flex;gap:8px;margin-bottom:1.25rem;flex-wrap:wrap;">
-                            @if ($totalImgCount > 1)
-                                <button type="button"
-                                    class="pd-view-btn pd-mobile-only"
-                                    @click="show(0)">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                                        stroke="currentColor" stroke-width="2">
-                                        <rect x="3" y="3" width="7" height="7" />
-                                        <rect x="14" y="3" width="7" height="7" />
-                                        <rect x="3" y="14" width="7" height="7" />
-                                        <rect x="14" y="14" width="7" height="7" />
-                                    </svg>
-                                    Xem {{ $totalImgCount }} ảnh
-                                </button>
-                            @endif
-                            @if ($hasVideoPd)
-                                <button type="button"
-                                    class="pd-view-btn"
-                                    style="background:var(--color-primary);color:#fff;border-color:transparent;box-shadow:0 3px 12px rgba(var(--color-primary-rgb),.35);"
-                                    @click="$dispatch('pd-open-video')">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                                        <circle cx="12" cy="12" r="10" fill="rgba(255,255,255,.25)" />
-                                        <polygon points="10,8 10,16 17,12" fill="white" />
-                                    </svg>
-                                    Xem video phòng
-                                </button>
+                            {{-- "Xem video" kế bên "Xem tất cả ảnh" — gộp về góc dưới-phải của
+                                 lưới ảnh. Cỡ chữ/padding thu gọn + rút ngắn nhãn nút so với bản
+                                 đứng riêng trước đây — 2 nút đủ dài cùng lúc sẽ tràn khỏi bề rộng
+                                 1 ô ảnh (~330px), đè lên viền ô ảnh bên cạnh. --}}
+                            @if ($totalImgCount > 1 || $hasVideoPd)
+                                <div class="absolute bottom-3 right-3 flex items-center gap-1.5">
+                                    @if ($hasVideoPd)
+                                        <button type="button"
+                                            class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+                                            style="background:var(--color-primary);box-shadow:0 3px 12px rgba(var(--color-primary-rgb),.35);"
+                                            @click="$dispatch('pd-open-video')">
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" class="shrink-0">
+                                                <circle cx="12" cy="12" r="10" fill="rgba(255,255,255,.25)" />
+                                                <polygon points="10,8 10,16 17,12" fill="white" />
+                                            </svg>
+                                            Xem video
+                                        </button>
+                                    @endif
+                                    @if ($totalImgCount > 1)
+                                        <button type="button" @click="show(0)"
+                                            class="inline-flex items-center gap-1.5 rounded-lg border border-gray-900 bg-white px-3 py-1.5 text-xs font-semibold text-gray-900 shadow-sm hover:bg-gray-50 transition-colors">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 shrink-0" fill="none"
+                                                viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
+                                                stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M12 3v18"></path>
+                                                <path d="M3 12h18"></path>
+                                                <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                                            </svg>
+                                            Xem tất cả ảnh
+                                        </button>
+                                    @endif
+                                </div>
                             @endif
                         </div>
 
@@ -497,7 +564,7 @@
 
                 </div>{{-- /p-3 header+gallery wrapper --}}
 
-                <div class="grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-0 lg:gap-12 items-start">
+                <div class="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-0 lg:gap-8 items-start">
                     <div class="w-full">
                         <div class="p-3 overflow-hidden rounded-none lg:rounded-lg bg-white">
 
@@ -507,38 +574,57 @@
                                         (isset($categories['c2']) ? ', ' . $categories['c2'] : ''),
                                 );
                                 $pdCapacityLine = $guests . ' khách';
-                                $pdRatingCount = $product->ratings_count ?? 0;
-                                $pdRatingAvg = $product->ratings_avg_star ?? null;
+                                // Không đọc trực tiếp $product->ratings_count/ratings_avg_star —
+                                // 2 cột này chỉ tồn tại trên bản ghi model của LẦN QUERY ban đầu
+                                // (withCount/withAvg trong fetchProduct()); Livewire hydrate lại
+                                // $product bằng Model::find() ở mọi request sau nên sẽ mất, làm
+                                // header hiện sai "Chưa có đánh giá". $ratingsCount/$ratingsAvg
+                                // là property Livewire riêng, sống sót qua hydrate (xem mount()).
+                                $pdRatingCount = $ratingsCount;
+                                $pdRatingAvg = $ratingsAvg;
                             @endphp
 
                             <div class="space-y-6">
-                                {{-- Tiêu đề + thông tin (mobile, căn giữa) --}}
-                                <div class="space-y-1 text-center md:hidden">
+                                {{-- Tiêu đề + mô tả (mobile, căn trái): Tên → shortDescription → mô
+                                     tả dài (clamp 4 dòng, "Hiển thị thêm"/"Rút gọn" nếu tràn). Chi
+                                     nhánh/số khách/đánh giá/host không hiện ở block mobile này nữa. --}}
+                                <div class="space-y-3 text-left md:hidden">
                                     <h2 class="text-[22px] font-semibold text-[#222222] leading-snug">
                                         {{ $product->name ?? '' }}</h2>
-                                    @if ($pdBranchLine)
-                                        <p class="text-sm text-[#717171]">{{ $pdBranchLine }}</p>
+
+                                    @if (!empty($shortDescription))
+                                        <p class="text-base text-[#222222] leading-relaxed">{{ $shortDescription }}</p>
                                     @endif
-                                    <p class="text-sm text-[#717171]">{{ $pdCapacityLine }}</p>
-                                    <div
-                                        class="flex items-center justify-center gap-1.5 text-sm font-semibold text-[#222222] pt-1">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
-                                            viewBox="0 0 24 24" fill="currentColor" stroke="currentColor"
-                                            stroke-width="1" class="h-3.5 w-3.5">
-                                            <path
-                                                d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z">
-                                            </path>
-                                        </svg>
-                                        @if ($pdRatingCount > 0)
-                                            <span>{{ number_format($pdRatingAvg, 1) }}</span>
-                                            <span class="text-[#717171] font-normal">&middot;</span>
-                                            <span
-                                                class="underline underline-offset-2 cursor-pointer font-normal text-[#717171]">{{ $pdRatingCount }}
-                                                đánh giá</span>
-                                        @else
-                                            <span class="font-normal text-[#717171]">Chưa có đánh giá</span>
-                                        @endif
-                                    </div>
+
+                                    @php $pdLongDescription = trim($product->description ?? ''); @endphp
+                                    @if (!empty(strip_tags($pdLongDescription)))
+                                        <div x-data="{ expanded: false, needsToggle: false }"
+                                            x-init="const checkPdLongDescOverflow = () => {
+                                                needsToggle = $refs.pdLongDescBody.scrollHeight > $refs.pdLongDescBody.clientHeight + 4;
+                                            };
+                                            $nextTick(checkPdLongDescOverflow);
+                                            if (document.fonts && document.fonts.ready) {
+                                                document.fonts.ready.then(() => $nextTick(checkPdLongDescOverflow));
+                                            }">
+                                            <div x-ref="pdLongDescBody"
+                                                :style="expanded ? 'max-height:2000px' : 'max-height:6.5rem'"
+                                                class="product-content text-base text-[#222222] leading-relaxed overflow-hidden transition-[max-height] duration-300 ease-in-out">
+                                                {!! $pdLongDescription !!}
+                                            </div>
+                                            <button type="button" x-show="needsToggle" x-cloak
+                                                @click="expanded = !expanded"
+                                                class="mt-3 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border border-primary text-primary font-semibold text-sm hover:bg-primary hover:text-white transition-colors">
+                                                <span x-text="expanded ? 'Rút gọn' : 'Hiển thị thêm'"></span>
+                                                <svg :class="expanded ? 'rotate-180' : ''"
+                                                    class="w-4 h-4 transition-transform duration-300"
+                                                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                    stroke-width="2.5">
+                                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                                        d="M19 9l-7 7-7-7" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    @endif
                                 </div>
 
                                 {{-- Tiêu đề + thông tin (desktop) --}}
@@ -561,7 +647,8 @@
                                             <span>{{ number_format($pdRatingAvg, 1) }}</span>
                                             <span class="text-[#717171] font-normal">&middot;</span>
                                             <span
-                                                class="underline underline-offset-2 cursor-pointer">{{ $pdRatingCount }}
+                                                class="underline underline-offset-2 cursor-pointer"
+                                                onclick="document.getElementById('pd-ratings-section')?.scrollIntoView({behavior:'smooth', block:'start'})">{{ $pdRatingCount }}
                                                 đánh giá</span>
                                         @else
                                             <span class="font-normal text-[#717171]">Chưa có đánh giá</span>
@@ -571,23 +658,42 @@
 
                                 <hr class="border-gray-200">
 
-                                {{-- Host --}}
-                                <div class="flex items-center gap-4">
-                                    <span
-                                        class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#222222] text-white text-base font-semibold">
-                                        {{ mb_strtoupper(mb_substr($pdBranchLine ?: $product->name ?? '365', 0, 1)) }}
-                                    </span>
-                                    <div>
-                                        <p class="text-base font-semibold text-[#222222]">Host:
-                                            365Home{{ $pdBranchLine ? ' - ' . $pdBranchLine : '' }}</p>
-                                        <p class="text-sm text-[#717171] mt-0.5">Được quản lý bởi 365 Home</p>
-                                    </div>
-                                </div>
-
-                                <hr class="border-gray-200">
-
+                                {{-- Desktop: shortDescription vẫn ở đây như cũ (mobile đã chuyển
+                                     lên ngay dưới tên, xem block .md:hidden phía trên), theo sau
+                                     là mô tả dài — cùng hành vi clamp + "Hiển thị thêm"/"Rút gọn"
+                                     như mobile ($pdLongDescription đã tính ở block mobile trên). --}}
                                 @if (!empty($shortDescription))
-                                    <p class="text-base text-[#222222] leading-relaxed">{{ $shortDescription }}</p>
+                                    <p class="hidden md:block text-base text-[#222222] leading-relaxed">
+                                        {{ $shortDescription }}</p>
+                                @endif
+
+                                @if (!empty(strip_tags($pdLongDescription)))
+                                    <div class="hidden md:block" x-data="{ expanded: false, needsToggle: false }"
+                                        x-init="const checkPdLongDescOverflowDesktop = () => {
+                                            needsToggle = $refs.pdLongDescBodyDesktop.scrollHeight > $refs.pdLongDescBodyDesktop.clientHeight + 4;
+                                        };
+                                        $nextTick(checkPdLongDescOverflowDesktop);
+                                        if (document.fonts && document.fonts.ready) {
+                                            document.fonts.ready.then(() => $nextTick(checkPdLongDescOverflowDesktop));
+                                        }">
+                                        <div x-ref="pdLongDescBodyDesktop"
+                                            :style="expanded ? 'max-height:2000px' : 'max-height:6.5rem'"
+                                            class="product-content text-base text-[#222222] leading-relaxed overflow-hidden transition-[max-height] duration-300 ease-in-out">
+                                            {!! $pdLongDescription !!}
+                                        </div>
+                                        <button type="button" x-show="needsToggle" x-cloak
+                                            @click="expanded = !expanded"
+                                            class="mt-3 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border border-primary text-primary font-semibold text-sm hover:bg-primary hover:text-white transition-colors">
+                                            <span x-text="expanded ? 'Rút gọn' : 'Hiển thị thêm'"></span>
+                                            <svg :class="expanded ? 'rotate-180' : ''"
+                                                class="w-4 h-4 transition-transform duration-300"
+                                                viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                stroke-width="2.5">
+                                                <path stroke-linecap="round" stroke-linejoin="round"
+                                                    d="M19 9l-7 7-7-7" />
+                                            </svg>
+                                        </button>
+                                    </div>
                                 @endif
                             </div>
 
@@ -942,8 +1048,8 @@
                                         /* ── Mobile two-panel card ── */
                                         .pd-room-header {
                                             display: flex;
-                                            align-items: center;
-                                            justify-content: center;
+                                            flex-direction: column;
+                                            align-items: flex-start;
                                             padding: 18px 16px 14px;
                                             background: #fff;
                                             border-bottom: 1px solid #e5e7eb;
@@ -1209,16 +1315,6 @@
 
                                         {{-- ═════ MOBILE: Two-panel card (md:hidden) ═════ --}}
                                         <div class="md:hidden mb-4 rounded-[20px] overflow-hidden shadow-lg">
-
-                                            {{-- Tiêu đề phòng --}}
-                                            <div class="pd-room-header" style="border-radius: 20px 20px 0 0;">
-                                                <div class="text-center">
-                                                    <h3 class="pd-room-name">{{ $product->name }}</h3>
-                                                    <p class="pd-room-sub">
-                                                        {{ $categories['c3'] ?? '' }}{{ isset($categories['c2']) ? ', ' . $categories['c2'] : '' }}
-                                                    </p>
-                                                </div>
-                                            </div>
 
                                             {{-- Phân trang khung giờ (chỉ khi > 5 khung) --}}
                                             @if ($pdSlotCount > $pdSlotsPerPage)
@@ -2244,8 +2340,8 @@
 {{-- Đặt ngoài #pd-booking-form (nơi có transform tạo containing block) để modal luôn hiển thị full màn hình --}}
 @include('bladethemev1::components.payments.booking-confirmation-modal')
 
-{{-- Mô tả phòng và Bình luận --}}
-@include('bladethemev1::components.product-detail.description-comment')
+{{-- Đánh giá sao (thay cho khối Bình luận cũ) --}}
+@include('bladethemev1::components.product-detail.ratings')
 
 @php
     $pdAddress = $product->address ?? null;

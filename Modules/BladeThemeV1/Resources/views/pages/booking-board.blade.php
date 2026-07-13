@@ -111,9 +111,85 @@
         }
 
         /* Trang chi nhánh: 2 cột — Cột 1 danh sách phòng, Cột 2 bảng đặt lịch khung giờ.
-           Mobile: xếp dọc, cột 1 ở trên, cột 2 ở dưới (thứ tự DOM mặc định). */
+           Mobile (< 1024px): cột 1 (danh sách phòng) là bottom-sheet kéo lên/xuống nổi trên cột 2
+           (bảng đặt lịch), giống hệt UI bottom-sheet đã có ở trang tìm kiếm (search.blade.php,
+           #rooms-left-panel/#sheet-handle) — nhân bản đúng thông số (peek 54%/420px, full 94%,
+           ngưỡng snap 0.62) sang đây bằng id riêng để không đụng code trang tìm kiếm đang chạy
+           tốt. Desktop (≥1024px): giữ nguyên 2 cột như cũ (xem @media dưới). */
         .branch-columns { display: block; }
-        .branch-col-rooms { margin-bottom: 28px; }
+
+        @media (max-width: 1023.98px) {
+            .branch-col-rooms {
+                position: fixed;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                z-index: 20;
+                width: 100%;
+                height: 54%;
+                min-height: 420px;
+                max-height: 94%;
+                margin-bottom: 0;
+                background: #fff;
+                border-radius: 18px 18px 0 0;
+                box-shadow: 0 -6px 24px rgba(0, 0, 0, .16);
+                display: flex;
+                flex-direction: column;
+                transition: height .32s cubic-bezier(.32, .72, 0, 1);
+            }
+            .branch-col-rooms.sheet-full { height: 94%; }
+            .branch-col-rooms.sheet-dragging { transition: none; }
+
+            #room-sheet-handle {
+                flex-shrink: 0;
+                display: flex;
+                justify-content: center;
+                padding: 10px 0 6px;
+                cursor: grab;
+                touch-action: none;
+            }
+            #room-sheet-handle::before {
+                content: '';
+                width: 36px;
+                height: 4px;
+                border-radius: 3px;
+                background: #d1d5db;
+            }
+
+            #room-sheet-scroll {
+                flex: 1;
+                min-height: 0;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+                -ms-overflow-style: none;
+                padding: 0 16px 16px;
+            }
+            #room-sheet-scroll::-webkit-scrollbar { display: none; }
+
+            /* Danh sách phòng dạng lưới 2 cột (peek hiện trọn 4 card = 2 hàng) thay vì carousel
+               cuộn ngang — #branch-rooms-root [x-ref="track"] vốn có style inline (flex ngang,
+               cuộn tay) do JS tự sinh ra, cần !important để thắng (đúng pattern desktop bên dưới
+               đã dùng cho lý do tương tự). */
+            #branch-rooms-root [x-ref="track"] {
+                display: grid !important;
+                grid-template-columns: repeat(2, 1fr) !important;
+                gap: 10px !important;
+                overflow: visible !important;
+                scroll-snap-type: none !important;
+            }
+            #branch-rooms-root .home-card {
+                width: 100% !important;
+                max-width: 100% !important;
+                flex: none !important;
+            }
+
+            /* Bảng đặt lịch (cột 2) cần đệm dưới để không bị sheet (position:fixed) che mất đoạn
+               cuối — ước lượng theo chiều cao peek (54%) dư thêm 1 chút. */
+            .branch-col-booking {
+                padding-bottom: 58vh;
+            }
+        }
 
         @media (min-width: 1024px) {
             .branch-columns {
@@ -166,17 +242,23 @@
     <main class="branch-page-main" style="background:#fff; min-height:100vh;">
         <div class="w-full max-w-11xl mx-auto px-4 sm:px-6 pb-6">
             <div class="branch-columns">
-                {{-- Cột 1: Danh sách phòng thuộc chi nhánh này — dùng chung khung carousel của
-                     trang chủ (carousel ngang trên mobile, danh sách dọc trên desktop).
-                     Tiêu đề chi nhánh chuyển vào đây (thay vì nằm riêng phía trên 2 cột) để
-                     ngang hàng với "Chọn khung giờ tại..." của cột 2. --}}
+                {{-- Cột 1: Danh sách phòng thuộc chi nhánh này. Desktop: danh sách dọc, sticky
+                     cạnh bảng đặt lịch (như cũ). Mobile: bottom-sheet kéo lên/xuống (peek 4 card,
+                     lưới 2 cột) — #room-sheet-handle/#room-sheet-scroll chỉ có ý nghĩa ở mobile
+                     (CSS mobile-only phía trên biến .branch-col-rooms thành sheet); ở desktop
+                     chúng chỉ là 2 div rỗng bọc bình thường, không ảnh hưởng layout desktop.
+                     Tiêu đề chi nhánh nằm trong #room-sheet-scroll để cuộn cùng danh sách khi ở
+                     mobile, cùng ngang hàng với "Chọn khung giờ tại..." của cột 2 ở desktop. --}}
                 <div class="branch-col-rooms">
-                    <div style="margin:0 0 16px;">
-                        <h1 class="branch-col-heading" style="margin:0; font-size:20px; line-height:1.3; font-weight:800; color:#111827;">
-                            {{ $branch->name }}
-                        </h1>
+                    <div id="room-sheet-handle"></div>
+                    <div id="room-sheet-scroll">
+                        <div style="margin:0 0 16px;">
+                            <h1 class="branch-col-heading" style="margin:0; font-size:20px; line-height:1.3; font-weight:800; color:#111827;">
+                                {{ $branch->name }}
+                            </h1>
+                        </div>
+                        <div id="branch-rooms-root" x-data="carouselNav()" x-init="init()" style="min-height:80px;"></div>
                     </div>
-                    <div id="branch-rooms-root" x-data="carouselNav()" x-init="init()" style="min-height:80px;"></div>
                 </div>
 
                 {{-- Cột 2: Bảng đặt lịch khung giờ của từng phòng --}}
@@ -264,6 +346,91 @@
             document.addEventListener('DOMContentLoaded', load);
             window.addEventListener('auth-state-changed', load);
             load();
+        })();
+
+        // ─── Bottom-sheet danh sách phòng kéo lên/xuống (mobile < 1024px) ──────────────
+        // Nhân bản đúng cơ chế kéo đã có ở trang tìm kiếm (search.blade.php, #rooms-left-panel/
+        // #sheet-handle) — id riêng (#branch-col-rooms không tồn tại, dùng class .branch-col-rooms
+        // + #room-sheet-handle) để không đụng code trang tìm kiếm đang chạy tốt.
+        (function () {
+            var sheet = null, handle = null, dragging = false, startY = 0, startH = 0, containerH = 0;
+            var FULL_THRESHOLD = 0.62;
+
+            function isMobile() {
+                return window.innerWidth < 1024;
+            }
+
+            function setSheetState(state) {
+                if (!sheet) return;
+                sheet.style.height = '';
+                if (state === 'full') sheet.classList.add('sheet-full');
+                else sheet.classList.remove('sheet-full');
+            }
+
+            function onStart(clientY) {
+                if (!isMobile()) return;
+                dragging = true;
+                startY = clientY;
+                containerH = window.innerHeight;
+                startH = sheet.getBoundingClientRect().height;
+                sheet.classList.add('sheet-dragging');
+            }
+
+            function onMove(clientY) {
+                if (!dragging) return;
+                var dy = startY - clientY;
+                var newH = startH + dy;
+                var minH = containerH * 0.14;
+                var maxH = containerH * 0.94;
+                if (newH < minH) newH = minH;
+                if (newH > maxH) newH = maxH;
+                sheet.style.height = newH + 'px';
+            }
+
+            function onEnd() {
+                if (!dragging) return;
+                dragging = false;
+                sheet.classList.remove('sheet-dragging');
+                var h = sheet.getBoundingClientRect().height;
+                var ratio = containerH > 0 ? h / containerH : 0;
+                setSheetState(ratio > FULL_THRESHOLD ? 'full' : 'peek');
+            }
+
+            function initSheet() {
+                sheet = document.querySelector('.branch-col-rooms');
+                handle = document.getElementById('room-sheet-handle');
+                if (!sheet || !handle || handle.__bound) return;
+                handle.__bound = true;
+
+                handle.addEventListener('touchstart', function (e) {
+                    onStart(e.touches[0].clientY);
+                }, { passive: true });
+                handle.addEventListener('touchmove', function (e) {
+                    onMove(e.touches[0].clientY);
+                }, { passive: true });
+                handle.addEventListener('touchend', onEnd);
+
+                handle.addEventListener('mousedown', function (e) {
+                    onStart(e.clientY);
+                    function mm(ev) { onMove(ev.clientY); }
+                    function mu() {
+                        onEnd();
+                        document.removeEventListener('mousemove', mm);
+                        document.removeEventListener('mouseup', mu);
+                    }
+                    document.addEventListener('mousemove', mm);
+                    document.addEventListener('mouseup', mu);
+                });
+
+                handle.addEventListener('click', function () {
+                    if (dragging) return;
+                    var isFull = sheet.classList.contains('sheet-full');
+                    setSheetState(isFull ? 'peek' : 'full');
+                });
+            }
+
+            document.addEventListener('DOMContentLoaded', initSheet);
+            document.addEventListener('livewire:navigated', initSheet);
         })();
     </script>
 @endsection

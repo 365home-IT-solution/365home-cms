@@ -28,7 +28,7 @@
         var filters = {};
         var location = parseLocationFromPath();
         if (location) filters.province = location;
-        ['type', 'buoi', 'checkin', 'checkout', 'time_type', 'date', 'time_from', 'time_to', 'adults'].forEach(function (key) {
+        ['type', 'buoi', 'overnight', 'checkin', 'checkout', 'time_type', 'date', 'time_from', 'time_to', 'adults'].forEach(function (key) {
             var v = params.get(key);
             if (!v) return;
             filters[key] = INT_FILTER_KEYS.indexOf(key) !== -1 ? parseInt(v, 10) : v;
@@ -106,8 +106,40 @@
             return window.branchCardHtml(branch);
         }).join('');
 
-        return '<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:16px 14px; padding:4px 0 12px;">' + cards + '</div>';
+        // .branches-track = nền chung kiểu segmented control (CSS ở search.blade.php quyết định
+        // layout lưới + trạng thái active/inactive của từng card bên trong).
+        return '<div class="branches-track">' + cards + '</div>';
     }
+
+    // Bấm 1 card chi nhánh (panel trái/bottom-sheet) — KHÔNG điều hướng ngay nữa. Thay vào đó pan
+    // bản đồ bên phải tới đúng khu vực chi nhánh đó và mở popup (ảnh + nút "Xem chi tiết →" mới
+    // thật sự điều hướng sang /branch/{slug}, xem window.__panToBranch ở search.blade.php). Ở
+    // mobile, sheet đang ở trạng thái "full" (94%) thì che gần hết bản đồ — thu về "peek" trước
+    // để người dùng thấy được popup vừa mở.
+    function slugFromBranchCard(cardEl) {
+        try {
+            return decodeURIComponent(new URL(cardEl.href, window.location.origin).pathname.replace(/^\/branch\//, ''));
+        } catch (err) {
+            return '';
+        }
+    }
+
+    document.addEventListener('click', function (e) {
+        if (!isBranchesView()) return;
+        var card = e.target.closest('#search-results-body a.home-card');
+        if (!card) return;
+        e.preventDefault();
+
+        var slug = slugFromBranchCard(card);
+        if (!slug) return;
+
+        if (window.innerWidth < 768 && typeof window.__setSheetState === 'function') {
+            window.__setSheetState('peek');
+        }
+        if (typeof window.__panToBranch === 'function') {
+            window.__panToBranch(slug);
+        }
+    });
 
     function chipHtml(label, tone) {
         var colors = tone === 'muted'
@@ -289,6 +321,12 @@
             }
             if (headerEl) headerEl.innerHTML = renderBranchesHeader(branchMeta);
             if (bodyEl) bodyEl.innerHTML = renderBranchesResults(branches);
+
+            // Panel bên phải luôn là bản đồ ở đây (xem search.blade.php) — ghim mỗi chi nhánh
+            // (kèm latitude/longitude từ API /v1/search/branches) thay vì bản đồ phòng thường.
+            if (typeof window.initBranchesMap === 'function') {
+                window.initBranchesMap(branches);
+            }
             return;
         }
 
@@ -314,8 +352,51 @@
         if (typeof window.__roomSliderInit === 'function') window.__roomSliderInit();
     }
 
-    document.addEventListener('DOMContentLoaded', loadSearchResults);
+    // Khi vào trang qua Livewire.navigate() (SPA — bấm nút Tìm kiếm ở hero-section, không phải
+    // load trang cứng), Livewire chèn lại các <script src> trong <body> (không có data-navigate-
+    // track/defer) và fetch/thực thi CHÚNG BẤT ĐỒNG BỘ, nhưng lại bắn sự kiện 'livewire:navigated'
+    // gần như ngay sau khi swap xong DOM — KHÔNG đợi script này tải/chạy xong. Kết quả: sự kiện
+    // 'livewire:navigated' bên dưới thường bắn ra TRƯỚC KHI dòng addEventListener kịp đăng ký,
+    // nên loadSearchResults() không bao giờ được gọi — trang kẹt mãi ở "Đang tải kết quả...".
+    // Sửa bằng cách gọi thẳng loadSearchResults() ngay khi script này thực thi (không đợi sự
+    // kiện nào) nếu DOM đã sẵn sàng — đúng cả 2 trường hợp: script chạy sau khi DOM đã dựng xong
+    // (SPA nav, hoặc <script> đặt cuối trang khi load cứng) thì gọi ngay; script chạy TRƯỚC khi
+    // DOM dựng xong (readyState vẫn 'loading', hiếm khi xảy ra với script cuối body) thì đợi
+    // DOMContentLoaded như cũ. Vẫn giữ listener 'livewire:navigated' làm lớp phòng hộ thêm — gọi
+    // lại loadSearchResults() không hại gì (idempotent, chỉ fetch + render lại).
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', loadSearchResults);
+    } else {
+        loadSearchResults();
+    }
     document.addEventListener('livewire:navigated', loadSearchResults);
+
+    // Lớp phòng hộ thứ 2, độc lập hẳn với vòng đời sự kiện Livewire: đã quan sát được
+    // 'livewire:navigated' KHÔNG bắn lại mỗi lần điều hướng nếu 2 URL cùng route /s/{location?}
+    // (chỉ khác query string) — Livewire có thể coi đây là "cùng trang", không tính là 1 lần
+    // "navigated" đầy đủ. Thay vì phụ thuộc sự kiện, theo dõi trực tiếp window.location.href mỗi
+    // khi DOM có thay đổi (MutationObserver trên toàn document.body) — hễ URL đổi so với lần gọi
+    // gần nhất thì gọi lại loadSearchResults() ngay, bất kể do script này re-run, do sự kiện
+    // Livewire, hay do bất kỳ cơ chế nào khác. Đăng ký đúng 1 lần (bám vào window, không phải
+    // closure của IIFE) để tồn tại xuyên suốt phiên trang, không bị mất dù script có re-run hay
+    // không ở các lần điều hướng sau.
+    if (typeof window.__searchResultsUrlWatcherBound === 'undefined') {
+        window.__searchResultsUrlWatcherBound = true;
+        var lastSearchUrl = window.location.href;
+        var checkSearchUrlChange = function () {
+            if (window.location.pathname.indexOf('/s/') !== 0 && window.location.pathname !== '/s') return;
+            if (window.location.href === lastSearchUrl) return;
+            lastSearchUrl = window.location.href;
+            if (typeof window.__loadSearchResults === 'function') window.__loadSearchResults();
+        };
+        new MutationObserver(checkSearchUrlChange).observe(document.documentElement, { childList: true, subtree: true });
+        window.addEventListener('popstate', checkSearchUrlChange);
+    }
+    // window.__loadSearchResults luôn trỏ về bản loadSearchResults MỚI NHẤT của lần script này
+    // chạy gần nhất — quan trọng vì mỗi lần <script src> được Livewire chèn lại, IIFE tạo closure
+    // mới, còn MutationObserver ở trên chỉ đăng ký 1 lần duy nhất và gọi qua window nên luôn cần
+    // trỏ tới bản hàm hiện hành (không giữ tham chiếu cứng tới closure cũ, đã có thể lỗi thời).
+    window.__loadSearchResults = loadSearchResults;
 
     // ─── Nút prev/next cho slide ngang trên mobile (thay cho vuốt tay) ─────────────
     if (typeof window.__roomSliderNav === 'undefined') {

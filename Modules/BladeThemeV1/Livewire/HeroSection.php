@@ -27,6 +27,11 @@ class HeroSection extends Component
     public bool   $noBanner        = false;
     public bool   $headerRow       = false;
     public bool   $mobileHeaderModal = false;
+    // true khi đây là bản sao ĐỘC LẬP đè lên banner trang chủ (flash-sale.blade.php) — vẫn dùng
+    // chung markup với $headerRow (_banner-form) nhưng KHÔNG teleport pill gọn vào
+    // #header-search-slot (chỉ 1 pill duy nhất, thuộc về instance header thật) và KHÔNG đồng bộ
+    // tab/trạng thái ghim với header (2 khung tìm kiếm độc lập, không chia sẻ state).
+    public bool   $skipHeaderPill  = false;
 
     public string $selectedLocation = '';
     public string $selectedRoomType = 'all';

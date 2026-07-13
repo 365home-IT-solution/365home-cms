@@ -103,6 +103,12 @@ class RatingController extends Controller
 
     public function destroy(string $roomId): JsonResponse
     {
+        $room = Product::where('id', $roomId)->where('is_activated', true)->first();
+
+        if (! $room) {
+            return response()->json(['message' => 'Phòng không tồn tại.'], 404);
+        }
+
         $user = auth('sanctum')->user();
 
         $rating = RoomRating::where('customer_id', $user->id)

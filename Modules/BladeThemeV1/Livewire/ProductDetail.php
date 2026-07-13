@@ -66,6 +66,15 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
     public $additionalServices = null;
     public array $selectedServices = [];
 
+    // Đánh giá sao — tách riêng khỏi $product->ratings_count/ratings_avg_star. Đây là
+    // withCount()/withAvg() gắn vào model TRONG 1 lần query cụ thể (fetchProduct()); Livewire
+    // hydrate lại $product ở mỗi request sau (mọi lần gọi action/property update) bằng
+    // Model::find() thông thường, không giữ lại 2 cột tính toán này — khiến header rating hiện
+    // sai (rơi về "Chưa có đánh giá") ngay sau khi có bất kỳ Livewire round-trip nào, dù dữ liệu
+    // thật vẫn còn nguyên trong DB. Lưu thành property scalar riêng để sống sót qua hydrate.
+    public int $ratingsCount = 0;
+    public ?float $ratingsAvg = null;
+
     public function boot(PaymentService $paymentService, OrderHandlerService $orderHandler, OcrSpaceService $ocrService, CccdScannerService $cccdScanner)
     {
         $this->paymentService = $paymentService;
@@ -80,6 +89,8 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         $this->slug = $slug;
         $this->product = $this->fetchProduct();
         if ($this->product) {
+            $this->ratingsCount = $this->product->ratings_count ?? 0;
+            $this->ratingsAvg = $this->product->ratings_avg_star !== null ? (float) $this->product->ratings_avg_star : null;
             $this->productTags = $this->fetchProductTags($this->product->id);
             $this->roomTimeSlots = $this->fetchRoomTimeSlots($this->product->id);
             $this->product = $this->product->load('categories');

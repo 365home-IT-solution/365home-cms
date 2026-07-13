@@ -1,6 +1,6 @@
                 <!-- Summary của book.blade -->
                 <div class="book-pricing-card book-pricing-summary flex flex-col items-stretch mt-5 gap-4">
-                    <div class="w-full text-left font-semibold">
+                    <div class="w-full text-left font-semibold px-2">
 
                         <!-- Giá cơ bản -->
                         <p class="text-base text-primary mb-2 flex items-center gap-1">
@@ -67,14 +67,9 @@
                             </div>
                         </template>
 
-                        <!-- Giảm giá Full booking -->
-                        <template x-if="fullBookingDiscount > 0">
-                            <p class="text-sm text-primary font-bold ml-4 mb-2 flex items-center gap-1">
-                                Giảm giá đặt Full phòng:
-                                <span x-text="'-' + fullBookingDiscount.toLocaleString() + ' đ'"></span>
-                            </p>
-                        </template>
-
+                        <!-- Giảm giá Full booking — CHỈ 1 chỗ hiển thị số tiền (fullBookingDiscount
+                             luôn > 0 khi hasFullDayBooking true, xem checkFullBooking() ở trên,
+                             nên trước đây bị lặp 2 lần cùng 1 số tiền nếu tách riêng 2 khối). -->
                         <template x-if="hasFullDayBooking">
                             <div class="ml-4 mb-2 bg-primary/5 p-3 rounded border border-primary/30">
                                 <p class="text-sm text-primary font-semibold mb-1 flex items-center gap-1">
@@ -108,12 +103,12 @@
                                 </div>
                             </template>
                             <template x-if="hasFullDayBooking">
-                                <div>
-                                    <p class="text-primary font-semibold flex items-center gap-1">
-                                        Đã áp dụng ưu đãi đặc biệt cho Full phòng!
+                                <div class="not-italic">
+                                    <p class="text-primary font-semibold">
+                                        Đã áp dụng ưu đãi đặc biệt cho Full phòng
                                     </p>
-                                    <p class="text-orange-600 text-xs mt-1 flex items-center gap-1">
-                                        Các khuyến mãi giảm giá khác không áp dụng khi đặt full phòng
+                                    <p class="text-orange-600 text-xs mt-1">
+                                        Không áp dụng cùng các khuyến mãi giảm giá khác
                                     </p>
                                 </div>
                             </template>
@@ -122,7 +117,7 @@
                     </div>
 
                     <!-- Nút đặt phòng -->
-                    <div class="w-full text-right" x-show="selectedRoomIsActive === true || selectedRoomId === null">
+                    <div class="px-2 pb-2 w-full text-right" x-show="selectedRoomIsActive === true || selectedRoomId === null">
                         <button @click="$wire.saveAndRedirect(selectedSlots)"
                                     :disabled="selectedSlots.length === 0"
                                     class="book-cta-btn">

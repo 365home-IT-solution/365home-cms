@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Storage;
+use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
 
 class SearchController extends Controller
@@ -74,19 +75,82 @@ class SearchController extends Controller
             ]);
         }
 
-        $branches = $province->branches()
+        $branchRows = $province->branches()
             ->where('status', true)
             ->with('category')
             ->get()
-            ->filter(fn ($branch) => $branch->category && $branch->category->status)
+            ->filter(fn ($branch) => $branch->category && $branch->category->status);
+
+        // Đếm số phòng khả dụng theo từng chi nhánh (tính cả category con) — cùng pattern đã
+        // dùng ở ProvinceList::mount() (Modules/BladeThemeV1/Livewire/ProvinceList.php).
+        $branchCatIds = $branchRows->pluck('category.id')->filter()->values()->toArray();
+        $childToBranchMap = Category::whereIn('parent_id', $branchCatIds)->pluck('parent_id', 'id')->toArray();
+        $allCatIds = array_merge($branchCatIds, array_keys($childToBranchMap));
+        $roomCountByCatId = Category::whereIn('id', $allCatIds)
+            ->withCount(['products as room_count' => fn ($q) => $q->where('is_activated', true)->where('is_in_stock', true)])
+            ->pluck('room_count', 'id');
+        $roomCountByBranch = [];
+        foreach ($roomCountByCatId as $catId => $count) {
+            $branchCatId = $childToBranchMap[$catId] ?? $catId;
+            $roomCountByBranch[$branchCatId] = ($roomCountByBranch[$branchCatId] ?? 0) + $count;
+        }
+
+        // Chi nhánh nào có phòng đang khuyến mãi giảm giá (percentage/fixed) hiệu lực ngay bây
+        // giờ thì đẩy lên đầu danh sách — cùng cách xác định "có khuyến mãi" như đã dùng cho icon
+        // flash-sale cạnh tên phòng (book/_mobile.blade.php, book/_desktop-grid.blade.php), chỉ
+        // khác là gộp theo TOÀN BỘ chi nhánh (branch + category con) thay vì từng phòng riêng lẻ.
+        $catIdsWithPromo = Product::whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allCatIds))
+            ->whereHas('roomTimeSlots.promotions', function ($q) {
+                $q->whereIn('type', ['percentage', 'fixed'])
+                    ->where('is_active', true)
+                    ->where('start_at', '<=', now())
+                    ->where('end_at', '>=', now());
+            })
+            ->with(['categories' => fn ($q) => $q->whereIn('categories.id', $allCatIds)])
+            ->get()
+            ->pluck('categories')
+            ->flatten()
+            ->pluck('id')
+            ->unique();
+
+        $branchHasPromoByBranch = [];
+        foreach ($catIdsWithPromo as $catId) {
+            $branchCatId = $childToBranchMap[$catId] ?? $catId;
+            $branchHasPromoByBranch[$branchCatId] = true;
+        }
+
+        // Toạ độ để ghim trên bản đồ (?view=branches, search.blade.php) — Branch/Category không có
+        // cột lat/lng riêng, toạ độ nằm ở từng sản phẩm (products.latitude/longitude); lấy đại diện
+        // 1 sản phẩm có toạ độ của mỗi chi nhánh (gộp cả category con qua $childToBranchMap, cùng
+        // cách nhóm đã dùng cho room_count/has_promotion ở trên).
+        $coordsByBranch = [];
+        Product::whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allCatIds))
+            ->whereNotNull('latitude')->whereNotNull('longitude')
+            ->with(['categories' => fn ($q) => $q->whereIn('categories.id', $allCatIds)])
+            ->get()
+            ->each(function ($product) use (&$coordsByBranch, $childToBranchMap) {
+                foreach ($product->categories as $category) {
+                    $branchCatId = $childToBranchMap[$category->id] ?? $category->id;
+                    if (!isset($coordsByBranch[$branchCatId])) {
+                        $coordsByBranch[$branchCatId] = ['latitude' => $product->latitude, 'longitude' => $product->longitude];
+                    }
+                }
+            });
+
+        $branches = $branchRows
             ->map(fn ($branch) => [
-                'id'        => $branch->category->id,
-                'name'      => $branch->category->name,
-                'slug'      => $branch->category->slug,
-                'image_url' => $branch->category->image
+                'id'            => $branch->category->id,
+                'name'          => $branch->category->name,
+                'slug'          => $branch->category->slug,
+                'image_url'     => $branch->category->image
                     ? Storage::disk('public')->url($branch->category->image)
                     : null,
+                'room_count'    => $roomCountByBranch[$branch->category->id] ?? 0,
+                'has_promotion' => $branchHasPromoByBranch[$branch->category->id] ?? false,
+                'latitude'      => $coordsByBranch[$branch->category->id]['latitude'] ?? null,
+                'longitude'     => $coordsByBranch[$branch->category->id]['longitude'] ?? null,
             ])
+            ->sortByDesc('has_promotion')
             ->values();
 
         return response()->json([

@@ -30,6 +30,7 @@ class RoomSearchService
             'category'  => ['nullable', 'string'],
             'type'      => ['nullable', 'string'],
             'buoi'      => ['nullable', 'in:1,2'],
+            'overnight' => ['nullable', 'in:0,1'],
             'checkin'   => ['nullable', 'string'],
             'checkout'  => ['nullable', 'string'],
             'q'         => ['nullable', 'string', 'max:255'],
@@ -161,6 +162,18 @@ class RoomSearchService
 
         if (in_array($validated['buoi'] ?? null, ['1', '2'], true)) {
             $query->where('styles', (int) $validated['buoi']);
+        }
+
+        // Tab "Qua đêm" (buoi=1 + overnight=1): phòng đạt tiêu chí này nếu khớp 1 TRONG 2 điều
+        // kiện (OR, không phải AND) — tự nó đã được cấu hình cho ở qua đêm (cột products.nights),
+        // HOẶC có ít nhất 1 khung giờ (room_time_slots) được đánh dấu qua đêm (over_night=true,
+        // xem book/_desktop-grid.blade.php dùng cùng khái niệm này để hiện icon "(Qua đêm)"). Chỉ
+        // cần 1 trong 2 là đủ hiện ra kết quả — không bắt buộc có cả 2.
+        if (($validated['overnight'] ?? null) === '1') {
+            $query->where(function ($sub) {
+                $sub->where('nights', true)
+                    ->orWhereHas('roomTimeSlots', fn ($tsq) => $tsq->where('over_night', true));
+            });
         }
 
         // Lọc theo số khách — loại phòng nếu adults > "Số khách tối đa không phụ thu"

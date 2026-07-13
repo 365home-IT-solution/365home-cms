@@ -31,8 +31,21 @@
             s => s.timeslotId === slot.timeslotId && s.date === slot.date
         );
 
+        // Mobile (book/_mobile.blade.php) và desktop (book/_desktop-grid.blade.php) render 2 DOM
+        // riêng biệt cho CÙNG 1 ô khung giờ (cùng phòng/ngày/khung giờ) — bấm chọn ở bên nào thì
+        // chỉ el bên đó nhận class active, còn ô song sinh bên kia (ẩn qua CSS lg:hidden/hidden
+        // lg:block, không phải bị gỡ khỏi DOM) không được đồng bộ, nên khi đổi kích thước trình
+        // duyệt qua breakpoint sẽ thấy ô đã chọn không tô đen dù selectedSlots vẫn đúng. Tìm mọi
+        // ô cùng data-room-id/timeslot-id/date (xem _slot-cell.blade.php) để toggle đồng thời,
+        // không chỉ riêng el. Chú ý: toàn khối x-data này nằm trong 1 attribute HTML bọc bởi dấu
+        // ngoặc kép, nên tuyệt đối không được gõ ký tự ngoặc kép ở bất kỳ đâu trong toàn bộ khối
+        // này (kể cả trong comment) — chỉ dùng dấu nháy đơn cho chuỗi.
+        const twins = document.querySelectorAll(
+            '.selectable[data-room-id=\'' + slot.roomId + '\'][data-timeslot-id=\'' + slot.timeslotId + '\'][data-date=\'' + slot.date + '\']'
+        );
+
         if (isSelected) {
-            el.classList.remove('active');
+            twins.forEach(twin => twin.classList.remove('active'));
             // Fix: filter by BOTH date AND timeslotId — same timeslot can exist on multiple dates
             this.selectedSlots = this.selectedSlots.filter(
                 s => !(s.timeslotId === slot.timeslotId && s.date === slot.date)
@@ -46,7 +59,7 @@
                 this.fullDayDates = [];
             }
         } else {
-            el.classList.add('active');
+            twins.forEach(twin => twin.classList.add('active'));
             this.selectedSlots.push(slot);
         }
 
@@ -219,10 +232,20 @@
     <div class="w-full mx-auto">
         @include('bladethemev1::livewire.book._header')
 
-        <div id="default-styled-tab-content" wire:loading.class="opacity-50 pointer-events-none" wire:target="setActiveCategoryTab">
+        <div id="default-styled-tab-content" wire:loading.class="pointer-events-none">
+            {{-- Skeleton (book/_skeleton.blade.php) thay chỗ nội dung thật trong lúc Livewire tải
+                 dữ liệu (đổi chi nhánh — loadBranch(), hoặc đổi tab danh mục —
+                 setActiveCategoryTab()) — mượt hơn hẳn so với chỉ làm mờ opacity nội dung cũ.
+                 Không dùng wire:target giới hạn theo tên method — loadBranch() được gọi gián tiếp
+                 qua sự kiện 'load-branch' (Livewire.dispatch), không phải wire:click trực tiếp,
+                 nên wire:target khớp theo tên method không nhận diện đúng request đang chạy. --}}
+            <div wire:loading.block style="display:none;">
+                @include('bladethemev1::livewire.book._skeleton')
+            </div>
+            <div wire:loading.remove>
             @if(!empty($activeCategoryData))
             @php $category = $activeCategoryData; @endphp
-            <div class="pb-10 relative" id="styled-{{ \Str::slug($category['name']) }}" role="tabpanel"
+            <div class="relative" id="styled-{{ \Str::slug($category['name']) }}" role="tabpanel"
                 aria-labelledby="styled-{{ \Str::slug($category['name']) }}-tab" wire:key="book-category-{{ $category['id'] }}">
 
                 @php
@@ -245,6 +268,7 @@
                          khung giờ. --}}
                     <div class="book-panel">
                         @include('bladethemev1::livewire.book._mobile')
+                        @include('bladethemev1::livewire.book._desktop-grid')
 
                         <div class="book-pricing-desktop">
                             @include('bladethemev1::livewire.book._pricing')
@@ -261,6 +285,7 @@
 
             </div>
             @endif
+            </div>
         </div>
 
         {{-- Mobile bottom sheet: hiện bảng tính giá đầy đủ sau khi user chọn khung giờ.

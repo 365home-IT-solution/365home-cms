@@ -3,51 +3,150 @@
     x-init="init()"
     x-cloak
 >
-    {{-- ============== ROOM TYPE CARDS (loại hình dịch vụ) ============== --}}
-    <template x-if="roomTypes && roomTypes.length">
-        <section class="py-4 bg-white">
-            <div class="w-full max-w-11xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
-                <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;">
-                    <div class="hidden lg:flex" style="align-items:center; gap:6px; flex-shrink:0;">
-                        <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                        </button>
-                        <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                        </button>
+    {{-- ============== LOẠI HÌNH DỊCH VỤ + BANNER (2 cột, mỗi cột 1 Center Mode Carousel) ==============
+         Khung tìm kiếm đè lên banner (hero-banner-form-overlay) là 1 INSTANCE ĐỘC LẬP, tách biệt
+         hoàn toàn với thanh tìm kiếm trong header (hàng 2, header-main.blade.php) — 2 khung cùng
+         hiện song song trên trang chủ, không chia sẻ state (xem skipHeaderPill ở HeroSection.php
+         + _banner-form.blade.php). --}}
+    <section class="py-4 bg-white hs-banner-section-margin" x-show="(roomTypes && roomTypes.length) || (bannerSection && bannerSection.items && bannerSection.items.length)">
+        {{-- Không còn px-4/sm:px-6 ở đây — Banner giờ full-bleed sát mép màn hình ở MỌI kích thước
+             (kể cả mobile). Cột "Loại hình dịch vụ" bên dưới tự thêm lại padding riêng cho nó
+             (xem Cột 2) vì vẫn cần khoảng đệm 2 bên như trước. --}}
+        <div class="w-full max-w-7xl mx-auto hs-merged-grid">
+
+                {{-- Cột 1: Banner — luôn đứng trước Loại hình dịch vụ (thứ tự DOM tự nhiên, không
+                     cần đảo theo breakpoint nữa). --}}
+                <div class="min-w-0 center-carousel-wrap" x-show="bannerSection && bannerSection.items && bannerSection.items.length">
+                    <template x-if="bannerSection && bannerSection.items && bannerSection.items.length">
+                        <div>
+                            <div class="swiper center-carousel" x-ref="bannerSwiperEl">
+                                <div class="swiper-wrapper">
+                                    <template x-for="banner in bannerSection.items" :key="'banner-' + (banner.url || banner.image_url)">
+                                        <div class="swiper-slide">
+                                            <a :href="banner.url || '#'" class="banner-card" :style="{ pointerEvents: banner.url ? 'auto' : 'none' }">
+                                                <img :src="banner.image_url" :alt="banner.title || ''">
+                                            </a>
+                                        </div>
+                                    </template>
+                                </div>
+                                <div class="swiper-pagination" id="hs-banner-pagination"></div>
+                            </div>
+                        </div>
+                    </template>
+                    {{-- Khung tìm kiếm nổi đè lên nửa dưới banner — instance riêng, độc lập với
+                         thanh tìm kiếm trong header (skipHeaderPill=true: không teleport pill gọn,
+                         không đồng bộ tab/trạng thái ghim với header). id dùng để header
+                         (header-main.blade.php) đo vị trí, biết khi nào đã cuộn qua khỏi khung này
+                         mới hiện thanh tìm kiếm riêng của header. --}}
+                    <div id="hero-banner-search-overlay" class="hidden lg:block hero-banner-form-overlay">
+                        @livewire('bladethemev1::hero-section', [
+                            'headerRow' => true,
+                            'skipHeaderPill' => true,
+                        ], key('hero-section-banner-overlay'))
                     </div>
                 </div>
 
-                <div x-ref="track" style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:4px;" class="hide-scrollbar">
-                    <template x-for="type in roomTypes" :key="'roomtype-' + type.id">
-                        <a :href="'{{ route('product.search') }}?type=' + type.slug" class="room-type-card">
-                            <img class="rtc-bg" :src="window.__roomTypeImage(type)" alt="" loading="lazy" onerror="this.style.display='none'">
-                            <span class="rtc-gradient"></span>
-                            <span class="rtc-arrow">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="#111827" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 17L17 7M7 7h10v10"/></svg>
-                            </span>
-                            <span class="rtc-title" x-text="type.name"></span>
-                        </a>
-                    </template>
+                {{-- Cột 2: Loại hình dịch vụ — luôn đứng NGAY DƯỚI banner (thứ tự DOM tự nhiên) ở
+                     mọi kích thước màn hình. Khác Cột 1 (banner, full-bleed sát mép), cột này tự
+                     thêm lại px-4/sm:px-6 — GIỮ NGUYÊN ở desktop (không lg:px-0) để thẳng hàng với
+                     các section khác (Lần đầu khám phá, Lịch đặt phòng trực tuyến...) đều dùng
+                     đúng pattern px-4 sm:px-6 này, không riêng gì banner mới cần full-bleed. --}}
+                <template x-if="roomTypes && roomTypes.length">
+                    <div class="min-w-0 px-4 sm:px-6 hs-roomtype-col-spacing">
+                        {{-- Thẻ nền xám nhạt, icon lớn TRÊN tên (giống nhau mọi kích thước màn
+                             hình) — nút prev/next tròn nổi 2 bên hàng thẻ (carouselNav() dùng chung). --}}
+                        <div x-data="carouselNav()" x-init="init()">
+                            {{-- Tiêu đề: ẩn ở desktop (yêu cầu bỏ, cho thẻ nằm gần thanh tìm kiếm
+                                 banner hơn) — vẫn giữ ở mobile. --}}
+                            <div class="hs-roomtype-heading" style="margin-bottom:14px;">
+                                <h2 class="text-xl font-bold text-gray-900">Loại hình dịch vụ</h2>
+                            </div>
+                            <div style="position:relative;">
+                                {{-- roomtype-nav-desktop-always: ở desktop LUÔN hiện cả 2 nút (kể cả
+                                     lúc đang ở đầu/cuối carousel, giống mẫu tham khảo) — CSS
+                                     !important đè lên display:none mà x-show gắn qua inline style,
+                                     chỉ trong phạm vi @media desktop; mobile vẫn giữ nguyên hành vi
+                                     ẩn/hiện theo canScrollPrev/canScrollNext như cũ. --}}
+                                <button type="button" class="roomtype-nav roomtype-nav-prev roomtype-nav-desktop-always" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
+                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                                </button>
+                                <button type="button" class="roomtype-nav roomtype-nav-next roomtype-nav-desktop-always" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
+                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                </button>
+                                {{-- px-1: box-shadow của .roomtype-card cần 1 chút khoảng đệm hai bên,
+                                     nếu không bị overflow-x-hidden của track cắt cụt (thẻ đầu/cuối
+                                     trông như bị che 1 phần). gap-6: giãn cách giữa các thẻ nhiều hơn
+                                     (thẻ đã to hơn — xem .roomtype-card). --}}
+                                <div x-ref="track" class="flex gap-6 py-2 px-1 overflow-x-hidden" style="scroll-snap-type:x mandatory;">
+                                    <template x-for="type in roomTypes" :key="'roomtype-mobile-' + type.id">
+                                        <a :href="'{{ route('product.search') }}?type=' + type.slug" class="roomtype-card" style="scroll-snap-align:start;">
+                                            <img :src="window.__roomTypeIcon(type)" alt="" class="roomtype-card-icon" loading="lazy" onerror="this.style.display='none'">
+                                            <span class="roomtype-card-label" x-text="type.name"></span>
+                                        </a>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+            </div>
+    </section>
+
+    {{-- ============== LẦN ĐẦU KHÁM PHÁ (2 cột tĩnh: ảnh chào mừng + banner giới thiệu app) ==============
+         Section tĩnh, không phụ thuộc dữ liệu CMS/sections — đặt ngay dưới "Các chi nhánh tại..."
+         phía trên, luôn hiện (không có x-if/x-show) vì nội dung cố định, không cần chờ dữ liệu. --}}
+    <section class="py-6 bg-white">
+        <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">Lần đầu khám phá</h2>
+            {{-- 2 ảnh có tỉ lệ gốc khác hẳn nhau (svg minh hoạ dạng đứng, png banner dạng ngang) —
+                 dùng background-image (bg-cover + chiều cao cố định qua .explore-card) thay vì thẻ
+                 <img> để 2 cột LUÔN bằng chiều cao nhau, ảnh tự crop cho vừa khung. --}}
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div class="explore-card" style="background-image: url('{{ asset('images/welcome_joyer_1.svg') }}');">
+                    <div class="explore-card-content">
+                        <p class="explore-card-title" style="color:#0e3a5c;">Thành viên mới? Quà chất đang đợi!</p>
+                        <p class="explore-card-subtitle" style="color:#0e3a5c;">Nhận coupon giảm 20.000đ với người dùng mới</p>
+                        <button type="button" class="explore-card-btn" style="background:var(--color-primary);" @click="window.dispatchEvent(new CustomEvent('open-auth-modal'))">Đăng ký ngay</button>
+                    </div>
+                </div>
+                {{-- background-position lệch sang phải: chữ + nội dung nằm bên trái, phần đồ hoạ
+                     (thẻ giá/coupon) của ảnh nền dồn về bên phải, tránh đè lên chữ. --}}
+                <div class="explore-card" style="background-image: url('{{ asset('images/banner-guest-mobile.png') }}'); background-position: right center;">
+                    <div class="explore-card-content">
+                        <p class="explore-card-title" style="color:#fff;">Nhận ưu đãi liền tay khi tải app!</p>
+                        <p class="explore-card-subtitle" style="color:rgba(255,255,255,.88);">Sử dụng ứng dụng để săn deals mỗi ngày</p>
+                        <div style="display:flex; align-items:center; gap:10px; margin-top:2px;">
+                            <a href="https://apps.apple.com/us/app/365-home/id6781598163" target="_blank" rel="noopener">
+                                <img src="{{ asset('images/applestore.png') }}" alt="Tải trên App Store" class="explore-card-badge">
+                            </a>
+                            <a href="https://play.google.com/store/apps/details?id=com.home365.app" target="_blank" rel="noopener">
+                                <img src="{{ asset('images/googleplay.png') }}" alt="Tải trên Google Play" class="explore-card-badge">
+                            </a>
+                        </div>
+                    </div>
                 </div>
             </div>
-        </section>
-    </template>
+        </div>
+    </section>
+
+    {{-- "Các chi nhánh tại..." — đặt ngay dưới hàng loại hình dịch vụ + banner (đã bỏ hẳn section
+         "Lịch đặt phòng trực tuyến" khỏi trang chủ theo yêu cầu — home-booking-board.blade.php vẫn
+         còn nhưng không còn được include ở đây nữa). --}}
+    @include('bladethemev1::livewire._branch-suggestion-section', ['key' => 'branch'])
 
     <template x-for="section in sections" :key="section.type + '-' + section.id">
         <div>
-            {{-- ============== BANNER ============== --}}
-            <template x-if="section.type === 'banner' && section.items && section.items.length">
+            {{-- ============== BANNER (chỉ hiện nếu CMS cấu hình >1 block banner — block đầu
+                 tiên đã hiển thị ở cột 2 phía trên rồi) ============== --}}
+            <template x-if="section.type === 'banner' && section.items && section.items.length && (!bannerSection || section.id !== bannerSection.id)">
                 <section class="py-4 bg-white">
-                    <div class="w-full max-w-11xl mx-auto px-4 sm:px-6" style="position:relative;" x-data="carouselNav()" x-init="init()">
+                    <div class="w-full max-w-7xl mx-auto px-4 sm:px-6" style="position:relative;" x-data="carouselNav()" x-init="init()">
                         <div x-ref="track" style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none;" class="hide-scrollbar">
                             <template x-for="banner in section.items" :key="'banner-' + (banner.url || banner.image_url)">
-                                <a :href="banner.url || '#'" class="banner-card"
-                                    :style="{ display: 'block', overflow: 'hidden', borderRadius: '12px', pointerEvents: banner.url ? 'auto' : 'none', scrollSnapAlign: 'start', flexShrink: 0 }">
-                                    <div style="position:relative; width:100%; padding-top:32%; border-radius:12px; overflow:hidden;">
-                                        <img :src="banner.image_url" :alt="banner.title || ''"
-                                            style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover;">
-                                    </div>
+                                <a :href="banner.url || '#'" class="banner-card legacy-banner-card"
+                                    :style="{ pointerEvents: banner.url ? 'auto' : 'none', scrollSnapAlign: 'start', flexShrink: 0 }">
+                                    <img :src="banner.image_url" :alt="banner.title || ''">
                                 </a>
                             </template>
                         </div>
@@ -67,7 +166,7 @@
             {{-- ============== PROMOTION LIST (phòng khuyến mãi) ============== --}}
             <template x-if="section.type === 'promotion_list' && section.rooms && section.rooms.length">
                 <section class="py-4 bg-white">
-                    <div class="w-full max-w-11xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
+                    <div class="w-full max-w-7xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;">
                             <div style="display:flex; align-items:center; gap:8px; min-width:0;">
                                 <img x-show="section.icon_url" :src="section.icon_url" alt="" style="width:20px;height:20px;object-fit:contain;flex-shrink:0;">
@@ -105,9 +204,13 @@
             </template>
 
             {{-- ============== SUGGESTION LIST ============== --}}
-            <template x-if="section.type === 'suggestion_list' && section.items && section.items.length">
+            {{-- "Gợi ý cho bạn" theo chi nhánh (suggestion_type === 'branch') được render RIÊNG ở
+                 _branch-suggestion-section.blade.php (include phía trên) — nên loại trừ ở đây để
+                 tránh hiện lặp lại 2 lần. Loại "theo phòng" (suggestion_type === 'room') không bị
+                 ảnh hưởng, vẫn hiện bình thường ở đúng vị trí cũ trong vòng lặp sections. --}}
+            <template x-if="section.type === 'suggestion_list' && section.suggestion_type !== 'branch' && section.items && section.items.length">
                 <section class="py-4 bg-white">
-                    <div class="w-full max-w-11xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
+                    <div class="w-full max-w-7xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;">
                             <div style="display:flex; align-items:center; gap:12px;">
                                 <h2 style="font-size:1.1rem; font-weight:800; color:#111827; margin:0;">Gợi ý cho bạn</h2>
@@ -143,9 +246,14 @@
             </template>
 
             {{-- ============== ROOM LIST ============== --}}
+            {{-- "Danh sách phòng - [chi nhánh]" (display_mode 'fixed' — các khối phòng cố định
+                 theo chi nhánh cấu hình sẵn trong CMS) ẩn hẳn trên toàn bộ website (cả mobile lẫn
+                 desktop) — theo yêu cầu riêng cho giao diện website, KHÔNG đụng gì tới dữ liệu/API
+                 /api/v1/home. Khối room_list kiểu 'by_region' (nếu có, hiện chưa dùng) không bị
+                 ảnh hưởng. --}}
             <template x-if="section.type === 'room_list' && section.rooms && section.rooms.length">
-                <section class="py-4 bg-white">
-                    <div class="w-full max-w-11xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
+                <section class="py-4 bg-white" :class="section.display_mode === 'fixed' ? 'hidden' : ''">
+                    <div class="w-full max-w-7xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
                         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:12px;">
                             <div style="display:flex; align-items:center; gap:12px;">
                                 <div style="min-width:0;">
@@ -190,6 +298,16 @@
         .hide-scrollbar { -ms-overflow-style: none; }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
 
+        /* Hàng gộp loại hình dịch vụ + banner: 1 cột trên mobile, 2 cột không đều (banner rộng
+           hơn) từ lg trở lên. Dùng CSS thuần thay vì Tailwind grid-cols-[2fr_3fr] vì class tuỳ ý
+           kiểu này chỉ được biên dịch nếu chạy build ngay sau khi thêm — an toàn hơn khi để trong
+           style block gộp sẵn ở đây, không phụ thuộc thời điểm build lại assets. */
+        .hs-merged-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 35px;
+        }
+
         .home-card {
             flex: 0 0 calc(46vw - 20px);
             width: calc(46vw - 20px);
@@ -206,16 +324,13 @@
         .room-type-card {
             position: relative;
             display: block;
+            width: 100%;
+            height: 100%;
             text-decoration: none;
             overflow: hidden;
             border-radius: 20px;
-            min-height: 168px;
+            min-height: 220px;
             background: #e5e7eb;
-            flex: 0 0 calc(46vw - 20px);
-            width: calc(46vw - 20px);
-            max-width: calc(46vw - 20px);
-            flex-shrink: 0;
-            scroll-snap-align: start;
             /* Bóng đổ ra ngoài để thẻ nổi nhẹ trên nền trắng, kết hợp inset: 1 viền sáng mảnh
                phía trong (cảm giác "kính cường lực" cao cấp) + 1 vùng tối inset ở đáy làm nền
                chữ tương phản tốt hơn mà không cần lớp gradient phủ quá đậm như trước. */
@@ -227,10 +342,7 @@
         }
         @media (min-width: 768px) {
             .room-type-card {
-                flex: 0 0 240px;
-                width: 240px;
-                max-width: 240px;
-                min-height: 190px;
+                min-height: 300px;
             }
         }
         .room-type-card .rtc-bg {
@@ -246,23 +358,6 @@
             background: linear-gradient(to top, rgba(0,0,0,.58) 0%, rgba(0,0,0,.16) 42%, rgba(0,0,0,0) 70%);
             pointer-events: none;
         }
-        .room-type-card .rtc-arrow {
-            position: absolute;
-            top: 12px;
-            right: 12px;
-            width: 30px;
-            height: 30px;
-            border-radius: 50%;
-            background: rgba(255,255,255,.85);
-            backdrop-filter: blur(6px);
-            -webkit-backdrop-filter: blur(6px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 2;
-            box-shadow: 0 2px 6px rgba(17, 24, 39, .18);
-        }
-        .room-type-card .rtc-arrow svg { width: 15px; height: 15px; }
         .room-type-card .rtc-title {
             position: absolute;
             left: 16px;
@@ -277,23 +372,44 @@
             z-index: 2;
         }
 
+        /* Ảnh banner CMS thường có tỉ lệ rất ngang (~10:3) — dùng aspect-ratio đúng tỉ lệ đó +
+           object-fit:contain (thay vì chiều cao cố định + cover) để LUÔN thấy đủ 100% nội dung
+           ảnh ở MỌI kích thước màn hình, không bị cắt mất chữ/khuyến mãi 2 bên. Chấp nhận có
+           khoảng nền trống (background-color) nếu ảnh không khớp tuyệt đối tỉ lệ này. */
         .banner-card {
-            /* Mobile: 1 banner / hàng */
+            display: block;
+            position: relative;
+            width: 100%;
+            aspect-ratio: 10 / 3;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #e5e7eb;
+        }
+        .banner-card img {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        /* Banner "dự phòng" (chỉ dùng khi CMS có >1 block banner — block đầu đã hiển thị ở cột 2
+           của hàng center-mode phía trên) — vẫn dùng carousel cuộn thường như trước, cần lại
+           kích thước cố định theo flex-basis vì không nằm trong Swiper. */
+        .legacy-banner-card {
             flex: 0 0 calc(100vw - 32px);
             width: calc(100vw - 32px);
             max-width: calc(100vw - 32px);
         }
         @media (min-width: 640px) {
-            /* Tablet / màn vừa: 2 banner / hàng */
-            .banner-card {
+            .legacy-banner-card {
                 flex-basis: calc((100vw - 62px) / 2);
                 width: calc((100vw - 62px) / 2);
                 max-width: calc((100vw - 62px) / 2);
             }
         }
         @media (min-width: 1024px) {
-            /* Desktop: 3 banner / hàng */
-            .banner-card {
+            .legacy-banner-card {
                 flex-basis: calc((100vw - 76px) / 3);
                 width: calc((100vw - 76px) / 3);
                 max-width: calc((100vw - 76px) / 3);
@@ -316,6 +432,238 @@
         }
         .carousel-nav-btn:hover { background: #e5e7eb; }
         .carousel-nav-btn svg { width: 16px; height: 16px; color: #374151; }
+
+        /* Ở mobile, rule chung "button { min-width/min-height: 44px }" (chuẩn kích thước chạm
+           tối thiểu) thắng riêng 2 thuộc tính min-width/min-height vì .carousel-nav-btn không tự
+           khai báo — khiến nút to hơn 32px đã set. Chỉnh còn 35px, đè luôn min-width/min-height
+           để không bị rule chung ghi đè lại. */
+        @media (max-width: 767.98px) {
+            .carousel-nav-btn {
+                width: 35px;
+                height: 35px;
+                min-width: 35px;
+                min-height: 35px;
+            }
+        }
+        .carousel-nav-btn.swiper-button-disabled {
+            opacity: .35;
+            pointer-events: none;
+            cursor: default;
+        }
+
+        /* Nút prev/next đè thẳng lên khung ảnh (không nằm ngoài lề nữa), mặc định ẩn — chỉ hiện
+           khi hover vào carousel (desktop). Mobile giữ ẩn hẳn, tương tác chính là vuốt. */
+        .center-carousel-wrap {
+            position: relative;
+        }
+        /* Khung tìm kiếm nổi đè lên nửa dưới banner (khôi phục theo yêu cầu) — khung thẻ trắng bo
+           góc + đổ bóng, z-index cao hơn pagination dots (4) để không bị che. Bản thân thanh tìm
+           kiếm bên trong đã tự có nền trắng + shadow riêng của nó (_banner-form.blade.php) nên
+           trông như 1 viên thuốc nổi bên trong khung thẻ này. */
+        .hero-banner-form-overlay {
+            position: absolute;
+            left: 50%;
+            bottom: -25%;
+            transform: translateX(-50%);
+            z-index: 10;
+            width: min(94%, 960px);
+            background: #fff;
+            border-radius: 28px;
+            padding: 18px 16px;
+            box-shadow: 0 14px 44px rgba(0, 0, 0, .18);
+        }
+
+        /* Thẻ "Loại hình dịch vụ" — nền xám nhẹ, không box-shadow (bỏ theo yêu cầu), icon lớn phía
+           trên tên, giống nhau ở mọi kích thước màn hình (không còn phân biệt mobile/desktop như
+           bản pill trước đây). */
+        .roomtype-card {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            flex-shrink: 0;
+            width: 150px;
+            background: #f5f5f6;
+            border-radius: 20px;
+            padding: 26px 14px;
+            text-decoration: none;
+            transition: background-color .15s ease;
+        }
+        .roomtype-card:hover { background: #ececee; }
+        .roomtype-card-icon {
+            width: 72px;
+            height: 72px;
+            object-fit: contain;
+        }
+        .roomtype-card-label {
+            font-size: 14.5px;
+            font-weight: 600;
+            color: #111827;
+            text-align: center;
+            line-height: 1.3;
+        }
+        @media (min-width: 1024px) {
+            /* Đúng 5 thẻ/hàng ở desktop — width tính theo % bề rộng track (không cố định px) để
+               luôn vừa đủ 5 thẻ dù màn hình rộng hẹp khác nhau; track dùng gap-6 (24px), 5 thẻ có
+               4 khoảng gap nên trừ 4*24px trước khi chia 5. Thẻ thứ 6 trở đi vẫn tràn ra ngoài,
+               cuộn được qua carousel (canScrollNext) như thiết kế hiện tại. */
+            .roomtype-card { width: calc((100% - 96px) / 5); padding: 32px 16px; }
+            .roomtype-card-icon { width: 88px; height: 88px; }
+            .roomtype-card-label { font-size: 16px; }
+        }
+
+        /* Nút prev/next tròn nổi 2 bên hàng thẻ, giống mẫu tham khảo — luôn có thể hiện ở mọi kích
+           thước màn hình (x-show theo canScrollPrev/canScrollNext thật, không giới hạn breakpoint). */
+        .roomtype-nav {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            z-index: 5;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: #fff;
+            border: none;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, .14);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            padding: 0;
+        }
+        .roomtype-nav svg { width: 20px; height: 20px; color: #374151; }
+        .roomtype-nav-prev { left: -14px; }
+        .roomtype-nav-next { right: -14px; }
+
+        /* Ở desktop, luôn hiện cả 2 nút pre/next (kể cả lúc đang ở đầu/cuối carousel) — đè lên
+           display:none mà x-show gắn qua inline style (canScrollPrev/canScrollNext), chỉ áp dụng
+           từ 1024px trở lên; dưới mức đó vẫn ẩn/hiện theo đúng khả năng cuộn thật như cũ. */
+        @media (min-width: 1024px) {
+            .roomtype-nav-desktop-always { display: flex !important; }
+        }
+
+        /* Khoảng cách dưới section Loại hình dịch vụ + Banner — chỉ desktop (dùng CSS thuần thay
+           vì lg:mb-6 của Tailwind, class đó chưa từng dùng ở đâu khác trong site nên không có
+           trong file CSS đã build sẵn). */
+        @media (min-width: 1024px) {
+            .hs-banner-section-margin { margin-bottom: 24px; }
+        }
+
+        /* Tiêu đề "Loại hình dịch vụ": ẩn ở desktop theo yêu cầu trước đó — vẫn giữ ở mobile.
+           Cột này cần thêm margin-top để né khung tìm kiếm nổi đè lên banner (bottom:-25%,
+           .hero-banner-form-overlay) — đã khôi phục lại theo yêu cầu, chỉ desktop (overlay chỉ
+           hiện lg:block). */
+        @media (min-width: 1024px) {
+            .hs-roomtype-heading { display: none; }
+            .hs-roomtype-col-spacing { margin-top: 90px; }
+        }
+
+        /* "Lần đầu khám phá": 2 cột luôn cùng 1 chiều cao cố định (ảnh crop vừa khung bằng
+           background-size:cover) dù ảnh gốc có tỉ lệ khác nhau (svg minh hoạ dạng đứng vs png
+           banner dạng ngang) — thấp hơn bản trước, chỉ đủ cho tiêu đề + phụ đề + nút. */
+        .explore-card {
+            width: 100%;
+            height: 150px;
+            border-radius: 16px;
+            background-color: #f3f4f6;
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            display: flex;
+            align-items: center;
+        }
+        @media (min-width: 1024px) {
+            .explore-card { height: 190px; }
+        }
+        .explore-card-content {
+            max-width: 62%;
+            padding: 0 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        @media (min-width: 1024px) {
+            .explore-card-content { padding: 0 28px; }
+        }
+        .explore-card-title {
+            font-size: 15px;
+            font-weight: 800;
+            line-height: 1.3;
+            margin: 0;
+        }
+        @media (min-width: 1024px) {
+            .explore-card-title { font-size: 17px; }
+        }
+        .explore-card-subtitle {
+            font-size: 12.5px;
+            line-height: 1.35;
+            margin: 0;
+        }
+        @media (min-width: 1024px) {
+            .explore-card-subtitle { font-size: 13px; }
+        }
+        .explore-card-btn {
+            align-self: flex-start;
+            margin-top: 4px;
+            padding: 8px 18px;
+            border-radius: 9999px;
+            color: #fff;
+            font-size: 13px;
+            font-weight: 700;
+            border: none;
+            cursor: pointer;
+            transition: opacity .15s ease;
+        }
+        .explore-card-btn:hover {
+            opacity: .9;
+        }
+        .explore-card-badge {
+            height: 26px;
+            width: auto;
+            display: block;
+        }
+        @media (min-width: 1024px) {
+            .explore-card-badge { height: 30px; }
+        }
+
+        /* Center Mode Carousel (loại hình dịch vụ + banner): slide đang active nổi bật (scale +
+           full opacity), 2 bên mờ/nhỏ hơn. Slide peek nằm hoàn toàn trong chiều rộng container
+           nhờ slidesPerView lẻ (vd 1.08) — KHÔNG cần overflow:visible (sẽ làm tràn ngang cả trang). */
+        .center-carousel {
+            overflow: hidden;
+        }
+        .center-carousel .swiper-slide {
+            opacity: .55;
+            transform: scale(.92);
+            transition: transform .35s ease, opacity .35s ease;
+        }
+        .center-carousel .swiper-slide-active {
+            opacity: 1;
+            transform: scale(1);
+        }
+        /* Carousel indicator (dots) nằm ngay trong khung ảnh thay vì hàng riêng bên dưới. */
+        .center-carousel .swiper-pagination {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 10px;
+            z-index: 4;
+        }
+        .center-carousel .swiper-pagination-bullet {
+            background: #fff;
+            opacity: .6;
+            box-shadow: 0 1px 3px rgba(0,0,0,.45);
+        }
+        .center-carousel .swiper-pagination-bullet-active {
+            background: #fff;
+            opacity: 1;
+        }
+        /* Loại hình dịch vụ có tiêu đề chữ nằm ở đáy ảnh (.rtc-title, bottom:14px) — đẩy dots lên
+           cao hơn 1 chút để không đè lên chữ. */
+        #hs-roomtype-pagination {
+            bottom: 40px;
+        }
 
         .room-wishlist-btn {
             position: absolute;

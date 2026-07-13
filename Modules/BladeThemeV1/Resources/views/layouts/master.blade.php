@@ -113,6 +113,20 @@
             scrollbar-color: var(--color-primary) #f1f1f1;
         }
 
+        /* Ẩn hẳn thanh cuộn (kể cả thanh cuộn trang tuỳ chỉnh ở trên) ở kích thước mobile — vẫn
+           cuộn được bình thường, chỉ không hiện thanh cuộn để trông gọn như app di động. Desktop
+           giữ nguyên thanh cuộn màu theme như cũ. */
+        @media (max-width: 767.98px) {
+            ::-webkit-scrollbar {
+                display: none;
+                width: 0;
+                height: 0;
+            }
+            * {
+                scrollbar-width: none;
+            }
+        }
+
         /* Smooth scroll animation cho tất cả elements có overflow */
         .overflow-auto,
         .overflow-y-auto,

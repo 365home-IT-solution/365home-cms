@@ -38,7 +38,6 @@ class HomeController extends Controller
         $province = $this->resolveProvince($request);
 
         $roomTypes = RoomType::where('is_active', true)
-            ->whereHas('products', fn ($q) => $q->where('is_activated', true)->where('is_in_stock', true))
             ->orderBy('sort_order')
             ->get(['id', 'slug', 'name', 'icon', 'icon_url'])
             ->toArray();
@@ -54,6 +53,35 @@ class HomeController extends Controller
             ->map(fn ($block, $index) => $this->buildBlock($block, $index, $wishlistedIds, $tabRoomTypeId, $province))
             ->filter()
             ->values();
+
+        // Lịch đặt phòng trực tuyến (component riêng, không nằm trong $sections — luôn render
+        // trước vòng lặp sections ở flash-sale.blade.php) → Flash Sale → Gợi ý theo phòng luôn
+        // đứng NGAY SAU nó theo đúng thứ tự này, bất kể admin sắp xếp block thế nào trong CMS —
+        // các block còn lại (danh sách phòng theo chi nhánh, gợi ý theo chi nhánh...) giữ nguyên
+        // thứ tự tương đối, xếp sau. Chỉ ưu tiên khi 2 block này thực sự tồn tại trong CMS (nếu
+        // admin không cấu hình thì không có phần tử nào khớp, sortBy không có tác dụng).
+        $sections = $sections
+            ->sortBy(function ($section) {
+                if ($section['type'] === 'promotion_list') {
+                    return 0;
+                }
+                if ($section['type'] === 'suggestion_list' && ($section['suggestion_type'] ?? null) === 'room') {
+                    return 1;
+                }
+
+                return 2;
+            })
+            ->values()
+            // homeSections().load() ở home-sections.js tự sort lại sections theo 'sort_order' sau
+            // khi nhận response — sort_order được gán TỪ TRƯỚC theo vị trí gốc trong CMS (buildBlock()
+            // ở trên), nên nếu không đánh số lại theo vị trí MỚI sau khi sắp xếp ở đây, phía client sẽ
+            // âm thầm sort ngược lại về thứ tự CMS ban đầu, xóa mất tác dụng của sortBy() phía trên.
+            ->map(function ($section, $i) {
+                $section['sort_order'] = $i + 1;
+                $section['id']         = $i + 1;
+
+                return $section;
+            });
 
         return response()->json([
             'home' => [

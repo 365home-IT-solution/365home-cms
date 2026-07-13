@@ -5,9 +5,11 @@ namespace Modules\BladeThemeV1\Livewire;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
+use Livewire\Attributes\On;
 use Livewire\Component;
 use Illuminate\Support\Facades\DB;
 use Modules\BladeThemeV1\App\Models\BlindBag;
+use Modules\BladeThemeV1\Support\BranchBookConfig;
 use Modules\BladeThemeV1\Traits\HasTimeSlots;
 use Modules\BladeThemeV1\Traits\PropertiesProductDetail;
 use Modules\Category\Entities\Category;
@@ -23,6 +25,10 @@ class Book extends Component
     public $choose_room, $title_booking, $sub_title_booking;
     public $blindBag, $image_event;
 
+    /** Chỉ true khi nhúng ở trang chủ — hiện thêm header tên chi nhánh vì trang chủ không có
+     *  ngữ cảnh URL như /branch/{slug} để người dùng biết đang xem lịch của chi nhánh nào. */
+    public bool $showBranchHeader = false;
+
     /** Danh sách tab (id + name) cho tất cả danh mục — nhẹ, không kèm sản phẩm/timeslot. */
     public array $categoryTabs = [];
 
@@ -34,15 +40,40 @@ class Book extends Component
 
     // Số ngày hiện mặc định / tối đa trong bảng lịch — book/_mobile.blade.php dùng Alpine
     // (dateLimit) để hiện dần, không round-trip server.
-    const INITIAL_VISIBLE_DAYS = 10;
+    const INITIAL_VISIBLE_DAYS = 15;
     const MAX_VISIBLE_DAYS = 31;
     const LOAD_MORE_DAYS_STEP = 10;
 
-    public function mount($config)
+    public function mount($config, bool $showBranchHeader = false)
     {
+        $this->showBranchHeader = $showBranchHeader;
         $this->setConfig($config);
         $this->initializeData();
         $this->blindBag = BlindBag::first();
+    }
+
+    /**
+     * Nạp lại toàn bộ config cho 1 chi nhánh khác vào component Book đang mount sẵn — dùng ở
+     * panel đặt lịch inline của trang tìm kiếm (?view=branches), nơi 1 Book component duy nhất
+     * được tái sử dụng cho từng chi nhánh người dùng bấm chọn, thay vì điều hướng sang trang
+     * chi tiết chi nhánh riêng. Reset state cũ trước khi nạp, phòng khi chi nhánh mới không có
+     * phòng khả dụng (categoryTabs rỗng) — nếu không sẽ giữ lại dữ liệu của chi nhánh trước đó.
+     */
+    #[On('load-branch')]
+    public function loadBranch(string $slug): void
+    {
+        $result = BranchBookConfig::build($slug);
+
+        if (! $result) {
+            return;
+        }
+
+        $this->categoryTabs = [];
+        $this->activeCategoryId = null;
+        $this->activeCategoryData = [];
+
+        $this->setConfig($result['bookConfig']);
+        $this->initializeData();
     }
 
     protected function initializeData()
