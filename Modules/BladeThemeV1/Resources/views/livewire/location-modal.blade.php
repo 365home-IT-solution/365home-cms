@@ -10,20 +10,36 @@
 
         init() {
             this.initProvince();
+            // Nút 'Chọn khu vực' ở header (bắn CustomEvent này qua window.dispatchEvent) — LUÔN mở
+            // lại được, bất kể đã dismiss trước đó hay chưa, vì đây là hành động chủ động của
+            // khách, khác với việc initProvince() tự động mở lúc mới vào site.
             window.addEventListener('open-location-modal', () => {
                 this.open = true;
                 if (!this.loaded) this.loadProvinces();
             });
         },
 
+        // Đóng popup mà KHÔNG chọn khu vực (bấm nút X, bấm ra ngoài, phím Esc) — đánh dấu đã dismiss
+        // vào localStorage để initProvince() không tự mở lại ở các trang sau nữa. Không dùng chung
+        // key với home_province_id (vẫn để trống — khác 'đã chọn' với 'đã từ chối chọn'), để nếu
+        // sau này có chỗ khác cần phân biệt 2 trạng thái này thì vẫn tách được.
+        closePopup() {
+            this.open = false;
+            if (!localStorage.getItem('home_province_id')) {
+                localStorage.setItem('home_location_popup_dismissed', '1');
+            }
+        },
+
         // Khách đã đăng nhập và có sẵn province_id trên tài khoản (chọn từ trước, ở thiết bị khác...)
         // thì ưu tiên dùng ngay giá trị đó, không hỏi lại — kể cả khi localStorage của trình duyệt
         // này chưa có/đã khác. Chỉ khi không đăng nhập hoặc tài khoản chưa có province_id mới rơi về
-        // hành vi cũ: dựa vào localStorage, thiếu thì mới mở modal hỏi khu vực.
+        // hành vi cũ: dựa vào localStorage, thiếu thì mới mở modal hỏi khu vực — trừ khi khách đã
+        // từng bấm tắt popup này rồi (home_location_popup_dismissed) thì thôi, không tự mở lại nữa;
+        // khách vẫn luôn mở lại được thủ công qua nút 'Chọn khu vực' ở header (xem init() ở trên).
         initProvince() {
             const token = localStorage.getItem('auth_token');
             if (!token) {
-                if (!localStorage.getItem('home_province_id')) {
+                if (!localStorage.getItem('home_province_id') && !localStorage.getItem('home_location_popup_dismissed')) {
                     this.open = true;
                     this.loadProvinces();
                 }
@@ -39,13 +55,13 @@
                         localStorage.setItem('home_province_id', data.id);
                         localStorage.setItem('home_province_name', data.name);
                         window.dispatchEvent(new CustomEvent('province-selected', { detail: data }));
-                    } else if (!localStorage.getItem('home_province_id')) {
+                    } else if (!localStorage.getItem('home_province_id') && !localStorage.getItem('home_location_popup_dismissed')) {
                         this.open = true;
                         this.loadProvinces();
                     }
                 })
                 .catch(() => {
-                    if (!localStorage.getItem('home_province_id')) {
+                    if (!localStorage.getItem('home_province_id') && !localStorage.getItem('home_location_popup_dismissed')) {
                         this.open = true;
                         this.loadProvinces();
                     }
@@ -131,7 +147,7 @@
             );
         },
     }"
-    @keydown.escape.window="open = false"
+    @keydown.escape.window="closePopup()"
     x-cloak
 >
     <template x-teleport="body">
@@ -146,7 +162,7 @@
             class="fixed inset-0 z-[9999] flex items-center justify-center px-4"
             style="display: none;"
         >
-            <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" @click="open = false"></div>
+            <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" @click="closePopup()"></div>
 
             <div
                 x-show="open"
@@ -156,21 +172,32 @@
                 x-transition:leave="transition ease-in duration-150"
                 x-transition:leave-start="opacity-100 scale-100"
                 x-transition:leave-end="opacity-0 scale-95"
-                class="relative w-full max-w-sm rounded-2xl border border-gray-200 shadow-2xl overflow-hidden bg-white flex flex-col"
-                style="max-height: 80vh;"
+                {{-- max-width/max-height dùng px/vh trực tiếp trong style (thay vì class max-w-sm)
+                     để sau này chỉnh to/nhỏ cho dễ. Đã tăng từ 384px (max-w-sm cũ) lên 480px, và
+                     80vh lên 85vh. --}}
+                class="relative w-full rounded-2xl border border-gray-200 shadow-2xl overflow-hidden bg-white flex flex-col"
+                style="max-width: 480px; max-height: 85vh;"
                 @click.stop
             >
+                {{-- Vị trí/kích thước dùng style px trực tiếp (thay vì class top-4/right-4/w-8/h-8)
+                     để sau này chỉnh số cho dễ, khỏi tra bảng quy đổi class Tailwind. top:16px,
+                     right:16px PHẢI >= bán kính bo góc của card cha (rounded-2xl = 16px) — nếu để
+                     dưới 16px, phần bo góc (kết hợp overflow-hidden) sẽ cắt mất 1 phần hình tròn
+                     của nút (đúng lỗi giao diện đã gặp trước đó). --}}
                 <button
-                    @click="open = false"
-                    class="absolute top-4 right-4 p-1 rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors z-10"
+                    type="button"
+                    @click="closePopup()"
+                    aria-label="Đóng"
+                    style="position:absolute; top:3px; right:5px; width:32px; height:32px;"
+                    class="flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:text-gray-700 hover:bg-gray-200 transition-colors z-10"
                 >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
                     </svg>
                 </button>
 
                 <div class="p-6 pb-4 shrink-0">
-                    <h2 class="text-lg font-semibold text-gray-900 mb-1">Bạn đang ở khu vực nào?</h2>
+                    <h2 class="text-lg font-semibold text-gray-900 mb-1 pr-8">Bạn đang ở khu vực nào?</h2>
                     <p class="text-sm text-gray-500 mb-4">Chọn khu vực để xem đầy đủ phòng và ưu đãi gần bạn.</p>
 
                     <button

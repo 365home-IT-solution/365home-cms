@@ -109,6 +109,24 @@
             <span class="nav-label-1">Tin tức</span>
         </a>
 
+        {{-- Chọn khu vực — bản mobile của nút cùng tên ở header desktop (header-main.blade.php).
+             Bắn sự kiện 'open-location-modal' mà location-modal.blade.php đang lắng nghe để mở lại
+             popup chọn khu vực, kể cả sau khi khách đã đóng popup lúc mới vào site (đóng thì không
+             tự mở lại — xem closePopup() — nhưng bấm nút này ở đây thì luôn mở được). Không dùng
+             <a href>: đây là hành động mở popup tại chỗ, không điều hướng trang. --}}
+        <button
+            type="button"
+            x-data="{}"
+            @click="window.dispatchEvent(new CustomEvent('open-location-modal'))"
+            class="nav-item-1"
+            style="background:none; border:none; font-family:inherit;"
+        >
+            <div class="nav-icon-1">
+                <x-heroicon-o-map-pin />
+            </div>
+            <span class="nav-label-1">Khu vực</span>
+        </button>
+
         <div
             x-data="{
                 isLoggedIn: false,

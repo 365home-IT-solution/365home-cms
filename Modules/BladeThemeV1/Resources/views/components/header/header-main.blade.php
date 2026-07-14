@@ -299,6 +299,28 @@
                                 <x-bladethemev1::header.actions.cta-button :ctaButtonConfig="$ctaButtonConfig"/>
                             @endif
 
+                            {{-- Nút chọn khu vực — đứng ngay TRƯỚC nút đăng nhập/đăng ký. Bắn sự
+                                 kiện 'open-location-modal' mà location-modal.blade.php đang lắng
+                                 nghe (window.addEventListener trong init() của nó) để mở lại popup
+                                 chọn khu vực bất kỳ lúc nào, kể cả sau khi khách đã đóng popup lúc
+                                 mới vào site (đóng thì không tự mở lại nữa — xem closePopup() —
+                                 nhưng bấm nút này thì luôn mở được). Hiện tên khu vực đang chọn,
+                                 đọc từ localStorage (cùng key 'home_province_name' mà
+                                 location-modal.blade.php/home-sections.js dùng), cập nhật khi có
+                                 sự kiện 'province-selected'. --}}
+                            <button type="button"
+                                x-data="{ provinceName: localStorage.getItem('home_province_name') || '' }"
+                                x-init="window.addEventListener('province-selected', (e) => { provinceName = e.detail?.name || localStorage.getItem('home_province_name') || ''; })"
+                                @click="window.dispatchEvent(new CustomEvent('open-location-modal'))"
+                                aria-label="Chọn khu vực"
+                                class="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors duration-150">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                </svg>
+                                <span class="hidden xl:inline truncate max-w-[110px]" x-text="provinceName || 'Khu vực'"></span>
+                            </button>
+
                             <!-- Auth Button -->
                             @if($authHeaderEnabled)
                                 <x-bladethemev1::header.actions.auth-button />
