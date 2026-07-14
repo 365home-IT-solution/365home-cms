@@ -280,12 +280,14 @@
 
             {{-- ============== ROOM LIST ============== --}}
             {{-- "Danh sách phòng - [chi nhánh]" (display_mode 'fixed' — các khối phòng cố định
-                 theo chi nhánh cấu hình sẵn trong CMS) ẩn hẳn trên toàn bộ website (cả mobile lẫn
-                 desktop) — theo yêu cầu riêng cho giao diện website, KHÔNG đụng gì tới dữ liệu/API
-                 /api/v1/home. Khối room_list kiểu 'by_region' (nếu có, hiện chưa dùng) không bị
-                 ảnh hưởng. --}}
+                 theo chi nhánh cấu hình sẵn trong CMS): CHỈ hiện khi CHƯA chọn khu vực (provinceName
+                 rỗng) — lúc đó "Các chi nhánh"/Flash Sale/"Gợi ý theo phòng" đều tự ẩn (API trả rỗng
+                 khi không có province, xem HomeController::buildPromotionList()/buildSuggestionList()),
+                 nên hiện danh sách phòng cố định này thay thế. Khi ĐÃ chọn khu vực, ẩn khối này lại
+                 để nhường chỗ cho 3 khối theo khu vực kia. Khối room_list kiểu 'by_region' (nếu có,
+                 hiện chưa dùng) không bị ảnh hưởng, luôn hiện bình thường. --}}
             <template x-if="section.type === 'room_list' && section.rooms && section.rooms.length">
-                <section class="py-4 bg-white" :class="section.display_mode === 'fixed' ? 'hidden' : ''">
+                <section class="py-4 bg-white" :class="section.display_mode === 'fixed' ? (provinceName ? 'hidden' : '') : ''">
                     <div class="w-full max-w-7xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
                         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:12px;">
                             <div style="display:flex; align-items:center; gap:12px;">
