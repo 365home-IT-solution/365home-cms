@@ -158,8 +158,12 @@
 
     {{-- "Các chi nhánh tại..." — đặt ngay dưới hàng loại hình dịch vụ + banner (đã bỏ hẳn section
          "Lịch đặt phòng trực tuyến" khỏi trang chủ theo yêu cầu — home-booking-board.blade.php vẫn
-         còn nhưng không còn được include ở đây nữa). --}}
-    @include('bladethemev1::livewire._branch-suggestion-section', ['key' => 'branch'])
+         còn nhưng không còn được include ở đây nữa).
+         Livewire component riêng (BranchSuggestion) — query thẳng DB, không còn qua API
+         /api/v1/home (dùng chung với app mobile) như bản cũ (_branch-suggestion-section.blade.php,
+         dựa vào Alpine x-for lọc trên `sections` load từ API). Vẫn cập nhật lại theo đúng khu vực
+         đang chọn qua sự kiện 'province-selected' (xem branch-suggestion.blade.php). --}}
+    @livewire('bladethemev1::branch-suggestion')
 
     <template x-for="section in sections" :key="section.type + '-' + section.id">
         <div>
@@ -231,9 +235,12 @@
 
             {{-- ============== SUGGESTION LIST ============== --}}
             {{-- "Gợi ý cho bạn" theo chi nhánh (suggestion_type === 'branch') được render RIÊNG ở
-                 _branch-suggestion-section.blade.php (include phía trên) — nên loại trừ ở đây để
-                 tránh hiện lặp lại 2 lần. Loại "theo phòng" (suggestion_type === 'room') không bị
-                 ảnh hưởng, vẫn hiện bình thường ở đúng vị trí cũ trong vòng lặp sections. --}}
+                 component Livewire BranchSuggestion (@livewire('bladethemev1::branch-suggestion')
+                 phía trên — query thẳng DB, không qua API /api/v1/home) — nên loại trừ ở đây để
+                 tránh hiện lặp lại 2 lần (API /api/v1/home vẫn trả về cả block branch này trong
+                 `sections`, chỉ là không dùng nó để render nữa). Loại "theo phòng"
+                 (suggestion_type === 'room') không bị ảnh hưởng, vẫn hiện bình thường ở đúng vị trí
+                 cũ trong vòng lặp sections (vẫn lấy từ API như cũ). --}}
             <template x-if="section.type === 'suggestion_list' && section.suggestion_type !== 'branch' && section.items && section.items.length">
                 <section class="py-4 bg-white">
                     <div class="w-full max-w-7xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
