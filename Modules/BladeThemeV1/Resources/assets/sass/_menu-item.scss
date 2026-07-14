@@ -130,10 +130,6 @@
   box-shadow: none;
 }
 
-.main-menu-item.menu-active::after {
-  width: 40px;
-}
-
 .main-menu-item {
   position: relative;
   overflow: visible;
@@ -141,21 +137,6 @@
   color: var(--color-gray) !important;
   transition: all 0.3s ease;
 }
-
-.main-menu-item::after {
-  content: '';
-  position: absolute;
-  bottom: -2px;
-  left: 20px;
-  width: 0;
-  height: 5px;
-  background: var(--color-gray);
-  border-radius: 2px;
-  transition: width 0.4s ease-out;
-}
-
-/* Bỏ hiệu ứng gạch chân/nhấc lên khi hover — chỉ còn gạch chân cho item active
-   (.main-menu-item.menu-active::after phía trên) làm điểm nhấn duy nhất. */
 
 @media (max-width: 768px) {
   .menu-dropdown {
@@ -183,15 +164,6 @@
 
   .menu-group:hover .menu-arrow-icon {
     transform: rotate(90deg);
-  }
-
-  // Gạch chân canh giữa theo chữ (không phải theo padding trái cố định như bản
-  // desktop), vì tên menu item mobile dài ngắn khác nhau nên left cố định sẽ lệch.
-  .main-menu-item::after {
-    bottom: 0;
-    height: 2px;
-    left: 50%;
-    transform: translateX(-50%);
   }
 
   .main-menu-item,

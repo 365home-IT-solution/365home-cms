@@ -167,6 +167,20 @@
                             this._dateDropdownCleanup = null;
                         }
                     });
+                    // Đổi tab Theo giờ/Theo ngày trong popup đang mở làm popup đổi bề rộng
+                    // (600px <-> 640px ở banner-form, 380px <-> 640px ở compact-form) — phải tính
+                    // lại "left" cho đúng tâm field, nếu không popup lệch dần sang trái mỗi lần
+                    // đổi tab (đặc biệt banner-form: "left" cũ được tính cho bề rộng cũ, cộng dồn
+                    // với transform:translateX(-50%) bị Alpine set lại từ đầu mỗi khi dayMode đổi
+                    // do nằm chung object :style — xem _banner-form.blade.php, đã tách transform
+                    // ra khỏi object đó để JS toàn quyền set "transform:none" sau khi định vị).
+                    this.$watch('dayMode', () => {
+                        if (!this.open) return;
+                        this.$nextTick(() => {
+                            this.positionDateDropdown(this.$refs.dateDropdownDesktop);
+                            this.positionDateDropdown(this.$refs.dateDropdownCompact);
+                        });
+                    });
                 },
                 // Trang /s/{slug}?checkin=...&checkout=...&buoi=... không truyền $checkIn/$checkOut
                 // vào component này — đọc lại từ URL để ô Thời gian khớp đúng lựa chọn trước đó

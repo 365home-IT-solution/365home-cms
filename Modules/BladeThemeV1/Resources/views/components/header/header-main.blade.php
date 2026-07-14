@@ -30,6 +30,14 @@
         'visible' => $data->actionConfig['search_button']
     ];
 
+    // Trang đăng nhập: ẩn hẳn mọi khối tìm kiếm (pill gọn, hàng tab, hàng tìm kiếm đầy đủ) NGAY
+    // TỪ SERVER — không dựa vào cờ JS window.__headerAlwaysCompact (chỉ ẩn được SAU khi Alpine
+    // kịp khởi tạo, có thể bị lỡ nhịp/hiện chớp nhoáng tuỳ thời điểm JS chạy). Đồng thời dùng lại
+    // để LUÔN hiện menu item thật (ẩn nút bars) ở trang này thay vì thu gọn theo isSticky như các
+    // trang khác — trang gọn nhẹ này không cần hành vi thu gọn khi cuộn.
+    // (Trang đăng ký — register.page — đã bị gỡ bỏ.)
+    $isAuthPage = request()->routeIs('login.page');
+
     $ctaButtonConfig = [
         'visible' => $data->actionConfig['cta_button'],
         'label' => $data->actionConfig['cta_button_label'],
@@ -62,7 +70,13 @@
 
 <div id="main-header-bar"
      x-data="{
-        isSticky: {{ $data->headerStyle ? "(window.__headerAlwaysExpanded ? false : window.matchMedia('(max-width: 767px)').matches)" : 'false' }},
+        {{-- window.__headerAlwaysCompact (set trước @livewire('bladethemev1::header') ở trang cần
+             header luôn thu gọn kiểu đã cuộn — bars menu, không hàng search đầy đủ, xem
+             pages/login.blade.php/register.blade.php) — ép isSticky=true ngay từ đầu bất kể trang
+             chủ hay không, không đụng tới __headerAlwaysExpanded (dùng ngược lại ở chỗ khác). --}}
+        isSticky: {{ $data->headerStyle
+            ? "(window.__headerAlwaysExpanded ? false : (window.__headerAlwaysCompact ? true : window.matchMedia('(max-width: 767px)').matches))"
+            : "(window.__headerAlwaysCompact ? true : false)" }},
         mobileMenuOpen: false,
         searchExpanded: false,
         activeTabMirror: 'hour',
@@ -175,10 +189,13 @@
 
                     {{-- Menu item đầu tiên (thường là "Trang chủ") — đứng ngay cạnh logo, nhưng vẫn
                          ẩn cùng lúc với phần menu còn lại khi đã cuộn & thu gọn (isSticky &&
-                         !searchExpanded), để nhường chỗ hẳn cho thanh tìm kiếm gọn lúc đó. --}}
+                         !searchExpanded), để nhường chỗ hẳn cho thanh tìm kiếm gọn lúc đó. Trang
+                         đăng nhập ($isAuthPage): luôn hiện, cùng logic với khối menu còn lại phía
+                         dưới (xem giải thích ở đó) — bỏ sót chỗ này ở lần sửa trước khiến menu
+                         cạnh logo biến mất trên trang đăng nhập. --}}
                     @if (!empty($menu?->menuItems) && $menu->menuItems->isNotEmpty())
                         <ul class="hidden lg:flex items-center order-2" style="margin-left:18px;"
-                            x-show="!isSticky || searchExpanded" x-cloak>
+                            x-show="!isSticky || searchExpanded || {{ $isAuthPage ? 'true' : 'false' }}" x-cloak>
                             @livewire('bladethemev1::menu-item', [
                                 'menuItem' => $menu->menuItems->first(),
                                 'depth' => 1,
@@ -196,10 +213,14 @@
                          ngay trên chính giữa hàng (cha đã có position:relative), không phụ thuộc
                          bề rộng 2 bên nữa. --}}
                     <div class="hidden lg:block" style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); z-index:5;">
-                        {{-- Chỗ trống để thanh tìm kiếm gọn (compact pill) "teleport" vào khi cuộn --}}
+                    @unless ($isAuthPage)
+                        {{-- Chỗ trống để thanh tìm kiếm gọn (compact pill) "teleport" vào khi cuộn —
+                             thêm !window.__headerAlwaysCompact để ẩn hẳn ở trang đăng nhập/đăng ký
+                             (__headerAlwaysCompact ép isSticky=true nên nếu không loại trừ, pill gọn
+                             này vẫn hiện trên desktop dù trang đó chủ định không có hàng tìm kiếm). --}}
                         <div id="header-search-slot"
                              class="flex w-max min-w-0 items-center justify-center"
-                             x-show="isSticky && !searchExpanded" x-cloak></div>
+                             x-show="isSticky && !searchExpanded && !window.__headerAlwaysCompact" x-cloak></div>
 
                         {{-- Hàng tab Theo giờ/Qua đêm/Theo ngày — dùng chung điều kiện
                              formRowExpanded với hàng 2 bên dưới (trang chủ: đợi cuộn qua khung nổi
@@ -221,7 +242,7 @@
                                 @click="window.dispatchEvent(new CustomEvent('hero-set-tab', { detail: { tab: 'overnight' } }))"
                                 class="flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-full text-sm font-semibold transition-colors"
                                 :class="activeTabMirror === 'overnight' ? 'bg-white shadow-md text-[var(--color-primary)]' : 'text-gray-500 hover:text-gray-700'">
-                                <img src="{{ asset('images/night.gif') }}" alt="" class="w-4 h-4 object-contain">
+                                <img src="{{ asset('images/night-time.gif') }}" alt="" class="w-4 h-4 object-contain">
                                 Qua đêm
                             </button>
                             <button type="button"
@@ -232,6 +253,7 @@
                                 Theo ngày
                             </button>
                         </div>
+                    @endunless
                     </div>
 
                     {{-- Khối bên phải (menu còn lại + actions) — LUÔN gộp chung 1 nhóm flex duy nhất
@@ -244,8 +266,12 @@
                     <div class="hidden lg:flex items-center order-3" style="margin-left:auto;">
                         {{-- Menu còn lại (trừ item đầu, đã đứng cạnh logo) — hiện ở đầu trang (chưa
                              cuộn) VÀ khi đã cuộn nhưng đang mở rộng tìm kiếm; chỉ ẩn đúng lúc đã cuộn
-                             & thu gọn (isSticky && !searchExpanded) để nhường chỗ nút bars. --}}
-                        <div class="flex items-center shrink-0" style="margin-right:24px;" x-show="!isSticky || searchExpanded" x-cloak>
+                             & thu gọn (isSticky && !searchExpanded) để nhường chỗ nút bars. Trang
+                             đăng nhập/đăng ký ($isAuthPage): luôn hiện menu thật, không thu gọn
+                             thành bars — 2 trang này không có hàng cuộn/search nên isSticky bị ép
+                             true ngay từ đầu (window.__headerAlwaysCompact) không mang ý nghĩa
+                             "đã cuộn" như các trang khác. --}}
+                        <div class="flex items-center shrink-0" style="margin-right:24px;" x-show="!isSticky || searchExpanded || {{ $isAuthPage ? 'true' : 'false' }}" x-cloak>
                             <ul class="flex items-center whitespace-nowrap gap-3">
                                 @if (!empty($menu?->menuItems))
                                     @foreach ($menu->menuItems->skip(1) as $menuItem)
@@ -285,8 +311,10 @@
                                  khác để xem lại menu — bấm ra popup, cùng kiểu giao diện với dropdown
                                  tài khoản (auth-button.blade.php: bg-white rounded-2xl shadow-lg
                                  border, mỗi mục 1 hàng). Chỉ liệt kê phẳng menu cấp 1 (không kèm
-                                 menu con lồng nhau) cho gọn trong popup nhỏ này. --}}
-                            <div class="relative" x-show="isSticky && !searchExpanded" x-cloak x-data="{ menuDropOpen: false }">
+                                 menu con lồng nhau) cho gọn trong popup nhỏ này.
+                                 Trang đăng nhập/đăng ký ($isAuthPage): không cần nút này vì menu
+                                 thật đã hiện thường trực ở trên (xem giải thích ở khối menu). --}}
+                            <div class="relative" x-show="isSticky && !searchExpanded && {{ $isAuthPage ? 'false' : 'true' }}" x-cloak x-data="{ menuDropOpen: false }">
                                 <button type="button" @click="menuDropOpen = !menuDropOpen" @click.outside="menuDropOpen = false"
                                     aria-label="Menu"
                                     class="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-white text-gray-700 shadow-md hover:bg-gray-100 transition-colors duration-150">
@@ -330,7 +358,10 @@
              animation mượt; lúc mở rộng bình thường phải overflow-visible, nếu không các dropdown
              (lịch, danh sách địa điểm, số người...) tràn ra ngoài khung sẽ bị cắt mất/che khuất.
              formRowExpanded (định nghĩa ở x-data phía trên): trang chủ đợi cuộn qua khung tìm kiếm
-             nổi đè banner mới giãn ra; trang khác giãn ngay từ đầu như cũ. --}}
+             nổi đè banner mới giãn ra; trang khác giãn ngay từ đầu như cũ.
+             Trang đăng nhập/đăng ký: ẩn hẳn khối này server-side qua $isAuthPage (không dựa
+             cờ JS __headerAlwaysCompact — xem giải thích ở khối #header-search-slot phía trên). --}}
+        @unless ($isAuthPage)
         <div class="hidden lg:grid transition-[grid-template-rows] duration-150 ease-in-out"
              :class="formRowExpanded ? 'overflow-visible' : 'overflow-hidden'"
              :style="{ gridTemplateRows: formRowExpanded ? '1fr' : '0fr' }">
@@ -345,21 +376,19 @@
                 </div>
             </div>
         </div>
+        @endunless
 
     </div>
 </div>
 
 <style>
-    /* Sau khi scroll xuống (nền trắng): chữ màu primary, gạch chân primary */
+    /* Sau khi scroll xuống (nền trắng): chữ màu primary */
     .header-hero-sticky .main-menu-item {
         color: var(--color-primary) !important;
     }
     .header-hero-sticky .main-menu-item:hover {
         color: var(--color-primary) !important;
         opacity: 0.8;
-    }
-    .header-hero-sticky .main-menu-item::after {
-        background: var(--color-primary) !important;
     }
 
     /* Custom styles for mobile optimization */

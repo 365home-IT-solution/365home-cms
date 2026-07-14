@@ -302,6 +302,40 @@ class BladeThemeV1Controller extends Controller
         ]);
     }
 
+    // textOnPrimary: màu chữ tương phản đặt lên nền $primaryColor (nút CTA trong form đăng
+    // nhập/đăng ký) — cùng công thức luminance đang dùng ở Modules/BladeThemeV1/Livewire/AuthModal.php
+    // (giữ nguyên modal đó cho các nơi khác vẫn đang mở popup, xem components/auth/form.blade.php).
+    private function textOnPrimaryColor(): string
+    {
+        $hex = ltrim($this->primaryColor, '#');
+        $r = hexdec(substr($hex, 0, 2));
+        $g = hexdec(substr($hex, 2, 2));
+        $b = hexdec(substr($hex, 4, 2));
+        $luminance = (0.299 * $r + 0.587 * $g + 0.114 * $b) / 255;
+
+        return $luminance > 0.5 ? '#1a1e25' : '#ffffff';
+    }
+
+    public function loginPage()
+    {
+        $seoData = [
+            'seo_title' => 'Đăng nhập',
+            'seo_description' => 'Đăng nhập tài khoản 365 Home để đặt phòng nhanh hơn và nhận ưu đãi dành riêng cho thành viên.',
+            'seo_keywords' => 'đăng nhập, 365 home',
+            'og_type' => 'website',
+        ];
+
+        return view('bladethemev1::pages.login', [
+            'seoData' => $seoData,
+            'primaryColor' => $this->primaryColor,
+            'primaryColorRgb' => $this->primaryColorRgb,
+            'heavyPrimaryColor' => $this->heavyPrimaryColor,
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+            'textOnPrimary' => $this->textOnPrimaryColor(),
+        ]);
+    }
+
+
     public function productDetail($slug)
     {
         $product = Product::where([

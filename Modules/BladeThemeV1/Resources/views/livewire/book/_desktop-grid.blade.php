@@ -9,13 +9,7 @@
     Inherits: $dates, $styleOneRooms, $today, $category
 --}}
 <div class="hidden lg:block book-dt-wrap"
-    x-data="{
-        dateLimit: {{ \Modules\BladeThemeV1\Livewire\Book::INITIAL_VISIBLE_DAYS }},
-        totalDates: {{ count($dates) }},
-        activeRoomIdx: 0,
-        get remainingDates() { return Math.max(0, Math.min({{ \Modules\BladeThemeV1\Livewire\Book::LOAD_MORE_DAYS_STEP }}, this.totalDates - this.dateLimit)); },
-        loadMoreDates() { this.dateLimit = Math.min(this.dateLimit + {{ \Modules\BladeThemeV1\Livewire\Book::LOAD_MORE_DAYS_STEP }}, this.totalDates); },
-    }"
+    x-data="{ activeRoomIdx: 0 }"
     x-init="$nextTick(() => window.mountBookDtSwiper($el))">
 
     <div class="book-dt-carousel-head">
@@ -34,13 +28,21 @@
         {{-- Cột "Thời gian" (ngày) — dùng chung cho mọi phòng, đứng yên, không trượt theo carousel.
              Cuộn dọc đồng bộ 2 chiều với khối khung giờ của phòng ĐANG ACTIVE (activeRoomIdx). --}}
         <div class="book-dt-dates-col">
+            {{-- Spacer vô hình cùng class/thẻ với tên phòng (.book-dt-room-name) bên carousel —
+                 mỗi slide phòng có 1 dòng tên phòng (h3) nằm TRÊN book-dt-slots-header-row, còn
+                 cột Thời gian này thì không, nên nếu thiếu spacer thì card "Thời gian" bị đẩy lên
+                 cao hơn card khung giờ đúng bằng chiều cao dòng tên phòng, làm lệch hàng ngày so
+                 với hàng khung giờ trong toàn bộ danh sách bên dưới. Dùng cùng class (thay vì đoán
+                 cứng 1 số px) để tự động khớp chiều cao dù font-size/margin của .book-dt-room-name
+                 có đổi sau này. --}}
+            <h3 class="book-room-name book-dt-room-name" style="visibility:hidden;" aria-hidden="true">&nbsp;</h3>
             <div class="book-dt-col-header">Thời gian</div>
             <div class="book-dt-dates-card">
                 <div class="book-dt-dates-scroll" x-ref="bookDtDatesScroll"
                     @scroll="const t = $refs['bookDtSlotsScroll' + activeRoomIdx]; if (t) t.scrollTop = $event.target.scrollTop">
                     @foreach ($dates as $date)
                         @php $dateShort = \Carbon\Carbon::createFromFormat('d-m-Y', $date['date'])->format('d-m-Y'); @endphp
-                        <div class="book-dt-date-row{{ $date['is_today'] ? ' is-today' : '' }}" x-show="{{ $loop->index }} < dateLimit" x-cloak>
+                        <div class="book-dt-date-row{{ $date['is_today'] ? ' is-today' : '' }}">
                             <div class="font-extrabold">{{ $date['day'] }}</div>
                             <div class="text-[10px] text-gray-500 font-normal">{{ $dateShort }}</div>
                         </div>
@@ -109,7 +111,7 @@
                                         $refs['bookDtHeaderRow' + {{ $loop->index }}].scrollLeft = $event.target.scrollLeft;
                                     ">
                                     @foreach ($dates as $date)
-                                        <div class="book-dt-slots-row" x-show="{{ $loop->index }} < dateLimit" x-cloak>
+                                        <div class="book-dt-slots-row">
                                             @foreach ($room->roomTimeSlots as $roomTimeSlot)
                                                 <div class="book-dt-slot-cell">
                                                     @include('bladethemev1::livewire.book._slot-cell', ['room' => $room, 'date' => $date, 'roomTimeSlot' => $roomTimeSlot])
@@ -126,14 +128,16 @@
         </div>
     </div>
 
-    <div class="book-loadmore-row" x-show="dateLimit < totalDates" x-cloak>
-        <button type="button" class="book-loadmore-btn" @click="loadMoreDates()">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
-            </svg>
-            <span x-text="'Xem thêm ' + remainingDates + ' ngày'"></span>
-        </button>
-    </div>
+    @if ($this->visibleDaysCount < \Modules\BladeThemeV1\Livewire\Book::MAX_VISIBLE_DAYS)
+        <div class="book-loadmore-row">
+            <button type="button" class="book-loadmore-btn" wire:click="loadMoreDates" wire:loading.attr="disabled" wire:target="loadMoreDates">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                </svg>
+                <span>Xem thêm {{ min(\Modules\BladeThemeV1\Livewire\Book::LOAD_MORE_DAYS_STEP, \Modules\BladeThemeV1\Livewire\Book::MAX_VISIBLE_DAYS - $this->visibleDaysCount) }} ngày</span>
+            </button>
+        </div>
+    @endif
 </div>
 {{-- window.mountBookDtSwiper() + Livewire morph.updated hook sống trong public/js/home-sections.js
      (đã load sẵn qua <script src> ở mọi trang dùng Book.php — flash-sale.blade.php,

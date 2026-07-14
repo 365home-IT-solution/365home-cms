@@ -10,9 +10,6 @@
     slotCounts: [{{ $styleOneRooms->map(fn($r) => $r->roomTimeSlots->count())->join(', ') }}],
     categorySlug: '{{ \Str::slug($category['name']) }}',
     touchStartX: 0,
-    dateLimit: {{ \Modules\BladeThemeV1\Livewire\Book::INITIAL_VISIBLE_DAYS }}, totalDates: {{ count($dates) }},
-    get remainingDates() { return Math.max(0, Math.min({{ \Modules\BladeThemeV1\Livewire\Book::LOAD_MORE_DAYS_STEP }}, this.totalDates - this.dateLimit)); },
-    loadMoreDates() { this.dateLimit = Math.min(this.dateLimit + {{ \Modules\BladeThemeV1\Livewire\Book::LOAD_MORE_DAYS_STEP }}, this.totalDates); },
     get totalSlotPages() { return Math.ceil((this.slotCounts[this.activeRoomIdx] ?? 5) / this.slotsPerPage); },
     changeRoom(dir) {
         const newIdx = this.activeRoomIdx + dir;
@@ -158,7 +155,7 @@
                 @scroll="$refs['bookSlotsScroll' + activeRoomIdx].scrollTop = $event.target.scrollTop">
                 @foreach ($dates as $date)
                 @php $dateShort = \Carbon\Carbon::createFromFormat('d-m-Y', $date['date'])->format('d/m'); @endphp
-                <div class="book-date-row{{ $date['is_today'] ? ' is-today' : '' }}" x-show="{{ $loop->index }} < dateLimit" x-cloak>
+                <div class="book-date-row{{ $date['is_today'] ? ' is-today' : '' }}">
                     <span class="book-date-day">{{ $date['day'] }}</span>
                     <span class="book-date-num">{{ $dateShort }}</span>
                 </div>
@@ -175,7 +172,7 @@
 
                 {{-- One row per date --}}
                 @foreach ($dates as $date)
-                <div class="book-slots-row" x-show="{{ $loop->index }} < dateLimit" x-cloak>
+                <div class="book-slots-row">
                     @foreach ($room->roomTimeSlots as $roomTimeSlot)
                     <div class="book-slot-cell" x-show="Math.floor({{ $loop->index }} / slotsPerPage) === slotPage">
                         @include('bladethemev1::livewire.book._slot-cell', ['room' => $room, 'date' => $date, 'roomTimeSlot' => $roomTimeSlot])
@@ -191,14 +188,16 @@
     </div>{{-- end .book-grid-outer --}}
 
     {{-- ── Xem thêm ngày (mỗi lần bấm hiện thêm tối đa 10 ngày kế tiếp, tự ẩn khi đã hiện hết) ── --}}
-    <div class="book-loadmore-row" x-show="dateLimit < totalDates" x-cloak>
-        <button type="button" class="book-loadmore-btn" @click="loadMoreDates()">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
-            </svg>
-            <span x-text="'Xem thêm ' + remainingDates + ' ngày'"></span>
-        </button>
-    </div>
+    @if ($this->visibleDaysCount < \Modules\BladeThemeV1\Livewire\Book::MAX_VISIBLE_DAYS)
+        <div class="book-loadmore-row">
+            <button type="button" class="book-loadmore-btn" wire:click="loadMoreDates" wire:loading.attr="disabled" wire:target="loadMoreDates">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                </svg>
+                <span>Xem thêm {{ min(\Modules\BladeThemeV1\Livewire\Book::LOAD_MORE_DAYS_STEP, \Modules\BladeThemeV1\Livewire\Book::MAX_VISIBLE_DAYS - $this->visibleDaysCount) }} ngày</span>
+            </button>
+        </div>
+    @endif
 
     </div>{{-- end .book-card-outer --}}
 </div>{{-- end x-data room carousel --}}

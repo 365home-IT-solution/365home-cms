@@ -1,13 +1,7 @@
 @inject('generalSettings', 'App\Settings\GeneralSettings')
 
 @php
-    $primaryHex    = $generalSettings->site_theme['primary'] ?? '#FBCB1C';
-    $hex           = ltrim($primaryHex, '#');
-    $r             = hexdec(substr($hex, 0, 2));
-    $g             = hexdec(substr($hex, 2, 2));
-    $b             = hexdec(substr($hex, 4, 2));
-    $luminance     = (0.299 * $r + 0.587 * $g + 0.114 * $b) / 255;
-    $textOnPrimary = $luminance > 0.5 ? '#1a1e25' : '#ffffff';
+    $primaryHex = $generalSettings->site_theme['primary'] ?? '#FBCB1C';
 @endphp
 
 <div
@@ -36,10 +30,6 @@
             }
         },
 
-        openModal() {
-            window.dispatchEvent(new CustomEvent('open-auth-modal'));
-        },
-
         logout() {
             if (this.token) {
                 fetch('/api/auth/logout', {
@@ -63,28 +53,29 @@
     }"
     x-cloak
 >
-    {{-- Chưa đăng nhập --}}
+    {{-- Chưa đăng nhập — style outline (viền màu primary, nền trắng, không đổi khi hover), bỏ
+         icon user, chữ đổi thành "Đăng nhập/Đăng ký" (gộp 2 hành động vì cùng dẫn tới trang đăng
+         nhập, trang đó có link chuyển sang đăng ký). Điều hướng sang trang riêng /dang-nhap thay
+         vì mở modal popup như trước — modal (auth-modal.blade.php) vẫn giữ nguyên, dùng ở các nơi
+         khác cần giữ ngữ cảnh (yêu thích, đánh giá...). --}}
     <template x-if="!user">
-        <button
-            @click="openModal()"
-            style="background-color: {{ $primaryHex }}; color: {{ $textOnPrimary }};"
-            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-opacity duration-200 hover:opacity-85 active:opacity-75 whitespace-nowrap"
+        <a
+            href="{{ route('login.page') }}"
+            style="border-color: {{ $primaryHex }}; color: {{ $primaryHex }};"
+            class="inline-flex items-center px-4 py-2 rounded-lg border text-sm font-medium bg-white whitespace-nowrap"
         >
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>
-            </svg>
-            <span>Đăng nhập</span>
-        </button>
+            <span>Đăng nhập/Đăng ký</span>
+        </a>
     </template>
 
-    {{-- Đã đăng nhập --}}
+    {{-- Đã đăng nhập — cùng style outline, không đổi khi hover. --}}
     <template x-if="user">
         <div class="relative" x-data="{ dropOpen: false }">
             <button
                 @click="dropOpen = !dropOpen"
                 @click.outside="dropOpen = false"
-                style="background-color: {{ $primaryHex }}; color: {{ $textOnPrimary }};"
-                class="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-opacity duration-200 hover:opacity-85 active:opacity-75"
+                style="border-color: {{ $primaryHex }}; color: {{ $primaryHex }};"
+                class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium bg-white"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"/>

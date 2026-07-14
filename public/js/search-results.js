@@ -92,6 +92,18 @@
         return '/api/v1/search/branches?' + apiParams.toString();
     }
 
+    // Skeleton hiện ngay khi bắt đầu tải /api/v1/search/branches (trước đây #search-results-body
+    // để trống trơn cho tới khi fetch xong) — dùng đúng khung .branches-track/.home-card như card
+    // thật (CSS shimmer .branch-skel* ở search.blade.php) nên không giật layout khi thay bằng
+    // renderBranchesResults(). Số lượng 4 card ~ khớp 2 hàng đầu tiên của lưới 2 cột.
+    function renderBranchesSkeleton() {
+        var card = '<div class="home-card" style="display:flex; flex-direction:column; gap:8px;">'
+            + '<div class="branch-skel branch-skel-img"></div>'
+            + '<div class="branch-skel" style="height:13px; width:70%;"></div>'
+            + '</div>';
+        return '<div class="branches-track">' + new Array(4).fill(card).join('') + '</div>';
+    }
+
     function renderBranchesResults(branches) {
         if (!branches.length) {
             return '<div style="padding:3rem 1rem;text-align:center;">'
@@ -180,6 +192,21 @@
         var chipsHtml = chips ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:7px;">' + chips + '</div>' : '';
 
         return titleHtml + chipsHtml;
+    }
+
+    // Skeleton hiện ngay khi bắt đầu gọi GraphQL search phòng (trước đây #search-results-body để
+    // trống trơn cho tới khi fetch xong) — dùng đúng khung .branch-grid/.branch-card như card
+    // thật (CSS shimmer .search-skel* ở search.blade.php) nên không giật layout khi thay bằng
+    // renderResults(). 2 "hàng" giả lập kiểu nhóm-theo-chi-nhánh thật (không biết trước sẽ có bao
+    // nhiêu chi nhánh/phòng nên chỉ dựng khung chung chung).
+    function renderSearchSkeleton() {
+        var card = '<div class="branch-card"><div class="home-card" style="display:flex; flex-direction:column; gap:8px;">'
+            + '<div class="search-skel search-skel-img"></div>'
+            + '<div class="search-skel" style="height:13px; width:85%;"></div>'
+            + '<div class="search-skel" style="height:13px; width:45%;"></div>'
+            + '</div></div>';
+        var row = '<div class="room-slider" style="margin-bottom:4px;"><div class="branch-grid">' + new Array(4).fill(card).join('') + '</div></div>';
+        return row + row;
     }
 
     function roomTimeLabel(room) {
@@ -309,6 +336,7 @@
         // ?view=branches — liệt kê chi nhánh của khu vực (từ "Gợi ý điểm đến" loại Chi nhánh),
         // không cần bản đồ/slider phòng như luồng tìm phòng thông thường bên dưới.
         if (isBranchesView()) {
+            if (bodyEl) bodyEl.innerHTML = renderBranchesSkeleton();
             var branches = [];
             var branchMeta = {};
             try {
@@ -329,6 +357,8 @@
             }
             return;
         }
+
+        if (bodyEl) bodyEl.innerHTML = renderSearchSkeleton();
 
         var rooms = [];
         var meta = {};

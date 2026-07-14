@@ -3,6 +3,32 @@
     x-init="init()"
     x-cloak
 >
+    {{-- Skeleton toàn trang chủ trong lúc load() (public/js/home-sections.js) đang gọi
+         /api/v1/home — trước đây "loading" chỉ là state nội bộ không được dùng ở template nên
+         suốt lúc chờ tải, mọi section (banner/loại hình dịch vụ/flash sale/gợi ý/danh sách phòng)
+         đều x-show/x-if theo "section.rooms.length" v.v. nên KHÔNG có gì hiện ra — trang chủ
+         trắng trơn 1 khoảng. Không biết trước CMS sẽ trả về bao nhiêu/loại section nào nên dùng 2
+         khối carousel thẻ chung chung (giống hình dạng Flash Sale/Danh sách phòng thật) làm
+         placeholder, đủ để người dùng thấy trang "đang có nội dung" thay vì trống trơn. --}}
+    <div x-show="loading" x-cloak>
+        <template x-for="i in 2" :key="'hs-skel-' + i">
+            <section class="py-4 bg-white">
+                <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
+                    <div class="hs-skel hs-skel-title" style="width:180px; height:20px; margin-bottom:14px;"></div>
+                    <div style="display:flex; gap:14px; overflow-x:hidden;">
+                        <template x-for="j in 4" :key="'hs-skel-card-' + i + '-' + j">
+                            <div class="home-card" style="display:flex; flex-direction:column; gap:8px;">
+                                <div class="hs-skel hs-skel-img"></div>
+                                <div class="hs-skel" style="height:13px; width:85%;"></div>
+                                <div class="hs-skel" style="height:13px; width:45%;"></div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </section>
+        </template>
+    </div>
+
     {{-- ============== LOẠI HÌNH DỊCH VỤ + BANNER (2 cột, mỗi cột 1 Center Mode Carousel) ==============
          Khung tìm kiếm đè lên banner (hero-banner-form-overlay) là 1 INSTANCE ĐỘC LẬP, tách biệt
          hoàn toàn với thanh tìm kiếm trong header (hàng 2, header-main.blade.php) — 2 khung cùng
@@ -297,6 +323,22 @@
     <style>
         .hide-scrollbar { -ms-overflow-style: none; }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
+
+        /* Skeleton toàn trang chủ trong lúc /api/v1/home đang tải — xem khối x-show="loading"
+           ở đầu file. */
+        @keyframes hs-skel-shimmer {
+            0% { background-position: -400px 0; }
+            100% { background-position: 400px 0; }
+        }
+        .hs-skel {
+            background: linear-gradient(90deg, #eef0f2 25%, #f7f8f9 37%, #eef0f2 63%);
+            background-size: 800px 100%;
+            animation: hs-skel-shimmer 1.4s ease-in-out infinite;
+            border-radius: 6px;
+            display: block;
+        }
+        .hs-skel-title { border-radius: 6px; }
+        .hs-skel-img { padding-top: 72%; border-radius: 14px; }
 
         /* Hàng gộp loại hình dịch vụ + banner: 1 cột trên mobile, 2 cột không đều (banner rộng
            hơn) từ lg trở lên. Dùng CSS thuần thay vì Tailwind grid-cols-[2fr_3fr] vì class tuỳ ý
@@ -603,13 +645,17 @@
         @media (min-width: 1024px) {
             .explore-card-subtitle { font-size: 13px; }
         }
+        {{-- Mobile: nút nhỏ lại (padding/font giảm) cho vừa khung .explore-card chỉ cao 150px —
+             kích thước cũ (8px 18px / 13px) áp dụng mọi nơi từng bị to so với khung mobile hẹp,
+             chỉ hợp với khung 190px ở desktop (>=1024px), nên chuyển thành mobile-first: nhỏ mặc
+             định, phóng to lại đúng kích thước cũ từ 1024px trở lên. --}}
         .explore-card-btn {
             align-self: flex-start;
             margin-top: 4px;
-            padding: 8px 18px;
+            padding: 6px 14px;
             border-radius: 9999px;
             color: #fff;
-            font-size: 13px;
+            font-size: 11.5px;
             font-weight: 700;
             border: none;
             cursor: pointer;
@@ -618,13 +664,19 @@
         .explore-card-btn:hover {
             opacity: .9;
         }
+        @media (min-width: 1024px) {
+            .explore-card-btn {
+                padding: 8px 18px;
+                font-size: 13px;
+            }
+        }
         .explore-card-badge {
             height: 26px;
             width: auto;
             display: block;
         }
         @media (min-width: 1024px) {
-            .explore-card-badge { height: 30px; }
+            .explore-card-badge { height: 42px; }
         }
 
         /* Center Mode Carousel (loại hình dịch vụ + banner): slide đang active nổi bật (scale +

@@ -131,6 +131,8 @@
             </a>
         </div>
 
+        {{-- Chưa đăng nhập: điều hướng sang trang /dang-nhap riêng (không còn mở modal popup —
+             xem components/header/actions/auth-button.blade.php, đổi song song ở header desktop). --}}
         <div
             x-data="{
                 isLoggedIn: false,
@@ -141,17 +143,10 @@
                 check() {
                     this.isLoggedIn = !!(localStorage.getItem('auth_token') && localStorage.getItem('auth_user'));
                 },
-                go() {
-                    if (this.isLoggedIn) {
-                        window.location.href = '/tai-khoan';
-                    } else {
-                        window.dispatchEvent(new CustomEvent('open-auth-modal'));
-                    }
-                },
             }"
             class="contents"
         >
-            <a @click.prevent="go()" href="/tai-khoan" class="nav-item-1 {{ $currentUrl === '/tai-khoan' ? 'active' : '' }}">
+            <a :href="isLoggedIn ? '/tai-khoan' : '{{ route('login.page') }}'" class="nav-item-1 {{ $currentUrl === '/tai-khoan' ? 'active' : '' }}">
                 <div class="nav-icon-1">
                     <x-heroicon-o-user-circle />
                 </div>

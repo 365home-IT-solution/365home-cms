@@ -38,8 +38,11 @@ class Book extends Component
     /** Dữ liệu đầy đủ (sản phẩm + timeslot + đơn đã đặt) — chỉ load cho danh mục active. */
     public array $activeCategoryData = [];
 
-    // Số ngày hiện mặc định / tối đa trong bảng lịch — book/_mobile.blade.php dùng Alpine
-    // (dateLimit) để hiện dần, không round-trip server.
+    /** Số ngày đang render — chỉ tăng qua loadMoreDates(), giữ nhỏ để tránh render
+     *  (số phòng x số khung giờ x số ngày) ô lịch cùng lúc gây tràn bộ nhớ PHP. */
+    public int $visibleDaysCount = self::INITIAL_VISIBLE_DAYS;
+
+    // Số ngày hiện mặc định / tối đa trong bảng lịch.
     const INITIAL_VISIBLE_DAYS = 15;
     const MAX_VISIBLE_DAYS = 31;
     const LOAD_MORE_DAYS_STEP = 10;
@@ -71,6 +74,7 @@ class Book extends Component
         $this->categoryTabs = [];
         $this->activeCategoryId = null;
         $this->activeCategoryData = [];
+        $this->visibleDaysCount = self::INITIAL_VISIBLE_DAYS;
 
         $this->setConfig($result['bookConfig']);
         $this->initializeData();
@@ -196,6 +200,11 @@ class Book extends Component
         return $products;
     }
 
+    public function loadMoreDates(): void
+    {
+        $this->visibleDaysCount = min($this->visibleDaysCount + self::LOAD_MORE_DAYS_STEP, self::MAX_VISIBLE_DAYS);
+    }
+
     public function getDatesForOneMonth()
 {
     $dates = [];
@@ -204,9 +213,10 @@ class Book extends Component
 
     // Nếu chưa qua 7:30 sáng, hiển thị cả ngày hôm qua
     $startDate = $now->lt($cutoff) ? Carbon::yesterday() : Carbon::today();
-    // Luôn build đủ MAX_VISIBLE_DAYS — chỉ hiện dần ở phía Alpine (dateLimit trong
-    // book/_mobile.blade.php), không cần round-trip server khi bấm "Xem thêm ngày".
-    $daysCount = self::MAX_VISIBLE_DAYS;
+    // Chỉ build đúng số ngày đang hiển thị — tránh render (số phòng x số khung giờ x
+    // số ngày) ô lịch cùng lúc gây tràn bộ nhớ PHP. loadMoreDates() tăng dần con số
+    // này (round-trip Livewire nhỏ, chỉ khi user thật sự bấm "Xem thêm ngày").
+    $daysCount = $this->visibleDaysCount;
 
     for ($i = 0; $i < $daysCount; $i++) {
         $date = $startDate->copy()->addDays($i);

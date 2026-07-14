@@ -249,10 +249,10 @@
                 aria-labelledby="styled-{{ \Str::slug($category['name']) }}-tab" wire:key="book-category-{{ $category['id'] }}">
 
                 @php
-                // Dùng chung cho _mobile.blade.php trên mọi kích thước màn hình (đã bỏ bảng
-                // riêng cho desktop). Hiển thị mặc định 10 ngày, người dùng bấm "Xem thêm 10 ngày"
-                // để hiện dần các ngày còn lại (xử lý bằng Alpine x-show theo $loop->index, không
-                // cần gọi lại server).
+                // $dates chỉ chứa $visibleDaysCount ngày (mặc định 15/31) — không build sẵn cả
+                // tháng, tránh render (số phòng x số khung giờ x số ngày) ô lịch cùng lúc gây
+                // tràn bộ nhớ PHP. Bấm "Xem thêm ngày" gọi loadMoreDates() (round-trip Livewire
+                // nhỏ) để tăng dần con số này.
                 $dates = $this->getDatesForOneMonth();
                 $styleOneRooms = collect($category['products'])->filter(fn($r) => ($r->styles ?? 1) == 1)->values();
                 $totalStyleOneRooms = $styleOneRooms->count();

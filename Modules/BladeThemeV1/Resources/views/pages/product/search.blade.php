@@ -529,6 +529,47 @@
             -webkit-tap-highlight-color: transparent;
         }
 
+        /* Skeleton loading cho danh sách card chi nhánh (?view=branches) trong lúc gọi
+           /api/v1/search/branches — hiện ngay khi bắt đầu tải (search-results.js:
+           renderBranchesSkeleton()) thay vì để #search-results-body trống trơn, dùng đúng khung
+           .branches-track/.home-card như card thật nên không bị giật layout khi thay thế. */
+        @keyframes branch-skel-shimmer {
+            0% { background-position: -400px 0; }
+            100% { background-position: 400px 0; }
+        }
+        .branch-skel {
+            background: linear-gradient(90deg, #eef0f2 25%, #f7f8f9 37%, #eef0f2 63%);
+            background-size: 800px 100%;
+            animation: branch-skel-shimmer 1.4s ease-in-out infinite;
+            border-radius: 6px;
+            display: block;
+        }
+        .branch-skel-img {
+            padding-top: 72%;
+            border-radius: 16px;
+        }
+
+        /* Skeleton loading cho danh sách card PHÒNG (tìm kiếm thường, không phải ?view=branches)
+           trong lúc gọi GraphQL search — hiện ngay khi bắt đầu tải (search-results.js:
+           renderSearchSkeleton()) thay vì để #search-results-body trống trơn, dùng đúng khung
+           .branch-grid/.branch-card/.home-card như card thật nên không bị giật layout khi thay
+           bằng renderResults() thật. */
+        @keyframes search-skel-shimmer {
+            0% { background-position: -400px 0; }
+            100% { background-position: 400px 0; }
+        }
+        .search-skel {
+            background: linear-gradient(90deg, #eef0f2 25%, #f7f8f9 37%, #eef0f2 63%);
+            background-size: 800px 100%;
+            animation: search-skel-shimmer 1.4s ease-in-out infinite;
+            border-radius: 6px;
+            display: block;
+        }
+        .search-skel-img {
+            padding-top: 72%;
+            border-radius: 14px;
+        }
+
         /* Danh sách phòng trong panel chi nhánh (#branch-detail-rooms) — carousel ngang, mỗi
            card kích thước cố định để tối đa ~3 card lọt khung nhìn, dư ra thì cuộn/bấm prev-next
            (carouselNav() trong home-sections.js) thay vì hiện hết theo lưới dọc dài vô hạn. */

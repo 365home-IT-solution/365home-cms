@@ -94,6 +94,7 @@ Route::get('/api/check-domain', function (\Illuminate\Http\Request $request) {
 Route::get('/thong-tin-dat-phong/{code}', [BladeThemeV1Controller::class, 'bookingDetail'])->name('booking.detail');
 Route::get('/tai-khoan', [BladeThemeV1Controller::class, 'accountPage'])->name('account.page');
 Route::get('/yeu-thich', [BladeThemeV1Controller::class, 'favoritesPage'])->name('favorites.page');
+Route::get('/dang-nhap', [BladeThemeV1Controller::class, 'loginPage'])->name('login.page');
 Route::get('/tin-tuc', [BladeThemeV1Controller::class, 'postsPage'])->name('posts.page');
 // routes/web.php
 Route::get('/theme.css', function () {

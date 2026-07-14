@@ -125,6 +125,22 @@
             35% { transform: scale(1.35); }
             100% { transform: scale(1); }
         }
+
+        /* Skeleton loading trong lúc loadFavorites() gọi API — thay cho dòng chữ "Đang tải..."
+           cũ, dùng đúng khung .branch-grid/.branch-card/.home-card như card thật nên không giật
+           layout khi thay thế bằng nội dung thật. */
+        @keyframes fav-skel-shimmer {
+            0% { background-position: -400px 0; }
+            100% { background-position: 400px 0; }
+        }
+        .fav-skel {
+            background: linear-gradient(90deg, #eef0f2 25%, #f7f8f9 37%, #eef0f2 63%);
+            background-size: 800px 100%;
+            animation: fav-skel-shimmer 1.4s ease-in-out infinite;
+            border-radius: 6px;
+            display: block;
+        }
+        .fav-skel-img { padding-top: 72%; border-radius: 14px; }
     </style>
 
     <script src="{{ asset('js/home-sections.js') }}?v={{ filemtime(public_path('js/home-sections.js')) }}"></script>
@@ -176,6 +192,17 @@
 
                 return { groups: branchOrder.map((key) => branchGroups[key]), noBranchRooms };
             };
+
+            // Skeleton: dùng đúng khung .branch-grid/.branch-card như card thật để không giật
+            // layout khi loadFavorites() thay thế bằng nội dung thật.
+            const skeletonHtml = (() => {
+                const card = '<div class="branch-card"><div class="home-card" style="display:flex; flex-direction:column; gap:8px;">'
+                    + '<div class="fav-skel fav-skel-img"></div>'
+                    + '<div class="fav-skel" style="height:13px; width:85%;"></div>'
+                    + '<div class="fav-skel" style="height:13px; width:45%;"></div>'
+                    + '</div></div>';
+                return '<div class="room-slider"><div class="branch-grid">' + Array(4).fill(card).join('') + '</div></div>';
+            })();
 
             const branchHeaderHtml = (branch, count) => (
                 '<div class="fav-branch-header">'
@@ -253,7 +280,7 @@
                     return;
                 }
 
-                root.innerHTML = '<div class="py-10 text-center text-sm text-gray-500">Đang tải...</div>';
+                root.innerHTML = skeletonHtml;
                 try {
                     const res = await fetch('/api/wishlist', {
                         headers: {

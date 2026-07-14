@@ -32,5 +32,7 @@
         :authHeaderEnabled="$authHeaderEnabled"
     />
 
+    <x-bladethemev1::header.app-banner />
+
     @livewire('bladethemev1::location-modal')
 </header>

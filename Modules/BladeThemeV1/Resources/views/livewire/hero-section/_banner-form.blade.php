@@ -148,7 +148,7 @@
                         <button type="button" @click="activeTab = 'overnight'; dayMode = false; if (checkIn) { checkOut = checkIn }"
                             class="flex flex-col items-center gap-1.5 pb-2 border-b-2 transition-colors"
                             :class="activeTab === 'overnight' ? 'border-[var(--color-primary)] text-[var(--color-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'">
-                            <img src="{{ asset('images/night.gif') }}" alt="" class="w-5 h-5 object-contain">
+                            <img src="{{ asset('images/night-time.gif') }}" alt="" class="w-5 h-5 object-contain">
                             <span class="text-sm font-semibold">Qua đêm</span>
                         </button>
                         <button type="button" @click="activeTab = 'day'; dayMode = true"
@@ -271,7 +271,13 @@
                             </span>
                         </button>
 
-                        {{-- Date picker dropdown --}}
+                        {{-- Date picker dropdown — transform tách ra thành style TĨNH (không nằm
+                             trong :style phản ứng) vì positionDateDropdown() (_script.blade.php)
+                             set popupEl.style.transform='none' bằng JS sau khi đo lại "left" cho
+                             field; nếu để transform chung 1 object với width (đổi theo dayMode),
+                             mỗi lần bấm tab Theo giờ/Theo ngày Alpine re-render lại CẢ object,
+                             ghi đè transform về lại 'translateX(-50%)' trong khi "left" JS đã set
+                             vẫn còn nguyên — cộng dồn 2 lớp lệch khiến popup nhảy hẳn sang trái. --}}
                         <div x-show="open" x-cloak x-ref="dateDropdownDesktop"
                             x-transition:enter="transition ease-out duration-150"
                             x-transition:enter-start="opacity-0 translate-y-1"
@@ -280,7 +286,8 @@
                             x-transition:leave-start="opacity-100 translate-y-0"
                             x-transition:leave-end="opacity-0 translate-y-1"
                             class="absolute top-[calc(100%+8px)] left-1/2 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-y-auto"
-                            :style="{ maxHeight: '75vh', transform: 'translateX(-50%)', width: (dayMode ? '640px' : '600px') }">
+                            style="transform: translateX(-50%);"
+                            :style="{ maxHeight: '75vh', width: (dayMode ? '640px' : '600px') }">
                     <div class="py-5 px-6">
 
                         {{-- Tabs Theo giờ / Theo ngày --}}
