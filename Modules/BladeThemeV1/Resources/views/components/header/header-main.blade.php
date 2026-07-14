@@ -38,6 +38,18 @@
     // (Trang đăng ký — register.page — đã bị gỡ bỏ.)
     $isAuthPage = request()->routeIs('login.page');
 
+    // Menu "Đặt phòng của tôi" (route cố định /ticket-booking) — chuyển sang đứng cạnh logo (cùng
+    // khối với menu item đầu tiên) thay vì ở cụm bên phải cùng menu khác + các nút hành động (Chọn
+    // khu vực, search, CTA, đăng nhập...) — cụm phải quá rộng sau khi thêm nút "Chọn khu vực" mới,
+    // chạm/chèn vào hàng tab canh giữa tuyệt đối (Theo giờ/Qua đêm/Theo ngày) ở các trang không
+    // phải trang chủ. Match theo url (ổn định hơn title — admin có thể đổi tên hiển thị bất cứ lúc
+    // nào) thay vì so title "Đặt phòng của tôi" trực tiếp.
+    $bookingMenuItem = $menu?->menuItems?->firstWhere('url', '/ticket-booking');
+    $remainingMenuItems = $menu?->menuItems?->skip(1);
+    if ($remainingMenuItems && $bookingMenuItem) {
+        $remainingMenuItems = $remainingMenuItems->reject(fn ($item) => $item->id === $bookingMenuItem->id);
+    }
+
     $ctaButtonConfig = [
         'visible' => $data->actionConfig['cta_button'],
         'label' => $data->actionConfig['cta_button_label'],
@@ -192,7 +204,9 @@
                          !searchExpanded), để nhường chỗ hẳn cho thanh tìm kiếm gọn lúc đó. Trang
                          đăng nhập ($isAuthPage): luôn hiện, cùng logic với khối menu còn lại phía
                          dưới (xem giải thích ở đó) — bỏ sót chỗ này ở lần sửa trước khiến menu
-                         cạnh logo biến mất trên trang đăng nhập. --}}
+                         cạnh logo biến mất trên trang đăng nhập.
+                         "Đặt phòng của tôi" ($bookingMenuItem) hiện thêm ngay sau, cùng cụm cạnh
+                         logo — xem giải thích lý do ở khối @php phía trên. --}}
                     @if (!empty($menu?->menuItems) && $menu->menuItems->isNotEmpty())
                         <ul class="hidden lg:flex items-center order-2" style="margin-left:18px;"
                             x-show="!isSticky || searchExpanded || {{ $isAuthPage ? 'true' : 'false' }}" x-cloak>
@@ -203,6 +217,16 @@
                                 'navStyle' => $navStyle,
                                 'navSize' => $navSize,
                             ], key('near-logo-'.$menu->menuItems->first()->id))
+
+                            @if ($bookingMenuItem && $bookingMenuItem->id !== $menu->menuItems->first()->id)
+                                @livewire('bladethemev1::menu-item', [
+                                    'menuItem' => $bookingMenuItem,
+                                    'depth' => 1,
+                                    'loop' => null,
+                                    'navStyle' => $navStyle,
+                                    'navSize' => $navSize,
+                                ], key('near-logo-'.$bookingMenuItem->id))
+                            @endif
                         </ul>
                     @endif
 
@@ -273,8 +297,8 @@
                              "đã cuộn" như các trang khác. --}}
                         <div class="flex items-center shrink-0" style="margin-right:24px;" x-show="!isSticky || searchExpanded || {{ $isAuthPage ? 'true' : 'false' }}" x-cloak>
                             <ul class="flex items-center whitespace-nowrap gap-3">
-                                @if (!empty($menu?->menuItems))
-                                    @foreach ($menu->menuItems->skip(1) as $menuItem)
+                                @if (!empty($remainingMenuItems))
+                                    @foreach ($remainingMenuItems as $menuItem)
                                         @livewire('bladethemev1::menu-item', [
                                         'menuItem' => $menuItem,
                                         'depth' => 1,
