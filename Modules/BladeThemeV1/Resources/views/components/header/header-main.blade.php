@@ -199,6 +199,27 @@
                              class="transition-all duration-300"/>
                     </a>
 
+                    {{-- Nút chọn khu vực — BẢN CẠNH LOGO: chỉ hiện khi header đã cuộn/thu gọn
+                         (isSticky && !searchExpanded), thế chỗ cụm menu cạnh logo (ẩn đi lúc đó) —
+                         theo yêu cầu: lúc cuộn, nút này đứng cạnh logo thay vì cạnh nút đăng nhập.
+                         Bản còn lại (cạnh nút đăng nhập, trong cụm action bên phải — xem phía dưới)
+                         có x-show ngược lại (!isSticky || searchExpanded), nên 2 bản loại trừ nhau,
+                         không bao giờ cùng hiện 1 lúc. --}}
+                    <button type="button"
+                        x-show="isSticky && !searchExpanded" x-cloak
+                        x-data="{ provinceName: localStorage.getItem('home_province_name') || '' }"
+                        x-init="window.addEventListener('province-selected', (e) => { provinceName = e.detail?.name || localStorage.getItem('home_province_name') || ''; })"
+                        @click="window.dispatchEvent(new CustomEvent('open-location-modal'))"
+                        aria-label="Chọn khu vực"
+                        class="hidden lg:inline-flex items-center gap-1.5 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors duration-150 order-2"
+                        style="margin-left:18px; padding:8px 10px;">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                        </svg>
+                        <span class="hidden xl:inline whitespace-nowrap" x-text="provinceName || 'Khu vực'"></span>
+                    </button>
+
                     {{-- Menu item đầu tiên (thường là "Trang chủ") — đứng ngay cạnh logo, nhưng vẫn
                          ẩn cùng lúc với phần menu còn lại khi đã cuộn & thu gọn (isSticky &&
                          !searchExpanded), để nhường chỗ hẳn cho thanh tìm kiếm gọn lúc đó. Trang
@@ -323,16 +344,19 @@
                                 <x-bladethemev1::header.actions.cta-button :ctaButtonConfig="$ctaButtonConfig"/>
                             @endif
 
-                            {{-- Nút chọn khu vực — đứng ngay TRƯỚC nút đăng nhập/đăng ký. Bắn sự
-                                 kiện 'open-location-modal' mà location-modal.blade.php đang lắng
-                                 nghe (window.addEventListener trong init() của nó) để mở lại popup
-                                 chọn khu vực bất kỳ lúc nào, kể cả sau khi khách đã đóng popup lúc
-                                 mới vào site (đóng thì không tự mở lại nữa — xem closePopup() —
-                                 nhưng bấm nút này thì luôn mở được). Hiện tên khu vực đang chọn,
-                                 đọc từ localStorage (cùng key 'home_province_name' mà
-                                 location-modal.blade.php/home-sections.js dùng), cập nhật khi có
-                                 sự kiện 'province-selected'. --}}
+                            {{-- Nút chọn khu vực — BẢN CẠNH ĐĂNG NHẬP: chỉ hiện khi header CHƯA
+                                 cuộn/thu gọn (!isSticky || searchExpanded) — lúc đã cuộn, bản cạnh
+                                 logo (xem phía trên, gần Desktop Logo) thay thế vị trí này, 2 bản
+                                 loại trừ nhau qua x-show ngược nhau. Bắn sự kiện 'open-location-modal'
+                                 mà location-modal.blade.php đang lắng nghe (window.addEventListener
+                                 trong init() của nó) để mở lại popup chọn khu vực bất kỳ lúc nào, kể
+                                 cả sau khi khách đã đóng popup lúc mới vào site (đóng thì không tự
+                                 mở lại nữa — xem closePopup() — nhưng bấm nút này thì luôn mở được).
+                                 Hiện tên khu vực đang chọn, đọc từ localStorage (cùng key
+                                 'home_province_name' mà location-modal.blade.php/home-sections.js
+                                 dùng), cập nhật khi có sự kiện 'province-selected'. --}}
                             <button type="button"
+                                x-show="!isSticky || searchExpanded" x-cloak
                                 x-data="{ provinceName: localStorage.getItem('home_province_name') || '' }"
                                 x-init="window.addEventListener('province-selected', (e) => { provinceName = e.detail?.name || localStorage.getItem('home_province_name') || ''; })"
                                 @click="window.dispatchEvent(new CustomEvent('open-location-modal'))"
@@ -342,7 +366,7 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
                                 </svg>
-                                <span class="hidden xl:inline truncate max-w-[110px]" x-text="provinceName || 'Khu vực'"></span>
+                                <span class="hidden xl:inline whitespace-nowrap" x-text="provinceName || 'Khu vực'"></span>
                             </button>
 
                             <!-- Auth Button -->

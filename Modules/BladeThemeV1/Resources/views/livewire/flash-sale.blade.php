@@ -156,9 +156,14 @@
         </div>
     </section>
 
-    {{-- "Các chi nhánh tại..." — đặt ngay dưới hàng loại hình dịch vụ + banner (đã bỏ hẳn section
-         "Lịch đặt phòng trực tuyến" khỏi trang chủ theo yêu cầu — home-booking-board.blade.php vẫn
-         còn nhưng không còn được include ở đây nữa).
+    {{-- "Lịch đặt phòng trực tuyến" — đặt ngay SAU "Lần đầu khám phá" theo yêu cầu (trước đây đã bỏ
+         hẳn khỏi trang chủ, giờ thêm lại đúng vị trí này). Partial Blade thuần (không phải Livewire
+         component riêng) — tự quản lý state qua Alpine homeBookingBoard() (định nghĩa trong
+         public/js/home-sections.js), bên trong nhúng lại đúng Livewire\Book component đã dùng ở
+         trang /branch/{slug} và panel ?view=branches của trang tìm kiếm. --}}
+    @include('bladethemev1::livewire.home-booking-board')
+
+    {{-- "Các chi nhánh tại..." — đặt ngay dưới "Lịch đặt phòng trực tuyến".
          Livewire component riêng (BranchSuggestion) — query thẳng DB, không còn qua API
          /api/v1/home (dùng chung với app mobile) như bản cũ (_branch-suggestion-section.blade.php,
          dựa vào Alpine x-for lọc trên `sections` load từ API). Vẫn cập nhật lại theo đúng khu vực
