@@ -727,7 +727,7 @@
                                     $pdSlotsPerPage = 5;
                                     $pdTotalSlotPages = (int) ceil($pdSlotCount / max($pdSlotsPerPage, 1));
                                 @endphp
-                                <div class="space-y-5">
+                                <div class="space-y-5" id="pd-timeslots-section">
                                     <div class="md:flex md:items-center md:justify-between md:gap-6">
                                         <div>
                                             <h2 class="text-xl font-bold text-gray-900">Lịch đặt phòng</h2>
@@ -2002,7 +2002,7 @@
                         }
                     }
                 @endphp
-                <div wire:ignore>
+                <div wire:ignore id="pd-timeslots-section">
                     @include('bladethemev1::components.product-detail.daterange-picker', [
                         'pricePerNight' => $pricePerNight,
                         'productDiscount' => $productDiscount,
@@ -2019,7 +2019,8 @@
             </div>
         </div>
 
-        <div class="w-full lg:sticky lg:top-32" id="pd-booking-form">
+        <div class="w-full lg:sticky lg:top-32" id="pd-booking-form"
+            data-preselected="{{ $fromBookingPage ? '1' : '0' }}">
             {{-- Thông tin đặt phòng --}}
             @include('bladethemev1::components.product-detail.infomation-book-room')
 

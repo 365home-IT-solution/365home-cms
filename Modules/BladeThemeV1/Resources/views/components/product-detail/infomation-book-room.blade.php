@@ -5,9 +5,9 @@
     <div class="lg:hidden" id="pd-book-sheet-handle"></div>
 
     {{-- Badge "Nhập thông tin đặt phòng" — CHỈ hiện khi sheet đang ở trạng thái thu gọn mặc định
-         (không có class pd-sheet-peek/pd-sheet-full, xem CSS #pd-book-badge phía dưới). Trước đây
-         sheet hiện sẵn ở trạng thái "peek" (45% màn hình) ngay khi vào trang, che khuất nội dung
-         phía trên — giờ mặc định thu gọn chỉ còn badge này, bấm vào mới mở ra "peek". --}}
+         (không có class pd-sheet-peek/pd-sheet-full, xem CSS #pd-book-badge phía dưới). Bấm vào
+         mở thẳng sheet lên "full" (90% màn hình) để khách nhập thông tin ngay, không dừng ở mức
+         "peek" trung gian nữa. --}}
     <button type="button" class="lg:hidden" id="pd-book-badge" aria-label="Nhập thông tin đặt phòng">
         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
@@ -21,8 +21,15 @@
     </button>
 
     <div id="pd-book-sheet-scroll">
-    <div class="px-6 pt-6 pb-2">
+    <div class="px-6 pt-6 pb-2 flex items-center justify-between gap-3">
         <p class="text-xl font-semibold text-[#222222]">Thông tin Đặt phòng</p>
+        {{-- Nút tắt bottom sheet (mobile) — cho phép thu gọn sheet lại mà không cần vuốt tay --}}
+        <button type="button" class="lg:hidden shrink-0 flex items-center justify-center w-8 h-8 rounded-full bg-[#F7F7F7] text-[#717171] hover:bg-[#EEEEEE] hover:text-[#222222] transition-colors"
+            id="pd-book-sheet-close" aria-label="Đóng">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>
     </div>
 
     {{-- Alpine.js: tự động prefill từ localStorage khi đã đăng nhập --}}
@@ -491,7 +498,7 @@
         }
 
         #pd-booking-form.pd-sheet-full {
-            height: calc(100vh * 0.9);
+            height: calc(100vh * 0.8);
             min-height: calc(130px + var(--pd-bottom-nav-h, 64px));
         }
 
@@ -596,7 +603,7 @@
                 startH = 0,
                 containerH = 0;
             var PEEK_RATIO = 0.45;
-            var FULL_RATIO = 0.9;
+            var FULL_RATIO = 0.8;
 
             function isMobile() {
                 return window.innerWidth < 1024;
@@ -622,7 +629,8 @@
             }
 
             // 3 trạng thái: 'collapsed' (mặc định, không class — chỉ đủ cao cho handle + badge),
-            // 'peek' (45%, .pd-sheet-peek), 'full' (90%, .pd-sheet-full). Trước đây chỉ có
+            // 'peek' (45%, .pd-sheet-peek), 'full' (80%, .pd-sheet-full — chừa khoảng trống phía
+            // trên để tránh bị thanh trình duyệt/tai thỏ trên iPhone che mất nút tắt). Trước đây chỉ có
             // peek/full (peek là mặc định) — giờ thêm collapsed làm mặc định mới, badge "Nhập
             // thông tin đặt phòng" (xem #pd-book-badge) bấm vào mới mở ra peek.
             function setState(state) {
@@ -711,8 +719,32 @@
                 if (badge && !badge.__pdBound) {
                     badge.__pdBound = true;
                     badge.addEventListener('click', function() {
-                        setState('peek');
+                        setState('full');
                     });
+                }
+
+                var closeBtn = document.getElementById('pd-book-sheet-close');
+                if (closeBtn && !closeBtn.__pdBound) {
+                    closeBtn.__pdBound = true;
+                    closeBtn.addEventListener('click', function() {
+                        setState('collapsed');
+                    });
+                }
+            }
+
+            // Khi vừa vào trang chi tiết phòng (mobile): nếu đã chọn khung giờ/ngày từ màn hình
+            // khác (data-preselected="1", xem $fromBookingPage) thì mở luôn bottom sheet toàn màn
+            // hình để khách nhập thông tin ngay; ngược lại cuộn xuống khu vực lịch đặt phòng để
+            // khách chọn khung giờ trước.
+            function autoRevealBookingStep() {
+                if (!isMobile() || !sheet) return;
+                if (sheet.getAttribute('data-preselected') === '1') {
+                    setState('full');
+                } else {
+                    var section = document.getElementById('pd-timeslots-section');
+                    if (section) {
+                        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
                 }
             }
 
@@ -722,6 +754,13 @@
                 initSheet();
             });
             initSheet();
+
+            document.addEventListener('DOMContentLoaded', function() {
+                setTimeout(autoRevealBookingStep, 300);
+            });
+            document.addEventListener('livewire:navigated', function() {
+                setTimeout(autoRevealBookingStep, 300);
+            });
 
             document.addEventListener('DOMContentLoaded', measureBottomNav);
             window.addEventListener('resize', measureBottomNav, { passive: true });
