@@ -339,11 +339,10 @@
         .hide-scrollbar::-webkit-scrollbar { display: none; }
 
         /* Tiêu đề section trang chủ ("Flash Sale", "Gợi ý cho bạn", "Danh sách phòng...", "Các chi
-           nhánh tại..." ở branch-suggestion.blade.php — dùng chung class này) — to hơn 1 chút trên
-           mobile (font-size:1.1rem cũ hơi nhỏ so với các phần khác của giao diện mobile), giữ
-           nguyên 1.1rem ở desktop (>=1024px) như trước. */
+           nhánh tại..." ở branch-suggestion.blade.php — dùng chung class này) — mobile dùng đúng
+           cỡ text-2xl của Tailwind (1.5rem/24px), giữ nguyên 1.1rem ở desktop (>=1024px) như trước. */
         .hs-section-title {
-            font-size: 1.25rem;
+            font-size: 1.5rem;
         }
         @media (min-width: 1024px) {
             .hs-section-title { font-size: 1.1rem; }

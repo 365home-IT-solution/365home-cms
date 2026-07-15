@@ -45,10 +45,12 @@
                         </button>
                     </div>
                 </div>
-                {{-- overflow-x-hidden thay vì overflow-x-auto: dùng nút prev/next để cuộn (scrollBy() vẫn
-                     chạy được dù overflow:hidden), tránh trình duyệt mobile hiện thanh cuộn/chỉ báo cuộn
-                     chạm tay đè lên (không thể ẩn bằng CSS ::-webkit-scrollbar trên Safari/Chrome mobile). --}}
-                <div x-ref="track" class="flex gap-3 overflow-x-hidden" style="scroll-snap-type:x mandatory;">
+                {{-- overflow-x-auto (thay vì overflow-x-hidden trước đây) + hide-scrollbar (class
+                     dùng chung, định nghĩa trong flash-sale.blade.php) — cho phép lướt tay ngang
+                     qua danh sách chi nhánh, đồng thời vẫn ẩn thanh cuộn/chỉ báo cuộn chạm tay
+                     (::-webkit-scrollbar) như ý đồ ban đầu. Nút prev/next vẫn hoạt động bình
+                     thường (scrollBy() không phụ thuộc overflow:hidden hay auto). --}}
+                <div x-ref="track" class="flex gap-3 overflow-x-auto hide-scrollbar" style="scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch;">
                     <template x-for="b in branches" :key="b.slug">
                         <button type="button" @click="selectBranch(b)" :data-branch-slug="b.slug"
                             :class="b.slug === activeBranchSlug ? 'bg-primary text-white border-primary' : 'bg-white text-gray-900 border-gray-200 hover:bg-gray-50'"

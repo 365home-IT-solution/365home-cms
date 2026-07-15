@@ -8,6 +8,11 @@
     Mobile (< lg) vẫn dùng book/_mobile.blade.php (carousel 1 phòng kiểu cũ, không đổi).
     Inherits: $dates, $styleOneRooms, $today, $category
 --}}
+{{-- activeRoomIdx: CHỈ là state Alpine thuần (client) — không gọi $wire ở đây (từng gây 1 request
+     Livewire riêng mỗi lần đổi phòng, kích hoạt wire:loading.block/skeleton của book.blade.php,
+     dồn dập lúc Swiper tự canh initialSlide/vuốt nhanh làm skeleton bị kẹt, không hiện nội dung).
+     Giá trị này chỉ được gửi lên server kèm theo lần bấm "Xem thêm ngày" (wire:click="loadMoreDates(activeRoomIdx)"
+     bên dưới) — dùng đúng request đã có sẵn đó, không phát sinh thêm round-trip nào. --}}
 <div class="hidden lg:block book-dt-wrap"
     x-data="{ activeRoomIdx: 0 }"
     x-init="$nextTick(() => window.mountBookDtSwiper($el))">
@@ -110,15 +115,39 @@
                                         if (activeRoomIdx === {{ $loop->index }}) $refs.bookDtDatesScroll.scrollTop = $event.target.scrollTop;
                                         $refs['bookDtHeaderRow' + {{ $loop->index }}].scrollLeft = $event.target.scrollLeft;
                                     ">
-                                    @foreach ($dates as $date)
-                                        <div class="book-dt-slots-row">
-                                            @foreach ($room->roomTimeSlots as $roomTimeSlot)
-                                                <div class="book-dt-slot-cell">
-                                                    @include('bladethemev1::livewire.book._slot-cell', ['room' => $room, 'date' => $date, 'roomTimeSlot' => $roomTimeSlot])
-                                                </div>
-                                            @endforeach
-                                        </div>
-                                    @endforeach
+                                    {{-- Lúc mới tải (visibleDaysCount === INITIAL_VISIBLE_DAYS): render ĐẦY ĐỦ
+                                         mọi phòng như trước đây (đã verify an toàn — 0.05s/85MB qua
+                                         Livewire::test()), vì lúc này chưa biết activeRoomIndex thật
+                                         (không đồng bộ liên tục nữa, tránh gây skeleton kẹt — xem
+                                         x-data phía trên). CHỈ SAU KHI đã bấm "Xem thêm ngày" ít
+                                         nhất 1 lần (visibleDaysCount > INITIAL) mới giới hạn — lúc
+                                         đó activeRoomIndex đã chắc chắn đúng vì được gửi kèm ngay
+                                         trong chính request loadMoreDates() đó (wire:click bên
+                                         dưới). Chỉ tính/render đầy đủ (giá, khuyến mãi...) cho đúng
+                                         phòng active; phòng "peek" 2 bên vốn đã pointer-events:none
+                                         (không bấm chọn được) nên render ô trống giữ đúng kích
+                                         thước lưới — tránh nhân chi phí tính toán theo TOÀN BỘ số
+                                         phòng mỗi lần bấm "Xem thêm ngày" (đúng nguyên nhân tràn bộ
+                                         nhớ đã gặp trước đây). --}}
+                                    @if ($this->visibleDaysCount <= \Modules\BladeThemeV1\Livewire\Book::INITIAL_VISIBLE_DAYS || $loop->index === $this->activeRoomIndex)
+                                        @foreach ($dates as $date)
+                                            <div class="book-dt-slots-row">
+                                                @foreach ($room->roomTimeSlots as $roomTimeSlot)
+                                                    <div class="book-dt-slot-cell">
+                                                        @include('bladethemev1::livewire.book._slot-cell', ['room' => $room, 'date' => $date, 'roomTimeSlot' => $roomTimeSlot])
+                                                    </div>
+                                                @endforeach
+                                            </div>
+                                        @endforeach
+                                    @else
+                                        @foreach ($dates as $date)
+                                            <div class="book-dt-slots-row">
+                                                @foreach ($room->roomTimeSlots as $roomTimeSlot)
+                                                    <div class="book-dt-slot-cell selectable" style="pointer-events:none;opacity:0.55;"></div>
+                                                @endforeach
+                                            </div>
+                                        @endforeach
+                                    @endif
                                 </div>
                             </div>
                         </div>
@@ -130,7 +159,10 @@
 
     @if ($this->visibleDaysCount < \Modules\BladeThemeV1\Livewire\Book::MAX_VISIBLE_DAYS)
         <div class="book-loadmore-row">
-            <button type="button" class="book-loadmore-btn" wire:click="loadMoreDates" wire:loading.attr="disabled" wire:target="loadMoreDates">
+            {{-- Gửi kèm activeRoomIdx (state Alpine hiện tại) ngay trong request loadMoreDates() —
+                 không cần request riêng để đồng bộ activeRoomIndex trước đó (xem giải thích ở
+                 x-data phía trên). --}}
+            <button type="button" class="book-loadmore-btn" wire:click="loadMoreDates(activeRoomIdx)" wire:loading.attr="disabled" wire:target="loadMoreDates">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
                 </svg>

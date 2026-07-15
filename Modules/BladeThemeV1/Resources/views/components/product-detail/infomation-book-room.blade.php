@@ -4,6 +4,17 @@
     {{-- Drag handle (mobile bottom-sheet only) --}}
     <div class="lg:hidden" id="pd-book-sheet-handle"></div>
 
+    {{-- Badge "Nhập thông tin đặt phòng" — CHỈ hiện khi sheet đang ở trạng thái thu gọn mặc định
+         (không có class pd-sheet-peek/pd-sheet-full, xem CSS #pd-book-badge phía dưới). Trước đây
+         sheet hiện sẵn ở trạng thái "peek" (45% màn hình) ngay khi vào trang, che khuất nội dung
+         phía trên — giờ mặc định thu gọn chỉ còn badge này, bấm vào mới mở ra "peek". --}}
+    <button type="button" class="lg:hidden" id="pd-book-badge" aria-label="Nhập thông tin đặt phòng">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
+        </svg>
+        <span>Nhập thông tin đặt phòng</span>
+    </button>
+
     <div id="pd-book-sheet-scroll">
     <div class="px-6 pt-6 pb-2">
         <p class="text-xl font-semibold text-[#222222]">Thông tin Đặt phòng</p>
@@ -446,14 +457,17 @@
 
 <style>
     @media (max-width: 1023px) {
+        {{-- Mặc định (không có class pd-sheet-peek/pd-sheet-full) = THU GỌN — chỉ đủ cao cho
+             handle + badge "Nhập thông tin đặt phòng" (xem #pd-book-badge), không còn hiện sẵn ở
+             45% màn hình như trước. Bấm badge (hoặc handle) mới mở ra .pd-sheet-peek. --}}
         #pd-booking-form {
             position: fixed;
             left: 0;
             right: 0;
             bottom: 0;
             z-index: 40;
-            height: calc(100vh * 0.45);
-            min-height: calc(130px + var(--pd-bottom-nav-h, 64px));
+            height: calc(64px + var(--pd-bottom-nav-h, 64px));
+            min-height: calc(64px + var(--pd-bottom-nav-h, 64px));
             max-height: calc(100vh * 0.9);
             transition: height .32s cubic-bezier(.32, .72, 0, 1);
             background: #fff;
@@ -466,8 +480,14 @@
             transition: none;
         }
 
+        #pd-booking-form.pd-sheet-peek {
+            height: calc(100vh * 0.45);
+            min-height: calc(130px + var(--pd-bottom-nav-h, 64px));
+        }
+
         #pd-booking-form.pd-sheet-full {
             height: calc(100vh * 0.9);
+            min-height: calc(130px + var(--pd-bottom-nav-h, 64px));
         }
 
         #pd-book-card {
@@ -494,6 +514,30 @@
             height: 4px;
             border-radius: 3px;
             background: #d1d5db;
+        }
+
+        {{-- Badge chỉ hiện ở trạng thái thu gọn mặc định (không có class peek/full) — ẩn ngay khi
+             sheet mở ra (peek/full), nhường chỗ cho nội dung form thật (#pd-book-sheet-scroll). --}}
+        #pd-book-badge {
+            display: none;
+            width: 100%;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px 16px;
+            border: none;
+            background: #fff;
+            color: var(--color-primary);
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        #pd-booking-form:not(.pd-sheet-peek):not(.pd-sheet-full) #pd-book-badge {
+            display: flex;
+        }
+
+        #pd-booking-form:not(.pd-sheet-peek):not(.pd-sheet-full) #pd-book-sheet-scroll {
+            display: none;
         }
 
         #pd-book-sheet-scroll {
@@ -550,11 +594,20 @@
                 }
             }
 
+            // 3 trạng thái: 'collapsed' (mặc định, không class — chỉ đủ cao cho handle + badge),
+            // 'peek' (45%, .pd-sheet-peek), 'full' (90%, .pd-sheet-full). Trước đây chỉ có
+            // peek/full (peek là mặc định) — giờ thêm collapsed làm mặc định mới, badge "Nhập
+            // thông tin đặt phòng" (xem #pd-book-badge) bấm vào mới mở ra peek.
             function setState(state) {
                 if (!sheet) return;
                 sheet.style.height = '';
-                if (state === 'full') sheet.classList.add('pd-sheet-full');
-                else sheet.classList.remove('pd-sheet-full');
+                sheet.classList.remove('pd-sheet-peek', 'pd-sheet-full');
+                if (state === 'peek') sheet.classList.add('pd-sheet-peek');
+                else if (state === 'full') sheet.classList.add('pd-sheet-full');
+            }
+
+            function collapsedH() {
+                return 64 + navOffset();
             }
 
             function onStart(clientY) {
@@ -570,7 +623,7 @@
                 if (!dragging) return;
                 var dy = startY - clientY;
                 var newH = startH + dy;
-                var minH = containerH * 0.14;
+                var minH = collapsedH();
                 var maxH = containerH * FULL_RATIO;
                 if (newH < minH) newH = minH;
                 if (newH > maxH) newH = maxH;
@@ -584,13 +637,17 @@
                 var h = sheet.getBoundingClientRect().height;
                 var peekPx = containerH * PEEK_RATIO;
                 var fullPx = containerH * FULL_RATIO;
-                var mid = (peekPx + fullPx) / 2;
-                setState(h > mid ? 'full' : 'peek');
+                var midLow = (collapsedH() + peekPx) / 2;
+                var midHigh = (peekPx + fullPx) / 2;
+                if (h < midLow) setState('collapsed');
+                else if (h < midHigh) setState('peek');
+                else setState('full');
             }
 
             function initSheet() {
                 sheet = document.getElementById('pd-booking-form');
                 handle = document.getElementById('pd-book-sheet-handle');
+                var badge = document.getElementById('pd-book-badge');
                 if (!sheet || !handle || handle.__pdBound) return;
                 handle.__pdBound = true;
 
@@ -616,11 +673,20 @@
                     document.addEventListener('mouseup', mu);
                 });
 
+                // Bấm handle: collapsed/peek → full; full → peek (không tự thu gọn lại về
+                // collapsed qua bấm — chỉ vuốt xuống thấp mới thu gọn, tránh thu gọn nhầm ngoài ý
+                // muốn khi chỉ định bấm mở rộng thêm).
                 handle.addEventListener('click', function() {
                     if (dragging) return;
-                    var isFull = sheet.classList.contains('pd-sheet-full');
-                    setState(isFull ? 'peek' : 'full');
+                    setState(sheet.classList.contains('pd-sheet-full') ? 'peek' : 'full');
                 });
+
+                if (badge && !badge.__pdBound) {
+                    badge.__pdBound = true;
+                    badge.addEventListener('click', function() {
+                        setState('peek');
+                    });
+                }
             }
 
             document.addEventListener('DOMContentLoaded', initSheet);
