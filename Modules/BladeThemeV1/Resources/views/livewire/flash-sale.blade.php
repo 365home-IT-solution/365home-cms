@@ -335,7 +335,11 @@
     </template>
 
     <style>
-        .hide-scrollbar { -ms-overflow-style: none; }
+        {{-- scrollbar-width:none (Firefox) thiếu trước đây — chỉ có -ms-overflow-style (IE/Edge cũ)
+             và ::-webkit-scrollbar (Chrome/Safari), nên vẫn còn hiện thanh scroll ngang ở Firefox
+             desktop. Vẫn giữ overflow-x:auto (không đổi thành hidden) để cuộn/vuốt tay vẫn hoạt
+             động bình thường — chỉ ẩn thanh scroll hiển thị, không chặn tương tác cuộn. --}}
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
 
         /* Tiêu đề section trang chủ ("Flash Sale", "Gợi ý cho bạn", "Danh sách phòng...", "Các chi
