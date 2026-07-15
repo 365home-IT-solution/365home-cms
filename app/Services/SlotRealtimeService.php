@@ -117,6 +117,31 @@ class SlotRealtimeService
         }
     }
 
+    /**
+     * Hold "đang chọn" cho phòng theo khung giờ (style 1) — xem TimeSlotHoldController. $holds là
+     * danh sách các ô {session_id, timeslot_id, date} đang được giữ (chưa hết hạn) của phòng này.
+     */
+    public function broadcastSlotHold(string $roomId, array $holds): void
+    {
+        $url = rtrim(config('services.websocket.url', 'http://localhost:3001'), '/');
+        $key = config('services.websocket.internal_key', '');
+
+        if (empty($url)) {
+            return;
+        }
+
+        try {
+            Http::withHeaders(['x-internal-key' => $key])
+                ->timeout(2)
+                ->post("{$url}/internal/slot-hold-update", [
+                    'room_id' => $roomId,
+                    'holds'   => $holds,
+                ]);
+        } catch (\Throwable $e) {
+            Log::warning('WS slot hold push failed', ['room_id' => $roomId, 'error' => $e->getMessage()]);
+        }
+    }
+
     private function push(string $roomId, string $date, array $slotIds, string $status): void
     {
         $url = rtrim(config('services.websocket.url', 'http://localhost:3001'), '/');

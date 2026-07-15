@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Auth\ZaloOtpController;
+use App\Http\Controllers\Api\BranchController;
 use App\Http\Controllers\Api\ConfigController;
 use App\Http\Controllers\Api\GraphQLController;
 use App\Http\Controllers\Api\MembershipController;
@@ -21,6 +22,7 @@ use App\Http\Controllers\Api\LockRecordCallbackController;
 use App\Http\Controllers\Api\UnlockController;
 use App\Http\Controllers\Api\DailyRoomController;
 use App\Http\Controllers\Api\DailyRoomHoldController;
+use App\Http\Controllers\Api\TimeSlotHoldController;
 use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\RoomTypeController;
 use App\Http\Controllers\Api\DeviceTokenController;
@@ -71,10 +73,18 @@ Route::get('v1/room-types/{id}', [RoomTypeController::class, 'show'])->name('api
 | GET /api/v1/provinces/{slug}              → Chi tiết tỉnh + chi nhánh (slug)
 |
 | GET /api/v1/ask-user/{id}                 → Nội dung thông báo khi vào app
+|
+| GET /api/v1/branches/{slug}/time-slots?days=15 → Lịch đặt phòng đầy đủ 1 chi nhánh (mọi phòng
+|                                                    theo khung giờ x ngày, kèm giá/khuyến mãi/
+|                                                    trạng thái đã đặt) — days tối đa 31.
 |--------------------------------------------------------------------------
 */
 Route::prefix('v1')->name('api.v1.')->group(function () {
     Route::get('home', HomeController::class)->name('home')->middleware('throttle:public-api');
+
+    Route::get('branches/{slug}/time-slots', [BranchController::class, 'timeSlots'])
+        ->name('branches.time-slots')
+        ->middleware('throttle:public-api');
 
     Route::prefix('provinces')->name('provinces.')->group(function () {
         Route::get('/',       [ProvinceController::class, 'index'])->name('index');
@@ -164,6 +174,18 @@ Route::get('rooms/{id}/dates',         [DailyRoomController::class, 'dates'])->n
 Route::get('rooms/{id}/price-preview', [DailyRoomController::class, 'pricePreview'])->name('api.rooms.daily.price-preview');
 Route::post('rooms/{id}/hold',         [DailyRoomHoldController::class, 'hold'])->name('api.rooms.daily.hold');
 Route::delete('rooms/{id}/hold',       [DailyRoomHoldController::class, 'release'])->name('api.rooms.daily.hold.release');
+
+/*
+|--------------------------------------------------------------------------
+| Time-slot Hold — "đang chọn" tạm thời cho phòng theo khung giờ (style 1)
+| POST   /api/rooms/{id}/time-slot-hold → Giữ 1 ô khung giờ x ngày (TTL 10 phút)
+| DELETE /api/rooms/{id}/time-slot-hold → Bỏ giữ 1 ô
+| Dùng cùng với GET /api/v1/branches/{slug}/time-slots?session_id=... để biết ô nào
+| đang bị người khác giữ (held=true, is_selectable=false).
+|--------------------------------------------------------------------------
+*/
+Route::post('rooms/{id}/time-slot-hold',   [TimeSlotHoldController::class, 'hold'])->name('api.rooms.time-slot.hold');
+Route::delete('rooms/{id}/time-slot-hold', [TimeSlotHoldController::class, 'release'])->name('api.rooms.time-slot.hold.release');
 
 /*
 |--------------------------------------------------------------------------
