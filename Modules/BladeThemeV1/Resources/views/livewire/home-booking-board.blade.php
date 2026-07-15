@@ -9,7 +9,7 @@
 
         <div class="px-4 sm:px-6">
             <div class="mb-5">
-                <h2 class="text-xl font-bold text-gray-900">Lịch đặt phòng trực tuyến</h2>
+                <h2 class="text-2xl font-bold text-gray-900">Lịch đặt phòng trực tuyến</h2>
                 {{-- Tên khu vực đang chọn lấy từ provinces (đã fetch qua loadProvinces()) khớp
                      activeProvinceId — rơi về câu chung chung nếu chưa xác định được tên. --}}
                 <p class="text-sm text-gray-500 mt-1"

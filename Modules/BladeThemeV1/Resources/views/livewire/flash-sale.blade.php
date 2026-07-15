@@ -124,7 +124,7 @@
          phía trên, luôn hiện (không có x-if/x-show) vì nội dung cố định, không cần chờ dữ liệu. --}}
     <section class="py-6 bg-white">
         <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
-            <h2 class="text-xl font-bold text-gray-900 mb-4">Lần đầu khám phá</h2>
+            <h2 class="text-2xl font-bold text-gray-900 mb-4">Lần đầu khám phá</h2>
             {{-- 2 ảnh có tỉ lệ gốc khác hẳn nhau (svg minh hoạ dạng đứng, png banner dạng ngang) —
                  dùng background-image (bg-cover + chiều cao cố định qua .explore-card) thay vì thẻ
                  <img> để 2 cột LUÔN bằng chiều cao nhau, ảnh tự crop cho vừa khung. --}}
@@ -297,7 +297,7 @@
                         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:12px;">
                             <div style="display:flex; align-items:center; gap:12px;">
                                 <div style="min-width:0;">
-                                    <h2 class="hs-section-title" style="font-weight:800; color:#111827; margin:0; text-transform:uppercase; letter-spacing:.02em;" x-text="section.title"></h2>
+                                    <h2 class="hs-section-title hs-roomlist-title" style="font-weight:800; color:#111827; margin:0; text-transform:uppercase; letter-spacing:.02em;" x-text="section.title"></h2>
                                     <p x-show="section.subtitle" style="font-size:12px; color:#9ca3af; margin:2px 0 0;" x-text="section.subtitle"></p>
                                 </div>
                                 <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link hidden lg:flex" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
@@ -346,6 +346,14 @@
         }
         @media (min-width: 1024px) {
             .hs-section-title { font-size: 1.1rem; }
+        }
+
+        /* "Danh sách phòng - [chi nhánh]" (room_list, display_mode 'fixed') — tiêu đề lấy tên chi
+           nhánh động, có thể dài, in hoa + letter-spacing nên ở mobile 1.5rem (như các tiêu đề
+           section khác) dễ bị to/tràn dòng. Chỉ thu nhỏ riêng khối này ở mobile, desktop vẫn dùng
+           chung 1.1rem như hs-section-title. */
+        @media (max-width: 1023px) {
+            .hs-roomlist-title { font-size: 1.15rem; }
         }
 
         /* Skeleton toàn trang chủ trong lúc /api/v1/home đang tải — xem khối x-show="loading"
