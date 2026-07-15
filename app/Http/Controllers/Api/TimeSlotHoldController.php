@@ -56,7 +56,7 @@ class TimeSlotHoldController extends Controller
         ];
 
         Cache::put("time_slot_holds:{$id}", $holds, self::TTL);
-        app(SlotRealtimeService::class)->broadcastSlotHold($id, $holds);
+        $this->broadcastForDate($id, $data['date'], $holds);
 
         return response()->json(['ok' => true, 'expires_at' => $expiresAt]);
     }
@@ -81,7 +81,7 @@ class TimeSlotHoldController extends Controller
             Cache::put("time_slot_holds:{$id}", $holds, self::TTL);
         }
 
-        app(SlotRealtimeService::class)->broadcastSlotHold($id, $holds);
+        $this->broadcastForDate($id, $data['date'], $holds);
 
         return response()->json(['ok' => true]);
     }
@@ -92,5 +92,23 @@ class TimeSlotHoldController extends Controller
         $raw = Cache::get("time_slot_holds:{$roomId}", []);
 
         return array_values(array_filter($raw, fn ($h) => Carbon::parse($h['expires_at'] ?? now()->subSecond())->isFuture()));
+    }
+
+    /**
+     * Chỉ bắn WS cho ĐÚNG ngày vừa thay đổi (không phải toàn bộ holds của phòng) — kể cả khi rỗng
+     * (vừa release hold cuối của ngày đó), để client subscribe kênh room:{room_id}:{date} (cùng
+     * kênh slot.updated) biết chính xác trạng thái ngày đang xem, không suy đoán qua im lặng.
+     */
+    private function broadcastForDate(string $roomId, string $date, array $allHolds): void
+    {
+        $holdsForDate = array_values(array_filter(
+            $allHolds,
+            fn ($h) => $h['date'] === $date
+        ));
+
+        app(SlotRealtimeService::class)->broadcastSlotHold($roomId, $date, array_map(
+            fn ($h) => ['session_id' => $h['session_id'], 'timeslot_id' => $h['timeslot_id']],
+            $holdsForDate
+        ));
     }
 }

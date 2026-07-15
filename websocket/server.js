@@ -172,6 +172,29 @@ app.post('/internal/daily-booked', (req, res) => {
     return res.json({ ok: true });
 });
 
+// ── Time-slot hold update — "đang chọn" tạm thời cho phòng theo khung giờ ────
+// holds: danh sách {session_id, timeslot_id} CÒN GIỮ của ĐÚNG ngày `date` này (Laravel đã lọc sẵn
+// theo date trước khi gọi, xem TimeSlotHoldController) — luôn bắn cho đúng 1 channel
+// room:{room_id}:{date} (cùng channel với slot.updated), kể cả khi holds rỗng (vừa release hold
+// cuối cùng của ngày đó) để client biết ngày này hết hold, không phải suy đoán từ việc "không thấy
+// event nào nữa".
+app.post('/internal/slot-hold-update', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { room_id, date, holds } = req.body;
+    if (!room_id || !date) {
+        return res.status(422).json({ error: 'Missing room_id or date' });
+    }
+
+    io.to(`room:${room_id}:${date}`).emit('slot.hold.updated', { room_id, date, holds: holds || [] });
+    console.log(`[WS] Slot hold update: room=${room_id} date=${date} holds=${(holds || []).length}`);
+
+    return res.json({ ok: true });
+});
+
 // ── Daily room hold update — broadcast đến clients đang xem phòng ────────────
 app.post('/internal/daily-hold-update', (req, res) => {
     const key = req.headers['x-internal-key'];
