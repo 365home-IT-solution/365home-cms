@@ -42,16 +42,6 @@ class Book extends Component
      *  (số phòng x số khung giờ x số ngày) ô lịch cùng lúc gây tràn bộ nhớ PHP. */
     public int $visibleDaysCount = self::INITIAL_VISIBLE_DAYS;
 
-    /** Index phòng đang active trong carousel Center Mode (book/_desktop-grid.blade.php). Chỉ được
-     *  cập nhật qua loadMoreDates($activeRoomIndex) — gửi kèm state Alpine hiện tại NGAY TRONG
-     *  request "Xem thêm ngày" đã có sẵn, không đồng bộ liên tục mỗi lần đổi phòng bằng 1 request
-     *  Livewire riêng (từng làm vậy nhưng gây wire:loading.block/skeleton của book.blade.php bị
-     *  kích hoạt dồn dập, kẹt không hiện nội dung — xem home-sections.js). Dùng để CHỈ render ô
-     *  lịch (giá/khuyến mãi) đầy đủ cho đúng 1 phòng đang active SAU KHI đã "Xem thêm ngày" ít nhất
-     *  1 lần — lúc mới tải (visibleDaysCount còn ở mức INITIAL) vẫn render đầy đủ mọi phòng như cũ
-     *  (xem điều kiện ở _desktop-grid.blade.php). */
-    public int $activeRoomIndex = 0;
-
     // Số ngày hiện mặc định / tối đa trong bảng lịch.
     const INITIAL_VISIBLE_DAYS = 15;
     const MAX_VISIBLE_DAYS = 31;
@@ -85,7 +75,6 @@ class Book extends Component
         $this->activeCategoryId = null;
         $this->activeCategoryData = [];
         $this->visibleDaysCount = self::INITIAL_VISIBLE_DAYS;
-        $this->activeRoomIndex = 0;
 
         $this->setConfig($result['bookConfig']);
         $this->initializeData();
@@ -138,7 +127,6 @@ class Book extends Component
         }
 
         $this->activeCategoryId = $categoryId;
-        $this->activeRoomIndex = 0;
         $this->loadActiveCategoryData();
         $this->dispatch('book-category-changed');
     }
@@ -213,19 +201,9 @@ class Book extends Component
         return $products;
     }
 
-    /**
-     * $activeRoomIndex: gửi kèm state Alpine hiện tại (activeRoomIdx) ngay trong request này —
-     * xem book/_desktop-grid.blade.php: wire:click="loadMoreDates(activeRoomIdx)". Không đồng bộ
-     * bằng 1 request Livewire riêng mỗi lần đổi phòng (từng làm vậy nhưng gây wire:loading.block/
-     * skeleton của book.blade.php kích hoạt dồn dập, kẹt không hiện nội dung).
-     */
-    public function loadMoreDates(?int $activeRoomIndex = null): void
+    public function loadMoreDates(): void
     {
         $this->visibleDaysCount = min($this->visibleDaysCount + self::LOAD_MORE_DAYS_STEP, self::MAX_VISIBLE_DAYS);
-
-        if ($activeRoomIndex !== null) {
-            $this->activeRoomIndex = $activeRoomIndex;
-        }
     }
 
     public function getDatesForOneMonth()

@@ -52,9 +52,8 @@ if (typeof window.mountBookDtSwiper === 'undefined') {
                     // book/_desktop-grid.blade.php: từng gây request Livewire riêng mỗi lần đổi
                     // phòng, kích hoạt wire:loading.block/skeleton của book.blade.php — trùng lặp
                     // và dồn dập lúc Swiper tự canh initialSlide/vuốt nhanh, làm skeleton bị kẹt).
-                    // activeRoomIdx giờ chỉ được gửi lên server kèm theo lần gọi loadMoreDates()
-                    // (xem wire:click="loadMoreDates(activeRoomIdx)" trong _desktop-grid.blade.php)
-                    // — không phát sinh thêm request nào ngoài request đã có sẵn đó.
+                    // activeRoomIdx: chỉ dùng client-side để đồng bộ cuộn dọc — server render đầy
+                    // đủ mọi phòng nên không cần gửi giá trị này lên.
                     alpineData.activeRoomIdx = sw.activeIndex;
                     // Giữ nguyên vị trí cuộn dọc khi đổi phòng (mọi phòng dùng chung 1 dải ngày).
                     requestAnimationFrame(() => {
@@ -67,11 +66,7 @@ if (typeof window.mountBookDtSwiper === 'undefined') {
         });
 
         // Swiper không bắn 'slideChange' cho initialSlide lúc khởi tạo — đồng bộ tay để scroll
-        // 2 chiều (cột Ngày ⇄ khung giờ phòng) khớp đúng phòng đang hiện ra ngay từ đầu. Chỉ set
-        // state Alpine (client) — không gọi $wire (xem giải thích ở slideChange phía trên). Server
-        // vẫn render ĐẦY ĐỦ mọi phòng lúc mới tải trang bất kể phòng nào active (xem điều kiện ở
-        // book/_desktop-grid.blade.php: chỉ giới hạn theo activeRoomIndex SAU KHI đã bấm "Xem thêm
-        // ngày" ít nhất 1 lần), nên không cần biết activeRoomIndex thật ngay từ đầu.
+        // 2 chiều (cột Ngày ⇄ khung giờ phòng) khớp đúng phòng đang hiện ra ngay từ đầu.
         if (alpineData) alpineData.activeRoomIdx = initialSlide;
     };
 }

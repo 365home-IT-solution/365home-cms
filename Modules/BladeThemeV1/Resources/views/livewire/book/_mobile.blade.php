@@ -171,33 +171,21 @@
                 <div class="book-slots-scroll" x-ref="bookSlotsScroll{{ $ri }}"
                     @scroll="$refs.bookDatesScroll.scrollTop = $event.target.scrollTop">
 
-                {{-- Lúc mới tải (visibleDaysCount === INITIAL_VISIBLE_DAYS): render đầy đủ mọi
-                     phòng như cũ (đã verify an toàn). Sau khi đã bấm "Xem thêm ngày" ít nhất 1 lần,
-                     CHỈ tính/render đầy đủ (giá, khuyến mãi) cho đúng phòng đang active
-                     ($this->activeRoomIndex, gửi kèm ngay trong request loadMoreDates() — xem nút
-                     bên dưới) — các phòng khác (đang ẩn qua x-show, không thấy được) chỉ render ô
-                     trống giữ đúng kích thước lưới, tránh nhân chi phí tính toán theo TOÀN BỘ số
-                     phòng mỗi lần bấm "Xem thêm ngày" (đúng nguyên nhân tràn bộ nhớ đã gặp trước
-                     đây, cùng lý do đã sửa ở book/_desktop-grid.blade.php). --}}
-                @if ($this->visibleDaysCount <= \Modules\BladeThemeV1\Livewire\Book::INITIAL_VISIBLE_DAYS || $ri === $this->activeRoomIndex)
-                    @foreach ($dates as $date)
-                    <div class="book-slots-row">
-                        @foreach ($room->roomTimeSlots as $roomTimeSlot)
-                        <div class="book-slot-cell" x-show="Math.floor({{ $loop->index }} / slotsPerPage) === slotPage">
-                            @include('bladethemev1::livewire.book._slot-cell', ['room' => $room, 'date' => $date, 'roomTimeSlot' => $roomTimeSlot])
-                        </div>
-                        @endforeach
+                {{-- Render đầy đủ (giá/khuyến mãi) cho MỌI phòng, kể cả các phòng đang ẩn qua x-show
+                     (chưa active) — đã verify chi phí tối đa an toàn qua Livewire::test() (chi nhánh
+                     nhiều phòng nhất hiện có, 31 ngày, ~100MB, memory_limit hiện tại 512M). Từng thử
+                     giới hạn chỉ render phòng active để tiết kiệm chi phí, nhưng gây lỗi ô trống khi
+                     đổi phòng sau khi đã "Xem thêm ngày" (server không đồng bộ kịp phòng đang active
+                     lúc đổi phòng thuần client-side) — ưu tiên đúng giao diện hơn tối ưu này. --}}
+                @foreach ($dates as $date)
+                <div class="book-slots-row">
+                    @foreach ($room->roomTimeSlots as $roomTimeSlot)
+                    <div class="book-slot-cell" x-show="Math.floor({{ $loop->index }} / slotsPerPage) === slotPage">
+                        @include('bladethemev1::livewire.book._slot-cell', ['room' => $room, 'date' => $date, 'roomTimeSlot' => $roomTimeSlot])
                     </div>
                     @endforeach
-                @else
-                    @foreach ($dates as $date)
-                    <div class="book-slots-row">
-                        @foreach ($room->roomTimeSlots as $roomTimeSlot)
-                        <div class="book-slot-cell selectable" style="pointer-events:none;opacity:0.55;" x-show="Math.floor({{ $loop->index }} / slotsPerPage) === slotPage"></div>
-                        @endforeach
-                    </div>
-                    @endforeach
-                @endif
+                </div>
+                @endforeach
 
                 </div>{{-- end .book-slots-scroll --}}
             </div>
@@ -205,13 +193,10 @@
         </div>{{-- end .book-slots-outer --}}
     </div>{{-- end .book-grid-outer --}}
 
-    {{-- ── Xem thêm ngày (mỗi lần bấm hiện thêm tối đa 10 ngày kế tiếp, tự ẩn khi đã hiện hết).
-         Gửi kèm activeRoomIdx (state Alpine hiện tại) ngay trong request này — không cần request
-         riêng để đồng bộ activeRoomIndex trước đó (xem book/_desktop-grid.blade.php để biết lý do
-         không đồng bộ liên tục mỗi lần đổi phòng bằng $wire riêng). ── --}}
+    {{-- ── Xem thêm ngày (mỗi lần bấm hiện thêm tối đa 10 ngày kế tiếp, tự ẩn khi đã hiện hết). ── --}}
     @if ($this->visibleDaysCount < \Modules\BladeThemeV1\Livewire\Book::MAX_VISIBLE_DAYS)
         <div class="book-loadmore-row">
-            <button type="button" class="book-loadmore-btn" wire:click="loadMoreDates(activeRoomIdx)" wire:loading.attr="disabled" wire:target="loadMoreDates">
+            <button type="button" class="book-loadmore-btn" wire:click="loadMoreDates" wire:loading.attr="disabled" wire:target="loadMoreDates">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
                 </svg>
