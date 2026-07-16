@@ -23,9 +23,13 @@ if (typeof window.mountBookDtSwiper === 'undefined') {
         // peek được 1 bên dù có centeredSlides.
         const slideCount = container.querySelectorAll('.swiper-slide').length;
         const initialSlide = slideCount >= 3 ? 1 : 0;
+        // Vòng lặp: lướt/bấm hết phòng cuối thì quay lại phòng đầu (và ngược lại) — chỉ bật khi
+        // có từ 2 phòng trở lên (1 phòng thì loop vô nghĩa, Swiper cũng không cho loop 1 slide).
+        const enableLoop = slideCount > 1;
 
         new Swiper(container, {
             centeredSlides: true,
+            loop: enableLoop,
             initialSlide,
             slideToClickedSlide: true,
             grabCursor: true,
@@ -53,12 +57,17 @@ if (typeof window.mountBookDtSwiper === 'undefined') {
                     // phòng, kích hoạt wire:loading.block/skeleton của book.blade.php — trùng lặp
                     // và dồn dập lúc Swiper tự canh initialSlide/vuốt nhanh, làm skeleton bị kẹt).
                     // activeRoomIdx: chỉ dùng client-side để đồng bộ cuộn dọc — server render đầy
-                    // đủ mọi phòng nên không cần gửi giá trị này lên.
-                    alpineData.activeRoomIdx = sw.activeIndex;
+                    // đủ mọi phòng nên không cần gửi giá trị này lên. Dùng realIndex (không phải
+                    // activeIndex) vì khi loop:true, Swiper tự chèn thêm slide nhân bản ở 2 đầu để
+                    // tạo hiệu ứng vòng lặp — activeIndex lúc đó tính luôn cả các slide nhân bản
+                    // đó nên lệch khỏi thứ tự phòng gốc, còn realIndex luôn trỏ đúng phòng gốc.
+                    alpineData.activeRoomIdx = sw.realIndex;
                     // Giữ nguyên vị trí cuộn dọc khi đổi phòng (mọi phòng dùng chung 1 dải ngày).
+                    // Dùng sw.slides[sw.activeIndex] (mảng nội bộ của Swiper, luôn khớp đúng DOM
+                    // đang hiển thị kể cả slide nhân bản) thay vì tự query lại '.swiper-slide'.
                     requestAnimationFrame(() => {
                         const dateCol = wrapEl.querySelector('.book-dt-dates-scroll');
-                        const target = container.querySelectorAll('.swiper-slide')[sw.activeIndex]?.querySelector('.book-dt-slots-scroll');
+                        const target = sw.slides[sw.activeIndex]?.querySelector('.book-dt-slots-scroll');
                         if (dateCol && target) target.scrollTop = dateCol.scrollTop;
                     });
                 },

@@ -726,11 +726,22 @@
                                     $pdSlotCount = count($timeSlots);
                                     $pdSlotsPerPage = 5;
                                     $pdTotalSlotPages = (int) ceil($pdSlotCount / max($pdSlotsPerPage, 1));
+                                    // Màu phòng (color_product) — dùng làm điểm nhấn (accent) cho khu vực
+                                    // lịch đặt phòng: viền cạnh tiêu đề, viền ô "Còn trống" trong legend,
+                                    // viền ô lịch (selectable) mặc định. KHÔNG đổi nền ô lịch — giữ trung
+                                    // tính để không lẫn với màu trạng thái đã đặt/pending/khuyến mãi.
+                                    $roomColor = $productColors[$product->id]['color'] ?? null;
                                 @endphp
-                                <div class="space-y-5" id="pd-timeslots-section">
+                                <div class="space-y-5" id="pd-timeslots-section"
+                                    style="{{ $roomColor ? "--room-accent:{$roomColor};" : '' }}">
                                     <div class="md:flex md:items-center md:justify-between md:gap-6">
                                         <div>
-                                            <h2 class="text-xl font-bold text-gray-900">Lịch đặt phòng</h2>
+                                            <h2 class="text-xl font-bold text-gray-900 flex items-center gap-2">
+                                                @if($roomColor)
+                                                    <span class="inline-block w-2.5 h-2.5 rounded-full" style="background-color: {{ $roomColor }};"></span>
+                                                @endif
+                                                Lịch đặt phòng
+                                            </h2>
                                             <p class="text-sm text-gray-500 mt-0.5">Chọn khung giờ phù hợp với bạn</p>
                                         </div>
 
@@ -738,7 +749,8 @@
                                         <div class="md:flex gap-4 text-xs text-gray-500 mb-4 md:mb-0 mt-3 md:mt-0 grid grid-cols-2 gap-3">
                                         <div class="flex items-center gap-1.5">
                                             <span
-                                                class="inline-flex w-4 h-4 rounded border border-[#DDDDDD] bg-white"></span>
+                                                class="inline-flex w-4 h-4 rounded bg-white"
+                                                style="border: 1px solid var(--room-accent, #DDDDDD);"></span>
                                             Còn trống
                                         </div>
                                         <div class="flex items-center gap-1.5">
@@ -761,7 +773,10 @@
 
                                     {{-- ── CSS cho lịch đặt phòng (selectable + mobile card) ── --}}
                                     <style id="pd-booking-redesign">
-                                        /* ── selectable box (trung tính, không theo màu phòng) ── */
+                                        /* ── selectable box: nền trung tính (không theo màu phòng, để
+                                           không lẫn với màu trạng thái đã đặt/pending/khuyến mãi), chỉ
+                                           viền mặc định (còn trống) theo --room-accent nếu phòng có
+                                           cấu hình màu (color_product) — xem $roomColor phía trên. ── */
                                         .selectable {
                                             position: relative;
                                             z-index: 10;
@@ -770,7 +785,7 @@
                                             font-weight: 700;
                                             border-radius: 8px !important;
                                             background: #fff !important;
-                                            border: 1.5px solid #d1d5db !important;
+                                            border: 1.5px solid var(--room-accent, #d1d5db) !important;
                                             color: #374151 !important;
                                             display: flex;
                                             align-items: center;

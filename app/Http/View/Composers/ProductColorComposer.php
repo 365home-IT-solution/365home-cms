@@ -29,7 +29,7 @@ class ProductColorComposer
         foreach ($productColors as $productId => $config) {
             $bg = $config['color'] ?? '#ffffff';
             $text = $config['color_text'] ?? '#333333';
-            
+
             // Tạo biến CSS cho từng ID sản phẩm
             $cssVariables .= "--bg-prod-{$productId}: {$bg}; ";
             $cssVariables .= "--text-prod-{$productId}: {$text}; ";

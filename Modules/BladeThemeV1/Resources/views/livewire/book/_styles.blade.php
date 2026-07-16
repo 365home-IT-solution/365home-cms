@@ -752,16 +752,12 @@
         border-radius: 10px 10px 0 0;
     }
 
-    /* ── Khung (viền/bo góc) của mỗi card đứng yên cố định — chỉ phần NỘI DUNG bên trong
-         (.book-dates-scroll / .book-slots-scroll) cuộn dọc, đồng bộ 2 chiều bằng Alpine
-         (@scroll) để cột Ngày và khung giờ luôn khớp hàng nhau khi cuộn. ── */
+    /* ── Hiển thị đầy đủ cột Ngày/khung giờ trên mobile (không giới hạn chiều cao + cuộn nội bộ
+         như trước) — nội dung tự nhiên cao bao nhiêu thì card cao bấy nhiêu, người dùng cuộn
+         cả trang thay vì cuộn riêng bên trong từng card. ── */
     .book-dates-scroll,
     .book-slots-scroll {
-        height: 100%;
-        overflow-y: auto;
         overflow-x: hidden;
-        scrollbar-width: none;
-        -ms-overflow-style: none;
     }
 
     .book-dates-scroll::-webkit-scrollbar,
@@ -784,10 +780,9 @@
 
     /* ── Left dates card — dính liền với header "Ngày" phía trên (cùng nền, chỉ bo góc dưới),
          tách hẳn khỏi khối khung giờ bên phải. box-shadow inset kiểu Tailwind (shadow-inner)
-         để trông "chìm" nhẹ so với 2 khối trắng nổi bên cạnh. Chiều cao cố định (340px, xem
-         thêm ở @media 768px) để khung không di chuyển theo khi cuộn nội dung bên trong. ── */
+         để trông "chìm" nhẹ so với 2 khối trắng nổi bên cạnh. Không giới hạn chiều cao — hiện
+         đầy đủ toàn bộ ngày, không cuộn nội bộ (xem .book-dates-scroll ở trên). ── */
     .book-dates-card {
-        height: 340px;
         background: #f9fafb;
         border: 1px solid #f0f0f0;
         border-top: none;
@@ -856,9 +851,8 @@
     }
 
     /* ── Slots card per room — dính liền với header khung giờ phía trên (chỉ bo góc dưới).
-         Chiều cao cố định khớp .book-dates-card để khung không di chuyển khi cuộn. ── */
+         Không giới hạn chiều cao — hiện đầy đủ toàn bộ ngày, khớp .book-dates-card. ── */
     .book-slots-card {
-        height: 340px;
         background: #ffffff;
         border: 1px solid #f0f0f0;
         border-top: none;
@@ -1191,7 +1185,7 @@
         min-height: 40px;
         align-items: center;
         background: #fff;
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--room-border-color, #e5e7eb);
         border-radius: 12px;
         margin-bottom: 8px;
         transition: opacity .3s ease;
@@ -1365,11 +1359,6 @@
             height: 34px !important;
         }
 
-        .book-dates-card,
-        .book-slots-card {
-            height: 460px;
-        }
-
         /* Giờ bắt đầu/kết thúc nằm ngang trên 1 dòng (không xuống dòng như mobile), chữ to hơn */
         .book-slot-th {
             font-size: 0.9rem;
@@ -1540,7 +1529,7 @@
     }
 
     .book-grid-header .book-col-header {
-        border: 1px solid #e5e7eb !important;
+        border: 1px solid var(--room-border-color, #e5e7eb) !important;
         border-bottom: none !important;
         border-radius: 14px 14px 0 0 !important;
         box-shadow: 0 4px 14px rgba(0, 0, 0, .06) !important;
@@ -1559,7 +1548,7 @@
     }
 
     .book-slots-headers-wrap .book-slots-header-row {
-        border: 1px solid #e5e7eb !important;
+        border: 1px solid var(--room-border-color, #e5e7eb) !important;
         border-bottom: none !important;
         border-radius: 14px 14px 0 0 !important;
         box-shadow: 0 4px 14px rgba(0, 0, 0, .06) !important;

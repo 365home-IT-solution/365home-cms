@@ -42,8 +42,18 @@ class RatingController extends Controller
             ],
         ];
 
+        $user = auth('sanctum')->user();
+        $myRating = $user
+            ? RoomRating::where('customer_id', $user->id)->where('room_id', $roomId)->first()
+            : null;
+
         return response()->json([
             'summary' => $summary,
+            'my_rating' => $myRating ? [
+                'id'      => $myRating->id,
+                'star'    => $myRating->star,
+                'comment' => $myRating->comment,
+            ] : null,
             'data'    => $ratings->getCollection()->map(fn ($r) => [
                 'id'         => $r->id,
                 'user_name'  => $r->customer?->fullname ?? 'Ẩn danh',

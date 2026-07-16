@@ -4,8 +4,14 @@
     Included from book.blade.php — inherits:
       $dates, $styleOneRooms, $totalStyleOneRooms, $today, $category
 --}}
+@php
+    // Màu viền theo phòng (color_product) cho cột "Ngày" dùng chung — phải đổi theo phòng đang
+    // active (bind qua Alpine :style bên dưới, xem book/_desktop-grid.blade.php cho cùng cách làm).
+    $roomColorList = $styleOneRooms->map(fn ($r) => $productColors[$r->id]['color'] ?? null)->values()->all();
+@endphp
 <div class="lg:hidden" x-data="{
     activeRoomIdx: 0, totalRooms: {{ $totalStyleOneRooms }},
+    roomColors: {{ \Illuminate\Support\Js::from($roomColorList) }},
     slotPage: 0, slotsPerPage: 5,
     slotCounts: [{{ $styleOneRooms->map(fn($r) => $r->roomTimeSlots->count())->join(', ') }}],
     categorySlug: '{{ \Str::slug($category['name']) }}',
@@ -27,6 +33,13 @@
             window.dispatchEvent(new CustomEvent('book-activate-room', {
                 detail: { tabId: tabs[nextTabIdx].id, fromEnd: dir < 0 }
             }));
+            return;
+        }
+        // Vòng lặp: hết phòng cuối/đầu của chi nhánh này và không còn tab kế bên để nhảy sang
+        // (chỉ 1 tab, hoặc đã ở tab đầu/cuối) — quay lại phòng đầu tiên/cuối cùng của chi nhánh.
+        if (this.totalRooms > 1) {
+            this.activeRoomIdx = dir > 0 ? 0 : this.totalRooms - 1;
+            this.slotPage = 0;
         }
     },
     onTouchStart(e) { this.touchStartX = e.touches[0].clientX; },
@@ -118,10 +131,16 @@
     {{-- ── Fixed column headers (ngoài khung cuộn — không còn cần position:sticky vì cuộn
          giờ nằm bên trong từng card thân) ── --}}
     <div class="book-grid-header">
-        <div class="book-col-header">Ngày</div>
+        <div class="book-col-header"
+            :style="roomColors[activeRoomIdx] ? `--room-border-color:${roomColors[activeRoomIdx]}` : ''">Ngày</div>
         <div class="book-slots-headers-wrap">
             @foreach ($styleOneRooms as $ri => $room)
-            <div x-show="activeRoomIdx === {{ $ri }}" x-cloak class="book-slots-header-row">
+            @php
+                $roomConfig = $productColors[$room->id] ?? null;
+                $roomBg     = $roomConfig['color'] ?? null;
+            @endphp
+            <div x-show="activeRoomIdx === {{ $ri }}" x-cloak class="book-slots-header-row"
+                style="{{ $roomBg ? "--room-border-color:{$roomBg};" : '' }}">
                 @foreach ($room->roomTimeSlots as $roomTimeSlot)
                 @php
                 $startTime   = \Carbon\Carbon::parse($roomTimeSlot->timeSlot->start_time);

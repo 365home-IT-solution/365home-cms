@@ -73,6 +73,13 @@
                                         && \Carbon\Carbon::parse($p->end_at)->gte(now())
                                 )
                             );
+
+                            // Màu viền theo phòng (color_product) — chỉ tô viền header khung giờ
+                            // (book-dt-slots-header-row), không đụng tên phòng, cột "Thời gian"
+                            // hay khối ô lịch (book-dt-slots-card), không đụng .selectable để
+                            // không phá màu trạng thái đặt/pending.
+                            $roomConfig = $productColors[$room->id] ?? null;
+                            $roomBg     = $roomConfig['color'] ?? null;
                         @endphp
                         <div class="swiper-slide">
                             <h3 class="book-room-name book-dt-room-name">
@@ -83,6 +90,7 @@
                             </h3>
 
                             <div class="book-dt-slots-header-row" x-ref="bookDtHeaderRow{{ $loop->index }}"
+                                style="{{ $roomBg ? "--room-border-color:{$roomBg};" : '' }}"
                                 @scroll="$refs['bookDtSlotsScroll' + {{ $loop->index }}].scrollLeft = $event.target.scrollLeft">
                                 @foreach ($room->roomTimeSlots as $roomTimeSlot)
                                     @php

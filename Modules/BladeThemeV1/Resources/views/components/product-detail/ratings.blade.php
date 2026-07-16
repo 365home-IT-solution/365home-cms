@@ -242,7 +242,8 @@
 
     {{-- Modal viết / sửa đánh giá — chỉ mở khi đã đăng nhập (nút kích hoạt bị ẩn nếu chưa đăng
          nhập). Form dùng chung state (form.star/comment, myRatingId) nên khi user đã có đánh giá,
-         mở lại modal sẽ tự hiện đúng nội dung cũ để sửa (đã prefill từ tryMatchMyRating). --}}
+         mở lại modal sẽ tự hiện đúng nội dung cũ để sửa (đã prefill từ my_rating trong response
+         API — tra theo customer_id đăng nhập, không đoán theo tên). --}}
     <template x-teleport="body">
         <div x-show="reviewModalOpen" x-cloak class="fixed inset-0 z-[10060] flex items-center justify-center p-4 md:p-6">
             <div class="absolute inset-0 bg-black/50" @click="closeReviewModal()"></div>
@@ -394,27 +395,20 @@
                     .then(function (json) {
                         self.summary = json.summary;
                         self.previewList = (json.data || []).slice(0, 6);
-                        self.tryMatchMyRating(json.data || []);
+                        if (json.my_rating) {
+                            self.myRatingId = json.my_rating.id;
+                            self.form.star = json.my_rating.star;
+                            self.form.comment = json.my_rating.comment || '';
+                        } else {
+                            self.myRatingId = null;
+                            self.form = { star: 0, comment: '' };
+                        }
                     })
                     .catch(function () { self.previewList = []; })
                     .finally(function () {
                         self.loadingSummary = false;
                         self.loadingPreview = false;
                     });
-            },
-
-            tryMatchMyRating(list) {
-                if (!localStorage.getItem('auth_token')) return;
-                try {
-                    var user = JSON.parse(localStorage.getItem('auth_user') || 'null');
-                    if (!user || !user.fullname) return;
-                    var mine = list.find(function (r) { return r.user_name === user.fullname; });
-                    if (mine) {
-                        this.myRatingId = mine.id;
-                        this.form.star = mine.star;
-                        this.form.comment = mine.comment || '';
-                    }
-                } catch (e) {}
             },
 
             openModal() {
