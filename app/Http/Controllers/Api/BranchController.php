@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Concerns\BuildsRoomCard;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +15,8 @@ use Modules\Product\App\Models\Product;
 
 class BranchController extends Controller
 {
+    use BuildsRoomCard;
+
     /**
      * GET /api/v1/branches/{slug}/time-slots?days=15&session_id=...
      *
@@ -52,12 +55,18 @@ class BranchController extends Controller
         $endDate   = Carbon::now()->addMonth()->endOfDay();
         $startDate = Carbon::now()->startOfDay();
 
+        $authUser      = auth('sanctum')->user();
+        $wishlistedIds = $authUser
+            ? $authUser->wishlists()->pluck('product_id')->toArray()
+            : null;
+
         $rooms = Product::where('is_activated', true)
             ->where('is_in_stock', true)
             ->where(fn ($q) => $q->where('styles', 1)->orWhereNull('styles'))
             ->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $categoryIds))
             ->whereHas('roomTimeSlots.timeSlot')
             ->with([
+                'media',
                 'roomTimeSlots' => function ($query) {
                     $query->join('time_slots', 'room_time_slots.timeslot_id', '=', 'time_slots.id')
                         ->select('room_time_slots.*')
@@ -81,6 +90,22 @@ class BranchController extends Controller
         $book->visibleDaysCount = $days;
         $dates = $book->getDatesForOneMonth();
         $today = Carbon::today();
+
+        $branchInfo = [
+            'id'   => $branch->id,
+            'name' => $branch->name,
+            'slug' => $branch->slug,
+        ];
+
+        // Danh sách card phòng (ảnh, giá, rating...) — panel bên trái của lịch đặt phòng, tách biệt
+        // khỏi lưới khung giờ x ngày (roomsData) vì 2 khối UI độc lập nhau, không phải 1-1 theo hàng.
+        $roomList = $rooms->map(function (Product $room) use ($wishlistedIds, $branchInfo) {
+            $wishlistStatus = $wishlistedIds === null ? null : in_array($room->id, $wishlistedIds);
+            $card           = $this->mapRoom($room, $wishlistStatus);
+            $card['branch'] = $branchInfo;
+
+            return $card;
+        })->values();
 
         $roomsData = $rooms->map(function (Product $room) use ($book, $dates, $today, $sessionId) {
             // 1 lần/phòng (không phải 1 lần/ô) — số hold đang hoạt động của 1 phòng luôn rất nhỏ
@@ -119,13 +144,10 @@ class BranchController extends Controller
         })->values();
 
         return response()->json([
-            'branch' => [
-                'id'   => $branch->id,
-                'slug' => $branch->slug,
-                'name' => $branch->name,
-            ],
-            'dates' => $dates,
-            'rooms' => $roomsData,
+            'branch'    => $branchInfo,
+            'dates'     => $dates,
+            'room_list' => $roomList,
+            'rooms'     => $roomsData,
         ]);
     }
 
