@@ -160,10 +160,18 @@ class SearchController extends Controller
     }
 
     // ─── GET /v1/search ──────────────────────────────────────────────────────
+    // Có từ khoá "q" (tìm kiếm tự do, vd màn tìm kiếm chính trên app) → trả về card CHI
+    // NHÁNH (RoomSearchService::searchBranches()) để client nhóm kết quả theo chi nhánh.
+    // Không có "q" (đã ở 1 khu vực/chi nhánh cụ thể, vd lịch đặt phòng theo tháng) → giữ
+    // nguyên hành vi cũ, trả về danh sách PHÒNG (RoomSearchService::search()).
 
     public function index(Request $request, RoomSearchService $searchService): JsonResponse
     {
-        $result = $searchService->search($request->all(), auth('sanctum')->user());
+        $hasKeyword = trim((string) $request->query('q', '')) !== '';
+
+        $result = $hasKeyword
+            ? $searchService->searchBranches($request->all(), auth('sanctum')->user())
+            : $searchService->search($request->all(), auth('sanctum')->user());
 
         return response()->json($result);
     }
