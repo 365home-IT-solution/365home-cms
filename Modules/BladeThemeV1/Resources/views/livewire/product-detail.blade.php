@@ -2034,7 +2034,15 @@
             </div>
         </div>
 
-        <div class="w-full lg:sticky lg:top-32" id="pd-booking-form"
+        {{-- wire:ignore.self: trạng thái mở/thu gọn của bottom-sheet (mobile) là class
+             pd-sheet-peek/pd-sheet-full gắn thẳng qua classList JS (setState(), xem
+             components/product-detail/infomation-book-room.blade.php), KHÔNG nằm trong state của
+             Livewire — nếu không ignore, mỗi lần Livewire morph lại component (vd: upload ảnh CCCD
+             qua @this.upload(), gõ input có wire:model...) sẽ ghi đè div này về đúng HTML server
+             render (không có class đó), làm sheet tự đóng lại ngay sau khi vừa mở. Chỉ ignore
+             CHÍNH thẻ này (.self) — các phần tử con bên trong (input, lỗi validate, ảnh preview...)
+             vẫn được Livewire cập nhật bình thường. --}}
+        <div class="w-full lg:sticky lg:top-32" id="pd-booking-form" wire:ignore.self
             data-preselected="{{ $fromBookingPage ? '1' : '0' }}">
             {{-- Thông tin đặt phòng --}}
             @include('bladethemev1::components.product-detail.infomation-book-room')

@@ -32,6 +32,22 @@ use Modules\Category\Entities\Categorizable;
 
 class OrderForm
 {
+    /**
+     * True nếu đơn có ít nhất 1 order_item thuộc khung giờ qua đêm (order_items.over_night,
+     * sao chép từ room_time_slots.over_night lúc đặt — xem ProductDetail::confirmBooking()).
+     * Dùng để quyết định hiện/ẩn khối CCCD người đi cùng (cccd_front_2/back_2).
+     */
+    protected static function hasOvernightItem($record): bool
+    {
+        if (! $record || ! $record->exists) {
+            return false;
+        }
+
+        return $record->relationLoaded('items')
+            ? $record->items->contains('over_night', true)
+            : $record->items()->where('over_night', true)->exists();
+    }
+
     public static function form(Form $form): Form
     {
         return $form
@@ -153,11 +169,31 @@ class OrderForm
                                                         . $icon . ' Tải mặt sau</a>';
                                                 }
 
+                                                if ($record->cccd_front_2) {
+                                                    $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($record->cccd_front_2);
+                                                    $name = 'CCCD_nguoidicung_mat_truoc_' . ($record->order_code ?? $record->id) . '.jpg';
+                                                    $html .= '<a href="' . e($url) . '" download="' . e($name) . '" target="_blank"'
+                                                        . ' style="' . $btnStyle('#fefce8', '#fde68a', '#a16207') . '"'
+                                                        . ' onmouseenter="this.style.background=\'#fef9c3\'"'
+                                                        . ' onmouseleave="this.style.background=\'#fefce8\'">'
+                                                        . $icon . ' Tải mặt trước (người đi cùng)</a>';
+                                                }
+
+                                                if ($record->cccd_back_2) {
+                                                    $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($record->cccd_back_2);
+                                                    $name = 'CCCD_nguoidicung_mat_sau_' . ($record->order_code ?? $record->id) . '.jpg';
+                                                    $html .= '<a href="' . e($url) . '" download="' . e($name) . '" target="_blank"'
+                                                        . ' style="' . $btnStyle('#fefce8', '#fde68a', '#a16207') . '"'
+                                                        . ' onmouseenter="this.style.background=\'#fef9c3\'"'
+                                                        . ' onmouseleave="this.style.background=\'#fefce8\'">'
+                                                        . $icon . ' Tải mặt sau (người đi cùng)</a>';
+                                                }
+
                                                 $html .= '</div>';
                                                 return new \Illuminate\Support\HtmlString($html);
                                             })
                                             ->visible(fn ($record) => (auth()->user()?->isSuperAdmin() ?? false)
-                                                && $record && ($record->cccd_front || $record->cccd_back)),
+                                                && $record && ($record->cccd_front || $record->cccd_back || $record->cccd_front_2 || $record->cccd_back_2)),
 
                                         Grid::make(2)->schema([
                                             FileUpload::make('cccd_front')
@@ -196,6 +232,46 @@ class OrderForm
                                                 ->openable()
                                                 ->nullable(),
                                         ]),
+
+                                        Grid::make(2)
+                                            ->visible(fn ($record) => self::hasOvernightItem($record))
+                                            ->schema([
+                                                FileUpload::make('cccd_front_2')
+                                                    ->label('CCCD/CMND người đi cùng - mặt trước')
+                                                    ->helperText('Đơn có khung giờ qua đêm — bắt buộc khai báo lưu trú cho người đi cùng. Kích thước tối đa: 10MB.')
+                                                    ->image()
+                                                    ->directory('cccd')
+                                                    ->imagePreviewHeight('250')
+                                                    ->loadingIndicatorPosition('center')
+                                                    ->panelAspectRatio('16:10')
+                                                    ->panelLayout('integrated')
+                                                    ->removeUploadedFileButtonPosition('top-right')
+                                                    ->uploadButtonPosition('center')
+                                                    ->uploadProgressIndicatorPosition('center')
+                                                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                                    ->maxSize(10240)
+                                                    ->downloadable()
+                                                    ->openable()
+                                                    ->nullable(),
+
+                                                FileUpload::make('cccd_back_2')
+                                                    ->label('CCCD/CMND người đi cùng - mặt sau')
+                                                    ->helperText('Đơn có khung giờ qua đêm — bắt buộc khai báo lưu trú cho người đi cùng. Kích thước tối đa: 10MB.')
+                                                    ->image()
+                                                    ->directory('cccd')
+                                                    ->imagePreviewHeight('250')
+                                                    ->loadingIndicatorPosition('center')
+                                                    ->panelAspectRatio('16:10')
+                                                    ->panelLayout('integrated')
+                                                    ->removeUploadedFileButtonPosition('top-right')
+                                                    ->uploadButtonPosition('center')
+                                                    ->uploadProgressIndicatorPosition('center')
+                                                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                                    ->maxSize(10240)
+                                                    ->downloadable()
+                                                    ->openable()
+                                                    ->nullable(),
+                                            ]),
                                     ]),
                             ]),
 

@@ -428,6 +428,84 @@
                 xóa sau khi check-out.</p>
         </div>
 
+        @if ($this->hasOvernightSlotSelected())
+            {{-- CCCD người đi cùng — chỉ hiện khi có khung giờ qua đêm (room_time_slots.over_night),
+                 quy định khai báo lưu trú yêu cầu CCCD của cả 2 người. Luôn là upload mới (không có
+                 hồ sơ auth để tái dùng như CCCD chính) — xem cccd_front_2/cccd_back_2 trong
+                 ProductDetail::confirmBooking(). --}}
+            <div>
+                <p class="text-xs font-semibold tracking-wider uppercase text-[#717171]">CCCD người đi cùng</p>
+                <p class="text-[11px] text-[#717171] mt-0.5 mb-3">Khung giờ qua đêm bạn chọn cần khai báo lưu trú
+                    cho cả 2 người theo quy định — vui lòng tải thêm CCCD của người đi cùng.</p>
+
+                <div class="grid grid-cols-2 gap-3">
+                    @foreach ([['cccd_front_2', 'Mặt trước CCCD'], ['cccd_back_2', 'Mặt sau CCCD']] as [$field, $label])
+                        <div class="space-y-1.5">
+                            <label
+                                class="relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed cursor-pointer transition-all overflow-hidden py-5 group
+                    {{ $errors->has($field) ? 'border-red-600' : 'border-[#DDDDDD] hover:border-[#B0B0B0] bg-[#FAFAFA] hover:bg-[#F7F7F7]' }}">
+                                <input type="file" accept="image/*" class="sr-only"
+                                    onchange="processAndUpload(this, '{{ $field }}', {maxSize: 2400, quality: 0.92})" />
+                                <div wire:ignore class="contents">
+                                    <div id="loading-{{ $field }}"
+                                        class="hidden absolute inset-0 bg-white/90 backdrop-blur-sm z-20">
+                                        <div class="flex flex-col items-center justify-center h-full">
+                                            <div
+                                                class="animate-spin rounded-full h-8 w-8 border-3 border-black border-t-primary mb-3">
+                                            </div>
+                                            <p class="text-xs font-medium text-black mb-2"
+                                                id="status-{{ $field }}">Đang xử lý...</p>
+                                            <div class="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                                <div id="progress-{{ $field }}"
+                                                    class="h-full bg-primary rounded-full transition-all duration-300"
+                                                    style="width: 0%"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <img id="preview-{{ $field }}" src=""
+                                        class="hidden absolute inset-0 w-full h-full object-cover"
+                                        alt="{{ $label }}" />
+                                    <div
+                                        class="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                                        <div class="bg-white/90 rounded-lg px-3 py-1 text-xs font-medium text-black">
+                                            Đổi ảnh</div>
+                                    </div>
+                                    <div id="checkmark-{{ $field }}"
+                                        class="hidden absolute top-2 right-2 bg-green-500 rounded-full p-1 shadow-lg z-10">
+                                        <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor"
+                                            stroke-width="2.5" viewBox="0 0 24 24">
+                                            <path d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    </div>
+                                </div>
+                                <div id="placeholder-{{ $field }}">
+                                    <div
+                                        class="h-9 w-9 rounded-full bg-[#F0F0F0] flex items-center justify-center mx-auto">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
+                                            viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                                            class="h-5 w-5 text-[#717171]">
+                                            <path
+                                                d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z">
+                                            </path>
+                                            <circle cx="12" cy="13" r="3"></circle>
+                                        </svg>
+                                    </div>
+                                    <div class="text-center mt-2">
+                                        <p class="text-xs font-semibold text-[#222222]">{{ $label }}</p>
+                                        <p class="text-[11px] text-[#717171] mt-0.5">Nhấn để tải ảnh</p>
+                                    </div>
+                                </div>
+                            </label>
+                        </div>
+                    @endforeach
+                </div>
+
+                <p class="text-[11px] text-[#717171] mt-2">* CCCD người đi cùng chỉ dùng để khai báo lưu trú, bảo
+                    mật như CCCD chính và xóa sau khi check-out.</p>
+            </div>
+        @endif
+
         <textarea id="note" wire:model="note" placeholder="Ghi chú cho 365Home" rows="3"
             class="w-full px-4 py-3 border border-black rounded-lg focus:ring-2 focus:ring-primary focus:border-primary focus:outline-none resize-none text-base"></textarea>
 
@@ -442,7 +520,7 @@
                     Tôi xác nhận đã đủ 18 tuổi (hoặc có người giám hộ đi cùng), đã đọc và đồng ý với
                     <a href="{{ url('noi-quy-va-quy-dinh') }}" target="_blank" rel="noopener" class="font-semibold text-red-600 underline">Nội quy</a> và
                     <a href="{{ url('privacy') }}" target="_blank" rel="noopener" class="font-semibold text-red-600 underline">Chính sách</a>
-                    của 365Home, bao gồm điều kiện hoàn tiền (hoàn 70% khi hủy, 10% phí xử lý). Sau khi thanh toán, vui lòng quay lại đây để hoàn tất.
+                    của 365Home, bao gồm điều kiện hoàn tiền (hoàn từ 70% khi hủy, 10% phí xử lý). Sau khi thanh toán, vui lòng quay lại đây để hoàn tất.
                 </span>
             </label>
             @if ($errors->has('accept1') || $errors->has('accept2') || $errors->has('acceptRefundPolicy'))

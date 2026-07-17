@@ -6,8 +6,9 @@ trait ValidationRulesTrait
 {
     protected function rules()
     {
-        $hasFront = $this->isAuthUser && !empty($this->authCccdFront);
-        $hasBack  = $this->isAuthUser && !empty($this->authCccdBack);
+        $hasFront     = $this->isAuthUser && !empty($this->authCccdFront);
+        $hasBack      = $this->isAuthUser && !empty($this->authCccdBack);
+        $hasOvernight = $this->hasOvernightSlotSelected();
 
         return [
             'buyerName'          => 'required|min:2|max:50',
@@ -16,6 +17,9 @@ trait ValidationRulesTrait
             'guests'             => 'required|integer|min:1',
             'cccd_front'         => $hasFront ? 'nullable' : 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
             'cccd_back'          => $hasBack  ? 'nullable' : 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
+            // CCCD người đi cùng — chỉ bắt buộc khi có khung giờ qua đêm được chọn.
+            'cccd_front_2'       => $hasOvernight ? 'required|file|mimes:jpg,jpeg,png,webp|max:5120' : 'nullable',
+            'cccd_back_2'        => $hasOvernight ? 'required|file|mimes:jpg,jpeg,png,webp|max:5120' : 'nullable',
             'accept1'            => 'accepted',
             'accept2'            => 'accepted',
             'acceptRefundPolicy' => 'accepted',
@@ -40,6 +44,14 @@ trait ValidationRulesTrait
             'cccd_back.file' => 'File CCCD mặt sau không hợp lệ.',
             'cccd_back.mimes' => 'CCCD mặt sau chỉ chấp nhận định dạng JPG, PNG, WEBP.',
             'cccd_back.max' => 'CCCD mặt sau không được vượt quá 5MB.',
+            'cccd_front_2.required' => 'Khung giờ qua đêm cần khai báo lưu trú cho người đi cùng — vui lòng tải lên mặt trước CCCD người đi cùng.',
+            'cccd_front_2.file' => 'File CCCD người đi cùng (mặt trước) không hợp lệ.',
+            'cccd_front_2.mimes' => 'CCCD người đi cùng (mặt trước) chỉ chấp nhận định dạng JPG, PNG, WEBP.',
+            'cccd_front_2.max' => 'CCCD người đi cùng (mặt trước) không được vượt quá 5MB.',
+            'cccd_back_2.required' => 'Khung giờ qua đêm cần khai báo lưu trú cho người đi cùng — vui lòng tải lên mặt sau CCCD người đi cùng.',
+            'cccd_back_2.file' => 'File CCCD người đi cùng (mặt sau) không hợp lệ.',
+            'cccd_back_2.mimes' => 'CCCD người đi cùng (mặt sau) chỉ chấp nhận định dạng JPG, PNG, WEBP.',
+            'cccd_back_2.max' => 'CCCD người đi cùng (mặt sau) không được vượt quá 5MB.',
             'accept1.accepted' => 'Vui lòng đồng ý với điều khoản trên trước khi đặt phòng.',
             'accept2.accepted' => 'Vui lòng đồng ý với điều khoản trên trước khi đặt phòng.',
             'acceptRefundPolicy.accepted' => 'Vui lòng đồng ý với điều khoản trên trước khi đặt phòng.',

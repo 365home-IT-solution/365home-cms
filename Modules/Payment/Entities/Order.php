@@ -47,6 +47,8 @@ class Order extends Model implements Eventable
         'deposit_room',
         'cccd_front',
         'cccd_back',
+        'cccd_front_2',
+        'cccd_back_2',
         'cccd_data',
         'guest_count',
         'category_id',

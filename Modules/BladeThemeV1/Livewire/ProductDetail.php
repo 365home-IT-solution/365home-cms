@@ -873,6 +873,16 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         $this->totalAmount = max(0, $totalAfterPromo + $this->extraFee + $serviceTotal);
     }
 
+    /**
+     * True nếu có ít nhất 1 khung giờ đang chọn là qua đêm (room_time_slots.over_night) — dùng
+     * để quyết định có hiển thị/bắt buộc upload CCCD người đi cùng (cccd_front_2/back_2) hay không.
+     */
+    public function hasOvernightSlotSelected(): bool
+    {
+        return !empty($this->selectedSlots)
+            && collect($this->selectedSlots)->contains(fn ($slot) => ($slot['overNight'] ?? 0) == 1);
+    }
+
     public function datPhong()
     {
         // Kiểm tra riêng chính sách hoàn tiền để hiển thị lỗi cụ thể
@@ -893,6 +903,13 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         }
         if (!($this->isAuthUser && !empty($this->authCccdBack))) {
             $requiredFields[] = 'cccd_back';
+        }
+
+        // CCCD người đi cùng — bắt buộc khi có khung giờ qua đêm (không có hồ sơ auth để tái
+        // dùng như CCCD chính, luôn phải upload mới).
+        if ($this->hasOvernightSlotSelected()) {
+            $requiredFields[] = 'cccd_front_2';
+            $requiredFields[] = 'cccd_back_2';
         }
 
         $hasSelectedSlots = !empty($this->selectedSlots);
@@ -1047,6 +1064,11 @@ public function confirmBooking()
             $backPath = $this->authCccdBack;
         }
 
+        // CCCD người đi cùng (khung giờ qua đêm) — không có hồ sơ auth để tái dùng, luôn là file
+        // mới upload.
+        $frontPath2 = $this->cccd_front_2 ? $this->cccd_front_2->store('cccd/front', 'public') : null;
+        $backPath2  = $this->cccd_back_2  ? $this->cccd_back_2->store('cccd/back', 'public')   : null;
+
         // Quét QR CCCD — chỉ khi có file mới upload (guest hoặc auth user đổi ảnh)
         $cccdData = null;
         if ($this->cccd_front || $this->cccd_back) {
@@ -1059,6 +1081,12 @@ public function confirmBooking()
                 }
                 if ($backPath && $this->cccd_back) {
                     \Illuminate\Support\Facades\Storage::disk('public')->delete($backPath);
+                }
+                if ($frontPath2) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete($frontPath2);
+                }
+                if ($backPath2) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete($backPath2);
                 }
                 $this->dispatch('notify', [
                     'message' => 'Không đọc được mã QR trên CCCD. Vui lòng upload ảnh gốc rõ nét, chụp thẳng mặt sau CCCD, không chụp lại màn hình.',
@@ -1078,6 +1106,12 @@ public function confirmBooking()
                         if ($backPath && $this->cccd_back) {
                             \Illuminate\Support\Facades\Storage::disk('public')->delete($backPath);
                         }
+                        if ($frontPath2) {
+                            \Illuminate\Support\Facades\Storage::disk('public')->delete($frontPath2);
+                        }
+                        if ($backPath2) {
+                            \Illuminate\Support\Facades\Storage::disk('public')->delete($backPath2);
+                        }
                         $this->dispatch('notify', [
                             'message' => 'Người đặt phòng chưa đủ 18 tuổi. Vui lòng liên hệ trực tiếp để được hỗ trợ.',
                             'type'    => 'error',
@@ -1087,6 +1121,35 @@ public function confirmBooking()
                 } catch (\Throwable) {
                     // Không parse được ngày sinh → bỏ qua kiểm tra tuổi
                 }
+            }
+        }
+
+        // Quét QR CCCD người đi cùng (khung giờ qua đêm) — bắt buộc đọc được QR như CCCD chính để
+        // admin có đủ thông tin khai báo lưu trú cho cả 2 người, nhưng KHÔNG kiểm tra tuổi (người
+        // đi cùng không cần đủ 18, ví dụ trẻ nhỏ đi cùng phụ huynh là người đặt phòng chính).
+        $cccdData2 = null;
+        if ($this->cccd_front_2 || $this->cccd_back_2) {
+            $cccdData2 = $this->cccdScanner->scanPaths($frontPath2, $backPath2);
+
+            if (!$cccdData2) {
+                // Không đọc được QR → xóa toàn bộ file (kể cả CCCD chính vừa upload), yêu cầu làm lại
+                if ($frontPath && $this->cccd_front) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete($frontPath);
+                }
+                if ($backPath && $this->cccd_back) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete($backPath);
+                }
+                if ($frontPath2) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete($frontPath2);
+                }
+                if ($backPath2) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete($backPath2);
+                }
+                $this->dispatch('notify', [
+                    'message' => 'Không đọc được mã QR trên CCCD người đi cùng. Vui lòng upload ảnh gốc rõ nét, chụp thẳng mặt sau CCCD, không chụp lại màn hình.',
+                    'type'    => 'error',
+                ]);
+                return;
             }
         }
 
@@ -1120,6 +1183,20 @@ public function confirmBooking()
                 !empty($cccdData['gender'])    ? "Giới tính: {$cccdData['gender']}"    : null,
                 !empty($cccdData['address'])   ? "Địa chỉ:   {$cccdData['address']}"   : null,
             ]));
+        }
+
+        // Ghép thêm thông tin CCCD người đi cùng (nếu có, khung giờ qua đêm) vào cuối note.
+        if ($cccdData2) {
+            $note2 = implode("\n", array_filter([
+                !empty($cccdData2['cccd'])      ? "Số CCCD:   {$cccdData2['cccd']}"      : null,
+                !empty($cccdData2['full_name']) ? "Họ và tên: {$cccdData2['full_name']}" : null,
+                !empty($cccdData2['dob'])       ? "Ngày sinh: {$cccdData2['dob']}"       : null,
+                !empty($cccdData2['gender'])    ? "Giới tính: {$cccdData2['gender']}"    : null,
+                !empty($cccdData2['address'])   ? "Địa chỉ:   {$cccdData2['address']}"   : null,
+            ]));
+            if ($note2 !== '') {
+                $noteForAdmin = trim($noteForAdmin . "\n\n--- Người đi cùng ---\n" . $note2);
+            }
         }
 
         // Security: nếu đặt phòng với tài khoản đã xác thực, re-fetch dữ liệu từ DB
@@ -1175,7 +1252,7 @@ public function confirmBooking()
         // TRANSACTION: conflict check + order creation trong cùng 1 transaction
         // lockForUpdate ngăn 2 request đồng thời cùng tạo đơn trùng khung giờ
         // =====================================================================
-        $order = DB::transaction(function () use ($frontPath, $backPath, $extraFee, $categoryId, $orderTotal, $noteForAdmin, $paymentAmount, $depositPercent, $fullAmount, $verifiedBuyerName, $verifiedBuyerPhone, $verifiedUserId, $cccdData) {
+        $order = DB::transaction(function () use ($frontPath, $backPath, $frontPath2, $backPath2, $extraFee, $categoryId, $orderTotal, $noteForAdmin, $paymentAmount, $depositPercent, $fullAmount, $verifiedBuyerName, $verifiedBuyerPhone, $verifiedUserId, $cccdData) {
 
             // --- Kiểm tra xung đột (style 1) ---
             if ($this->bookingStyle == 1 && !empty($this->selectedSlots)) {
@@ -1209,6 +1286,8 @@ public function confirmBooking()
                 'description'    => !empty($this->note) ? $this->note : 'Đặt phòng - ' . $this->product->name,
                 'cccd_front'     => $frontPath,
                 'cccd_back'      => $backPath,
+                'cccd_front_2'   => $frontPath2,
+                'cccd_back_2'    => $backPath2,
                 'cccd_data'      => $cccdData,
                 'guest_count'    => $this->guests,
                 'category_id'    => $categoryId,
@@ -1270,6 +1349,8 @@ public function confirmBooking()
                         'checkin_date'  => $checkinDateTime,
                         'checkout_date' => $checkoutDateTime,
                         'guest_count'   => $this->guests,
+                        'slot_label'    => $slot['timeslotLabel'] ?? null,
+                        'over_night'    => ($slot['overNight'] ?? 0) == 1,
                     ]);
                 }
             }

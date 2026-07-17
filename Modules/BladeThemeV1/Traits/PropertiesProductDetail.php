@@ -24,6 +24,10 @@ trait PropertiesProductDetail
     public $endTime = '';
     public $cccd_front = '';
     public $cccd_back = '';
+    // CCCD người đi cùng — chỉ hiển thị/bắt buộc khi có khung giờ qua đêm được chọn
+    // (xem ProductDetail::hasOvernightSlotSelected()).
+    public $cccd_front_2 = '';
+    public $cccd_back_2 = '';
     public $note = '';
     public $totalAmount = 0;
     public $accept1 = false;

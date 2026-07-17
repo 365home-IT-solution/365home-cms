@@ -125,7 +125,27 @@ class OrderTable
                     ->width(60)
                     ->defaultImageUrl('/images/no-image.png')
                     ->tooltip('Click để xem chi tiết'),
-                
+
+                // Chỉ đơn có khung giờ qua đêm (order_items.over_night) mới có CCCD người đi cùng —
+                // ẩn theo mặc định để không chiếm chỗ ở các đơn thường, admin tự bật cột khi cần.
+                ImageColumn::make('cccd_front_2')
+                    ->label('CCCD Trước (người đi cùng)')
+                    ->disk('public')
+                    ->height(40)
+                    ->width(60)
+                    ->defaultImageUrl('/images/no-image.png')
+                    ->tooltip('Click để xem chi tiết')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                ImageColumn::make('cccd_back_2')
+                    ->label('CCCD Sau (người đi cùng)')
+                    ->disk('public')
+                    ->height(40)
+                    ->width(60)
+                    ->defaultImageUrl('/images/no-image.png')
+                    ->tooltip('Click để xem chi tiết')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
                 TextColumn::make('stay_checkin')
                     ->label('Ngày nhận phòng')
                     ->getStateUsing(function ($record) {
