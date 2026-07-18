@@ -2031,6 +2031,170 @@
                     ])
                 </div>
                 @endif
+
+                {{-- Section 2 cột dưới lịch đặt phòng: cột 1 = Chi tiết thanh toán, cột 2 = Thời
+                     gian đã chọn (nhận phòng/trả phòng/tổng khung giờ). --}}
+                @if ($bookingStyle == 1)
+                    <div class="w-full mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {{-- Cột 1: Chi tiết thanh toán --}}
+                        <div class="w-full bg-white rounded-2xl p-4 border border-[#DDDDDD]">
+                            <h3 class="text-base font-semibold text-[#222222] mb-3">Chi tiết thanh toán</h3>
+
+                            <div wire:loading wire:target="selectedSlots" class="animate-pulse space-y-2.5">
+                                <div class="flex items-center justify-between">
+                                    <div class="h-3 w-20 bg-gray-200 rounded"></div>
+                                    <div class="h-3 w-16 bg-gray-200 rounded"></div>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <div class="h-3 w-28 bg-gray-200 rounded"></div>
+                                    <div class="h-3 w-14 bg-gray-200 rounded"></div>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <div class="h-3 w-24 bg-gray-200 rounded"></div>
+                                    <div class="h-3 w-16 bg-gray-200 rounded"></div>
+                                </div>
+                                <div class="flex items-center justify-between pt-3 mt-2 border-t border-[#DDDDDD]">
+                                    <div class="h-4 w-28 bg-gray-200 rounded"></div>
+                                    <div class="h-5 w-20 bg-gray-200 rounded"></div>
+                                </div>
+                            </div>
+
+                            <div wire:loading.remove wire:target="selectedSlots"
+                                class="w-full text-left text-sm space-y-1.5">
+
+                                {{-- Giá cơ bản --}}
+                                <div class="flex items-center justify-between">
+                                    <span class="text-[#717171]">Giá cơ bản</span>
+                                    <span class="font-semibold text-[#222222]">{{ number_format($originalTotalAmount, 0, ',', '.') }}đ</span>
+                                </div>
+
+                                {{-- Chi tiết phụ thu --}}
+                                @if ($increaseAmount > 0)
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-[#717171]">Phụ thu</span>
+                                        <span class="font-semibold text-[#222222]">+{{ number_format($increaseAmount, 0, ',', '.') }}đ</span>
+                                    </div>
+                                @endif
+
+                                {{-- Phụ phí khách --}}
+                                @if ($extraFee > 0)
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-[#717171]">Phụ phí ({{ $guests - 2 }} khách)</span>
+                                        <span class="font-semibold text-[#222222]">+{{ number_format($extraFee, 0, ',', '.') }}đ</span>
+                                    </div>
+                                @endif
+
+                                {{-- Chi tiết khuyến mãi (CHỈ hiển thị nếu KHÔNG phải full booking) --}}
+                                @if ($promoDiscountAmount > 0 && !$hasFullDayBooking)
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-[#717171]">Khuyến mãi</span>
+                                        <span class="font-semibold text-primary">-{{ number_format($promoDiscountAmount, 0, ',', '.') }}đ</span>
+                                    </div>
+                                @endif
+
+                                {{-- Giảm giá từ coupon --}}
+                                @if ($appliedCoupon && $couponDiscountAmount > 0)
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-[#717171]">Mã giảm giá ({{ $appliedCoupon->code }})</span>
+                                        <span class="font-semibold text-primary">-{{ number_format($couponDiscountAmount, 0, ',', '.') }}đ</span>
+                                    </div>
+                                @endif
+
+                                {{-- Giảm giá book nhiều giờ (CHỈ khi KHÔNG phải full booking) --}}
+                                @if (!$hasFullDayBooking && $bulkDiscountAmount > 0 && count($selectedSlots) >= 2)
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-[#717171]">Giảm giá đặt nhiều khung giờ</span>
+                                        <span class="font-semibold text-primary">-{{ number_format($bulkDiscountAmount, 0, ',', '.') }}đ</span>
+                                    </div>
+                                @endif
+
+                                {{-- Giảm giá Full booking --}}
+                                @if ($fullBookingDiscount > 0)
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-[#717171]">Giảm giá đặt Full phòng</span>
+                                        <span class="font-semibold text-primary">-{{ number_format($fullBookingDiscount, 0, ',', '.') }}đ</span>
+                                    </div>
+                                @endif
+
+                                {{-- Dịch vụ thêm --}}
+                                @php
+                                    $serviceTotal = 0;
+                                    if (!empty($selectedServices) && $additionalServices) {
+                                        foreach ($selectedServices as $id => $qty) {
+                                            $service = $additionalServices->firstWhere('id', $id);
+                                            if ($service && $qty > 0) {
+                                                $serviceTotal += $service->price * $qty;
+                                            }
+                                        }
+                                    }
+                                    $serviceCount = array_sum($selectedServices ?? []);
+                                @endphp
+                                @if ($serviceTotal > 0)
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-[#717171]">Dịch vụ thêm ({{ $serviceCount }})</span>
+                                        <span class="font-semibold text-[#222222]">+{{ number_format($serviceTotal, 0, ',', '.') }}đ</span>
+                                    </div>
+                                @endif
+
+                                {{-- Tổng tiền --}}
+                                <div class="flex items-center justify-between pt-3 mt-2 border-t border-[#DDDDDD]">
+                                    <span class="text-sm font-semibold text-[#222222]">Tổng tiền tạm tính</span>
+                                    <span class="text-lg font-bold text-primary">{{ number_format($totalAmount, 0, ',', '.') }}đ</span>
+                                </div>
+
+                            </div>
+                        </div>
+
+                        {{-- Cột 2: Thời gian đã chọn --}}
+                        <div class="w-full bg-white rounded-2xl p-4 border border-[#DDDDDD]">
+                            <h3 class="text-base font-semibold text-[#222222] mb-3">Thời gian đã chọn</h3>
+
+                            @if (!empty($selectedSlots) && !empty($startTime) && !empty($endTime))
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div class="rounded-xl border border-[#DDDDDD] p-3 text-center">
+                                        <p class="text-[10px] font-semibold uppercase tracking-wide text-[#717171] mb-1">Nhận phòng</p>
+                                        <p class="text-lg font-bold text-[#222222]">{{ \Carbon\Carbon::parse($startTime)->format('H:i') }}</p>
+                                        <p class="text-xs text-[#717171] mt-0.5">{{ \Carbon\Carbon::parse($startTime)->format('d/m/Y') }}</p>
+                                    </div>
+                                    <div class="rounded-xl border border-[#DDDDDD] p-3 text-center">
+                                        <p class="text-[10px] font-semibold uppercase tracking-wide text-[#717171] mb-1">Trả phòng</p>
+                                        <p class="text-lg font-bold text-[#222222]">{{ \Carbon\Carbon::parse($endTime)->format('H:i') }}</p>
+                                        <p class="text-xs text-[#717171] mt-0.5">{{ \Carbon\Carbon::parse($endTime)->format('d/m/Y') }}</p>
+                                    </div>
+                                </div>
+                                <p class="text-xs text-center font-semibold text-primary mt-3">
+                                    {{ count($selectedSlots) }} khung giờ đã chọn
+                                </p>
+                            @else
+                                <p class="text-sm text-[#717171] text-center py-6">Vui lòng chọn khung giờ ở lịch đặt phòng phía trên.</p>
+                            @endif
+                        </div>
+                    </div>
+
+                    {{-- Lưu ý giảm giá - CẬP NHẬT --}}
+                    <div class="text-left mt-4">
+                        @if ($hasFullDayBooking)
+                            <p class="text-primary text-xs">
+                                * Đã áp dụng ưu đãi đặc biệt cho Full phòng — các khuyến mãi khác không áp dụng khi đặt full phòng.
+                            </p>
+                        @else
+                            @php
+                                $bulkRules = $product->bulk_discount_rules ?? [];
+                                $bulkRuleHint = collect($bulkRules)
+                                    ->sortBy('slots')
+                                    ->map(
+                                        fn($r) => "{$r['discount']}% khi chọn {$r['slots']} khung giờ",
+                                    )
+                                    ->implode(', ');
+                            @endphp
+                            @if ($bulkRuleHint)
+                                <p class="text-primary text-xs">
+                                    * Khách hàng được giảm thêm {{ $bulkRuleHint }}
+                                </p>
+                            @endif
+                        @endif
+                    </div>
+                @endif
             </div>
         </div>
 
@@ -2046,316 +2210,6 @@
             data-preselected="{{ $fromBookingPage ? '1' : '0' }}">
             {{-- Thông tin đặt phòng --}}
             @include('bladethemev1::components.product-detail.infomation-book-room')
-
-            @if ($bookingStyle == 1)
-                                    <div class="w-full mt-6 bg-white rounded-lg p-4 border-2 border-gray-200">
-                                        <h3 class="text-lg font-bold mb-4">Chi tiết thanh
-                                            toán</h3>
-
-                                        <span wire:loading wire:target="selectedSlots"
-                                            class="text-gray-400 italic animate-pulse block text-center py-4">
-                                            <svg class="animate-spin h-5 w-5 mx-auto mb-2"
-                                                xmlns="http://www.w3.org/2000/svg" fill="none"
-                                                viewBox="0 0 24 24">
-                                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                                    stroke="currentColor" stroke-width="4"></circle>
-                                                <path class="opacity-75" fill="currentColor"
-                                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                                </path>
-                                            </svg>
-                                            Đang tính toán...
-                                        </span>
-
-                                        <div wire:loading.remove wire:target="selectedSlots"
-                                            class="w-full text-left font-semibold space-y-2">
-
-                                            {{-- Giá cơ bản --}}
-                                            <p class="text-base text-gray-800 mb-2">
-                                                Giá cơ bản: <span
-                                                    class="font-bold">{{ number_format($originalTotalAmount, 0, ',', '.') }}đ</span>
-                                            </p>
-
-                                            {{-- Chi tiết phụ thu --}}
-                                            @if ($increaseAmount > 0)
-                                                <div class="ml-4 mb-2">
-                                                    <p
-                                                        class="text-sm text-orange-600 font-semibold flex items-center gap-1.5">
-                                                
-                                                        Phụ thu:
-                                                    </p>
-                                                    {{-- Bạn có thể thêm chi tiết phụ thu ở đây nếu có --}}
-                                                    <p
-                                                        class="text-sm text-orange-600 font-bold ml-4 mt-1 border-t border-orange-200 pt-1">
-                                                        Tổng phụ thu:
-                                                        <span>+{{ number_format($increaseAmount, 0, ',', '.') }}đ</span>
-                                                    </p>
-                                                </div>
-                                            @endif
-
-                                            {{-- Phụ phí khách --}}
-                                            @if ($extraFee > 0)
-                                                <div class="ml-4 mb-2">
-                                                    <p
-                                                        class="text-sm text-orange-600 font-semibold flex items-center gap-1.5">
-                                                        
-                                                        Phụ phí:
-                                                    </p>
-                                                    <p class="text-xs text-orange-500 ml-4">
-                                                        • Phụ phí ({{ $guests - 2 }} khách):
-                                                        <span>+{{ number_format($extraFee, 0, ',', '.') }}đ</span>
-                                                    </p>
-                                                </div>
-                                            @endif
-
-                                            {{-- Chi tiết khuyến mãi (CHỈ hiển thị nếu KHÔNG phải full booking) --}}
-                                            @if ($promoDiscountAmount > 0 && !$hasFullDayBooking)
-                                                <div class="ml-4 mb-2">
-                                                    <p
-                                                        class="text-sm text-red-600 font-semibold flex items-center gap-1.5">
-                                                        
-                                                        Khuyến mãi:
-                                                    </p>
-                                                    {{-- Chi tiết khuyến mãi từ promotions --}}
-                                                    <p class="text-xs text-red-500 ml-4">
-                                                        • Khuyến mãi áp dụng:
-                                                        <span>-{{ number_format($promoDiscountAmount, 0, ',', '.') }}đ</span>
-                                                    </p>
-                                                    <p
-                                                        class="text-sm text-red-600 font-bold ml-4 mt-1 border-t border-red-200 pt-1">
-                                                        Tổng khuyến mãi:
-                                                        <span>-{{ number_format($promoDiscountAmount, 0, ',', '.') }}đ</span>
-                                                    </p>
-                                                </div>
-                                            @endif
-
-
-                                            {{-- Giảm giá từ coupon --}}
-                                            @if ($appliedCoupon && $couponDiscountAmount > 0)
-                                                <div class="ml-4 mb-2">
-                                                    <p
-                                                        class="text-sm text-green-600 font-semibold flex items-center gap-1.5">
-                                                       
-                                                        Mã giảm giá:
-                                                    </p>
-                                                    <p class="text-xs text-green-500 ml-4">
-                                                        • Mã giảm giá ({{ $appliedCoupon->code }}):
-                                                        <span>-{{ number_format($couponDiscountAmount, 0, ',', '.') }}đ</span>
-                                                    </p>
-                                                </div>
-                                            @endif
-
-                                            {{-- Giảm giá book nhiều giờ (CHỈ khi KHÔNG phải full booking) --}}
-                                            @if (!$hasFullDayBooking && $bulkDiscountAmount > 0 && count($selectedSlots) >= 2)
-                                                <p
-                                                    class="text-sm text-green-600 font-semibold ml-4 mb-2 flex items-center gap-1.5">
-                                                    
-                                                    Giảm giá đặt nhiều khung giờ:
-                                                    <span>-{{ number_format($bulkDiscountAmount, 0, ',', '.') }}đ</span>
-                                                </p>
-                                            @endif
-
-
-                                            @if (!$hasFullDayBooking && count($selectedSlots) >= 2)
-                                                <div
-                                                    class="ml-4 mb-2 mt-1 flex items-center gap-2 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2">
-                                                  
-                                                    <p class="text-sm text-amber-700 font-semibold">
-                                                        Bạn được tặng: <span class="text-amber-800">2 Nước Ngọt + 1
-                                                            Snack</span>
-                                                        <span
-                                                            class="block text-xs font-normal text-amber-600 mt-0.5">Nhận
-                                                            tại quầy sau khi thanh toán</span>
-                                                    </p>
-                                                </div>
-                                            @endif
-
-                                            {{-- Giảm giá Full booking --}}
-                                            @if ($fullBookingDiscount > 0)
-                                                <p class="text-sm font-bold ml-4 mb-2 flex items-center gap-1.5"
-                                                    style="color:#4e6b4c">
-                                                   
-                                                    Giảm giá đặt Full phòng:
-                                                    <span>-{{ number_format($fullBookingDiscount, 0, ',', '.') }}đ</span>
-                                                </p>
-                                            @endif
-
-                                            {{-- Thông báo khuyến mãi khi đặt full --}}
-                                            @if ($hasFullDayBooking)
-                                                <div class="ml-4 mb-2 bg-red-50 p-3 rounded border border-red-200">
-                                                    <p
-                                                        class="text-sm text-red-600 font-semibold mb-1 flex items-center gap-1.5">
-                                                       
-                                                        Khuyến mãi:
-                                                    </p>
-                                                    <p class="text-xs text-red-500 ml-4">
-                                                        • Giảm giá khi đặt full khung giờ trong ngày:
-                                                        <span
-                                                            class="font-bold">-{{ number_format($fullBookingDiscount, 0, ',', '.') }}đ</span>
-                                                    </p>
-                                                </div>
-                                            @endif
-
-                                            {{-- Dịch vụ thêm --}}
-                                            @php
-                                                $serviceTotal = 0;
-                                                if (!empty($selectedServices) && $additionalServices) {
-                                                    foreach ($selectedServices as $id => $qty) {
-                                                        $service = $additionalServices->firstWhere('id', $id);
-                                                        if ($service && $qty > 0) {
-                                                            $serviceTotal += $service->price * $qty;
-                                                        }
-                                                    }
-                                                }
-                                                $serviceCount = array_sum($selectedServices ?? []);
-                                            @endphp
-                                            @if ($serviceTotal > 0)
-                                                <div class="ml-4 mb-2">
-                                                    <p
-                                                        class="text-sm text-blue-600 font-semibold flex items-center gap-1.5">
-                                                        <svg xmlns="http://www.w3.org/2000/svg"
-                                                            class="w-4 h-4 shrink-0" viewBox="0 0 24 24"
-                                                            fill="none" stroke="currentColor" stroke-width="2"
-                                                            stroke-linecap="round" stroke-linejoin="round">
-                                                            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                                                            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-                                                        </svg>
-                                                        Dịch vụ thêm ({{ $serviceCount }} dịch vụ):
-                                                    </p>
-                                                    <p class="text-xs text-blue-500 ml-4">
-                                                        • Tổng dịch vụ:
-                                                        <span>+{{ number_format($serviceTotal, 0, ',', '.') }}đ</span>
-                                                    </p>
-                                                </div>
-                                            @endif
-
-                                            {{-- Tổng tiền --}}
-                                            <div class="mt-3 pt-3 border-t-2 border-primary">
-                                                <p class="text-xl font-bold flex items-center gap-2 text-primary">
-                                                    
-                                                    Tổng tiền tạm tính:
-                                                    <span
-                                                        class="text-2xl">{{ number_format($totalAmount, 0, ',', '.') }}đ</span>
-                                                </p>
-                                            </div>
-
-                                            {{-- Tổng tiết kiệm --}}
-                                            @php
-                                                $totalSaved =
-                                                    $promoDiscountAmount +
-                                                    $couponDiscountAmount +
-                                                    $bulkDiscountAmount +
-                                                    $fullBookingDiscount;
-                                            @endphp
-                                            @if ($totalSaved > 0)
-                                                <div
-                                                    class="bg-green-100 border-2 border-green-300 rounded-lg p-3 mt-3">
-                                                    <div class="flex items-center justify-between">
-                                                        <span
-                                                            class="text-green-700 font-medium flex items-center gap-2">
-                                                           
-                                                            Bạn đã tiết kiệm:
-                                                        </span>
-                                                        <span class="text-green-700 font-bold text-lg">
-                                                            {{ number_format($totalSaved, 0, ',', '.') }}đ
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            @endif
-
-                                            {{-- Ghi chú --}}
-                                            <div class="mt-2 text-xs text-gray-600 italic">
-                                                @if (!$hasFullDayBooking)
-                                                    @php
-                                                        $bulkRules = $product->bulk_discount_rules ?? [];
-                                                        $bulkRuleText = collect($bulkRules)
-                                                            ->sortBy('slots')
-                                                            ->map(
-                                                                fn(
-                                                                    $r,
-                                                                ) => "{$r['discount']}% khi đặt {$r['slots']} khung giờ",
-                                                            )
-                                                            ->implode(', ');
-                                                    @endphp
-                                                    @if ($bulkRuleText)
-                                                        <p class="flex items-center gap-1">
-                                                            <svg xmlns="http://www.w3.org/2000/svg"
-                                                                class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24"
-                                                                fill="none" stroke="currentColor" stroke-width="2"
-                                                                stroke-linecap="round" stroke-linejoin="round">
-                                                                <circle cx="12" cy="12" r="10" />
-                                                                <line x1="12" y1="16" x2="12"
-                                                                    y2="12" />
-                                                                <line x1="12" y1="8" x2="12"
-                                                                    y2="8.01" />
-                                                            </svg>
-                                                            Giảm thêm {{ $bulkRuleText }}
-                                                        </p>
-                                                    @endif
-                                                @endif
-                                                @if ($hasFullDayBooking)
-                                                    <div>
-                                                        <p class="font-semibold flex items-center gap-1"
-                                                            style="color:#4e6b4c">
-                                                            <svg xmlns="http://www.w3.org/2000/svg"
-                                                                class="w-4 h-4 shrink-0" viewBox="0 0 24 24"
-                                                                fill="none" stroke="currentColor" stroke-width="2"
-                                                                stroke-linecap="round" stroke-linejoin="round">
-                                                                <polygon
-                                                                    points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                                                            </svg>
-                                                            Đã áp dụng ưu đãi đặc biệt cho Full phòng!
-                                                        </p>
-                                                        <p
-                                                            class="text-orange-600 text-xs mt-1 flex items-center gap-1">
-                                                            <svg xmlns="http://www.w3.org/2000/svg"
-                                                                class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24"
-                                                                fill="none" stroke="currentColor" stroke-width="2"
-                                                                stroke-linecap="round" stroke-linejoin="round">
-                                                                <circle cx="12" cy="12" r="10" />
-                                                                <line x1="12" y1="16" x2="12"
-                                                                    y2="12" />
-                                                                <line x1="12" y1="8" x2="12"
-                                                                    y2="8.01" />
-                                                            </svg>
-                                                            Các khuyến mãi giảm giá khác không áp dụng khi đặt full
-                                                            phòng
-                                                        </p>
-                                                    </div>
-                                                @endif
-                                            </div>
-                                        </div>
-                                    </div>
-                                    {{-- Lưu ý giảm giá - CẬP NHẬT --}}
-                                    <div class="text-left mt-4">
-                                        @if ($hasFullDayBooking)
-                                            <p class="text-primary text-sm font-bold italic">
-                                                <svg xmlns="http://www.w3.org/2000/svg"
-                                                    class="w-4 h-4 inline-block shrink-0 align-middle"
-                                                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                                    <path
-                                                        d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
-                                                </svg>
-                                                Chúc mừng! Bạn đã đặt FULL phòng và nhận được ưu đãi đặc biệt
-                                            </p>
-                                        @else
-                                            @php
-                                                $bulkRules = $product->bulk_discount_rules ?? [];
-                                                $bulkRuleHint = collect($bulkRules)
-                                                    ->sortBy('slots')
-                                                    ->map(
-                                                        fn($r) => "{$r['discount']}% khi chọn {$r['slots']} khung giờ",
-                                                    )
-                                                    ->implode(', ');
-                                            @endphp
-                                            @if ($bulkRuleHint)
-                                                <p class="text-red-600 text-sm italic">
-                                                    ** Khách hàng được giảm thêm {{ $bulkRuleHint }}
-                                                </p>
-                                            @endif
-                                        @endif
-                                    </div>
-            @endif
         </div>
     </div>
 </div>

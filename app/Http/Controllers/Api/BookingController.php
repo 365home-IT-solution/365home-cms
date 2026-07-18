@@ -13,7 +13,9 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
@@ -40,6 +42,12 @@ class BookingController extends Controller
             'services.*.quantity'     => 'required_with:services|integer|min:1',
             'return_url'              => 'sometimes|nullable|string|max:500',
             'cancel_url'              => 'sometimes|nullable|string|max:500',
+            // Người đi cùng (khung giờ qua đêm) — chỉ THỰC SỰ bắt buộc khi có slot over_night,
+            // nhưng chưa biết được điều đó cho tới khi build xong $rtsCollection ở dưới, nên ở
+            // đây chỉ validate ĐỊNH DẠNG nếu có gửi lên; check "required" làm riêng sau.
+            'cccd_front_2'            => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'cccd_back_2'             => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'buyer_phone_2'           => ['sometimes', 'nullable', 'string', 'regex:/^0[35789][0-9]{8}$/'],
         ];
 
         if ($request->input('type') === 'slot') {
@@ -108,6 +116,41 @@ class BookingController extends Controller
             [$basePrice, $summaryName, $itemsData, $rtsCollection, $slotSummary] = $this->buildDailyItems($request, $room);
         } else {
             [$basePrice, $summaryName, $itemsData] = $this->buildMonthlyItem($request, $room);
+        }
+
+        // ── 4.5 CCCD + SĐT người đi cùng (bắt buộc khi có khung giờ qua đêm) ───
+        // Luật Cư trú (hiệu lực 01/07/2026) yêu cầu khai báo lưu trú ĐỦ TỪNG NGƯỜI khi lưu trú
+        // qua đêm — không chỉ người đặt phòng chính (CCCD lấy từ hồ sơ customer ở trên).
+        $hasOvernight = $rtsCollection->contains(fn ($rts) => (bool) $rts->over_night);
+
+        $cccdFront2  = null;
+        $cccdBack2   = null;
+        $cccdData2   = null;
+        $buyerPhone2 = null;
+
+        if ($hasOvernight) {
+            if (! $request->hasFile('cccd_front_2') || ! $request->hasFile('cccd_back_2') || empty($request->input('buyer_phone_2'))) {
+                return response()->json([
+                    'message' => 'Khung giờ qua đêm cần khai báo lưu trú cho người đi cùng — vui lòng gửi kèm CCCD (mặt trước/sau) và số điện thoại người đi cùng.',
+                ], 422);
+            }
+
+            $buyerPhone2 = trim($request->input('buyer_phone_2'));
+            $cccdFront2  = $request->file('cccd_front_2')->store('cccd', 'public');
+            $cccdBack2   = $request->file('cccd_back_2')->store('cccd', 'public');
+
+            $tempOrder2 = new Order(['cccd_front' => $cccdFront2, 'cccd_back' => $cccdBack2]);
+            $cccdData2  = app(CccdScannerService::class)->scanOrder($tempOrder2);
+
+            if (! $cccdData2) {
+                Storage::disk('public')->delete($cccdFront2);
+                Storage::disk('public')->delete($cccdBack2);
+
+                return response()->json([
+                    'message' => 'Không đọc được QR trên ảnh CCCD người đi cùng. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.',
+                ], 422);
+            }
+            // Không kiểm tra tuổi người đi cùng (khác CCCD chính) — trẻ nhỏ đi cùng phụ huynh vẫn hợp lệ.
         }
 
         // ── 5. Dịch vụ bổ sung ───────────────────────────────────────────────
@@ -230,7 +273,8 @@ class BookingController extends Controller
         $order = DB::transaction(function () use (
             $room, $amountDue, $finalAmount, $subtotal, $buyerName, $buyerPhone,
             $customer, $category, $itemsData, $servicesData,
-            $paymentMethod, $request, $appliedCoupons, $appliedCouponCodes, $depositPercentToSave
+            $paymentMethod, $request, $appliedCoupons, $appliedCouponCodes, $depositPercentToSave,
+            $cccdFront2, $cccdBack2, $cccdData2, $buyerPhone2
         ) {
             Product::where('id', $room->id)->lockForUpdate()->first();
 
@@ -272,6 +316,11 @@ class BookingController extends Controller
                 'cccd_front'      => $customer?->cccd_front,
                 'cccd_back'       => $customer?->cccd_back,
                 'cccd_data'       => $customer?->cccd_data,
+                // Người đi cùng (khung giờ qua đêm) — null khi không qua đêm.
+                'cccd_front_2'    => $cccdFront2,
+                'cccd_back_2'     => $cccdBack2,
+                'cccd_data_2'     => $cccdData2,
+                'buyer_phone_2'   => $buyerPhone2,
             ]);
 
             foreach ($itemsData as $itemData) {

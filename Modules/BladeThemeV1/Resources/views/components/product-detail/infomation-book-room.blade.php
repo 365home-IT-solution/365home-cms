@@ -501,6 +501,16 @@
                     @endforeach
                 </div>
 
+                {{-- Số điện thoại người đi cùng — cùng bắt buộc như CCCD khi có khung giờ qua đêm,
+                     lưu vào orders.buyer_phone_2 (xem ProductDetail::datPhong()). --}}
+                <div class="space-y-1.5 mt-3">
+                    <label for="buyerPhone2"
+                        class="block text-[10px] font-semibold tracking-wider uppercase text-[#717171]">Số điện
+                        thoại người đi cùng</label>
+                    <input type="text" id="buyerPhone2" wire:model="buyerPhone2" placeholder="0912 345 678"
+                        class="w-full rounded-lg border h-10 px-2.5 text-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-[#222222] {{ $errors->has('buyerPhone2') ? 'border-red-600 border-2' : 'border-[#DDDDDD]' }}" />
+                </div>
+
                 <p class="text-[11px] text-[#717171] mt-2">* CCCD người đi cùng chỉ dùng để khai báo lưu trú, bảo
                     mật như CCCD chính và xóa sau khi check-out.</p>
             </div>

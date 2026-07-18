@@ -50,6 +50,12 @@ class GuestBookingController extends Controller
             'cccd_front'              => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
             'cccd_back'               => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
             'device_token'            => 'sometimes|nullable|string|max:500',
+            // Người đi cùng (khung giờ qua đêm) — chỉ THỰC SỰ bắt buộc khi có slot over_night,
+            // nhưng chưa biết được điều đó cho tới khi build xong $rtsCollection ở dưới, nên ở
+            // đây chỉ validate ĐỊNH DẠNG nếu có gửi lên; check "required" làm riêng sau.
+            'cccd_front_2'            => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'cccd_back_2'             => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'buyer_phone_2'           => ['sometimes', 'nullable', 'string', 'regex:/^0[35789][0-9]{8}$/'],
         ];
 
         if ($request->input('type') === 'slot') {
@@ -121,6 +127,47 @@ class GuestBookingController extends Controller
             [$basePrice, $summaryName, $itemsData, $rtsCollection, $slotSummary] = $this->buildSlotItems($request, $room);
         } else {
             [$basePrice, $summaryName, $itemsData, $rtsCollection, $slotSummary] = $this->buildDailyItems($request, $room);
+        }
+
+        // ── 3.5 CCCD + SĐT người đi cùng (bắt buộc khi có khung giờ qua đêm) ───
+        // Luật Cư trú (hiệu lực 01/07/2026) yêu cầu khai báo lưu trú ĐỦ TỪNG NGƯỜI khi lưu trú
+        // qua đêm — không chỉ người đặt phòng chính (cccd_front/cccd_back/cccd_data ở trên).
+        $hasOvernight = $rtsCollection->contains(fn ($rts) => (bool) $rts->over_night);
+
+        $cccdFront2 = null;
+        $cccdBack2  = null;
+        $cccdData2  = null;
+        $buyerPhone2 = null;
+
+        if ($hasOvernight) {
+            if (! $request->hasFile('cccd_front_2') || ! $request->hasFile('cccd_back_2') || empty($request->input('buyer_phone_2'))) {
+                Storage::disk('public')->delete($cccdFront);
+                Storage::disk('public')->delete($cccdBack);
+
+                return response()->json([
+                    'message' => 'Khung giờ qua đêm cần khai báo lưu trú cho người đi cùng — vui lòng gửi kèm CCCD (mặt trước/sau) và số điện thoại người đi cùng.',
+                ], 422);
+            }
+
+            $buyerPhone2 = trim($request->input('buyer_phone_2'));
+            $cccdFront2  = $request->file('cccd_front_2')->store('cccd', 'public');
+            $cccdBack2   = $request->file('cccd_back_2')->store('cccd', 'public');
+
+            $tempOrder2 = new Order(['cccd_front' => $cccdFront2, 'cccd_back' => $cccdBack2]);
+            $cccdData2  = app(CccdScannerService::class)->scanOrder($tempOrder2);
+
+            if (! $cccdData2) {
+                // Không đọc được QR → xóa toàn bộ file (kể cả CCCD chính vừa upload), yêu cầu làm lại
+                Storage::disk('public')->delete($cccdFront);
+                Storage::disk('public')->delete($cccdBack);
+                Storage::disk('public')->delete($cccdFront2);
+                Storage::disk('public')->delete($cccdBack2);
+
+                return response()->json([
+                    'message' => 'Không đọc được QR trên ảnh CCCD người đi cùng. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.',
+                ], 422);
+            }
+            // Không kiểm tra tuổi người đi cùng (khác CCCD chính) — trẻ nhỏ đi cùng phụ huynh vẫn hợp lệ.
         }
 
         // ── 4. Dịch vụ bổ sung ───────────────────────────────────────────────
@@ -217,7 +264,7 @@ class GuestBookingController extends Controller
             $room, $amountDue, $finalAmount, $subtotal, $buyerName, $buyerPhone,
             $cccdFront, $cccdBack, $cccdData, $category, $itemsData, $servicesData,
             $paymentMethod, $request, $appliedCoupons, $appliedCouponCodes, $depositPercentToSave,
-            $deviceToken
+            $deviceToken, $cccdFront2, $cccdBack2, $cccdData2, $buyerPhone2
         ) {
             Product::where('id', $room->id)->lockForUpdate()->first();
 
@@ -254,6 +301,11 @@ class GuestBookingController extends Controller
                 'cccd_front'      => $cccdFront,
                 'cccd_back'       => $cccdBack,
                 'cccd_data'       => $cccdData,
+                // Người đi cùng (khung giờ qua đêm) — null khi không qua đêm.
+                'cccd_front_2'    => $cccdFront2,
+                'cccd_back_2'     => $cccdBack2,
+                'cccd_data_2'     => $cccdData2,
+                'buyer_phone_2'   => $buyerPhone2,
                 'payment_method'  => $paymentMethod,
                 'status'          => 'pending',
                 'guest_count'     => $request->guest_count,

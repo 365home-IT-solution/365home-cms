@@ -905,11 +905,12 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             $requiredFields[] = 'cccd_back';
         }
 
-        // CCCD người đi cùng — bắt buộc khi có khung giờ qua đêm (không có hồ sơ auth để tái
-        // dùng như CCCD chính, luôn phải upload mới).
+        // CCCD + SĐT người đi cùng — bắt buộc khi có khung giờ qua đêm (không có hồ sơ auth để
+        // tái dùng như CCCD chính, luôn phải upload/nhập mới).
         if ($this->hasOvernightSlotSelected()) {
             $requiredFields[] = 'cccd_front_2';
             $requiredFields[] = 'cccd_back_2';
+            $requiredFields[] = 'buyerPhone2';
         }
 
         $hasSelectedSlots = !empty($this->selectedSlots);
@@ -1252,7 +1253,7 @@ public function confirmBooking()
         // TRANSACTION: conflict check + order creation trong cùng 1 transaction
         // lockForUpdate ngăn 2 request đồng thời cùng tạo đơn trùng khung giờ
         // =====================================================================
-        $order = DB::transaction(function () use ($frontPath, $backPath, $frontPath2, $backPath2, $extraFee, $categoryId, $orderTotal, $noteForAdmin, $paymentAmount, $depositPercent, $fullAmount, $verifiedBuyerName, $verifiedBuyerPhone, $verifiedUserId, $cccdData) {
+        $order = DB::transaction(function () use ($frontPath, $backPath, $frontPath2, $backPath2, $extraFee, $categoryId, $orderTotal, $noteForAdmin, $paymentAmount, $depositPercent, $fullAmount, $verifiedBuyerName, $verifiedBuyerPhone, $verifiedUserId, $cccdData, $cccdData2) {
 
             // --- Kiểm tra xung đột (style 1) ---
             if ($this->bookingStyle == 1 && !empty($this->selectedSlots)) {
@@ -1289,6 +1290,10 @@ public function confirmBooking()
                 'cccd_front_2'   => $frontPath2,
                 'cccd_back_2'    => $backPath2,
                 'cccd_data'      => $cccdData,
+                // Người đi cùng (khung giờ qua đêm) — bắt buộc để CccdDeclarationService tự khai
+                // báo lưu trú cho khách thứ 2 (guest_index=2).
+                'cccd_data_2'    => $cccdData2,
+                'buyer_phone_2'  => $this->buyerPhone2 ?: null,
                 'guest_count'    => $this->guests,
                 'category_id'    => $categoryId,
                 'coupon_code'    => $this->appliedCoupon ? $this->appliedCoupon->code : null,

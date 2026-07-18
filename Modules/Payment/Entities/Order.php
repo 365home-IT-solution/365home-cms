@@ -50,6 +50,8 @@ class Order extends Model implements Eventable
         'cccd_front_2',
         'cccd_back_2',
         'cccd_data',
+        'cccd_data_2',
+        'buyer_phone_2',
         'guest_count',
         'category_id',
         'user_id',
@@ -72,6 +74,7 @@ class Order extends Model implements Eventable
 
     protected $casts = [
         'cccd_data'              => 'array',
+        'cccd_data_2'            => 'array',
         'coupon_codes'           => 'array',
         'deposit_paid_at'        => 'datetime',
         'remaining_paid_at'      => 'datetime',
