@@ -109,25 +109,6 @@ class OrderForm
                                                 ->live(onBlur: true),
                                         ]),
 
-                                        // Hàng 2 — chỉ hiện khi đơn có khung giờ qua đêm (cần khai báo lưu trú
-                                        // cho người đi cùng), đặt ngay dưới "Tên khách hàng".
-                                        Grid::make(3)
-                                            ->visible(fn ($record) => self::hasOvernightItem($record))
-                                            ->schema([
-                                                TextInput::make('buyer_phone_2')
-                                                    ->label('Số điện thoại người đi cùng')
-                                                    ->placeholder('VD: 0912345678')
-                                                    ->tel()
-                                                    ->regex('/^[0-9]{10,11}$/')
-                                                    ->hintIcon('heroicon-m-phone')
-                                                    ->hintColor('primary')
-                                                    ->hintIconTooltip('Số điện thoại của người đi cùng — dùng để khai báo lưu trú theo Luật Cư trú')
-                                                    ->helperText('Đơn có khung giờ qua đêm — bắt buộc khai báo lưu trú cho người đi cùng.')
-                                                    ->validationMessages([
-                                                        'regex' => 'Số điện thoại không đúng định dạng (10-11 số)',
-                                                    ]),
-                                            ]),
-
                                         Textarea::make('description')
                                             ->label(__('payment::order.form.label.description'))
                                             ->placeholder('VD: Yêu cầu phòng tầng cao, view đẹp...')

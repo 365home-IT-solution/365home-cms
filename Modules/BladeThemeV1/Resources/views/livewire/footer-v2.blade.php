@@ -5,7 +5,7 @@
 
     - Thông tin công ty lấy từ Business::first() (Settings > Thông tin công ty). Model không có
       field "người đại diện pháp luật" nên để trống/placeholder riêng dòng đó.
-    - Cột "Đối tác thanh toán": logo ZaloPay/MoMo/Mastercard/Visa tại public/images/payment/
+    - Cột "Đối tác thanh toán": logo VNPAY tại public/images/payment/vnpay.png
       (nguồn: file người dùng cung cấp).
     - QR tải app dùng API tạo QR công khai (không cần thêm package), trỏ thẳng Google Play (khớp
       link mặc định của app-banner.blade.php).
@@ -64,11 +64,9 @@
             <div>
                 <h3 class="text-base font-bold text-[#222222] mb-4">Đối tác thanh toán</h3>
                 <div class="flex flex-wrap gap-2">
-                    @foreach (['zalopay.png' => 'ZaloPay', 'momo.svg' => 'MoMo', 'mastercard.svg' => 'Mastercard', 'visa.svg' => 'Visa'] as $file => $label)
-                        <span class="inline-flex items-center justify-center w-11 h-11">
-                            <img src="{{ asset('images/payment/' . $file) }}" alt="{{ $label }}" class="max-w-full max-h-full object-contain">
-                        </span>
-                    @endforeach
+                    <span class="inline-flex items-center justify-center h-11">
+                        <img src="{{ asset('images/payment/vnpay.png') }}" alt="VNPAY" class="max-w-full max-h-full object-contain">
+                    </span>
                 </div>
             </div>
 

@@ -66,8 +66,6 @@
             </div>
         </div>
 
-        <p class="text-xs font-semibold tracking-wider uppercase text-[#717171]">Thông tin liên hệ</p>
-
         {{-- Họ và tên --}}
         <div class="space-y-1.5">
             <label for="buyerName" class="block text-[10px] font-semibold tracking-wider uppercase text-[#717171]">Họ
@@ -128,13 +126,7 @@
                 @endif
             </div>
         </div>
-        <p class="text-[11px] text-[#717171] -mt-3">
-            @if ($isAuthUser)
-                * Thông tin số điện thoại được lấy từ tài khoản đã đăng nhập của bạn.
-            @else
-                * Bạn vui lòng nhập đúng số điện thoại, Home sẽ gửi thông tin check-in qua Zalo ạ
-            @endif
-        </p>
+    
 
         {{-- Số lượng khách (gọn, ngay dưới số điện thoại) --}}
         <div class="space-y-1.5">
@@ -142,57 +134,63 @@
                 khách</label>
             <div wire:ignore x-data="{
                 guestCount: {{ (int) $guests }},
+                isOvernight: $wire.entangle('isOvernightBooking'),
+                maxOvernightGuests: 2,
                 dec() { if (this.guestCount > 1) { this.guestCount--;
                         $wire.set('guests', this.guestCount); } },
-                inc() { this.guestCount++;
-                    $wire.set('guests', this.guestCount); }
-            }" class="flex items-center justify-between rounded-lg border border-[#DDDDDD] h-10 px-2.5">
-                <div class="flex items-center gap-1.5 text-sm text-[#222222]">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
-                        fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round" class="h-3.5 w-3.5 text-[#717171] shrink-0">
-                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
-                        <circle cx="9" cy="7" r="4"></circle>
-                        <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
-                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-                    </svg>
-                    <span>Khách</span>
-                </div>
-                <div class="flex items-center gap-2">
-                    <button type="button" @click="dec()"
-                        class="rounded-full border transition-colors border-primary text-primary hover:bg-primary hover:text-white shrink-0"
-                        style="display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:22px;height:22px;min-width:22px;min-height:22px;max-width:22px;max-height:22px;padding:0;line-height:1;font-size:0;">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24"
-                            fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"
-                            stroke-linejoin="round" style="display:block;">
-                            <path d="M5 12h14"></path>
+                inc() {
+                    if (this.isOvernight && this.guestCount >= this.maxOvernightGuests) return;
+                    this.guestCount++;
+                    $wire.set('guests', this.guestCount);
+                }
+            }" x-effect="if (isOvernight && guestCount > maxOvernightGuests) { guestCount = maxOvernightGuests; $wire.set('guests', guestCount); }">
+                <div class="flex items-center justify-between rounded-lg border border-[#DDDDDD] h-10 px-2.5">
+                    <div class="flex items-center gap-1.5 text-sm text-[#222222]">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                            fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" class="h-3.5 w-3.5 text-[#717171] shrink-0">
+                            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="9" cy="7" r="4"></circle>
+                            <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
                         </svg>
-                    </button>
-                    <span class="text-sm font-semibold text-[#222222] w-3 text-center tabular-nums"
-                        x-text="guestCount"></span>
-                    <button type="button" @click="inc()"
-                        class="rounded-full border transition-colors border-primary text-primary hover:bg-primary hover:text-white shrink-0"
-                        style="display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:22px;height:22px;min-width:22px;min-height:22px;max-width:22px;max-height:22px;padding:0;line-height:1;font-size:0;">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24"
-                            fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"
-                            stroke-linejoin="round" style="display:block;">
-                            <path d="M5 12h14"></path>
-                            <path d="M12 5v14"></path>
-                        </svg>
-                    </button>
+                        <span>Khách</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button type="button" @click="dec()"
+                            class="rounded-full border transition-colors border-primary text-primary hover:bg-primary hover:text-white shrink-0"
+                            style="display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:22px;height:22px;min-width:22px;min-height:22px;max-width:22px;max-height:22px;padding:0;line-height:1;font-size:0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"
+                                stroke-linejoin="round" style="display:block;">
+                                <path d="M5 12h14"></path>
+                            </svg>
+                        </button>
+                        <span class="text-sm font-semibold text-[#222222] w-3 text-center tabular-nums"
+                            x-text="guestCount"></span>
+                        <button type="button" @click="inc()"
+                            :disabled="isOvernight && guestCount >= maxOvernightGuests"
+                            :class="(isOvernight && guestCount >= maxOvernightGuests) ? 'border-[#DDDDDD] text-[#DDDDDD] cursor-not-allowed hover:bg-transparent hover:text-[#DDDDDD]' : 'border-primary text-primary hover:bg-primary hover:text-white'"
+                            class="rounded-full border transition-colors shrink-0"
+                            style="display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:22px;height:22px;min-width:22px;min-height:22px;max-width:22px;max-height:22px;padding:0;line-height:1;font-size:0;">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24"
+                                fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"
+                                stroke-linejoin="round" style="display:block;">
+                                <path d="M5 12h14"></path>
+                                <path d="M12 5v14"></path>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
+                <p x-show="isOvernight" x-cloak class="text-[11px] text-[#717171] mt-1">* Khung giờ qua đêm chỉ nhận
+                    tối đa 2 khách.</p>
             </div>
         </div>
 
         <!-- MÃ GIẢM GIÁ -->
-        <div class="rounded-xl border border-[#DDDDDD] p-3.5">
-            <h3 class="text-sm font-semibold mb-2.5 flex items-center gap-1.5 text-[#222222]">
-                <svg class="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
-                </svg>
-                Mã giảm giá
-            </h3>
+        <div class="space-y-1.5">
+            <label class="block text-[10px] font-semibold tracking-wider uppercase text-[#717171]">Mã giảm
+                giá</label>
 
             @if ($appliedCoupon)
                 {{-- Hiển thị khi đã áp dụng coupon --}}
@@ -501,23 +499,13 @@
                     @endforeach
                 </div>
 
-                {{-- Số điện thoại người đi cùng — cùng bắt buộc như CCCD khi có khung giờ qua đêm,
-                     lưu vào orders.buyer_phone_2 (xem ProductDetail::datPhong()). --}}
-                <div class="space-y-1.5 mt-3">
-                    <label for="buyerPhone2"
-                        class="block text-[10px] font-semibold tracking-wider uppercase text-[#717171]">Số điện
-                        thoại người đi cùng</label>
-                    <input type="text" id="buyerPhone2" wire:model="buyerPhone2" placeholder="0912 345 678"
-                        class="w-full rounded-lg border h-10 px-2.5 text-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-[#222222] {{ $errors->has('buyerPhone2') ? 'border-red-600 border-2' : 'border-[#DDDDDD]' }}" />
-                </div>
-
                 <p class="text-[11px] text-[#717171] mt-2">* CCCD người đi cùng chỉ dùng để khai báo lưu trú, bảo
                     mật như CCCD chính và xóa sau khi check-out.</p>
             </div>
         @endif
 
         <textarea id="note" wire:model="note" placeholder="Ghi chú cho 365Home" rows="3"
-            class="w-full px-4 py-3 border border-black rounded-lg focus:ring-2 focus:ring-primary focus:border-primary focus:outline-none resize-none text-base"></textarea>
+            class="w-full px-4 py-3 border border-[#DDDDDD] rounded-lg focus:ring-2 focus:ring-primary focus:border-primary focus:outline-none resize-none text-base"></textarea>
 
         <div class="rounded-xl border border-[#DDDDDD] p-4" x-data="{}">
             <label class="flex items-start gap-2.5 cursor-pointer select-none">
@@ -526,7 +514,7 @@
                     @change="$wire.set('accept1', $event.target.checked); $wire.set('accept2', $event.target.checked); $wire.set('acceptRefundPolicy', $event.target.checked)"
                     class="mt-0.5 h-4 w-4 rounded text-primary focus:ring-primary cursor-pointer shrink-0
                     {{ $errors->has('accept1') || $errors->has('accept2') || $errors->has('acceptRefundPolicy') ? 'border-2 border-red-600' : 'border-gray-300' }}" />
-                <span class="text-[13px] text-gray-700 leading-snug">
+                <span class="text-[11px] text-gray-700 leading-snug">
                     Tôi xác nhận đã đủ 18 tuổi (hoặc có người giám hộ đi cùng), đã đọc và đồng ý với
                     <a href="{{ url('noi-quy-va-quy-dinh') }}" target="_blank" rel="noopener" class="font-semibold text-red-600 underline">Nội quy</a> và
                     <a href="{{ url('privacy') }}" target="_blank" rel="noopener" class="font-semibold text-red-600 underline">Chính sách</a>
@@ -540,7 +528,7 @@
 
         <p class="text-[11px] text-[#717171]">
             * Bạn đang đặt phòng tại 365Home - {{ $categories['c3'] }}. Sau khi bấm "Đặt phòng", bạn sẽ được chuyển
-            sang quét mã QR để thanh toán, thời gian giữ phòng là 5 phút chờ thanh toán.
+            sang quét mã QR để thanh toán, thời gian giữ phòng là 15 phút chờ thanh toán.
         </p>
 
         <hr class="border-[#DDDDDD] -mx-6">

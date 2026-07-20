@@ -20,15 +20,17 @@ trait PropertiesProductDetail
     public $buyerPhone = '';
     public $buyerEmail = '';
     public $guests = 2;
+    // Đồng bộ với ProductDetail::hasOvernightSlotSelected() — dùng để giới hạn số khách tối đa 2
+    // ở phía client (Alpine không đọc lại được method PHP do khối chọn khách có wire:ignore).
+    public bool $isOvernightBooking = false;
     public $startTime = '';
     public $endTime = '';
     public $cccd_front = '';
     public $cccd_back = '';
-    // CCCD + SĐT người đi cùng — chỉ hiển thị/bắt buộc khi có khung giờ qua đêm được chọn
+    // CCCD người đi cùng — chỉ hiển thị/bắt buộc khi có khung giờ qua đêm được chọn
     // (xem ProductDetail::hasOvernightSlotSelected()).
     public $cccd_front_2 = '';
     public $cccd_back_2 = '';
-    public $buyerPhone2 = '';
     public $note = '';
     public $totalAmount = 0;
     public $accept1 = false;

@@ -519,6 +519,12 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         $this->extraFee = 0;
         $this->increaseAmount = 0;
 
+        // Khung giờ qua đêm: tối đa 2 khách, không cho tăng thêm.
+        $this->isOvernightBooking = $this->hasOvernightSlotSelected();
+        if ($this->isOvernightBooking && $this->guests > 2) {
+            $this->guests = 2;
+        }
+
         if (empty($this->selectedSlots)) {
             $this->startTime = '';
             $this->endTime = '';
@@ -748,6 +754,11 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
 
     public function updatedGuests()
     {
+        // Khung giờ qua đêm: tối đa 2 khách, không cho tăng thêm.
+        if ($this->hasOvernightSlotSelected() && $this->guests > 2) {
+            $this->guests = 2;
+        }
+
         if ($this->bookingStyle == 2) {
             $this->calculateDateRangeTotal();
         } else {
@@ -905,12 +916,11 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             $requiredFields[] = 'cccd_back';
         }
 
-        // CCCD + SĐT người đi cùng — bắt buộc khi có khung giờ qua đêm (không có hồ sơ auth để
+        // CCCD người đi cùng — bắt buộc khi có khung giờ qua đêm (không có hồ sơ auth để
         // tái dùng như CCCD chính, luôn phải upload/nhập mới).
         if ($this->hasOvernightSlotSelected()) {
             $requiredFields[] = 'cccd_front_2';
             $requiredFields[] = 'cccd_back_2';
-            $requiredFields[] = 'buyerPhone2';
         }
 
         $hasSelectedSlots = !empty($this->selectedSlots);
@@ -1293,7 +1303,6 @@ public function confirmBooking()
                 // Người đi cùng (khung giờ qua đêm) — bắt buộc để CccdDeclarationService tự khai
                 // báo lưu trú cho khách thứ 2 (guest_index=2).
                 'cccd_data_2'    => $cccdData2,
-                'buyer_phone_2'  => $this->buyerPhone2 ?: null,
                 'guest_count'    => $this->guests,
                 'category_id'    => $categoryId,
                 'coupon_code'    => $this->appliedCoupon ? $this->appliedCoupon->code : null,

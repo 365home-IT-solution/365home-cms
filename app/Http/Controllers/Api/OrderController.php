@@ -117,6 +117,14 @@ class OrderController extends Controller
         // ── Phụ thu khách ─────────────────────────────────────────────────────
         if ($request->has('guest_count')) {
             $newGuestCount = (int) $request->input('guest_count');
+
+            // Khung giờ qua đêm: tối đa 2 khách (đơn có khai báo CCCD người đi cùng).
+            if ($newGuestCount > 2 && ! empty($order->cccd_front_2)) {
+                return response()->json([
+                    'message' => 'Khung giờ qua đêm chỉ nhận tối đa 2 khách.',
+                ], 422);
+            }
+
             $order->items()->update(['guest_count' => $newGuestCount]);
 
             $guestRoom      = $order->items->first()?->product;
