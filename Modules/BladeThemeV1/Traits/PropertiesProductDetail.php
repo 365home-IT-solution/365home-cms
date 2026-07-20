@@ -54,6 +54,11 @@ trait PropertiesProductDetail
     public string  $authCccdFront = '';   // stored path from customer profile
     public string  $authCccdBack  = '';   // stored path from customer profile
 
+    // Lỗi phát sinh trong confirmBooking() (CCCD không hợp lệ, chưa đủ tuổi, v.v.) — hiển thị
+    // ngay trong modal xác nhận đặt phòng thay vì toast 'notify' (bị che khuất sau modal do
+    // z-index thấp hơn).
+    public string $bookingConfirmError = '';
+
     
     /** 
      * Kiểu hiển thị form đặt phòng:

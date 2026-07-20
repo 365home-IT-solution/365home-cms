@@ -1001,6 +1001,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             }
         }
 
+        $this->bookingConfirmError = '';
         $this->dispatch('open-booking-modal');
     }
 
@@ -1059,6 +1060,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
 
 public function confirmBooking()
 {
+    $this->bookingConfirmError = '';
     try {
         // Upload file TRƯỚC transaction (không thể rollback file)
         // Nếu auth user đã có CCCD trong profile → dùng lại, không bắt upload lại
@@ -1099,10 +1101,7 @@ public function confirmBooking()
                 if ($backPath2) {
                     \Illuminate\Support\Facades\Storage::disk('public')->delete($backPath2);
                 }
-                $this->dispatch('notify', [
-                    'message' => 'Không đọc được mã QR trên CCCD. Vui lòng upload ảnh gốc rõ nét, chụp thẳng mặt sau CCCD, không chụp lại màn hình.',
-                    'type'    => 'error',
-                ]);
+                $this->bookingConfirmError = 'Không đọc được mã QR trên CCCD. Vui lòng upload ảnh gốc rõ nét, chụp thẳng mặt sau CCCD, không chụp lại màn hình.';
                 return;
             }
 
@@ -1123,10 +1122,7 @@ public function confirmBooking()
                         if ($backPath2) {
                             \Illuminate\Support\Facades\Storage::disk('public')->delete($backPath2);
                         }
-                        $this->dispatch('notify', [
-                            'message' => 'Người đặt phòng chưa đủ 18 tuổi. Vui lòng liên hệ trực tiếp để được hỗ trợ.',
-                            'type'    => 'error',
-                        ]);
+                        $this->bookingConfirmError = 'Người đặt phòng chưa đủ 18 tuổi. Vui lòng liên hệ trực tiếp để được hỗ trợ.';
                         return;
                     }
                 } catch (\Throwable) {
@@ -1156,10 +1152,7 @@ public function confirmBooking()
                 if ($backPath2) {
                     \Illuminate\Support\Facades\Storage::disk('public')->delete($backPath2);
                 }
-                $this->dispatch('notify', [
-                    'message' => 'Không đọc được mã QR trên CCCD người đi cùng. Vui lòng upload ảnh gốc rõ nét, chụp thẳng mặt sau CCCD, không chụp lại màn hình.',
-                    'type'    => 'error',
-                ]);
+                $this->bookingConfirmError = 'Không đọc được mã QR trên CCCD người đi cùng. Vui lòng upload ảnh gốc rõ nét, chụp thẳng mặt sau CCCD, không chụp lại màn hình.';
                 return;
             }
         }
