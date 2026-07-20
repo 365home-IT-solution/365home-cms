@@ -106,6 +106,12 @@ class Order extends Model implements Eventable
     {
         return $this->hasMany(OrderItem::class);
     }
+
+    // Khách thứ 2 trở đi (đặt qua đêm) — xem migration 2026_07_20_000001_create_order_guest_cccds_table.
+    public function guestCccds()
+    {
+        return $this->hasMany(OrderGuestCccd::class)->orderBy('guest_index');
+    }
     // Thêm accessor để đảm bảo items luôn trả về Collection
     public function getItemsAttribute($value)
     {

@@ -116,4 +116,11 @@ class Customer extends Authenticatable
     {
         return $this->hasMany(Order::class, 'customer_id');
     }
+
+    // CCCD người đi cùng đã lưu sẵn, tái sử dụng cho các lần đặt phòng qua đêm sau này — xem
+    // migration 2026_07_20_000002_create_customer_companions_table.
+    public function companions(): HasMany
+    {
+        return $this->hasMany(CustomerCompanion::class);
+    }
 }

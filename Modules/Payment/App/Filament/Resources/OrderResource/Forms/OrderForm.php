@@ -189,11 +189,34 @@ class OrderForm
                                                         . $icon . ' Tải mặt sau (người đi cùng)</a>';
                                                 }
 
+                                                // Khách 2 trở đi qua API mới (guest/customer) lưu vào order_guest_cccds thay vì
+                                                // cccd_front_2/back_2 — gộp link tải xuống của cả các khách này vào đây luôn.
+                                                foreach ($record->guestCccds as $guestCccd) {
+                                                    if ($guestCccd->cccd_front) {
+                                                        $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($guestCccd->cccd_front);
+                                                        $name = "CCCD_khach{$guestCccd->guest_index}_mat_truoc_" . ($record->order_code ?? $record->id) . '.jpg';
+                                                        $html .= '<a href="' . e($url) . '" download="' . e($name) . '" target="_blank"'
+                                                            . ' style="' . $btnStyle('#fefce8', '#fde68a', '#a16207') . '"'
+                                                            . ' onmouseenter="this.style.background=\'#fef9c3\'"'
+                                                            . ' onmouseleave="this.style.background=\'#fefce8\'">'
+                                                            . $icon . " Tải mặt trước (khách {$guestCccd->guest_index})</a>";
+                                                    }
+                                                    if ($guestCccd->cccd_back) {
+                                                        $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($guestCccd->cccd_back);
+                                                        $name = "CCCD_khach{$guestCccd->guest_index}_mat_sau_" . ($record->order_code ?? $record->id) . '.jpg';
+                                                        $html .= '<a href="' . e($url) . '" download="' . e($name) . '" target="_blank"'
+                                                            . ' style="' . $btnStyle('#fefce8', '#fde68a', '#a16207') . '"'
+                                                            . ' onmouseenter="this.style.background=\'#fef9c3\'"'
+                                                            . ' onmouseleave="this.style.background=\'#fefce8\'">'
+                                                            . $icon . " Tải mặt sau (khách {$guestCccd->guest_index})</a>";
+                                                    }
+                                                }
+
                                                 $html .= '</div>';
                                                 return new \Illuminate\Support\HtmlString($html);
                                             })
                                             ->visible(fn ($record) => (auth()->user()?->isSuperAdmin() ?? false)
-                                                && $record && ($record->cccd_front || $record->cccd_back || $record->cccd_front_2 || $record->cccd_back_2)),
+                                                && $record && ($record->cccd_front || $record->cccd_back || $record->cccd_front_2 || $record->cccd_back_2 || $record->guestCccds->isNotEmpty())),
 
                                         Grid::make(2)->schema([
                                             FileUpload::make('cccd_front')
@@ -234,7 +257,11 @@ class OrderForm
                                         ]),
 
                                         Grid::make(2)
-                                            ->visible(fn ($record) => self::hasOvernightItem($record))
+                                            // Chỉ còn dùng cho đơn CŨ (trước khi có bảng order_guest_cccds) hoặc đơn
+                                            // tạo tay ở admin — đơn tạo qua API (guest/khách đăng nhập) từ giờ lưu
+                                            // TOÀN BỘ khách 2 trở đi vào order_guest_cccds (xem Repeater bên dưới),
+                                            // không ghi vào cccd_front_2/back_2 nữa.
+                                            ->visible(fn ($record) => self::hasOvernightItem($record) && $record?->guestCccds->isEmpty())
                                             ->schema([
                                                 FileUpload::make('cccd_front_2')
                                                     ->label('CCCD/CMND người đi cùng - mặt trước')
@@ -272,6 +299,64 @@ class OrderForm
                                                     ->openable()
                                                     ->nullable(),
                                             ]),
+
+                                        // Khách 2 trở đi cho đơn tạo qua API (guest hoặc khách đăng nhập) — mỗi
+                                        // dòng ứng với 1 order_guest_cccds, không giới hạn số khách. Vẫn cho admin
+                                        // sửa/thêm/xoá tay khi tạo đơn thủ công.
+                                        Repeater::make('guestCccds')
+                                            ->relationship('guestCccds')
+                                            ->label('CCCD khách đi cùng (khách 2 trở lên)')
+                                            ->helperText('Đơn có khung giờ qua đêm với từ 2 khách trở lên — mỗi khách 1 dòng, đánh số bắt đầu từ 2.')
+                                            ->visible(fn ($record) => self::hasOvernightItem($record) || ($record?->guestCccds->isNotEmpty() ?? false))
+                                            ->schema([
+                                                Grid::make(3)->schema([
+                                                    TextInput::make('guest_index')
+                                                        ->label('Khách thứ')
+                                                        ->numeric()
+                                                        ->minValue(2)
+                                                        ->required(),
+
+                                                    FileUpload::make('cccd_front')
+                                                        ->label('CCCD/CMND mặt trước')
+                                                        ->image()
+                                                        ->directory('cccd')
+                                                        ->imagePreviewHeight('200')
+                                                        ->loadingIndicatorPosition('center')
+                                                        ->panelAspectRatio('16:10')
+                                                        ->panelLayout('integrated')
+                                                        ->removeUploadedFileButtonPosition('top-right')
+                                                        ->uploadButtonPosition('center')
+                                                        ->uploadProgressIndicatorPosition('center')
+                                                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                                        ->maxSize(10240)
+                                                        ->downloadable()
+                                                        ->openable()
+                                                        ->required(),
+
+                                                    FileUpload::make('cccd_back')
+                                                        ->label('CCCD/CMND mặt sau')
+                                                        ->image()
+                                                        ->directory('cccd')
+                                                        ->imagePreviewHeight('200')
+                                                        ->loadingIndicatorPosition('center')
+                                                        ->panelAspectRatio('16:10')
+                                                        ->panelLayout('integrated')
+                                                        ->removeUploadedFileButtonPosition('top-right')
+                                                        ->uploadButtonPosition('center')
+                                                        ->uploadProgressIndicatorPosition('center')
+                                                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                                        ->maxSize(10240)
+                                                        ->downloadable()
+                                                        ->openable()
+                                                        ->required(),
+                                                ]),
+                                            ])
+                                            ->defaultItems(0)
+                                            ->addActionLabel('+ Thêm khách đi cùng')
+                                            ->reorderable(false)
+                                            ->itemLabel(fn (array $state): ?string => isset($state['guest_index']) ? 'Khách thứ ' . $state['guest_index'] : 'Khách mới')
+                                            ->collapsed()
+                                            ->columnSpanFull(),
                                     ]),
                             ]),
 
