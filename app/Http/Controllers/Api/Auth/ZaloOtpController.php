@@ -417,6 +417,29 @@ class ZaloOtpController extends Controller
         ));
     }
 
+    /**
+     * Xoá 1 CCCD người đi cùng khỏi hồ sơ (yêu cầu token).
+     * DELETE /api/auth/companions/{id}
+     */
+    public function deleteCompanion(Request $request, int $id): JsonResponse
+    {
+        $customer = $request->user();
+
+        $companion = $customer->companions()->find($id);
+
+        if (! $companion) {
+            return response()->json(['message' => 'Không tìm thấy người đi cùng.'], 404);
+        }
+
+        Storage::disk('public')->delete(array_filter([$companion->cccd_front, $companion->cccd_back]));
+
+        $companion->delete();
+
+        return response()->json($this->customerResource(
+            Customer::find($customer->id) ?? $customer
+        ));
+    }
+
     private function customerResource(Customer $customer): array
     {
         $customer->loadMissing(['membershipTier', 'companions']);
