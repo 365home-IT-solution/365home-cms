@@ -4,12 +4,14 @@ namespace App\Http\Controllers\Api\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
+use App\Models\CustomerCompanion;
 use App\Models\GuestCustomer;
 use App\Models\MembershipTier;
 use App\Services\ZaloOtpService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Promotion\App\Models\Coupon;
@@ -292,15 +294,22 @@ class ZaloOtpController extends Controller
 
     /**
      * Cập nhật thông tin khách hàng (yêu cầu token).
-     * Body (multipart/form-data): fullname?, date_of_birth?, cccd_front?, cccd_back?
+     * Body (multipart/form-data): fullname?, date_of_birth?, cccd_front?, cccd_back?,
+     * companions[i][cccd_front]?, companions[i][cccd_back]?, companions[i][full_name]?
+     * (companions = CCCD người đi cùng lưu vào hồ sơ, tái sử dụng cho các lần đặt phòng
+     * qua đêm sau này — xem customer_companions).
      */
     public function update(Request $request): JsonResponse
     {
         $request->validate([
-            'fullname'      => 'sometimes|string|max:255',
-            'date_of_birth' => 'sometimes|date_format:d-m-Y|before:today',
-            'cccd_front'    => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
-            'cccd_back'     => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'fullname'                => 'sometimes|string|max:255',
+            'date_of_birth'           => 'sometimes|date_format:d-m-Y|before:today',
+            'cccd_front'              => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'cccd_back'               => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'companions'              => 'sometimes|array',
+            'companions.*.cccd_front' => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'companions.*.cccd_back'  => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'companions.*.full_name'  => 'nullable|string|max:255',
         ]);
 
         $customer = $request->user();
@@ -364,6 +373,66 @@ class ZaloOtpController extends Controller
             $customer->update($data);
         }
 
+        // Thêm CCCD người đi cùng vào hồ sơ — chặn trùng với CCCD chính và với các người đi cùng
+        // đã có sẵn, để tránh trường hợp khách dùng cùng 1 CCCD cho nhiều người trong hồ sơ.
+        if ($request->has('companions')) {
+            $existingCccds = $customer->companions()->get()
+                ->map(fn (CustomerCompanion $c) => $c->cccd_data['cccd'] ?? null)
+                ->filter()
+                ->all();
+
+            $ownCccd = $data['cccd_data']['cccd'] ?? ($customer->cccd_data['cccd'] ?? null);
+            if (! empty($ownCccd)) {
+                $existingCccds[] = $ownCccd;
+            }
+
+            $uploadedPaths = [];
+            $scanner       = app(CccdScannerService::class);
+
+            try {
+                DB::transaction(function () use ($request, $customer, $scanner, &$existingCccds, &$uploadedPaths) {
+                    foreach ($request->file('companions') as $index => $files) {
+                        $frontPath = $files['cccd_front']->store('cccd', 'public');
+                        $backPath  = $files['cccd_back']->store('cccd', 'public');
+                        $uploadedPaths[] = $frontPath;
+                        $uploadedPaths[] = $backPath;
+
+                        $cccdData = $scanner->scanPaths($frontPath, $backPath);
+
+                        if (! $cccdData) {
+                            throw new \RuntimeException(
+                                'Không đọc được QR trên CCCD người đi cùng thứ ' . ($index + 1) . '. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.'
+                            );
+                        }
+
+                        if (! empty($cccdData['cccd']) && in_array($cccdData['cccd'], $existingCccds, true)) {
+                            throw new \RuntimeException(
+                                'CCCD người đi cùng thứ ' . ($index + 1) . ' bị trùng với một CCCD khác đã có trong hồ sơ.'
+                            );
+                        }
+
+                        if (! empty($cccdData['cccd'])) {
+                            $existingCccds[] = $cccdData['cccd'];
+                        }
+
+                        CustomerCompanion::create([
+                            'customer_id' => $customer->id,
+                            'full_name'   => $request->input("companions.$index.full_name") ?: ($cccdData['full_name'] ?? null),
+                            'cccd_front'  => $frontPath,
+                            'cccd_back'   => $backPath,
+                            'cccd_data'   => $cccdData,
+                        ]);
+                    }
+                });
+            } catch (\RuntimeException $e) {
+                foreach ($uploadedPaths as $path) {
+                    Storage::disk('public')->delete($path);
+                }
+
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+        }
+
         return response()->json($this->customerResource(
             Customer::find($customer->id) ?? $customer
         ));
@@ -371,7 +440,7 @@ class ZaloOtpController extends Controller
 
     private function customerResource(Customer $customer): array
     {
-        $customer->loadMissing(['membershipTier']);
+        $customer->loadMissing(['membershipTier', 'companions']);
 
         $tier     = $customer->membershipTier;
         $spending = (float) $customer->total_spending;
@@ -406,6 +475,13 @@ class ZaloOtpController extends Controller
                 ? Storage::disk('public')->url($customer->cccd_back)
                 : null,
             'cccd_data'         => $customer->cccd_data,
+            'companions'        => $customer->companions->map(fn (CustomerCompanion $c) => [
+                'id'          => $c->id,
+                'full_name'   => $c->full_name,
+                'cccd_front'  => Storage::disk('public')->url($c->cccd_front),
+                'cccd_back'   => Storage::disk('public')->url($c->cccd_back),
+                'cccd_data'   => $c->cccd_data,
+            ]),
             'membership'        => [
                 'tier'           => $tier ? [
                     'id'                  => $tier->id,
