@@ -132,7 +132,7 @@
                 <div class="explore-card" style="background-image: url('{{ asset('images/welcome_joyer_1.svg') }}');">
                     <div class="explore-card-content">
                         <p class="explore-card-title" style="color:#0e3a5c;">Thành viên mới? Quà chất đang đợi!</p>
-                        <p class="explore-card-subtitle" style="color:#0e3a5c;">Nhận coupon giảm 20.000đ với người dùng mới</p>
+                        <p class="explore-card-subtitle" style="color:#0e3a5c;">Nhận coupon giảm 200.000đ với người dùng mới</p>
                         <button type="button" class="explore-card-btn" style="background:var(--color-primary);" @click="window.dispatchEvent(new CustomEvent('open-auth-modal'))">Đăng ký ngay</button>
                     </div>
                 </div>
