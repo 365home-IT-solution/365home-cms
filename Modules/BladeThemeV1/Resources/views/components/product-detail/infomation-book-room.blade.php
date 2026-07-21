@@ -501,6 +501,9 @@
 
                 <p class="text-[11px] text-[#717171] mt-2">* CCCD người đi cùng chỉ dùng để khai báo lưu trú, bảo
                     mật như CCCD chính và xóa sau khi check-out.</p>
+                <p class="text-[11px] text-red-600 font-medium mt-1">* Khách hàng chịu hoàn toàn trách nhiệm về
+                    thông tin CCCD đã cung cấp;
+                </p>
             </div>
         @endif
 

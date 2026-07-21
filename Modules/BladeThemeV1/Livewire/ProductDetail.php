@@ -1155,6 +1155,24 @@ public function confirmBooking()
                 $this->bookingConfirmError = 'Không đọc được mã QR trên CCCD người đi cùng. Vui lòng upload ảnh gốc rõ nét, chụp thẳng mặt sau CCCD, không chụp lại màn hình.';
                 return;
             }
+
+            // Chặn dùng chung 1 CCCD cho cả khách chính và người đi cùng.
+            if (!empty($cccdData['cccd']) && !empty($cccdData2['cccd']) && $cccdData['cccd'] === $cccdData2['cccd']) {
+                if ($frontPath && $this->cccd_front) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete($frontPath);
+                }
+                if ($backPath && $this->cccd_back) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete($backPath);
+                }
+                if ($frontPath2) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete($frontPath2);
+                }
+                if ($backPath2) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete($backPath2);
+                }
+                $this->bookingConfirmError = 'CCCD của người đi cùng bị trùng với CCCD của khách đặt phòng. Vui lòng upload CCCD của một người khác.';
+                return;
+            }
         }
 
         $roomConfig   = $this->product ? ($this->product->room_config ?? []) : [];
