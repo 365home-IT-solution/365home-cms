@@ -4,6 +4,10 @@
     đã bị gỡ bỏ, nhánh mode="register" trong file này không còn nơi nào truyền vào nữa nhưng vẫn
     giữ lại code (không dọn dẹp) để giảm rủi ro động vào logic OTP/mật khẩu dùng chung.
 
+    Đăng ký ngay trên /dang-nhap: khi verify-otp phát hiện số điện thoại chưa có tài khoản
+    (is_new_user), component chuyển thẳng sang BƯỚC 3 "Hoàn tất đăng ký" (step = 'register')
+    ngay trên trang này — không điều hướng sang trang /dang-ky riêng (đã gỡ bỏ).
+
     KHÔNG đụng tới livewire/auth-modal.blade.php (popup) — popup đó vẫn được dùng nguyên vẹn ở
     9 nơi khác trong site (ví bấm tim yêu thích lúc chưa đăng nhập, đánh giá, trang tài khoản...)
     nơi giữ nguyên ngữ cảnh bằng popup hợp lý hơn là điều hướng rời trang. Component này CHỈ dùng
@@ -105,15 +109,10 @@
                 const data = await res.json();
                 if (!res.ok) { this.error = data.message; return; }
                 if (data.is_new_user) {
+                    // Số điện thoại chưa có tài khoản — chuyển thẳng sang bước Hoàn tất đăng ký
+                    // ngay trên trang này (không cần trang /dang-ky riêng).
                     this.phoneToken = data.phone_token;
-                    if (this.mode === 'register') {
-                        // Đã ở đúng trang đăng ký — tiếp tục điền thông tin luôn.
-                        this.step = 'register';
-                    } else {
-                        // Trang đăng ký đã bị gỡ bỏ — số điện thoại chưa có tài khoản thì báo lỗi
-                        // thay vì chuyển hướng sang trang đăng ký (không còn tồn tại).
-                        this.error = 'Số điện thoại này chưa có tài khoản.';
-                    }
+                    this.step = 'register';
                 } else {
                     // Số điện thoại đã có tài khoản — verify-otp trả token luôn, đăng nhập thẳng
                     // dù đang ở trang đăng ký cũng không sao (đỡ bắt người dùng quay lại trang kia).
