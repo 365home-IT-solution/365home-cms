@@ -19,7 +19,9 @@ use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
+use App\Models\CustomerCompanion;
 use App\Services\PromotionCalculator;
+use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Promotion\App\Models\Coupon;
 use PayOS\PayOS;
 
@@ -114,35 +116,99 @@ class BookingController extends Controller
         // ── 4.5 CCCD người đi cùng (bắt buộc khi có khung giờ qua đêm) ─────────
         // Luật Cư trú (hiệu lực 01/07/2026) yêu cầu khai báo lưu trú ĐỦ TỪNG NGƯỜI khi lưu trú
         // qua đêm — không chỉ người đặt phòng chính (CCCD lấy từ hồ sơ customer ở trên).
-        // Khác với đơn guest (upload CCCD người đi cùng riêng từng đơn) — user đăng nhập PHẢI đã
-        // lưu sẵn CCCD người đi cùng vào hồ sơ (customer_companions) trước, tái sử dụng cho mọi
-        // lần đặt sau này, không upload lại theo từng đơn nữa.
-        $hasOvernight  = $rtsCollection->contains(fn ($rts) => (bool) $rts->over_night);
-        $guestCccdRows = [];
+        //
+        // Ưu tiên tái sử dụng CCCD người đi cùng đã lưu sẵn trong hồ sơ (customer_companions,
+        // theo thứ tự id). Nếu hồ sơ chưa đủ số người cần thiết, cho phép gửi kèm CCCD (mặt
+        // trước/sau) trực tiếp trong request tạo đơn này — giống luồng guest — qua key
+        // guests[{guest_index}][front]/guests[{guest_index}][back] (guest_index bắt đầu từ 2).
+        // Sau khi quét QR hợp lệ, lưu luôn vào customer_companions để các lần đặt phòng sau
+        // không cần upload lại.
+        //
+        // type != 'slot' (đặt theo ngày) LUÔN là qua đêm — xem over_night => true hardcode trong
+        // buildDailyItems(). $rtsCollection ở đó chỉ chứa RoomTimeSlot có type 'date' (giá đặc
+        // biệt theo ngày cụ thể) nên có thể rỗng dù đơn thực chất qua đêm — phải check type riêng.
+        $hasOvernight  = $request->input('type') === 'daily'
+            || $rtsCollection->contains(fn ($rts) => (bool) $rts->over_night);
+        $guestCccdRows      = [];
+        $newCompanionUploads = [];
 
         if ($hasOvernight) {
             $guestCount     = (int) $request->input('guest_count');
             $companionCount = $guestCount - 1;
 
             if ($companionCount > 0) {
-                $companions = $customer->companions()->orderBy('id')->take($companionCount)->get();
+                $existingCompanions = $customer->companions()->orderBy('id')->get();
 
-                if ($companions->count() < $companionCount) {
-                    return response()->json([
-                        'message' => "Khung giờ qua đêm cần khai báo lưu trú cho {$companionCount} người đi cùng — vui lòng thêm CCCD người đi cùng vào hồ sơ trước khi đặt phòng.",
-                        'error'   => 'companion_cccd_required',
-                    ], 422);
-                }
+                for ($i = 0; $i < $companionCount; $i++) {
+                    $guestIndex = $i + 2;
 
-                foreach ($companions->values() as $i => $companion) {
+                    if ($existingCompanions->has($i)) {
+                        $companion = $existingCompanions[$i];
+                        $guestCccdRows[] = [
+                            'guest_index' => $guestIndex,
+                            'front'       => $companion->cccd_front,
+                            'back'        => $companion->cccd_back,
+                            'data'        => $companion->cccd_data,
+                        ];
+                        continue;
+                    }
+
+                    // Chưa có sẵn trong hồ sơ — chấp nhận upload trực tiếp trong request này.
+                    $frontKey = "guests.{$guestIndex}.front";
+                    $backKey  = "guests.{$guestIndex}.back";
+
+                    if (! $request->hasFile($frontKey) || ! $request->hasFile($backKey)) {
+                        $this->cleanupNewCompanionUploads($newCompanionUploads);
+
+                        return response()->json([
+                            'message' => "Khung giờ qua đêm cần khai báo lưu trú cho khách thứ {$guestIndex} — vui lòng gửi kèm CCCD (mặt trước/sau) của khách này hoặc thêm vào hồ sơ trước.",
+                            'error'   => 'companion_cccd_required',
+                        ], 422);
+                    }
+
+                    $guestFront = $request->file($frontKey)->store('cccd', 'public');
+                    $guestBack  = $request->file($backKey)->store('cccd', 'public');
+
+                    $tempGuestOrder = new Order(['cccd_front' => $guestFront, 'cccd_back' => $guestBack]);
+                    $guestData      = app(CccdScannerService::class)->scanOrder($tempGuestOrder);
+
+                    if (! $guestData) {
+                        Storage::disk('public')->delete($guestFront);
+                        Storage::disk('public')->delete($guestBack);
+                        $this->cleanupNewCompanionUploads($newCompanionUploads);
+
+                        return response()->json([
+                            'message' => "Không đọc được mã QR trên CCCD khách thứ {$guestIndex}. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.",
+                        ], 422);
+                    }
+
                     $guestCccdRows[] = [
-                        'guest_index' => $i + 2,
-                        'front'       => $companion->cccd_front,
-                        'back'        => $companion->cccd_back,
-                        'data'        => $companion->cccd_data,
+                        'guest_index' => $guestIndex,
+                        'front'       => $guestFront,
+                        'back'        => $guestBack,
+                        'data'        => $guestData,
+                    ];
+
+                    $newCompanionUploads[] = [
+                        'cccd_front' => $guestFront,
+                        'cccd_back'  => $guestBack,
+                        'cccd_data'  => $guestData,
                     ];
                 }
             }
+        }
+
+        // Lưu ngay các CCCD người đi cùng vừa upload vào hồ sơ (customer_companions) — độc lập
+        // với việc đơn có tạo thành công hay không, để lần đặt sau tái sử dụng được luôn, không
+        // bắt khách quét QR lại nếu đơn này bị conflict slot phải thử lại phòng khác.
+        foreach ($newCompanionUploads as $row) {
+            CustomerCompanion::create([
+                'customer_id' => $customer->id,
+                'full_name'   => $row['cccd_data']['full_name'] ?? null,
+                'cccd_front'  => $row['cccd_front'],
+                'cccd_back'   => $row['cccd_back'],
+                'cccd_data'   => $row['cccd_data'],
+            ]);
         }
 
         // ── 5. Dịch vụ bổ sung ───────────────────────────────────────────────
@@ -406,6 +472,18 @@ class BookingController extends Controller
                 'final_amount'         => (int) $order->full_amount,
             ],
         ], 201);
+    }
+
+    /**
+     * Xoá các file CCCD người đi cùng vừa upload trong request hiện tại (chưa kịp lưu vào
+     * customer_companions) khi phải huỷ ngang do lỗi ở người tiếp theo trong vòng lặp.
+     */
+    private function cleanupNewCompanionUploads(array $uploads): void
+    {
+        foreach ($uploads as $row) {
+            Storage::disk('public')->delete($row['cccd_front']);
+            Storage::disk('public')->delete($row['cccd_back']);
+        }
     }
 
     // ── Slot (nhiều khung giờ) ────────────────────────────────────────────────
