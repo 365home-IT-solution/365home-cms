@@ -25,6 +25,7 @@ class MediaManagerInput extends Repeater
 
     protected string | Closure | null $diskName = null;
     protected string | Closure | null $folderTitleFieldName = null;
+    protected int | Closure | null $fileMaxSize = null;
 
     protected function setUp(): void
     {
@@ -295,13 +296,24 @@ class MediaManagerInput extends Repeater
      */
     public function schema(array | Closure $components): static
     {
-        $this->childComponents(array_merge([
-            FileInput::make('file')
-                ->disk($this->diskName)
-                ->required()
-                ->storeFiles(false)
-                ->collection($this->name),
-        ], $components));
+        $file = FileInput::make('file')
+            ->disk($this->diskName)
+            ->required()
+            ->storeFiles(false)
+            ->collection($this->name);
+
+        if ($maxSize = $this->evaluate($this->fileMaxSize)) {
+            $file->maxSize($maxSize);
+        }
+
+        $this->childComponents(array_merge([$file], $components));
+
+        return $this;
+    }
+
+    public function maxSize(int | Closure | null $size): static
+    {
+        $this->fileMaxSize = $size;
 
         return $this;
     }

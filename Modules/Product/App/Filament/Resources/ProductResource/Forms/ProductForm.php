@@ -260,6 +260,7 @@ class ProductForm
             MediaManagerInput::make('Ảnh bìa')
                 ->label(__('product::product.form.label.image_main'))
                 ->required()
+                ->maxSize(3072)
                 ->schema([])
                 ->defaultItems(1)
                 ->minItems(1)
