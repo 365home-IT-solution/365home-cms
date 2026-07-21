@@ -373,24 +373,13 @@ class ZaloOtpController extends Controller
             $customer->update($data);
         }
 
-        // Thêm CCCD người đi cùng vào hồ sơ — chặn trùng với CCCD chính và với các người đi cùng
-        // đã có sẵn, để tránh trường hợp khách dùng cùng 1 CCCD cho nhiều người trong hồ sơ.
+        // Thêm CCCD người đi cùng vào hồ sơ.
         if ($request->has('companions')) {
-            $existingCccds = $customer->companions()->get()
-                ->map(fn (CustomerCompanion $c) => $c->cccd_data['cccd'] ?? null)
-                ->filter()
-                ->all();
-
-            $ownCccd = $data['cccd_data']['cccd'] ?? ($customer->cccd_data['cccd'] ?? null);
-            if (! empty($ownCccd)) {
-                $existingCccds[] = $ownCccd;
-            }
-
             $uploadedPaths = [];
             $scanner       = app(CccdScannerService::class);
 
             try {
-                DB::transaction(function () use ($request, $customer, $scanner, &$existingCccds, &$uploadedPaths) {
+                DB::transaction(function () use ($request, $customer, $scanner, &$uploadedPaths) {
                     foreach ($request->file('companions') as $index => $files) {
                         $frontPath = $files['cccd_front']->store('cccd', 'public');
                         $backPath  = $files['cccd_back']->store('cccd', 'public');
@@ -403,16 +392,6 @@ class ZaloOtpController extends Controller
                             throw new \RuntimeException(
                                 'Không đọc được QR trên CCCD người đi cùng thứ ' . ($index + 1) . '. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.'
                             );
-                        }
-
-                        if (! empty($cccdData['cccd']) && in_array($cccdData['cccd'], $existingCccds, true)) {
-                            throw new \RuntimeException(
-                                'CCCD người đi cùng thứ ' . ($index + 1) . ' bị trùng với một CCCD khác đã có trong hồ sơ.'
-                            );
-                        }
-
-                        if (! empty($cccdData['cccd'])) {
-                            $existingCccds[] = $cccdData['cccd'];
                         }
 
                         CustomerCompanion::create([
