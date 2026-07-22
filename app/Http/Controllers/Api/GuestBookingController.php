@@ -1021,11 +1021,11 @@ class GuestBookingController extends Controller
             'guest_count'                        => 'sometimes|integer|min:1|max:50',
             'room_addition'                      => 'sometimes|array',
             'room_addition.type'                 => 'required_with:room_addition|in:slot,daily',
-            'room_addition.product_id'           => 'sometimes|integer',
+            'room_addition.product_id'           => 'sometimes|string',
             'room_addition.timeslot_id'          => 'required_if:room_addition.type,slot|integer',
-            'room_addition.date'                 => 'required_if:room_addition.type,slot|date_format:Y-m-d|after_or_equal:today',
-            'room_addition.checkin_date'         => 'required_if:room_addition.type,daily|date_format:Y-m-d|after_or_equal:today',
-            'room_addition.checkout_date'        => 'required_if:room_addition.type,daily|date_format:Y-m-d|after:room_addition.checkin_date',
+            'room_addition.date'                 => 'required_if:room_addition.type,slot|date_format:d-m-Y|after_or_equal:today',
+            'room_addition.checkin_date'         => 'required_if:room_addition.type,daily|date_format:d-m-Y|after_or_equal:today',
+            'room_addition.checkout_date'        => 'required_if:room_addition.type,daily|date_format:d-m-Y|after:room_addition.checkin_date',
         ]);
 
         $order = Order::with(['items.product.additionalServices', 'services'])

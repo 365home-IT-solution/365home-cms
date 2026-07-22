@@ -34,6 +34,10 @@ class OrderExtraBookingService
      */
     public function addExtra(Order $order, array $servicesInput, ?int $guestCount, ?array $roomAddition = null): array
     {
+        if ($roomAddition) {
+            $roomAddition = $this->normalizeRoomAdditionDates($roomAddition);
+        }
+
         if (! in_array($order->status, ['paid', 'deposit'], true)) {
             return ['error' => 'Đơn hàng chưa thanh toán, không thể đặt thêm.'];
         }
@@ -52,7 +56,7 @@ class OrderExtraBookingService
         }
 
         $roomAdditionRoom = $room;
-        if ($roomAddition && ! empty($roomAddition['product_id']) && (int) $roomAddition['product_id'] !== $room->id) {
+        if ($roomAddition && ! empty($roomAddition['product_id']) && (string) $roomAddition['product_id'] !== (string) $room->id) {
             $roomAdditionRoom = Product::where('id', $roomAddition['product_id'])
                 ->where('is_activated', true)
                 ->with('roomTimeSlots.timeSlot')
@@ -207,6 +211,21 @@ class OrderExtraBookingService
         $this->notifyGuestExtra($order, $diff, $result['charge']);
 
         return $result;
+    }
+
+    /**
+     * Client gửi ngày theo dd-mm-yyyy (validate ở controller) — convert sang Y-m-d
+     * trước khi đưa vào RoomItemBuilder (vốn dùng Carbon::parse("{$date} {$time}")).
+     */
+    private function normalizeRoomAdditionDates(array $roomAddition): array
+    {
+        foreach (['date', 'checkin_date', 'checkout_date'] as $key) {
+            if (! empty($roomAddition[$key])) {
+                $roomAddition[$key] = \Carbon\Carbon::createFromFormat('d-m-Y', $roomAddition[$key])->format('Y-m-d');
+            }
+        }
+
+        return $roomAddition;
     }
 
     /**
