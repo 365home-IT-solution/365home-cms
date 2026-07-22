@@ -1,0 +1,11 @@
+{
+    "name": "Employee",
+    "alias": "employee",
+    "description": "Quản lý nhân viên công ty: phòng ban, chức danh, hồ sơ nhân viên theo chi nhánh",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\Employee\\Providers\\EmployeeServiceProvider"
+    ],
+    "files": []
+}

@@ -2,6 +2,7 @@
 
 namespace Modules\Product\App\Filament\Resources\ProductResource\Tables;
 
+use App\Filament\Support\PartnerTableHelpers;
 use Filament\Tables\Columns\SpatieMediaLibraryImageColumn;
 use Filament\Tables\Columns\SpatieTagsColumn;
 use Filament\Tables\Columns\TextColumn;
@@ -41,6 +42,20 @@ class ProductTable extends Table
                 TextColumn::make('categories.name')
                     ->label(__('product::product.table.label.categories'))
                     ->searchable(),
+                TextColumn::make('housekeeping_status')
+                    ->label('Tình trạng phòng')
+                    ->badge()
+                    ->formatStateUsing(fn (string $state): string => match ($state) {
+                        'cleaning'    => 'Đang dọn vệ sinh',
+                        'maintenance' => 'Đang bảo trì',
+                        default       => 'Sẵn sàng',
+                    })
+                    ->color(fn (string $state): string => match ($state) {
+                        'cleaning'    => 'warning',
+                        'maintenance' => 'danger',
+                        default       => 'success',
+                    })
+                    ->sortable(),
                 TextColumn::make('lock_id')
                     ->label('Khóa ngoài (check-in)')
                     ->placeholder('Chưa gán')
@@ -81,9 +96,13 @@ class ProductTable extends Table
                     ->label(__('product::product.table.label.created_at'))
                     ->dateTime()
                     ->sortable(),
+                PartnerTableHelpers::column(),
             ])
             ->defaultSort('created_at', 'desc')
-            ->filters(ProductFilter::filter())
+            ->filters([
+                ...ProductFilter::filter(),
+                PartnerTableHelpers::filter(),
+            ])
             ->actions(ProductAction::action())
             ->bulkActions(ProductBulkAction::bulkActions());
     }

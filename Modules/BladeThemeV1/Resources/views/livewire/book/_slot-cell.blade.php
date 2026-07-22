@@ -74,6 +74,17 @@
     $slotDateYmd  = \Carbon\Carbon::createFromFormat('d-m-Y', $date['date'])->toDateString();
     if (in_array($slotDateYmd, $blockedDates)) { $isSelectable = false; $classes .= ' blocked'; }
 
+    // Đang bị ADMIN giữ chỗ real-time (xem TimeslotHoldService) — hiển thị MỜ, không ẩn hoàn toàn.
+    $heldByName = null;
+    if ($isSelectable) {
+        $activeHold = app(\App\Services\TimeslotHoldService::class)->isHeldByAdmin($roomTimeSlot->id, $slotDateYmd);
+        if ($activeHold) {
+            $isSelectable = false;
+            $classes .= ' held';
+            $heldByName = $activeHold->user->fullname ?? $activeHold->user->email ?? 'nhân viên';
+        }
+    }
+
     $slotStartTime = \Carbon\Carbon::parse($roomTimeSlot->timeSlot->start_time)->format('H:i:s');
     $priceData     = $this->calculateSlotPrice($roomTimeSlot, $date['date'], $slotStartTime);
     $finalPrice    = $priceData['final_price'];
@@ -115,6 +126,7 @@
 <div class="selectable {{ $classes }}"
     style="{{ !$isSelectable ? 'pointer-events:none;opacity:0.55;' : 'cursor:pointer;' }}{{ $orderColor ? '--order-color:' . $orderColor . ';' : '' }}"
     data-room-id="{{ $room->id }}" data-timeslot-id="{{ $roomTimeSlot->timeSlot->id }}" data-date="{{ $date['date'] }}"
+    data-iso-date="{{ \Carbon\Carbon::createFromFormat('d-m-Y', $date['date'])->format('Y-m-d') }}"
     @click="toggleSlot($el, {
         date: '{{ $date['date'] }}',
         startTime: '{{ $roomTimeSlot->timeSlot->start_time }}',
@@ -152,5 +164,14 @@
     @endif
     @if ($hasDiscountPromotion && !$hasIncreasePromotion && $displayDiscountPromotion && !empty($displayDiscountPromotion['lable_client']))
     <div class="promotion-center-label">{!! $displayDiscountPromotion['lable_client'] !!}</div>
+    @endif
+    @if (str_contains($classes, 'held'))
+    <div class="lock-icon" title="Đang được {{ $heldByName }} xử lý cho 1 đơn khác">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="11" width="16" height="9" rx="2" />
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+        </svg>
+    </div>
     @endif
 </div>

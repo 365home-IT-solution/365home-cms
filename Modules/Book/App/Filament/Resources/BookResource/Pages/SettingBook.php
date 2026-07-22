@@ -61,7 +61,9 @@ class SettingBook extends Page implements HasForms
 
         $categoryIds = $user->allowedCategoryIds();
         if (empty($categoryIds)) {
-            return [];
+            // Không thu hẹp thêm — Product đã tự lọc theo partner_id (BelongsToPartner),
+            // null = không giới hạn gì thêm ngoài phạm vi đối tác của user.
+            return null;
         }
 
         return \Modules\Category\Entities\Categorizable::where('categorizable_type', Product::class)
@@ -394,22 +396,43 @@ class SettingBook extends Page implements HasForms
                 ]);
         };
 
-        $slotRooms = $rooms->filter(fn($p) => ((int)($p->styles ?? 1)) === 1);
-        $dayRooms  = $rooms->filter(fn($p) => ((int)($p->styles ?? 1)) === 2);
+        $slotRooms = $rooms->filter(fn($p) => ((int)($p->styles ?? 1)) === 1)->values();
+        $dayRooms  = $rooms->filter(fn($p) => ((int)($p->styles ?? 1)) === 2)->values();
 
         $slotTabs = $slotRooms->map(fn ($p) => $buildSlotRoomTab($p))->values()->all();
         $dayTabs  = $dayRooms->map(fn ($p) => $buildDayRoomTab($p))->values()->all();
 
+        // Mở trang này từ menu thao tác nhanh trên thẻ phòng (Dashboard) với ?product_id=... —
+        // tự nhảy sẵn tới ĐÚNG tab của phòng đó (cả tab kiểu "Theo Khung Giờ"/"Theo Ngày" lẫn tab
+        // con của chính phòng), thay vì luôn mở tab đầu tiên rồi phải tự tìm lại.
+        $activeStyleTab = 1;
+        $activeRoomTab  = 1;
+        $preselectId    = request()->query('product_id');
+
+        if ($preselectId) {
+            $slotIndex = $slotRooms->search(fn ($p) => (string) $p->id === (string) $preselectId);
+            $dayIndex  = $dayRooms->search(fn ($p) => (string) $p->id === (string) $preselectId);
+
+            if ($slotIndex !== false) {
+                $activeStyleTab = 1;
+                $activeRoomTab  = $slotIndex + 1;
+            } elseif ($dayIndex !== false) {
+                $activeStyleTab = 2;
+                $activeRoomTab  = $dayIndex + 1;
+            }
+        }
+
         return $form
             ->schema([
                 Tabs::make('StyleTabs')
+                    ->activeTab($activeStyleTab)
                     ->tabs([
                         Tabs\Tab::make('Theo Khung Giờ')
                             ->icon('heroicon-o-clock')
                             ->badge($slotRooms->count())
                             ->schema(
                                 $slotTabs
-                                    ? [Tabs::make('SlotRooms')->tabs($slotTabs)->columnSpanFull()]
+                                    ? [Tabs::make('SlotRooms')->activeTab($activeStyleTab === 1 ? $activeRoomTab : 1)->tabs($slotTabs)->columnSpanFull()]
                                     : [\Filament\Forms\Components\Placeholder::make('no_slot')->label('')->content('Chưa có phòng nào theo kiểu Khung Giờ.')]
                             ),
                         Tabs\Tab::make('Theo Ngày')
@@ -417,7 +440,7 @@ class SettingBook extends Page implements HasForms
                             ->badge($dayRooms->count())
                             ->schema(
                                 $dayTabs
-                                    ? [Tabs::make('DayRooms')->tabs($dayTabs)->columnSpanFull()]
+                                    ? [Tabs::make('DayRooms')->activeTab($activeStyleTab === 2 ? $activeRoomTab : 1)->tabs($dayTabs)->columnSpanFull()]
                                     : [\Filament\Forms\Components\Placeholder::make('no_day')->label('')->content('Chưa có phòng nào theo kiểu Theo Ngày.')]
                             ),
                     ])

@@ -49,7 +49,9 @@ class UserBranchPermissionResource extends Resource
 
     /**
      * Chỉ lấy 1 dòng/user (dòng cũ nhất), để table hiển thị gọn 1 dòng mỗi user.
-     * Non-super_admin chỉ thấy bản ghi do chính họ tạo (created_by = auth id).
+     * Non-super_admin chỉ thấy bản ghi của tài khoản thuộc đối tác mình (partner_id), không
+     * phải chỉ bản ghi do chính mình tạo — để chủ đối tác thấy được cả phân quyền do người
+     * khác trong cùng đối tác đã gán.
      */
     public static function getEloquentQuery(): Builder
     {
@@ -57,7 +59,7 @@ class UserBranchPermissionResource extends Resource
 
         $user = auth()->user();
         if (! $user?->hasRole('super_admin')) {
-            $query->where('created_by', $user?->id);
+            $query->whereHas('user', fn (Builder $q) => $q->where('partner_id', $user?->partner_id));
         }
 
         return $query

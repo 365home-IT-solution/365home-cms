@@ -18,9 +18,8 @@ class KpiService
         $query = Order::query()->where('exclude_from_stats', false);
         if ($user && ! $user->isSuperAdmin()) {
             $allCategoryIds = $user->allowedCategoryIds();
-            if (empty($allCategoryIds)) {
-                $query->whereRaw('1 = 0');
-            } else {
+            // Order đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds chỉ thu hẹp thêm.
+            if (! empty($allCategoryIds)) {
                 $query->whereIn('category_id', $allCategoryIds);
             }
         }
@@ -73,6 +72,18 @@ class KpiService
                      + (clone $previousQuery)->where('status', 'deposit')->whereNotNull('money_deposit')->sum('money_deposit');
         $revenueDelta = $prevRevenue > 0 ? round((($revenue - $prevRevenue) / $prevRevenue) * 100, 1) : 0;
 
+        // 'Tổng giá gốc' (full_amount, KHÔNG đổi kể cả có phát sinh sau này) đặt cạnh 'Doanh thu'
+        // (amount, tổng thực thu cuối cùng) để dễ so sánh — cùng phạm vi (chỉ đơn 'paid'); chênh
+        // lệch giữa 2 số chính là tổng phụ phí phát sinh trong kỳ.
+        $revenuePaidOnly     = static::sumOrderAmount((clone $currentQuery)->where('status', 'paid'));
+        $prevRevenuePaidOnly = static::sumOrderAmount((clone $previousQuery)->where('status', 'paid'));
+        $revenueOriginal     = (int) ((clone $currentQuery)->where('status', 'paid')->sum('full_amount'));
+        $prevRevenueOriginal = (int) ((clone $previousQuery)->where('status', 'paid')->sum('full_amount'));
+        $revenueOriginalDelta = $prevRevenueOriginal > 0
+            ? round((($revenueOriginal - $prevRevenueOriginal) / $prevRevenueOriginal) * 100, 1)
+            : 0;
+        $revenueExtraCharge = $revenuePaidOnly - $revenueOriginal;
+
         $revenuePayos     = static::sumOrderAmount((clone $currentQuery)->where('status', 'paid')->where('payment_method', 'PayOS'));
         $prevRevenuePayos = static::sumOrderAmount((clone $previousQuery)->where('status', 'paid')->where('payment_method', 'PayOS'));
         $revenuePayosDelta = $prevRevenuePayos > 0 ? round((($revenuePayos - $prevRevenuePayos) / $prevRevenuePayos) * 100, 1) : 0;
@@ -96,6 +107,7 @@ class KpiService
         return compact(
             'total', 'totalDelta',
             'revenue', 'revenueDelta',
+            'revenueOriginal', 'revenueOriginalDelta', 'revenueExtraCharge',
             'revenuePayos', 'revenuePayosDelta',
             'revenueCod', 'revenueCodDelta',
             'revenueDepositPayos', 'revenueDepositPayosDelta',
@@ -105,9 +117,12 @@ class KpiService
         );
     }
 
-    /** Tổng tiền đơn paid: ưu tiên full_amount (tổng thực tế), fallback amount */
+    /**
+     * Tổng tiền đơn paid: ưu tiên 'amount' (tổng thực thu cuối cùng, gồm cả phụ phí phát sinh
+     * sau cọc nếu có) — 'full_amount' chỉ là tổng giá gốc CỐ ĐỊNH lúc đặt, fallback khi amount rỗng.
+     */
     private static function sumOrderAmount($query): int
     {
-        return (int) ($query->selectRaw('SUM(COALESCE(full_amount, amount)) as total')->value('total') ?? 0);
+        return (int) ($query->selectRaw('SUM(COALESCE(amount, full_amount)) as total')->value('total') ?? 0);
     }
 }

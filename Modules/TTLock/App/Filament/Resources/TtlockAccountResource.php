@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Modules\TTLock\App\Filament\Resources;
 
+use App\Filament\Support\PartnerTableHelpers;
+use Illuminate\Database\Eloquent\Builder;
 use Modules\TTLock\App\Filament\Resources\TtlockAccountResource\Pages;
 use Modules\TTLock\Entities\TtlockAccount;
 use Filament\Forms\Components\Section;
@@ -31,7 +33,38 @@ class TtlockAccountResource extends Resource
 
     public static function canViewAny(): bool
     {
-        return auth()->user()?->isSuperAdmin() ?? false;
+        $user = auth()->user();
+        if (! $user) {
+            return false;
+        }
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+        // Không còn bắt buộc phải có quyền chi nhánh cụ thể mới thấy menu — TtlockAccount đã lọc
+        // theo partner_id qua BelongsToPartner, chỉ cần có quyền Shield thông thường.
+        return $user->can('view_any_ttlock::account');
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+        $user  = auth()->user();
+
+        if (! $user || $user->isSuperAdmin()) {
+            return $query;
+        }
+
+        $branchIds = $user->allowedBranchIds();
+
+        // TtlockAccount đã lọc theo partner_id qua BelongsToPartner; allowedBranchIds chỉ thu hẹp thêm.
+        if (empty($branchIds)) {
+            return $query;
+        }
+
+        return $query->whereHas(
+            'categories',
+            fn ($q) => $q->whereIn('categories.id', $branchIds)
+        );
     }
 
     public static function form(Form $form): Form
@@ -150,6 +183,10 @@ class TtlockAccountResource extends Resource
                     ->dateTime('d/m/Y H:i')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
+                PartnerTableHelpers::column(),
+            ])
+            ->filters([
+                PartnerTableHelpers::filter(),
             ])
             ->actions([
                 EditAction::make(),

@@ -744,33 +744,40 @@
         font-size: 13px;
         font-weight: 600;
         color: var(--ta-ink-title);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
         display: flex;
         align-items: center;
         gap: 5px;
+        min-width: 0;
     }
 
-    .ta-rc-new-dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: var(--ta-red);
+    .ta-rc-name-text {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+    }
+
+    /* Icon nhỏ báo hiệu ngay trên thẻ phòng — cần dọn vệ sinh / đang chờ hoàn tiền — để nhìn lướt
+       qua "Lịch phòng" là biết ngay phòng nào cần xử lý, không phải mở menu ⋮ mới thấy. */
+    .ta-rc-flag {
         flex-shrink: 0;
-        animation: rcNewDot 1.4s ease-in-out infinite;
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: default;
     }
 
-    @keyframes rcNewDot {
+    .ta-rc-flag.cleaning {
+        background: #FEF3C7;
+        color: #92400E;
+    }
 
-        0%,
-        100% {
-            box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5);
-        }
-
-        50% {
-            box-shadow: 0 0 0 4px rgba(239, 68, 68, 0);
-        }
+    .ta-rc-flag.refund {
+        background: #FEE2E2;
+        color: #B91C1C;
     }
 
     .ta-rc-branch {
@@ -794,6 +801,141 @@
         background: var(--ta-line-soft);
         color: var(--ta-ink-faint);
         border-color: var(--ta-line);
+    }
+
+    /* Menu thao tác nhanh (⋮) trên thẻ phòng */
+    .ta-rc-menu-btn {
+        flex-shrink: 0;
+        width: 26px;
+        height: 26px;
+        border-radius: 7px;
+        border: 1px solid var(--ta-line);
+        background: var(--ta-bg);
+        color: var(--ta-ink-mute);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: background .15s, color .15s;
+    }
+
+    .ta-rc-menu-btn:hover {
+        background: var(--ta-line-soft);
+        color: var(--ta-ink-title);
+    }
+
+    /* CHÚ Ý: panel/catcher bên dưới bị JS (rcOpenRoomMenu, xem _scripts.blade.php) đưa ra làm
+       con trực tiếp của <body> để position:fixed không bị "nhốt" bởi ancestor có transform —
+       nghĩa là chúng nằm NGOÀI phạm vi .ta-wrap, nên KHÔNG được dùng var(--ta-xxx) (chỉ khai báo
+       bên trong .ta-wrap, không kế thừa ra ngoài được) — dùng thẳng mã màu cố định. */
+    .ta-rc-menu-catcher {
+        position: fixed;
+        inset: 0;
+        z-index: 9998;
+        background: transparent;
+    }
+
+    .ta-rc-menu-panel {
+        position: fixed;
+        z-index: 9999;
+        min-width: 220px;
+        max-width: 280px;
+        background: #FFFFFF;
+        border: 1px solid #EAEAEA;
+        border-radius: 10px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, .12);
+        padding: 6px;
+        font-size: 12.5px;
+        font-family: inherit;
+    }
+
+    .ta-rc-menu-panel a.ta-rc-menu-item,
+    .ta-rc-menu-panel button.ta-rc-menu-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        text-align: left;
+        padding: 8px 9px;
+        border-radius: 7px;
+        color: #0A0A0A;
+        text-decoration: none;
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: inherit;
+        font-family: inherit;
+    }
+
+    .ta-rc-menu-panel a.ta-rc-menu-item:hover,
+    .ta-rc-menu-panel button.ta-rc-menu-item:hover {
+        background: #F3F4F6;
+    }
+
+    .ta-rc-menu-sep {
+        height: 1px;
+        background: #EAEAEA;
+        margin: 5px 2px;
+    }
+
+    .ta-rc-menu-status-block {
+        padding: 8px 9px;
+    }
+
+    .ta-rc-menu-status-label {
+        font-size: 10.5px;
+        text-transform: uppercase;
+        letter-spacing: .3px;
+        color: #A3A3A3;
+        margin-bottom: 5px;
+    }
+
+    .ta-rc-menu-status-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 12px;
+        color: #0A0A0A;
+        margin-bottom: 6px;
+    }
+
+    .ta-rc-menu-pill {
+        font-size: 10.5px;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 999px;
+        white-space: nowrap;
+    }
+
+    .ta-rc-menu-pill.ok {
+        background: #ECFDF5;
+        color: #065F46;
+        border: 1px solid #A7F3D0;
+    }
+
+    .ta-rc-menu-pill.warn {
+        background: #FEF3C7;
+        color: #92400E;
+        border: 1px solid #FDE68A;
+    }
+
+    .ta-rc-menu-confirm-btn {
+        width: 100%;
+        margin-top: 4px;
+        padding: 6px 9px;
+        border-radius: 7px;
+        border: 1px solid #059669;
+        background: #059669;
+        color: #ffffff;
+        font-weight: 700;
+        font-size: 12px;
+        cursor: pointer;
+    }
+
+    .ta-rc-menu-confirm-btn.secondary {
+        background: #FFFFFF;
+        color: #059669;
     }
 
     .ta-rc-orders {
@@ -827,6 +969,7 @@
 
     /* Order items */
     .ta-rc-order-item {
+        position: relative;
         background: var(--ta-panel);
         border: 1px solid var(--ta-line);
         border-left: 3px solid var(--ta-line);
@@ -999,6 +1142,348 @@
         background: var(--ta-ink-title);
         color: #fff;
         border-color: var(--ta-ink-title);
+    }
+
+    /* ===== View toggle (Danh sách / Dải giờ) ===== */
+    .ta-rc-view-toggle {
+        display: inline-flex;
+        background: var(--ta-line-soft);
+        border: 1px solid var(--ta-line);
+        border-radius: 8px;
+        padding: 2px;
+        gap: 2px;
+    }
+
+    .ta-rc-view-toggle-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11.5px;
+        font-weight: 600;
+        font-family: 'Inter', ui-sans-serif, sans-serif;
+        color: var(--ta-ink-mute);
+        background: transparent;
+        border: none;
+        border-radius: 6px;
+        padding: 5px 10px;
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+
+    .ta-rc-view-toggle-btn:hover {
+        color: var(--ta-ink);
+    }
+
+    .ta-rc-view-toggle-btn.active {
+        background: var(--ta-panel);
+        color: var(--ta-ink-title);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+    }
+
+    .ta-rc-view-toggle-btn:focus-visible {
+        outline: 2px solid var(--ta-accent);
+        outline-offset: 1px;
+    }
+
+    /* ===== View "Danh sách gọn" — 2 dòng, không icon phụ ===== */
+    /* Bỏ viền màu bên trái (đã có chấm màu ta-rc-dot thể hiện trạng thái, không cần lặp lại) và
+       nền tô màu (is-new/seg-overdue) — chỉ giữ viền mỏng trung tính, cảm giác gọn/phẳng hơn.
+       CHỈ áp dụng cho view Danh sách — view "Chi tiết (cũ)" vẫn giữ nguyên để so sánh. */
+    .ta-rc-orders .ta-rc-order-item {
+        border-left: none;
+        padding: 7px 9px 6px;
+        background: var(--ta-panel);
+        border-color: var(--ta-line);
+    }
+
+    .ta-rc-orders .ta-rc-order-item.is-new,
+    .ta-rc-orders .ta-rc-order-item.seg-overdue {
+        background: var(--ta-panel);
+        border-color: var(--ta-line);
+    }
+
+    .ta-rc-line1 {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        row-gap: 2px;
+        column-gap: 6px;
+        margin-bottom: 3px;
+    }
+
+    .ta-rc-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    .ta-rc-guest-compact {
+        font-size: 11.5px;
+        font-weight: 600;
+        color: var(--ta-ink);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 130px;
+    }
+
+    .ta-rc-phone-compact {
+        font-size: 10px;
+        color: var(--ta-ink-faint);
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    .ta-rc-spacer {
+        flex: 1 1 auto;
+    }
+
+    /* Trạng thái thanh toán — cho phép rớt xuống dòng riêng (flex-wrap ở .ta-rc-line1) thay vì
+       tràn ra ngoài card khi tên khách + SĐT + trạng thái cộng lại dài hơn bề ngang thẻ. */
+    .ta-rc-status-compact {
+        font-size: 10px;
+        font-weight: 700;
+        white-space: nowrap;
+        flex-shrink: 0;
+        padding: 2px 7px;
+        border-radius: 999px;
+    }
+
+    .ta-rc-line2 {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding-left: 20px;
+        font-size: 10.5px;
+        color: var(--ta-ink-mute);
+        font-family: 'Inter', ui-sans-serif, sans-serif;
+    }
+
+    /* Đơn nhiều khung giờ (vd "08:30 - 11:20, 11:50 - 14:40, ...") có thể rất dài — PHẢI cho phép
+       co lại và cắt bớt bằng "…" ngay trong thẻ, không được đẩy tràn ra ngoài card (đẩy luôn cả
+       giá tiền/nút "Chi tiết" ra khỏi vùng nhìn thấy). min-width:0 bắt buộc phải có vì mặc định
+       flex item không co được nhỏ hơn kích thước nội dung của chính nó (dù có flex-shrink). Xem
+       đầy đủ TẤT CẢ khung giờ qua tooltip khi hover (đã có sẵn, không bị cắt).
+       */
+    .ta-rc-time-compact {
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+        flex: 1 1 auto;
+    }
+
+    .ta-rc-slot-compact {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .ta-rc-amount-compact {
+        font-weight: 700;
+        color: var(--ta-ink-title);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    .ta-rc-detail-compact {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        color: var(--ta-ink-faint);
+        border-radius: 5px;
+        flex-shrink: 0;
+        transition: all 0.15s;
+    }
+
+    .ta-rc-detail-compact:hover {
+        background: var(--ta-ink-title);
+        color: #fff;
+    }
+
+    /* ===== View "Dải giờ" — thanh 24h + danh sách ngày khác ===== */
+    .ta-rc-timeline {
+        display: none;
+        padding: 2px 2px 0;
+    }
+
+    /* ===== View "Chi tiết (cũ)" — giao diện đầy đủ trước khi tối giản, để so sánh ===== */
+    .ta-rc-orders-detail {
+        display: none;
+    }
+
+    #ta-room-grid.rc-view-timeline .ta-rc-orders,
+    #ta-room-grid.rc-view-detail .ta-rc-orders {
+        display: none;
+    }
+
+    #ta-room-grid.rc-view-timeline .ta-rc-timeline {
+        display: block;
+    }
+
+    #ta-room-grid.rc-view-detail .ta-rc-orders-detail {
+        display: block;
+    }
+
+    .ta-rc-tl-track {
+        position: relative;
+        height: 22px;
+        background: var(--ta-line-soft);
+        border-radius: 6px;
+        overflow: visible;
+    }
+
+    .ta-rc-tl-seg {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        display: block;
+        border-radius: 4px;
+    }
+
+    .ta-rc-tl-seg:hover,
+    .ta-rc-tl-seg:focus-visible {
+        outline: 2px solid var(--ta-ink-title);
+        outline-offset: 1px;
+        z-index: 3;
+    }
+
+    .ta-rc-tl-now {
+        position: absolute;
+        top: -3px;
+        bottom: -3px;
+        width: 2px;
+        background: var(--ta-ink-title);
+        opacity: 0.5;
+        pointer-events: none;
+    }
+
+    .ta-rc-tl-scale {
+        display: flex;
+        justify-content: space-between;
+        font-size: 9px;
+        color: var(--ta-ink-faint);
+        margin-top: 4px;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .ta-rc-tl-empty {
+        font-size: 11px;
+        color: var(--ta-ink-faint);
+        text-align: center;
+        padding: 4px 0 2px;
+    }
+
+    .ta-rc-tl-future {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px dashed var(--ta-line);
+    }
+
+    .ta-rc-tl-future-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 10.5px;
+        color: var(--ta-ink-mute);
+        text-decoration: none;
+    }
+
+    .ta-rc-tl-future-item:hover {
+        color: var(--ta-ink-title);
+    }
+
+    /* ===== Tooltip dùng chung (view Danh sách + Dải giờ) =====
+       1 phần tử duy nhất, JS định vị bằng getBoundingClientRect() + position:fixed — không bị
+       overflow:hidden của thẻ phòng cắt mất, và không xảy ra tình trạng chỉ hover được 1 đơn khi
+       thẻ có nhiều đơn (do nhiều tooltip tuyệt đối trước đây chồng lên nhau). */
+    .rc-tooltip {
+        position: fixed;
+        z-index: 9999;
+        max-width: 260px;
+        background: var(--ta-ink-title);
+        color: var(--ta-panel);
+        border-radius: 10px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22), 0 2px 8px rgba(0, 0, 0, 0.12);
+        padding: 10px 12px;
+        font-size: 11.5px;
+        line-height: 1.6;
+        font-family: 'Inter', ui-sans-serif, sans-serif;
+        opacity: 0;
+        transform: translateY(4px) scale(0.98);
+        pointer-events: none;
+        transition: opacity 0.1s, transform 0.1s;
+    }
+
+    .rc-tooltip.show {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+
+    .rc-tooltip-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .rc-tooltip-name {
+        font-weight: 700;
+        font-size: 12.5px;
+        color: #fff;
+    }
+
+    .rc-tooltip-phone {
+        opacity: 0.7;
+        font-size: 10.5px;
+    }
+
+    .rc-tooltip-status {
+        margin-left: auto;
+        font-size: 9.5px;
+        font-weight: 700;
+        padding: 1px 7px;
+        border-radius: 999px;
+        white-space: nowrap;
+    }
+
+    .rc-tooltip-divider {
+        height: 1px;
+        background: rgba(255, 255, 255, 0.14);
+        margin: 7px 0;
+    }
+
+    .rc-tooltip-line {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        color: rgba(255, 255, 255, 0.9);
+        margin-top: 3px;
+    }
+
+    .rc-tooltip-line svg {
+        flex-shrink: 0;
+        margin-top: 1px;
+        opacity: 0.75;
+    }
+
+    .rc-tooltip-amount {
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        color: #fff;
+    }
+
+    .rc-tooltip-muted {
+        opacity: 0.6;
+        font-size: 10px;
+        margin-top: 5px;
     }
 
     .ta-rc-slot-row {

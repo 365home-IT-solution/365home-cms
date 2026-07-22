@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Modules\Category\Entities\Category;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
@@ -320,7 +321,20 @@ class BookingController extends Controller
             }
         }
 
+        // Dữ liệu đối tác cũ (vd 365home) tổ chức category 2 CẤP: chi nhánh thật (parent_id NULL)
+        // → danh mục phòng con CÙNG TÊN với phòng (parent_id = chi nhánh) — Product được gán
+        // categorizable vào danh mục CON đó, không phải thẳng vào chi nhánh. Nếu dùng thẳng kết
+        // quả categories()->first(), 'category_id' của đơn sẽ lưu NHẦM thành danh mục con (hiện
+        // tên phòng thay vì tên chi nhánh khi admin mở sửa đơn) — leo lên tới đúng cấp chi nhánh
+        // (parent_id NULL) trước khi lưu vào đơn.
         $category = $room->categories()->first();
+        for ($i = 0; $i < 5 && $category && $category->parent_id; $i++) {
+            $parent = Category::find($category->parent_id);
+            if (! $parent) {
+                break;
+            }
+            $category = $parent;
+        }
 
         $depositPercentToSave = $depositInfo !== null ? (int) ($depositInfo['percentage']) : null;
 
@@ -358,8 +372,12 @@ class BookingController extends Controller
             $firstCode = $appliedCouponCodes[0] ?? null;
 
             $order = Order::create([
-                'amount'          => $subtotal,
-                'full_amount'     => $amountDue,
+                // Cả 'amount' và 'full_amount' lưu ĐÚNG TỔNG GIÁ thật của đơn (không phải số tiền
+                // cọc cần trả ngay) — 'full_amount' CỐ ĐỊNH từ đây trở đi, 'amount' là nơi cập nhật
+                // khi giá thay đổi sau này. Số tiền cần thu qua PayOS (cọc hay đủ) tính riêng qua
+                // Order::depositDueAmount(), không lưu trực tiếp vào 2 cột này.
+                'amount'          => $finalAmount,
+                'full_amount'     => $finalAmount,
                 'deposit_percent' => $depositPercentToSave,
                 'coupon_code'     => $firstCode,           // backward compat
                 'coupon_codes'    => $appliedCouponCodes ?: null,
@@ -370,6 +388,10 @@ class BookingController extends Controller
                 'status'          => 'pending',
                 'guest_count'     => $request->guest_count,
                 'category_id'     => $category?->id,
+                // Đơn đặt qua API khách hàng đăng nhập (Customer, không phải App\Models\User) nên
+                // BelongsToPartner::creating() không tự gán được partner_id — gán thẳng theo đúng
+                // partner_id của phòng đang đặt (xem giải thích chi tiết ở GuestBookingController).
+                'partner_id'      => $room->partner_id,
                 'customer_id'     => $customer?->id,
                 'cccd_front'      => $customer?->cccd_front,
                 'cccd_back'       => $customer?->cccd_back,
@@ -1096,17 +1118,18 @@ class BookingController extends Controller
 
             $payOS     = new PayOS($clientId, $apiKey, $checksumKey);
             $expiredAt = now()->addMinutes(15);
+            $dueNow    = $order->depositDueAmount();
 
             $response = $payOS->createPaymentLink([
                 'orderCode'   => (int) $order->order_code,
-                'amount'      => (int) $order->full_amount,
+                'amount'      => $dueNow,
                 'description' => 'TT don ' . $order->order_code,
                 'returnUrl'   => $returnUrl ?? route('payment.success') . '?orderCode=' . $order->order_code,
                 'cancelUrl'   => $cancelUrl ?? route('payment.cancel') . '?orderCode=' . $order->order_code,
                 'buyerName'   => $order->buyer_name ?? '',
                 'buyerPhone'  => $order->buyer_phone ?? '',
                 'expiredAt'   => $expiredAt->timestamp,
-                'items'       => [['name' => $itemName, 'quantity' => 1, 'price' => (int) $order->full_amount]],
+                'items'       => [['name' => $itemName, 'quantity' => 1, 'price' => $dueNow]],
             ]);
 
             $updates = ['expired_at' => $expiredAt];

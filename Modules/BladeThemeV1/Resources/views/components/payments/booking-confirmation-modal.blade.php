@@ -84,6 +84,10 @@
 </div>
 
 <!-- Modal Xác nhận đặt phòng -->
+{{-- x-teleport="body": khung đặt giờ/lịch đặt phòng nằm trong sidebar có position:sticky,
+     mà sticky luôn tạo stacking context riêng nên z-index của modal bị giới hạn trong đó.
+     Teleport ra <body> để modal luôn đè lên trên cùng, không bị khung đặt giờ che mất. --}}
+<template x-teleport="body">
 <div    x-data="{ showModal: false }"
         x-show="showModal"
         x-on:open-booking-modal.window="showModal = true"
@@ -496,3 +500,4 @@
         </div>
     </div>
 </div>
+</template>

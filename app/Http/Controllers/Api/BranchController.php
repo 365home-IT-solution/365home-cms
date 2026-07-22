@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Concerns\BuildsRoomCard;
+use App\Models\ProvinceBranch;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Storage;
 use Modules\BladeThemeV1\Livewire\Book;
 use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
@@ -251,5 +253,85 @@ class BranchController extends Controller
                 'label' => $p->lable_client,
             ])->values(),
         ];
+    }
+
+    // GET /api/v1/branches
+    // ?province_id={id} → chỉ lấy chi nhánh đang active tại tỉnh đó
+    public function index(Request $request): JsonResponse
+    {
+        $query = Category::query()
+            ->whereNull('parent_id')
+            ->where('category_type', 'product')
+            ->where('status', true);
+
+        if ($provinceId = $request->query('province_id')) {
+            $branchIds = ProvinceBranch::where('province_id', $provinceId)
+                ->where('status', true)
+                ->pluck('categorie_id');
+
+            $query->whereIn('id', $branchIds);
+        }
+
+        $branches = $query->orderBy('name')->get();
+
+        return response()->json([
+            'branches' => $branches->map(fn ($branch) => $this->mapBranch($branch))->values(),
+        ]);
+    }
+
+    // GET /api/v1/branches/{id}
+    public function show(int $id): JsonResponse
+    {
+        $branch = Category::where('id', $id)
+            ->whereNull('parent_id')
+            ->where('category_type', 'product')
+            ->first();
+
+        if (! $branch) {
+            return response()->json(['message' => 'Không tìm thấy chi nhánh.'], 404);
+        }
+
+        $provinces = ProvinceBranch::where('categorie_id', $branch->id)
+            ->where('status', true)
+            ->with(['province', 'ward'])
+            ->get()
+            ->map(fn ($pb) => [
+                'province_id'   => $pb->province_id,
+                'province_name' => $pb->province?->name,
+                'ward_code'     => $pb->ward_code,
+                'ward_name'     => $pb->ward?->name,
+            ])
+            ->values();
+
+        return response()->json([
+            'branch' => [
+                ...$this->mapBranch($branch),
+                'provinces' => $provinces,
+            ],
+        ]);
+    }
+
+    private function mapBranch(Category $branch): array
+    {
+        return [
+            'id'          => $branch->id,
+            'name'        => $branch->name,
+            'slug'        => $branch->slug,
+            'description' => $branch->description,
+            'image_url'   => $branch->image ? Storage::disk('public')->url($branch->image) : null,
+            'total_rooms' => $this->countRooms($branch->id),
+        ];
+    }
+
+    // Đếm số phòng thuộc chi nhánh: gán trực tiếp vào category chi nhánh
+    // hoặc vào 1 category con (parent_id = chi nhánh) — cùng logic với BuildsRoomCard::resolveBranch
+    private function countRooms(int $branchId): int
+    {
+        $childIds  = Category::where('parent_id', $branchId)->pluck('id');
+        $allCatIds = $childIds->push($branchId);
+
+        return Product::where('is_activated', true)
+            ->whereHas('categories', fn ($q) => $q->whereIn('category_id', $allCatIds))
+            ->count();
     }
 }

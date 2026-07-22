@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Product\App\Filament\Resources\RoomSpecialResource\Tables;
 
+use App\Filament\Support\PartnerTableHelpers;
 use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
@@ -51,11 +52,13 @@ class RoomSpecialTable
                     ->dateTime('d/m/Y')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
+                PartnerTableHelpers::column('product.partner.name'),
             ])
             ->filters([
                 SelectFilter::make('product_id')
                     ->label('Phòng')
                     ->relationship('product', 'name'),
+                PartnerTableHelpers::filterThroughRelation('product'),
             ])
             ->defaultSort('product_id')
             ->actions([

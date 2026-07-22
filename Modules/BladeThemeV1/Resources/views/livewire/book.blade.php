@@ -228,7 +228,8 @@
 
         return summary;
     }
-}" x-on:book-category-changed.window="resetSelection()">
+}" x-on:book-category-changed.window="resetSelection()"
+    data-room-ids="{{ implode(',', $this->roomIds) }}">
     <div class="w-full mx-auto">
         @include('bladethemev1::livewire.book._header')
 

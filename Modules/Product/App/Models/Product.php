@@ -2,12 +2,14 @@
 
 namespace Modules\Product\App\Models;
 
+use App\Models\Concerns\BelongsToPartner;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Modules\Category\Entities\Category;
 use Modules\Category\Traits\Categorizable;
 use Modules\Comment\Entities\Comment;
+use Modules\Employee\Entities\Employee;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 use Spatie\Tags\HasTags;
@@ -20,13 +22,17 @@ class Product extends Model implements HasMedia, Resourceable
         Categorizable,
         InteractsWithMedia,
         HasTags,
-        HasUlids;
+        HasUlids,
+        BelongsToPartner;
 
     protected $fillable = [
+        'partner_id',
         'name',
         'slug',
         'sku',
         'type',
+        'bed_type',
+        'room_area_sqm',
         'description',
         'short_description',
         'price',
@@ -40,6 +46,7 @@ class Product extends Model implements HasMedia, Resourceable
         'is_activated',
         'is_shipped',
         'is_trend',
+        'housekeeping_status',
         'wifi',
         'home_code',
         'lock_id',
@@ -73,6 +80,7 @@ class Product extends Model implements HasMedia, Resourceable
         'discount'     => 'decimal:2',
         'vat'          => 'decimal:2',
         'weight'       => 'decimal:2',
+        'room_area_sqm' => 'decimal:2',
         'rating_score' => 'decimal:1',
         'is_in_stock'     => 'boolean',
         'is_activated'    => 'boolean',
@@ -156,6 +164,63 @@ class Product extends Model implements HasMedia, Resourceable
     public function orderItems()
     {
         return $this->hasMany(\Modules\Payment\Entities\OrderItem::class, 'product_id');
+    }
+
+    public function cleaningLogs()
+    {
+        return $this->hasMany(RoomCleaningLog::class, 'product_id')->latest('marked_for_cleaning_at');
+    }
+
+    // Lượt dọn đang chờ xác nhận (nếu phòng đang ở trạng thái 'cleaning') — dùng để cập nhật
+    // đúng dòng log khi nhân viên xác nhận đã dọn xong, thay vì tạo dòng mới mỗi lần.
+    public function pendingCleaningLog()
+    {
+        return $this->cleaningLogs()->whereNull('cleaned_at')->first();
+    }
+
+    public function isBeingCleaned(): bool
+    {
+        return $this->housekeeping_status === 'cleaning';
+    }
+
+    public function markForCleaning(?int $orderItemId = null): void
+    {
+        if ($this->housekeeping_status !== 'available') {
+            return;
+        }
+
+        $this->update(['housekeeping_status' => 'cleaning']);
+
+        $this->cleaningLogs()->create([
+            'order_item_id'           => $orderItemId,
+            'marked_for_cleaning_at'  => now(),
+        ]);
+    }
+
+    public function confirmCleaned(Employee $employee, ?string $note = null): void
+    {
+        $this->update(['housekeeping_status' => 'available']);
+
+        $log = $this->pendingCleaningLog();
+
+        if ($log) {
+            $log->update([
+                'employee_id' => $employee->id,
+                'cleaned_at'  => now(),
+                'note'        => $note,
+            ]);
+
+            return;
+        }
+
+        // Không có log tự động (vd super_admin/nhân viên tự bấm dọn thủ công trước đó) — vẫn ghi
+        // lại 1 dòng để có audit trail đầy đủ.
+        $this->cleaningLogs()->create([
+            'employee_id'            => $employee->id,
+            'marked_for_cleaning_at' => now(),
+            'cleaned_at'             => now(),
+            'note'                   => $note,
+        ]);
     }
 
     public function manualLockPasswords()

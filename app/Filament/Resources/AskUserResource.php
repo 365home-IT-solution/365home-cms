@@ -28,9 +28,11 @@ class AskUserResource extends Resource
     protected static ?string $pluralModelLabel = 'Thông báo vào app';
     protected static ?int    $navigationSort   = 20;
 
+    // Trước đây hardcode isSuperAdmin() — bỏ qua AskUserPolicy (đã đúng, kiểm tra
+    // view_any_ask::user), khiến tick/bỏ tick quyền này ở Roles & Permissions vô tác dụng.
     public static function canViewAny(): bool
     {
-        return auth()->user()?->isSuperAdmin() ?? false;
+        return auth()->user()?->can('view_any_ask::user') ?? false;
     }
 
     public static function form(Form $form): Form

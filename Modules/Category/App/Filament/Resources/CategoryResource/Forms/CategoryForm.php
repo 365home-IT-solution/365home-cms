@@ -91,9 +91,43 @@ class CategoryForm
             ->schema([
                 self::parentCategoryInput(),
                 self::categoryTypeInput(),
+                self::partnerInput(),
                 self::statusToggle(),
             ])
             ->columnSpan(1);
+    }
+
+    // Chỉ super_admin thấy field này (chọn chi nhánh thuộc đối tác nào) — tài khoản đối tác/nhân
+    // viên tạo chi nhánh thì partner_id tự động lấy theo tài khoản đang đăng nhập (xem
+    // CreateCategory::mutateFormDataBeforeCreate), không cần tự chọn.
+    // Nếu KHÔNG gán partner_id, chi nhánh sẽ không hiện trong bất kỳ select "Chi nhánh" nào ở
+    // các tài khoản đối tác — vì các select đó lọc theo partner_id của người đăng nhập.
+    private static function partnerInput(): Select
+    {
+        return Select::make('partner_id')
+            ->label('Đối tác sở hữu')
+            // KHÔNG dùng ->relationship('partner', 'name') — Partner dùng Soft Delete, quan hệ
+            // Eloquent mặc định LOẠI TRỪ đối tác đã xoá khỏi CẢ options() lẫn tra nhãn hiển thị, nên
+            // nếu chi nhánh đang gán cho 1 đối tác đã bị xoá, field này sẽ hiện TRỐNG (như chưa gán
+            // đối tác) dù partner_id thực tế vẫn đang trỏ đúng — dễ khiến admin tưởng nhầm là thiếu
+            // dữ liệu. Tự liệt kê + tra nhãn bằng withTrashed() để LUÔN hiện đúng, đồng thời đánh
+            // dấu rõ "(đã xoá)" cho đối tác không còn hoạt động.
+            ->options(fn () => \App\Models\Partner::withTrashed()
+                ->orderBy('name')
+                ->get()
+                ->mapWithKeys(fn ($partner) => [
+                    $partner->id => $partner->name . ($partner->trashed() ? ' (đã xoá)' : ''),
+                ])
+                ->all())
+            ->getOptionLabelUsing(fn ($value) => $value
+                ? \App\Models\Partner::withTrashed()->find($value)?->name
+                : null)
+            ->dehydrated()
+            ->searchable()
+            ->preload()
+            ->visible(fn () => auth()->user()?->isSuperAdmin() ?? false)
+            ->required(fn (Get $get) => $get('category_type') === 'product')
+            ->helperText('Bắt buộc chọn với chi nhánh (category_type = product) — nếu không, tài khoản đối tác sẽ không thấy chi nhánh này ở bất kỳ đâu.');
     }
 
     private static function parentCategoryInput(): SelectTree
@@ -128,7 +162,9 @@ class CategoryForm
                                   ->orWhereIn('parent_id', $allowedIds);
                             });
                         } else {
-                            $query->whereRaw('1 = 0');
+                            // Chưa gán quyền chi nhánh cụ thể thì mặc định thấy chi nhánh của
+                            // đối tác mình (partner_id), không chặn hết.
+                            $query->where('partner_id', $user->partner_id);
                         }
                     } elseif ($categoryType === 'post') {
                         $allowedPostIds = $user->allowedDirectPostRootIds();
@@ -151,6 +187,7 @@ class CategoryForm
             ->live(onBlur:true)
             ->enableBranchNode()
             ->nullable()
+            ->helperText('Không bắt buộc. Chỉ chọn nếu đây là khu vực/chi nhánh con nằm trong 1 chi nhánh khác đã có — để trống nếu đây là chi nhánh độc lập.')
             ->dehydrateStateUsing(function ($state, $get) {
                 $currentId = $get('id');
 
@@ -166,7 +203,8 @@ class CategoryForm
             ->label(__('category::category.form.label.category_type'))
             ->placeholder(__('category::category.form.placeholder.category_type'))
             ->required()
-            ->live(onBlur:true)
+            ->default('product')
+            ->live()
             ->options([
                 'product' => __('category::category.form.options.product'),
                 'post' => __('category::category.form.options.post'),

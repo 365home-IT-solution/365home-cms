@@ -17,7 +17,18 @@ class ProductFilter
             SelectFilter::make('categories')
                 ->label(__('product::product.filter.label.categories'))
                 ->preload()
-                ->options(Category::where('category_type', 'product')->pluck('name', 'id')->toArray())
+                ->options(function () {
+                    $user  = auth()->user();
+                    $query = Category::where('category_type', 'product');
+
+                    if ($user && ! $user->isSuperAdmin()) {
+                        // Category không có global scope partner_id riêng — mặc định chỉ thấy
+                        // chi nhánh của đối tác mình.
+                        $query->where('partner_id', $user->partner_id);
+                    }
+
+                    return $query->pluck('name', 'id')->toArray();
+                })
                 ->query(function ($query, $state) {
                     if ($state) {
                         if ($state['value'] == null) {

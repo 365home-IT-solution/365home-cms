@@ -10,16 +10,99 @@ use Filament\Resources\Pages\EditRecord;
 use Filament\Forms;
 use Filament\Support;
 use Filament\Support\Enums\Alignment;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\HtmlString;
 use JoseEspinal\RecordNavigation\Traits\HasRecordNavigation;
+use Modules\Employee\Entities\Employee;
+use Modules\User\App\Filament\Resources\UserResource\Forms\UserForm;
+use Spatie\Permission\Models\Role;
 
 class EditUser extends EditRecord
 {
     use HasRecordNavigation;
 
     protected static string $resource = UserResource::class;
+
+    // Nạp lại field hồ sơ nhân viên (bảng employees) liên kết với tài khoản này vào form —
+    // UserForm đã gộp các field này vào tab "Thông tin"/"Thiết lập lương". 'account_type' phản
+    // ánh loại tài khoản THỰC TẾ đã tạo (radio bị disabled khi sửa — xem UserForm), không cho
+    // đổi qua lại giữa "Nhân viên" và "Chủ đối tác" sau khi đã tạo.
+    protected function mutateFormDataBeforeFill(array $data): array
+    {
+        return UserForm::fillEmployeeData($this->getRecord(), $data);
+    }
+
+    protected function handleRecordUpdate(Model $record, array $data): Model
+    {
+        $authUser   = auth()->user();
+        $partnerId  = $authUser->isSuperAdmin() ? ($data['partner_id'] ?? $record->partner_id) : $authUser->partner_id;
+        $isEmployee = ($data['account_type'] ?? ($record->employee ? 'employee' : 'partner')) === 'employee';
+
+        $userUpdate               = collect($data)->except([
+            'media', 'passwordConfirmation', 'employee_code', 'account_type',
+            'work_branch_ids', 'allowances', 'deductions',
+        ])->toArray();
+        $userUpdate['partner_id'] = $partnerId;
+
+        $record->update($userUpdate);
+
+        if (! $isEmployee) {
+            return $record;
+        }
+
+        $employeeData               = collect($data)->except([
+            'media', 'password', 'passwordConfirmation', 'account_type',
+            'work_branch_ids', 'allowances', 'deductions', 'employee_code',
+        ])->toArray();
+        $employeeData['name']       = $data['fullname'] ?? $record->fullname;
+        $employeeData['partner_id'] = $partnerId;
+
+        $employee = $record->employee;
+
+        if ($employee) {
+            $employee->update($employeeData);
+        } else {
+            $employee = Employee::create([
+                ...$employeeData,
+                'user_id'    => $record->id,
+                'created_by' => $authUser->id,
+            ]);
+        }
+
+        $employee->workBranches()->sync($data['work_branch_ids'] ?? []);
+
+        $employee->allowanceTypes()->sync(
+            collect($data['allowances'] ?? [])
+                ->filter(fn ($row) => filled($row['id'] ?? null))
+                ->mapWithKeys(fn ($row) => [$row['id'] => ['amount' => $row['amount'] ?? 0]])
+        );
+
+        $employee->deductionTypes()->sync(
+            collect($data['deductions'] ?? [])
+                ->filter(fn ($row) => filled($row['id'] ?? null))
+                ->mapWithKeys(fn ($row) => [$row['id'] => ['amount' => $row['amount'] ?? 0]])
+        );
+
+        return $record;
+    }
+
+    // Với Filament, saveRelationships() (đồng bộ field 'roles' đã chọn ở tab Phân quyền) chạy
+    // BÊN TRONG $this->form->getState() — tức là chạy TRƯỚC handleRecordUpdate(), rồi afterSave()
+    // mới chạy sau cùng. Đảm bảo ở đây: tài khoản "Chủ đối tác" (không có hồ sơ Employee) luôn
+    // giữ role 'partner', phòng trường hợp super_admin lỡ bỏ chọn role này khi sửa — nếu không,
+    // tài khoản sẽ mất hết role, không đăng nhập được và bị xếp nhầm vào tab "Khách hàng".
+    protected function afterSave(): void
+    {
+        if ($this->record->employee) {
+            return;
+        }
+
+        $this->record->roles()->syncWithoutDetaching(
+            Role::where('name', 'partner')->where('guard_name', 'web')->pluck('id')
+        );
+    }
 
     protected function getHeaderActions(): array
     {

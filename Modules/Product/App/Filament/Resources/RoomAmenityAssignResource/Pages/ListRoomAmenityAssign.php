@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Product\App\Filament\Resources\RoomAmenityAssignResource\Pages;
 
+use App\Filament\Support\PartnerTableHelpers;
 use Filament\Actions\Action;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Section;
@@ -130,6 +131,10 @@ class ListRoomAmenityAssign extends ListRecords
                             . (count($names) > 5 ? ' +' . (count($names) - 5) . ' nữa' : '');
                     })
                     ->wrap(),
+                PartnerTableHelpers::column(),
+            ])
+            ->filters([
+                PartnerTableHelpers::filter(),
             ]);
     }
 }

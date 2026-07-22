@@ -16,9 +16,11 @@ class ProductAction
     {
         return [
             AssignLockAction::make(),
+            RoomCleaningAction::confirmCleaning(),
             ActionGroup::make([
                 ViewAction::make()->label('Xem chi tiết')->modalWidth(MaxWidth::Full),
                 EditAction::make()->label('Cập nhật'),
+                RoomCleaningAction::markForCleaning(),
                 DeleteAction::make('Xóa')
             ])
         ];

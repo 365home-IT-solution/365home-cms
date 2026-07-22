@@ -2,6 +2,7 @@
 
 namespace Modules\AccessCode\Entities;
 
+use App\Models\Concerns\BelongsToPartner;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Modules\Category\Entities\Category;
@@ -10,9 +11,10 @@ use Modules\Zns\App\Models\ZnsNotification;
 
 class AccessCode extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToPartner;
 
     protected $fillable = [
+        'partner_id',
         'code',
         'category_id',
         'status',

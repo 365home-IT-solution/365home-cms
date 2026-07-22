@@ -34,9 +34,11 @@ class GuestCustomerResource extends Resource
         return false;
     }
 
+    // Trước đây hardcode isSuperAdmin() — bỏ qua GuestCustomerPolicy (đã đúng, kiểm tra
+    // view_any_guest::customer), khiến tick/bỏ tick quyền này ở Roles & Permissions vô tác dụng.
     public static function canViewAny(): bool
     {
-        return auth()->user()?->isSuperAdmin() ?? false;
+        return auth()->user()?->can('view_any_guest::customer') ?? false;
     }
 
     public static function form(Form $form): Form

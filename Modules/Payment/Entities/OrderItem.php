@@ -32,6 +32,7 @@ class OrderItem extends Model implements HasMedia
         'guest_count',
         'expiry_notified',
         'checkout_notified',
+        'housekeeping_triggered',
     ];
 
     protected $casts = [
@@ -39,6 +40,7 @@ class OrderItem extends Model implements HasMedia
         'checkin_date' => 'datetime',
         'checkout_date' => 'datetime',
         'over_night' => 'boolean',
+        'housekeeping_triggered' => 'boolean',
     ];
 
     protected $dates = [

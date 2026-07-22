@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\TtlockAccountResource\Pages;
+use App\Filament\Support\PartnerTableHelpers;
 use App\Models\TtlockAccount;
 use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Section;
@@ -30,9 +31,11 @@ class TtlockAccountResource extends Resource
     protected static ?string $pluralModelLabel = 'Tài khoản TTLock';
     protected static ?int    $navigationSort  = 90;
 
+    // Trước đây hardcode isSuperAdmin() — bỏ qua permission view_any_ttlock::account (đã có sẵn),
+    // khiến tick/bỏ tick quyền này ở Roles & Permissions vô tác dụng.
     public static function canViewAny(): bool
     {
-        return auth()->user()?->isSuperAdmin() ?? false;
+        return auth()->user()?->can('view_any_ttlock::account') ?? false;
     }
 
     public static function form(Form $form): Form
@@ -143,6 +146,10 @@ class TtlockAccountResource extends Resource
                     ->dateTime('d/m/Y H:i')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
+                PartnerTableHelpers::column(),
+            ])
+            ->filters([
+                PartnerTableHelpers::filter(),
             ])
             ->actions([
                 EditAction::make(),

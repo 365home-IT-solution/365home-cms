@@ -55,6 +55,12 @@ class CouponResource extends Resource
         $allowedCategoryIds = $user->allowedCategoryIds();
         $allowedBranchIds   = $user->allowedBranchIds();
 
+        // Coupon đã lọc theo partner_id qua BelongsToPartner; chưa gán quyền chi nhánh cụ thể thì
+        // không thu hẹp thêm (tránh chặn nhầm toàn bộ coupon của đối tác mình).
+        if (empty($allowedCategoryIds) && empty($allowedBranchIds)) {
+            return $query;
+        }
+
         // Room IDs thuộc các chi nhánh (bao gồm cả danh mục con)
         $permittedRoomIds = Product::whereHas(
             'categories',

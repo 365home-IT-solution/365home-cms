@@ -11,6 +11,9 @@ use Filament\Notifications\Notification;
 use Filament\Pages\SettingsPage;
 use Filament\Support\Facades\FilamentView;
 use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use JulioMotol\FilamentPasswordConfirmation\RequiresPasswordConfirmation;
 
@@ -41,11 +44,81 @@ class ManageMail extends SettingsPage
     {
         $this->callHook('beforeFill');
 
-        $data = $this->mutateFormDataBeforeFill(app(static::getSettings())->toArray());
+        // MailSettings mã hoá username/password bằng APP_KEY lúc lưu — nếu database hiện tại (vd
+        // vừa import từ máy/server khác, hoặc APP_KEY vừa đổi) có dữ liệu mail mã hoá bằng 1
+        // APP_KEY KHÁC, app(MailSettings::class)->toArray() sẽ ném DecryptException ngay khi load,
+        // làm SẬP CẢ TRANG trước khi kịp hiển thị form để nhập lại — nhân viên không còn cách nào
+        // vào trang này để sửa. Bọc try/catch: giải mã lỗi thì coi như username/password CHƯA
+        // NHẬP (rỗng), các trường còn lại (host, port...) không mã hoá nên vẫn hiển thị đúng bình
+        // thường — trang luôn vào được, nhập lại xong Lưu là hết lỗi hẳn (ghi đè bằng APP_KEY hiện
+        // tại), không cần ai phải sửa tay dưới database nữa.
+        try {
+            $data = app(static::getSettings())->toArray();
+        } catch (\Throwable $e) {
+            Log::warning('ManageMail: không giải mã được mail settings hiện có (APP_KEY không khớp dữ liệu đã lưu) — hiển thị form trống để nhập lại.', [
+                'error' => $e->getMessage(),
+            ]);
+
+            $data = $this->loadMailSettingsIgnoringDecryptFailure();
+        }
+
+        $data = $this->mutateFormDataBeforeFill($data);
 
         $this->form->fill($data);
 
         $this->callHook('afterFill');
+    }
+
+    // Đọc thẳng bảng settings (group=mail), tự bỏ qua riêng từng trường mã hoá (username/password)
+    // nếu giải mã lỗi — thay vì để 1 trường lỗi làm hỏng luôn toàn bộ dữ liệu còn lại.
+    private function loadMailSettingsIgnoringDecryptFailure(): array
+    {
+        $rows = DB::table('settings')->where('group', 'mail')->pluck('payload', 'name');
+
+        $decode = function (string $name, mixed $default = null) use ($rows) {
+            if (! isset($rows[$name])) {
+                return $default;
+            }
+
+            return json_decode($rows[$name], true) ?? $default;
+        };
+
+        $decryptSafely = function (string $name) use ($rows) {
+            if (! isset($rows[$name])) {
+                return null;
+            }
+
+            $encrypted = json_decode($rows[$name], true);
+
+            if (blank($encrypted)) {
+                return null;
+            }
+
+            try {
+                // decrypt() (unserialize=true, mặc định) — KHÔNG dùng decryptString() — vì
+                // Spatie\LaravelSettings\Support\Crypto::encrypt() dùng helper encrypt() gốc
+                // (có serialize), phải giải mã đúng cặp bằng decrypt()/Crypt::decrypt() mới ra
+                // đúng chuỗi gốc, decryptString() sẽ trả về dạng còn serialize dở (vd s:5:"abc";).
+                return Crypt::decrypt($encrypted);
+            } catch (\Throwable) {
+                return null;
+            }
+        };
+
+        return [
+            'driver'             => $decode('driver'),
+            'host'               => $decode('host'),
+            'port'               => $decode('port', 0),
+            'encryption'         => $decode('encryption'),
+            'timeout'            => $decode('timeout'),
+            'local_domain'       => $decode('local_domain'),
+            'from_address'       => $decode('from_address'),
+            'from_name'          => $decode('from_name'),
+            'lock_notify_emails' => $decode('lock_notify_emails', []),
+            // 2 trường này là nguồn gốc lỗi — giải mã riêng từng trường, lỗi thì để trống.
+            'username'           => $decryptSafely('username'),
+            'password'           => $decryptSafely('password'),
+        ];
     }
 
     public function form(Form $form): Form

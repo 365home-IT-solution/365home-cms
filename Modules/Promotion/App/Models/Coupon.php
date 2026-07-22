@@ -2,6 +2,7 @@
 
 namespace Modules\Promotion\App\Models;
 
+use App\Models\Concerns\BelongsToPartner;
 use App\Models\Customer;
 use App\Models\MembershipTier;
 use App\Models\User;
@@ -13,9 +14,10 @@ use Modules\Product\App\Models\Product;
 
 class Coupon extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToPartner;
 
     protected $fillable = [
+        'partner_id',
         'code',
         'name',
         'description',

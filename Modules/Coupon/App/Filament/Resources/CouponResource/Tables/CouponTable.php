@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Coupon\App\Filament\Resources\CouponResource\Tables;
 
+use App\Filament\Support\PartnerTableHelpers;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Modules\Coupon\App\Filament\Resources\CouponResource\Tables\Actions\CouponAction;
@@ -123,9 +124,13 @@ class CouponTable
                     ->dateTime('d/m/Y H:i')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
+                PartnerTableHelpers::column(),
             ])
             ->defaultSort('created_at', 'desc')
-            ->filters(CouponFilter::filter())
+            ->filters([
+                ...CouponFilter::filter(),
+                PartnerTableHelpers::filter(),
+            ])
             ->actions(CouponAction::action())
             ->bulkActions(CouponBulkAction::bulkActions());
     }

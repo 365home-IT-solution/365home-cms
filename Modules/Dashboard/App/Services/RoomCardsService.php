@@ -40,19 +40,16 @@ class RoomCardsService
             'failed'    => '#ef4444',
         ];
 
-        $empty = ['branches' => [], 'rooms' => [], 'total_rooms' => 0, 'total_orders' => 0,
-                  'total_active' => 0, 'total_today' => 0, 'total_upcoming' => 0, 'total_overdue' => 0];
-
         $productQuery = Product::with(['categories.parent'])->where('is_activated', true);
 
         if ($user && ! $user->isSuperAdmin()) {
+            // Product đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds chỉ thu hẹp thêm.
             $allowedCategoryIds = $user->allowedCategoryIds() ?? [];
-            if (empty($allowedCategoryIds)) {
-                return $empty;
+            if (! empty($allowedCategoryIds)) {
+                $productQuery->whereHas('categories', function ($q) use ($allowedCategoryIds) {
+                    $q->whereIn('categories.id', $allowedCategoryIds);
+                });
             }
-            $productQuery->whereHas('categories', function ($q) use ($allowedCategoryIds) {
-                $q->whereIn('categories.id', $allowedCategoryIds);
-            });
         }
 
         $products   = $productQuery->orderBy('name')->get();
@@ -79,7 +76,26 @@ class RoomCardsService
             ->get()
             ->groupBy('product_id');
 
-        $rooms = $products->map(function ($product) use ($allItems, $statusLabels, $statusColors, $newThreshold, $today, $now) {
+        // Hoàn tiền đang chờ — dùng để hiện icon cảnh báo nhỏ trên thẻ phòng ở Dashboard, KHÔNG
+        // giới hạn theo khoảng ngày hiển thị đơn ở trên (đơn có thể đã checkout từ lâu nhưng
+        // khoản hoàn tiền vẫn chưa xử lý xong, staff vẫn cần thấy).
+        $pendingRefundsByProduct = OrderItem::whereIn('product_id', $productIds)
+            ->whereNotNull('product_id')
+            ->whereHas('order', fn ($q) => $q->where('extra_refund_amount', '>', 0)->whereNull('extra_refund_paid_at'))
+            ->with('order')
+            ->get()
+            ->groupBy('product_id')
+            ->map(function ($items) {
+                $order = $items->first()->order;
+                return [
+                    'order_id'   => $order->id,
+                    'order_code' => $order->order_code ?? '—',
+                    'buyer_name' => $order->buyer_name ?? 'Khách',
+                    'amount'     => (int) $order->extra_refund_amount,
+                ];
+            });
+
+        $rooms = $products->map(function ($product) use ($allItems, $pendingRefundsByProduct, $statusLabels, $statusColors, $newThreshold, $today, $now) {
             $category   = $product->categories->first();
             $parent     = $category ? $category->parent : null;
             $branchName = $parent ? $parent->name : ($category ? $category->name : 'Chưa phân loại');
@@ -136,7 +152,12 @@ class RoomCardsService
                     'status_color' => $statusColors[$status] ?? '#94a3b8',
                     'checkin'      => $checkinLabel,
                     'checkout'     => $checkoutLabel,
-                    'amount'       => $order->full_amount ?? 0,
+                    // Mốc thời gian THẬT (unix seconds) — dùng để đặt vị trí đoạn trên thanh dải
+                    // thời gian (view "Dải giờ"), 'checkin'/'checkout' ở trên chỉ là nhãn hiển thị
+                    // (đã format "Hôm nay"/"Ngày mai"...), không đủ chính xác để tính vị trí %.
+                    'checkin_ts'   => $checkinDate?->timestamp,
+                    'checkout_ts'  => $checkoutDate?->timestamp,
+                    'amount'       => $order->amount ?? 0,
                     'created_at'     => $order->created_at ? $order->created_at->diffForHumans() : '',
                     'created_at_fmt' => $order->created_at ? $order->created_at->format('d/m/Y H:i') : '',
                     'is_new'         => $order->created_at !== null && $order->created_at >= $newThreshold,
@@ -194,8 +215,20 @@ class RoomCardsService
                                 ])
                                 ->values()
                                 ->toArray();
-                            // Lấy full_amount thực tế từ DB (đã gồm KM + chiết khấu + phụ thu)
-                            $entry['amount'] = (int)($first->order?->full_amount ?? 0);
+                            // checkin_ts/checkout_ts (dùng cho view "Dải giờ") phải bao trọn TOÀN
+                            // BỘ các khung giờ của đơn (từ khung sớm nhất tới khung muộn nhất) —
+                            // buildEntry() ở trên chỉ lấy từ item ĐẦU TIÊN nên nếu đơn có 2+ khung
+                            // giờ (vd 8h30-11h20 và 11h50-14h40), thanh dải giờ trước đây bị cắt
+                            // cụt chỉ còn khung đầu. 2 khung của CÙNG 1 khách coi là 1 lượt lưu trú
+                            // liên tục, nối liền thành 1 đoạn duy nhất, không tách rời trên thanh.
+                            if (! empty($entry['slot_ranges'])) {
+                                $entry['checkin_ts']  = min(array_column($entry['slot_ranges'], 'start_ts'));
+                                $entry['checkout_ts'] = max(array_column($entry['slot_ranges'], 'end_ts'));
+                            }
+                            // Lấy 'amount' thực tế từ DB (tổng thực thu hiện tại — đã gồm KM +
+                            // chiết khấu + phụ thu phát sinh nếu có; 'full_amount' chỉ là tổng giá
+                            // gốc cố định lúc đặt, không phản ánh phụ phí phát sinh sau này)
+                            $entry['amount'] = (int)($first->order?->amount ?? 0);
                         }
                         return $entry;
                     })
@@ -235,7 +268,7 @@ class RoomCardsService
                                 );
                                 $entry['segment'] = $anyToday ? 'today' : 'upcoming';
                             }
-                            $entry['amount'] = (int)($first->order?->full_amount ?? 0);
+                            $entry['amount'] = (int)($first->order?->amount ?? 0);
                         }
                         return $entry;
                     })
@@ -253,19 +286,21 @@ class RoomCardsService
             $overdueCount  = count(array_filter($orders, fn ($o) => $o['segment'] === 'overdue'));
 
             return [
-                'product_id'     => $product->id,
-                'room_name'      => $product->name,
-                'branch'         => $branchName,
-                'branch_id'      => $branchId,
-                'styles'         => (int) $product->styles,
-                'orders'         => $orders,
-                'count'          => count($orders),
-                'active_count'   => $activeCount,
-                'today_count'    => $todayCount,
-                'upcoming_count' => $upcomingCount,
-                'overdue_count'  => $overdueCount,
-                'has_new'        => $hasNew,
-                'latest_time'    => $latestTime,
+                'product_id'          => $product->id,
+                'room_name'           => $product->name,
+                'branch'              => $branchName,
+                'branch_id'           => $branchId,
+                'styles'              => (int) $product->styles,
+                'orders'              => $orders,
+                'count'               => count($orders),
+                'active_count'        => $activeCount,
+                'today_count'         => $todayCount,
+                'upcoming_count'      => $upcomingCount,
+                'overdue_count'       => $overdueCount,
+                'has_new'             => $hasNew,
+                'latest_time'         => $latestTime,
+                'housekeeping_status' => $product->housekeeping_status ?? 'available',
+                'pending_refund'      => $pendingRefundsByProduct->get($product->id),
             ];
         })->toArray();
 
@@ -318,6 +353,11 @@ class RoomCardsService
             'total_today'    => array_sum(array_column($rooms, 'today_count')),
             'total_upcoming' => array_sum(array_column($rooms, 'upcoming_count')),
             'total_overdue'  => array_sum(array_column($rooms, 'overdue_count')),
+            // Mốc 00:00-24:00 hôm nay (unix seconds) — dùng chung cho view "Dải giờ" để đặt vị trí
+            // đoạn/đường "hiện tại" trên thanh, đảm bảo blade (load lần đầu) và JS (polling) tính
+            // trùng khớp nhau.
+            'today_start_ts' => $today->copy()->startOfDay()->timestamp,
+            'today_end_ts'   => $today->copy()->endOfDay()->timestamp,
         ];
     }
 

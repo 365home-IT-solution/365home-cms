@@ -2,17 +2,19 @@
 
 namespace Modules\BladeThemeV1\App\Models;
 
+use App\Models\Concerns\BelongsToPartner;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 
 class AdditionService extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToPartner;
 
     protected $table = 'additional_services';
 
     protected $fillable = [
+        'partner_id',
         'name',
         'price',
         'image',

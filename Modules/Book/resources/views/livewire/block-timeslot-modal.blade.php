@@ -1,5 +1,6 @@
 <div x-data="{ open: false }"
      @open-block-timeslot-modal.window="open = true; $wire.resetModal()"
+     @open-block-timeslot-modal-for-room.window="open = true"
      @close-block-timeslot-modal.window="open = false">
 
     {{-- Modal --}}
@@ -52,7 +53,16 @@
                         @if ($isStyle2) Khóa khoảng ngày mới @else Thiết lập tô đen mới @endif
                     </p>
 
-                    {{-- Chọn phòng --}}
+                    {{-- Chọn phòng — ẩn khi mở sẵn cho 1 phòng cụ thể (từ menu ⋮ trên thẻ phòng ở
+                         Dashboard, xem BlockTimeslotModal::openForProduct()), không bắt chọn lại. --}}
+                    @if ($lockedToProduct)
+                    <div>
+                        <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Phòng</label>
+                        <div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200">
+                            {{ $roomOptions[$product_id] ?? '' }}
+                        </div>
+                    </div>
+                    @else
                     <div>
                         <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                             Chọn phòng <span class="text-danger-500">*</span>
@@ -68,6 +78,7 @@
                             <p class="mt-1 text-xs text-danger-500">{{ $message }}</p>
                         @enderror
                     </div>
+                    @endif
 
                     {{-- Chọn khung giờ (chỉ styles=1) --}}
                     @if (!$isStyle2 && $product_id)

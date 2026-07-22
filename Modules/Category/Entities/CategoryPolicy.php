@@ -47,10 +47,6 @@ class CategoryPolicy
      */
     public function delete(User $user, Category $category): bool
     {
-        if ($category->isAssignedToUserPermission()) {
-            return false;
-        }
-
         return $user->can('delete_category');
     }
 
@@ -67,10 +63,6 @@ class CategoryPolicy
      */
     public function forceDelete(User $user, Category $category): bool
     {
-        if ($category->isAssignedToUserPermission()) {
-            return false;
-        }
-
         return $user->can('force_delete_category');
     }
 

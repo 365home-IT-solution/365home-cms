@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Modules\Category\Entities\Category;
 use Modules\Payment\App\Services\CccdScannerService;
 use Illuminate\Validation\ValidationException;
 use Modules\Payment\Entities\Order;
@@ -261,7 +262,22 @@ class GuestBookingController extends Controller
             }
         }
 
-        $category      = $room->categories()->first();
+        // Dữ liệu đối tác cũ (vd 365home) tổ chức category 2 CẤP: chi nhánh thật (parent_id NULL)
+        // → danh mục phòng con CÙNG TÊN với phòng (parent_id = chi nhánh) — Product được gán
+        // categorizable vào danh mục CON đó, không phải thẳng vào chi nhánh. Nếu dùng thẳng kết
+        // quả categories()->first(), 'category_id' của đơn sẽ lưu NHẦM thành danh mục con (hiện
+        // tên phòng thay vì tên chi nhánh khi admin mở sửa đơn) — leo lên tới đúng cấp chi nhánh
+        // (parent_id NULL) trước khi lưu vào đơn.
+        $category = $room->categories()->first();
+        // Giới hạn tối đa 5 lần leo lên — đủ dư cho mọi cấu trúc thực tế (thường chỉ 1-2 cấp),
+        // đồng thời chặn vòng lặp vô hạn nếu dữ liệu category bị lỗi (vd tự trỏ vòng lặp cha-con).
+        for ($i = 0; $i < 5 && $category && $category->parent_id; $i++) {
+            $parent = Category::find($category->parent_id);
+            if (! $parent) {
+                break;
+            }
+            $category = $parent;
+        }
         $paymentMethod = $request->input('payment_method', 'PayOS');
 
         $depositPercentToSave = $depositInfo !== null ? (int) ($depositInfo['percentage']) : null;
@@ -300,8 +316,14 @@ class GuestBookingController extends Controller
             $firstCode = $appliedCouponCodes[0] ?? null;
 
             $order = Order::create([
-                'amount'          => $subtotal,
-                'full_amount'     => $amountDue,
+                // Cả 'amount' và 'full_amount' lưu ĐÚNG TỔNG GIÁ thật của đơn (không phải số tiền
+                // cọc cần trả ngay) — 'full_amount' CỐ ĐỊNH từ đây trở đi (không đổi dù sau này có
+                // phát sinh phụ phí/điều chỉnh giá), 'amount' là nơi cập nhật khi giá thay đổi. Số
+                // tiền THỰC TẾ cần thu qua PayOS (cọc hay đủ) được TÍNH LẠI riêng lúc tạo link
+                // (xem createPayOSLink) từ full_amount * deposit_percent, không lưu trực tiếp vào
+                // 2 cột này.
+                'amount'          => $finalAmount,
+                'full_amount'     => $finalAmount,
                 'deposit_percent' => $depositPercentToSave,
                 'coupon_code'     => $firstCode,
                 'coupon_codes'    => $appliedCouponCodes ?: null,
@@ -315,6 +337,13 @@ class GuestBookingController extends Controller
                 'status'          => 'pending',
                 'guest_count'     => $request->guest_count,
                 'category_id'     => $category?->id,
+                // Đơn đặt qua API khách hàng KHÔNG đăng nhập bằng App\Models\User (mà là Customer/
+                // khách vãng lai) nên BelongsToPartner::creating() không tự gán được partner_id
+                // (chỉ tự gán khi người tạo là User — xem app/Models/Concerns/BelongsToPartner.php).
+                // Gán thẳng theo đúng partner_id của CHÍNH phòng đang đặt — nếu không, đơn tạo ra
+                // sẽ có partner_id = null, khiến admin mở sửa đơn bị "mất" thông tin đối tác/chi
+                // nhánh (Select "Đối tác" không tự chọn được, "Chi nhánh" không hiện tên).
+                'partner_id'      => $room->partner_id,
                 'customer_id'     => null,
                 'device_token'    => $deviceToken,
             ]);
@@ -525,6 +554,8 @@ class GuestBookingController extends Controller
         }
 
         // ── Phụ thu khách ─────────────────────────────────────────────────────
+        $priceInputsChanged = false;
+
         if ($request->has('guest_count')) {
             $newGuestCount = (int) $request->input('guest_count');
             $hasOvernight  = $order->items->contains('over_night', true);
@@ -584,42 +615,9 @@ class GuestBookingController extends Controller
             }
 
             $order->items()->update(['guest_count' => $newGuestCount]);
-
-            $guestRoom      = $order->items->first()?->product;
-            $guestConfig    = $guestRoom?->room_config ?? [];
-            $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
-            $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
+            $order->guest_count = $newGuestCount;
             $updates['guest_count'] = $newGuestCount;
-
-            if ($guestFee > 0) {
-                $itemsSum       = (int) $order->items->sum('price');
-                $oldServicesSum = (int) $order->services->sum('subtotal');
-                $oldSurcharge   = max(0, (int) $order->amount - $itemsSum - $oldServicesSum);
-                $isSlotType     = (int) $guestRoom?->styles === 1;
-                $nights         = $isSlotType ? $this->countNights($order->items) : max(1, $order->items->count());
-                $newSurcharge   = max(0, $newGuestCount - $guestThreshold) * $guestFee * $nights;
-
-                if ($newSurcharge !== $oldSurcharge) {
-                    $newAmtWithSurcharge = max(0, (int) $order->amount - $oldSurcharge + $newSurcharge);
-                    $updates['amount']   = $newAmtWithSurcharge;
-
-                    [$promoDiscount, , $systemDiscount, , $couponDiscount] = $this->computeSlotDiscounts($order, $itemsSum);
-                    $totalDisc = $promoDiscount + $systemDiscount + $couponDiscount;
-
-                    $depositPct = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
-                    if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
-                        $updates['full_amount'] = (int) ceil(max(0, $newAmtWithSurcharge - $totalDisc) * $depositPct / 100);
-                    } else {
-                        $updates['full_amount'] = max(0, $newAmtWithSurcharge - $totalDisc);
-                    }
-
-                    if ($order->checkout_url) {
-                        $updates['checkout_url'] = null;
-                        $updates['qr_code']      = null;
-                        $updates['expired_at']   = null;
-                    }
-                }
-            }
+            $priceInputsChanged = true;
         }
 
         // ── Cập nhật services ─────────────────────────────────────────────────
@@ -636,7 +634,6 @@ class GuestBookingController extends Controller
 
             $availableServices = $room->additionalServices->keyBy('id');
             $servicesData      = [];
-            $addedTotal        = 0;
 
             foreach ($request->input('services') as $index => $entry) {
                 $serviceId = (int) $entry['service_id'];
@@ -650,7 +647,6 @@ class GuestBookingController extends Controller
                 }
 
                 $subtotal       = $service->price * $quantity;
-                $addedTotal    += $subtotal;
                 $servicesData[] = [
                     'service_id'   => $service->id,
                     'service_name' => $service->name,
@@ -660,31 +656,24 @@ class GuestBookingController extends Controller
                 ];
             }
 
-            $oldServicesTotal      = (int) $order->services->sum('subtotal');
-            $currentAmountBase     = isset($updates['amount']) ? (int) $updates['amount'] : (int) $order->amount;
-            $roomBaseAmount        = max(0, $currentAmountBase - $oldServicesTotal);
-            $newSubtotal           = $roomBaseAmount + $addedTotal;
-
             $order->services()->delete();
             foreach ($servicesData as $svc) {
                 $order->services()->create($svc);
             }
+            $order->unsetRelation('services');
+            $priceInputsChanged = true;
+        }
 
-            $itemsSum = (int) $order->items->sum('price');
-            [$promoDiscount, , $systemDiscount, , $couponDiscount] = $this->computeSlotDiscounts($order, $itemsSum);
-            $totalDiscount = $promoDiscount + $systemDiscount + $couponDiscount;
+        // Tính lại TOÀN BỘ tổng giá từ đầu (không dựa vào 'amount'/'full_amount' cũ để cộng trừ
+        // dồn) mỗi khi số khách hoặc dịch vụ thay đổi — tránh sai số tích luỹ qua nhiều lần sửa.
+        // Cả 'amount' và 'full_amount' đều lưu ĐÚNG TỔNG GIÁ MỚI (không phải tiền cọc); số tiền
+        // cần thu ngay qua PayOS tính riêng qua depositDueAmount() lúc rebuild link bên dưới.
+        if ($priceInputsChanged) {
+            $newTotal = $this->recalculateOrderTotal($order);
+            $updates['amount']      = $newTotal;
+            $updates['full_amount'] = $newTotal;
 
-            $depositPct = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
-            if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
-                $newFullAmount = (int) ceil(max(0, $newSubtotal - $totalDiscount) * $depositPct / 100);
-            } else {
-                $newFullAmount = max(0, $newSubtotal - $totalDiscount);
-            }
-
-            $updates['amount']      = $newSubtotal;
-            $updates['full_amount'] = $newFullAmount;
-
-            if ($newFullAmount !== (int) $order->full_amount && $order->checkout_url) {
+            if ($newTotal !== $originalFullAmount && $order->checkout_url) {
                 $updates['checkout_url'] = null;
                 $updates['qr_code']      = null;
                 $updates['expired_at']   = null;
@@ -700,12 +689,14 @@ class GuestBookingController extends Controller
             app(CccdDeclarationService::class)->upsertFromOrder($order->load('items'));
         }
 
-        // Tạo lại link PayOS nếu giá thay đổi
+        // Tạo lại link PayOS nếu giá thay đổi — số tiền thu qua PayOS luôn tính động (cọc hay đủ),
+        // KHÔNG phải full_amount (nay là tổng giá cố định, không phải tiền cần thu ngay).
         $priceChanged = (int) $order->full_amount !== $originalFullAmount;
+        $dueNow       = $order->depositDueAmount();
         if (
             $order->payment_method === 'PayOS' &&
             ($priceChanged || ! $order->checkout_url) &&
-            (int) $order->full_amount >= 2000
+            $dueNow >= 2000
         ) {
             $itemName = $order->items->first()?->name ?? 'Đặt phòng';
             $this->rebuildPayOSLink($order, $itemName);
@@ -853,18 +844,13 @@ class GuestBookingController extends Controller
                 if ($isRemaining) {
                     // Backup cho webhook: cập nhật nếu webhook chưa kịp chạy
                     if ($order->status === 'deposit') {
-                        // Tính full_amount đúng để Observer tích điểm chính xác
-                        $depositPct  = (int) ($order->deposit_percent ?? 0);
-                        $depositPaid = (int) $order->full_amount;
-                        $realTotal   = $depositPct > 0
-                            ? (int) round($depositPaid * 100 / $depositPct)
-                            : $depositPaid;
+                        // full_amount CỐ ĐỊNH từ lúc tạo đơn (tổng giá thật) — không tính ngược từ
+                        // tiền cọc nữa. Chỉ cập nhật 'amount' = tổng thực thu (gồm phụ phí nếu có).
                         $extraCharge = (int) ($order->extra_charge_amount ?? 0);
-                        $totalPaid   = $realTotal + $extraCharge;
+                        $totalPaid   = (int) $order->full_amount + $extraCharge;
 
                         $order->update([
                             'status'            => 'paid',
-                            'full_amount'       => $totalPaid,
                             'amount'            => $totalPaid,
                             'remaining_paid_at' => now(),
                         ]);
@@ -929,11 +915,11 @@ class GuestBookingController extends Controller
             return response()->json(['message' => 'Chỉ áp dụng cho đơn đang ở trạng thái đặt cọc.'], 422);
         }
 
-        $depositPct  = (int) $order->deposit_percent;
-        $depositPaid = (int) $order->full_amount;
-        $realTotal   = $depositPct > 0 ? (int) round($depositPaid * 100 / $depositPct) : $depositPaid;
+        // full_amount CỐ ĐỊNH = tổng giá thật từ lúc tạo đơn — tiền cọc đã thu tính lại từ đó qua
+        // depositDueAmount(), không tính ngược nữa.
+        $depositPaid = $order->depositDueAmount();
         $extraCharge = (int) ($order->extra_charge_amount ?? 0);
-        $remaining   = ($realTotal - $depositPaid) + $extraCharge;
+        $remaining   = ((int) $order->full_amount - $depositPaid) + $extraCharge;
 
         if ($order->remaining_checkout_url && $order->remaining_payos_code) {
             return response()->json([
@@ -1610,6 +1596,39 @@ class GuestBookingController extends Controller
      * Tính lại discount đúng cho slot orders, xử lý cả full_booking và non-full_booking.
      * Returns: [$promoDiscount, $promoApplied, $systemDiscount, $systemDiscountInfo, $couponDiscount, $couponBase]
      */
+    // Tính lại TOÀN BỘ tổng giá của đơn từ đầu (items + dịch vụ + phụ thu khách - giảm giá) dựa
+    // trên dữ liệu HIỆN TẠI đã lưu (không cộng/trừ dồn từ giá trị amount/full_amount cũ) — dùng khi
+    // khách tự sửa số khách/dịch vụ lúc đơn còn pending, tránh sai số tích luỹ qua nhiều lần sửa.
+    private function recalculateOrderTotal(Order $order): int
+    {
+        $order->loadMissing(['items.product', 'services']);
+
+        $itemsSum      = (int) $order->items->sum('price');
+        $servicesTotal = (int) $order->services->sum('subtotal');
+
+        [$promoDiscount, , $systemDiscount, , $couponDiscount] = $this->computeSlotDiscounts($order, $itemsSum);
+        $totalDiscount  = $promoDiscount + $systemDiscount + $couponDiscount;
+        $slotFinalPrice = max(0, $itemsSum - $totalDiscount);
+
+        $room           = $order->items->first()?->product;
+        $guestSurcharge = 0;
+
+        if ($room) {
+            $config    = $room->room_config ?? [];
+            $fee       = (int) ($config['extra_guest_fee'] ?? 0);
+            $threshold = (int) ($config['max_free_guests'] ?? 2);
+            $guests    = (int) $order->guest_count;
+
+            if ($fee > 0 && $guests > $threshold) {
+                $isSlotType     = (int) $room->styles === 1;
+                $nights         = $isSlotType ? $this->countNights($order->items) : max(1, $order->items->count());
+                $guestSurcharge = ($guests - $threshold) * $fee * $nights;
+            }
+        }
+
+        return $slotFinalPrice + $servicesTotal + $guestSurcharge;
+    }
+
     private function computeSlotDiscounts(Order $order, int $itemsSum): array
     {
         $product     = $order->items->first()?->product;
@@ -1827,15 +1846,13 @@ class GuestBookingController extends Controller
         $couponsInfo = $this->buildCouponsInfo($couponCodes, $couponBase);
 
         // ── Deposit & totals ──────────────────────────────────────────────────
+        // full_amount CỐ ĐỊNH = tổng giá thật của đơn (không phải tiền cọc) — không cần suy ngược
+        // nữa. Tiền cọc cần thu tính riêng qua depositDueAmount().
         $totalSlotDiscount = $promoDiscount + $systemDiscount + $couponDiscount;
-        $depositPct = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
-        if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
-            $realFinalAmount = (int) round((int) $order->full_amount * 100 / $depositPct);
-            $totalDiscount   = max(0, (int) $order->amount - $realFinalAmount);
-        } else {
-            $realFinalAmount = (int) $order->full_amount;
-            $totalDiscount   = $totalSlotDiscount;
-        }
+        $depositPct        = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
+        $realFinalAmount   = (int) $order->full_amount;
+        $totalDiscount     = $totalSlotDiscount;
+        $depositDueNow     = $order->depositDueAmount();
 
         $slotsFinal = max(0, $slotsTotal - $promoDiscount - $systemDiscount - $couponDiscount);
 
@@ -1877,8 +1894,8 @@ class GuestBookingController extends Controller
             'deposit'         => $depositPct !== null ? [
                 'type'             => 'deposit',
                 'percentage'       => $depositPct,
-                'deposit_amount'   => (int) $order->full_amount,
-                'remaining_amount' => max(0, $realFinalAmount - (int) $order->full_amount) + (int) ($order->extra_charge_amount ?? 0),
+                'deposit_amount'   => $depositDueNow,
+                'remaining_amount' => max(0, $realFinalAmount - $depositDueNow) + (int) ($order->extra_charge_amount ?? 0),
             ] : null,
             'summary' => [
                 'slots_total'          => $slotsTotal,
@@ -1890,7 +1907,7 @@ class GuestBookingController extends Controller
                 'guest_surcharge'      => $guestSurchargeTotal,
                 'services_total'       => $servicesTotal,
                 'total_after_discount' => $realFinalAmount,
-                'final_amount'         => (int) $order->full_amount,
+                'final_amount'         => $realFinalAmount,
                 'grand_total'          => $realFinalAmount + (int) ($order->extra_charge_amount ?? 0),
             ],
         ];
@@ -2002,17 +2019,18 @@ class GuestBookingController extends Controller
 
             $payOS     = new PayOS($clientId, $apiKey, $checksumKey);
             $expiredAt = now()->addMinutes(15);
+            $dueNow    = $order->depositDueAmount();
 
             $response = $payOS->createPaymentLink([
                 'orderCode'   => (int) $order->order_code,
-                'amount'      => (int) $order->full_amount,
+                'amount'      => $dueNow,
                 'description' => 'TT don ' . $order->order_code,
                 'returnUrl'   => route('payment.success') . '?orderCode=' . $order->order_code,
                 'cancelUrl'   => route('payment.cancel') . '?orderCode=' . $order->order_code,
                 'buyerName'   => $order->buyer_name ?? '',
                 'buyerPhone'  => $order->buyer_phone ?? '',
                 'expiredAt'   => $expiredAt->timestamp,
-                'items'       => [['name' => $itemName, 'quantity' => 1, 'price' => (int) $order->full_amount]],
+                'items'       => [['name' => $itemName, 'quantity' => 1, 'price' => $dueNow]],
             ]);
 
             $updates = ['expired_at' => $expiredAt];
@@ -2054,17 +2072,18 @@ class GuestBookingController extends Controller
 
             $newCode   = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
             $expiredAt = now()->addMinutes(15);
+            $dueNow    = $order->depositDueAmount();
 
             $response = $payOS->createPaymentLink([
                 'orderCode'   => $newCode,
-                'amount'      => (int) $order->full_amount,
+                'amount'      => $dueNow,
                 'description' => 'TT don ' . $order->order_code,
                 'returnUrl'   => route('payment.success') . '?orderCode=' . $order->order_code,
                 'cancelUrl'   => route('payment.cancel') . '?orderCode=' . $order->order_code,
                 'buyerName'   => $order->buyer_name ?? '',
                 'buyerPhone'  => $order->buyer_phone ?? '',
                 'expiredAt'   => $expiredAt->timestamp,
-                'items'       => [['name' => $itemName, 'quantity' => 1, 'price' => (int) $order->full_amount]],
+                'items'       => [['name' => $itemName, 'quantity' => 1, 'price' => $dueNow]],
             ]);
 
             if ($checkoutUrl = $response['checkoutUrl'] ?? null) {

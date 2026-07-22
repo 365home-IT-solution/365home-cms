@@ -73,15 +73,21 @@ class CategoryResource extends Resource implements HasKnowledgeBase
         $allowedProductCategoryIds = $user->allowedCategoryIds();
         $allowedPostCategoryIds    = $user->allowedPostCategoryIds();
 
-        if (empty($allowedProductCategoryIds) && empty($allowedPostCategoryIds)) {
-            return $query->whereRaw('1 = 0');
-        }
+        return $query->where(function (Builder $q) use ($user, $allowedProductCategoryIds, $allowedPostCategoryIds) {
+            // Chi nhánh (category_type='product'): mặc định thấy TOÀN BỘ chi nhánh của đối tác
+            // mình (partner_id) — không còn bắt buộc phải được cấp quyền chi nhánh cụ thể qua
+            // user_branch_permissions như trước (đó là nguyên nhân đối tác mới tạo không thấy
+            // chi nhánh/phòng nào). Nếu user được gán quyền chi nhánh cụ thể thì thu hẹp thêm
+            // theo đó (dùng để giới hạn 1 nhân viên chỉ thấy 1/vài chi nhánh trong số của đối tác).
+            $q->where('category_type', 'product')
+                ->where('partner_id', $user->partner_id)
+                ->when(
+                    ! empty($allowedProductCategoryIds),
+                    fn (Builder $q2) => $q2->whereIn('id', $allowedProductCategoryIds)
+                );
 
-        return $query->where(function (Builder $q) use ($allowedProductCategoryIds, $allowedPostCategoryIds) {
-            if (! empty($allowedProductCategoryIds)) {
-                $q->whereIn('id', $allowedProductCategoryIds);
-            }
-
+            // Category loại 'post' vẫn dùng chung, giữ nguyên yêu cầu quyền chi nhánh cụ thể
+            // như trước (không liên quan tới partner_id).
             if (! empty($allowedPostCategoryIds)) {
                 $q->orWhereIn('id', $allowedPostCategoryIds);
             }

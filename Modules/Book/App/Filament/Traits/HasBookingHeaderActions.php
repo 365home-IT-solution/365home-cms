@@ -365,7 +365,8 @@ trait HasBookingHeaderActions
 
         $categoryIds = $user->allowedCategoryIds();
         if (empty($categoryIds)) {
-            return [];
+            // Không thu hẹp thêm — Product đã tự lọc theo partner_id (BelongsToPartner).
+            return $query->pluck('name', 'id')->toArray();
         }
 
         $allowedIds = Categorizable::where('categorizable_type', Product::class)

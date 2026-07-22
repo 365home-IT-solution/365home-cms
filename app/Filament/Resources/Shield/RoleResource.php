@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Shield;
 
+use App\Filament\Support\PartnerTableHelpers;
 use BezhanSalleh\FilamentShield\Contracts\HasShieldPermissions;
 use BezhanSalleh\FilamentShield\Facades\FilamentShield;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
@@ -125,12 +126,25 @@ class RoleResource extends Resource implements HasShieldPermissions
                     ->label(__('filament-shield::filament-shield.column.permissions'))
                     ->counts('permissions')
                     ->colors(['success']),
+                // Vai trò riêng của đối tác luôn có created_by = tài khoản chủ đối tác đó (xem
+                // UserForm::createRolesTab()) — hiển thị đúng đối tác để super_admin không bị
+                // loạn khi nhìn danh sách role của TẤT CẢ đối tác gộp chung 1 bảng.
+                PartnerTableHelpers::column('creator.partner.name')
+                    ->label('Đối tác')
+                    ->tooltip(fn ($record) => $record->creator?->partner
+                        ? 'Vai trò riêng của: ' . $record->creator->partner->name
+                        : 'Vai trò mẫu / hệ thống — không thuộc đối tác nào')
+                    // Quan hệ 2 cấp (creator -> partner) — không dùng sort/search tự động của
+                    // Filament qua dot-notation để tránh join không đúng ý, đã có SelectFilter
+                    // riêng bên dưới để lọc theo đối tác.
+                    ->searchable(false)
+                    ->sortable(false),
                 Tables\Columns\TextColumn::make('updated_at')
                     ->label(__('filament-shield::filament-shield.column.updated_at'))
                     ->dateTime(),
             ])
             ->filters([
-                //
+                PartnerTableHelpers::filterThroughRelation('creator', 'partner_id'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),

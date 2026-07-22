@@ -3,6 +3,8 @@
 namespace App\Providers;
 
 use App\Http\View\Composers\ProductColorComposer;
+use App\Services\ContractSigning\ContractSigningManager;
+use App\Services\ContractSigning\Contracts\DigitalSignatureProvider;
 use App\Settings\MailSettings;
 use Filament\Tables\Table;
 use Filament\Support\Facades\FilamentView;
@@ -40,6 +42,12 @@ class AppServiceProvider extends ServiceProvider
             return "<?php if(view()->exists($expression)) { echo \Livewire\Livewire::mount($expression)->html(); } ?>";
         });
 
+        // Provider ký số hợp đồng điện tử — chọn theo config/contract_signing.php (mặc định
+        // 'local', đổi sang 'vnpt_smartca' qua .env khi có tài khoản đối tác thật, không cần sửa
+        // ContractSignController/PartnerForm vì cả 2 nơi chỉ phụ thuộc vào interface này.
+        $this->app->bind(DigitalSignatureProvider::class, function ($app) {
+            return $app->make(ContractSigningManager::class)->driver();
+        });
     }
 
     /**

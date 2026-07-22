@@ -145,6 +145,15 @@
 .choices.is-disabled .choices__placeholder.choices__item:is(.dark *), .choices__placeholder.choices__item:is(.dark *) {
     @apply !text-white;
 }
+
+/* Select đã CHỌN giá trị (vd "Chi nhánh"/"Phòng" khi disabled) đôi lúc vẫn được Choices.js gắn
+   chung class .choices__placeholder như ô để trống (chưa chọn), nên bị dính luôn rule "!text-white"
+   ở trên dù đang ở theme sáng — chữ trắng trên nền sáng gần như không đọc được. Ép lại màu chữ rõ
+   ràng cho MỌI item đã hiển thị giá trị thật (không phải placeholder rỗng) ở cả 2 theme.
+   Đặt SAU rule phía trên để có độ ưu tiên cao hơn, ghi đè đúng những item có value thật.*/
+.choices__item.choices__item--selectable:not(.choices__placeholder) {
+    @apply !text-gray-950 dark:!text-white;
+}
 .basis-one {
     flex-basis: 30%;
 }

@@ -48,6 +48,19 @@ class AccessCodeForm
                                     ->label('Chi nhánh')
                                     ->relationship('category', 'name', function ($query) {
                                         $query->where('category_type', 'product');
+
+                                        $user = auth()->user();
+                                        if ($user && ! $user->isSuperAdmin()) {
+                                            // Category không có global scope partner_id riêng —
+                                            // mặc định chỉ thấy chi nhánh của đối tác mình;
+                                            // allowedBranchIds() chỉ thu hẹp thêm nếu có.
+                                            $query->where('partner_id', $user->partner_id);
+
+                                            $allowedIds = $user->allowedBranchIds();
+                                            if (! empty($allowedIds)) {
+                                                $query->whereIn('id', $allowedIds);
+                                            }
+                                        }
                                     })
                                     ->searchable()
                                     ->hintIcon('heroicon-m-map-pin')

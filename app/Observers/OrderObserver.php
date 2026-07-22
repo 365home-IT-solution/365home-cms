@@ -125,6 +125,22 @@ class OrderObserver
     }
 
     /**
+     * Ghi lại mốc thời gian CHÍNH XÁC lúc đơn chuyển sang 'paid' (thanh toán đủ, không cọc) — CHỈ
+     * set 1 LẦN DUY NHẤT rồi giữ nguyên mãi mãi. Trước đây "Lịch sử thanh toán" phải dùng tạm
+     * updated_at cho mốc này, nhưng cột đó bị chính Eloquent cập nhật lại ở MỌI LẦN LƯU sau đó
+     * (thêm/bớt khung giờ, sửa ghi chú...), khiến mốc "Khách thanh toán đầy đủ" hiển thị SAI — trôi
+     * theo lần sửa đơn gần nhất thay vì đúng lúc thanh toán thật sự. Đặt ở saving() (trước khi lưu)
+     * để set trong CÙNG 1 câu UPDATE, áp dụng cho MỌI nơi set status='paid' (webhook PayOS, admin
+     * xác nhận tiền mặt/chuyển khoản, API guest booking...) mà không cần sửa từng nơi gọi.
+     */
+    public function saving(Order $order): void
+    {
+        if ($order->isDirty('status') && $order->status === 'paid' && is_null($order->paid_at)) {
+            $order->paid_at = now();
+        }
+    }
+
+    /**
      * Chỉ notify khi đơn mới tạo ở trạng thái pending
      * (status='deposit' bỏ qua — sẽ được notify bởi updated() sau khi PayOS xác nhận)
      */

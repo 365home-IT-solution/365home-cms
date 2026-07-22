@@ -15,25 +15,88 @@ class ExtraChargeService
     // ─── Tính chênh lệch giá ────────────────────────────────────────────────
 
     /**
-     * Tính chênh lệch giá sau khi admin cập nhật guest_count / services.
+     * Tính chênh lệch giá sau khi admin cập nhật guest_count / services / khung giờ (thêm/bớt
+     * order_item — vd đặt thêm 1 khung giờ, hoặc bỏ bớt 1 khung giờ đã đặt).
      *
-     * @param  Order  $order            Đơn đã refresh với relations (items.product, services)
-     * @param  int    $oldGuestCount
-     * @param  int    $oldServicesTotal Tổng subtotal services CŨ (trước khi save)
-     * @return int    Dương = khách còn nợ thêm, âm = giảm tiền
+     * QUAN TRỌNG: so sánh với full_amount + settled_adjustment_total, KHÔNG chỉ full_amount không —
+     * full_amount CỐ Ý giữ nguyên vĩnh viễn (để "Khách thanh toán đầy đủ" trong Lịch sử thanh toán
+     * luôn hiện đúng số tại THỜI ĐIỂM đó, không bị đội lên sau này), nhưng nếu chỉ so với
+     * full_amount thôi thì mỗi lần phát sinh MỚI sẽ bị CỘNG LẶP LẠI cả những khoản phát sinh đã
+     * XÁC NHẬN THU/HOÀN xong ở lần trước (đã xác nhận thực tế: thêm khung 1 +200k → xác nhận thu →
+     * thêm khung 2 (+200k nữa) lại hiện SAI "+400k" thay vì đúng "+200k", vì hệ thống quên mất
+     * 200k đầu đã thu rồi). settled_adjustment_total lưu tổng các khoản ĐÃ XÁC NHẬN xong (dương =
+     * đã thu thêm, âm = đã hoàn khách — xem markExtraChargeAsCash/markExtraChargeAsTransfer/
+     * handleExtraChargePaid/markRefundAsDone), trừ thêm vào đây để mỗi lần chỉ tính đúng phần MỚI
+     * phát sinh kể từ lần xác nhận gần nhất.
+     *
+     * calculateRealTotal() dùng ĐÚNG 1 công thức duy nhất, khớp OrderForm::computeOrderTotal()
+     * (dùng cho form admin) và total-amount-card.blade.php (card client) — 3 nơi PHẢI cùng ra 1 số.
+     *
+     * @param  Order  $order  Đơn đã refresh với relations (items.product, services)
+     * @return int    Dương = khách còn nợ thêm (thêm khung giờ), âm = cần hoàn tiền (bớt khung giờ)
      */
-    public function calculateDiff(Order $order, int $oldGuestCount, int $oldServicesTotal): int
+    public function calculateDiff(Order $order): int
     {
-        $newServicesTotal = (int) $order->services->sum('subtotal');
+        return $this->calculateRealTotal($order)
+            - (int) ($order->full_amount ?? 0)
+            - (int) ($order->settled_adjustment_total ?? 0);
+    }
 
-        $product   = $order->items->where('extra_fee', 0)->first()?->product
-                     ?? $order->items->first()?->product;
-        $itemCount = $order->items->where('extra_fee', 0)->count() ?: $order->items->count();
+    /**
+     * Tính TỔNG THẬT của đơn — áp dụng bulk_discount_rules theo nhóm product (số khung giờ cùng 1
+     * phòng càng nhiều càng được giảm %) + phụ thu khách vượt số miễn phí (tính 1 lần theo LƯỢT ĐẶT,
+     * xấp xỉ bằng cách lấy guest_count của dòng đầu mỗi nhóm product — cùng quy ước với
+     * OrderTable::computeItemsBulkData()) + tổng dịch vụ thêm.
+     */
+    public function calculateRealTotal(Order $order): int
+    {
+        // Dùng lại collection ĐÃ eager-load (items.product) nếu có — vd OrderTable dùng hàm này để
+        // tính cột "Tổng tiền" cho MỖI dòng trong danh sách đơn, gọi ->items()->get() (query MỚI,
+        // bỏ qua items.product đã eager-load từ trước) sẽ gây N+1 nặng (2 query/dòng × số dòng
+        // hiển thị). Chỉ tự query lại khi thực sự chưa có sẵn (vd gọi trực tiếp trên 1 đơn lẻ).
+        $items = $order->relationLoaded('items')
+            ? $order->items->where('extra_fee', 0)->values()
+            : $order->items()->where('extra_fee', 0)->get();
 
-        $oldSurcharge = $this->calcGuestSurcharge($product, $oldGuestCount, $itemCount);
-        $newSurcharge = $this->calcGuestSurcharge($product, (int) $order->guest_count, $itemCount);
+        $total          = 0;
+        $itemsByProduct = $items->filter(fn ($item) => $item->product_id)->groupBy('product_id');
 
-        return ($newServicesTotal - $oldServicesTotal) + ($newSurcharge - $oldSurcharge);
+        foreach ($itemsByProduct as $groupItems) {
+            $product   = $groupItems->first()->product;
+            $slotCount = $groupItems->count();
+
+            $bulkDiscountPct = 0;
+            if ($product && $slotCount >= 2) {
+                $rules = $product->bulk_discount_rules ?? [];
+                usort($rules, fn ($a, $b) => (int) ($b['slots'] ?? 0) - (int) ($a['slots'] ?? 0));
+                foreach ($rules as $rule) {
+                    if ($slotCount >= (int) ($rule['slots'] ?? 0)) {
+                        $bulkDiscountPct = (float) ($rule['discount'] ?? 0);
+                        break;
+                    }
+                }
+            }
+
+            foreach ($groupItems as $item) {
+                $basePrice = (float) $item->price;
+                if ($bulkDiscountPct > 0) {
+                    $basePrice = round($basePrice * (1 - $bulkDiscountPct / 100));
+                }
+                $total += $basePrice + (float) $item->extra_fee;
+            }
+
+            $total += $this->calcGuestSurcharge($product, (int) ($groupItems->first()->guest_count ?? 1), 1);
+        }
+
+        foreach ($items->filter(fn ($item) => ! $item->product_id) as $item) {
+            $total += (float) $item->price + (float) $item->extra_fee;
+        }
+
+        $total += $order->relationLoaded('services')
+            ? (float) $order->services->sum('subtotal')
+            : (float) $order->services()->sum('subtotal');
+
+        return (int) round($total);
     }
 
     private function calcGuestSurcharge(?Product $product, int $guestCount, int $itemCount): int
@@ -60,8 +123,8 @@ class ExtraChargeService
      */
     public function applyDiffToDeposit(Order $order, int $diff): void
     {
-        // full_amount = deposit đã thu (KHÔNG thay đổi).
-        // Extra charge được cộng dồn vào extra_charge_amount.
+        // full_amount = TỔNG GIÁ CỐ ĐỊNH của đơn (KHÔNG thay đổi dù giá phát sinh thêm).
+        // Extra charge được cộng dồn riêng vào extra_charge_amount.
         // remaining_payment API sẽ cộng extra_charge_amount vào remaining khi tính link QR.
         $currentExtra = (int) ($order->extra_charge_amount ?? 0);
         $newExtra     = $currentExtra + $diff;
@@ -239,9 +302,34 @@ class ExtraChargeService
             'extra_charge_payment_method' => 'cod',
             'extra_charge_paid_at'        => now(),
             'extra_charge_expired_at'     => null,
+            // Ghi nhớ khoản NÀY đã được xử lý xong — để lần calculateDiff() kế tiếp không tính
+            // lặp lại phần đã thu này (xem ghi chú ở calculateDiff()).
+            'settled_adjustment_total'    => (int) ($order->settled_adjustment_total ?? 0) + $amount,
         ]);
 
         Log::info('ExtraCharge: cash collected', [
+            'order_id' => $order->id,
+            'amount'   => $amount,
+        ]);
+    }
+
+    /**
+     * Đánh dấu đã nhận chuyển khoản cho extra charge (admin xác nhận tay).
+     */
+    public function markExtraChargeAsTransfer(Order $order, int $amount): void
+    {
+        $order->update([
+            'extra_charge_amount'         => $amount,
+            'extra_charge_payos_code'     => null,
+            'extra_charge_checkout_url'   => null,
+            'extra_charge_qr_code'        => null,
+            'extra_charge_payment_method' => 'bank_transfer',
+            'extra_charge_paid_at'        => now(),
+            'extra_charge_expired_at'     => null,
+            'settled_adjustment_total'    => (int) ($order->settled_adjustment_total ?? 0) + $amount,
+        ]);
+
+        Log::info('ExtraCharge: bank transfer collected', [
             'order_id' => $order->id,
             'amount'   => $amount,
         ]);
@@ -256,8 +344,53 @@ class ExtraChargeService
             'extra_charge_payment_method' => 'payos',
             'extra_charge_paid_at'        => now(),
             'extra_charge_expired_at'     => null,
+            'settled_adjustment_total'    => (int) ($order->settled_adjustment_total ?? 0) + (int) ($order->extra_charge_amount ?? 0),
         ]);
 
         Log::info('ExtraCharge: paid via PayOS', ['order_id' => $order->id]);
+    }
+
+    // ─── Xử lý đơn paid bị GIẢM giá (huỷ khung giờ/dịch vụ) ─────────────────
+
+    /**
+     * Ghi nhận khoản CẦN HOÀN cho khách khi đơn đã paid bị huỷ bớt khung giờ/dịch vụ làm giá
+     * giảm. Không thể "hoàn qua QR" như chiều thu thêm (PayOS chỉ tạo link THU tiền) — admin phải
+     * tự chuyển khoản/trả tiền mặt NGOÀI hệ thống rồi bấm xác nhận qua markRefundAsDone(). Field
+     * này CHỈ để hiện panel "Hoàn tiền chưa xử lý" cho admin theo dõi — trước đây khoản này không
+     * lưu ở đâu cả, chỉ có 1 Notification thoáng qua, admin bỏ lỡ là mất dấu hoàn toàn.
+     */
+    public function recordPendingRefund(Order $order, int $amount): void
+    {
+        $order->update([
+            'extra_refund_amount'  => $amount,
+            'extra_refund_method'  => null,
+            'extra_refund_paid_at' => null,
+        ]);
+
+        Log::info('ExtraCharge: pending refund recorded', [
+            'order_id' => $order->id,
+            'amount'   => $amount,
+        ]);
+    }
+
+    /**
+     * Admin xác nhận ĐÃ hoàn tiền cho khách (tiền mặt/chuyển khoản, xử lý ngoài hệ thống).
+     */
+    public function markRefundAsDone(Order $order, int $amount, string $method = 'cash'): void
+    {
+        $order->update([
+            'extra_refund_amount'  => $amount,
+            'extra_refund_method'  => $method,
+            'extra_refund_paid_at' => now(),
+            // Hoàn tiền làm GIẢM tổng đã "chốt" — trừ đi (ngược chiều với thu thêm ở
+            // markExtraChargeAsCash/Transfer/handleExtraChargePaid).
+            'settled_adjustment_total' => (int) ($order->settled_adjustment_total ?? 0) - $amount,
+        ]);
+
+        Log::info('ExtraCharge: refund marked as done', [
+            'order_id' => $order->id,
+            'amount'   => $amount,
+            'method'   => $method,
+        ]);
     }
 }

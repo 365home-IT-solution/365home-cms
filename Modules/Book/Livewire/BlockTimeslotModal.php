@@ -23,6 +23,10 @@ class BlockTimeslotModal extends Component
     public bool $showModal = false;
     public bool $isStyle2  = false;
 
+    // true khi modal được mở sẵn cho 1 phòng cụ thể (từ menu ⋮ trên thẻ phòng ở Dashboard) — ẩn
+    // dropdown "Chọn phòng" vì đã biết trước, xem openForProduct().
+    public bool $lockedToProduct = false;
+
     // ---- Confirmation state ----
     public bool   $showConfirmClear  = false;
     public ?int   $pendingRangeIndex = null;
@@ -48,14 +52,15 @@ class BlockTimeslotModal extends Component
 
         if ($user && ! $user->isSuperAdmin()) {
             $categoryIds = $user->allowedCategoryIds();
-            if (empty($categoryIds)) {
-                return [];
+            if (! empty($categoryIds)) {
+                $allowedIds = Categorizable::where('categorizable_type', Product::class)
+                    ->whereIn('category_id', $categoryIds)
+                    ->distinct()
+                    ->pluck('categorizable_id');
+                $query->whereIn('id', $allowedIds);
             }
-            $allowedIds = Categorizable::where('categorizable_type', Product::class)
-                ->whereIn('category_id', $categoryIds)
-                ->distinct()
-                ->pluck('categorizable_id');
-            $query->whereIn('id', $allowedIds);
+            // Chưa gán quyền chi nhánh cụ thể thì không thu hẹp thêm — Product đã tự lọc theo
+            // partner_id (BelongsToPartner).
         }
 
         return $query->pluck('name', 'id')->toArray();
@@ -67,7 +72,7 @@ class BlockTimeslotModal extends Component
     {
         $this->reset([
             'product_id', 'timeslot_ids', 'date_from', 'date_to',
-            'blockedList', 'timeslotOptions', 'isStyle2',
+            'blockedList', 'timeslotOptions', 'isStyle2', 'lockedToProduct',
             'showConfirmClear', 'pendingRangeIndex', 'pendingDateItem',
         ]);
     }
@@ -78,6 +83,19 @@ class BlockTimeslotModal extends Component
     {
         $this->resetModal();
         $this->showModal = true;
+    }
+
+    // Mở sẵn modal cho 1 phòng cụ thể — gọi từ menu ⋮ trên thẻ phòng ở Dashboard (dispatch event
+    // 'open-block-timeslot-modal-for-room' kèm productId, xem rcOpenRoomMenu() trong
+    // _scripts.blade.php). Khác openModal() ở chỗ KHÔNG để trống product_id, tự load luôn khung
+    // giờ/danh sách đang khóa của đúng phòng đó — admin không cần chọn lại từ đầu.
+    #[On('open-block-timeslot-modal-for-room')]
+    public function openForProduct($productId): void
+    {
+        $this->resetModal();
+        $this->lockedToProduct = true;
+        $this->product_id      = $productId;
+        $this->updatedProductId();
     }
 
     public function closeModal(): void

@@ -35,9 +35,11 @@ class MembershipTierResource extends Resource
     protected static ?string $pluralModelLabel = 'Hạng thành viên';
     protected static ?int    $navigationSort   = 25;
 
+    // Trước đây hardcode isSuperAdmin() — bỏ qua MembershipTierPolicy (đã đúng, kiểm tra
+    // view_any_membership::tier), khiến tick/bỏ tick quyền này ở Roles & Permissions vô tác dụng.
     public static function canViewAny(): bool
     {
-        return auth()->user()?->isSuperAdmin() ?? false;
+        return auth()->user()?->can('view_any_membership::tier') ?? false;
     }
 
     public static function form(Form $form): Form

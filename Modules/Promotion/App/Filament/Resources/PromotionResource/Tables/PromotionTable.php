@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Promotion\App\Filament\Resources\PromotionResource\Tables;
 
+use App\Filament\Support\PartnerTableHelpers;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Table;
@@ -62,9 +63,13 @@ class PromotionTable
                     ->placeholder('—')
                     ->searchable()
                     ->toggleable(isToggledHiddenByDefault: true),
+                PartnerTableHelpers::column(),
             ])
             ->defaultSort('created_at', 'desc')
-            ->filters(PromotionFilter::filter())
+            ->filters([
+                ...PromotionFilter::filter(),
+                PartnerTableHelpers::filter(),
+            ])
             ->actions(PromotionAction::action())
             ->bulkActions(PromotionBulkAction::bulkActions());
     }

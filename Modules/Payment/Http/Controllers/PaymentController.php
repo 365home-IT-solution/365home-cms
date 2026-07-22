@@ -81,10 +81,13 @@ private function buildTelegramMessage(Order $order, string $status): string
              . "📞 SĐT: {$order->buyer_phone}\n";
 
     // ========== CỌC / FULL AMOUNT ==========
+    // full_amount CỐ ĐỊNH = tổng giá thật — tiền cọc đã thu tính riêng qua depositDueAmount().
     if ($order->deposit_percent !== null) {
-        $fullAmt   = number_format($order->full_amount ?? $order->amount, 0, ',', '.');
-        $paidAmt   = number_format($order->amount, 0, ',', '.');
-        $remaining = number_format(($order->full_amount ?? $order->amount) - $order->amount, 0, ',', '.');
+        $fullAmtNum = (int) $order->full_amount;
+        $paidAmtNum = $order->depositDueAmount();
+        $fullAmt   = number_format($fullAmtNum, 0, ',', '.');
+        $paidAmt   = number_format($paidAmtNum, 0, ',', '.');
+        $remaining = number_format(max(0, $fullAmtNum - $paidAmtNum), 0, ',', '.');
         $pct       = $order->deposit_percent;
         $message  .= "💵 Tổng tiền phòng: {$fullAmt}đ\n"
                   .  "💳 Tiền cọc ({$pct}%): {$paidAmt}đ\n"
@@ -369,20 +372,13 @@ private function buildTelegramMessage(Order $order, string $status): string
     private function handleRemainingPayment(Order $order): bool
     {
         try {
-            // full_amount = tiền cọc đã thu (không đổi).
-            // extra_charge_amount = khoản phát sinh được cộng vào remaining khi deposit.
-            // Tổng thực thu = realTotal + extra_charge_amount.
-            $depositPct  = (int) ($order->deposit_percent ?? 0);
-            $depositPaid = (int) $order->full_amount;
-            $realTotal   = $depositPct > 0
-                ? (int) round($depositPaid * 100 / $depositPct)
-                : $depositPaid;
+            // full_amount CỐ ĐỊNH = tổng giá thật từ lúc tạo đơn (không tính ngược từ tiền cọc
+            // nữa). extra_charge_amount = khoản phát sinh cộng thêm vào tổng thực thu cuối cùng.
             $extraCharge = (int) ($order->extra_charge_amount ?? 0);
-            $totalPaid   = $realTotal + $extraCharge;
+            $totalPaid   = (int) $order->full_amount + $extraCharge;
 
             $order->update([
                 'status'              => 'paid',
-                'full_amount'         => $totalPaid,
                 'amount'              => $totalPaid,
                 'extra_charge_amount' => null,
                 'remaining_paid_at'   => now(),
@@ -871,13 +867,10 @@ private function buildTelegramMessage(Order $order, string $status): string
                 ]);
             }
 
-            $depositPct  = (int) ($order->deposit_percent ?? 0);
-            $depositPaid = (int) $order->full_amount;
-            $realTotal   = $depositPct > 0
-                ? (int) round($depositPaid * 100 / $depositPct)
-                : $depositPaid;
+            // full_amount CỐ ĐỊNH = tổng giá thật — tiền cọc đã thu tính qua depositDueAmount().
+            $depositPaid = $order->depositDueAmount();
             $extraCharge = (int) ($order->extra_charge_amount ?? 0);
-            $remaining   = ($realTotal - $depositPaid) + $extraCharge;
+            $remaining   = max(0, (int) $order->full_amount - $depositPaid) + $extraCharge;
 
             if ($remaining <= 0) {
                 return response()->json(['error' => 1, 'message' => 'Không còn khoản cọc còn lại.'], 422);

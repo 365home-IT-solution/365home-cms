@@ -46,6 +46,7 @@ class User extends Authenticatable implements FilamentUser, HasAvatar, HasName, 
         'phone',
         'phone_verified_at',
         'created_by',
+        'partner_id',
     ];
 
     /**
@@ -89,14 +90,74 @@ public function getFilamentAvatarUrl(): ?string
     {
         // Chỉ user có ít nhất 1 role thật (không phải panel_user) mới vào được admin panel
         // Khách hàng đăng ký qua OTP không có role → không vào được
-        return $this->roles()
-            ->where('name', '!=', config('filament-shield.panel_user.name'))
-            ->exists();
+        if (! $this->roles()->where('name', '!=', config('filament-shield.panel_user.name'))->exists()) {
+            return false;
+        }
+
+        // super_admin không thuộc đối tác nào (partner_id null) — luôn không bị chặn ở đây.
+        // Chủ đối tác VÀ toàn bộ nhân viên của đối tác đó CHỈ được đăng nhập khi đối tác đã
+        // 'approved' — chặn CẢ 'pending' (chưa được duyệt lần nào, trạng thái MẶC ĐỊNH lúc mới
+        // tạo đối tác) chứ không chỉ 'rejected'/'suspended'. Trước đây chỉ chặn 2 trạng thái xấu,
+        // vô tình để lọt đối tác CHƯA TỪNG được duyệt vẫn đăng nhập được bình thường.
+        if ($this->partner_id) {
+            // withTrashed() CỐ Ý — Partner dùng Soft Delete, "xoá" đối tác không xoá bản ghi thật,
+            // chỉ gán deleted_at. Quan hệ $this->partner() mặc định LOẠI TRỪ bản ghi đã xoá nên nếu
+            // dùng thẳng $this->partner ở đây, giá trị sẽ luôn null với đối tác đã xoá — vô tình
+            // "chặn đúng" nhờ null-safe operator (null !== 'approved') nhưng không tường minh, dễ vỡ
+            // âm thầm nếu sau này có ai đổi cách load quan hệ. Viết rõ ràng: đối tác đã xoá (trashed)
+            // PHẢI chặn đăng nhập ngay, tách biệt với lý do verification_status khác 'approved'.
+            $partner = \App\Models\Partner::withTrashed()->find($this->partner_id);
+
+            if (! $partner || $partner->trashed() || $partner->verification_status !== 'approved') {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function isSuperAdmin(): bool
     {
         return $this->hasRole(config('filament-shield.super_admin.name'));
+    }
+
+    // Trước đây check hasRole('partner') — nhưng hệ thống thực tế tạo 1 ROLE RIÊNG cho mỗi đối
+    // tác (vd "monaco_super_admin", "Quản lý Monaco", "Quyền 1.1"...), KHÔNG có tài khoản nào thực
+    // sự mang đúng role tên "partner", nên hasRole('partner') LUÔN LUÔN false. Hậu quả: chủ đối tác
+    // bị coi nhầm thành "nhân viên vận hành" ở $isPlainEmployee (dashboard.blade.php) và mọi nơi
+    // khác dùng isPartnerOwner() để cấp quyền xem tài chính/quản lý (Doanh thu/KPI, SalaryReport,
+    // RoomHousekeepingResource...) — ẩn mất hết, dù đây chính là tài khoản chủ đối tác.
+    //
+    // Dấu hiệu ĐÁNG TIN CẬY hơn để phân biệt CHỦ đối tác với NHÂN VIÊN của đối tác: chủ đối tác có
+    // partner_id nhưng KHÔNG có hồ sơ Employee liên kết (employee() luôn null với chủ đối tác/
+    // super_admin — xem ghi chú tại employee() bên dưới và UserResource\Pages\CreateUser, nơi hồ sơ
+    // Employee CHỈ được tạo khi account_type = 'employee').
+    public function isPartnerOwner(): bool
+    {
+        return (bool) $this->partner_id && ! $this->employee;
+    }
+
+    // Tài khoản thuộc đối tác ĐẶC BIỆT do nền tảng vận hành (vd "365home") — nhân viên đối tác
+    // này được phép tạo đơn đặt phòng cho BẤT KỲ đối tác nào khác (xem Partner::isPlatformPartner()
+    // và điểm bypass ở luồng tạo booking). KHÔNG cấp quyền xem toàn bộ dữ liệu như super_admin.
+    public function belongsToPlatformPartner(): bool
+    {
+        return $this->partner?->isPlatformPartner() ?? false;
+    }
+
+    // Đối tác mà tài khoản này thuộc về (chủ đối tác trỏ tới chính đối tác của mình;
+    // nhân viên trỏ tới đối tác chủ quản). Null với super_admin.
+    public function partner()
+    {
+        return $this->belongsTo(\App\Models\Partner::class);
+    }
+
+    // Hồ sơ nhân viên liên kết (lương, chi nhánh làm việc, phòng ban...). Trang tạo/sửa tài
+    // khoản (UserResource) tạo/đồng bộ đồng thời bản ghi này — null với super_admin/chủ đối tác
+    // (những tài khoản chỉ cần đăng nhập, không cần hồ sơ nhân viên).
+    public function employee()
+    {
+        return $this->hasOne(\Modules\Employee\Entities\Employee::class);
     }
 
     /**

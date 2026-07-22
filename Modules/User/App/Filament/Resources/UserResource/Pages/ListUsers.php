@@ -68,11 +68,10 @@ class ListUsers extends ListRecords
             return $query;
         }
 
-        // Nhân viên thấy toàn bộ cây con: NV2 do NV1 tạo, NV3 do NV2 tạo, ...
-        $descendantIds = $user->getAllDescendantIds();
-
+        // Đối tác/nhân viên chỉ thấy tài khoản thuộc cùng đối tác (partner_id) — thay cho logic
+        // cây con created_by cũ, vốn không phản ánh đúng ranh giới đối tác.
         return $query
-            ->whereIn('id', $descendantIds)
+            ->where('partner_id', $user->partner_id)
             ->whereHas('roles')  // khách hàng không bao giờ hiển thị với non-super-admin
             ->whereDoesntHave('roles', fn ($q) => $q->where('name', config('filament-shield.super_admin.name')));
     }

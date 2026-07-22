@@ -109,9 +109,9 @@ class CouponForm
                                         $allowedIds = $user->allowedCategoryIds();
                                         if (! empty($allowedIds)) {
                                             $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedIds));
-                                        } else {
-                                            $query->whereRaw('1 = 0');
                                         }
+                                        // Chưa gán quyền chi nhánh cụ thể thì không thu hẹp thêm —
+                                        // Product đã tự lọc theo partner_id (BelongsToPartner).
                                     }
 
                                     return $query->pluck('name', 'id');

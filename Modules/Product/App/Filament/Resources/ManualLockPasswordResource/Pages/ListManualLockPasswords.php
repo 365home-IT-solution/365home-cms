@@ -82,9 +82,14 @@ class ListManualLockPasswords extends ListRecords
                                     ->where('category_type', 'product')
                                     ->orderBy('name');
                                 if ($user && ! $user->isSuperAdmin()) {
+                                    // Category không có global scope partner_id riêng — mặc định
+                                    // thấy chi nhánh của đối tác mình.
+                                    $query->where('partner_id', $user->partner_id);
+
                                     $ids = $user->allowedCategoryIds();
-                                    if (empty($ids)) return [];
-                                    $query->whereIn('id', $ids);
+                                    if (! empty($ids)) {
+                                        $query->whereIn('id', $ids);
+                                    }
                                 }
                                 return $query->pluck('name', 'id');
                             })

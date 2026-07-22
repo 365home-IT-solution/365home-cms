@@ -178,6 +178,15 @@ class AdminPanelProvider extends PanelProvider
     {
         parent::register();
 
+        // Nạp Echo/Reverb CHỈ trong panel admin (xem resources/js/echo-admin.js) — cần có TRƯỚC
+        // khi Livewire boot để cơ chế lắng nghe "echo-private:kênh,.event" (dùng ở
+        // CreateOrder/EditOrder cho hold khung giờ real-time, xem TimeslotHoldService) nhận đúng
+        // window.Echo, nên đặt ở HEAD_END thay vì BODY_END như script polling bên dưới.
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::HEAD_END,
+            fn (): string => (string) app(\Illuminate\Foundation\Vite::class)(['resources/js/echo-admin.js']),
+        );
+
         // Inject polling script: tab title + notification sound + instant bell refresh
         FilamentView::registerRenderHook(
             PanelsRenderHook::BODY_END,

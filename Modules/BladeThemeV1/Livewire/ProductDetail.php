@@ -24,7 +24,9 @@ use Modules\BladeThemeV1\Services\Payment\OrderHandlerService;
 use Modules\BladeThemeV1\Services\Payment\PaymentService;
 use Modules\BladeThemeV1\Services\OcrSpaceService;
 use Modules\Payment\App\Services\CccdScannerService;
+use App\Services\CccdDeclarationService;
 use App\Services\PromotionCalculator;
+use Modules\Category\Entities\Category;
 
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Session;
@@ -39,6 +41,14 @@ class ProductDetail extends Component
         WithFileUploads,
         ValidationRulesTrait,
         PropertiesProductDetail;
+
+    // resources/js/echo-client.js nghe kênh public "timeslot-holds.{productId}" rồi tự gọi
+    // Livewire.dispatch('timeslotHoldsChanged') mỗi khi 1 admin giữ/trả 1 khung giờ real-time (xem
+    // App\Services\TimeslotHoldService) — method no-op này chỉ để ép Livewire render lại, lưới
+    // khung giờ tự đọc lại đúng trạng thái "held" mới nhất (đã tính trong product-detail.blade.php).
+    #[\Livewire\Attributes\On('timeslotHoldsChanged')]
+    public function onTimeslotHoldsChanged(): void {}
+
 const LOYALTY_DISCOUNT_ENABLED = 0;
     public bool $fromBookingPage = false;
     public $originalTotalAmount = 0;
@@ -605,8 +615,49 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
 
     // =========================================================
 
+    // Click chọn/bỏ chọn 1 ô luôn đi qua đây NGAY LẬP TỨC (Alpine gọi @this.set('selectedSlots',
+    // ...) mỗi lần bấm — không đợi tới lúc mở modal xác nhận hay bấm đặt phòng cuối cùng) — nên đây
+    // là đúng chỗ để kiểm tra real-time "khung giờ đang bị ADMIN giữ chỗ" (xem TimeslotHoldService)
+    // và tự bỏ chọn NGAY nếu có, thay vì để khách chọn xong rồi mới báo lỗi ở bước sau.
+    private function purgeSlotsHeldByAdmin(): void
+    {
+        if (empty($this->selectedSlots) || ! $this->product) {
+            return;
+        }
+
+        $this->product->loadMissing('roomTimeSlots');
+        $rtsMap  = collect($this->product->roomTimeSlots)->keyBy('timeslot_id');
+        $service = app(\App\Services\TimeslotHoldService::class);
+
+        $kept          = [];
+        $removedLabels = [];
+
+        foreach ($this->selectedSlots as $slot) {
+            $rts  = $rtsMap->get($slot['timeslotId'] ?? null);
+            $hold = $rts ? $service->isHeldByAdmin($rts->id, $slot['date'] ?? '') : null;
+
+            if ($hold) {
+                $removedLabels[] = ($slot['timeslotLabel'] ?? "{$slot['startTime']} - {$slot['endTime']}") . ' ngày ' . ($slot['date'] ?? '');
+                continue;
+            }
+
+            $kept[] = $slot;
+        }
+
+        if (count($kept) !== count($this->selectedSlots)) {
+            $this->selectedSlots = $kept;
+
+            $this->dispatch('notify', [
+                'message' => 'Khung giờ ' . implode(', ', $removedLabels) . ' vừa được nhân viên xử lý cho đơn khác — đã tự bỏ chọn, vui lòng chọn khung giờ khác.',
+                'type'    => 'error',
+            ]);
+        }
+    }
+
     public function updatedSelectedSlots()
     {
+        $this->purgeSlotsHeldByAdmin();
+
         if (is_null($this->additionalServices) || $this->additionalServices->isEmpty()) {
             $this->additionalServices = $this->product
                 ? $this->product->additionalServices()->where('additional_services.is_active', 1)->get()
@@ -1077,6 +1128,14 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         if ($this->bookingStyle == 1 && !empty($this->selectedSlots)) {
             $conflict = $this->checkSlotConflicts();
             if ($conflict) {
+                if (! empty($conflict['is_held'])) {
+                    $this->dispatch('notify', [
+                        'message' => "Khung giờ {$conflict['slot_label']} ngày {$conflict['date']} đang được nhân viên xử lý cho 1 đơn khác — vui lòng chọn khung giờ khác hoặc thử lại sau ít phút.",
+                        'type'    => 'error',
+                    ]);
+                    return;
+                }
+
                 $statusLabel = match($conflict['order_status']) {
                     'paid'      => 'đã thanh toán',
                     'confirmed' => 'đã xác nhận',
@@ -1404,7 +1463,10 @@ public function confirmBooking()
                 'buyer_phone'     => $verifiedBuyerPhone,
                 'buyer_email'     => $this->buyerEmail ?: null,
                 'user_id'         => $verifiedUserId,
-                'amount'          => $paymentAmount,
+                // Cả 'amount' và 'full_amount' lưu ĐÚNG TỔNG GIÁ thật của đơn (không phải tiền cọc
+                // cần trả ngay) — 'full_amount' CỐ ĐỊNH từ đây trở đi, 'amount' là nơi cập nhật khi
+                // giá thay đổi sau này. Số tiền PayOS thu ngay tính riêng qua depositDueAmount().
+                'amount'          => $fullAmount,
                 'full_amount'     => $fullAmount,
                 'deposit_percent' => $depositPercent < 100 ? $depositPercent : null,
                 // Đơn cọc (style=2 + deposit_percent < 100) → khởi đầu với status 'deposit'
@@ -1416,6 +1478,11 @@ public function confirmBooking()
                 'cccd_data'      => $cccdData,
                 'guest_count'    => $this->guests,
                 'category_id'    => $categoryId,
+                // Đơn đặt qua trang khách (Livewire, không đăng nhập App\Models\User) nên
+                // BelongsToPartner::creating() không tự gán được partner_id — gán thẳng theo
+                // đúng partner_id của phòng đang đặt, tránh admin mở sửa đơn bị "mất" thông tin
+                // đối tác/chi nhánh.
+                'partner_id'     => $this->product->partner_id,
                 // coupon_code giữ mã đầu tiên (backward compat, xem BookingController/OrderController
                 // API cùng quy ước) — coupon_codes (JSON) mới là nguồn đầy đủ khi áp nhiều mã.
                 'coupon_code'    => collect($this->appliedCoupons)->first()?->code,
@@ -1535,6 +1602,8 @@ public function confirmBooking()
             return $order;
         });
 
+        app(CccdDeclarationService::class)->upsertFromOrder($order->load('items'));
+
         Session::forget('booking_data');
         Session::forget('booking_detail_state');
         $this->processPayOSPayment($order);
@@ -1542,6 +1611,16 @@ public function confirmBooking()
     } catch (\RuntimeException $e) {
         if (str_starts_with($e->getMessage(), 'SLOT_CONFLICT:')) {
             $conflict = json_decode(substr($e->getMessage(), 14), true);
+
+            if (! empty($conflict['is_held'])) {
+                $this->dispatch('close-booking-modal');
+                $this->dispatch('notify', [
+                    'message' => "Rất tiếc! Khung giờ {$conflict['slot_label']} ngày {$conflict['date']} đang được nhân viên xử lý cho 1 đơn khác. Vui lòng chọn khung giờ khác hoặc thử lại sau ít phút.",
+                    'type'    => 'error',
+                ]);
+                return;
+            }
+
             $statusLabel = match($conflict['order_status'] ?? '') {
                 'paid'      => 'đã thanh toán',
                 'confirmed' => 'đã xác nhận',
@@ -1655,9 +1734,29 @@ public function confirmBooking()
         // Build map timeslot_id => start_time từ $this->timeSlots đã load sẵn
         $timeSlotsMap = collect($this->timeSlots)->keyBy('timeslot_id');
 
+        // map timeslot_id (catalog) => room_time_slot (instance riêng của CHÍNH phòng này) — cần
+        // room_time_slot_id thật để tra TimeslotHold bên dưới (bảng đó khóa theo room_time_slot_id,
+        // không phải timeslot_id chung).
+        $this->product->loadMissing('roomTimeSlots');
+        $rtsMap = collect($this->product->roomTimeSlots)->keyBy('timeslot_id');
+
         foreach ($this->selectedSlots as $slot) {
             $timeslotId = $slot['timeslotId'];
             $slotDate   = $slot['date']; // Y-m-d
+
+            // Admin đang giữ chỗ real-time đúng khung giờ + ngày này (xem TimeslotHoldService) —
+            // chặn TRƯỚC KHI xét tới OrderItem thật, vì hold có thể chưa kịp thành đơn thật nào.
+            $rts = $rtsMap->get($timeslotId);
+            if ($rts) {
+                $activeHold = app(\App\Services\TimeslotHoldService::class)->isHeldByAdmin($rts->id, $slotDate);
+                if ($activeHold) {
+                    return [
+                        'slot_label' => $slot['timeslotLabel'] ?? "{$slot['startTime']} - {$slot['endTime']}",
+                        'date'       => $slot['date'],
+                        'is_held'    => true,
+                    ];
+                }
+            }
 
             // Lấy start_time chính xác từ time_slots
             $tsInfo    = $timeSlotsMap->get($timeslotId);
@@ -1731,6 +1830,19 @@ public function confirmBooking()
         $branchCategory = $this->product->categories()
             ->where('category_type', 'product')
             ->first();
+
+        // Dữ liệu đối tác cũ (vd 365home) tổ chức category 2 CẤP: chi nhánh thật (parent_id NULL)
+        // → danh mục phòng con CÙNG TÊN với phòng (parent_id = chi nhánh). Nếu dùng thẳng kết quả
+        // categories()->first(), category_id của đơn sẽ lưu NHẦM thành danh mục con (hiện tên
+        // phòng thay vì tên chi nhánh khi admin mở sửa đơn) — leo lên tới đúng cấp chi nhánh
+        // (parent_id NULL) trước khi lưu vào đơn.
+        for ($i = 0; $i < 5 && $branchCategory && $branchCategory->parent_id; $i++) {
+            $parent = Category::find($branchCategory->parent_id);
+            if (!$parent) {
+                break;
+            }
+            $branchCategory = $parent;
+        }
 
         if ($branchCategory) {
             return $branchCategory->id;

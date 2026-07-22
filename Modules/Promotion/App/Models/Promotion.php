@@ -2,6 +2,7 @@
 
 namespace Modules\Promotion\App\Models;
 
+use App\Models\Concerns\BelongsToPartner;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -9,9 +10,10 @@ use Modules\Product\App\Models\RoomTimeSlot;
 
 class Promotion extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToPartner;
 
     protected $fillable = [
+        'partner_id',
         'name',
         'description',
         'type',

@@ -53,6 +53,67 @@
 
     /* ★★★ END BLOCKED DATE STYLE ★★★ */
 
+    /* ★★★ HELD (đang bị admin giữ chỗ real-time, xem TimeslotHoldService) ★★★
+       Trước đây chỉ dựa vào opacity:0.6 chung (không có nền riêng) nên gần như không phân biệt
+       được với ô bình thường — thêm nền màu cam riêng giống hệt cách .blocked/.booked đã làm. */
+    .selectable.held {
+        cursor: not-allowed !important;
+        pointer-events: none;
+    }
+
+    .selectable.held::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        border-radius: inherit;
+        background-color: #f59e0b;
+        z-index: 5;
+    }
+
+    .selectable.held.promo::before {
+        content: "" !important;
+        background: none !important;
+        filter: none !important;
+        animation: none !important;
+        opacity: 0 !important;
+    }
+
+    .selectable.held.promo::after {
+        content: "" !important;
+        position: absolute !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        background-color: #f59e0b !important;
+        border-radius: inherit !important;
+        z-index: 15 !important;
+        display: block !important;
+        pointer-events: none !important;
+    }
+
+    .lock-icon {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 20;
+        width: 16px;
+        height: 16px;
+        color: #fff;
+        pointer-events: none;
+    }
+
+    .lock-icon svg {
+        width: 100%;
+        height: 100%;
+    }
+
+    /* ★★★ END HELD STYLE ★★★ */
+
     .promo-badge-btn {
         position: relative;
         z-index: 1;

@@ -24,5 +24,6 @@
     "Coupon": true,
     "DataPermission": true,
     "AppPage": true,
-    "TTLock": true
+    "TTLock": true,
+    "Employee": true
 }

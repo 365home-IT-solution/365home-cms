@@ -2,6 +2,7 @@
 
 namespace Modules\Payment\App\Filament\Resources\OrderResource\Tables;
 
+use App\Filament\Support\PartnerTableHelpers;
 use Filament\Notifications\Notification;
 use Filament\Support\Enums\FontWeight;
 use Filament\Tables\Actions\Action;
@@ -51,6 +52,8 @@ class OrderTable
                     ->badge()
                     ->color('primary')
                     ->icon('heroicon-m-building-office-2'),
+
+                PartnerTableHelpers::column(),
 
                 TextColumn::make('computed_total')
                     ->label('Tổng tiền')
@@ -213,7 +216,10 @@ class OrderTable
             ])
             ->defaultSort('created_at', 'desc')
             ->filters(
-                OrderFilter::filter(), 
+                [
+                    ...OrderFilter::filter(),
+                    PartnerTableHelpers::filter(),
+                ],
                 layout: FiltersLayout::AboveContent
             )
             ->filtersFormColumns(['default' => 1, 'sm' => 2, 'lg' => 5])
@@ -757,10 +763,19 @@ class OrderTable
      */
     private static function computeOrderTotal(Order $record): int
     {
-        // Đơn cọc và đơn thường: đều trả về full_amount
-        // - Đơn cọc: full_amount = số tiền cọc khách cần thanh toán ngay
-        // - Đơn thường: full_amount = tổng tiền thực sau discount
-        return (int)($record->full_amount ?? $record->amount ?? 0);
+        // Đơn cọc: full_amount = số tiền cọc khách cần thanh toán ngay — KHÔNG phải tổng đơn, giữ
+        // nguyên như cũ (khái niệm khác, không thuộc phạm vi sửa lần này).
+        if ($record->deposit_percent !== null) {
+            return (int) ($record->full_amount ?? $record->amount ?? 0);
+        }
+
+        // Đơn thường (paid/pending/...): full_amount CỐ ĐỊNH = giá LÚC ĐẶT, không tự cập nhật khi
+        // admin sửa đơn (thêm/bớt khung giờ/dịch vụ) SAU KHI đã thanh toán — cột "Tổng tiền" trước
+        // đây luôn hiện ĐÚNG số lúc đặt đầu tiên, không phản ánh giá THẬT SỰ hiện tại sau khi sửa.
+        // calculateRealTotal() tính lại TRỰC TIẾP từ order_items/services hiện có (cùng công thức
+        // với OrderForm::computeOrderTotal() và total-amount-card.blade.php), nên luôn là con số
+        // ĐÚNG NHẤT tại thời điểm xem, bất kể đã phát sinh/hoàn tiền bao nhiêu lần.
+        return app(\App\Services\ExtraChargeService::class)->calculateRealTotal($record);
     }
 
     /**

@@ -12,6 +12,8 @@ use Modules\Product\App\Filament\Resources\RoomAmenityResource\Pages;
 use Modules\Product\App\Filament\Resources\RoomAmenityResource\Tables\RoomAmenityTable;
 use Modules\Product\App\Models\RoomAmenity;
 
+// Tiện ích được lọc theo partner_id qua BelongsToPartner (global scope trên RoomAmenity model) —
+// không cần override getEloquentQuery() ở Resource này.
 class RoomAmenityResource extends Resource
 {
     protected static ?string $model = RoomAmenity::class;
@@ -46,9 +48,11 @@ class RoomAmenityResource extends Resource
         return (string) static::getModel()::count();
     }
 
+    // Trước đây hardcode isSuperAdmin() — bỏ qua RoomAmenityPolicy (đã đúng, kiểm tra
+    // view_any_room::amenity), khiến tick/bỏ tick quyền này ở Roles & Permissions vô tác dụng.
     public static function canViewAny(): bool
     {
-        return auth()->user()?->isSuperAdmin() ?? false;
+        return auth()->user()?->can('view_any_room::amenity') ?? false;
     }
 
     public static function form(Form $form): Form

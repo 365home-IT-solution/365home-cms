@@ -25,7 +25,7 @@ class OcrSpaceService
         return !empty($this->apiKey);
     }
 
-    public function extractTextFromImage(string $imagePath): string
+    public function extractTextFromImage(string $imagePath, int $timeoutSeconds = 30): string
     {
         if (!$this->isConfigured()) {
             return '';
@@ -44,7 +44,7 @@ class OcrSpaceService
                     'size' => strlen($imageContent)
                 ]);
             }
-            $response = Http::timeout(30)->attach(
+            $response = Http::timeout($timeoutSeconds)->attach(
                 'file',
                 $imageContent,
                 basename($imagePath)

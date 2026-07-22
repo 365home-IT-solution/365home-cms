@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Models\Customer;
 use App\Models\User;
 use App\Observers\BranchObserver;
+use App\Observers\CategoryObserver;
 use App\Observers\CouponObserver;
 use App\Observers\CustomerObserver;
 use App\Observers\OrderObserver;
@@ -20,6 +21,7 @@ use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvi
 use Modules\DataPermission\Entities\UserBranchPermission;
 use Modules\Payment\Entities\Order;
 use Modules\Post\Entities\Post;
+use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
 use Modules\Promotion\App\Models\Coupon;
 use Modules\Promotion\App\Models\Promotion;
@@ -54,6 +56,7 @@ class EventServiceProvider extends ServiceProvider
         Branch::observe(BranchObserver::class);
         Coupon::observe(CouponObserver::class);
         Promotion::observe(PromotionObserver::class);
+        Category::observe(CategoryObserver::class);
     }
 
     /**

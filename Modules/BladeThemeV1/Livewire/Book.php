@@ -47,6 +47,23 @@ class Book extends Component
     const MAX_VISIBLE_DAYS = 31;
     const LOAD_MORE_DAYS_STEP = 10;
 
+    // Danh sách id các phòng đang hiển thị trên bảng — render thành 1 attribute DUY NHẤT
+    // "data-room-ids" trên div gốc (book.blade.php), giống hệt cách ProductDetail expose
+    // "data-product-id" — để resources/js/echo-client.js biết cần nghe kênh public nào
+    // ("timeslot-holds.{roomId}") mà không phải quét rải rác nhiều attribute trong DOM.
+    public function getRoomIdsProperty(): array
+    {
+        return collect($this->activeCategoryData['products'] ?? [])->pluck('id')->all();
+    }
+
+    // resources/js/echo-client.js nghe kênh public "timeslot-holds.{roomId}" cho MỌI phòng đang
+    // hiển thị trên bảng (đọc data-room-ids ở book.blade.php) rồi tự gọi
+    // Livewire.dispatch('timeslotHoldsChanged') mỗi khi 1 admin giữ/trả 1 khung giờ real-time (xem
+    // App\Services\TimeslotHoldService) — method no-op này chỉ để ép Livewire render lại, các
+    // blade con tự đọc lại đúng trạng thái "held".
+    #[On('timeslotHoldsChanged')]
+    public function onTimeslotHoldsChanged(): void {}
+
     public function mount($config, bool $showBranchHeader = false)
     {
         $this->showBranchHeader = $showBranchHeader;

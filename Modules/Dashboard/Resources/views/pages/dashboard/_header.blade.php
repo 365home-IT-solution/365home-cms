@@ -12,6 +12,8 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
             Tô đen / Khóa lịch
         </button>
+        {{-- Tab khoảng thời gian phục vụ lọc KPI/doanh thu — hiện với mọi tài khoản được cấp
+             quyền page_Dashboard (xem ghi chú ở dashboard.blade.php). --}}
         <div class="ta-tabs">
             @foreach(['today' => 'Hôm nay', 'yesterday' => 'Hôm qua', '7d' => '7 Ngày', '30d' => '30 Ngày', '90d' => '90 Ngày', 'this_month' => 'Tháng này', 'last_month' => 'Tháng trước', 'ytd' => 'Năm nay', 'last_year' => 'Năm trước'] as $val => $lbl)
                 <button class="ta-tab {{ $this->period === $val ? 'active' : '' }}"

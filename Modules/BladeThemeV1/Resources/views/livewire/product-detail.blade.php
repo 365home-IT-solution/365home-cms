@@ -1,4 +1,4 @@
-<div class="bg-white" x-data="{ showModal: false, slotPickerOpen: true }">
+<div class="bg-white" x-data="{ showModal: false, slotPickerOpen: true }" data-product-id="{{ $product->id ?? '' }}">
     @if (session('booking_conflict_error'))
         <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 12000)"
             x-transition:leave="transition ease-in duration-500" x-transition:leave-start="opacity-100 translate-y-0"
@@ -823,6 +823,19 @@
                                             pointer-events: none;
                                         }
 
+                                        /* Đang bị ADMIN giữ chỗ real-time (xem TimeslotHoldService) — nền cam
+                                           riêng, phân biệt với "đã đặt" (primary)/"bị khoá ngày" (xám). */
+                                        .selectable.held {
+                                            background: #f59e0b !important;
+                                            border-color: #f59e0b !important;
+                                            cursor: not-allowed !important;
+                                            pointer-events: none;
+                                        }
+
+                                        .selectable.held .lock-icon {
+                                            color: #fff;
+                                        }
+
                                         /* Đặt sau cùng để "đang chọn" luôn thắng dù ô đó cũng đang booked/pending
                                            (trường hợp reselect lại slot thuộc chính đơn đang chờ của khách).
                                            opacity:1 !important để thắng luôn cả style inline opacity:0.6 gắn
@@ -1511,6 +1524,27 @@
                                                                                 $mIsSelectable = false;
                                                                                 $mClasses .= ' blocked';
                                                                             }
+
+                                                                            // --- Đang bị ADMIN giữ chỗ real-time (xem TimeslotHoldService) ---
+                                                                            // giống hệt bản desktop bên trên — hiển thị MỜ, không ẩn hoàn toàn.
+                                                                            $mHeldByName = null;
+                                                                            if ($mIsSelectable && isset($mRts->id)) {
+                                                                                $mActiveHold = app(
+                                                                                    \App\Services\TimeslotHoldService::class,
+                                                                                )->isHeldByAdmin(
+                                                                                    $mRts->id,
+                                                                                    $date['carbon_date']->toDateString(),
+                                                                                );
+                                                                                if ($mActiveHold) {
+                                                                                    $mIsSelectable = false;
+                                                                                    $mClasses .= ' held';
+                                                                                    $mHeldByName =
+                                                                                        $mActiveHold->user->fullname ??
+                                                                                        $mActiveHold->user->email ??
+                                                                                        'nhân viên';
+                                                                                }
+                                                                            }
+
                                                                             $mPD = $this->calculateSlotPrice(
                                                                                 $mRts,
                                                                                 $date['carbon_date']->format('Y-m-d'),
@@ -1555,6 +1589,9 @@
                                                                                     .key === '{{ $date['carbon_date']->format('Y-m-d') }}-{{ $timeSlot['timeslot_id'] }}'
                                                                                 ) ? 'active' : ''"
                                                                                 style="{{ !$mIsSelectable ? 'pointer-events:none;opacity:0.6;' : 'cursor:pointer;' }}"
+                                                                                data-room-id="{{ $product['id'] }}"
+                                                                                data-timeslot-id="{{ $timeSlot['timeslot_id'] }}"
+                                                                                data-iso-date="{{ $date['carbon_date']->format('Y-m-d') }}"
                                                                                 @click="toggleSlot('{{ $date['carbon_date']->format('Y-m-d') }}','{{ $timeSlot['timeslot_id'] }}','{{ $mFinal }}','{{ $mPAI }}','{{ $mBase }}','{{ $mInc }}','{{ $mPromo }}','{{ \Carbon\Carbon::parse($timeSlot['start_time'])->format('H:i') }}','{{ \Carbon\Carbon::parse($timeSlot['end_time'])->format('H:i') }}','{{ $mStatus }}','{{ $product['id'] }}','{{ $product['name'] }}','{{ $timeSlot['timeslot_label'] }}','{{ $timeSlot['over_night'] ?? 0 }}')">
                                                                                 @if (str_contains($mClasses, 'blocked'))
                                                                                     <svg class="lock-icon" viewBox="0 0 24 24"
@@ -1565,6 +1602,16 @@
                                                                                             height="9" rx="2" />
                                                                                         <path d="M8 11V7a4 4 0 0 1 8 0v4" />
                                                                                     </svg>
+                                                                                @endif
+                                                                                @if (str_contains($mClasses, 'held'))
+                                                                                    <div class="lock-icon" title="Đang được {{ $mHeldByName }} xử lý cho 1 đơn khác">
+                                                                                        <svg viewBox="0 0 24 24" fill="none"
+                                                                                            stroke="currentColor" stroke-width="2"
+                                                                                            stroke-linecap="round" stroke-linejoin="round">
+                                                                                            <rect x="4" y="11" width="16" height="9" rx="2" />
+                                                                                            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                                                                                        </svg>
+                                                                                    </div>
                                                                                 @endif
                                                                             </div>
                                                                         </div>
@@ -1804,6 +1851,26 @@
                                                                                 $classes .= ' blocked';
                                                                             }
 
+                                                                            // --- Đang bị ADMIN giữ chỗ real-time (xem TimeslotHoldService) ---
+                                                                            // hiển thị MỜ (giống hệt cách 'blocked'/'booked' đã làm ở trên,
+                                                                            // dùng chung style opacity:0.6 + pointer-events:none bên dưới),
+                                                                            // KHÔNG phải hoàn toàn ẩn — khách vẫn thấy khung giờ tồn tại,
+                                                                            // chỉ tạm thời không bấm được.
+                                                                            $heldByName = null;
+                                                                            if ($isSelectable && isset($realRoomTimeSlot->id)) {
+                                                                                $activeHold = app(
+                                                                                    \App\Services\TimeslotHoldService::class,
+                                                                                )->isHeldByAdmin($realRoomTimeSlot->id, $slotDateYmd);
+                                                                                if ($activeHold) {
+                                                                                    $isSelectable = false;
+                                                                                    $classes .= ' held';
+                                                                                    $heldByName =
+                                                                                        $activeHold->user->fullname ??
+                                                                                        $activeHold->user->email ??
+                                                                                        'nhân viên';
+                                                                                }
+                                                                            }
+
                                                                             $priceData = $this->calculateSlotPrice(
                                                                                 $realRoomTimeSlot,
                                                                                 $date['carbon_date']->format('Y-m-d'),
@@ -1872,6 +1939,9 @@
                                                                                     .key === '{{ $date['carbon_date']->format('Y-m-d') }}-{{ $timeSlot['timeslot_id'] }}'
                                                                                 ) ? 'active' : ''"
                                                                                 style="{{ !$isSelectable ? 'pointer-events: none; opacity: 0.6;' : 'cursor: pointer;' }}"
+                                                                                data-room-id="{{ $product['id'] }}"
+                                                                                data-timeslot-id="{{ $timeSlot['timeslot_id'] }}"
+                                                                                data-iso-date="{{ $date['carbon_date']->format('Y-m-d') }}"
                                                                                 x-on:click="toggleSlot(
                                                                 '{{ $date['carbon_date']->format('Y-m-d') }}',
                                                                 '{{ $timeSlot['timeslot_id'] }}',
@@ -1898,6 +1968,17 @@
                                                                                             height="9" rx="2" />
                                                                                         <path d="M8 11V7a4 4 0 0 1 8 0v4" />
                                                                                     </svg>
+                                                                                @endif
+
+                                                                                @if (str_contains($classes, 'held'))
+                                                                                    <div class="lock-icon" title="Đang được {{ $heldByName }} xử lý cho 1 đơn khác">
+                                                                                        <svg viewBox="0 0 24 24" fill="none"
+                                                                                            stroke="currentColor" stroke-width="2"
+                                                                                            stroke-linecap="round" stroke-linejoin="round">
+                                                                                            <rect x="4" y="11" width="16" height="9" rx="2" />
+                                                                                            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                                                                                        </svg>
+                                                                                    </div>
                                                                                 @endif
 
                                                                                 @if ($hasIncreasePromotion && $displayPromotion && $displayPromotion->image)
@@ -2480,3 +2561,7 @@
         })();
     </script>
 @endpush
+
+{{-- Real-time "khung giờ đang bị admin giữ chỗ" (echo-client.js) giờ đã nhúng chung ở
+     layouts/master.blade.php (áp dụng cho MỌI trang, không riêng trang này nữa) — không cần
+     @push('scripts') riêng ở đây nữa. --}}

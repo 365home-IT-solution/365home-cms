@@ -38,9 +38,11 @@ class NotificationFcmResource extends Resource
     protected static ?string $pluralModelLabel = 'Push Notifications';
     protected static ?int    $navigationSort   = 10;
 
+    // Trước đây hardcode isSuperAdmin() — bỏ qua NotificationFcmPolicy (đã đúng, kiểm tra
+    // view_any_notification::fcm), khiến tick/bỏ tick quyền này ở Roles & Permissions vô tác dụng.
     public static function canViewAny(): bool
     {
-        return auth()->user()?->isSuperAdmin() ?? false;
+        return auth()->user()?->can('view_any_notification::fcm') ?? false;
     }
 
     // ──────────────────────────────────────────────────────────────────────────

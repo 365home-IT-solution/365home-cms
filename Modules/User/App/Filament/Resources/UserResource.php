@@ -65,7 +65,8 @@ class UserResource extends Resource
             return $query;
         }
 
-        return $query->where('created_by', $user->id);
+        // Mỗi đối tác chỉ thấy tài khoản (chủ đối tác + nhân viên) thuộc partner_id của mình.
+        return $query->where('partner_id', $user->partner_id);
     }
 
     public static function form(Form $form): Form

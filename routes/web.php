@@ -68,6 +68,12 @@ Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group
             ->where('category_type', 'product')
             ->orderBy('name');
 
+        // Category không có global scope partner_id riêng — mặc định chỉ lấy chi nhánh của
+        // đối tác mình (super_admin xem hết).
+        if ($user && ! $user->isSuperAdmin()) {
+            $branchesQuery->where('partner_id', $user->partner_id);
+        }
+
         $filterBranchId = $request->query('branch_id');
         if ($filterBranchId && ctype_digit((string) $filterBranchId)) {
             $branchesQuery->where('id', (int) $filterBranchId);
@@ -77,10 +83,14 @@ Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group
 
         if ($user && ! $user->isSuperAdmin()) {
             $allowedIds = $user->allowedCategoryIds() ?? [];
-            $branches = $branches->filter(function ($b) use ($allowedIds) {
-                $childIds = \Modules\Category\Entities\Category::where('parent_id', $b->id)->pluck('id')->toArray();
-                return count(array_intersect(array_merge([$b->id], $childIds), $allowedIds)) > 0;
-            })->values();
+            // allowedCategoryIds chỉ thu hẹp thêm (giới hạn nhân viên vào 1 vài chi nhánh cụ
+            // thể) — không áp dụng khi rỗng, vì đã lọc theo partner_id ở trên rồi.
+            if (! empty($allowedIds)) {
+                $branches = $branches->filter(function ($b) use ($allowedIds) {
+                    $childIds = \Modules\Category\Entities\Category::where('parent_id', $b->id)->pluck('id')->toArray();
+                    return count(array_intersect(array_merge([$b->id], $childIds), $allowedIds)) > 0;
+                })->values();
+            }
         }
 
         $months = array_map(fn($m) => str_pad((string)$m, 2, '0', STR_PAD_LEFT), range(1, 12));
@@ -154,12 +164,17 @@ Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group
             ->orderBy('name');
 
         if ($user && ! $user->isSuperAdmin()) {
+            // Category không có global scope partner_id riêng — mặc định chỉ lấy chi nhánh của
+            // đối tác mình; allowedCategoryIds chỉ thu hẹp thêm nếu có.
+            $branchQuery->where('partner_id', $user->partner_id);
+
             $allowedIds = $user->allowedCategoryIds() ?? [];
-            if (empty($allowedIds)) return response()->json(['branches' => [], 'total' => 0, 'dateRange' => $start->format('d/m') . ' – ' . $end->format('d/m')]);
-            $branchQuery->where(function ($q) use ($allowedIds) {
-                $q->whereIn('id', $allowedIds)
-                  ->orWhereIn('id', \Modules\Category\Entities\Category::whereIn('id', $allowedIds)->pluck('parent_id')->filter()->toArray());
-            });
+            if (! empty($allowedIds)) {
+                $branchQuery->where(function ($q) use ($allowedIds) {
+                    $q->whereIn('id', $allowedIds)
+                      ->orWhereIn('id', \Modules\Category\Entities\Category::whereIn('id', $allowedIds)->pluck('parent_id')->filter()->toArray());
+                });
+            }
         }
 
         $branches = $branchQuery->get();
@@ -261,11 +276,12 @@ Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group
             function () use ($user) {
                 $query = \Modules\Payment\Entities\Order::query();
                 if (! $user->isSuperAdmin()) {
+                    // Order đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds chỉ
+                    // thu hẹp thêm, không dùng để chặn hết khi rỗng.
                     $categoryIds = $user->allowedCategoryIds() ?? [];
-                    if (empty($categoryIds)) {
-                        return ['created_ts' => 0, 'updated_ts' => 0];
+                    if (! empty($categoryIds)) {
+                        $query->whereIn('category_id', $categoryIds);
                     }
-                    $query->whereIn('category_id', $categoryIds);
                 }
                 $latestCreated = $query->max('created_at');
                 $latestUpdated = $query->max('updated_at');
@@ -325,10 +341,13 @@ Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group
             return response()->json(['ok' => false], 401);
         }
         // Gộp ownership check vào query để tránh leak sự tồn tại của đơn (403 vs 404)
+        // Order đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds chỉ thu hẹp thêm.
         $query = \Modules\Payment\Entities\Order::query();
         if (! $user->isSuperAdmin()) {
             $allowedIds = $user->allowedCategoryIds() ?? [];
-            $query->whereIn('category_id', $allowedIds);
+            if (! empty($allowedIds)) {
+                $query->whereIn('category_id', $allowedIds);
+            }
         }
         $order = $query->findOrFail($id);
 
@@ -358,6 +377,17 @@ Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group
             \Modules\Dashboard\App\Filament\Pages\Dashboard::getMonthlyRevenueData($user, $year, $branchCategoryIds)
         );
     })->name('admin.monthly-revenue');
+});
+
+// Ký hợp đồng điện tử — trang CÔNG KHAI (không cần đăng nhập CMS), đối tác nhận link qua email
+// từ super_admin (xem PartnerForm::contractTab()). Rate-limit để chặn brute-force token/OTP.
+Route::middleware(['web', 'throttle:30,1'])->prefix('hop-dong')->group(function () {
+    Route::get('ky/{token}', [\App\Http\Controllers\ContractSignController::class, 'show'])
+        ->name('contract.sign.show');
+    Route::post('ky/{token}/gui-ma', [\App\Http\Controllers\ContractSignController::class, 'sendOtp'])
+        ->name('contract.sign.send-otp');
+    Route::post('ky/{token}/xac-nhan', [\App\Http\Controllers\ContractSignController::class, 'sign'])
+        ->name('contract.sign.submit');
 });
 
 // Block paths that should not be accessible

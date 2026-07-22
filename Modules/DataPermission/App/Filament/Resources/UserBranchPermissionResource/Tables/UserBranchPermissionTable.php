@@ -67,16 +67,27 @@ class UserBranchPermissionTable
             ->filters([
                 SelectFilter::make('category_id')
                     ->label('Danh mục / Chi nhánh')
-                    ->options(fn () => Category::query()
-                        ->whereNull('parent_id')
-                        ->orderBy('category_type')
-                        ->orderBy('name')
-                        ->get()
-                        ->mapWithKeys(fn ($c) => [
-                            $c->id => $c->name,
-                        ])
-                        ->toArray()
-                    )
+                    ->options(function () {
+                        $actor = auth()->user();
+                        $query = Category::query()->whereNull('parent_id');
+
+                        if (! $actor?->hasRole(config('filament-shield.super_admin.name'))) {
+                            // Chi nhánh (category_type=product) chỉ hiện của đối tác mình; danh
+                            // mục bài viết (post) vẫn dùng chung.
+                            $query->where(function ($q) use ($actor) {
+                                $q->where('category_type', '!=', 'product')
+                                    ->orWhere('partner_id', $actor->partner_id);
+                            });
+                        }
+
+                        return $query->orderBy('category_type')
+                            ->orderBy('name')
+                            ->get()
+                            ->mapWithKeys(fn ($c) => [
+                                $c->id => $c->name,
+                            ])
+                            ->toArray();
+                    })
                     ->query(function ($query, array $data) {
                         if (blank($data['value'] ?? null)) {
                             return $query;
@@ -121,7 +132,15 @@ class UserBranchPermissionTable
                                     ->orderBy('name');
 
                                 if (! $actor?->hasRole(config('filament-shield.super_admin.name'))) {
-                                    $query->whereIn('id', $actor->allowedBranchIds());
+                                    // Category không có global scope partner_id riêng — mặc
+                                    // định thấy toàn bộ chi nhánh của đối tác mình;
+                                    // allowedBranchIds() chỉ thu hẹp thêm nếu có.
+                                    $query->where('partner_id', $actor->partner_id);
+
+                                    $allowedIds = $actor->allowedBranchIds();
+                                    if (! empty($allowedIds)) {
+                                        $query->whereIn('id', $allowedIds);
+                                    }
                                 }
 
                                 return $query->pluck('name', 'id')->toArray();

@@ -21,6 +21,9 @@ return [
 
     'allowed_origins' => [
         env('APP_URL', 'https://365home.vn'),
+        // Next.js admin (TestModule) — dev local, dùng để test tương tác UI <-> API
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
     ],
 
     'allowed_origins_patterns' => [],

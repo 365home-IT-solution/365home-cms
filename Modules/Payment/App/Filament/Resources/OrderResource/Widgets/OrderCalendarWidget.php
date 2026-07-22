@@ -139,6 +139,19 @@ class OrderCalendarWidget extends CalendarWidget
   scrollbar-width: thin;
   scrollbar-color: #888 #f1f1f1;
 }
+
+/* Mobile: header toolbar (prev/next/today + view buttons) không đủ chỗ trên 1 hàng — cho phép
+   xuống dòng thay vì tràn ngang, không đụng gì tới desktop (chỉ áp dụng dưới 640px). */
+@media (max-width: 640px) {
+    .fc-toolbar {
+        flex-wrap: wrap !important;
+        gap: 8px !important;
+        justify-content: center !important;
+    }
+    .fc-toolbar-title {
+        font-size: 1.1rem !important;
+    }
+}
         </style>
         <div style="display: flex; align-items: center; gap: 8px;">
            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-icon lucide-calendar">
@@ -161,8 +174,9 @@ class OrderCalendarWidget extends CalendarWidget
 
         $allCategoryIds = $user->allowedCategoryIds();
 
+        // Order đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds chỉ thu hẹp thêm.
         if (empty($allCategoryIds)) {
-            return $query->whereRaw('1 = 0');
+            return $query;
         }
 
         return $query->whereIn('category_id', $allCategoryIds);
@@ -268,13 +282,12 @@ class OrderCalendarWidget extends CalendarWidget
         if ($user && ! $user->isSuperAdmin()) {
             $allCategoryIds = $user->allowedCategoryIds();
 
-            if (empty($allCategoryIds)) {
-                return collect();
+            // Product đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds chỉ thu hẹp thêm.
+            if (! empty($allCategoryIds)) {
+                $query->whereHas('categories', function (Builder $q) use ($allCategoryIds) {
+                    $q->whereIn('categories.id', $allCategoryIds);
+                });
             }
-
-            $query->whereHas('categories', function (Builder $q) use ($allCategoryIds) {
-                $q->whereIn('categories.id', $allCategoryIds);
-            });
         }
 
         return $query->get()->map->toCalendarResource();

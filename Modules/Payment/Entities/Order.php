@@ -2,6 +2,7 @@
 
 namespace Modules\Payment\Entities;
 
+use App\Models\Concerns\BelongsToPartner;
 use App\Models\Customer;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -14,16 +15,20 @@ use Guava\Calendar\ValueObjects\CalendarEvent;
 use Modules\Payment\App\Models\OrderService;
 class Order extends Model implements Eventable
 {
-    use HasFactory;
+    use HasFactory, BelongsToPartner;
 
     protected $fillable = [
+        'partner_id',
+        'created_by',
         'order_code',
         'amount',
         'full_amount',
         'deposit_percent',
+        'deposit_paid_amount',
         'coupon_code',
         'coupon_codes',
         'deposit_paid_at',
+        'paid_at',
         'remaining_paid_at',
         'remaining_payment_method',
         'remaining_payos_code',
@@ -52,6 +57,12 @@ class Order extends Model implements Eventable
         'cccd_data',
         'cccd_data_2',
         'buyer_phone_2',
+        // Khách thứ 2 cùng lưu trú qua đêm (Luật Cư trú yêu cầu khai báo đủ từng người khi ở qua
+        // đêm 2 khách) — xem CccdDeclarationService.
+        'cccd_front_2',
+        'cccd_back_2',
+        'cccd_data_2',
+        'buyer_phone_2',
         'guest_count',
         'category_id',
         'user_id',
@@ -72,6 +83,10 @@ class Order extends Model implements Eventable
         'extra_charge_payment_method',
         'extra_charge_paid_at',
         'extra_charge_expired_at',
+        'extra_refund_amount',
+        'extra_refund_method',
+        'extra_refund_paid_at',
+        'settled_adjustment_total',
     ];
 
     protected $casts = [
@@ -79,9 +94,11 @@ class Order extends Model implements Eventable
         'cccd_data_2'            => 'array',
         'coupon_codes'           => 'array',
         'deposit_paid_at'        => 'datetime',
+        'paid_at'                => 'datetime',
         'remaining_paid_at'      => 'datetime',
         'extra_charge_paid_at'    => 'datetime',
         'extra_charge_expired_at' => 'datetime',
+        'extra_refund_paid_at'    => 'datetime',
         'exclude_from_stats'     => 'boolean',
         'unlock_anytime'         => 'boolean',
         'checked_in_at'          => 'datetime',
@@ -144,6 +161,40 @@ class Order extends Model implements Eventable
                 $order->user_id = (string) auth()->id();
             }
         });
+
+        // order_items KHÔNG có FK cascade (chỉ unsignedBigInteger + index, không ràng buộc khoá
+        // ngoại) — xoá Order trước đây chỉ xoá đúng 1 dòng orders, để lại order_items MỒ CÔI
+        // trong DB. Vì khung giờ/ngày đã đặt của phòng được TÍNH TỪ order_items còn tồn tại (không
+        // phải từ 1 bảng "slot" riêng), các order_item mồ côi này vẫn khiến phòng hiện "đã đặt",
+        // không thể tạo lại đúng khung giờ đó dù đơn đã bị xoá. Phải tự tay dọn khi Order bị xoá.
+        static::deleting(function (self $order): void {
+            $order->items()->delete();
+            $order->services()->delete();
+        });
+    }
+
+    // Số tiền THỰC TẾ cần thu ngay bây giờ (qua PayOS...) — 'full_amount' luôn là TỔNG GIÁ CỐ ĐỊNH
+    // của đơn (không phải tiền cọc), nên số tiền cọc cần trả phải TÍNH LẠI từ full_amount *
+    // deposit_percent mỗi lần cần, không đọc trực tiếp từ cột nào cả (tránh 2 cột amount/full_amount
+    // bị dùng lẫn lộn giữa "tổng giá" và "tiền cần thu ngay" như trước đây).
+    public function depositDueAmount(): int
+    {
+        $total = (int) ($this->full_amount ?? 0);
+
+        if ($this->deposit_percent !== null && (int) $this->deposit_percent < 100) {
+            return (int) ceil($total * (int) $this->deposit_percent / 100);
+        }
+
+        return $total;
+    }
+
+    // Số tiền cọc THỰC TẾ đã thu — mặc định bằng depositDueAmount() (đúng % đã áp dụng lúc đặt),
+    // trừ khi admin đã tự điều chỉnh tay qua 'deposit_paid_amount' (form sửa đơn ở admin).
+    public function depositPaidAmount(): int
+    {
+        return $this->deposit_paid_amount !== null
+            ? (int) $this->deposit_paid_amount
+            : $this->depositDueAmount();
     }
 
     public function items()
@@ -196,6 +247,13 @@ class Order extends Model implements Eventable
     public function customer()
     {
         return $this->belongsTo(Customer::class);
+    }
+
+    // Nhân viên/tài khoản đã TẠO đơn này — dùng cho nhân viên đối tác nền tảng (vd 365home) xem
+    // lại đúng những đơn CHÍNH HỌ đặt hộ cho đối tác khác (xem OrderResource::getEloquentQuery()).
+    public function creator()
+    {
+        return $this->belongsTo(User::class, 'created_by');
     }
 
     /**

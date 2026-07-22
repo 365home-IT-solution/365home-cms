@@ -65,6 +65,10 @@ class PaymentService
         $items = [];
         $totalAmount = 0;
         $expiredAt = now()->addMinutes(15)->timestamp;
+        // Số tiền THỰC TẾ cần thu qua PayOS ngay bây giờ (cọc hoặc đủ) — 'amount'/'full_amount' của
+        // đơn nay đều lưu TỔNG GIÁ CỐ ĐỊNH, không phải tiền cần thu ngay, nên phải tính riêng qua
+        // Order::depositDueAmount() (full_amount * deposit_percent nếu có cọc).
+        $dueNow = $order->depositDueAmount();
 
         if ($order->items && $order->items->count() > 0) {
             foreach ($order->items as $item) {
@@ -91,20 +95,21 @@ class PaymentService
             $items[] = [
                 'name' => 'Đặt phòng - ' . ($roomDetails['productName'] ?? 'Phòng'),
                 'quantity' => 1,
-                'price' => (int) $order->amount,
+                'price' => $dueNow,
             ];
-            $totalAmount = (int) $order->amount;
+            $totalAmount = $dueNow;
         }
 
         Log::info('PayOS Payment Items', [
             'items' => $items,
             'total_amount' => $totalAmount,
-            'order_amount' => $order->amount
+            'due_now' => $dueNow,
         ]);
 
-        // Đảm bảo totalAmount khớp với order->amount
-        if ($totalAmount != $order->amount) {
-            $totalAmount = (int) $order->amount; // Ưu tiên amount trong order
+        // Đảm bảo totalAmount khớp với số tiền THỰC TẾ cần thu ngay (không phải tổng giá cố định
+        // của đơn — 2 giá trị này chỉ trùng nhau khi thanh toán đủ 100%, không có cọc).
+        if ($totalAmount != $dueNow) {
+            $totalAmount = $dueNow;
         }
 
         $data = [

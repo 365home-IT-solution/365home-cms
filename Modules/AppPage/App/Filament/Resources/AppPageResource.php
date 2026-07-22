@@ -46,9 +46,11 @@ class AppPageResource extends Resource
         return (string) static::getModel()::count();
     }
 
+    // Trước đây hardcode isSuperAdmin() — bỏ qua AppPagePolicy (đã đúng, kiểm tra
+    // view_any_app::page), khiến tick/bỏ tick quyền này ở Roles & Permissions vô tác dụng.
     public static function canViewAny(): bool
     {
-        return auth()->user()?->isSuperAdmin() ?? false;
+        return auth()->user()?->can('view_any_app::page') ?? false;
     }
 
     public static function form(Form $form): Form

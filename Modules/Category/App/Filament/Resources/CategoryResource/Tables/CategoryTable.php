@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Category\App\Filament\Resources\CategoryResource\Tables;
 
+use App\Filament\Support\PartnerTableHelpers;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ToggleColumn;
@@ -66,8 +67,13 @@ class CategoryTable
                     ->alignCenter()
                     ->sortable(),
 
+                PartnerTableHelpers::column(),
+
             ])
-            ->filters(CategoryFilter::filter())
+            ->filters([
+                ...CategoryFilter::filter(),
+                PartnerTableHelpers::filter(),
+            ])
             ->actions(CategoryAction::action())
             ->bulkActions(CategoryBulkAction::bulkActions())
             ->modifyQueryUsing(function (Builder $query) {

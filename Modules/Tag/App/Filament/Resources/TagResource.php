@@ -62,8 +62,10 @@ class TagResource extends Resource
 
         $allowedCategoryIds = $user->allowedCategoryIds();
 
+        // Tag là dữ liệu dùng chung (không có partner_id) — chưa gán quyền chi nhánh cụ thể thì
+        // vẫn thấy toàn bộ tag thay vì bị chặn hoàn toàn.
         if (empty($allowedCategoryIds)) {
-            return $query->whereRaw('1 = 0');
+            return $query;
         }
 
         // Tìm product_id thuộc các chi nhánh được phép

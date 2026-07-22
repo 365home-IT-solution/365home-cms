@@ -46,8 +46,14 @@ class OrderFilter
                         ->whereNull('parent_id');
 
                     if (! $user?->isSuperAdmin()) {
+                        // Category không có global scope partner_id riêng — mặc định thấy chi
+                        // nhánh của đối tác mình; allowedBranchIds() chỉ thu hẹp thêm nếu có.
+                        $query->where('partner_id', $user?->partner_id);
+
                         $allowedIds = $user?->allowedBranchIds() ?? [];
-                        $query->whereIn('id', $allowedIds);
+                        if (! empty($allowedIds)) {
+                            $query->whereIn('id', $allowedIds);
+                        }
                     }
 
                     return $query->pluck('name', 'id');
@@ -75,8 +81,12 @@ class OrderFilter
                     $query = Product::query();
 
                     if (! $user?->isSuperAdmin()) {
+                        // Product đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds
+                        // chỉ thu hẹp thêm, không dùng để chặn hết khi rỗng.
                         $allowedIds = $user?->allowedCategoryIds() ?? [];
-                        $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedIds));
+                        if (! empty($allowedIds)) {
+                            $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedIds));
+                        }
                     }
 
                     return $query->pluck('name', 'id');

@@ -24,18 +24,37 @@ window.rcApplyFilters = function() {
         var branchMatch  = branch === '__all__' || card.dataset.branch === branch;
         var visibleCount = 0;
 
-        card.querySelectorAll('.ta-rc-order-item').forEach(function(item) {
+        // Đếm/tính theo view "Danh sách" (nguồn đếm DUY NHẤT — view "Chi tiết (cũ)" hiển thị
+        // CÙNG bộ đơn, chỉ khác giao diện, nên KHÔNG đếm lại lần 2 kẻo ra gấp đôi số đơn).
+        card.querySelectorAll('.ta-rc-orders .ta-rc-order-item').forEach(function(item) {
             var show = time === 'all'
                 || (time === 'deposit' ? item.dataset.status === 'deposit' : item.dataset.segment === time);
             item.style.display = show ? '' : 'none';
             if (show) visibleCount++;
         });
 
-        var allOrderCount = card.querySelectorAll('.ta-rc-order-item').length;
-        var emptyEl       = card.querySelector('.ta-rc-empty');
-        var noMatchEl     = card.querySelector('.ta-rc-no-match');
-        if (emptyEl)   emptyEl.style.display   = allOrderCount === 0 ? '' : 'none';
-        if (noMatchEl) noMatchEl.style.display = (allOrderCount > 0 && visibleCount === 0) ? '' : 'none';
+        // View "Chi tiết (cũ)" — cùng bộ lọc, chỉ ẩn/hiện, không đếm lại.
+        card.querySelectorAll('.ta-rc-orders-detail .ta-rc-order-item').forEach(function(item) {
+            var show = time === 'all'
+                || (time === 'deposit' ? item.dataset.status === 'deposit' : item.dataset.segment === time);
+            item.style.display = show ? '' : 'none';
+        });
+
+        // View "Dải giờ" — ẩn/hiện đúng đoạn khớp bộ lọc trên thanh 24h (không tính vào
+        // visibleCount vì đoạn timeline chỉ gồm các lượt CỦA HÔM NAY, khác phạm vi với đếm ở trên).
+        card.querySelectorAll('.ta-rc-tl-seg').forEach(function(seg) {
+            var show = time === 'all'
+                || (time === 'deposit' ? seg.dataset.status === 'deposit' : seg.dataset.segment === time);
+            seg.style.display = show ? '' : 'none';
+        });
+
+        var allOrderCount = card.querySelectorAll('.ta-rc-orders .ta-rc-order-item').length;
+        card.querySelectorAll('.ta-rc-empty').forEach(function(el) {
+            el.style.display = allOrderCount === 0 ? '' : 'none';
+        });
+        card.querySelectorAll('.ta-rc-no-match').forEach(function(el) {
+            el.style.display = (allOrderCount > 0 && visibleCount === 0) ? '' : 'none';
+        });
 
         var countEl = card.querySelector('.ta-rc-count');
         if (countEl) {
@@ -289,7 +308,7 @@ window.rcOpenSelectedPopup = function() {
 
 window.rcOpenSegmentPopup = function(segment) {
     var orders = [];
-    document.querySelectorAll('#ta-room-grid .ta-rc-order-item[data-segment="' + segment + '"]').forEach(function(item) {
+    document.querySelectorAll('#ta-room-grid .ta-rc-orders .ta-rc-order-item[data-segment="' + segment + '"]').forEach(function(item) {
         var orderData = {};
         try { orderData = JSON.parse(item.dataset.order || '{}'); } catch(e) { return; }
         var card   = item.closest('.ta-room-card');
@@ -320,7 +339,7 @@ window.rcOpenNowPopup = function() {
     });
 
     ['active', 'today'].forEach(function(seg) {
-        document.querySelectorAll('#ta-room-grid .ta-rc-order-item[data-segment="' + seg + '"]').forEach(function(item) {
+        document.querySelectorAll('#ta-room-grid .ta-rc-orders .ta-rc-order-item[data-segment="' + seg + '"]').forEach(function(item) {
             var orderData = {};
             try { orderData = JSON.parse(item.dataset.order || '{}'); } catch(e) { return; }
             var card   = item.closest('.ta-room-card');
@@ -395,6 +414,128 @@ window.rcCancelDeposit = function(btn) {
     if (togBtn) togBtn.textContent = hasNote ? 'Sửa ghi chú' : '+ Ghi chú';
 };
 
+// ── Menu thao tác nhanh (⋮) trên thẻ phòng: chỉnh sửa phòng / giá & khung giờ / đặt phòng đều
+// điều hướng sang trang tương ứng (đã tự chọn sẵn đúng phòng qua ?product_id=, xem
+// CreateOrder::mount() và SettingBook::form()); dọn vệ sinh xử lý NGAY tại chỗ qua
+// wire:click="confirmRoomCleaning(...)" gọi thẳng action Livewire của Dashboard — panel này tuy
+// do JS dựng động (innerHTML) nhưng Livewire v3 chạy trên nền Alpine, tự quan sát DOM bằng
+// MutationObserver nên vẫn nhận diện đúng directive wire:click gắn trong HTML chèn sau, không
+// cần route/API riêng cho thao tác này.
+window.rcOpenRoomMenu = function(event, productId) {
+    event.stopPropagation();
+    var btn = event.currentTarget;
+    var data = {};
+    try { data = JSON.parse(btn.dataset.roomMenu || '{}'); } catch (e) {}
+
+    var esc = function(s) { return String(s == null ? '' : s).replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+
+    var html = '';
+    html += '<a href="' + data.edit_url + '" class="ta-rc-menu-item"> Chỉnh sửa phòng</a>';
+    html += '<a href="' + data.timeslot_url + '" class="ta-rc-menu-item"> Giá &amp; khung giờ</a>';
+    html += '<a href="' + data.book_url + '" class="ta-rc-menu-item"> Đặt phòng</a>';
+    html += '<button type="button" class="ta-rc-menu-item" onclick="window.rcOpenLockGrid(\'' + productId + '\')"> Lịch Phòng</button>';
+    html += '<button type="button" class="ta-rc-menu-item" onclick="window.rcOpenBlockModal(\'' + productId + '\')"> Khóa khung giờ</button>';
+    html += '<div class="ta-rc-menu-sep"></div>';
+
+    var cleanLabels = { available: 'Sẵn sàng', cleaning: 'Đang dọn', maintenance: 'Bảo trì' };
+    var cleanLabel  = cleanLabels[data.cleaning] || data.cleaning || 'Sẵn sàng';
+    var cleanPill   = data.cleaning === 'available' || !data.cleaning ? 'ok' : 'warn';
+
+    html += '<div class="ta-rc-menu-status-block">';
+    html += '  <div class="ta-rc-menu-status-label">Dọn vệ sinh</div>';
+    html += '  <div class="ta-rc-menu-status-row"><span>Tình trạng</span><span class="ta-rc-menu-pill ' + cleanPill + '">' + esc(cleanLabel) + '</span></div>';
+    if (data.cleaning === 'cleaning') {
+        // product_id là ULID dạng chuỗi (không phải số) — PHẢI có dấu nháy đơn khi nhúng vào
+        // biểu thức wire:click, nếu không Livewire/Alpine parse '01ksfmbs...' như 1 token số
+        // không hợp lệ → "Uncaught SyntaxError: Invalid or unexpected token".
+        html += '  <button type="button" class="ta-rc-menu-confirm-btn" wire:click="confirmRoomCleaning(\'' + productId + '\')" wire:loading.attr="disabled" wire:target="confirmRoomCleaning(\'' + productId + '\')" onclick="window.rcCloseRoomMenu()">Xác nhận đã dọn xong</button>';
+    }
+    html += '</div>';
+
+    // Hoàn tiền — bấm 1 trong 2 nút gọi thẳng confirmRoomRefund() trên Dashboard, tái dùng ĐÚNG
+    // ExtraChargeService::markRefundAsDone() giống hệt nút hoàn tiền ở trang sửa đơn (EditOrder).
+    // order_id là số nguyên tự tăng thường (không phải ULID như product_id) nên không cần nháy.
+    if (data.refund) {
+        html += '<div class="ta-rc-menu-sep"></div>';
+        html += '<div class="ta-rc-menu-status-block">';
+        html += '  <div class="ta-rc-menu-status-label">Hoàn tiền</div>';
+        html += '  <div class="ta-rc-menu-status-row"><span>' + esc(data.refund.buyer_name) + ' — #' + esc(data.refund.order_code) + '</span><span class="ta-rc-menu-pill warn">' + Number(data.refund.amount || 0).toLocaleString('vi-VN') + 'đ</span></div>';
+        html += '  <button type="button" class="ta-rc-menu-confirm-btn" wire:click="confirmRoomRefund(' + data.refund.order_id + ', \'cash\')" wire:loading.attr="disabled" wire:target="confirmRoomRefund(' + data.refund.order_id + ', \'cash\')" onclick="window.rcCloseRoomMenu()">Đã hoàn tiền mặt</button>';
+        html += '  <button type="button" class="ta-rc-menu-confirm-btn secondary" wire:click="confirmRoomRefund(' + data.refund.order_id + ', \'bank_transfer\')" wire:loading.attr="disabled" wire:target="confirmRoomRefund(' + data.refund.order_id + ', \'bank_transfer\')" onclick="window.rcCloseRoomMenu()">Đã chuyển khoản</button>';
+        html += '</div>';
+    }
+
+    var panel   = document.getElementById('ta-rc-menu-panel');
+    var catcher = document.getElementById('ta-rc-menu-catcher');
+
+    // Đưa panel/catcher ra làm con của GỐC component Livewire (thẻ có wire:id), KHÔNG phải
+    // <body> — nếu để nguyên vị trí lồng sâu trong cây, 1 wrapper nào đó có CSS transform sẽ
+    // "nhốt" position:fixed khiến panel chạy theo scroll; nhưng nếu đưa hẳn ra <body> thì lại
+    // nằm NGOÀI cây component, Livewire không dò được component sở hữu nên wire:click bên trong
+    // hoàn toàn không có tác dụng (đã từng xảy ra đúng bug này — clicking không phản hồi gì cả).
+    // Gốc wire:id thường không tự transform (chỉ wrapper con bên trong mới có), nên vẫn giải
+    // quyết được lỗi chạy theo scroll mà không rời khỏi cây Livewire.
+    var lwRoot = btn.closest('[wire\\:id]') || document.body;
+    if (panel.parentElement !== lwRoot) lwRoot.appendChild(panel);
+    if (catcher.parentElement !== lwRoot) lwRoot.appendChild(catcher);
+
+    panel.innerHTML = html;
+    panel.style.display   = '';
+    catcher.style.display = '';
+
+    window._rcMenuAnchorBtn = btn;
+    window._rcRepositionRoomMenu();
+};
+
+// Tính lại vị trí panel THEO NÚT ĐANG MỞ mỗi lần gọi — không giả định position:fixed chắc chắn
+// bám đúng viewport (nếu có 1 ancestor nào đó "nhốt" containing block, fixed sẽ lệch dần theo
+// scroll); gọi lại hàm này liên tục lúc cuộn trang thì panel vẫn luôn bám đúng theo nút bấm bất
+// kể nguyên nhân containing-block là gì.
+window._rcRepositionRoomMenu = function() {
+    var btn = window._rcMenuAnchorBtn;
+    var panel = document.getElementById('ta-rc-menu-panel');
+    if (!btn || !panel || panel.style.display === 'none') return;
+
+    var rect       = btn.getBoundingClientRect();
+    var panelWidth = 260;
+    var left       = Math.max(8, Math.min(rect.right - panelWidth, window.innerWidth - panelWidth - 8));
+    panel.style.left = left + 'px';
+    panel.style.top  = (rect.bottom + 6) + 'px';
+};
+
+window.rcCloseRoomMenu = function() {
+    document.getElementById('ta-rc-menu-panel').style.display   = 'none';
+    document.getElementById('ta-rc-menu-catcher').style.display = 'none';
+    window._rcMenuAnchorBtn = null;
+};
+
+window.addEventListener('scroll', function() { window._rcRepositionRoomMenu(); }, true);
+window.addEventListener('resize', function() { window._rcRepositionRoomMenu(); });
+
+// "Chặn khung giờ dài hạn" trong menu ⋮ — mở modal tô đen/khóa khung giờ đã có sẵn (dùng chung
+// đúng component book::block-timeslot-modal, đã nhúng 1 lần ở dashboard.blade.php,
+// KHÔNG viết modal riêng), chỉ khác là mở SẴN cho đúng phòng này (xem
+// BlockTimeslotModal::openForProduct() — lắng nghe qua #[On('open-block-timeslot-modal-for-room')]).
+// Dispatch bằng window.dispatchEvent thường (không phải wire:click) vì đây là 1 Livewire
+// component KHÁC với component chứa nút bấm (Dashboard) — event window là cách 2 component
+// Livewire độc lập giao tiếp với nhau ở đây.
+window.rcOpenBlockModal = function(productId) {
+    window.rcCloseRoomMenu();
+    window.dispatchEvent(new CustomEvent('open-block-timeslot-modal-for-room', {
+        detail: { productId: productId },
+    }));
+};
+
+// "Khóa tạm thời (realtime)" trong menu ⋮ — mở popup lưới NGÀY × KHUNG GIỜ (component
+// room-lock-grid, nhúng 1 lần ở dashboard.blade.php) để bấm giữ chỗ real-time (TimeslotHold, tự
+// hết hạn), KHÔNG tạo đơn — cùng cơ chế dispatch window event như rcOpenBlockModal() ở trên.
+window.rcOpenLockGrid = function(productId) {
+    window.rcCloseRoomMenu();
+    window.dispatchEvent(new CustomEvent('open-room-lock-grid', {
+        detail: { productId: productId },
+    }));
+};
+
 window.rcCloseSelectedPopup = function() {
     var popup = document.getElementById('ta-rc-popup');
     if (popup) popup.style.display = 'none';
@@ -403,6 +544,104 @@ window.rcCloseSelectedPopup = function() {
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') window.rcCloseSelectedPopup();
 });
+
+// ── Chuyển đổi kiểu xem thẻ phòng: "list" (danh sách gọn) / "timeline" (dải giờ) / "detail" (chi tiết cũ, để so sánh) ──
+window.rcSetView = function(mode) {
+    var grid = document.getElementById('ta-room-grid');
+    if (grid) {
+        grid.classList.toggle('rc-view-timeline', mode === 'timeline');
+        grid.classList.toggle('rc-view-detail', mode === 'detail');
+    }
+    document.querySelectorAll('#ta-rc-view-toggle .ta-rc-view-toggle-btn').forEach(function(b) {
+        b.classList.toggle('active', b.dataset.view === mode);
+    });
+    try { localStorage.setItem('rc_view_mode', mode); } catch (e) {}
+};
+
+// Khôi phục lựa chọn kiểu xem đã lưu từ lần trước (mặc định 'list' nếu chưa chọn bao giờ)
+(function() {
+    var saved = null;
+    try { saved = localStorage.getItem('rc_view_mode'); } catch (e) {}
+    if (saved === 'timeline' || saved === 'detail') window.rcSetView(saved);
+})();
+
+// ── Tooltip dùng chung cho mọi đơn (view Danh sách + Dải giờ) ──────────────
+// 1 phần tử duy nhất, định vị bằng getBoundingClientRect() nên không bị overflow:hidden của thẻ
+// phòng cắt mất, và không có chuyện chỉ hover được đúng 1 đơn khi thẻ có nhiều đơn.
+(function() {
+    var svgClock = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><path d="M12 6v6l4 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+    var svgCoin  = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v10M9 9.5c0-1.5 1.3-2.5 3-2.5s3 1 3 2.5-1.3 2-3 2.5-3 1-3 2.5 1.3 2.5 3 2.5 3-1 3-2.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+    var svgNote  = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="1.6"/><path d="M14 2v6h6" stroke="currentColor" stroke-width="1.6"/></svg>';
+
+    function buildTooltipHtml(o) {
+        var timeText = o.slot_labels
+            ? (o.checkin ? o.checkin + ', ' : '') + o.slot_labels
+            : (o.checkin ? o.checkin + (o.checkout ? ' → ' + o.checkout : '') : '');
+
+        var html = '<div class="rc-tooltip-row">' +
+            '<span class="rc-tooltip-name">' + (o.buyer_name || 'Khách') + '</span>' +
+            (o.buyer_phone ? '<span class="rc-tooltip-phone">· ' + o.buyer_phone + '</span>' : '') +
+            (o.status_label ? '<span class="rc-tooltip-status" style="background:' + (o.status_color || '#94a3b8') + ';color:#fff;">' + o.status_label + '</span>' : '') +
+        '</div>';
+        html += '<div class="rc-tooltip-divider"></div>';
+        if (timeText) html += '<div class="rc-tooltip-line">' + svgClock + '<span>' + timeText + '</span></div>';
+        if (o.amount > 0) html += '<div class="rc-tooltip-line">' + svgCoin + '<span class="rc-tooltip-amount">' + Number(o.amount).toLocaleString('vi-VN') + '₫</span></div>';
+        if (o.deposit_room) html += '<div class="rc-tooltip-line">' + svgNote + '<span>' + o.deposit_room + '</span></div>';
+        html += '<div class="rc-tooltip-muted">Tạo lúc ' + (o.created_at_fmt || o.created_at || '') + '</div>';
+        return html;
+    }
+
+    function positionTooltip(el, target) {
+        var rect = target.getBoundingClientRect();
+        // đo trước để biết chiều cao thật (đang display nhưng opacity 0)
+        var tw = el.offsetWidth, th = el.offsetHeight;
+        var top = rect.top - th - 8;
+        if (top < 8) top = rect.bottom + 8; // không đủ chỗ phía trên → đặt phía dưới
+        var left = rect.left + (rect.width - tw) / 2;
+        left = Math.max(8, Math.min(left, window.innerWidth - tw - 8));
+        el.style.top  = top + 'px';
+        el.style.left = left + 'px';
+    }
+
+    function showTooltip(target) {
+        var el = document.getElementById('rc-tooltip');
+        if (!el) return;
+        var data = {};
+        try { data = JSON.parse(target.dataset.order || '{}'); } catch (e) { return; }
+        el.innerHTML = buildTooltipHtml(data);
+        el.style.display = 'block';
+        positionTooltip(el, target);
+        requestAnimationFrame(function() { el.classList.add('show'); });
+    }
+
+    function hideTooltip() {
+        var el = document.getElementById('rc-tooltip');
+        if (!el) return;
+        el.classList.remove('show');
+    }
+
+    document.addEventListener('mouseover', function(e) {
+        var target = e.target.closest('.ta-rc-order-item, .ta-rc-tl-seg');
+        if (!target || !target.closest('#ta-room-grid')) return;
+        showTooltip(target);
+    });
+    document.addEventListener('mouseout', function(e) {
+        var target = e.target.closest('.ta-rc-order-item, .ta-rc-tl-seg');
+        if (!target) return;
+        if (target.contains(e.relatedTarget)) return; // vẫn còn trong cùng 1 đơn (di chuột nội bộ)
+        hideTooltip();
+    });
+    document.addEventListener('focusin', function(e) {
+        var target = e.target.closest('.ta-rc-order-item, .ta-rc-tl-seg');
+        if (target && target.closest('#ta-room-grid')) showTooltip(target);
+    });
+    document.addEventListener('focusout', function(e) {
+        var target = e.target.closest('.ta-rc-order-item, .ta-rc-tl-seg');
+        if (target) hideTooltip();
+    });
+    // Cuộn trang / đổi tab lọc → toạ độ cũ không còn đúng, ẩn luôn cho chắc.
+    window.addEventListener('scroll', hideTooltip, true);
+})();
 </script>
 @endscript
 
@@ -421,7 +660,58 @@ document.addEventListener('keydown', function(e) {
         }
         var html = '';
         orders.forEach(function(o) {
-            var col      = statusColorMap[o.status] || '#94a3b8';
+            var col = statusColorMap[o.status] || o.status_color || '#94a3b8';
+            var seg = o.segment || 'upcoming';
+
+            // Đơn theo khung giờ (slot) — ưu tiên hiện đúng khung giờ thật (vd "15:10 - 18:00")
+            // kèm ngày, thay vì nhãn checkin/checkout (rỗng giờ với kiểu slot, dễ gây hiểu lầm).
+            var timeHtml = o.slot_labels
+                ? '<span class="ta-rc-time-compact">' + (o.checkin ? o.checkin + ', ' : '') + o.slot_labels + '</span>'
+                : (o.checkin
+                    ? '<span class="ta-rc-time-compact">' + o.checkin + (o.checkout ? ' → ' + o.checkout : '') + '</span>'
+                    : '');
+            var amtHtml = o.amount > 0
+                ? '<span class="ta-rc-amount-compact">' + Number(o.amount).toLocaleString('vi-VN') + '₫</span>'
+                : '';
+
+            var _oAttr = window._escAttr ? window._escAttr(JSON.stringify({
+                order_id: o.order_id, order_code: o.order_code,
+                buyer_name: o.buyer_name, buyer_phone: o.buyer_phone,
+                checkin: o.checkin, checkout: o.checkout,
+                status_label: o.status_label, status_color: col,
+                amount: o.amount, segment: seg,
+                slot_count: o.slot_count, slot_labels: o.slot_labels,
+                slot_ranges: o.slot_ranges || [],
+                created_at: o.created_at, created_at_fmt: o.created_at_fmt,
+                is_new: o.is_new,
+                deposit_room: o.deposit_room
+            })) : '';
+            html +=
+                '<div class="ta-rc-order-item' + (o.is_new ? ' is-new' : '') + ' seg-' + seg + '" data-segment="' + seg + '" data-status="' + o.status + '" data-order="' + _oAttr + '">' +
+                  '<div class="ta-rc-line1">' +
+                    '<span class="ta-rc-status-compact" style="background:' + col + '1a;color:' + col + ';">' + o.status_label + '</span>' +
+                    '<span class="ta-rc-guest-compact">' + o.buyer_name + '</span>' +
+                  '</div>' +
+                  '<div class="ta-rc-line2">' +
+                    timeHtml +
+                    '<span class="ta-rc-spacer"></span>' +
+                    amtHtml +
+                    '<a href="/admin/orders/' + o.order_id + '/edit" class="ta-rc-detail-compact" title="Xem chi tiết đơn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>' +
+                  '</div>' +
+                '</div>';
+        });
+        html += '<div class="ta-rc-no-match" style="display:none;">Không có đơn ở chế độ xem này</div>';
+        return html;
+    }
+
+    // View "Chi tiết (cũ)" — giữ nguyên giao diện đầy đủ trước khi tối giản, để so sánh.
+    function buildOrdersHtmlDetail(orders) {
+        if (!orders || orders.length === 0) {
+            return '<div class="ta-rc-empty">Không có đơn</div><div class="ta-rc-no-match" style="display:none;"></div>';
+        }
+        var html = '';
+        orders.forEach(function(o) {
+            var col      = statusColorMap[o.status] || o.status_color || '#94a3b8';
             var seg      = o.segment || 'upcoming';
             var segLabel = seg === 'active' ? 'Đang ở' : (seg === 'today' ? 'Hôm nay' : (seg === 'overdue' ? 'Quá hạn' : (o.checkin || 'Sắp tới')));
             var timeHtml = o.checkin
@@ -448,11 +738,12 @@ document.addEventListener('keydown', function(e) {
                 amount: o.amount, segment: seg,
                 slot_count: o.slot_count, slot_labels: o.slot_labels,
                 slot_ranges: o.slot_ranges || [],
-                created_at: o.created_at,
+                created_at: o.created_at, created_at_fmt: o.created_at_fmt,
+                is_new: o.is_new,
                 deposit_room: o.deposit_room
             })) : '';
             html +=
-                '<div class="ta-rc-order-item' + (o.is_new ? ' is-new' : '') + ' seg-' + seg + '" data-segment="' + seg + '" data-order="' + _oAttr + '">' +
+                '<div class="ta-rc-order-item' + (o.is_new ? ' is-new' : '') + ' seg-' + seg + '" data-segment="' + seg + '" data-status="' + o.status + '" data-order="' + _oAttr + '">' +
                   '<div class="ta-rc-order-top">' +
                     '<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">' +
                       '<label class="ta-rc-check-wrap"><input type="checkbox" class="ta-rc-checkbox" onchange="rcToggleOrder(this)"><span class="ta-rc-check-box"></span></label>' +
@@ -480,6 +771,114 @@ document.addEventListener('keydown', function(e) {
         return html;
     }
 
+    // View "Dải giờ" — thanh 24h hôm nay + danh sách rút gọn các lượt ở ngày khác.
+    function buildTimelineHtml(orders, todayStart, todayEnd) {
+        orders = orders || [];
+        var span = Math.max(1, todayEnd - todayStart);
+
+        // 1 đơn có thể có NHIỀU khung giờ (vd 8h30-11h20 và 11h50-14h40) — coi là 1 lượt lưu trú
+        // LIÊN TỤC của cùng 1 khách, nối liền thành 1 đoạn duy nhất (checkin_ts/checkout_ts đã
+        // được RoomCardsService tính đúng theo khung SỚM NHẤT → MUỘN NHẤT của cả đơn).
+        var todayOrders = [], futureOrders = [];
+        orders.forEach(function(o) {
+            if (o.checkin_ts == null || o.checkout_ts == null) return;
+            if (o.checkin_ts <= todayEnd && o.checkout_ts >= todayStart) {
+                todayOrders.push(o);
+            } else if (o.checkin_ts > todayEnd) {
+                futureOrders.push(o);
+            }
+        });
+        var nowPct = Math.max(0, Math.min(100, (Math.floor(Date.now() / 1000) - todayStart) / span * 100));
+
+        var segsHtml = todayOrders.map(function(o) {
+            var col = statusColorMap[o.status] || o.status_color || '#94a3b8';
+            var segStart = Math.max(todayStart, o.checkin_ts);
+            var segEnd   = Math.min(todayEnd, o.checkout_ts);
+            var left  = (segStart - todayStart) / span * 100;
+            var width = Math.max(1.5, (segEnd - segStart) / span * 100);
+            // Có nhiều khung giờ thì liệt kê đủ từng khung (slot_labels) trong tooltip, không thì
+            // dùng checkin/checkout thường.
+            var segTimeLabel = o.slot_labels
+                ? (o.checkin ? o.checkin + ', ' : '') + o.slot_labels
+                : (o.checkin || '') + (o.checkout ? ' → ' + o.checkout : '');
+            var oAttr = window._escAttr ? window._escAttr(JSON.stringify({
+                order_id: o.order_id, order_code: o.order_code,
+                buyer_name: o.buyer_name, buyer_phone: o.buyer_phone,
+                checkin: segTimeLabel, checkout: null,
+                status_label: o.status_label, status_color: col,
+                amount: o.amount, segment: o.segment,
+                created_at: o.created_at, created_at_fmt: o.created_at_fmt,
+                deposit_room: o.deposit_room
+            })) : '';
+            return '<a href="/admin/orders/' + o.order_id + '/edit" class="ta-rc-tl-seg" data-segment="' + (o.segment || 'upcoming') + '" data-status="' + o.status + '" ' +
+                   'data-order="' + oAttr + '" style="left:' + left + '%;width:' + width + '%;background:' + col + ';"></a>';
+        }).join('');
+
+        var futureHtml = futureOrders.length ? (
+            '<div class="ta-rc-tl-future">' +
+            futureOrders.map(function(o) {
+                var col = statusColorMap[o.status] || o.status_color || '#94a3b8';
+                return '<a href="/admin/orders/' + o.order_id + '/edit" class="ta-rc-tl-future-item">' +
+                       '<span class="ta-rc-dot" style="background:' + col + ';"></span>' + o.checkin + ' · ' + o.buyer_name + '</a>';
+            }).join('') + '</div>'
+        ) : '';
+
+        return '<div class="ta-rc-tl-track">' + segsHtml +
+               '<div class="ta-rc-tl-now" style="left:' + nowPct + '%;"></div></div>' +
+               '<div class="ta-rc-tl-scale"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>' +
+               (todayOrders.length === 0 ? '<div class="ta-rc-tl-empty">Trống hôm nay</div>' : '') +
+               futureHtml;
+    }
+
+    // ── Icon nhỏ (dọn vệ sinh / hoàn tiền) + nút menu ⋮ trên thẻ phòng — PHẢI khớp 100% với bản
+    // Blade (_room-cards.blade.php) vì renderRoomCards() (JS) đè lại card.innerHTML mỗi khi tự
+    // làm mới định kỳ (pollRoomCards(), 2 phút/lần + mỗi khi có đơn mới), nếu thiếu nút này ở
+    // đây thì sau khoảng thời gian đó menu ⋮ sẽ "tự mất" dù lúc F5 trang vẫn còn (đã từng xảy ra
+    // đúng bug này — xem lại lịch sử: thiếu đồng bộ giữa bản Blade và bản JS render lại). ────────
+    function rcEscHtml(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function rcEscAttr(s) {
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    }
+
+    function rcBuildNameFlagsHtml(room) {
+        var html = '<span class="ta-rc-name-text">' + rcEscHtml(room.room_name) + '</span>';
+        var cleaning = room.housekeeping_status || 'available';
+        if (cleaning !== 'available') {
+            var cleanTitle = cleaning === 'maintenance' ? 'Đang bảo trì' : 'Cần dọn vệ sinh';
+            html += '<span class="ta-rc-flag cleaning" title="' + rcEscAttr(cleanTitle) + '">' +
+                '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 3.5l5 5L9 20H4v-5L15.5 3.5z"/></svg>' +
+                '</span>';
+        }
+        if (room.pending_refund) {
+            var r = room.pending_refund;
+            var refundTitle = 'Chờ hoàn tiền: ' + Number(r.amount || 0).toLocaleString('vi-VN') + 'đ — ' + r.buyer_name + ' (#' + r.order_code + ')';
+            html += '<span class="ta-rc-flag refund" title="' + rcEscAttr(refundTitle) + '">' +
+                '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10h11a4 4 0 010 8h-2M3 10l4-4M3 10l4 4"/></svg>' +
+                '</span>';
+        }
+        return html;
+    }
+
+    function rcBuildMenuBtnHtml(room) {
+        var menuData = {
+            edit_url: room.edit_url,
+            timeslot_url: room.timeslot_url,
+            book_url: room.book_url,
+            room_name: room.room_name,
+            cleaning: room.housekeeping_status || 'available',
+            refund: room.pending_refund || null,
+        };
+        var pid = String(room.product_id).replace(/'/g, '');
+        return '<button type="button" class="ta-rc-menu-btn" title="Thao tác nhanh" ' +
+            'onclick="rcOpenRoomMenu(event, \'' + pid + '\')" ' +
+            'data-room-menu="' + rcEscAttr(JSON.stringify(menuData)) + '">' +
+            '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="5" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="19" r="1.6" fill="currentColor"/></svg>' +
+            '</button>';
+    }
+
     function renderRoomCards(data) {
         if (window._rcSelectedOrders && Object.keys(window._rcSelectedOrders).length > 0) {
             window._rcSelectedOrders = {};
@@ -497,7 +896,7 @@ document.addEventListener('keydown', function(e) {
             if (el) el.textContent = (vals[k] > 0) ? vals[k] : '';
         });
         // Đặt cọc badge — đếm từ DOM sau khi render xong
-        var depositCount = document.querySelectorAll('#ta-room-grid .ta-rc-order-item[data-status="deposit"]').length;
+        var depositCount = document.querySelectorAll('#ta-room-grid .ta-rc-orders .ta-rc-order-item[data-status="deposit"]').length;
         var elDepositBadge = document.getElementById('ta-rct-badge-deposit');
         if (elDepositBadge) elDepositBadge.textContent = depositCount > 0 ? depositCount : '';
 
@@ -540,6 +939,8 @@ document.addEventListener('keydown', function(e) {
         });
 
         var rooms        = data.rooms || [];
+        var todayStart   = data.today_start_ts;
+        var todayEnd     = data.today_end_ts;
         var existingCards = {};
         grid.querySelectorAll('.ta-room-card').forEach(function(c) { existingCards[c.dataset.product] = c; });
         var newProductIds = rooms.map(function(r) { return String(r.product_id); });
@@ -566,16 +967,16 @@ document.addEventListener('keydown', function(e) {
 
             card.innerHTML =
                 '<div class="ta-rc-head">' +
-                  '<div class="ta-rc-icon' + (room.active_count > 0 ? ' active' : '') + '">' +
-                    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-                  '</div>' +
                   '<div class="ta-rc-info">' +
-                    '<div class="ta-rc-name">' + (isNew ? '<span class="ta-rc-new-dot"></span>' : '') + room.room_name + '</div>' +
+                    '<div class="ta-rc-name">' + rcBuildNameFlagsHtml(room) + '</div>' +
                     '<div class="ta-rc-branch">' + room.branch + '</div>' +
                   '</div>' +
+                  rcBuildMenuBtnHtml(room) +
                   '<div class="ta-rc-count' + (room.count === 0 ? ' empty' : '') + '">' + (room.count > 0 ? room.count + ' đơn' : 'Trống') + '</div>' +
                 '</div>' +
-                '<div class="ta-rc-orders">' + buildOrdersHtml(room.orders) + '</div>';
+                '<div class="ta-rc-orders">' + buildOrdersHtml(room.orders) + '</div>' +
+                '<div class="ta-rc-timeline">' + buildTimelineHtml(room.orders, todayStart, todayEnd) + '</div>' +
+                '<div class="ta-rc-orders-detail">' + buildOrdersHtmlDetail(room.orders) + '</div>';
 
             var children = Array.from(grid.children);
             if (children.indexOf(card) !== idx) grid.insertBefore(card, grid.children[idx] || null);
@@ -616,6 +1017,8 @@ document.addEventListener('keydown', function(e) {
                 var elTotal = document.getElementById('ta-kpi-total');
                 var elPaid  = document.getElementById('ta-kpi-paid');
                 var elRev   = document.getElementById('ta-kpi-revenue');
+                var elRevOriginal = document.getElementById('ta-kpi-revenue-original');
+                var elRevOriginalHint = document.getElementById('ta-kpi-revenue-original-hint');
                 var elPayos = document.getElementById('ta-kpi-revenue-payos');
                 var elCod          = document.getElementById('ta-kpi-revenue-cod');
                 var elDepositPayos = document.getElementById('ta-kpi-revenue-deposit-payos');
@@ -624,6 +1027,13 @@ document.addEventListener('keydown', function(e) {
                 if (elTotal)        elTotal.textContent        = Number(d.total).toLocaleString('vi-VN');
                 if (elPaid)         elPaid.textContent         = Number(d.paidCount).toLocaleString('vi-VN');
                 if (elRev)          elRev.innerHTML            = Number(d.revenue).toLocaleString('vi-VN') + '<span class="unit">đ</span>';
+                if (elRevOriginal)  elRevOriginal.innerHTML    = Number(d.revenueOriginal || 0).toLocaleString('vi-VN') + '<span class="unit">đ</span>';
+                if (elRevOriginalHint) {
+                    var extraCharge = Number(d.revenueExtraCharge || 0);
+                    elRevOriginalHint.innerHTML = extraCharge !== 0
+                        ? 'Chênh lệch (phụ phí phát sinh): <strong>' + (extraCharge > 0 ? '+' : '') + extraCharge.toLocaleString('vi-VN') + 'đ</strong>'
+                        : 'Đơn đã thanh toán · chưa có phụ phí phát sinh';
+                }
                 if (elPayos)        elPayos.innerHTML          = Number(d.revenuePayos).toLocaleString('vi-VN') + '<span class="unit">đ</span>';
                 if (elCod)          elCod.innerHTML            = Number(d.revenueCod).toLocaleString('vi-VN') + '<span class="unit">đ</span>';
                 if (elDepositPayos) elDepositPayos.innerHTML   = Number(d.revenueDepositPayos || 0).toLocaleString('vi-VN') + '<span class="unit">đ</span>';
@@ -637,6 +1047,7 @@ document.addEventListener('keydown', function(e) {
                 setKpiDelta(document.getElementById('ta-kpi-total-delta'),         d.totalDelta,        '%');
                 setKpiDelta(document.getElementById('ta-kpi-paid-delta'),          d.paidDelta,         '%');
                 setKpiDelta(document.getElementById('ta-kpi-revenue-delta'),       d.revenueDelta,      '%');
+                setKpiDelta(document.getElementById('ta-kpi-revenue-original-delta'), d.revenueOriginalDelta || 0, '%');
                 setKpiDelta(document.getElementById('ta-kpi-revenue-payos-delta'), d.revenuePayosDelta, '%');
                 setKpiDelta(document.getElementById('ta-kpi-revenue-cod-delta'),           d.revenueCodDelta,              '%');
                 setKpiDelta(document.getElementById('ta-kpi-revenue-deposit-payos-delta'), d.revenueDepositPayosDelta || 0, '%');
@@ -817,6 +1228,8 @@ document.addEventListener('keydown', function(e) {
                 var elTotal        = document.getElementById('ta-kpi-total');
                 var elPaid         = document.getElementById('ta-kpi-paid');
                 var elRev          = document.getElementById('ta-kpi-revenue');
+                var elRevOriginal  = document.getElementById('ta-kpi-revenue-original');
+                var elRevOriginalHint = document.getElementById('ta-kpi-revenue-original-hint');
                 var elPayos        = document.getElementById('ta-kpi-revenue-payos');
                 var elCod          = document.getElementById('ta-kpi-revenue-cod');
                 var elDepositPayos = document.getElementById('ta-kpi-revenue-deposit-payos');
@@ -825,6 +1238,13 @@ document.addEventListener('keydown', function(e) {
                 if (elTotal)        elTotal.textContent        = Number(d.total).toLocaleString('vi-VN');
                 if (elPaid)         elPaid.textContent         = Number(d.paidCount).toLocaleString('vi-VN');
                 if (elRev)          elRev.innerHTML            = Number(d.revenue).toLocaleString('vi-VN') + '<span class="unit">đ</span>';
+                if (elRevOriginal)  elRevOriginal.innerHTML    = Number(d.revenueOriginal || 0).toLocaleString('vi-VN') + '<span class="unit">đ</span>';
+                if (elRevOriginalHint) {
+                    var extraCharge2 = Number(d.revenueExtraCharge || 0);
+                    elRevOriginalHint.innerHTML = extraCharge2 !== 0
+                        ? 'Chênh lệch (phụ phí phát sinh): <strong>' + (extraCharge2 > 0 ? '+' : '') + extraCharge2.toLocaleString('vi-VN') + 'đ</strong>'
+                        : 'Đơn đã thanh toán · chưa có phụ phí phát sinh';
+                }
                 if (elPayos)        elPayos.innerHTML          = Number(d.revenuePayos).toLocaleString('vi-VN') + '<span class="unit">đ</span>';
                 if (elCod)          elCod.innerHTML            = Number(d.revenueCod).toLocaleString('vi-VN') + '<span class="unit">đ</span>';
                 if (elDepositPayos) elDepositPayos.innerHTML   = Number(d.revenueDepositPayos || 0).toLocaleString('vi-VN') + '<span class="unit">đ</span>';
@@ -838,6 +1258,7 @@ document.addEventListener('keydown', function(e) {
                 setKpiDelta(document.getElementById('ta-kpi-total-delta'),                 d.totalDelta,              '%');
                 setKpiDelta(document.getElementById('ta-kpi-paid-delta'),                  d.paidDelta,               '%');
                 setKpiDelta(document.getElementById('ta-kpi-revenue-delta'),               d.revenueDelta,            '%');
+                setKpiDelta(document.getElementById('ta-kpi-revenue-original-delta'),      d.revenueOriginalDelta || 0, '%');
                 setKpiDelta(document.getElementById('ta-kpi-revenue-payos-delta'),         d.revenuePayosDelta,       '%');
                 setKpiDelta(document.getElementById('ta-kpi-revenue-cod-delta'),           d.revenueCodDelta,         '%');
                 setKpiDelta(document.getElementById('ta-kpi-revenue-deposit-payos-delta'), d.revenueDepositPayosDelta || 0, '%');

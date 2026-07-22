@@ -63,6 +63,15 @@ class Customer extends Authenticatable
         return $this->fullname ?? '';
     }
 
+    // Cùng lý do như getNameAttribute() ở trên: Customer dùng chung Sanctum nên đôi lúc bị code
+    // dùng chung cho cả User lẫn Customer gọi nhầm các method chỉ có ở User (vd isSuperAdmin()),
+    // gây BadMethodCallException/500. Khách hàng KHÔNG BAO GIỜ là super admin nên trả về false là
+    // đúng về nghĩa — chỉ chặn crash, không đổi hành vi phân quyền thật nào của User.
+    public function isSuperAdmin(): bool
+    {
+        return false;
+    }
+
     protected static function boot(): void
     {
         parent::boot();

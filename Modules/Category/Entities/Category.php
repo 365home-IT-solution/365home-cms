@@ -18,12 +18,33 @@ class Category extends Model
         'parent_id',
         'category_type',
         'status',
-        'image'
+        'image',
+        'partner_id',
+        // Chi tiết vận hành (chỉ có ý nghĩa với category_type = product, xem
+        // Modules/Category/App/Filament/Resources/CategoryResource/Pages/BranchDetail.php)
+        'area_sqm',
+        'established_year',
+        'lodging_type',
+        'timezone',
+        'operation_manager_name',
+        'checkin_time',
+        'checkout_time',
+        'default_policy',
+    ];
+
+    protected $casts = [
+        'status'    => 'boolean',
+        'area_sqm'  => 'decimal:2',
     ];
 
     public function parent()
     {
         return $this->belongsTo(Category::class, 'parent_id');
+    }
+
+    public function partner()
+    {
+        return $this->belongsTo(\App\Models\Partner::class);
     }
 
     public function children()

@@ -41,14 +41,16 @@ class BannerResource extends Resource
 
     protected static ?int $navigationSort = 2;
 
+    // Trước đây hardcode isSuperAdmin() ở cả 2 hàm — bỏ qua BannerPolicy (đã đúng, kiểm tra
+    // view_any_banner), khiến tick/bỏ tick quyền này ở Roles & Permissions vô tác dụng.
     public static function canAccess(): bool
     {
-        return auth()->user()?->isSuperAdmin() ?? false;
+        return auth()->user()?->can('view_any_banner') ?? false;
     }
 
     public static function shouldRegisterNavigation(): bool
     {
-        return auth()->user()?->isSuperAdmin() ?? false;
+        return auth()->user()?->can('view_any_banner') ?? false;
     }
 
     public static function getNavigationBadge(): ?string
