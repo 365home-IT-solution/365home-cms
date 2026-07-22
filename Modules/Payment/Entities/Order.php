@@ -59,6 +59,8 @@ class Order extends Model implements Eventable
         'exclude_from_stats',
         'unlock_anytime',
         'checked_in_at',
+        'checked_out_at',
+        'order_status',
         'customer_id',
         'qr_code',
         'remaining_qr_code',
@@ -83,8 +85,50 @@ class Order extends Model implements Eventable
         'exclude_from_stats'     => 'boolean',
         'unlock_anytime'         => 'boolean',
         'checked_in_at'          => 'datetime',
+        'checked_out_at'         => 'datetime',
     ];
     protected $with = ['items'];
+    protected $appends = ['payment_status'];
+
+    // payment_status: trạng thái thanh toán (chưa trả/cọc/trả đủ/hoàn tiền), suy ra từ cột `status`.
+    public const PAYMENT_STATUS_LABELS = [
+        'unpaid'   => 'Chưa trả',
+        'deposit'  => 'Đã đặt cọc',
+        'paid'     => 'Đã trả đủ',
+        'refunded' => 'Đã hoàn tiền',
+    ];
+
+    // order_status: vòng đời đơn (chờ → nhận phòng → đang ở → trả phòng).
+    public const ORDER_STATUS_LABELS = [
+        'pending'     => 'Chờ nhận phòng',
+        'checked_in'  => 'Đã nhận phòng',
+        'staying'     => 'Đang ở',
+        'checked_out' => 'Đã trả phòng',
+    ];
+
+    private const PAYMENT_STATUS_MAP = [
+        'pending'           => 'unpaid',
+        'failed'            => 'unpaid',
+        'cancelled_payment' => 'unpaid',
+        'deposit'           => 'deposit',
+        'paid'              => 'paid',
+        'refunded'          => 'refunded',
+    ];
+
+    public function getPaymentStatusAttribute(): string
+    {
+        return self::PAYMENT_STATUS_MAP[$this->attributes['status'] ?? 'pending'] ?? 'unpaid';
+    }
+
+    public function getPaymentStatusLabelAttribute(): string
+    {
+        return self::PAYMENT_STATUS_LABELS[$this->payment_status] ?? self::PAYMENT_STATUS_LABELS['unpaid'];
+    }
+
+    public function getOrderStatusLabelAttribute(): string
+    {
+        return self::ORDER_STATUS_LABELS[$this->order_status ?? 'pending'] ?? self::ORDER_STATUS_LABELS['pending'];
+    }
 
     protected static function booted(): void
     {

@@ -249,6 +249,7 @@ class OrderObserver
             'deposit'   => ['title' => 'Đơn đã đặt cọc',        'icon' => 'heroicon-o-banknotes',    'color' => 'warning'],
             'shipped'   => ['title' => 'Đơn đang xử lý',        'icon' => 'heroicon-o-arrow-path',   'color' => 'info'],
             'cancelled' => ['title' => 'Đơn bị hủy',            'icon' => 'heroicon-o-x-circle',     'color' => 'danger'],
+            'refunded'  => ['title' => 'Đơn đã hoàn tiền',      'icon' => 'heroicon-o-arrow-uturn-left', 'color' => 'info'],
         ];
 
         // Slot giải phóng khi đơn bị hủy/hết hạn → broadcast để FE re-fetch
@@ -273,6 +274,7 @@ class OrderObserver
             'deposit'   => ['Đơn đã cọc thành công',   "Đơn #{$order->order_code} đã nhận cọc. Vui lòng thanh toán phần còn lại khi check-in."],
             'shipped'   => ['Đơn đang được xử lý',     "Đơn #{$order->order_code} đang được xử lý bởi nhân viên."],
             'cancelled' => ['Đơn bị hủy',              "Đơn #{$order->order_code} đã bị hủy. Liên hệ hỗ trợ nếu cần thêm thông tin."],
+            'refunded'  => ['Đơn đã được hoàn tiền',   "Đơn #{$order->order_code} đã được hoàn tiền. Liên hệ hỗ trợ nếu cần thêm thông tin."],
         ];
 
         if (isset($customerMessages[$newStatus])) {

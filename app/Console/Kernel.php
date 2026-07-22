@@ -48,6 +48,13 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping()
             ->appendOutputTo(storage_path('logs/link-registered-guests.log'));
+
+        // Safety-net: tự trả phòng khi khách quá giờ checkout mà không tự mở khoá lần 2.
+        $schedule->command('orders:sync-lifecycle')
+            ->everyMinute()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping(1)
+            ->appendOutputTo(storage_path('logs/sync-order-lifecycle.log'));
     }
 
     /**

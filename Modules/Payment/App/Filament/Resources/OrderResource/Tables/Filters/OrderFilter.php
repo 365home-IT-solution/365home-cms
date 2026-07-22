@@ -18,13 +18,23 @@ class OrderFilter
     {
         return [
             SelectFilter::make('status')
-                ->label(__('Trạng thái'))
+                ->label(__('Trạng thái thanh toán'))
                 ->options([
                     'pending'           => __('Đang xử lý'),
                     'paid'              => __('Đã thanh toán'),
                     'deposit'           => __('Đã đặt cọc'),
                     'failed'            => __('Thất bại'),
                     'cancelled_payment' => __('Hủy QR'),
+                    'refunded'          => __('Hoàn tiền'),
+                ]),
+
+            SelectFilter::make('order_status')
+                ->label(__('Nhận/trả phòng'))
+                ->options([
+                    'pending'     => __('Chờ nhận phòng'),
+                    'checked_in'  => __('Đã nhận phòng'),
+                    'staying'     => __('Đang ở'),
+                    'checked_out' => __('Đã trả phòng'),
                 ]),
 
             SelectFilter::make('category_id')

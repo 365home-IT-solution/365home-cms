@@ -152,6 +152,80 @@ class ExtraChargeService
     }
 
     /**
+     * Tạo (hoặc trả lại link đã có) PayOS link cho phần còn lại của đơn deposit,
+     * bao gồm extra_charge_amount đã cộng dồn. Dùng chung cho remainingPayment()
+     * và luồng khách tự đặt thêm trên đơn đang deposit.
+     *
+     * @return array{checkout_url: string, qr_code: string|null, amount: int, expired_at: string}|array{error: string}
+     */
+    public function createRemainingPayOS(Order $order): array
+    {
+        $depositPct  = (int) $order->deposit_percent;
+        $depositPaid = (int) $order->full_amount;
+        $realTotal   = $depositPct > 0 ? (int) round($depositPaid * 100 / $depositPct) : $depositPaid;
+        $extraCharge = (int) ($order->extra_charge_amount ?? 0);
+        $remaining   = ($realTotal - $depositPaid) + $extraCharge;
+
+        if ($order->remaining_checkout_url && $order->remaining_payos_code) {
+            return [
+                'checkout_url' => $order->remaining_checkout_url,
+                'qr_code'      => $order->remaining_qr_code,
+                'amount'       => $remaining,
+                'expired_at'   => null,
+            ];
+        }
+
+        if ($remaining < 2000) {
+            return ['error' => 'Số tiền còn lại quá nhỏ hoặc đã thanh toán đủ.'];
+        }
+
+        $payOS = new PayOS(
+            Config::get('payos.client_id'),
+            Config::get('payos.api_key'),
+            Config::get('payos.checksum_key'),
+        );
+
+        $remainingCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
+        $expiredAt     = now()->addMinutes(30);
+
+        $response = $payOS->createPaymentLink([
+            'orderCode'   => $remainingCode,
+            'amount'      => $remaining,
+            'description' => 'Tt con lai - ' . $order->order_code,
+            'returnUrl'   => route('booking.detail', ['code' => $order->order_code]) . '?remaining_success=1',
+            'cancelUrl'   => route('booking.detail', ['code' => $order->order_code]) . '?remaining_cancelled=1',
+            'buyerName'   => $order->buyer_name ?? '',
+            'buyerPhone'  => $order->buyer_phone ?? '',
+            'expiredAt'   => $expiredAt->timestamp,
+            'items'       => [[
+                'name'     => 'Tiền còn lại - ' . ($order->items->first()?->name ?? 'Phòng'),
+                'quantity' => 1,
+                'price'    => $remaining,
+            ]],
+        ]);
+
+        $checkoutUrl = $response['checkoutUrl'] ?? null;
+        $qrCode      = $response['qrCode'] ?? null;
+
+        if (! $checkoutUrl) {
+            return ['error' => 'Không thể tạo link thanh toán.'];
+        }
+
+        $order->update([
+            'remaining_payos_code'   => $remainingCode,
+            'remaining_checkout_url' => $checkoutUrl,
+            'remaining_qr_code'      => $qrCode,
+        ]);
+
+        return [
+            'checkout_url' => $checkoutUrl,
+            'qr_code'      => $qrCode,
+            'amount'       => $remaining,
+            'expired_at'   => $expiredAt->toIso8601String(),
+        ];
+    }
+
+    /**
      * Đánh dấu đã thu tiền mặt cho extra charge (admin thu tay).
      */
     public function markExtraChargeAsCash(Order $order, int $amount): void

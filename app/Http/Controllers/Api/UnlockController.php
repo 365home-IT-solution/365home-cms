@@ -196,13 +196,22 @@ class UnlockController extends Controller
             $checkedInAt = null;
             if ($isCheckin) {
                 $checkedInAt = now()->toIso8601String();
-                $order->update(['checked_in_at' => now()]);
+                // "nhận phòng" và "bắt đầu ở" xảy ra cùng lúc (không có sự kiện nào tách 2 mốc này) → ghi thẳng order_status = staying.
+                $order->update(['checked_in_at' => now(), 'order_status' => 'staying']);
+            } else {
+                $order->update(['checked_out_at' => now(), 'order_status' => 'checked_out']);
             }
 
             $this->realtime->broadcastCheckin(
                 $order->order_code,
                 $isCheckin ? 'checkin' : 'checkout',
                 $checkedInAt,
+                $order->customer_id ? (int) $order->customer_id : null,
+            );
+
+            $this->realtime->broadcastOrderUpdate(
+                $order->order_code,
+                ['order_status' => $order->order_status, 'payment_status' => $order->payment_status],
                 $order->customer_id ? (int) $order->customer_id : null,
             );
 

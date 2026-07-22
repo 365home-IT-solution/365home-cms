@@ -380,6 +380,8 @@ class GuestBookingController extends Controller
                 'id'             => $order->id,
                 'order_code'     => $order->order_code,
                 'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
                 'payment_method' => $order->payment_method,
                 'qr_code'        => $order->qr_code,
                 'expired_at'     => $order->expired_at,
@@ -806,15 +808,19 @@ class GuestBookingController extends Controller
 
         if (in_array($order->status, ['paid', 'failed', 'cancelled', 'cancelled_payment'])) {
             return response()->json([
-                'order_code' => $order->order_code,
-                'status'     => $order->status,
+                'order_code'     => $order->order_code,
+                'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
             ]);
         }
 
         if ($order->payment_method !== 'PayOS') {
             return response()->json([
-                'order_code' => $order->order_code,
-                'status'     => $order->status,
+                'order_code'     => $order->order_code,
+                'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
             ]);
         }
 
@@ -825,8 +831,10 @@ class GuestBookingController extends Controller
 
             if (! $clientId || ! $apiKey || ! $checksumKey) {
                 return response()->json([
-                    'order_code' => $order->order_code,
-                    'status'     => $order->status,
+                    'order_code'     => $order->order_code,
+                    'status'         => $order->status,
+                    'payment_status' => $order->payment_status,
+                    'order_status'   => $order->order_status,
                 ]);
             }
 
@@ -876,8 +884,10 @@ class GuestBookingController extends Controller
             }
 
             return response()->json([
-                'order_code' => $order->order_code,
-                'status'     => $order->status,
+                'order_code'     => $order->order_code,
+                'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
             ]);
 
         } catch (\Throwable $e) {
@@ -886,8 +896,10 @@ class GuestBookingController extends Controller
                 'error'      => $e->getMessage(),
             ]);
             return response()->json([
-                'order_code' => $order->order_code,
-                'status'     => $order->status,
+                'order_code'     => $order->order_code,
+                'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
             ]);
         }
     }
@@ -991,6 +1003,53 @@ class GuestBookingController extends Controller
             ]);
             return response()->json(['message' => 'Lỗi khi tạo link thanh toán. Vui lòng thử lại.'], 500);
         }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // POST /api/guest/orders/{order_code}/extra
+    // Khách vãng lai tự đặt thêm dịch vụ/số khách trên đơn đã paid/deposit —
+    // trả QR thanh toán khoản phát sinh ngay trong response.
+    // ══════════════════════════════════════════════════════════════════════
+
+    public function addExtra(Request $request, string $orderCode, \App\Services\OrderExtraBookingService $service): JsonResponse
+    {
+        $request->validate([
+            'buyer_phone'                        => 'required|string|max:20',
+            'services'                           => 'sometimes|array',
+            'services.*.service_id'              => 'required_with:services|integer',
+            'services.*.quantity'                => 'required_with:services|integer|min:1',
+            'guest_count'                        => 'sometimes|integer|min:1|max:50',
+            'room_addition'                      => 'sometimes|array',
+            'room_addition.type'                 => 'required_with:room_addition|in:slot,daily',
+            'room_addition.product_id'           => 'sometimes|integer',
+            'room_addition.timeslot_id'          => 'required_if:room_addition.type,slot|integer',
+            'room_addition.date'                 => 'required_if:room_addition.type,slot|date_format:Y-m-d|after_or_equal:today',
+            'room_addition.checkin_date'         => 'required_if:room_addition.type,daily|date_format:Y-m-d|after_or_equal:today',
+            'room_addition.checkout_date'        => 'required_if:room_addition.type,daily|date_format:Y-m-d|after:room_addition.checkin_date',
+        ]);
+
+        $order = Order::with(['items.product.additionalServices', 'services'])
+            ->where('order_code', $orderCode)
+            ->whereNull('customer_id')
+            ->where('buyer_phone', trim($request->input('buyer_phone')))
+            ->first();
+
+        if (! $order) {
+            return response()->json(['message' => 'Đơn hàng không tồn tại hoặc số điện thoại không khớp.'], 404);
+        }
+
+        $result = $service->addExtra(
+            $order,
+            $request->input('services', []),
+            $request->has('guest_count') ? (int) $request->input('guest_count') : null,
+            $request->input('room_addition'),
+        );
+
+        if (isset($result['error'])) {
+            return response()->json(['message' => $result['error']], 422);
+        }
+
+        return response()->json($result);
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -1731,6 +1790,8 @@ class GuestBookingController extends Controller
                 'id'             => $order->id,
                 'order_code'     => $order->order_code,
                 'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
                 'payment_method' => $order->payment_method,
                 'qr_code'        => $order->qr_code,
                 'expired_at'     => $order->expired_at,
@@ -1847,6 +1908,8 @@ class GuestBookingController extends Controller
             'order_code'                => $order->order_code,
             'created_at'                => $order->created_at->format('Y-m-d H:i:s'),
             'status'                    => $order->status,
+            'payment_status'            => $order->payment_status,
+            'order_status'              => $order->order_status,
             'room_id'                   => $product?->id,
             'room_slug'                 => $product?->slug,
             'room_name'                 => $roomName,

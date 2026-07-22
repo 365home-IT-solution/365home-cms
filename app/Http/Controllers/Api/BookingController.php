@@ -436,6 +436,8 @@ class BookingController extends Controller
                 'id'             => $order->id,
                 'order_code'     => $order->order_code,
                 'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
                 'payment_method' => $order->payment_method,
                 'qr_code'        => $order->qr_code,
                 'expired_at'     => $order->expired_at,

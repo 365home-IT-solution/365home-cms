@@ -1245,6 +1245,7 @@ class OrderForm
                                                     'deposit'           => 'Đã đặt cọc',
                                                     'failed'            => '' . __('payment::order.form.options.status.failed'),
                                                     'cancelled_payment' => 'Hủy QR',
+                                                    'refunded'          => 'Hoàn tiền',
                                                 ])
                                                 ->default('pending')
                                                 ->live()
@@ -1293,6 +1294,18 @@ class OrderForm
                                                         }
                                                     }
                                                 }),
+
+                                            Select::make('order_status')
+                                                ->label('Trạng thái nhận/trả phòng')
+                                                ->options([
+                                                    'pending'     => 'Chờ nhận phòng',
+                                                    'checked_in'  => 'Đã nhận phòng',
+                                                    'staying'     => 'Đang ở',
+                                                    'checked_out' => 'Đã trả phòng',
+                                                ])
+                                                ->default('pending')
+                                                ->dehydrateStateUsing(fn($state) => $state)
+                                                ->helperText('Tự động cập nhật khi khách mở khoá — chỉ chỉnh tay cho trường hợp đặc biệt.'),
 
                                             Hidden::make('amount')
                                                 ->dehydrated(true),

@@ -39,7 +39,7 @@ class ListOrder extends ListRecords
                             ->seconds(false)
                             ->timezone('Asia/Ho_Chi_Minh')
                             ->displayFormat('d/m/Y H:i'),
-                    Select::make('status')->label('Trạng thái')->options(['pending' => 'Đang chờ','paid' => 'Đã thanh toán','deposit' => 'Đã đặt cọc','failed' => 'Thất bại','cancelled_payment' => 'Hủy QR']),
+                    Select::make('status')->label('Trạng thái')->options(['pending' => 'Đang chờ','paid' => 'Đã thanh toán','deposit' => 'Đã đặt cọc','failed' => 'Thất bại','cancelled_payment' => 'Hủy QR','refunded' => 'Hoàn tiền']),
                     Select::make('payment_method')->label('Phương thức thanh toán')->options(['PayOS' => 'PayOS','cod' => 'Tiền mặt']),
                 ])
                 ->action(function (array $data) {

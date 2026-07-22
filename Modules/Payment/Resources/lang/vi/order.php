@@ -50,7 +50,8 @@ return [
                 'deposit'           => 'Đã đặt cọc',
                 'failed'            => 'Thất bại',
                 'shipped'           => 'Đã đăng đơn',
-                'cancelled_payment' => 'Hủy thanh toán'
+                'cancelled_payment' => 'Hủy thanh toán',
+                'refunded'          => 'Hoàn tiền'
             ]
         ],
         'icons' => [
@@ -83,7 +84,8 @@ return [
             'deposit'           => 'Đã đặt cọc',
             'failed'            => 'Hủy thanh toán',
             'shipped'           => 'Đã đăng đơn',
-            'cancelled_payment' => 'Hủy QR'
+            'cancelled_payment' => 'Hủy QR',
+            'refunded'          => 'Hoàn tiền'
         ],
         'shipping' => [
             'labels' => [

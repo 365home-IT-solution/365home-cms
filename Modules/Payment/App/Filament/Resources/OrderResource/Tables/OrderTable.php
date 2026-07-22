@@ -73,6 +73,7 @@ class OrderTable
                         'primary' => 'deposit',
                         'danger'  => 'failed',
                         'gray'    => 'cancelled_payment',
+                        'info'    => 'refunded',
                     ])
                     ->icons([
                         'heroicon-o-clock'            => 'pending',
@@ -80,6 +81,7 @@ class OrderTable
                         'heroicon-o-banknotes'        => 'deposit',
                         'heroicon-o-x-circle'         => 'failed',
                         'heroicon-o-no-symbol'        => 'cancelled_payment',
+                        'heroicon-o-arrow-uturn-left' => 'refunded',
                     ])
                     ->formatStateUsing(function ($state) {
                         return __("payment::order.table.status.$state");

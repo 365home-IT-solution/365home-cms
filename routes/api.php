@@ -276,6 +276,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('orders/{order_code}/retry-payment',    [OrderController::class, 'retryPayment'])->name('api.orders.retry-payment');
         Route::post('orders/{order_code}/remaining-payment',[OrderController::class, 'remainingPayment'])->name('api.orders.remaining-payment');
         Route::post('orders/{order}/services',              [OrderServiceController::class,'store'])->name('api.orders.services.store');
+        Route::post('orders/{order_code}/extra',             [OrderController::class,       'addExtra'])->name('api.orders.extra');
         Route::post('orders/{order_code}/unlock',           [UnlockController::class,      'unlock'])->name('api.orders.unlock')->middleware('throttle:10,1');
         Route::get('coupons/mine',             [CouponController::class,     'mine'])->name('api.coupons.mine');
         Route::post('coupons/validate',        [CouponController::class,     'check'])->name('api.coupons.validate');
@@ -301,6 +302,7 @@ Route::prefix('guest')->name('api.guest.')->group(function () {
     Route::get('orders',                                         [GuestBookingController::class, 'lookup'])->name('orders.lookup');
     Route::get('orders/{order_code}',                            [GuestBookingController::class, 'show'])->name('orders.show');
     Route::post('orders/{order_code}/remaining-payment',         [GuestBookingController::class, 'remainingPayment'])->name('orders.remaining-payment');
+    Route::post('orders/{order_code}/extra',                     [GuestBookingController::class, 'addExtra'])->name('orders.extra');
     Route::get('orders/{order_code}/payment-status',             [GuestBookingController::class, 'paymentStatus'])->name('orders.payment-status');
     Route::post('orders/{order_code}/unlock',                    [UnlockController::class,       'unlockGuest'])->name('orders.unlock')->middleware('throttle:10,1');
 
