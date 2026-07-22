@@ -1585,22 +1585,26 @@
                                                 <div class="pd-dt-slots-header-row">
                                                     @foreach ($timeSlots as $timeSlot)
                                                         @php
-                                                            $startTime = \Carbon\Carbon::parse(
+                                                            // Đặt tên khác $startTime/$endTime của component (dùng ở
+                                                            // panel "Thời gian đã chọn" phía dưới) — trùng tên sẽ bị
+                                                            // Blade ghi đè, khiến panel đó hiển thị sai giờ khung cuối
+                                                            // cùng của header thay vì giờ nhận/trả phòng thực tế.
+                                                            $hdrStartTime = \Carbon\Carbon::parse(
                                                                 $timeSlot['start_time'],
                                                             );
-                                                            $endTime = \Carbon\Carbon::parse(
+                                                            $hdrEndTime = \Carbon\Carbon::parse(
                                                                 $timeSlot['end_time'],
                                                             );
-                                                            $isOvernight =
-                                                                $endTime->isNextDay() ||
-                                                                $endTime->lt($startTime) ||
+                                                            $hdrIsOvernight =
+                                                                $hdrEndTime->isNextDay() ||
+                                                                $hdrEndTime->lt($hdrStartTime) ||
                                                                 $timeSlot['over_night'] == 1;
                                                         @endphp
                                                         <div class="pd-dt-slot-th">
-                                                            {{ $startTime->format('H:i') }} -
-                                                            {{ $endTime->format('H:i') }}
+                                                            {{ $hdrStartTime->format('H:i') }} -
+                                                            {{ $hdrEndTime->format('H:i') }}
                                                             <br>
-                                                            @if ($isOvernight)
+                                                            @if ($hdrIsOvernight)
                                                                 <svg class="w-4 h-4 inline"
                                                                     style="color: #1e3a8a;"
                                                                     xmlns="http://www.w3.org/2000/svg"
