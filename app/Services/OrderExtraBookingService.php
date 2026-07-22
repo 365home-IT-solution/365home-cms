@@ -6,7 +6,9 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Payment\Entities\Order;
 use Modules\Product\App\Models\Product;
 
@@ -29,11 +31,18 @@ class OrderExtraBookingService
 
     /**
      * @param  array{service_id:int, quantity:int}[]  $servicesInput
-     * @param  array{type:string, product_id?:int, timeslot_id?:int, date?:string, checkin_date?:string, checkout_date?:string}|null  $roomAddition
+     * @param  int|null  $guestCount  SỐ KHÁCH THÊM (cộng dồn vào guest_count hiện có của đơn), không phải tổng số mới
+     * @param  array{type:string, product_id?:string, slots?:array, checkin_date?:string, checkout_date?:string}|null  $roomAddition
+     * @param  array<int, array{front:\Illuminate\Http\UploadedFile, back:\Illuminate\Http\UploadedFile}>  $guestFiles  key = guest_index
      * @return array{error:string}|array<string,mixed>
      */
-    public function addExtra(Order $order, array $servicesInput, ?int $guestCount, ?array $roomAddition = null): array
-    {
+    public function addExtra(
+        Order $order,
+        array $servicesInput,
+        ?int $guestCount,
+        ?array $roomAddition = null,
+        array $guestFiles = [],
+    ): array {
         if ($roomAddition) {
             $roomAddition = $this->normalizeRoomAdditionDates($roomAddition);
         }
@@ -76,7 +85,50 @@ class OrderExtraBookingService
             }
         }
 
-        $oldGuestCount    = (int) $order->guest_count;
+        // guest_count ở /extra là SỐ KHÁCH THÊM (cộng dồn vào guest_count hiện có của đơn),
+        // không phải tổng số khách mới — khớp cách services cũng cộng dồn, không thay thế.
+        $oldGuestCount   = (int) $order->guest_count;
+        $finalGuestCount = $guestCount !== null ? $oldGuestCount + $guestCount : null;
+
+        // ── Khai báo CCCD người đi cùng nếu phần đặt thêm có khung giờ qua đêm ──
+        $isAddingOvernight = $this->resolveIsAddingOvernight($roomAddition, $roomAdditionRoom);
+        $guestCccdRows     = [];
+
+        if ($isAddingOvernight && $finalGuestCount !== null) {
+            $declaredMax = max(1, (int) $order->guestCccds()->max('guest_index'));
+
+            for ($guestIndex = $declaredMax + 1; $guestIndex <= $finalGuestCount; $guestIndex++) {
+                $files = $guestFiles[$guestIndex] ?? null;
+
+                if (empty($files['front']) || empty($files['back'])) {
+                    $this->cleanupGuestUploads($guestCccdRows);
+
+                    return ['error' => "Khung giờ qua đêm cần khai báo lưu trú cho khách thứ {$guestIndex} — vui lòng gửi kèm CCCD (mặt trước/sau) của khách này."];
+                }
+
+                $frontPath = $files['front']->store('cccd', 'public');
+                $backPath  = $files['back']->store('cccd', 'public');
+
+                $tempOrder = new Order(['cccd_front' => $frontPath, 'cccd_back' => $backPath]);
+                $guestData = app(CccdScannerService::class)->scanOrder($tempOrder);
+
+                if (! $guestData) {
+                    Storage::disk('public')->delete($frontPath);
+                    Storage::disk('public')->delete($backPath);
+                    $this->cleanupGuestUploads($guestCccdRows);
+
+                    return ['error' => "Không đọc được QR trên ảnh CCCD của khách thứ {$guestIndex}. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình."];
+                }
+
+                $guestCccdRows[] = [
+                    'guest_index' => $guestIndex,
+                    'front'       => $frontPath,
+                    'back'        => $backPath,
+                    'data'        => $guestData,
+                ];
+            }
+        }
+
         $oldServicesTotal = (int) $order->services()->sum('subtotal');
 
         $addedServices  = [];
@@ -85,7 +137,7 @@ class OrderExtraBookingService
         $roomAddedType  = $roomAddition['type'] ?? null;
 
         DB::transaction(function () use (
-            $order, $room, $roomAdditionRoom, $roomAddition, $servicesInput, $guestCount,
+            $order, $room, $roomAdditionRoom, $roomAddition, $servicesInput, $finalGuestCount, $guestCccdRows,
             &$addedServices, &$roomAddedItems, &$roomAddedPrice
         ) {
             if (! empty($servicesInput)) {
@@ -117,8 +169,17 @@ class OrderExtraBookingService
                 }
             }
 
-            if ($guestCount !== null) {
-                $order->update(['guest_count' => $guestCount]);
+            if ($finalGuestCount !== null) {
+                $order->update(['guest_count' => $finalGuestCount]);
+            }
+
+            foreach ($guestCccdRows as $row) {
+                $order->guestCccds()->create([
+                    'guest_index' => $row['guest_index'],
+                    'cccd_front'  => $row['front'],
+                    'cccd_back'   => $row['back'],
+                    'cccd_data'   => $row['data'],
+                ]);
             }
 
             if ($roomAddition) {
@@ -130,8 +191,8 @@ class OrderExtraBookingService
 
                 if ($roomAddition['type'] === 'slot') {
                     [$roomAddedPrice, , $itemsData, , $slotSummary] = $this->roomItemBuilder->buildSlotItems(
-                        [$roomAddition],
-                        $roomAddition['date'] ?? null,
+                        $roomAddition['slots'],
+                        null,
                         $roomAdditionRoom,
                         $currentGuestCount,
                     );
@@ -176,13 +237,15 @@ class OrderExtraBookingService
         }
 
         $result = [
-            'order_code'     => $order->order_code,
-            'payment_status' => $order->payment_status,
-            'order_status'   => $order->order_status,
-            'services_added' => $addedServices,
-            'room_added'     => $roomAddedItems ? ['type' => $roomAddedType, 'items' => $roomAddedItems, 'price' => $roomAddedPrice] : null,
-            'diff'           => $diff,
-            'charge'         => null,
+            'order_code'       => $order->order_code,
+            'payment_status'   => $order->payment_status,
+            'order_status'     => $order->order_status,
+            'guest_count'      => $order->guest_count,
+            'services_added'   => $addedServices,
+            'room_added'       => $roomAddedItems ? ['type' => $roomAddedType, 'items' => $roomAddedItems, 'price' => $roomAddedPrice] : null,
+            'guests_declared'  => array_column($guestCccdRows, 'guest_index'),
+            'diff'             => $diff,
+            'charge'           => null,
         ];
 
         if ($diff <= 0) {
@@ -214,14 +277,84 @@ class OrderExtraBookingService
     }
 
     /**
+     * Tạo lại QR PayOS cho khoản phát sinh (extra_charge_amount) đang chờ thanh toán — dùng khi
+     * khách đã đặt thêm (qua addExtra ở trên) nhưng chưa kịp thanh toán (VD QR cũ hết hạn sau 15
+     * phút vì khách bận). Chỉ áp dụng cho đơn status=paid — đơn deposit dùng remaining-payment
+     * (endpoint riêng đã có sẵn) để tiếp tục thanh toán phần còn lại (đã gồm extra_charge_amount).
+     *
+     * @return array{error:string}|array{order_code:string, charge:array}
+     */
+    public function regenerateExtraChargeQr(Order $order): array
+    {
+        if ($order->status !== 'paid') {
+            return ['error' => 'Chức năng này chỉ áp dụng cho đơn đã thanh toán đủ. Đơn đang đặt cọc vui lòng dùng API thanh toán phần còn lại.'];
+        }
+
+        if ((int) ($order->extra_charge_amount ?? 0) <= 0 || $order->extra_charge_paid_at !== null) {
+            return ['error' => 'Không có khoản phát sinh nào đang chờ thanh toán.'];
+        }
+
+        $payOSResult = $this->extraCharge->createExtraChargePayOS($order, (int) $order->extra_charge_amount);
+
+        return [
+            'order_code' => $order->order_code,
+            'charge'     => $this->toClientCharge('extra_paid', $payOSResult),
+        ];
+    }
+
+    /**
+     * type=daily luôn qua đêm (khớp buildDailyItems hardcode over_night=true). type=slot: chỉ cần
+     * 1 khung bất kỳ trong slots[] có over_night=true là toàn bộ lần đặt thêm coi là qua đêm.
+     */
+    private function resolveIsAddingOvernight(?array $roomAddition, Product $roomAdditionRoom): bool
+    {
+        if (! $roomAddition) {
+            return false;
+        }
+
+        if ($roomAddition['type'] === 'daily') {
+            return true;
+        }
+
+        $rtsByTimeslot = $roomAdditionRoom->roomTimeSlots
+            ->filter(fn ($s) => is_null($s->date))
+            ->keyBy('timeslot_id');
+
+        foreach ($roomAddition['slots'] ?? [] as $slot) {
+            $rts = $rtsByTimeslot->get((int) ($slot['timeslot_id'] ?? 0));
+            if ($rts && (bool) $rts->over_night) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function cleanupGuestUploads(array $rows): void
+    {
+        foreach ($rows as $row) {
+            Storage::disk('public')->delete($row['front']);
+            Storage::disk('public')->delete($row['back']);
+        }
+    }
+
+    /**
      * Client gửi ngày theo dd-mm-yyyy (validate ở controller) — convert sang Y-m-d
      * trước khi đưa vào RoomItemBuilder (vốn dùng Carbon::parse("{$date} {$time}")).
      */
     private function normalizeRoomAdditionDates(array $roomAddition): array
     {
-        foreach (['date', 'checkin_date', 'checkout_date'] as $key) {
+        foreach (['checkin_date', 'checkout_date'] as $key) {
             if (! empty($roomAddition[$key])) {
                 $roomAddition[$key] = \Carbon\Carbon::createFromFormat('d-m-Y', $roomAddition[$key])->format('Y-m-d');
+            }
+        }
+
+        if (! empty($roomAddition['slots']) && is_array($roomAddition['slots'])) {
+            foreach ($roomAddition['slots'] as $i => $slot) {
+                if (! empty($slot['date'])) {
+                    $roomAddition['slots'][$i]['date'] = \Carbon\Carbon::createFromFormat('d-m-Y', $slot['date'])->format('Y-m-d');
+                }
             }
         }
 

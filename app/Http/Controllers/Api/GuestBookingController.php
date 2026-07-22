@@ -1018,14 +1018,20 @@ class GuestBookingController extends Controller
             'services'                           => 'sometimes|array',
             'services.*.service_id'              => 'required_with:services|integer',
             'services.*.quantity'                => 'required_with:services|integer|min:1',
+            // guest_count ở đây là SỐ KHÁCH THÊM (cộng dồn vào guest_count hiện có), không phải tổng mới.
             'guest_count'                        => 'sometimes|integer|min:1|max:50',
             'room_addition'                      => 'sometimes|array',
             'room_addition.type'                 => 'required_with:room_addition|in:slot,daily',
             'room_addition.product_id'           => 'sometimes|string',
-            'room_addition.timeslot_id'          => 'required_if:room_addition.type,slot|integer',
-            'room_addition.date'                 => 'required_if:room_addition.type,slot|date_format:d-m-Y|after_or_equal:today',
+            'room_addition.slots'                => 'required_if:room_addition.type,slot|array|min:1',
+            'room_addition.slots.*.timeslot_id'  => 'required_with:room_addition.slots|integer',
+            'room_addition.slots.*.date'         => 'required_with:room_addition.slots|date_format:d-m-Y|after_or_equal:today',
             'room_addition.checkin_date'         => 'required_if:room_addition.type,daily|date_format:d-m-Y|after_or_equal:today',
             'room_addition.checkout_date'        => 'required_if:room_addition.type,daily|date_format:d-m-Y|after:room_addition.checkin_date',
+            // CCCD khách đi cùng — chỉ bắt buộc khi phần đặt thêm có khung giờ qua đêm (check ở Service).
+            'guests'                              => 'sometimes|array',
+            'guests.*.front'                      => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'guests.*.back'                       => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
 
         $order = Order::with(['items.product.additionalServices', 'services'])
@@ -1043,7 +1049,55 @@ class GuestBookingController extends Controller
             $request->input('services', []),
             $request->has('guest_count') ? (int) $request->input('guest_count') : null,
             $request->input('room_addition'),
+            $this->extractGuestFiles($request),
         );
+
+        if (isset($result['error'])) {
+            return response()->json(['message' => $result['error']], 422);
+        }
+
+        return response()->json($result);
+    }
+
+    /**
+     * Trích UploadedFile theo guest_index từ multipart 'guests[{n}][front/back]'.
+     *
+     * @return array<int, array{front?:\Illuminate\Http\UploadedFile, back?:\Illuminate\Http\UploadedFile}>
+     */
+    private function extractGuestFiles(Request $request): array
+    {
+        $guestFiles = [];
+
+        foreach ((array) $request->file('guests', []) as $guestIndex => $files) {
+            $guestFiles[(int) $guestIndex] = [
+                'front' => $files['front'] ?? null,
+                'back'  => $files['back'] ?? null,
+            ];
+        }
+
+        return $guestFiles;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // POST /api/guest/orders/{order_code}/extra-charge-qr
+    // Tạo lại QR PayOS cho khoản phát sinh (đặt thêm) đang chờ thanh toán — xác thực
+    // qua buyer_phone, dùng khi khách bận không thanh toán kịp, QR cũ hết hạn.
+    // ══════════════════════════════════════════════════════════════════════
+
+    public function extraChargeQr(Request $request, string $orderCode, \App\Services\OrderExtraBookingService $service): JsonResponse
+    {
+        $request->validate(['buyer_phone' => 'required|string|max:20']);
+
+        $order = Order::where('order_code', $orderCode)
+            ->whereNull('customer_id')
+            ->where('buyer_phone', trim($request->input('buyer_phone')))
+            ->first();
+
+        if (! $order) {
+            return response()->json(['message' => 'Đơn hàng không tồn tại hoặc số điện thoại không khớp.'], 404);
+        }
+
+        $result = $service->regenerateExtraChargeQr($order);
 
         if (isset($result['error'])) {
             return response()->json(['message' => $result['error']], 422);
