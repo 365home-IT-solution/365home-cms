@@ -231,7 +231,7 @@
 
                     <!-- Cột phải: Giá & dịch vụ -->
                     <ul class="list-none divide-y divide-gray-200">
-@if(!empty($selectedSlots) && count($selectedSlots) >= 2 || $customerOrderCount >= 1 || (!$hasFullDayBooking && $appliedCoupon && $couponDiscountAmount > 0))
+@if(!empty($selectedSlots) && count($selectedSlots) >= 2 || $customerOrderCount >= 1 || (!$hasFullDayBooking && count($appliedCoupons) > 0 && $couponDiscountAmount > 0))
     <li class="py-[8px]">
         <div class="bg-blue-50 border border-blue-100 rounded-xl p-3 text-[13px] text-blue-800 space-y-1">
             <p class="font-semibold text-blue-900 mb-2">Cách tính giá:</p>
@@ -273,22 +273,26 @@
                 </div>
             @endif
 
-            {{-- Bước thêm: Mã giảm giá --}}
-            @if(!$hasFullDayBooking && $appliedCoupon && $couponDiscountAmount > 0)
+            {{-- Bước thêm: Mã giảm giá (có thể nhiều mã, mỗi mã 1 dòng theo thứ tự đã cascading —
+                 xem ProductDetail::calculateCouponDiscounts) --}}
+            @if(!$hasFullDayBooking && count($appliedCoupons) > 0 && $couponDiscountAmount > 0)
                 @php
-                    $couponStep = '②';
                     $stepNum = 2;
                     if (!empty($selectedSlots) && count($selectedSlots) >= 2) $stepNum++;
                     if ($customerOrderCount >= 1) $stepNum++;
-                    $couponStep = ['②','③','④','⑤'][$stepNum - 2] ?? '④';
+                    $stepSymbols = ['②','③','④','⑤','⑥','⑦'];
                 @endphp
-                <div class="flex justify-between text-green-700">
-                    <span>{{ $couponStep }} Mã giảm giá
-                        <span class="font-mono bg-green-100 text-green-800 px-1 rounded text-[11px]">{{ $appliedCoupon->code }}</span>
-                        <span class="text-gray-400 italic text-[11px]">(tính sau bước trước)</span>
-                    </span>
-                    <span class="font-semibold">-{{ number_format($couponDiscountAmount, 0, ',', '.') }}đ</span>
-                </div>
+                @foreach ($appliedCoupons as $coupon)
+                    @continue(empty($couponDiscounts[$coupon->id]))
+                    <div class="flex justify-between text-green-700">
+                        <span>{{ $stepSymbols[$stepNum - 2] ?? '④' }} Mã giảm giá
+                            <span class="font-mono bg-green-100 text-green-800 px-1 rounded text-[11px]">{{ $coupon->code }}</span>
+                            <span class="text-gray-400 italic text-[11px]">(tính sau bước trước)</span>
+                        </span>
+                        <span class="font-semibold">-{{ number_format($couponDiscounts[$coupon->id], 0, ',', '.') }}đ</span>
+                    </div>
+                    @php $stepNum++; @endphp
+                @endforeach
             @endif
 
             {{-- Tổng tiết kiệm --}}

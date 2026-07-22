@@ -1,18 +1,13 @@
 {{--
     Desktop (≥lg): cột "Thời gian" (ngày) đứng cố định bên trái, KHÔNG nằm trong carousel — chỉ
-    khối khung giờ của từng phòng mới trượt theo kiểu Center Mode/Peek Carousel (Swiper):
-    phòng đang xem ở giữa, kích thước đầy đủ; 2 phòng liền kề hé lộ 1 phần 2 bên, thu nhỏ + mờ.
-    Vuốt/bấm mũi tên hoặc bấm thẳng vào phòng đang peek để chuyển phòng (Swiper tự trượt vào
-    giữa — slideToClickedSlide). Ô khung giờ chỉ chọn được ở phòng đang active (2 bên
-    pointer-events:none, tránh bấm nhầm khi định bấm để chuyển phòng).
+    khối khung giờ của từng phòng mới trượt (Swiper): 2 phòng hiển thị đầy đủ cùng lúc, cạnh
+    nhau, cả 2 đều chọn được khung giờ. Bấm mũi tên Trước/Sau (hoặc vuốt) để lật sang cặp phòng
+    kế tiếp.
     Mobile (< lg) vẫn dùng book/_mobile.blade.php (carousel 1 phòng kiểu cũ, không đổi).
     Inherits: $dates, $styleOneRooms, $today, $category
 --}}
-{{-- activeRoomIdx: state Alpine thuần (client), chỉ dùng để đồng bộ cuộn dọc giữa cột "Thời gian"
-     và khối khung giờ của phòng đang active. Mọi phòng đều render đầy đủ ô lịch (giá/khuyến mãi)
-     bất kể đang active hay không — xem giải thích ở điều kiện render bên dưới. --}}
 <div class="hidden lg:block book-dt-wrap"
-    x-data="{ activeRoomIdx: 0 }"
+    x-data="{}"
     x-init="$nextTick(() => window.mountBookDtSwiper($el))">
 
     <div class="book-dt-carousel-head">
@@ -29,7 +24,7 @@
 
     <div class="book-dt-body">
         {{-- Cột "Thời gian" (ngày) — dùng chung cho mọi phòng, đứng yên, không trượt theo carousel.
-             Cuộn dọc đồng bộ 2 chiều với khối khung giờ của phòng ĐANG ACTIVE (activeRoomIdx). --}}
+             Cuộn dọc đồng bộ 2 chiều với khối khung giờ của mọi phòng (kể cả phòng chưa hiện ra). --}}
         <div class="book-dt-dates-col">
             {{-- Spacer vô hình cùng class/thẻ với tên phòng (.book-dt-room-name) bên carousel —
                  mỗi slide phòng có 1 dòng tên phòng (h3) nằm TRÊN book-dt-slots-header-row, còn
@@ -41,8 +36,12 @@
             <h3 class="book-room-name book-dt-room-name" style="visibility:hidden;" aria-hidden="true">&nbsp;</h3>
             <div class="book-dt-col-header">Thời gian</div>
             <div class="book-dt-dates-card">
+                {{-- Đồng bộ cuộn dọc với TẤT CẢ phòng (kể cả phòng đang ở trang/cặp khác, chưa
+                     hiện ra) chứ không riêng 1 phòng "active" — vì giờ 2 phòng cùng hiện đầy đủ
+                     cùng lúc, không còn khái niệm 1 phòng active duy nhất. Sync cả phòng ẩn để
+                     khi lật sang cặp kế tiếp, vị trí cuộn của chúng đã khớp sẵn. --}}
                 <div class="book-dt-dates-scroll" x-ref="bookDtDatesScroll"
-                    @scroll="const t = $refs['bookDtSlotsScroll' + activeRoomIdx]; if (t) t.scrollTop = $event.target.scrollTop">
+                    @scroll="$refs.bookDtSwiperEl.querySelectorAll('.book-dt-slots-scroll').forEach(el => el.scrollTop = $event.target.scrollTop)">
                     @foreach ($dates as $date)
                         @php $dateShort = \Carbon\Carbon::createFromFormat('d-m-Y', $date['date'])->format('d-m-Y'); @endphp
                         <div class="book-dt-date-row{{ $date['is_today'] ? ' is-today' : '' }}">
@@ -54,7 +53,7 @@
             </div>
         </div>
 
-        {{-- Carousel Center Mode: mỗi slide là tên phòng + header khung giờ + bảng khung giờ của
+        {{-- Carousel 2 phòng/hàng: mỗi slide là tên phòng + header khung giờ + bảng khung giờ của
              riêng phòng đó (khung giờ có thể khác nhau giữa các phòng nên header phải trượt theo). --}}
         <div class="book-dt-carousel-col">
             <div class="swiper book-dt-swiper" x-ref="bookDtSwiperEl">
@@ -118,7 +117,8 @@
                             <div class="book-dt-slots-card">
                                 <div class="book-dt-slots-scroll" x-ref="bookDtSlotsScroll{{ $loop->index }}"
                                     @scroll="
-                                        if (activeRoomIdx === {{ $loop->index }}) $refs.bookDtDatesScroll.scrollTop = $event.target.scrollTop;
+                                        $refs.bookDtDatesScroll.scrollTop = $event.target.scrollTop;
+                                        $refs.bookDtSwiperEl.querySelectorAll('.book-dt-slots-scroll').forEach(el => { if (el !== $event.target) el.scrollTop = $event.target.scrollTop; });
                                         $refs['bookDtHeaderRow' + {{ $loop->index }}].scrollLeft = $event.target.scrollLeft;
                                     ">
                                     {{-- Render đầy đủ (giá/khuyến mãi) cho MỌI phòng, kể cả các phòng

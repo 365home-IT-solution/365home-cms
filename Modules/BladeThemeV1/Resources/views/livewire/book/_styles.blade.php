@@ -1239,26 +1239,6 @@
 
     .book-dt-slot-cell .selectable { width: 100%; height: 28px; }
 
-    /* ── Center Mode: slide không active thu nhỏ + mờ + không bấm chọn được khung giờ, chỉ
-         dùng để bấm chuyển phòng (slideToClickedSlide xử lý qua .swiper-slide, không bị chặn
-         bởi pointer-events:none trên card con). ── */
-    .book-dt-swiper .swiper-slide:not(.swiper-slide-active) .book-dt-room-name,
-    .book-dt-swiper .swiper-slide:not(.swiper-slide-active) .book-dt-slots-header-row {
-        opacity: .55;
-    }
-
-    .book-dt-swiper .swiper-slide:not(.swiper-slide-active) .book-dt-slots-card {
-        opacity: .55;
-        transform: scale(.92);
-        pointer-events: none;
-        cursor: pointer;
-    }
-
-    .book-dt-swiper .swiper-slide-active .book-dt-slots-card {
-        opacity: 1;
-        transform: scale(1);
-    }
-
     /* ── Bảng tính giá đầy đủ (Giá cơ bản, phụ thu, khuyến mãi, tổng tiền tạm tính): ẩn hẳn
          cả mobile lẫn desktop — mobile hiện trong bottom sheet riêng (book.blade.php), desktop
          thay bằng nút "Đặt phòng ngay" + tổng tiền tạm tính gọn trên hàng chú thích trạng thái
@@ -1561,36 +1541,22 @@
         box-shadow: 0 4px 14px rgba(0, 0, 0, .06) !important;
     }
 
-    /* ── Đường kẻ phân cách dọc giữa lịch đặt phòng của phòng này với phòng khác trong
-       carousel desktop (mỗi .swiper-slide = 1 phòng, book/_desktop-grid.blade.php) — dùng
-       pseudo-element (không phải border) để kẻ NGẮN lại, bo tròn 2 đầu, nằm lửng lơ giữa gap
-       (top/bottom: 38% → tự động canh giữa theo chiều cao slide, chỉ chiếm ~24% ở giữa), không
-       chạm vào tên phòng hay card khung giờ ở trên/dưới.
-
-       "right" phải khác nhau tuỳ slide chủ (active hay đang peek mờ 2 bên) — không dùng chung 1
-       giá trị: phòng đang peek bị thu nhỏ transform:scale(.92) NHƯNG chỉ áp cho .book-dt-slots-card
-       bên trong, còn .swiper-slide (gốc để đặt pseudo-element) vẫn giữ nguyên kích thước gốc, nên
-       card hiển thị của phòng peek bị "ngót" vào trong ~4% bề rộng slide so với mép slide thật —
-       nếu dùng 1 offset cố định cho mọi slide thì đường kẻ cạnh phòng ACTIVE (không ngót, mép card
-       trùng mép slide) sẽ nằm sát luôn vào card đó thay vì giữa khoảng gap, còn đường kẻ cạnh
-       phòng PEEK thì lại lọt vào đúng khoảng ngót đó, trông lệch hẳn về 1 bên (đúng lỗi trong ảnh
-       người dùng gửi: 1 bên sát, 1 bên đẩy ra). Bù lại bằng 2 giá trị offset khác nhau dựa theo
-       class .swiper-slide-active mà Swiper tự gắn (xem mountBookDtSwiper(), centeredSlides:true). ── */
+    /* ── Đường kẻ phân cách dọc giữa 2 phòng hiển thị cạnh nhau trong carousel desktop (mỗi
+       .swiper-slide = 1 phòng, book/_desktop-grid.blade.php) — dùng pseudo-element (không phải
+       border) để kẻ NGẮN lại, bo tròn 2 đầu, nằm lửng lơ giữa gap (top/bottom: 38% → tự động
+       canh giữa theo chiều cao slide, chỉ chiếm ~24% ở giữa), không chạm vào tên phòng hay card
+       khung giờ ở trên/dưới. Mọi slide đều cùng kích thước (không còn peek thu nhỏ) nên chỉ cần
+       1 offset cố định, canh giữa khoảng gap (spaceBetween: 16px, xem mountBookDtSwiper()). ── */
     .book-dt-swiper .swiper-slide { position: relative; }
     .book-dt-swiper .swiper-slide:not(:last-child)::after {
         content: '';
         position: absolute;
         top: 38%;
         bottom: 38%;
+        right: -10px;
         width: 4px;
         border-radius: 999px;
         background: var(--color-primary, #4e6b4c);
-    }
-    .book-dt-swiper .swiper-slide:not(.swiper-slide-active):not(:last-child)::after {
-        right: -3px;
-    }
-    .book-dt-swiper .swiper-slide.swiper-slide-active:not(:last-child)::after {
-        right: -20px;
     }
 
     /* ── Phần còn lại vẫn dùng tông "Forest Green" cũ (#4e6b4c) — trung tính hoá nốt cho

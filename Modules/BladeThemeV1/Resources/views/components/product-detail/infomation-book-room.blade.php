@@ -183,93 +183,134 @@
             </div>
         </div>
 
-        <!-- MÃ GIẢM GIÁ -->
+        <!-- MÃ GIẢM GIÁ (cho phép áp nhiều mã cùng lúc — xem ProductDetail::applyCoupon /
+             calculateCouponDiscounts) -->
         <div class="space-y-1.5">
             <label class="block text-[10px] font-semibold tracking-wider uppercase text-[#717171]">Mã giảm
                 giá</label>
 
-            @if ($appliedCoupon)
-                {{-- Hiển thị khi đã áp dụng coupon --}}
-                <div class="bg-green-50 border border-green-300 rounded-lg p-3">
-                    <div class="flex items-start justify-between gap-2">
-                        <div class="flex-1 min-w-0">
-                            <div class="flex items-center gap-1.5 mb-1 flex-wrap">
-                                <span
-                                    class="inline-block bg-green-500 text-white px-2 py-0.5 rounded-full text-xs font-bold">
-                                    {{ $appliedCoupon->code }}
-                                </span>
-                                <span class="text-green-700 font-medium text-xs truncate">
-                                    {{ $appliedCoupon->name }}
-                                </span>
+            {{-- Danh sách mã ĐÃ áp dụng — mỗi mã 1 dòng, riêng nút xoá, số tiền giảm lấy từ
+                 $couponDiscounts (đã cascading: mã % tính trước trên số tiền lớn hơn, mã fixed
+                 tính sau trên phần còn lại). --}}
+            @if (count($appliedCoupons) > 0)
+                <div class="space-y-1.5">
+                    @foreach ($appliedCoupons as $coupon)
+                        <div class="bg-green-50 border border-green-300 rounded-lg p-3">
+                            <div class="flex items-start justify-between gap-2">
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center gap-1.5 mb-1 flex-wrap">
+                                        <span
+                                            class="inline-block bg-green-500 text-white px-2 py-0.5 rounded-full text-xs font-bold">
+                                            {{ $coupon->code }}
+                                        </span>
+                                        <span class="text-green-700 font-medium text-xs truncate">
+                                            {{ $coupon->name }}
+                                        </span>
+                                    </div>
+                                    <p class="text-xs text-gray-700">
+                                        @if ($coupon->type === 'percentage')
+                                            Giảm {{ $coupon->value }}%
+                                            @if ($coupon->max_discount)
+                                                (tối đa {{ number_format($coupon->max_discount, 0, ',', '.') }}đ)
+                                            @endif
+                                        @else
+                                            Giảm {{ number_format($coupon->value, 0, ',', '.') }}đ
+                                        @endif
+                                    </p>
+                                    <p class="text-xs font-bold text-green-600 mt-0.5">
+                                        Bạn được giảm: {{ number_format($couponDiscounts[$coupon->id] ?? 0, 0, ',', '.') }}đ
+                                    </p>
+                                </div>
+                                <button type="button" wire:click="removeCoupon('{{ $coupon->id }}')"
+                                    class="text-red-500 hover:text-red-700 transition p-1 shrink-0" title="Xóa mã giảm giá">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
                             </div>
-                            <p class="text-xs text-gray-700">
-                                @if ($appliedCoupon->type === 'percentage')
-                                    Giảm {{ $appliedCoupon->value }}%
-                                    @if ($appliedCoupon->max_discount)
-                                        (tối đa {{ number_format($appliedCoupon->max_discount, 0, ',', '.') }}đ)
-                                    @endif
-                                @else
-                                    Giảm {{ number_format($appliedCoupon->value, 0, ',', '.') }}đ
-                                @endif
-                            </p>
-                            <p class="text-xs font-bold text-green-600 mt-0.5">
-                                Bạn được giảm: {{ number_format($couponDiscountAmount, 0, ',', '.') }}đ
-                            </p>
                         </div>
-                        <button type="button" wire:click="removeCoupon"
-                            class="text-red-500 hover:text-red-700 transition p-1 shrink-0" title="Xóa mã giảm giá">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-            @else
-                {{-- Form nhập mã coupon --}}
-                <div class="space-y-2">
-                    <div class="flex gap-2 items-stretch">
-                        <input type="text" wire:model.defer="couponCode"
-                            placeholder="Nhập mã giảm giá"
-                            class="flex-1 min-w-0 self-stretch border border-[#DDDDDD] rounded-lg focus:outline-none focus-visible:ring-1 focus-visible:ring-primary focus:border-primary uppercase"
-                            style="box-sizing:border-box;padding:0 10px;font-size:11px;text-transform: uppercase;" @if (!$canApplyCoupon) disabled @endif>
-                        <button type="button" wire:click="applyCoupon"
-                            class="bg-primary text-white rounded-lg font-semibold hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed shrink-0 h-9"
-                            style="box-sizing:border-box;padding:0 10px;font-size:11px;white-space:nowrap;line-height:1;"
-                            @if (!$canApplyCoupon) disabled @endif>
-                            Áp dụng
-                        </button>
-                    </div>
-
-                    {{-- Thông báo lỗi --}}
-                    @if ($couponErrorMessage)
-                        <div
-                            class="bg-red-50 border border-red-200 text-red-700 px-2.5 py-1.5 rounded-lg text-xs flex items-start gap-1.5">
-                            <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd"
-                                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                                    clip-rule="evenodd" />
-                            </svg>
-                            <span>{{ $couponErrorMessage }}</span>
-                        </div>
-                    @endif
-
-                    {{-- Helper text --}}
-                    @if ($canApplyCoupon)
-                        <p class="text-xs text-gray-500">
-                            Có mã giảm giá? Nhập và áp dụng để được ưu đãi!
-                        </p>
-                    @elseif($bookingStyle == 2)
-                        <p class="text-xs text-gray-500 italic">
-                            * Vui lòng chọn ngày nhận và trả phòng trước khi áp dụng mã giảm giá
-                        </p>
-                    @else
-                        <p class="text-xs text-gray-500 italic">
-                            * Vui lòng chọn khung giờ trước khi áp dụng mã giảm giá
+                    @endforeach
+                    @if (count($appliedCoupons) > 1)
+                        <p class="text-xs font-bold text-green-600 text-right">
+                            Tổng cộng giảm: {{ number_format($couponDiscountAmount, 0, ',', '.') }}đ
                         </p>
                     @endif
                 </div>
             @endif
+
+            {{-- Form nhập thêm mã — luôn hiển thị (kể cả khi đã áp mã khác) để cho phép cộng dồn --}}
+            <div class="space-y-2">
+                {{-- Khách đã đăng nhập: gợi ý sẵn mã giảm giá riêng/được gán (personalCoupons +
+                     coupons, xem ProductDetail::loadMyCoupons) — bấm "+" điền mã và áp dụng
+                     ngay, không cần gõ tay. Ẩn mã đã áp rồi, chỉ hiện mã đang dùng được. --}}
+                @php $appliedCodes = collect($appliedCoupons)->pluck('code')->all(); @endphp
+                @if ($isAuthUser && count($myCoupons) > 0 && count(array_diff(array_column($myCoupons, 'code'), $appliedCodes)) > 0)
+                    <div class="space-y-1.5 mb-2">
+                        @foreach ($myCoupons as $mc)
+                            @continue(in_array($mc['code'], $appliedCodes))
+                            <div class="flex items-center gap-2 border border-dashed border-primary/40 bg-primary/5 rounded-lg px-2.5 py-1.5">
+                                <span class="shrink-0 bg-primary text-white px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide">
+                                    {{ $mc['code'] }}
+                                </span>
+                                <div class="flex-1 min-w-0">
+                                    <p class="text-xs font-medium text-[#222222] truncate">{{ $mc['name'] ?? 'Mã giảm giá' }}</p>
+                                    <p class="text-[11px] text-primary font-semibold">Giảm {{ $mc['value_label'] }}</p>
+                                </div>
+                                <button type="button" wire:click="quickApplyCoupon('{{ $mc['code'] }}')"
+                                    wire:loading.attr="disabled" wire:target="quickApplyCoupon('{{ $mc['code'] }}')"
+                                    class="shrink-0 w-7 h-7 flex items-center justify-center rounded-full bg-primary text-white hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title="Áp dụng mã {{ $mc['code'] }}" @if (!$canApplyCoupon) disabled @endif>
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                                    </svg>
+                                </button>
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
+
+                <div class="flex gap-2 items-stretch">
+                    <input type="text" wire:model.defer="couponCode"
+                        placeholder="Nhập mã giảm giá"
+                        class="flex-1 min-w-0 self-stretch border border-[#DDDDDD] rounded-lg focus:outline-none focus-visible:ring-1 focus-visible:ring-primary focus:border-primary uppercase"
+                        style="box-sizing:border-box;padding:0 10px;font-size:11px;text-transform: uppercase;" @if (!$canApplyCoupon) disabled @endif>
+                    <button type="button" wire:click="applyCoupon"
+                        class="bg-primary text-white rounded-lg font-semibold hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed shrink-0 h-9"
+                        style="box-sizing:border-box;padding:0 10px;font-size:11px;white-space:nowrap;line-height:1;"
+                        @if (!$canApplyCoupon) disabled @endif>
+                        Áp dụng
+                    </button>
+                </div>
+
+                {{-- Thông báo lỗi --}}
+                @if ($couponErrorMessage)
+                    <div
+                        class="bg-red-50 border border-red-200 text-red-700 px-2.5 py-1.5 rounded-lg text-xs flex items-start gap-1.5">
+                        <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd"
+                                d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                                clip-rule="evenodd" />
+                        </svg>
+                        <span>{{ $couponErrorMessage }}</span>
+                    </div>
+                @endif
+
+                {{-- Helper text --}}
+                @if ($canApplyCoupon)
+                    <p class="text-xs text-gray-500">
+                        {{ count($appliedCoupons) > 0 ? 'Có thêm mã khác? Nhập và áp dụng để cộng dồn ưu đãi!' : 'Có mã giảm giá? Nhập và áp dụng để được ưu đãi!' }}
+                    </p>
+                @elseif($bookingStyle == 2)
+                    <p class="text-xs text-gray-500 italic">
+                        * Vui lòng chọn ngày nhận và trả phòng trước khi áp dụng mã giảm giá
+                    </p>
+                @else
+                    <p class="text-xs text-gray-500 italic">
+                        * Vui lòng chọn khung giờ trước khi áp dụng mã giảm giá
+                    </p>
+                @endif
+            </div>
         </div>
 
         <hr class="border-[#DDDDDD] -mx-6">

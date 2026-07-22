@@ -52,10 +52,17 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
 
     // ✅ ĐÃ CÓ - Properties cho Coupon
     public $couponCode = '';
-    public $appliedCoupon = null;
+    // Cho phép áp nhiều mã cùng lúc (khớp API BookingController::applyMultipleCoupons) — keyed
+    // theo coupon->id để tránh áp trùng và để removeCoupon() xoá đúng mã.
+    public array $appliedCoupons = [];
+    // coupon_id => số tiền giảm riêng của mã đó (sau khi cascading) — dùng để hiện từng dòng.
+    public array $couponDiscounts = [];
     public $couponDiscountAmount = 0;
     public $couponErrorMessage = '';
     public $couponSuccessMessage = '';
+    // Mã giảm giá riêng/được gán cho khách đã đăng nhập (personalCoupons + coupons) — hiện dạng
+    // gợi ý bấm-là-áp-dụng ngay trong form, chỉ load lại khi prefillFromAuth() xác thực token.
+    public array $myCoupons = [];
 
     // OCR properties
     public $cccdFrontText = '';
@@ -182,6 +189,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
                 $this->authUserId   = null;
                 $this->authCccdFront = '';
                 $this->authCccdBack  = '';
+                $this->myCoupons     = [];
             }
             return;
         }
@@ -211,9 +219,50 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             // Lưu path CCCD từ profile để dùng khi đặt phòng (không cần upload lại)
             $this->authCccdFront = $customer->cccd_front ?? '';
             $this->authCccdBack  = $customer->cccd_back  ?? '';
+
+            $this->loadMyCoupons($customer);
         } catch (\Throwable) {
             // Silent fail — user tiếp tục với form thường
         }
+    }
+
+    /**
+     * Mã giảm giá riêng/được gán cho khách đã đăng nhập (personalCoupons + coupons, xem
+     * app/Models/Customer.php) — chỉ giữ những mã ĐANG dùng được ngay (active, còn hạn, còn
+     * lượt) để hiện dạng gợi ý bấm-là-áp-dụng; mã hết hạn/hết lượt xem ở trang Tài khoản
+     * (AccountPage::loadDiscountCodes) thay vì lẫn vào đây làm rối lựa chọn.
+     */
+    private function loadMyCoupons(\App\Models\Customer $customer): void
+    {
+        $now = now();
+
+        $this->myCoupons = $customer->personalCoupons()->get()
+            ->merge($customer->coupons()->get())
+            ->unique('id')
+            ->filter(fn ($c) => $c->is_active
+                && (!$c->start_at || $now->gte($c->start_at))
+                && (!$c->end_at || $now->lte($c->end_at))
+                && (!$c->usage_limit || $c->used_count < $c->usage_limit))
+            ->sortByDesc(fn ($c) => $c->end_at ?? $c->created_at)
+            ->map(fn ($c) => [
+                'code'        => $c->code,
+                'name'        => $c->name,
+                'value_label' => $c->type === 'percentage'
+                    ? rtrim(rtrim(number_format((float) $c->value, 2), '0'), '.') . '%'
+                    : number_format((float) $c->value, 0, ',', '.') . 'đ',
+            ])
+            ->values()
+            ->toArray();
+    }
+
+    /**
+     * Gọi từ nút "+" cạnh mã gợi ý (form mã giảm giá, khách đã đăng nhập) — điền mã rồi áp dụng
+     * ngay qua applyCoupon() để giữ chung 1 đường validate (chọn khung giờ, min order value...).
+     */
+    public function quickApplyCoupon(string $code): void
+    {
+        $this->couponCode = $code;
+        $this->applyCoupon();
     }
 
     protected function initializeProductData()
@@ -251,8 +300,16 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             }
         }
 
+        $code = strtoupper(trim($this->couponCode));
+
+        // Đã áp dụng mã này rồi — không cho thêm trùng
+        if (collect($this->appliedCoupons)->contains(fn ($c) => $c->code === $code)) {
+            $this->couponErrorMessage = sprintf('Mã "%s" đã được áp dụng rồi', $code);
+            return;
+        }
+
         // Tìm coupon
-        $coupon = Coupon::where('code', strtoupper($this->couponCode))
+        $coupon = Coupon::where('code', $code)
             ->where('is_active', true)
             ->first();
 
@@ -278,6 +335,21 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             return;
         }
 
+        // Mã cá nhân/được gán riêng (customer_id trực tiếp hoặc qua bảng coupon_customers) — chỉ
+        // chủ sở hữu mới dùng được, khớp validateOneCoupon() bên BookingController (API) để
+        // tránh lỗ hổng dùng mã của người khác qua form web này.
+        $isRestricted = $coupon->customer_id !== null || $coupon->customers()->exists();
+        if ($isRestricted) {
+            $owns = $this->isAuthUser && $this->authUserId && (
+                $coupon->customer_id === $this->authUserId
+                || $coupon->customers()->where('customer_id', $this->authUserId)->exists()
+            );
+            if (!$owns) {
+                $this->couponErrorMessage = 'Mã giảm giá không thuộc về tài khoản của bạn';
+                return;
+            }
+        }
+
         // Kiểm tra áp dụng cho slot
         $applicableSlots = $this->getApplicableSlots($coupon);
         if (empty($applicableSlots)) {
@@ -299,8 +371,9 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             return;
         }
 
-        // Áp dụng coupon thành công
-        $this->appliedCoupon = $coupon;
+        // Áp dụng coupon thành công — thêm vào danh sách (giữ các mã đã áp trước đó)
+        $this->appliedCoupons[$coupon->id] = $coupon;
+        $this->couponCode = '';
         $this->couponSuccessMessage = sprintf(
             'Áp dụng mã giảm giá "%s" thành công!',
             $coupon->code
@@ -426,12 +499,11 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
     }
 
     /**
-     * Xóa coupon đã áp dụng
+     * Xóa 1 coupon đã áp dụng (trong số nhiều mã có thể đang áp cùng lúc) theo id.
      */
-    public function removeCoupon()
+    public function removeCoupon($couponId)
     {
-        $this->appliedCoupon = null;
-        $this->couponCode = '';
+        unset($this->appliedCoupons[$couponId], $this->couponDiscounts[$couponId]);
         $this->resetCouponMessages();
 
         if (((int) ($this->bookingStyle ?? 1)) === 2) {
@@ -444,6 +516,38 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             'message' => 'Đã xóa mã giảm giá',
             'type' => 'info',
         ]);
+    }
+
+    /**
+     * Tính giảm giá cascading cho TẤT CẢ coupon đang áp dụng, cùng thứ tự với
+     * BookingController::applyMultipleCoupons (API đặt phòng thật): mã % trước (áp trên số tiền
+     * lớn hơn, lợi hơn cho khách), mã fixed sau — mỗi mã trừ trên phần còn lại sau mã trước.
+     * Ghi kết quả từng mã vào $couponDiscounts để hiện riêng từng dòng, trả về tổng giảm.
+     */
+    protected function calculateCouponDiscounts(float $amount): float
+    {
+        $this->couponDiscounts = [];
+
+        if (empty($this->appliedCoupons)) {
+            return 0;
+        }
+
+        $coupons = collect($this->appliedCoupons)
+            ->sortByDesc(fn ($c) => $c->type === 'percentage' ? 1 : 0);
+
+        $remaining = $amount;
+        $total = 0.0;
+        foreach ($coupons as $coupon) {
+            if ($remaining <= 0) {
+                break;
+            }
+            $discount = $coupon->calculateDiscount($remaining);
+            $this->couponDiscounts[$coupon->id] = $discount;
+            $remaining -= $discount;
+            $total += $discount;
+        }
+
+        return $total;
     }
 
     protected function getLoyaltyDiscountRate(): float
@@ -634,10 +738,8 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
 
         // ========== COUPON: luôn áp dụng được, kể cả khi full booking ==========
         // Tính trên $totalAfterPromo (giá sau các discount trước đó) — không dùng giá gốc
-        if ($this->appliedCoupon) {
-            $this->couponDiscountAmount = $this->appliedCoupon->calculateDiscount($totalAfterPromo);
-            $totalAfterPromo           -= $this->couponDiscountAmount;
-        }
+        $this->couponDiscountAmount = $this->calculateCouponDiscounts($totalAfterPromo);
+        $totalAfterPromo           -= $this->couponDiscountAmount;
 
         // Tính phụ phí theo cấu hình phòng
         $cfg1 = $this->product ? ($this->product->room_config ?? []) : [];
@@ -847,12 +949,8 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         $this->increaseAmount      = $totalIncrease;
         $this->promoDiscountAmount = $totalDiscount;
 
-        if ($this->appliedCoupon) {
-            $applicableSlots = $this->getApplicableSlots($this->appliedCoupon);
-            $applicableAmount = collect($applicableSlots)->sum('price');
-            $this->couponDiscountAmount = $this->appliedCoupon->calculateDiscount((float) $applicableAmount);
-            $totalAfterPromo -= $this->couponDiscountAmount;
-        }
+        $this->couponDiscountAmount = $this->calculateCouponDiscounts($totalAfterPromo);
+        $totalAfterPromo           -= $this->couponDiscountAmount;
 
         $resolvedCheckin  = $dateConfigs[$checkin->format('Y-m-d')]['checkin'] ?? null;
         $lastNightDate    = $checkout->copy()->subDay()->format('Y-m-d');
@@ -1310,7 +1408,10 @@ public function confirmBooking()
                 'cccd_data'      => $cccdData,
                 'guest_count'    => $this->guests,
                 'category_id'    => $categoryId,
-                'coupon_code'    => $this->appliedCoupon ? $this->appliedCoupon->code : null,
+                // coupon_code giữ mã đầu tiên (backward compat, xem BookingController/OrderController
+                // API cùng quy ước) — coupon_codes (JSON) mới là nguồn đầy đủ khi áp nhiều mã.
+                'coupon_code'    => collect($this->appliedCoupons)->first()?->code,
+                'coupon_codes'   => collect($this->appliedCoupons)->pluck('code')->values()->all() ?: null,
                 'coupon_discount'=> $this->couponDiscountAmount,
                 'note_for_admin' => $noteForAdmin,
             ]);
@@ -1419,8 +1520,8 @@ public function confirmBooking()
                 }
             }
 
-            if ($this->appliedCoupon) {
-                $this->appliedCoupon->incrementUsage();
+            foreach ($this->appliedCoupons as $appliedCoupon) {
+                $appliedCoupon->incrementUsage();
             }
 
             return $order;

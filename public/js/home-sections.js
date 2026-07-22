@@ -1,4 +1,5 @@
-// ── Center Mode carousel cho lịch đặt phòng theo phòng (book/_desktop-grid.blade.php) ──
+// ── Carousel 2 phòng/hàng cho lịch đặt phòng (book/_desktop-grid.blade.php) — cả 2 phòng đang
+// hiện ra đều "active" (chọn được khung giờ), bấm Trước/Sau để lật sang cặp phòng kế tiếp.
 // Đặt ở đây (thay vì 1 <script> nằm trong chính view của Book) vì view đó chỉ xuất hiện trong DOM
 // SAU KHI Livewire morph vào (Book mount với config rỗng trước, nạp chi nhánh đầu tiên qua sự
 // kiện 'load-branch' — xem homeBookingBoard() bên dưới) — trình duyệt KHÔNG tự thực thi <script>
@@ -15,31 +16,22 @@ if (typeof window.mountBookDtSwiper === 'undefined') {
         if (!container || !container.querySelector('.swiper-slide')) return;
         if (container.swiper) container.swiper.destroy(true, true);
 
-        const alpineData = window.Alpine ? window.Alpine.$data(wrapEl) : null;
-
-        // Mặc định mở ở phòng thứ 2 (không phải phòng đầu) khi có từ 3 phòng trở lên, để ngay
-        // lần đầu vào trang đã thấy peek 2 bên (cảm giác "có phòng bên cạnh") thay vì phải bấm
-        // next 1 lần mới thấy — phòng đầu tiên (index 0) không có gì phía trước nên luôn chỉ
-        // peek được 1 bên dù có centeredSlides.
+        // Vòng lặp chỉ có ý nghĩa khi còn phòng nằm ngoài cặp đang hiển thị (>2 phòng) — 1-2
+        // phòng thì luôn vừa đủ 1 "trang", loop vô nghĩa (Swiper cũng không cho loop khi số
+        // slide ít hơn slidesPerView*2).
         const slideCount = container.querySelectorAll('.swiper-slide').length;
-        const initialSlide = slideCount >= 3 ? 1 : 0;
-        // Vòng lặp: lướt/bấm hết phòng cuối thì quay lại phòng đầu (và ngược lại) — chỉ bật khi
-        // có từ 2 phòng trở lên (1 phòng thì loop vô nghĩa, Swiper cũng không cho loop 1 slide).
-        const enableLoop = slideCount > 1;
+        const enableLoop = slideCount > 2;
 
         new Swiper(container, {
-            centeredSlides: true,
             loop: enableLoop,
-            initialSlide,
-            slideToClickedSlide: true,
             grabCursor: true,
             observer: true,
             observeParents: true,
-            slidesPerView: 1.9,
+            slidesPerView: 2,
+            slidesPerGroup: 2,
             spaceBetween: 16,
             breakpoints: {
-                1280: { slidesPerView: 2.0, spaceBetween: 18 },
-                1536: { slidesPerView: 2.1, spaceBetween: 20 },
+                1536: { spaceBetween: 20 },
             },
             navigation: {
                 nextEl: wrapEl.querySelector('.book-dt-nav-next'),
@@ -49,34 +41,7 @@ if (typeof window.mountBookDtSwiper === 'undefined') {
                 el: wrapEl.querySelector('.book-dt-pagination'),
                 clickable: true,
             },
-            on: {
-                slideChange(sw) {
-                    if (!alpineData) return;
-                    // Chỉ cập nhật state Alpine (client) — KHÔNG gọi $wire ở đây nữa (đã bỏ, xem
-                    // book/_desktop-grid.blade.php: từng gây request Livewire riêng mỗi lần đổi
-                    // phòng, kích hoạt wire:loading.block/skeleton của book.blade.php — trùng lặp
-                    // và dồn dập lúc Swiper tự canh initialSlide/vuốt nhanh, làm skeleton bị kẹt).
-                    // activeRoomIdx: chỉ dùng client-side để đồng bộ cuộn dọc — server render đầy
-                    // đủ mọi phòng nên không cần gửi giá trị này lên. Dùng realIndex (không phải
-                    // activeIndex) vì khi loop:true, Swiper tự chèn thêm slide nhân bản ở 2 đầu để
-                    // tạo hiệu ứng vòng lặp — activeIndex lúc đó tính luôn cả các slide nhân bản
-                    // đó nên lệch khỏi thứ tự phòng gốc, còn realIndex luôn trỏ đúng phòng gốc.
-                    alpineData.activeRoomIdx = sw.realIndex;
-                    // Giữ nguyên vị trí cuộn dọc khi đổi phòng (mọi phòng dùng chung 1 dải ngày).
-                    // Dùng sw.slides[sw.activeIndex] (mảng nội bộ của Swiper, luôn khớp đúng DOM
-                    // đang hiển thị kể cả slide nhân bản) thay vì tự query lại '.swiper-slide'.
-                    requestAnimationFrame(() => {
-                        const dateCol = wrapEl.querySelector('.book-dt-dates-scroll');
-                        const target = sw.slides[sw.activeIndex]?.querySelector('.book-dt-slots-scroll');
-                        if (dateCol && target) target.scrollTop = dateCol.scrollTop;
-                    });
-                },
-            },
         });
-
-        // Swiper không bắn 'slideChange' cho initialSlide lúc khởi tạo — đồng bộ tay để scroll
-        // 2 chiều (cột Ngày ⇄ khung giờ phòng) khớp đúng phòng đang hiện ra ngay từ đầu.
-        if (alpineData) alpineData.activeRoomIdx = initialSlide;
     };
 }
 

@@ -2092,10 +2092,10 @@
                                     </div>
                                 @endif
 
-                                {{-- Giảm giá từ coupon --}}
-                                @if ($appliedCoupon && $couponDiscountAmount > 0)
+                                {{-- Giảm giá từ coupon (có thể nhiều mã cùng lúc) --}}
+                                @if (count($appliedCoupons) > 0 && $couponDiscountAmount > 0)
                                     <div class="flex items-center justify-between">
-                                        <span class="text-[#717171]">Mã giảm giá ({{ $appliedCoupon->code }})</span>
+                                        <span class="text-[#717171]">Mã giảm giá ({{ collect($appliedCoupons)->pluck('code')->implode(', ') }})</span>
                                         <span class="font-semibold text-primary">-{{ number_format($couponDiscountAmount, 0, ',', '.') }}đ</span>
                                     </div>
                                 @endif
