@@ -632,19 +632,27 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             return;
         }
 
-        $sortedSlots = collect($this->selectedSlots)->sortBy(function ($slot) {
-            return Carbon::parse("{$slot['date']} {$slot['startTime']}");
-        })->values()->toArray();
+        // Lấy mốc bắt đầu/kết thúc THỰC của từng slot (mỗi slot tự cộng thêm 1 ngày nếu
+        // là khung giờ qua đêm), sau đó lấy min(start) → max(end) trên toàn bộ slot đã chọn.
+        // KHÔNG chỉ dựa vào slot có startTime muộn nhất, vì slot đó chưa chắc có endTime muộn
+        // nhất (vd: slot qua đêm ngày 1 kết thúc 06:00 ngày 2 vẫn có thể muộn hơn 1 slot khác
+        // bắt đầu sớm trong ngày 2).
+        $slotStarts = [];
+        $slotEnds = [];
+        foreach ($this->selectedSlots as $slot) {
+            $slotStart = Carbon::parse("{$slot['date']} {$slot['startTime']}");
+            $slotEnd = Carbon::parse("{$slot['date']} {$slot['endTime']}");
 
-        $this->startTime = Carbon::parse("{$sortedSlots[0]['date']} {$sortedSlots[0]['startTime']}")->format('Y-m-d H:i');
-        $lastSlot = $sortedSlots[count($sortedSlots) - 1];
-        $endDateTime = Carbon::parse("{$lastSlot['date']} {$lastSlot['endTime']}");
+            if ((($slot['overNight'] ?? 0) == 1) || $slotEnd->lt($slotStart)) {
+                $slotEnd->addDay();
+            }
 
-        if (isset($lastSlot['overNight']) && $lastSlot['overNight'] == 1) {
-            $endDateTime->addDay();
+            $slotStarts[] = $slotStart;
+            $slotEnds[] = $slotEnd;
         }
 
-        $this->endTime = $endDateTime->format('Y-m-d H:i');
+        $this->startTime = collect($slotStarts)->min()->format('Y-m-d H:i');
+        $this->endTime = collect($slotEnds)->max()->format('Y-m-d H:i');
 
         // ========== ✅ KIỂM TRA FULL BOOKING TRƯỚC ==========
         $this->hasFullDayBooking = $this->checkFullDayBooking();

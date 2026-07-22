@@ -148,6 +148,7 @@ class ExtraChargeService
             'checkout_url' => $checkoutUrl,
             'qr_code'      => $qrCode,
             'amount'       => $amount,
+            'expired_at'   => $expiredAt->toIso8601String(),
         ];
     }
 

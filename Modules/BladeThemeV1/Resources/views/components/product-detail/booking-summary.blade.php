@@ -2,17 +2,19 @@
 @if ($bookingStyle == 1)
     @if (!empty($selectedSlots))
         @php
-            $sorted = collect($selectedSlots)->sortBy('date');
-            $firstSlot = $sorted->first();
-            $lastSlot = $sorted->last();
-            $checkinDt = \Carbon\Carbon::parse($firstSlot['date'] . ' ' . $firstSlot['startTime']);
-            $checkoutDt = \Carbon\Carbon::parse($lastSlot['date'] . ' ' . $lastSlot['endTime']);
-            // Nếu slot cuối là qua đêm (endTime < startTime), trả phòng là ngày hôm sau
-            $lastSlotEndTime = \Carbon\Carbon::parse($lastSlot['endTime']);
-            $lastSlotStartTime = \Carbon\Carbon::parse($lastSlot['startTime']);
-            if (!empty($lastSlot['overNight']) || $lastSlotEndTime->lt($lastSlotStartTime)) {
-                $checkoutDt->addDay();
-            }
+            // Lấy mốc bắt đầu/kết thúc THỰC của từng slot (cộng thêm 1 ngày nếu là khung giờ
+            // qua đêm), rồi lấy min(start) → max(end) trên toàn bộ slot đã chọn — không chỉ dựa
+            // vào slot có 'date' lớn nhất, vì slot đó chưa chắc có endTime muộn nhất.
+            $slotRanges = collect($selectedSlots)->map(function ($slot) {
+                $start = \Carbon\Carbon::parse($slot['date'] . ' ' . $slot['startTime']);
+                $end = \Carbon\Carbon::parse($slot['date'] . ' ' . $slot['endTime']);
+                if (!empty($slot['overNight']) || $end->lt($start)) {
+                    $end->addDay();
+                }
+                return ['start' => $start, 'end' => $end];
+            });
+            $checkinDt = $slotRanges->pluck('start')->min();
+            $checkoutDt = $slotRanges->pluck('end')->max();
             $diffHours = $checkinDt->diffInHours($checkoutDt);
         @endphp
         <div class="rounded-xl p-4" style="background:#f0f4f0; border:2px solid #4e6b4c">

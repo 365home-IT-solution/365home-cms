@@ -301,18 +301,26 @@ class Book extends Component
             return;
         }
 
-        $firstDate = Carbon::createFromFormat('d-m-Y', $enrichedSlots[0]['date'])->format('Y-m-d');
-        $startTime = Carbon::parse("{$firstDate} {$enrichedSlots[0]['startTime']}")->format('Y-m-d H:i');
+        // Lấy mốc bắt đầu/kết thúc THỰC của từng slot (mỗi slot tự cộng thêm 1 ngày nếu là
+        // khung giờ qua đêm), rồi lấy min(start) → max(end) trên toàn bộ slot đã chọn — tránh
+        // trường hợp slot có startTime muộn nhất chưa chắc có endTime muộn nhất.
+        $slotStarts = [];
+        $slotEnds = [];
+        foreach ($enrichedSlots as $slot) {
+            $slotDate = Carbon::createFromFormat('d-m-Y', $slot['date'])->format('Y-m-d');
+            $slotStart = Carbon::parse("{$slotDate} {$slot['startTime']}");
+            $slotEnd = Carbon::parse("{$slotDate} {$slot['endTime']}");
 
-        $lastSlotIndex = count($enrichedSlots) - 1;
-        $lastSlot = $enrichedSlots[$lastSlotIndex];
-        $lastDate = Carbon::createFromFormat('d-m-Y', $lastSlot['date'])->format('Y-m-d');
+            if ((($slot['overNight'] ?? 0) == 1) || $slotEnd->lt($slotStart)) {
+                $slotEnd->addDay();
+            }
 
-        if (isset($lastSlot['overNight']) && $lastSlot['overNight'] == 1) {
-            $lastDate = Carbon::parse($lastDate)->addDay()->format('Y-m-d');
+            $slotStarts[] = $slotStart;
+            $slotEnds[] = $slotEnd;
         }
 
-        $endTime = Carbon::parse("{$lastDate} {$lastSlot['endTime']}")->format('Y-m-d H:i');
+        $startTime = collect($slotStarts)->min()->format('Y-m-d H:i');
+        $endTime = collect($slotEnds)->max()->format('Y-m-d H:i');
 
         Session::put('booking_data', [
             'start_time' => $startTime,

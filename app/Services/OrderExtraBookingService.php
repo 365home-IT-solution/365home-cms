@@ -26,6 +26,7 @@ class OrderExtraBookingService
         private OrderRealtimeService $realtime,
         private RoomItemBuilder $roomItemBuilder,
         private SlotRealtimeService $slotRealtime,
+        private RoomDiscountCalculator $discountCalculator,
     ) {
     }
 
@@ -131,14 +132,17 @@ class OrderExtraBookingService
 
         $oldServicesTotal = (int) $order->services()->sum('subtotal');
 
-        $addedServices  = [];
-        $roomAddedItems = null;
-        $roomAddedPrice = 0;
-        $roomAddedType  = $roomAddition['type'] ?? null;
+        $addedServices       = [];
+        $roomAddedItems      = null;
+        $roomAddedPrice      = 0;
+        $roomAddedFinalPrice = 0;
+        $roomAddedType       = $roomAddition['type'] ?? null;
+        $roomDiscountAmount  = 0;
+        $roomDiscountInfo    = [];
 
         DB::transaction(function () use (
             $order, $room, $roomAdditionRoom, $roomAddition, $servicesInput, $finalGuestCount, $guestCccdRows,
-            &$addedServices, &$roomAddedItems, &$roomAddedPrice
+            &$addedServices, &$roomAddedItems, &$roomAddedPrice, &$roomAddedFinalPrice, &$roomDiscountAmount, &$roomDiscountInfo
         ) {
             if (! empty($servicesInput)) {
                 $availableServices = $room->additionalServices->keyBy('id');
@@ -190,7 +194,7 @@ class OrderExtraBookingService
                 $currentGuestCount = (int) $order->guest_count;
 
                 if ($roomAddition['type'] === 'slot') {
-                    [$roomAddedPrice, , $itemsData, , $slotSummary] = $this->roomItemBuilder->buildSlotItems(
+                    [$roomAddedPrice, , $itemsData, $rtsCollection, $slotSummary] = $this->roomItemBuilder->buildSlotItems(
                         $roomAddition['slots'],
                         null,
                         $roomAdditionRoom,
@@ -198,7 +202,7 @@ class OrderExtraBookingService
                     );
                     $roomAddedItems = $slotSummary;
                 } else {
-                    [$roomAddedPrice, , $itemsData, , $nightSummary] = $this->roomItemBuilder->buildDailyItems(
+                    [$roomAddedPrice, , $itemsData, $rtsCollection, $nightSummary] = $this->roomItemBuilder->buildDailyItems(
                         $roomAddition['checkin_date'],
                         $roomAddition['checkout_date'],
                         $roomAdditionRoom,
@@ -206,6 +210,38 @@ class OrderExtraBookingService
                     );
                     $roomAddedItems = $nightSummary;
                 }
+
+                // Áp đúng điều kiện giảm giá cấu hình ở SettingBook (full_booking_discount,
+                // bulk_discount_rules, khuyến mãi theo khung giờ/ngày) — khớp 100% cách tính lúc
+                // đặt đơn mới (BookingController::store). Không áp coupon (API không nhận coupon_codes).
+                $hasFullBooking = ! empty($roomAddedItems) && $this->discountCalculator->checkFullDayBooking($roomAddedItems, $roomAdditionRoom);
+
+                if ($hasFullBooking) {
+                    [$systemDiscount, $appliedSystemDiscount] = $this->discountCalculator->applyFullBookingDiscount($roomAddedPrice, $roomAdditionRoom);
+                    $promotionDiscount    = 0;
+                    $appliedPromotions    = [];
+                } else {
+                    $promotionDiscount = 0;
+                    $appliedPromotions = [];
+                    if ($rtsCollection->isNotEmpty()) {
+                        $promotionMethod = $roomAddition['type'] === 'daily' ? 'applyDailyPromotions' : 'applyPromotions';
+                        [$promotionDiscount, $appliedPromotions] = $this->discountCalculator->$promotionMethod($rtsCollection, $roomAddedItems);
+                    }
+
+                    $systemDiscount        = 0;
+                    $appliedSystemDiscount = null;
+                    if (! empty($roomAddedItems)) {
+                        [$systemDiscount, $appliedSystemDiscount] = $this->discountCalculator->applyBulkDiscount(
+                            count($roomAddedItems),
+                            $roomAdditionRoom,
+                            $roomAddedPrice - $promotionDiscount,
+                        );
+                    }
+                }
+
+                $roomDiscountAmount  = $promotionDiscount + $systemDiscount;
+                $roomDiscountInfo    = array_values(array_filter([$appliedSystemDiscount, ...$appliedPromotions]));
+                $roomAddedFinalPrice = max(0, $roomAddedPrice - $roomDiscountAmount);
 
                 foreach ($itemsData as $itemData) {
                     $order->items()->create($itemData);
@@ -215,7 +251,7 @@ class OrderExtraBookingService
 
         $order->refresh();
 
-        $diff = $this->extraCharge->calculateDiff($order, $oldGuestCount, $oldServicesTotal) + $roomAddedPrice;
+        $diff = $this->extraCharge->calculateDiff($order, $oldGuestCount, $oldServicesTotal) + $roomAddedFinalPrice;
 
         if ($roomAddition) {
             if ($roomAddedType === 'slot') {
@@ -242,7 +278,14 @@ class OrderExtraBookingService
             'order_status'     => $order->order_status,
             'guest_count'      => $order->guest_count,
             'services_added'   => $addedServices,
-            'room_added'       => $roomAddedItems ? ['type' => $roomAddedType, 'items' => $roomAddedItems, 'price' => $roomAddedPrice] : null,
+            'room_added'       => $roomAddedItems ? [
+                'type'            => $roomAddedType,
+                'items'           => $roomAddedItems,
+                'price'           => $roomAddedPrice,
+                'discount_amount' => $roomDiscountAmount,
+                'discounts'       => $roomDiscountInfo,
+                'final_price'     => $roomAddedFinalPrice,
+            ] : null,
             'guests_declared'  => array_column($guestCccdRows, 'guest_index'),
             'diff'             => $diff,
             'charge'           => null,
