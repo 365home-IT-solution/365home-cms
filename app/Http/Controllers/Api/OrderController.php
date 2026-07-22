@@ -10,7 +10,9 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Payment\Entities\Order;
 use Modules\Promotion\App\Models\Coupon;
 use PayOS\PayOS;
@@ -81,6 +83,7 @@ class OrderController extends Controller
             'items.product.roomTimeSlots.timeSlot',
             'items.product.roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
             'services',
+            'guestCccds',
         ])
             ->where('order_code', $orderCode)
             ->where('customer_id', $customer->id)
@@ -103,6 +106,11 @@ class OrderController extends Controller
             'coupon_codes'            => 'sometimes|nullable|array',
             'coupon_codes.*'          => 'string',
             'coupon_code'             => 'sometimes|nullable',
+            // CCCD khách thứ 2 trở đi, gửi khi tăng guest_count cho đơn có khung giờ qua đêm —
+            // cùng key guests[{index}][front/back] như bên guest (GuestBookingController::update).
+            'guests'                  => 'sometimes|array',
+            'guests.*.front'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'guests.*.back'           => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
 
         $updates            = [];
@@ -117,12 +125,60 @@ class OrderController extends Controller
         // ── Phụ thu khách ─────────────────────────────────────────────────────
         if ($request->has('guest_count')) {
             $newGuestCount = (int) $request->input('guest_count');
+            $hasOvernight  = $order->items->contains('over_night', true);
 
-            // Khung giờ qua đêm: tối đa 2 khách (đơn có khai báo CCCD người đi cùng).
-            if ($newGuestCount > 2 && ! empty($order->cccd_front_2)) {
-                return response()->json([
-                    'message' => 'Khung giờ qua đêm chỉ nhận tối đa 2 khách.',
-                ], 422);
+            // Tăng số khách cho đơn qua đêm — khách mới (guest_index vượt số đã khai báo) phải
+            // có CCCD kèm theo trong chính request này (guests[{index}][front/back]), giống hệt
+            // GuestBookingController::update() — không còn giới hạn cứng tối đa 2 khách.
+            if ($hasOvernight) {
+                $declaredMax  = max(1, (int) $order->guestCccds->max('guest_index'));
+                $newGuestRows = [];
+
+                for ($guestIndex = $declaredMax + 1; $guestIndex <= $newGuestCount; $guestIndex++) {
+                    $frontKey = "guests.{$guestIndex}.front";
+                    $backKey  = "guests.{$guestIndex}.back";
+
+                    if (! $request->hasFile($frontKey) || ! $request->hasFile($backKey)) {
+                        return response()->json([
+                            'message' => "Tăng số khách cho đơn qua đêm cần khai báo lưu trú cho khách thứ {$guestIndex} — vui lòng gửi kèm CCCD (mặt trước/sau) của khách này.",
+                        ], 422);
+                    }
+
+                    $guestFront = $request->file($frontKey)->store('cccd', 'public');
+                    $guestBack  = $request->file($backKey)->store('cccd', 'public');
+
+                    $tempGuestOrder = new Order(['cccd_front' => $guestFront, 'cccd_back' => $guestBack]);
+                    $guestData      = app(CccdScannerService::class)->scanOrder($tempGuestOrder);
+
+                    if (! $guestData) {
+                        Storage::disk('public')->delete($guestFront);
+                        Storage::disk('public')->delete($guestBack);
+                        foreach ($newGuestRows as $row) {
+                            Storage::disk('public')->delete($row['front']);
+                            Storage::disk('public')->delete($row['back']);
+                        }
+
+                        return response()->json([
+                            'message' => "Không đọc được QR trên ảnh CCCD của khách thứ {$guestIndex}. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.",
+                        ], 422);
+                    }
+
+                    $newGuestRows[] = [
+                        'guest_index' => $guestIndex,
+                        'front'       => $guestFront,
+                        'back'        => $guestBack,
+                        'data'        => $guestData,
+                    ];
+                }
+
+                foreach ($newGuestRows as $row) {
+                    $order->guestCccds()->create([
+                        'guest_index' => $row['guest_index'],
+                        'cccd_front'  => $row['front'],
+                        'cccd_back'   => $row['back'],
+                        'cccd_data'   => $row['data'],
+                    ]);
+                }
             }
 
             $order->items()->update(['guest_count' => $newGuestCount]);
