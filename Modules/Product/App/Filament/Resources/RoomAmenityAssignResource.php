@@ -51,11 +51,18 @@ class RoomAmenityAssignResource extends Resource
         ];
     }
 
-    // Trước đây hardcode isSuperAdmin() ở cả 4 hàm — bỏ qua các permission room::amenity::assign
-    // (đã có sẵn), khiến tick/bỏ tick quyền này ở Roles & Permissions vô tác dụng.
+    // Theo yêu cầu: CHỈ super_admin được dùng "Gán Tiện Ích Phòng" (nhóm Quản lý API) — hard-code
+    // isSuperAdmin(), không dựa vào permission Shield (room::amenity::assign) nữa, giống
+    // PartnerResource/BranchResource — tránh bị cấp nhầm quyền này cho role khác qua Roles &
+    // Permissions.
+    private static function isSuperAdmin(): bool
+    {
+        return auth()->user()?->isSuperAdmin() ?? false;
+    }
+
     public static function canViewAny(): bool
     {
-        return auth()->user()?->can('view_any_room::amenity::assign') ?? false;
+        return self::isSuperAdmin();
     }
 
     public static function canCreate(): bool
@@ -65,16 +72,16 @@ class RoomAmenityAssignResource extends Resource
 
     public static function canEdit($record): bool
     {
-        return auth()->user()?->can('update_room::amenity::assign') ?? false;
+        return self::isSuperAdmin();
     }
 
     public static function canDelete($record): bool
     {
-        return auth()->user()?->can('delete_room::amenity::assign') ?? false;
+        return self::isSuperAdmin();
     }
 
     public static function canDeleteAny(): bool
     {
-        return auth()->user()?->can('delete_any_room::amenity::assign') ?? false;
+        return self::isSuperAdmin();
     }
 }
