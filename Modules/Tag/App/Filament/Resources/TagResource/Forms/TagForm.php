@@ -38,6 +38,7 @@ class TagForm
                             }
                             $set('slug', Str::slug($state));
                         })
+                        ->dehydrateStateUsing(fn (?string $state) => ['vi' => $state])
                         ->columnSpan(6),
 
                     TextInput::make('slug')
@@ -51,6 +52,7 @@ class TagForm
                                 ? Rule::unique('tags', 'slug')->ignore($postId)
                                 : Rule::unique('tags', 'slug');
                         }])
+                        ->dehydrateStateUsing(fn (?string $state) => ['vi' => $state])
                         ->columnSpan(6),
 
                     FileUpload::make('image')
@@ -75,8 +77,14 @@ class TagForm
                             return $state ? [$state] : [];
                         })
                         ->dehydrateStateUsing(function ($state) {
-                            // Save as plain string, not locale-wrapped array
-                            return \is_array($state) ? (collect($state)->first() ?? null) : $state;
+                            $value = \is_array($state) ? (collect($state)->first() ?? null) : $state;
+
+                            // Explicitly target the "vi" locale key. Assigning a plain string to a
+                            // translatable attribute makes spatie/laravel-translatable save it under
+                            // app()->getLocale() (config('app.locale'), default "en") instead — which
+                            // silently breaks the public site, since ProductDetail::fetchProductTags()
+                            // reads the image via a hardcoded "$.vi" JSON path.
+                            return ['vi' => $value];
                         })
                         ->multiple(false)
                 ])->columns(12)
