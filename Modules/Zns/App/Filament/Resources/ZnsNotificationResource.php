@@ -20,6 +20,12 @@ class ZnsNotificationResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-c-bell-snooze';
 
+    // Trùng với chức năng "Cấu hình web" — ẩn khỏi menu, giữ nguyên code/route.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public static function getNavigationGroup(): ?string
     {
         return 'Cấu hình web';

@@ -60,6 +60,23 @@ class RoomLockGrid extends Component
         $this->showModal = false;
     }
 
+    // Đồng bộ khi ADMIN KHÁC giữ/trả khung giờ CHO PHÒNG NÀY trong lúc popup này đang mở —
+    // echo-admin.js nghe kênh Reverb "admin-timeslot-holds" rồi tự gọi
+    // Livewire.dispatch('timeslotHoldsChanged') (xem TimeslotHoldService). Khác với
+    // CreateOrder/EditOrder (lưới đọc DB live mỗi lần render, chỉ cần no-op ép re-render),
+    // RoomLockGrid cache $cells/$dates/$slots/$selectedSlots vào property từ refreshGrid()/
+    // loadMyHeldSlots() nên phải gọi lại thật để lưới không hiển thị trạng thái cũ.
+    #[On('timeslotHoldsChanged')]
+    public function onTimeslotHoldsChanged(): void
+    {
+        if (! $this->showModal || ! $this->productId) {
+            return;
+        }
+
+        $this->loadMyHeldSlots();
+        $this->refreshGrid();
+    }
+
     private function loadMyHeldSlots(): void
     {
         $this->selectedSlots = [];

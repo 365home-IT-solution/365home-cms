@@ -16,6 +16,12 @@ class EmailSettingResource extends Resource
 {
     protected static ?string $model = EmailSetting::class;
 
+    // Nhóm "Biểu mẫu" đang ẩn tạm khỏi menu — bật lại bằng cách xoá method này.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public static function getNavigationIcon(): string
     {
         return __('form::email-setting.resource.navigation_icon');

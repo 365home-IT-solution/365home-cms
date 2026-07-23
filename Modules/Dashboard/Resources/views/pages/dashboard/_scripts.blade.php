@@ -208,7 +208,6 @@ window._rcBuildPopupHtml = function(orders, roomList) {
                     '<div class="ta-rc-icon">' + roomIconSvg + '</div>' +
                     '<div class="ta-rc-info" style="flex:1;min-width:0;">' +
                         '<div class="ta-rc-name">' + roomName + '</div>' +
-                        (branch ? '<div class="ta-rc-branch">' + branch + '</div>' : '') +
                     '</div>' +
                     '<div class="ta-rc-count empty">Trống</div>' +
                 '</div>' +
@@ -267,7 +266,6 @@ window._rcBuildPopupHtml = function(orders, roomList) {
                 '<div class="ta-rc-icon' + (hasActive ? ' active' : '') + '">' + roomIconSvg + '</div>' +
                 '<div class="ta-rc-info" style="flex:1;min-width:0;">' +
                     '<div class="ta-rc-name">' + roomName + '</div>' +
-                    (branch ? '<div class="ta-rc-branch">' + branch + '</div>' : '') +
                 '</div>' +
                 '<div style="display:flex;align-items:center;gap:6px;">' +
                     '<div class="ta-rc-count">' + roomOrders.length + ' đơn</div>' +
@@ -969,7 +967,6 @@ window.rcSetView = function(mode) {
                 '<div class="ta-rc-head">' +
                   '<div class="ta-rc-info">' +
                     '<div class="ta-rc-name">' + rcBuildNameFlagsHtml(room) + '</div>' +
-                    '<div class="ta-rc-branch">' + room.branch + '</div>' +
                   '</div>' +
                   rcBuildMenuBtnHtml(room) +
                   '<div class="ta-rc-count' + (room.count === 0 ? ' empty' : '') + '">' + (room.count > 0 ? room.count + ' đơn' : 'Trống') + '</div>' +

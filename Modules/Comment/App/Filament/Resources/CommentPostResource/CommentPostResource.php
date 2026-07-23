@@ -17,6 +17,12 @@ class CommentPostResource extends Resource
 {
     protected static ?string $model = Comment::class;
 
+    // Nhóm "Nội dung" đang ẩn tạm khỏi menu — bật lại bằng cách xoá method này.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public static function getNavigationIcon(): string
     {
         return __('comment::comment-post.resource.navigation_icon');

@@ -130,7 +130,6 @@
                         </span>
                         @endif
                     </div>
-                    <div class="ta-rc-branch">{{ $room['branch'] }}</div>
                 </div>
                 <button type="button" class="ta-rc-menu-btn" title="Thao tác nhanh"
                     onclick="rcOpenRoomMenu(event, '{{ $room['product_id'] }}')"

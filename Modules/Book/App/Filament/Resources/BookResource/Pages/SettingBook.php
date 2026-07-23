@@ -27,6 +27,7 @@ use Modules\Promotion\App\Models\Promotion;
 use Filament\Notifications\Notification;
 use Modules\Promotion\App\Models\Coupon;
 use Modules\DataPermission\Entities\UserBranchPermission;
+use App\Services\SlotRealtimeService;
 
 class SettingBook extends Page implements HasForms
 {
@@ -50,6 +51,81 @@ class SettingBook extends Page implements HasForms
     protected static string $view = 'book::filament.resources.book-resource.pages.setting-book';
 
     public ?array $data = [];
+
+    /** Số phòng tối đa build form mỗi trang — trước đây load TOÀN BỘ phòng + toàn bộ khung giờ/
+     *  khuyến mãi cùng lúc (mount() lẫn form() đều gọi ->get() không giới hạn), với đối tác nhiều
+     *  phòng thì Filament phải dựng hàng trăm Tab + TableRepeater cùng lúc, tốn RAM rất lớn. Giờ
+     *  chỉ build phòng của trang hiện tại (lọc thêm theo chi nhánh nếu có), giữ nguyên trải nghiệm
+     *  vì mỗi phòng vẫn có Tab riêng như cũ. */
+    public int $perPage = 12;
+
+    /** Chi nhánh + trang đang lọc — đọc từ query string (?branch_id=, ?page=) đúng 1 LẦN trong
+     *  mount() (chỉ chạy ở lần tải trang đầy đủ), rồi giữ nguyên qua các Livewire action call sau
+     *  đó (applyBulkOverride, saveSingleDate...). KHÔNG được đọc trực tiếp request()->query() ở
+     *  những nơi khác vì các action call là request AJAX riêng, không còn query string gốc của
+     *  trang — đọc lại sẽ luôn ra rỗng và âm thầm reset về "tất cả chi nhánh, trang 1". */
+    public ?string $branchId = null;
+    public int $page = 1;
+
+    /** Cache trong 1 request — currentRoomIds() bị gọi cả ở mount() lẫn form(), không muốn chạy
+     *  lại query phân trang 2 lần. */
+    private ?\Illuminate\Support\Collection $currentRoomIdsCache = null;
+
+    /** Cache trong 1 request — scopedProductQuery() gọi applyBranchPriorityOrder() nhiều lần. */
+    private ?array $priorityProductIdsCache = null;
+
+    /** Thông tin phân trang để hiện ở blade (setting-book.blade.php) — được set trong
+     *  currentRoomIds(), luôn sẵn sàng trước khi form() render vì mount() chạy trước. */
+    public array $paginatorMeta = ['current_page' => 1, 'last_page' => 1, 'total' => 0];
+
+    /** Danh sách chi nhánh (dùng cho dropdown lọc) — chi nhánh = category KHÔNG có parent mà 1
+     *  phòng được gán trực tiếp, hoặc parent của category được gán (cùng quy ước với
+     *  RoomCardsService::getData() ở Dashboard, để nhất quán khái niệm "chi nhánh" toàn hệ thống). */
+    public function branchOptions(): array
+    {
+        $branches = [];
+
+        foreach ($this->baseProductQuery()->with('categories.parent')->get() as $product) {
+            $category = $product->categories->first();
+            $branch   = $category?->parent ?: $category;
+
+            if ($branch) {
+                $branches[$branch->id] = $branch->name;
+            }
+        }
+
+        asort($branches);
+
+        return $branches;
+    }
+
+    /** ID các phòng sẽ build form ở request này: 1 trang (theo $perPage) của scopedProductQuery(),
+     *  cộng thêm phòng được mở nhanh qua ?product_id= (xem mount()) nếu nó rơi ra ngoài trang hiện
+     *  tại/bị lọc theo chi nhánh khác — đảm bảo link "Xem chi tiết" từ Dashboard luôn mở đúng phòng
+     *  thay vì phải tự dò đúng chi nhánh + trang chứa nó. */
+    private function currentRoomIds(): \Illuminate\Support\Collection
+    {
+        if ($this->currentRoomIdsCache !== null) {
+            return $this->currentRoomIdsCache;
+        }
+
+        $paginator = $this->scopedProductQuery()->orderBy('name')->paginate($this->perPage, ['*'], 'page', $this->page);
+
+        $this->paginatorMeta = [
+            'current_page' => $paginator->currentPage(),
+            'last_page'    => max(1, $paginator->lastPage()),
+            'total'        => $paginator->total(),
+        ];
+
+        $ids = $paginator->getCollection()->pluck('id');
+
+        $preselectId = request()->query('product_id');
+        if ($preselectId && ! $ids->contains($preselectId) && $this->baseProductQuery()->whereKey($preselectId)->exists()) {
+            $ids->push($preselectId);
+        }
+
+        return $this->currentRoomIdsCache = $ids;
+    }
 
     /** Returns product IDs the current user is allowed to manage. null = all. */
     private function allowedProductIds(): ?array
@@ -91,7 +167,7 @@ class SettingBook extends Page implements HasForms
         })->pluck('name', 'id')->toArray();
     }
 
-    private function scopedProductQuery(): \Illuminate\Database\Eloquent\Builder
+    private function baseProductQuery(): \Illuminate\Database\Eloquent\Builder
     {
         $query = Product::query()->where('is_activated', true);
         $ids   = $this->allowedProductIds();
@@ -103,10 +179,128 @@ class SettingBook extends Page implements HasForms
         return $query->whereIn('id', $ids);
     }
 
+    /** baseProductQuery() + lọc theo chi nhánh đang chọn (?branch_id=), cùng quy ước 1 cấp
+     *  category/parent với branchOptions() ở trên. */
+    private function scopedProductQuery(): \Illuminate\Database\Eloquent\Builder
+    {
+        $query = $this->baseProductQuery();
+
+        if ($this->branchId) {
+            $query->whereHas('categories', function ($q) {
+                $q->where('categories.id', $this->branchId)->orWhere('categories.parent_id', $this->branchId);
+            });
+
+            return $query;
+        }
+
+        // Xem "Tất cả chi nhánh" — ưu tiên đẩy phòng của 252/254/89 lên đầu (nên rơi vào các
+        // trang đầu tiên), phần còn lại vẫn sắp theo tên như cũ (xem orderBy('name') ở nơi gọi).
+        $this->applyBranchPriorityOrder($query);
+
+        return $query;
+    }
+
+    /** Danh sách ID phòng thuộc các chi nhánh cần ưu tiên (252, 254, 89 — theo đúng thứ tự), đã
+     *  gộp cả phòng gán trực tiếp vào chi nhánh lẫn phòng gán vào category con của chi nhánh đó. */
+    private function priorityProductIds(): array
+    {
+        if ($this->priorityProductIdsCache !== null) {
+            return $this->priorityProductIdsCache;
+        }
+
+        $ids = [];
+
+        foreach (['252 ', '254 ', '89 '] as $branchPrefix) {
+            $branch = \Modules\Category\Entities\Category::where('category_type', 'product')
+                ->whereNull('parent_id')
+                ->where('name', 'like', $branchPrefix . '%')
+                ->first();
+
+            if (! $branch) {
+                continue;
+            }
+
+            $categoryIds = array_merge(
+                [$branch->id],
+                \Modules\Category\Entities\Category::where('parent_id', $branch->id)->pluck('id')->toArray()
+            );
+
+            $branchProductIds = \Modules\Category\Entities\Categorizable::where('categorizable_type', Product::class)
+                ->whereIn('category_id', $categoryIds)
+                ->pluck('categorizable_id')
+                ->map(fn ($id) => (string) $id)
+                ->all();
+
+            foreach ($branchProductIds as $id) {
+                if (! in_array($id, $ids, true)) {
+                    $ids[] = $id;
+                }
+            }
+        }
+
+        return $this->priorityProductIdsCache = $ids;
+    }
+
+    private function applyBranchPriorityOrder(\Illuminate\Database\Eloquent\Builder $query): void
+    {
+        $priorityIds = $this->priorityProductIds();
+
+        if (empty($priorityIds)) {
+            return;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($priorityIds), '?'));
+
+        // FIELD(id, ...) trả về 0 nếu KHÔNG khớp — "=0" đẩy các phòng không nằm trong danh sách ưu
+        // tiên xuống cuối, còn phòng khớp thì sắp theo đúng thứ tự xuất hiện trong $priorityIds
+        // (tức đúng thứ tự chi nhánh 252 → 254 → 89 đã liệt kê ở priorityProductIds()).
+        $query->orderByRaw("(FIELD(id, {$placeholders}) = 0), FIELD(id, {$placeholders})", array_merge($priorityIds, $priorityIds));
+    }
+
+    /** Báo cho khách đang xem lịch phòng (book.blade/product-detail) biết các ngày này vừa đổi
+     *  giá/khuyến mãi/mã giảm giá — đẩy qua Node WS (room:{roomId}:{date}, event slot.updated,
+     *  status "available") để trang khách tự fetch lại thay vì phải F5. Không throw nếu WS server
+     *  không chạy — SlotRealtimeService tự bắt lỗi + timeout ngắn (xem app/Services/
+     *  SlotRealtimeService.php), nên an toàn gọi vô điều kiện sau mỗi lần lưu ở đây. */
+    private function broadcastDatesChanged(string $roomId, array $dates): void
+    {
+        $dates = array_values(array_unique(array_filter($dates)));
+
+        if (empty($dates)) {
+            return;
+        }
+
+        app(SlotRealtimeService::class)->broadcastBlockedRange($roomId, $dates, [], 'available');
+    }
+
+    /** Danh sách ngày (Y-m-d) từ $start đến $end (bao gồm cả 2 đầu) — dùng để báo realtime cho các
+     *  thao tác hàng loạt theo khoảng ngày (applyBulkOverride, removeBulkPromotion...). */
+    private function dateRange(\Carbon\Carbon $start, \Carbon\Carbon $end): array
+    {
+        $dates = [];
+        for ($day = $start->copy(); $day->lte($end); $day->addDay()) {
+            $dates[] = $day->format('Y-m-d');
+        }
+
+        return $dates;
+    }
+
     public function mount(): void
     {
-        $rooms = $this->scopedProductQuery()
+        $this->branchId = request()->query('branch_id') ?: null;
+        $this->page     = max(1, (int) request()->query('page', 1));
+
+        $this->fillFormData();
+    }
+
+    /** Build lại $formData cho đúng trang/chi nhánh hiện tại ($this->page/$this->branchId) — dùng
+     *  bởi mount() (tải trang lần đầu) LẪN các action bulk-edit bên dưới (trước đây tự gọi lại
+     *  $this->mount(), nhưng mount() giờ đọc query string nên không được gọi lại giữa request). */
+    private function fillFormData(): void
+    {
+        $rooms = Product::whereIn('id', $this->currentRoomIds())
             ->with('roomTimeSlots.timeslot', 'roomTimeSlots.promotions', 'roomTimeSlots.coupons')
+            ->orderBy('name')
             ->get();
 
         $formData = [];
@@ -166,7 +360,7 @@ class SettingBook extends Page implements HasForms
 
     public function form(Form $form): Form
     {
-        $rooms = $this->scopedProductQuery()->get();
+        $rooms = Product::whereIn('id', $this->currentRoomIds())->orderBy('name')->get();
 
         $buildSlotRoomTab = function ($product) {
             return Tabs\Tab::make($product->name)
@@ -526,10 +720,13 @@ class SettingBook extends Page implements HasForms
                             $s->delete();
                         }
 
+                        $changedDates = [];
+
                         foreach ($roomData['dateTimeSlots'] as $slot) {
                             if (empty($slot['date'])) continue;
 
                             $dateLabel = \Carbon\Carbon::parse($slot['date'])->format('Y-m-d');
+                            $changedDates[] = $dateLabel;
                             $timeSlot  = TimeSlot::firstOrCreate(
                                 ['label' => $dateLabel, 'type' => 'date'],
                                 ['start_time' => null, 'end_time' => null]
@@ -563,6 +760,8 @@ class SettingBook extends Page implements HasForms
                                 $dateSlotModel->coupons()->sync(array_map('intval', $slot['coupons'] ?? []));
                             }
                         }
+
+                        $this->broadcastDatesChanged($productId, $changedDates);
                     }
 
                     // Style=1: lưu roomTimeSlots (timeslot_id NOT NULL)
@@ -667,8 +866,10 @@ class SettingBook extends Page implements HasForms
             $count++;
         }
 
+        $this->broadcastDatesChanged($roomId, $this->dateRange($start, $end));
+
         // Reload form state để calendar cập nhật ngay
-        $this->mount();
+        $this->fillFormData();
 
         Notification::make()
             ->title("Đã áp dụng giá cho {$count} ngày")
@@ -714,7 +915,9 @@ class SettingBook extends Page implements HasForms
         $slotModel->promotions()->sync($allPromoIds);
         $slotModel->coupons()->sync(array_map('intval', $couponIds));
 
-        $this->mount();
+        $this->broadcastDatesChanged($roomId, [$dateLabel]);
+
+        $this->fillFormData();
 
         Notification::make()
             ->title('Đã lưu ' . \Carbon\Carbon::parse($date)->format('d/m/Y'))
@@ -764,7 +967,9 @@ class SettingBook extends Page implements HasForms
             $count++;
         }
 
-        $this->mount();
+        $this->broadcastDatesChanged($roomId, $this->dateRange($start, $end));
+
+        $this->fillFormData();
 
         Notification::make()
             ->title("Đã áp dụng khuyến mãi cho {$count} ngày")
@@ -818,7 +1023,9 @@ class SettingBook extends Page implements HasForms
             $count++;
         }
 
-        $this->mount();
+        $this->broadcastDatesChanged($roomId, $this->dateRange($start, $end));
+
+        $this->fillFormData();
 
         Notification::make()
             ->title("Đã gỡ ghi đè cho {$count} ngày")
@@ -847,7 +1054,9 @@ class SettingBook extends Page implements HasForms
             }
         }
 
-        $this->mount();
+        $this->broadcastDatesChanged($roomId, [$dateLabel]);
+
+        $this->fillFormData();
 
         Notification::make()
             ->title('Đã xóa ghi đè ' . \Carbon\Carbon::parse($date)->format('d/m/Y'))
@@ -893,7 +1102,9 @@ class SettingBook extends Page implements HasForms
             $count++;
         }
 
-        $this->mount();
+        $this->broadcastDatesChanged($roomId, $this->dateRange($start, $end));
+
+        $this->fillFormData();
 
         Notification::make()
             ->title("Đã gỡ khuyến mãi cho {$count} ngày")
@@ -940,7 +1151,9 @@ class SettingBook extends Page implements HasForms
             $count++;
         }
 
-        $this->mount();
+        $this->broadcastDatesChanged($roomId, $this->dateRange($start, $end));
+
+        $this->fillFormData();
 
         Notification::make()
             ->title("Đã gỡ mã giảm giá cho {$count} ngày")
@@ -970,7 +1183,9 @@ class SettingBook extends Page implements HasForms
             }
         }
 
-        $this->mount();
+        $this->broadcastDatesChanged($roomId, [$dateLabel]);
+
+        $this->fillFormData();
 
         Notification::make()
             ->title('Đã gỡ khuyến mãi ngày ' . \Carbon\Carbon::parse($date)->format('d/m/Y'))
@@ -998,7 +1213,9 @@ class SettingBook extends Page implements HasForms
             }
         }
 
-        $this->mount();
+        $this->broadcastDatesChanged($roomId, [$dateLabel]);
+
+        $this->fillFormData();
 
         Notification::make()
             ->title('Đã gỡ mã giảm giá ngày ' . \Carbon\Carbon::parse($date)->format('d/m/Y'))
@@ -1009,17 +1226,21 @@ class SettingBook extends Page implements HasForms
      * Xóa tất cả ngày đặc biệt của phòng.
      */
     public function deleteAllDates(string $roomId): void    {
-        $slots = RoomTimeSlot::with('promotions')
+        $slots = RoomTimeSlot::with(['promotions', 'timeslot'])
             ->where('room_id', $roomId)
             ->whereHas('timeslot', fn($q) => $q->where('type', 'date'))
             ->get();
+
+        $deletedDates = $slots->pluck('timeslot.label')->filter()->all();
 
         foreach ($slots as $slot) {
             $slot->promotions()->detach();
             $slot->delete();
         }
 
-        $this->mount();
+        $this->broadcastDatesChanged($roomId, $deletedDates);
+
+        $this->fillFormData();
 
         Notification::make()
             ->title('Đã xóa tất cả ngày đặc biệt')
@@ -1075,7 +1296,9 @@ class SettingBook extends Page implements HasForms
             $count++;
         }
 
-        $this->mount();
+        $this->broadcastDatesChanged($roomId, $this->dateRange($start, $end));
+
+        $this->fillFormData();
 
         Notification::make()
             ->title("Đã áp mã giảm giá cho {$count} ngày")

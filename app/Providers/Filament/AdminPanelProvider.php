@@ -82,9 +82,7 @@ class AdminPanelProvider extends PanelProvider
             ->navigationGroups([
                 'Quản lý',
                 'Cấu hình web',
-                'Biểu mẫu',
                 'Phân quyền',
-                'Cấu hình thông tin',
             ])
             ->pages([
                 \Modules\Dashboard\App\Filament\Pages\Dashboard::class,

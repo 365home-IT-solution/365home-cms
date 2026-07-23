@@ -275,7 +275,7 @@ class ManageMail extends SettingsPage
 
     public static function getNavigationGroup(): ?string
     {
-        return __("Cấu hình web");
+        return 'Cấu hình web';
     }
 
     public static function getNavigationLabel(): string

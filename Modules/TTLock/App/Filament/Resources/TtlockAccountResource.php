@@ -31,6 +31,13 @@ class TtlockAccountResource extends Resource
     protected static ?string $pluralModelLabel = 'Tài khoản TTLock';
     protected static ?int    $navigationSort  = 90;
 
+    // Trùng với app/Filament/Resources/TtlockAccountResource.php (nhóm "Cấu hình web") — ẩn khỏi
+    // menu để đỡ rối, giữ nguyên code/route phòng khi cần dùng lại hoặc đối chiếu dữ liệu.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public static function canViewAny(): bool
     {
         $user = auth()->user();

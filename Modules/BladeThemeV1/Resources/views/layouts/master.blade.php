@@ -62,6 +62,12 @@
          khung giờ (trang chủ, trang chi nhánh, trang chi tiết phòng...), dùng build Vite CHÍNH
          (public/build), khác với build-bladethemev1 ở dòng trên — 2 pipeline độc lập, không xung đột. --}}
     @vite(['resources/js/echo-client.js'])
+    {{-- Real-time "khung giờ vừa đổi giá/khuyến mãi" (xem App\Services\SlotRealtimeService) — dùng
+         Node WS service riêng (websocket/server.js), KHÁC kênh Reverb ở echo-client.js phía trên.
+         window.__WS_PUBLIC_URL để trống (route "services.websocket.public_url" chưa cấu hình) thì
+         ws-client.js tự bỏ qua, không lỗi gì. --}}
+    <script>window.__WS_PUBLIC_URL = @js(config('services.websocket.public_url'));</script>
+    @vite(['resources/js/ws-client.js'])
     <link rel="shortcut icon" href="{{ asset('/storage/' . $favicon) }}" type="image/x-icon">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>

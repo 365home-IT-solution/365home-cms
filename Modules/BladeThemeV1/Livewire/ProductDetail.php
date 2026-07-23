@@ -49,6 +49,23 @@ class ProductDetail extends Component
     #[\Livewire\Attributes\On('timeslotHoldsChanged')]
     public function onTimeslotHoldsChanged(): void {}
 
+    // resources/js/ws-client.js nghe kênh Node WS "room:{roomId}:{date}" (event slot.updated) rồi
+    // tự gọi Livewire.dispatch('roomAvailabilityChanged') mỗi khi admin đổi giá/khung giờ/khuyến
+    // mãi ở SettingBook (xem SlotRealtimeService::broadcastBlockedRange). KHÁC với
+    // onTimeslotHoldsChanged() ở trên — hold-status đọc live ngay trong blade nên chỉ cần re-render,
+    // còn giá/khung giờ đã nạp 1 lần vào $roomTimeSlots/$timeSlots ở mount() nên phải fetch lại
+    // thật sự, không chỉ re-render suông.
+    #[\Livewire\Attributes\On('roomAvailabilityChanged')]
+    public function onRoomAvailabilityChanged(): void
+    {
+        if (! $this->product) {
+            return;
+        }
+
+        $this->roomTimeSlots = $this->fetchRoomTimeSlots($this->product->id);
+        $this->initializeProductData();
+    }
+
 const LOYALTY_DISCOUNT_ENABLED = 0;
     public bool $fromBookingPage = false;
     public $originalTotalAmount = 0;

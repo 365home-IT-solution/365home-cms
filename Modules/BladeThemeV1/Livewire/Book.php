@@ -64,6 +64,21 @@ class Book extends Component
     #[On('timeslotHoldsChanged')]
     public function onTimeslotHoldsChanged(): void {}
 
+    // resources/js/ws-client.js nghe kênh Node WS "room:{roomId}:{date}" (event slot.updated) rồi
+    // tự gọi Livewire.dispatch('roomAvailabilityChanged') mỗi khi admin đổi giá/khung giờ/khuyến
+    // mãi ở SettingBook (xem SlotRealtimeService::broadcastBlockedRange). KHÁC với
+    // onTimeslotHoldsChanged() ở trên — hold-status đọc live ngay trong blade con, còn dữ liệu
+    // giá/khung giờ đã cache sẵn trong $activeCategoryData nên phải load lại thật sự.
+    #[On('roomAvailabilityChanged')]
+    public function onRoomAvailabilityChanged(): void
+    {
+        if (empty($this->activeCategoryId)) {
+            return;
+        }
+
+        $this->loadActiveCategoryData();
+    }
+
     public function mount($config, bool $showBranchHeader = false)
     {
         $this->showBranchHeader = $showBranchHeader;

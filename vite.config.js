@@ -9,6 +9,7 @@ export default defineConfig({
                 'resources/js/app.js',
                 'resources/js/echo-admin.js',
                 'resources/js/echo-client.js',
+                'resources/js/ws-client.js',
                 'resources/css/filament/admin/theme.css'
             ],
             refresh: [

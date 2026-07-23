@@ -5,13 +5,6 @@
         <h2 class="ta-title">Thống kê <em>BOOKING</em><br/><span id="ta-period-range">{{ $dateRange }}</span></h2>
     </div>
     <div class="ta-header-right">
-        <button
-            @click="$dispatch('open-block-timeslot-modal')"
-            style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;background:#fee2e2;border:1.5px solid #fca5a5;color:#dc2626;font-size:0.78rem;font-weight:600;cursor:pointer;white-space:nowrap;transition:background .15s;"
-            onmouseover="this.style.background='#fecaca'" onmouseout="this.style.background='#fee2e2'">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
-            Tô đen / Khóa lịch
-        </button>
         {{-- Tab khoảng thời gian phục vụ lọc KPI/doanh thu — hiện với mọi tài khoản được cấp
              quyền page_Dashboard (xem ghi chú ở dashboard.blade.php). --}}
         <div class="ta-tabs">

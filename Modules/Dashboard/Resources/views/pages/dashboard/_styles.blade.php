@@ -780,12 +780,6 @@
         color: #B91C1C;
     }
 
-    .ta-rc-branch {
-        font-size: 10px;
-        color: var(--ta-ink-mute);
-        margin-top: 2px;
-    }
-
     .ta-rc-count {
         font-size: 11px;
         font-weight: 700;

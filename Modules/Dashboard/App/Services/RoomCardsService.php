@@ -46,8 +46,13 @@ class RoomCardsService
             // Product đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds chỉ thu hẹp thêm.
             $allowedCategoryIds = $user->allowedCategoryIds() ?? [];
             if (! empty($allowedCategoryIds)) {
-                $productQuery->whereHas('categories', function ($q) use ($allowedCategoryIds) {
-                    $q->whereIn('categories.id', $allowedCategoryIds);
+                // Phòng KHÔNG gán chi nhánh nào (categories rỗng) không thuộc về bất kỳ ai —
+                // luôn hiện (nhóm "Chưa phân loại") để không bị "biến mất" khỏi mọi tài khoản bị
+                // giới hạn theo chi nhánh, thay vì âm thầm bị whereHas() loại bỏ hoàn toàn.
+                $productQuery->where(function ($q) use ($allowedCategoryIds) {
+                    $q->whereHas('categories', function ($q2) use ($allowedCategoryIds) {
+                        $q2->whereIn('categories.id', $allowedCategoryIds);
+                    })->orWhereDoesntHave('categories');
                 });
             }
         }
