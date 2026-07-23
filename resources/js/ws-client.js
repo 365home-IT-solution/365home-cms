@@ -16,6 +16,19 @@
         return;
     }
 
+    // Socket.IO client hiểu phần path của URI đầu tiên là NAMESPACE, không phải tiền tố đường dẫn
+    // proxy (VD WS_PUBLIC_URL="https://domain.com/ws" — nếu gọi io(WS_URL) thẳng, nó sẽ kết nối
+    // namespace "/ws" nhưng vẫn bắn request tới https://domain.com/socket.io/... ở GỐC domain,
+    // không qua path "/ws" mà nginx đang proxy tới Node service → không bao giờ tới nơi). Phải tách
+    // riêng origin + truyền path tường minh để khớp đúng route nginx đang proxy.
+    let wsOrigin = WS_URL;
+    let wsPath = '/socket.io/';
+    try {
+        const parsed = new URL(WS_URL);
+        wsOrigin = parsed.origin;
+        wsPath = (parsed.pathname.replace(/\/$/, '') || '') + '/socket.io/';
+    } catch (e) {}
+
     let socket = null;
     let dispatchTimer = null;
     let scanTimer = null;
@@ -37,7 +50,7 @@
             return socket;
         }
 
-        socket = window.io(WS_URL, { transports: ['websocket', 'polling'] });
+        socket = window.io(wsOrigin, { path: wsPath, transports: ['websocket', 'polling'] });
         socket.on('slot.updated', scheduleDispatch);
         socket.on('daily.booked', scheduleDispatch);
         socket.on('daily.blocked', scheduleDispatch);
