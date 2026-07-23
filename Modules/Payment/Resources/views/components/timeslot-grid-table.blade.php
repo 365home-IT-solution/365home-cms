@@ -48,8 +48,9 @@
                                         $cellKey = $slot['id'] . '|' . $date;
                                         $isSelected = in_array($cellKey, $selectedKeys, true);
                                         // Ô đang chọn luôn bấm được (để bỏ chọn/đổi sang ô khác), kể cả khi
-                                        // trạng thái tính toán là "past" (giờ hiện tại đã trôi qua giờ bắt
-                                        // đầu — vẫn là lượt admin đã đặt cho đơn này, không phải lỗi).
+                                        // trạng thái tính toán là "past" (giờ hiện tại đã trôi qua giờ KẾT
+                                        // THÚC của khung — xem OrderForm::getTimeslotGridData() — vẫn là
+                                        // lượt admin đã đặt cho đơn này, không phải lỗi).
                                         $isClickable = $cell['status'] === 'available' || $isSelected;
 
                                         // Khung giờ đang khuyến mãi (còn trống, chưa chọn) → nổi bật bằng

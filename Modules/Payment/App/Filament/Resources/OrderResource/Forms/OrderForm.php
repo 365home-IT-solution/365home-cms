@@ -2250,7 +2250,10 @@ class OrderForm
             foreach ($slots as $slot) {
                 [$start, $end] = self::computeSlotDatetimes($slot, $date);
 
-                $isPast = $start->isPast();
+                // Chỉ đánh dấu "Qua giờ" khi khung giờ đã KẾT THÚC hẳn — khung đang diễn ra (đã
+                // qua giờ bắt đầu nhưng chưa tới giờ kết thúc) vẫn phải hiện đúng trạng thái thật
+                // (còn trống/đã đặt/đang giữ chỗ), không bị gắn nhầm "Qua giờ" ngay khi vừa bắt đầu.
+                $isPast = $end->isPast();
 
                 $status  = 'available';
                 $heldBy  = null;
