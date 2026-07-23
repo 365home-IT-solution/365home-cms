@@ -18,6 +18,7 @@ use App\Services\ExtraChargeService;
 use Modules\AuditLog\Services\AuditLogger;
 use Modules\Payment\App\Filament\Resources\OrderResource\Concerns\HasTimeslotGridSelection;
 use Modules\Payment\App\Filament\Resources\OrderResource\Forms\OrderForm;
+use Modules\Payment\Entities\OrderGuestCccd;
 
 class EditOrder extends EditRecord
 {
@@ -68,6 +69,17 @@ class EditOrder extends EditRecord
     {
         $data['orderItems'] = OrderForm::buildOrderItemsFormState($this->record);
 
+        // Nạp lại khách đi cùng đã lưu (order_guest_cccds, guest_index=2,3,4...) vào Repeater
+        // 'guest_cccds' — field ảo, không map cột nào nên phải tự đổ lại giống orderItems ở trên.
+        $data['guest_cccds'] = $this->record->guestCccds
+            ->sortBy('guest_index')
+            ->values()
+            ->map(fn ($guest) => [
+                'cccd_front' => $guest->cccd_front,
+                'cccd_back'  => $guest->cccd_back,
+            ])
+            ->all();
+
         // 'booking_partner_id' là field ẢO (dehydrated(false), chỉ dùng để LỌC "Chi nhánh" theo
         // đúng đối tác — xem OrderForm.php) nên KHÔNG có sẵn trong $data (không map cột nào). Nếu
         // không tự điền lại giá trị này ngay ở đây, field hiện rỗng khi mở sửa đơn đã tạo, khiến
@@ -86,7 +98,8 @@ class EditOrder extends EditRecord
     {
         $orderItems = $data['orderItems'] ?? [];
         $orderServices = $data['orderServices'] ?? ($this->data['orderServices'] ?? null);
-        unset($data['orderItems'], $data['orderServices']);
+        $guestCccds = $data['guest_cccds'] ?? [];
+        unset($data['orderItems'], $data['orderServices'], $data['guest_cccds']);
 
         // Đồng bộ lại partner_id nếu admin đổi "Chi nhánh" khi sửa đơn — category LUÔN xác định
         // đúng đối tác sở hữu, giống hệt lý do áp dụng ở CreateOrder::mutateFormDataBeforeCreate().
@@ -120,6 +133,33 @@ class EditOrder extends EditRecord
             }
         }
         $record->update($data);
+
+        // Khách đi cùng (order_guest_cccds, guest_index=2,3,4...) — updateOrCreate() theo guest_index
+        // để GIỮ NGUYÊN cccd_data đã quét trước đó nếu ảnh không đổi (không xoá-tạo-lại như
+        // orderItems bên dưới, vì sẽ buộc quét OCR lại mỗi lần sửa đơn dù ảnh không đổi gì). Xoá
+        // đúng các guest_index không còn trong form nữa (admin giảm số khách/xoá dòng).
+        $keepGuestIndexes = [];
+        foreach (array_values(is_array($guestCccds) ? $guestCccds : []) as $i => $guest) {
+            $guestIndex = $i + 2;
+            $keepGuestIndexes[] = $guestIndex;
+            $front = $guest['cccd_front'] ?? null;
+            $back  = $guest['cccd_back'] ?? null;
+
+            if (! $front && ! $back) {
+                continue;
+            }
+
+            OrderGuestCccd::updateOrCreate(
+                ['order_id' => $record->id, 'guest_index' => $guestIndex],
+                ['cccd_front' => $front, 'cccd_back' => $back]
+            );
+        }
+
+        $staleGuestCccds = OrderGuestCccd::where('order_id', $record->id)->where('guest_index', '>=', 2);
+        if (! empty($keepGuestIndexes)) {
+            $staleGuestCccds->whereNotIn('guest_index', $keepGuestIndexes);
+        }
+        $staleGuestCccds->delete();
 
         $expandedItems = OrderForm::expandOrderItemsForPersistence(is_array($orderItems) ? $orderItems : []);
 
@@ -557,44 +597,55 @@ class EditOrder extends EditRecord
                         ->send();
                 }),
 
-            // Khách thứ 2 (ở qua đêm 2 người) — quét riêng vì ảnh lưu ở cccd_front_2/cccd_back_2,
-            // dùng scanPaths() thay vì scanOrder() (chỉ đọc đúng cột chính).
-            Actions\Action::make('scanCccdQr2')
-                ->label('Quét QR CCCD khách thứ 2')
+            // Khách đi cùng (order_guest_cccds, guest_index=2,3,4...) — quét riêng vì ảnh lưu ở
+            // bảng khác, dùng scanPaths() thay vì scanOrder() (chỉ đọc đúng cột chính trên orders).
+            // Quét TẤT CẢ khách đi cùng đang có ảnh, không riêng 1 người như trước.
+            Actions\Action::make('scanCccdQrGuests')
+                ->label('Quét QR CCCD khách đi cùng')
                 ->icon('heroicon-m-qr-code')
                 ->color('gray')
-                ->visible(fn () => (bool) ($this->record->cccd_front_2 || $this->record->cccd_back_2))
+                ->visible(fn () => $this->record->guestCccds()->where(fn ($q) => $q->whereNotNull('cccd_front')->orWhereNotNull('cccd_back'))->exists())
                 ->action(function () {
                     $record = $this->record->fresh();
-                    $data   = app(CccdScannerService::class)->scanPaths($record->cccd_front_2, $record->cccd_back_2);
+                    $notes  = [];
 
-                    if (! $data) {
+                    foreach ($record->guestCccds as $guest) {
+                        if (! $guest->cccd_front && ! $guest->cccd_back) {
+                            continue;
+                        }
+
+                        $data = app(CccdScannerService::class)->scanPaths($guest->cccd_front, $guest->cccd_back);
+
+                        if (! $data) {
+                            continue;
+                        }
+
+                        $guest->update(['cccd_data' => $data]);
+
+                        $notes[] = "Khách #{$guest->guest_index}: " . implode(', ', array_filter([
+                            $data['full_name'] ?? null,
+                            $data['cccd'] ?? null,
+                        ]));
+                    }
+
+                    if (empty($notes)) {
                         Notification::make()
-                            ->title('Không đọc được QR CCCD khách thứ 2')
+                            ->title('Không đọc được QR CCCD khách đi cùng nào')
                             ->body('Ảnh quá nhỏ hoặc QR bị mờ. Vui lòng upload lại ảnh gốc chất lượng cao (không resize).')
                             ->warning()
                             ->send();
                         return;
                     }
 
-                    $note = implode("\n", array_filter([
-                        $data['cccd']        ? "Số CCCD:   {$data['cccd']}"        : null,
-                        $data['full_name']   ? "Họ và tên: {$data['full_name']}"   : null,
-                        $data['dob']         ? "Ngày sinh: {$data['dob']}"         : null,
-                        $data['gender']      ? "Giới tính: {$data['gender']}"      : null,
-                        $data['address']     ? "Địa chỉ:   {$data['address']}"     : null,
-                    ]));
+                    $note = implode("\n", $notes);
 
-                    $record->update(['cccd_data_2' => $data]);
-
-                    // Cập nhật ngay "Khai báo lưu trú" (bản ghi guest_index=2) — không đợi admin
-                    // bấm "Lưu" cả form.
+                    // Cập nhật ngay "Khai báo lưu trú" — không đợi admin bấm "Lưu" cả form.
                     app(CccdDeclarationService::class)->upsertFromOrder($record->fresh(['items']));
 
-                    $this->refreshFormData(['cccd_data_2']);
+                    $this->refreshFormData(['guest_cccds']);
 
                     Notification::make()
-                        ->title('Quét CCCD khách thứ 2 thành công')
+                        ->title('Quét CCCD khách đi cùng thành công')
                         ->body($note)
                         ->success()
                         ->send();
@@ -955,25 +1006,29 @@ class EditOrder extends EditRecord
         // (xem TimeslotHoldService) không cần giữ nữa, trả lại ngay cho admin khác.
         app(\App\Services\TimeslotHoldService::class)->releaseAllForUser(auth()->user());
 
-        // Tự động quét OCR CCCD khách thứ 2 NẾU đã có ảnh (cccd_front_2/cccd_back_2) nhưng
-        // cccd_data_2 còn trống — CreateOrder::afterCreate() đã tự làm việc này khi TẠO đơn mới,
-        // nhưng EditOrder trước đây KHÔNG có bước tương tự, chỉ có nút "Quét QR CCCD khách thứ 2"
-        // admin phải tự bấm tay riêng (dễ quên/không biết phải bấm). Hậu quả: khách đặt 1 người rồi
-        // SỬA đơn thêm khung giờ qua đêm + tăng lên 2 người + upload đủ SĐT/CCCD khách 2, nhưng
-        // "Khai báo lưu trú" khách 2 KHÔNG BAO GIỜ được tạo — vì upsertFromOrder() bên dưới chỉ tạo
-        // bản ghi khách 2 khi cccd_data_2 đã có dữ liệu (xem CccdDeclarationService::upsertFromOrder()).
-        if (blank($record->cccd_data_2) && ($record->cccd_front_2 || $record->cccd_back_2)) {
-            try {
-                $data2 = app(CccdScannerService::class)->scanPaths($record->cccd_front_2, $record->cccd_back_2);
+        // Tự động quét OCR CCCD từng khách đi cùng NẾU đã có ảnh nhưng cccd_data còn trống —
+        // CreateOrder::afterCreate() đã tự làm việc này khi TẠO đơn mới, nhưng EditOrder trước đây
+        // KHÔNG có bước tương tự, chỉ có nút "Quét QR CCCD khách thứ 2" admin phải tự bấm tay riêng
+        // (dễ quên/không biết phải bấm). Hậu quả: khách đặt 1 người rồi SỬA đơn thêm khung giờ qua
+        // đêm + tăng số khách + upload đủ CCCD khách đi cùng, nhưng "Khai báo lưu trú" của họ KHÔNG
+        // BAO GIỜ được tạo — vì upsertFromOrder() bên dưới chỉ tạo bản ghi khi cccd_data đã có dữ
+        // liệu (xem CccdDeclarationService::upsertFromOrder()).
+        foreach ($record->guestCccds as $guest) {
+            if (! blank($guest->cccd_data) || (! $guest->cccd_front && ! $guest->cccd_back)) {
+                continue;
+            }
 
-                if ($data2) {
-                    $record->update(['cccd_data_2' => $data2]);
-                    $record->refresh();
+            try {
+                $scanned = app(CccdScannerService::class)->scanPaths($guest->cccd_front, $guest->cccd_back);
+
+                if ($scanned) {
+                    $guest->update(['cccd_data' => $scanned]);
                 }
             } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::warning('afterSave: auto-scan CCCD khách 2 thất bại', [
-                    'order_id' => $record->id,
-                    'error'    => $e->getMessage(),
+                \Illuminate\Support\Facades\Log::warning('afterSave: auto-scan CCCD khách đi cùng thất bại', [
+                    'order_id'    => $record->id,
+                    'guest_index' => $guest->guest_index,
+                    'error'       => $e->getMessage(),
                 ]);
             }
         }

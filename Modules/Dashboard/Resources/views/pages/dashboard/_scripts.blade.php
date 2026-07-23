@@ -843,13 +843,6 @@ window.rcSetView = function(mode) {
 
     function rcBuildNameFlagsHtml(room) {
         var html = '<span class="ta-rc-name-text">' + rcEscHtml(room.room_name) + '</span>';
-        var cleaning = room.housekeeping_status || 'available';
-        if (cleaning !== 'available') {
-            var cleanTitle = cleaning === 'maintenance' ? 'Đang bảo trì' : 'Cần dọn vệ sinh';
-            html += '<span class="ta-rc-flag cleaning" title="' + rcEscAttr(cleanTitle) + '">' +
-                '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 3.5l5 5L9 20H4v-5L15.5 3.5z"/></svg>' +
-                '</span>';
-        }
         if (room.pending_refund) {
             var r = room.pending_refund;
             var refundTitle = 'Chờ hoàn tiền: ' + Number(r.amount || 0).toLocaleString('vi-VN') + 'đ — ' + r.buyer_name + ' (#' + r.order_code + ')';

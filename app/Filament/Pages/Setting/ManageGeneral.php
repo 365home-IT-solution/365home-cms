@@ -1019,11 +1019,12 @@ class ManageGeneral extends SettingsPage
         }
     }
 
-    // Trước đây hardcode hasRole('super_admin') — permission 'page_ManageGeneral' đã được sinh sẵn
-    // nhưng chưa từng được đọc, tick/bỏ tick ở Roles & Permissions không có tác dụng gì.
+    // Cài đặt chung (brand, màu sắc, favicon...) ảnh hưởng TOÀN hệ thống, không phải riêng 1 đối
+    // tác — hard-code CHỈ super_admin, không dựa vào permission Shield (giống PartnerResource),
+    // vì đây là cấu hình toàn nền tảng, không nên cấp lẻ qua Roles & Permissions cho từng role.
     public static function canAccess(): bool
     {
-        return \Filament\Facades\Filament::auth()->user()?->can('page_ManageGeneral') ?? false;
+        return \Filament\Facades\Filament::auth()->user()?->isSuperAdmin() ?? false;
     }
 
     public static function getNavigationGroup(): ?string

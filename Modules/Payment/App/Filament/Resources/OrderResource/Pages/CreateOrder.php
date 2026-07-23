@@ -14,6 +14,7 @@ use Modules\Payment\App\Filament\Resources\OrderResource;
 use Modules\Payment\App\Filament\Resources\OrderResource\Concerns\HasTimeslotGridSelection;
 use Modules\Payment\App\Filament\Resources\OrderResource\Forms\OrderForm;
 use Modules\Payment\App\Services\CccdScannerService;
+use Modules\Payment\Entities\OrderGuestCccd;
 use Modules\Product\App\Models\Product;
 use PayOS\PayOS;
 
@@ -166,6 +167,11 @@ class CreateOrder extends CreateRecord
         $orderItems = $data['orderItems'] ?? [];
         unset($data['orderItems']);
 
+        // guest_cccds (CCCD khách đi cùng) không phải cột thật trên orders — lưu riêng vào bảng
+        // order_guest_cccds ở afterCreate() (xem bên dưới), không để Order::create() tự bỏ qua
+        // trong im lặng rồi tưởng nhầm là đã lưu.
+        unset($data['guest_cccds']);
+
         $record = static::getModel()::create($data);
 
         $expandedItems = OrderForm::expandOrderItemsForPersistence(is_array($orderItems) ? $orderItems : []);
@@ -235,29 +241,50 @@ class CreateOrder extends CreateRecord
             }
         }
 
-        // Khách thứ 2 (ở qua đêm 2 người — xem OrderForm::requiresSecondGuestCccd()) — quét riêng
-        // vì ảnh lưu ở cccd_front_2/cccd_back_2, KHÔNG dùng scanOrder() (chỉ đọc cột chính).
-        if (blank($record->cccd_data_2) && ($record->cccd_front_2 || $record->cccd_back_2)) {
+        // Khách đi cùng (ở qua đêm >= 2 người — xem OrderForm::requiresSecondGuestCccd()) — mỗi
+        // phần tử Repeater 'guest_cccds' ứng với 1 khách, guest_index bắt đầu từ 2 (1 = khách
+        // chính). Lưu vào bảng order_guest_cccds RIÊNG (KHÔNG còn cột cccd_front_2/cccd_back_2
+        // trên chính bảng orders — đã bỏ, chỉ đủ 1 khách thêm, không scale theo guest_count), dùng
+        // CHUNG bảng với đơn khách tự đặt (ProductDetail.php) để CccdDeclarationService đọc thống
+        // nhất 1 nguồn cho cả 2 luồng tạo đơn.
+        $guestCccds = $this->data['guest_cccds'] ?? [];
+        $missingScan = false;
+
+        foreach (array_values(is_array($guestCccds) ? $guestCccds : []) as $i => $guest) {
+            $front = $guest['cccd_front'] ?? null;
+            $back  = $guest['cccd_back'] ?? null;
+
+            if (! $front && ! $back) {
+                continue;
+            }
+
             try {
-                $data2 = app(CccdScannerService::class)->scanPaths($record->cccd_front_2, $record->cccd_back_2);
+                $scanned = app(CccdScannerService::class)->scanPaths($front, $back);
             } catch (\Throwable $e) {
-                $data2 = null;
-                Log::warning('Auto-scan CCCD khách 2 khi tạo đơn thất bại', [
-                    'order_id' => $record->id,
-                    'error'    => $e->getMessage(),
+                $scanned = null;
+                Log::warning('Auto-scan CCCD khách đi cùng khi tạo đơn thất bại', [
+                    'order_id'    => $record->id,
+                    'guest_index' => $i + 2,
+                    'error'       => $e->getMessage(),
                 ]);
             }
 
-            if ($data2) {
-                $record->update(['cccd_data_2' => $data2]);
-                $record->refresh();
-            } else {
-                Notification::make()
-                    ->title('Đơn đã tạo — còn thiếu thông tin CCCD khách thứ 2')
-                    ->body('Không tự động đọc được QR/OCR từ ảnh CCCD khách 2. Vào trang Sửa đơn này để thử lại.')
-                    ->warning()
-                    ->send();
+            OrderGuestCccd::updateOrCreate(
+                ['order_id' => $record->id, 'guest_index' => $i + 2],
+                ['cccd_front' => $front, 'cccd_back' => $back, 'cccd_data' => $scanned]
+            );
+
+            if (! $scanned) {
+                $missingScan = true;
             }
+        }
+
+        if ($missingScan) {
+            Notification::make()
+                ->title('Đơn đã tạo — còn thiếu thông tin CCCD khách đi cùng')
+                ->body('Không tự động đọc được QR/OCR từ ảnh CCCD của (các) khách đi cùng. Vào trang Sửa đơn này để thử lại.')
+                ->warning()
+                ->send();
         }
 
         // Đơn tạo qua CMS admin (vd nhân viên lên đơn hộ khách vãng lai) TRƯỚC ĐÂY không tự sinh

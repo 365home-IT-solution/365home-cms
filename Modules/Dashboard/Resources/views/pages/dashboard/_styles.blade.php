@@ -757,8 +757,8 @@
         min-width: 0;
     }
 
-    /* Icon nhỏ báo hiệu ngay trên thẻ phòng — cần dọn vệ sinh / đang chờ hoàn tiền — để nhìn lướt
-       qua "Lịch phòng" là biết ngay phòng nào cần xử lý, không phải mở menu ⋮ mới thấy. */
+    /* Icon nhỏ báo hiệu ngay trên thẻ phòng — đang chờ hoàn tiền — để nhìn lướt qua "Lịch phòng"
+       là biết ngay phòng nào cần xử lý, không phải mở menu ⋮ mới thấy. */
     .ta-rc-flag {
         flex-shrink: 0;
         width: 18px;
@@ -768,11 +768,6 @@
         align-items: center;
         justify-content: center;
         cursor: default;
-    }
-
-    .ta-rc-flag.cleaning {
-        background: #FEF3C7;
-        color: #92400E;
     }
 
     .ta-rc-flag.refund {

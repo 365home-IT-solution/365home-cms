@@ -9,6 +9,7 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables\Table;
 use Modules\SettingCompany\Entities\Branch as EntitiesBranch;
+use Illuminate\Database\Eloquent\Model;
 
 class BranchResource extends Resource
 {
@@ -65,5 +66,40 @@ class BranchResource extends Resource
             'create' => Pages\CreateBranch::route('/create'),
             'edit' => Pages\EditBranch::route('/{record}/edit'),
         ];
+    }
+
+    // Chi nhánh (văn phòng công ty, hiển thị ở footer...) là dữ liệu TOÀN NỀN TẢNG, không gắn
+    // với riêng đối tác nào (Branch/Business không có partner_id) — hard-code CHỈ super_admin,
+    // giống PartnerResource, không dựa vào permission Shield (đối tác trước đây vẫn vào được nhờ
+    // permission Shield lỡ cấp, bấm Lưu thì lỗi vì nghiệp vụ này chưa từng tính tới tài khoản đối
+    // tác — ẩn hẳn khỏi họ thay vì cố sửa form cho đúng ngữ cảnh không áp dụng).
+    private static function isSuperAdmin(): bool
+    {
+        return auth()->user()?->isSuperAdmin() ?? false;
+    }
+
+    public static function canViewAny(): bool
+    {
+        return self::isSuperAdmin();
+    }
+
+    public static function canCreate(): bool
+    {
+        return self::isSuperAdmin();
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        return self::isSuperAdmin();
+    }
+
+    public static function canView(Model $record): bool
+    {
+        return self::isSuperAdmin();
+    }
+
+    public static function canDelete(Model $record): bool
+    {
+        return self::isSuperAdmin();
     }
 }

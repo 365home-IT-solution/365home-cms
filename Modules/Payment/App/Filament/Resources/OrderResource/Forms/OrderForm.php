@@ -938,31 +938,62 @@ class OrderForm
                                                                             . $icon . ' Tải mặt sau</a>';
                                                                     }
 
-                                                                    if ($record->cccd_front_2) {
-                                                                        $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($record->cccd_front_2);
-                                                                        $name = 'CCCD_nguoidicung_mat_truoc_' . ($record->order_code ?? $record->id) . '.jpg';
-                                                                        $html .= '<a href="' . e($url) . '" download="' . e($name) . '" target="_blank"'
-                                                                            . ' style="' . $btnStyle('#fefce8', '#fde68a', '#a16207') . '"'
-                                                                            . ' onmouseenter="this.style.background=\'#fef9c3\'"'
-                                                                            . ' onmouseleave="this.style.background=\'#fefce8\'">'
-                                                                            . $icon . ' Tải mặt trước (người đi cùng)</a>';
+                                                                    // Khách đi cùng — lưu ở bảng order_guest_cccds (guest_index=2,3,4...),
+                                                                    // KHÔNG còn ở cột cccd_front_2/cccd_back_2 trên chính bảng orders nữa.
+                                                                    foreach ($record->guestCccds as $guest) {
+                                                                        if ($guest->cccd_front) {
+                                                                            $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($guest->cccd_front);
+                                                                            $name = 'CCCD_khach' . $guest->guest_index . '_mat_truoc_' . ($record->order_code ?? $record->id) . '.jpg';
+                                                                            $html .= '<a href="' . e($url) . '" download="' . e($name) . '" target="_blank"'
+                                                                                . ' style="' . $btnStyle('#fefce8', '#fde68a', '#a16207') . '"'
+                                                                                . ' onmouseenter="this.style.background=\'#fef9c3\'"'
+                                                                                . ' onmouseleave="this.style.background=\'#fefce8\'">'
+                                                                                . $icon . ' Tải mặt trước (khách #' . $guest->guest_index . ')</a>';
+                                                                        }
+
+                                                                        if ($guest->cccd_back) {
+                                                                            $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($guest->cccd_back);
+                                                                            $name = 'CCCD_khach' . $guest->guest_index . '_mat_sau_' . ($record->order_code ?? $record->id) . '.jpg';
+                                                                            $html .= '<a href="' . e($url) . '" download="' . e($name) . '" target="_blank"'
+                                                                                . ' style="' . $btnStyle('#fefce8', '#fde68a', '#a16207') . '"'
+                                                                                . ' onmouseenter="this.style.background=\'#fef9c3\'"'
+                                                                                . ' onmouseleave="this.style.background=\'#fefce8\'">'
+                                                                                . $icon . ' Tải mặt sau (khách #' . $guest->guest_index . ')</a>';
+                                                                        }
                                                                     }
 
-                                                                    if ($record->cccd_back_2) {
-                                                                        $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($record->cccd_back_2);
-                                                                        $name = 'CCCD_nguoidicung_mat_sau_' . ($record->order_code ?? $record->id) . '.jpg';
-                                                                        $html .= '<a href="' . e($url) . '" download="' . e($name) . '" target="_blank"'
-                                                                            . ' style="' . $btnStyle('#fefce8', '#fde68a', '#a16207') . '"'
-                                                                            . ' onmouseenter="this.style.background=\'#fef9c3\'"'
-                                                                            . ' onmouseleave="this.style.background=\'#fefce8\'">'
-                                                                            . $icon . ' Tải mặt sau (người đi cùng)</a>';
+                                                                    // Tương thích ngược: đơn TẠO TRƯỚC khi chuyển sang bảng
+                                                                    // order_guest_cccds vẫn còn ảnh khách thứ 2 ở cột cccd_front_2/
+                                                                    // cccd_back_2 cũ (không có bản ghi guestCccds nào) — vẫn hiện link
+                                                                    // tải, không để mất quyền xem lại ảnh cũ.
+                                                                    if ($record->guestCccds->isEmpty()) {
+                                                                        if ($record->cccd_front_2) {
+                                                                            $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($record->cccd_front_2);
+                                                                            $name = 'CCCD_nguoidicung_mat_truoc_' . ($record->order_code ?? $record->id) . '.jpg';
+                                                                            $html .= '<a href="' . e($url) . '" download="' . e($name) . '" target="_blank"'
+                                                                                . ' style="' . $btnStyle('#fefce8', '#fde68a', '#a16207') . '"'
+                                                                                . ' onmouseenter="this.style.background=\'#fef9c3\'"'
+                                                                                . ' onmouseleave="this.style.background=\'#fefce8\'">'
+                                                                                . $icon . ' Tải mặt trước (người đi cùng)</a>';
+                                                                        }
+
+                                                                        if ($record->cccd_back_2) {
+                                                                            $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($record->cccd_back_2);
+                                                                            $name = 'CCCD_nguoidicung_mat_sau_' . ($record->order_code ?? $record->id) . '.jpg';
+                                                                            $html .= '<a href="' . e($url) . '" download="' . e($name) . '" target="_blank"'
+                                                                                . ' style="' . $btnStyle('#fefce8', '#fde68a', '#a16207') . '"'
+                                                                                . ' onmouseenter="this.style.background=\'#fef9c3\'"'
+                                                                                . ' onmouseleave="this.style.background=\'#fefce8\'">'
+                                                                                . $icon . ' Tải mặt sau (người đi cùng)</a>';
+                                                                        }
                                                                     }
 
                                                                     $html .= '</div>';
                                                                     return new \Illuminate\Support\HtmlString($html);
                                                                 })
                                                                 ->visible(fn ($record) => (auth()->user()?->isSuperAdmin() ?? false)
-                                                                    && $record && ($record->cccd_front || $record->cccd_back || $record->cccd_front_2 || $record->cccd_back_2)),
+                                                                    && $record && ($record->cccd_front || $record->cccd_back || $record->guestCccds->isNotEmpty()
+                                                                        || $record->cccd_front_2 || $record->cccd_back_2)),
 
                                                             Grid::make(2)
                                                                 ->schema([
@@ -1006,75 +1037,77 @@ class OrderForm
 
                                                     // Luật Cư trú (hiệu lực 01/07/2026) yêu cầu khai báo lưu trú ĐỦ
                                                     // TỪNG NGƯỜI khi ở qua đêm — chỉ hiện khi có khung giờ/lượt đặt
-                                                    // QUA ĐÊM và số khách = 2 (xem requiresSecondGuestCccd()).
-                                                    Section::make('CCCD/CMND khách thứ 2 (bắt buộc khi ở qua đêm 2 người)')
-                                                        ->description('Ở qua đêm 2 khách phải khai báo lưu trú đủ CẢ 2 người theo quy định — tải thêm CCCD/CMND của người thứ 2.')
+                                                    // QUA ĐÊM và số khách >= 2 (xem requiresSecondGuestCccd()). Số ô
+                                                    // khách đi cùng SCALE theo guest_count (giống hệt cơ chế
+                                                    // cccdFrontExtra/cccdBackExtra ở ProductDetail.php phía khách
+                                                    // hàng — trước đây CHỈ đủ 1 khách thêm cố định (cccd_front_2/
+                                                    // cccd_back_2 trên chính bảng orders), lưu vào bảng RIÊNG
+                                                    // order_guest_cccds (guest_index=2,3,4...) — dùng CHUNG bảng với
+                                                    // đơn khách tự đặt, xem Order::guestCccds() + CreateOrder::afterCreate()/
+                                                    // EditOrder.php + CccdDeclarationService.
+                                                    Section::make('CCCD/CMND khách đi cùng (bắt buộc khi ở qua đêm từ 2 khách trở lên)')
+                                                        ->description('Ở qua đêm phải khai báo lưu trú đủ TỪNG người theo quy định — tải thêm CCCD/CMND của mỗi khách đi cùng (không tính khách chính đã tải ở trên).')
                                                         ->icon('heroicon-m-user-plus')
                                                         ->iconColor('warning')
                                                         ->collapsible(false)
                                                         ->visible(fn (Get $get) => self::requiresSecondGuestCccd($get))
                                                         ->schema([
-                                                            // ->dehydrated() BẮT BUỘC trên cả 3 field khách thứ 2 — Section cha
-                                                            // ->visible(requiresSecondGuestCccd()) và Filament MẶC ĐỊNH KHÔNG
-                                                            // dehydrate field nằm trong component đang ẨN. requiresSecondGuestCccd()
-                                                            // phụ thuộc 'orderItems' (số khách/khung giờ qua đêm) — nếu điều kiện
-                                                            // này bị đánh giá lại là false dù chỉ trong 1 khoảnh khắc lúc submit
-                                                            // (timing/reactive Livewire), TOÀN BỘ dữ liệu khách 2 (SĐT + 2 ảnh
-                                                            // CCCD) đã nhập sẽ bị lặng lẽ KHÔNG LƯU (đã xác minh thực tế: DB chưa
-                                                            // từng có dòng cccd_declarations.guest_index=2 hay order nào có
-                                                            // cccd_front_2, dù admin đã nhập). Ép dehydrate luôn để không phụ
-                                                            // thuộc thời điểm đánh giá visible().
-                                                            TextInput::make('buyer_phone_2')
-                                                                ->label('Số điện thoại khách thứ 2')
-                                                                ->placeholder('VD: 0912345678')
-                                                                ->tel()
-                                                                ->regex('/^[0-9]{10,11}$/')
-                                                                ->hintIcon('heroicon-m-phone')
-                                                                ->hintColor('warning')
+                                                            // ->dehydrated() BẮT BUỘC — Section cha ->visible(requiresSecondGuestCccd())
+                                                            // và Filament MẶC ĐỊNH KHÔNG dehydrate field nằm trong component
+                                                            // đang ẨN. requiresSecondGuestCccd() phụ thuộc 'orderItems' (số
+                                                            // khách/khung giờ qua đêm) — nếu điều kiện này bị đánh giá lại là
+                                                            // false dù chỉ trong 1 khoảnh khắc lúc submit (timing/reactive
+                                                            // Livewire), TOÀN BỘ dữ liệu khách đi cùng đã nhập sẽ bị lặng lẽ
+                                                            // KHÔNG LƯU (đã từng xác minh thực tế với field cũ). Ép dehydrate
+                                                            // luôn để không phụ thuộc thời điểm đánh giá visible().
+                                                            Repeater::make('guest_cccds')
+                                                                ->label('')
+                                                                ->addActionLabel('Thêm khách đi cùng')
+                                                                ->reorderable(false)
+                                                                ->maxItems(fn (Get $get) => max(0, self::maxGuestCountAcrossItems($get) - 1))
                                                                 ->dehydrated()
-                                                                ->validationMessages([
-                                                                    'regex' => 'Số điện thoại không đúng định dạng (10-11 số)',
-                                                                ]),
-
-                                                            Grid::make(2)
+                                                                ->columnSpanFull()
                                                                 ->schema([
-                                                                    FileUpload::make('cccd_front_2')
-                                                                        ->label('CCCD/CMND khách 2 - mặt trước')
-                                                                        ->helperText('Tối đa 10MB, ảnh gốc không crop/resize.')
-                                                                        ->image()
-                                                                        ->directory('cccd')
-                                                                        ->imagePreviewHeight('100')
-                                                                        ->loadingIndicatorPosition('center')
-                                                                        ->panelAspectRatio('16:10')
-                                                                        ->panelLayout('integrated')
-                                                                        ->removeUploadedFileButtonPosition('top-right')
-                                                                        ->uploadButtonPosition('center')
-                                                                        ->uploadProgressIndicatorPosition('center')
-                                                                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
-                                                                        ->maxSize(10240)
-                                                                        ->downloadable()
-                                                                        ->openable()
-                                                                        ->dehydrated()
-                                                                        ->nullable(),
+                                                                    Grid::make(2)
+                                                                        ->schema([
+                                                                            FileUpload::make('cccd_front')
+                                                                                ->label('CCCD/CMND - mặt trước')
+                                                                                ->helperText('Tối đa 10MB, ảnh gốc không crop/resize.')
+                                                                                ->image()
+                                                                                ->directory('cccd')
+                                                                                ->imagePreviewHeight('100')
+                                                                                ->loadingIndicatorPosition('center')
+                                                                                ->panelAspectRatio('16:10')
+                                                                                ->panelLayout('integrated')
+                                                                                ->removeUploadedFileButtonPosition('top-right')
+                                                                                ->uploadButtonPosition('center')
+                                                                                ->uploadProgressIndicatorPosition('center')
+                                                                                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                                                                ->maxSize(10240)
+                                                                                ->downloadable()
+                                                                                ->openable()
+                                                                                ->dehydrated()
+                                                                                ->nullable(),
 
-                                                                    FileUpload::make('cccd_back_2')
-                                                                        ->label('CCCD/CMND khách 2 - mặt sau')
-                                                                        ->helperText('Tối đa 10MB, ảnh gốc không crop/resize.')
-                                                                        ->image()
-                                                                        ->directory('cccd')
-                                                                        ->imagePreviewHeight('100')
-                                                                        ->loadingIndicatorPosition('center')
-                                                                        ->panelAspectRatio('16:10')
-                                                                        ->panelLayout('integrated')
-                                                                        ->removeUploadedFileButtonPosition('top-right')
-                                                                        ->uploadButtonPosition('center')
-                                                                        ->uploadProgressIndicatorPosition('center')
-                                                                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
-                                                                        ->maxSize(10240)
-                                                                        ->downloadable()
-                                                                        ->openable()
-                                                                        ->dehydrated()
-                                                                        ->nullable(),
+                                                                            FileUpload::make('cccd_back')
+                                                                                ->label('CCCD/CMND - mặt sau')
+                                                                                ->helperText('Tối đa 10MB, ảnh gốc không crop/resize.')
+                                                                                ->image()
+                                                                                ->directory('cccd')
+                                                                                ->imagePreviewHeight('100')
+                                                                                ->loadingIndicatorPosition('center')
+                                                                                ->panelAspectRatio('16:10')
+                                                                                ->panelLayout('integrated')
+                                                                                ->removeUploadedFileButtonPosition('top-right')
+                                                                                ->uploadButtonPosition('center')
+                                                                                ->uploadProgressIndicatorPosition('center')
+                                                                                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                                                                ->maxSize(10240)
+                                                                                ->downloadable()
+                                                                                ->openable()
+                                                                                ->dehydrated()
+                                                                                ->nullable(),
+                                                                        ]),
                                                                 ]),
                                                         ]),
                                                     Section::make('Tổng thanh toán')
@@ -1913,6 +1946,28 @@ class OrderForm
         }
 
         return false;
+    }
+
+    // Số ô CCCD "khách đi cùng" cần hiện = số khách CAO NHẤT trong các dòng đặt phòng - 1 (trừ
+    // khách chính). Khai báo lưu trú tính theo CẢ ĐƠN (cccd_declarations chỉ khoá order_id +
+    // guest_index, không tách theo từng phòng), nên dùng giá trị cao nhất giữa các dòng thay vì
+    // cộng dồn — 1 đơn thường chỉ có 1 lượt lưu trú thực tế dù có thể tách nhiều dòng/khung giờ.
+    private static function maxGuestCountAcrossItems(Get $get): int
+    {
+        $items = $get('orderItems');
+        if (! is_array($items)) {
+            return 1;
+        }
+
+        $max = 1;
+        foreach ($items as $item) {
+            $count = (int) ($item['guest_count'] ?? 1);
+            if ($count > $max) {
+                $max = $count;
+            }
+        }
+
+        return $max;
     }
 
     // $record ở đây LUÔN là bản ghi ĐÃ LƯU trong DB (không phải state form đang sửa dở) — badge

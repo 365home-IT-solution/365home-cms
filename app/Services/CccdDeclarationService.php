@@ -21,10 +21,26 @@ class CccdDeclarationService
         // Khách chính (người đặt phòng) — luôn khai báo (guest_index=1).
         $this->upsertGuest($order, 1, is_array($order->cccd_data) ? $order->cccd_data : [], $order->buyer_phone);
 
-        // Khách thứ 2 — chỉ khai báo khi đã có dữ liệu CCCD quét được (đơn qua đêm 2 khách, xem
-        // OrderForm.php phần "CCCD khách thứ 2"). Luật Cư trú yêu cầu khai báo ĐỦ TỪNG NGƯỜI lưu
-        // trú qua đêm, không chỉ người đứng tên đặt phòng.
-        if (! blank($order->cccd_data_2)) {
+        // Khách đi cùng (guest_index=2,3,4...) — lưu ở bảng RIÊNG order_guest_cccds (dùng chung
+        // cho cả đơn khách tự đặt qua ProductDetail.php LẪN đơn admin lên hộ qua OrderForm.php,
+        // xem Order::guestCccds()), KHÔNG còn ở cột cccd_data_2 cố định trên chính bảng orders
+        // (chỉ đủ 1 khách thêm, không scale theo guest_count). Chỉ khai báo khách nào ĐÃ có dữ
+        // liệu CCCD quét được — Luật Cư trú yêu cầu khai báo ĐỦ TỪNG NGƯỜI lưu trú qua đêm, không
+        // chỉ người đứng tên đặt phòng, nhưng chưa quét được thì chưa có gì để khai.
+        $guestCccds = $order->guestCccds;
+
+        foreach ($guestCccds as $guest) {
+            if (blank($guest->cccd_data)) {
+                continue;
+            }
+
+            $this->upsertGuest($order, $guest->guest_index, is_array($guest->cccd_data) ? $guest->cccd_data : [], null);
+        }
+
+        // Tương thích ngược: đơn TẠO TRƯỚC khi chuyển sang bảng order_guest_cccds vẫn còn dữ liệu
+        // khách thứ 2 ở cột cccd_data_2 cũ trên chính bảng orders (không có bản ghi guestCccds
+        // nào) — vẫn khai báo bình thường, không để mất "Khai báo lưu trú" của các đơn cũ này.
+        if ($guestCccds->isEmpty() && ! blank($order->cccd_data_2)) {
             $this->upsertGuest($order, 2, is_array($order->cccd_data_2) ? $order->cccd_data_2 : [], $order->buyer_phone_2);
         }
     }

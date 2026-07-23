@@ -20,9 +20,7 @@ class BranchForm
                     ->schema([
                         Select::make('business_id')
                             ->relationship('business', 'name')
-                            ->default(function () {
-                                return Business::first()->id;
-                            })
+                            ->default(fn () => Business::first()?->id)
                             ->label(__('settingcompany::branch.form.label.business.label'))
                             ->placeholder(__('settingcompany::branch.form.label.business.placeholder'))
                             ->required()

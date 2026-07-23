@@ -1055,12 +1055,18 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
     }
 
     /**
-     * True nếu có ít nhất 1 khung giờ đang chọn là qua đêm (room_time_slots.over_night) — dùng
-     * để quyết định có hiển thị/bắt buộc upload CCCD người đi cùng (cccdFrontExtra/cccdBackExtra)
-     * hay không.
+     * True nếu có ít nhất 1 khung giờ đang chọn là qua đêm (room_time_slots.over_night), HOẶC
+     * phòng đang đặt theo kiểu "Theo Ngày" (style=2 — nhận phòng ngày này trả ngày sau, luôn là
+     * qua đêm về bản chất dù không có cột over_night riêng như style=1) — dùng để quyết định có
+     * hiển thị/bắt buộc upload CCCD người đi cùng (cccdFrontExtra/cccdBackExtra) hay không. Đồng
+     * bộ với OrderForm.php phía admin (requiresSecondGuestCccd() coi style=2 luôn qua đêm).
      */
     public function hasOvernightSlotSelected(): bool
     {
+        if ((int) ($this->bookingStyle ?? 1) === 2) {
+            return true;
+        }
+
         return !empty($this->selectedSlots)
             && collect($this->selectedSlots)->contains(fn ($slot) => ($slot['overNight'] ?? 0) == 1);
     }
@@ -1557,6 +1563,9 @@ public function confirmBooking()
                     'checkin_date'  => $checkinDateTime,
                     'checkout_date' => $checkoutDateTime,
                     'guest_count'   => $this->guests,
+                    // Phòng theo ngày luôn qua đêm về bản chất — đồng bộ với hasOvernightSlotSelected()
+                    // ở trên, để dữ liệu order_items nhất quán với style=1 (cũng set over_night thật).
+                    'over_night'    => true,
                 ]);
             } else {
                 foreach ($this->selectedSlots as $slot) {

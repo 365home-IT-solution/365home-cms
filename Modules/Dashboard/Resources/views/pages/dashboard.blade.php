@@ -17,10 +17,6 @@
 
     @include('dashboard::pages.dashboard._header')
 
-    @include('dashboard::pages.dashboard._housekeeping')
-
-    @include('dashboard::pages.dashboard._commission')
-
     @include('dashboard::pages.dashboard._kpi')
 
     @include('dashboard::pages.dashboard._room-cards')

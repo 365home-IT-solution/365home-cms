@@ -99,7 +99,6 @@
             // Dashboard::getRoomCardsData() (dùng chung cho cả lần render Blade đầu tiên này LẪN
             // JS tự làm mới định kỳ qua /admin/api/room-cards — xem renderRoomCards() trong
             // _scripts.blade.php — để 2 nơi không lệch nhau).
-            $rcNeedsCleaning = ($room['housekeeping_status'] ?? 'available') !== 'available';
             $rcRefund        = $room['pending_refund'] ?? null;
             $rcMenuData    = [
                 'edit_url'     => $room['edit_url'],
@@ -119,11 +118,6 @@
                 <div class="ta-rc-info">
                     <div class="ta-rc-name">
                         <span class="ta-rc-name-text">{{ $room['room_name'] }}</span>
-                        @if($rcNeedsCleaning)
-                        <span class="ta-rc-flag cleaning" title="{{ $room['housekeeping_status'] === 'maintenance' ? 'Đang bảo trì' : 'Cần dọn vệ sinh' }}">
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.5 3.5l5 5L9 20H4v-5L15.5 3.5z"/></svg>
-                        </span>
-                        @endif
                         @if($rcRefund)
                         <span class="ta-rc-flag refund" title="Chờ hoàn tiền: {{ number_format($rcRefund['amount']) }}đ — {{ $rcRefund['buyer_name'] }} (#{{ $rcRefund['order_code'] }})">
                             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10h11a4 4 0 010 8h-2M3 10l4-4M3 10l4 4"/></svg>

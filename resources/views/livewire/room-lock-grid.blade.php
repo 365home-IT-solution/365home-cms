@@ -20,9 +20,6 @@
             {{-- Header --}}
             <div class="flex items-center justify-between border-b border-gray-100 px-6 py-4 dark:border-gray-800">
                 <div class="flex items-center gap-3">
-                    <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50 dark:bg-amber-950">
-                        <x-heroicon-o-lock-closed class="h-5 w-5 text-amber-600 dark:text-amber-400" />
-                    </span>
                     <div>
                         <h2 class="text-base font-semibold text-gray-900 dark:text-white">
                             Khóa tạm thời (realtime) — {{ $productName }}
