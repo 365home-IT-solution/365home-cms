@@ -27,6 +27,19 @@ services:
         networks:
             - app
 
+    reverb:
+        image: '365home/app:latest'
+        restart: unless-stopped
+        command: php artisan reverb:start --host=0.0.0.0 --port=6001
+        ports:
+            - '6001:6001'
+        env_file: .env
+        networks:
+            - app
+            - mariadb_default
+        depends_on:
+            - redis
+
 networks:
     app:
         driver: bridge
