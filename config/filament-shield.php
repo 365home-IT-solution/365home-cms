@@ -8,9 +8,20 @@ return [
         'navigation_badge' => true,
         'navigation_group' => true,
         'is_globally_searchable' => false,
-        'show_model_path' => true,
         'is_scoped_to_tenant' => true,
         'cluster' => null,
+
+        // Nhiều Resource CỐ Ý dùng chung 1 model (vd RoomHousekeepingResource và
+        // RoomAmenityAssignResource cùng dùng Modules\Product\App\Models\Product — xem 2 file đó,
+        // mỗi cái đã tự đặt $modelLabel/getModelLabel() riêng để phân biệt đúng trên trang phân
+        // quyền). Bật 'show_model_path' hiện thêm 1 dòng phụ đề = tên model ĐẦY ĐỦ NAMESPACE dưới
+        // MỖI mục — 2 mục dùng chung model sẽ hiện y hệt nhau ở dòng phụ đề này, trông như bị
+        // trùng/gộp permission dù thực ra mỗi mục vẫn có bộ quyền RIÊNG (khoá theo tên class
+        // Resource, không phải theo model — xem FilamentShield::getDefaultPermissionIdentifier()).
+        // Tắt hẳn dòng phụ đề này vì không có tác dụng thật (không phân quyền theo model), chỉ gây
+        // hiểu nhầm — tiêu đề mục (đã lấy đúng theo $modelLabel riêng từng Resource) đã đủ phân
+        // biệt rõ ràng.
+        'show_model_path' => false,
     ],
 
     'auth_provider_model' => [

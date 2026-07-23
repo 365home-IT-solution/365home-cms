@@ -125,35 +125,101 @@ class OrderForm
                                     })
                                     ->collapsible(),
 
-                                Section::make('Mã cổng')
+                                // Mã cổng + Thông tin khách hàng đặt cạnh nhau (2 cột đều nhau) — Mã
+                                // cổng chỉ hiện khi đơn đã 'paid' và phòng không dùng khóa thủ công
+                                // (xem ->visible() của chính Section đó), nên khi ẩn thì Thông tin
+                                // khách hàng tự chiếm trọn hàng (Grid không tự thêm cột trống).
+                                //
+                                // Grid::make(2) mặc định của Filament quy đổi thành ->columns(['lg' =>
+                                // 2]) — CHỈ chia 2 cột khi màn hình rộng >= 1024px, hẹp hơn thì luôn
+                                // xếp dọc 1 cột. Khai báo tay breakpoint 'sm' (>=640px) để lên 2 cột
+                                // sớm hơn, khớp yêu cầu "chia 2 thành 1 hàng có 2 cột".
+                                //
+                                // QUAN TRỌNG: Section::setUp() TỰ ĐỘNG gọi ->columnSpan('full') (xem
+                                // vendor/filament/forms/src/Components/Section.php:61) — MỌI Section
+                                // mặc định LUÔN chiếm trọn 100% Grid cha bất kể Grid mấy cột, nên PHẢI
+                                // tự ->columnSpan(1) đè lại ở cả 2 Section dưới đây, nếu không Grid dù
+                                // đã lên 2 cột vẫn hiện xếp dọc (mỗi Section tự chiếm cả hàng riêng).
+                                Grid::make(['default' => 1, 'sm' => 2])
                                     ->schema([
-                                        Placeholder::make('access_code_info')
-                                            ->label('')
-                                            ->content(function ($record) {
-                                            if (!$record) {
-                                                return 'Chưa có mã cổng';
-                                            }
+                                        Section::make('Mã cổng')
+                                            ->columnSpan(1)
+                                            ->schema([
+                                                Placeholder::make('access_code_info')
+                                                    ->label('')
+                                                    ->content(function ($record) {
+                                                    if (!$record) {
+                                                        return 'Chưa có mã cổng';
+                                                    }
 
-                                            $record->load('accessCodes');
+                                                    $record->load('accessCodes');
 
-                                            $code = $record->accessCodes->first();
-                                            if (!$code) {
-                                                return new \Illuminate\Support\HtmlString(
-                                                    '<div class="flex items-center gap-2 text-warning-600 font-medium">'
-                                                    . '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M12 3a9 9 0 100 18A9 9 0 0012 3z"/></svg>'
-                                                    . 'Chưa có mã cổng — Nhấn nút <strong>Gán mã cổng</strong> ở đầu trang để gán.'
-                                                    . '</div>'
-                                                );
-                                            }
+                                                    $code = $record->accessCodes->first();
+                                                    if (!$code) {
+                                                        return new \Illuminate\Support\HtmlString(
+                                                            '<div class="flex items-center gap-2 text-warning-600 font-medium">'
+                                                            . '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M12 3a9 9 0 100 18A9 9 0 0012 3z"/></svg>'
+                                                            . 'Chưa có mã cổng — Nhấn nút <strong>Gán mã cổng</strong> ở đầu trang để gán.'
+                                                            . '</div>'
+                                                        );
+                                                    }
 
-                                            return view('payment::components.access-code-info', [
-                                                'code' => $code,
-                                                'order' => $record,
-                                            ]);
-                                        }),
-                                    ])
-                                    ->visible(fn($record) => $record && $record->status === 'paid' && ! ($record->items->sortBy('checkin_date')->first()?->product?->has_manual_lock))
-                                    ->collapsible(),
+                                                    return view('payment::components.access-code-info', [
+                                                        'code' => $code,
+                                                        'order' => $record,
+                                                    ]);
+                                                }),
+                                            ])
+                                            ->visible(fn($record) => $record && $record->status === 'paid' && ! ($record->items->sortBy('checkin_date')->first()?->product?->has_manual_lock))
+                                            ->collapsible(),
+
+                                        Section::make('Thông tin khách hàng')
+                                            ->columnSpan(1)
+                                            ->icon('heroicon-m-identification')
+                                            ->iconColor('primary')
+                                            ->collapsible()
+                                            ->schema([
+                                                TextInput::make('buyer_name')
+                                                    ->label('Tên khách hàng')
+                                                    ->placeholder('VD: Nguyễn Văn An')
+                                                    ->required()
+                                                    ->maxLength(255)
+                                                    ->hintIcon('heroicon-m-user-circle')
+                                                    ->hintColor('primary')
+                                                    ->hintIconTooltip('Họ tên đầy đủ như trong CCCD.')
+                                                    ->live(onBlur: true)
+                                                    ->validationMessages([
+                                                        'required' => 'Vui lòng nhập họ tên khách hàng',
+                                                        'max' => 'Họ tên không được quá 255 ký tự'
+                                                    ]),
+
+                                                TextInput::make('buyer_phone')
+                                                    ->label(__('payment::order.form.label.buyer_phone'))
+                                                    ->placeholder('VD: 0912345678')
+                                                    ->tel()
+                                                    ->required()
+                                                    ->regex('/^[0-9]{10,11}$/')
+                                                    ->live(onBlur: true)
+                                                    ->hintIcon('heroicon-m-phone')
+                                                    ->hintColor('primary')
+                                                    ->hintIconTooltip('Số điện thoại để liên hệ xác nhận')
+                                                    ->validationMessages([
+                                                        'required' => 'Vui lòng nhập số điện thoại',
+                                                        'regex' => 'Số điện thoại không đúng định dạng (10-11 số)'
+                                                    ]),
+
+                                                Textarea::make('description')
+                                                    ->label(__('payment::order.form.label.description'))
+                                                    ->placeholder('VD: Yêu cầu phòng tầng cao, view đẹp...')
+                                                    ->nullable()
+                                                    ->default('')
+                                                    ->rows(4)
+                                                    ->maxLength(1000)
+                                                    ->hintIcon('heroicon-m-pencil-square')
+                                                    ->hintColor('primary')
+                                                    ->hintIconTooltip('Ghi chú thêm về yêu cầu đặc biệt của khách hàng'),
+                                            ]),
+                                    ]),
                                 // Bố cục 2 cột giống trang chi tiết phòng phía client (BookingForm nằm
                                 // cột phải, sticky): cột trái (span 4/7) là khu vực chọn phòng/khung
                                 // giờ; cột phải (span 3/7) gộp thông tin khách hàng + CCCD + tổng thanh
@@ -753,145 +819,150 @@ class OrderForm
                                                         ->afterStateUpdated(function ($state, Get $get, Set $set) {
                                                             self::calculateTotal($get, $set);
                                                         }),
-
-
-                                                        Repeater::make('orderServices')
-        ->relationship('services')
-        ->schema([
-            Grid::make(3)->schema([
-                Select::make('service_id')
-                    ->label('Dịch vụ')
-                    ->options(function () {
-                        $user  = auth()->user();
-                        $query = \Modules\BladeThemeV1\App\Models\AdditionService::where('is_active', 1);
-
-                        // AdditionService đã tự lọc theo partner_id (BelongsToPartner) — không cần
-                        // thu hẹp gì thêm ở đây, kể cả khi chưa gán quyền chi nhánh cụ thể.
-
-                        return $query->pluck('name', 'id');
-                    })
-                    ->required()
-                    ->searchable()
-                    ->preload()
-                    ->live()
-                    ->columnSpan(2)
-                    ->hintIcon('heroicon-o-shopping-bag')
-                    ->hintColor('primary')
-                    ->hintIconTooltip('Chọn dịch vụ thêm')
-                    ->afterStateUpdated(function ($state, Get $get, Set $set) {
-                        if ($state) {
-                            $service = \Modules\BladeThemeV1\App\Models\AdditionService::find($state);
-                            if ($service) {
-                                $set('service_name', $service->name);
-                                $set('price', $service->price);
-                                $qty = (int)($get('quantity') ?? 1);
-                                $set('subtotal', $service->price * $qty);
-                                self::calculateTotal($get, $set);
-                            }
-                        }
-                    }),
-
-                TextInput::make('quantity')
-                    ->label('Số lượng')
-                    ->numeric()
-                    ->minValue(1)
-                    ->default(1)
-                    ->required()
-                    ->live(debounce: 300)
-                    ->hintIcon('heroicon-o-hashtag')
-                    ->hintColor('primary')
-                    ->afterStateUpdated(function ($state, Get $get, Set $set) {
-                        $price = (float) ($get('price') ?? 0);
-                        $qty = max(1, (int) $state);
-                        $set('subtotal', $price * $qty);
-                        self::calculateTotal($get, $set);
-                    }),
-            ]),
-
-            Grid::make(2)->schema([
-                TextInput::make('price')
-                    ->label('Đơn giá')
-                    ->numeric()
-                    ->suffix('đ')
-                    ->disabled()
-                    ->dehydrated(true)
-                    ->hintIcon('heroicon-o-banknotes')
-                    ->hintColor('gray'),
-
-                TextInput::make('subtotal')
-                    ->label('Thành tiền')
-                    ->numeric()
-                    ->suffix('đ')
-                    ->disabled()
-                    ->dehydrated(true)
-                    ->hintIcon('heroicon-o-calculator')
-                    ->hintColor('success'),
-            ]),
-
-            Hidden::make('service_name'),
-        ])
-        ->columns(1)
-        ->label('Dịch vụ thêm')
-        ->collapsible()
-        ->addActionLabel('+ Thêm dịch vụ')
-        ->defaultItems(0)
-        ->live()
-        ->afterStateUpdated(function ($state, Get $get, Set $set) {
-            self::calculateTotal($get, $set);
-        })
-        ->itemLabel(fn($state) => !empty($state['service_name'])
-            ? $state['service_name'] . (!empty($state['quantity']) ? ' × ' . $state['quantity'] : '') . (!empty($state['subtotal']) ? ' — ' . number_format((float)$state['subtotal'], 0, ',', '.') . 'đ' : '')
-            : 'Dịch vụ mới'),
                                                 ])
                                                 ->columnSpan(4),
 
                                             Grid::make(1)
                                                 ->columnSpan(3)
                                                 ->schema([
-                                                    Section::make('Thông tin khách hàng')
-                                                        ->icon('heroicon-m-identification')
+                                                    Section::make('Tổng thanh toán')
+                                                        ->description('Chi tiết tính toán chi phí')
+                                                        ->icon('heroicon-s-currency-dollar')
                                                         ->iconColor('primary')
-                                                        ->collapsible()
                                                         ->schema([
-                                                            TextInput::make('buyer_name')
-                                                                ->label('Tên khách hàng')
-                                                                ->placeholder('VD: Nguyễn Văn An')
-                                                                ->required()
-                                                                ->maxLength(255)
-                                                                ->hintIcon('heroicon-m-user-circle')
-                                                                ->hintColor('primary')
-                                                                ->hintIconTooltip('Họ tên đầy đủ như trong CCCD.')
-                                                                ->live(onBlur: true)
-                                                                ->validationMessages([
-                                                                    'required' => 'Vui lòng nhập họ tên khách hàng',
-                                                                    'max' => 'Họ tên không được quá 255 ký tự'
-                                                                ]),
+                                                            Repeater::make('orderServices')
+                                                                ->relationship('services')
+                                                                ->schema([
+                                                                    Grid::make(3)->schema([
+                                                                        Select::make('service_id')
+                                                                            ->label('Dịch vụ')
+                                                                            ->options(function () {
+                                                                                $query = \Modules\BladeThemeV1\App\Models\AdditionService::where('is_active', 1);
 
-                                                            TextInput::make('buyer_phone')
-                                                                ->label(__('payment::order.form.label.buyer_phone'))
-                                                                ->placeholder('VD: 0912345678')
-                                                                ->tel()
-                                                                ->required()
-                                                                ->regex('/^[0-9]{10,11}$/')
-                                                                ->live(onBlur: true)
-                                                                ->hintIcon('heroicon-m-phone')
-                                                                ->hintColor('primary')
-                                                                ->hintIconTooltip('Số điện thoại để liên hệ xác nhận')
-                                                                ->validationMessages([
-                                                                    'required' => 'Vui lòng nhập số điện thoại',
-                                                                    'regex' => 'Số điện thoại không đúng định dạng (10-11 số)'
-                                                                ]),
+                                                                                // AdditionService đã tự lọc theo partner_id (BelongsToPartner) —
+                                                                                // không cần thu hẹp gì thêm ở đây.
 
-                                                            Textarea::make('description')
-                                                                ->label(__('payment::order.form.label.description'))
-                                                                ->placeholder('VD: Yêu cầu phòng tầng cao, view đẹp...')
-                                                                ->nullable()
-                                                                ->default('')
-                                                                ->rows(4)
-                                                                ->maxLength(1000)
-                                                                ->hintIcon('heroicon-m-pencil-square')
-                                                                ->hintColor('primary')
-                                                                ->hintIconTooltip('Ghi chú thêm về yêu cầu đặc biệt của khách hàng'),
+                                                                                return $query->pluck('name', 'id');
+                                                                            })
+                                                                            ->required()
+                                                                            ->searchable()
+                                                                            ->preload()
+                                                                            ->live()
+                                                                            ->columnSpan(2)
+                                                                            ->hintIcon('heroicon-o-shopping-bag')
+                                                                            ->hintColor('primary')
+                                                                            ->hintIconTooltip('Chọn dịch vụ thêm')
+                                                                            ->afterStateUpdated(function ($state, Get $get, Set $set) {
+                                                                                if ($state) {
+                                                                                    $service = \Modules\BladeThemeV1\App\Models\AdditionService::find($state);
+                                                                                    if ($service) {
+                                                                                        $set('service_name', $service->name);
+                                                                                        $set('price', $service->price);
+                                                                                        $qty = (int) ($get('quantity') ?? 1);
+                                                                                        $set('subtotal', $service->price * $qty);
+                                                                                        self::calculateTotal($get, $set);
+                                                                                    }
+                                                                                }
+                                                                            }),
+
+                                                                        TextInput::make('quantity')
+                                                                            ->label('Số lượng')
+                                                                            ->numeric()
+                                                                            ->minValue(1)
+                                                                            ->default(1)
+                                                                            ->required()
+                                                                            ->live(debounce: 300)
+                                                                            ->hintIcon('heroicon-o-hashtag')
+                                                                            ->hintColor('primary')
+                                                                            ->afterStateUpdated(function ($state, Get $get, Set $set) {
+                                                                                $price = (float) ($get('price') ?? 0);
+                                                                                $qty = max(1, (int) $state);
+                                                                                $set('subtotal', $price * $qty);
+                                                                                self::calculateTotal($get, $set);
+                                                                            }),
+                                                                    ]),
+
+                                                                    Grid::make(2)->schema([
+                                                                        TextInput::make('price')
+                                                                            ->label('Đơn giá')
+                                                                            ->numeric()
+                                                                            ->suffix('đ')
+                                                                            ->disabled()
+                                                                            ->dehydrated(true)
+                                                                            ->hintIcon('heroicon-o-banknotes')
+                                                                            ->hintColor('gray'),
+
+                                                                        TextInput::make('subtotal')
+                                                                            ->label('Thành tiền')
+                                                                            ->numeric()
+                                                                            ->suffix('đ')
+                                                                            ->disabled()
+                                                                            ->dehydrated(true)
+                                                                            ->hintIcon('heroicon-o-calculator')
+                                                                            ->hintColor('success'),
+                                                                    ]),
+
+                                                                    Hidden::make('service_name'),
+                                                                ])
+                                                                ->columns(1)
+                                                                ->label('Dịch vụ thêm')
+                                                                ->collapsible()
+                                                                ->addActionLabel('+ Thêm dịch vụ')
+                                                                ->defaultItems(0)
+                                                                ->live()
+                                                                ->afterStateUpdated(function ($state, Get $get, Set $set) {
+                                                                    self::calculateTotal($get, $set);
+                                                                })
+                                                                ->itemLabel(fn ($state) => !empty($state['service_name'])
+                                                                    ? $state['service_name'] . (!empty($state['quantity']) ? ' × ' . $state['quantity'] : '') . (!empty($state['subtotal']) ? ' — ' . number_format((float) $state['subtotal'], 0, ',', '.') . 'đ' : '')
+                                                                    : 'Dịch vụ mới'),
+
+                                                            // Card breakdown (phòng/dịch vụ/giảm giá/phụ thu khách) TRUYỀN
+                                                            // THÊM 'displayTotal' = giá trị HIỆN TẠI của field 'amount' bên
+                                                            // dưới — để dòng "TỔNG THANH TOÁN" trên card LUÔN khớp CHÍNH XÁC
+                                                            // với số trong ô "Tổng tiền đơn" (kể cả khi admin đã gõ đè tay),
+                                                            // thay vì card tự tính lại 1 số khác đứng cạnh 1 ô nhập tay có
+                                                            // thể đang giữ số khác — 2 chỗ hiển thị PHẢI luôn đồng bộ.
+                                                            Placeholder::make('amount_preview')
+                                                                ->label('')
+                                                                ->live()
+                                                                ->dehydrated(false)
+                                                                ->content(function (Get $get, $record) {
+                                                                    $items = $get('orderItems');
+                                                                    $items = is_array($items) ? $items : [];
+
+                                                                    $servicesFormState = $get('orderServices') ?? [];
+                                                                    $servicesFormState = is_array($servicesFormState) ? $servicesFormState : [];
+
+                                                                    $total = self::computeOrderTotal($items, $servicesFormState);
+
+                                                                    $expandedItems = self::expandOrderItemsForPersistence($items);
+
+                                                                    $currentAmount = $get('amount');
+
+                                                                    return view('payment::components.total-amount-card', [
+                                                                        'totalAmount' => $total,
+                                                                        'displayTotal' => ($currentAmount !== null && $currentAmount !== '') ? (float) $currentAmount : $total,
+                                                                        'items' => $expandedItems,
+                                                                        'originalItems' => $items,
+                                                                        'record' => $record,
+                                                                        'servicesFormState' => $servicesFormState,
+                                                                    ]);
+                                                                }),
+
+                                                            // Tổng tiền THẬT SỰ sẽ lưu vào đơn — mặc định tự điền theo đúng số hệ
+                                                            // thống vừa tính ở trên (mỗi khi sửa phòng/dịch vụ, calculateTotal() sẽ
+                                                            // ghi đè lại field này bằng số tính đúng). Admin vẫn có thể gõ đè 1 số
+                                                            // KHÁC ngay tại đây nếu cần điều chỉnh giá thực thu.
+                                                            TextInput::make('amount')
+                                                                ->label('Tổng tiền đơn (có thể sửa tay)')
+                                                                ->numeric()
+                                                                ->minValue(0)
+                                                                ->suffix('đ')
+                                                                ->live()
+                                                                ->dehydrated(true)
+                                                                ->hintIcon('heroicon-o-pencil-square')
+                                                                ->hintColor('warning'),
                                                         ]),
 
                                                     Section::make('Upload CCCD/CMND')
@@ -1112,47 +1183,6 @@ class OrderForm
                                                                                 ->nullable(),
                                                                         ]),
                                                                 ]),
-                                                        ]),
-                                                    Section::make('Tổng thanh toán')
-                                                        ->description('Chi tiết tính toán chi phí')
-                                                        ->icon('heroicon-s-currency-dollar')
-                                                        ->iconColor('primary')
-                                                        ->schema([
-                                                            Placeholder::make('amount')
-                                                                ->label('')
-                                                                ->live()
-                                                                ->content(function (Get $get, $record) {
-                                                                    $items = $get('orderItems');
-                                                                    $items = is_array($items) ? $items : [];
-
-                                                                    $servicesFormState = $get('orderServices') ?? [];
-                                                                    $servicesFormState = is_array($servicesFormState) ? $servicesFormState : [];
-
-                                                                    // Dùng ĐÚNG 1 hàm tính tổng duy nhất với calculateTotal() (field 'amount'
-                                                                    // thật sự lưu vào đơn) — trước đây "Tổng thanh toán" tự cộng price+extra_fee
-                                                                    // thô, KHÔNG áp dụng giảm giá đặt nhiều khung giờ/phụ thu khách, nên số
-                                                                    // hiển thị ở đây khác với số thực sự được lưu. Phụ thu khách giờ tính
-                                                                    // THEO TỪNG PHÒNG (item['guest_count'] riêng mỗi dòng), không còn dùng
-                                                                    // 1 số khách chung cho cả đơn.
-                                                                    $total = self::computeOrderTotal($items, $servicesFormState);
-
-                                                                    // 1 dòng Repeater có thể giữ NHIỀU khung giờ trong 'selected_slots' —
-                                                                    // tách phẳng thành từng khung giờ (đúng số order_item sẽ được lưu)
-                                                                    // TRƯỚC KHI truyền cho view, để "Tổng thanh toán" hiển thị đúng từng
-                                                                    // khung giờ/số dòng thay vì đếm nhầm theo số dòng Repeater hiển thị.
-                                                                    $expandedItems = self::expandOrderItemsForPersistence($items);
-
-                                                                    return view('payment::components.total-amount-card', [
-                                                                        'totalAmount' => $total,
-                                                                        'items' => $expandedItems,
-                                                                        // Dòng GỐC (chưa expand) — dùng để tính phụ thu khách 1 LẦN cho mỗi
-                                                                        // lượt đặt phòng, không nhân theo số khung giờ đã chọn của phòng đó.
-                                                                        'originalItems' => $items,
-                                                                        'record' => $record,
-                                                                        'servicesFormState' => $servicesFormState,
-                                                                    ]);
-                                                                })
-                                                                ->dehydrated(true)
                                                         ]),
                                                 ]),
 
@@ -1866,9 +1896,6 @@ class OrderForm
                                                 ->default('pending')
                                                 ->dehydrateStateUsing(fn($state) => $state)
                                                 ->helperText('Tự động cập nhật khi khách mở khoá — chỉ chỉnh tay cho trường hợp đặc biệt.'),
-
-                                            Hidden::make('amount')
-                                                ->dehydrated(true),
                                         ]),
 
                                         TextInput::make('money_deposit')

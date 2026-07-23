@@ -226,7 +226,11 @@
     }
 
     $computedLiveTotal = $totalAfterBulk + $totalGuestSurcharge + $serviceTotal;
-    $finalTotal = $computedLiveTotal;
+
+    // 'displayTotal' (nếu được truyền vào — xem OrderForm.php) = giá trị HIỆN TẠI của field 'amount'
+    // thật sự sẽ lưu vào đơn, kể cả khi admin đã gõ đè tay khác với số hệ thống tự tính — số cuối
+    // cùng hiển thị ở đây PHẢI luôn khớp với ô "Tổng tiền đơn", không tự tính riêng 1 số khác.
+    $finalTotal = $displayTotal ?? $computedLiveTotal;
 
     // Đơn paid có extra_charge: extra_charge_amount là phần đã phát sinh trước đó. Vẫn giữ tổng live
     // theo form hiện tại để khi admin thêm dịch vụ/phòng mới, card thấy ngay phần chênh lệch mới.
@@ -311,20 +315,20 @@
                         </span>
                     </div>
 
-                    {{-- Style 2: ngày nhận/trả + số đêm — giá/đêm tra LẠI qua RoomTimeSlot theo ngày +
-                         khuyến mãi (OrderForm::calculateDailyRoomPrice(), GIỐNG HỆT client) thay vì
-                         dùng thẳng item['price_per_night'] (có thể lệch nếu mỗi đêm giá khác nhau,
-                         hoặc field này đang giữ tổng cũ từ trước khi sửa ngày). --}}
+                    {{-- Style 2: ngày nhận/trả + số đêm — giá/đêm hiển thị = TỔNG GIÁ THẬT của chính
+                         dòng này (item['price']) chia đều cho số đêm, KHÔNG gọi lại
+                         OrderForm::calculateDailyRoomPrice() để tính "giá/đêm" (hàm đó tra giá phòng +
+                         khuyến mãi HIỆN TẠI — nếu giá phòng/khuyến mãi đã đổi so với lúc đặt, số hiển
+                         thị ở đây sẽ lệch với chính tổng tiền phòng hiển thị phía trên, dù cùng 1 dòng
+                         — đã xảy ra thực tế: tổng hiển thị 850k nhưng dòng này lại hiện "3 đêm x
+                         250k" = 750k). Chia đều từ chính item['price'] đảm bảo 2 số NHẤT QUÁN VỚI
+                         NHAU, dù giá từng đêm trong quá khứ có thể không thực sự đều nhau. --}}
                     @if($itemStyle === 2 && !empty($item['checkin_date']) && !empty($item['checkout_date']))
                         @php
                             $ci     = \Carbon\Carbon::parse($item['checkin_date']);
                             $co     = \Carbon\Carbon::parse($item['checkout_date']);
-                            $priced = \Modules\Payment\App\Filament\Resources\OrderResource\Forms\OrderForm::calculateDailyRoomPrice(
-                                $item['product_id'] ?? null,
-                                $item['checkin_date'],
-                                $item['checkout_date']
-                            );
-                            $nights = $priced['nights'] > 0 ? $priced['nights'] : max(0, $ci->diffInDays($co));
+                            $nights = max(0, $ci->diffInDays($co));
+                            $perNight = $nights > 0 ? round(((float)$item['price']) / $nights) : null;
                         @endphp
                         @if($nights > 0)
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.35rem; padding-top:0.35rem; border-top:1px dashed #e2e8f0;">
@@ -333,7 +337,7 @@
                                 {{ $ci->format('d/m') }} → {{ $co->format('d/m/Y') }}
                             </span>
                             <span style="font-size:0.7rem; color:#64748b; font-weight:500; white-space:nowrap;">
-                                {{ $nights }} đêm{{ $priced['uniform_price'] !== null ? ' × ' . number_format($priced['uniform_price'], 0, ',', '.') . 'đ' : '' }}
+                                {{ $nights }} đêm{{ $perNight !== null ? ' × ' . number_format($perNight, 0, ',', '.') . 'đ' : '' }}
                             </span>
                         </div>
                         @endif

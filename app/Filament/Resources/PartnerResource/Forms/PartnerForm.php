@@ -308,11 +308,16 @@ class PartnerForm
                     ? '<span style="color:#059669;font-weight:600;">● Hoạt động</span>'
                     : '<span style="color:#9ca3af;font-weight:600;">● Tạm dừng</span>';
 
+                // 'amount' là tổng thực thu cuối cùng (gồm cả phụ phí phát sinh sau khi đặt/thanh
+                // toán, vd dịch vụ thêm) — 'full_amount' chỉ là tổng giá gốc CỐ ĐỊNH lúc đặt, không
+                // phản ánh phát sinh sau này. Ưu tiên 'amount', fallback full_amount nếu amount rỗng
+                // (dữ liệu cũ) — cùng quy ước với KpiService/Dashboard, tránh doanh thu hiển thị ở
+                // đây lệch với doanh thu ở Dashboard cho cùng kỳ/cùng đối tác.
                 $revenue = \Modules\Payment\Entities\Order::where('category_id', $branch->id)
                     ->where('status', 'paid')
                     ->whereMonth('created_at', now()->month)
                     ->whereYear('created_at', now()->year)
-                    ->sum(\Illuminate\Support\Facades\DB::raw('COALESCE(full_amount, amount)'));
+                    ->sum(\Illuminate\Support\Facades\DB::raw('COALESCE(amount, full_amount)'));
                 $revenueFmt = number_format((float) $revenue, 0, ',', '.') . 'đ';
 
                 $detailUrl = \App\Filament\Resources\PartnerResource::getUrl('branch-detail', [
