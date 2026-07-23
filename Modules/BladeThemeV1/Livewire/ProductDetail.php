@@ -296,7 +296,16 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
     {
         $this->mediaSecond = $this->product->getMedia('Thư viện');
         $this->shortDescription = html_entity_decode(strip_tags($this->product->short_description));
-        $this->categories = $this->product->category_names;
+
+        // category_names là thuộc tính GẮN TAY vào $product trong fetchProduct() (không phải cột/
+        // relation thật) — cùng vấn đề với ratingsCount/ratingsAvg ở trên: Livewire hydrate lại
+        // $product bằng Model::find() thông thường ở các request sau (vd onRoomAvailabilityChanged()
+        // gọi lại initializeProductData() khi có sự kiện WS), làm mất thuộc tính gắn tay này → trả
+        // về null, khiến $categories['c3'] ở blade lỗi "array offset on null". Giữ nguyên giá trị
+        // CŨ (đã đúng từ mount()) thay vì ghi đè bằng null khi category_names không còn nữa.
+        $this->categories = $this->product->category_names
+            ?? $this->categories
+            ?? ['c1' => null, 'c2' => null, 'c3' => null];
         $this->dates = $this->generateDateRange();
         $this->timeSlots = $this->prepareTimeSlots($this->product);
         $this->fetchDateStatusOrder($this->product->id);

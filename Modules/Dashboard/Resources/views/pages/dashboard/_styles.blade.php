@@ -1313,48 +1313,6 @@
         display: block;
     }
 
-    .ta-rc-tl-track {
-        position: relative;
-        height: 22px;
-        background: var(--ta-line-soft);
-        border-radius: 6px;
-        overflow: visible;
-    }
-
-    .ta-rc-tl-seg {
-        position: absolute;
-        top: 0;
-        bottom: 0;
-        display: block;
-        border-radius: 4px;
-    }
-
-    .ta-rc-tl-seg:hover,
-    .ta-rc-tl-seg:focus-visible {
-        outline: 2px solid var(--ta-ink-title);
-        outline-offset: 1px;
-        z-index: 3;
-    }
-
-    .ta-rc-tl-now {
-        position: absolute;
-        top: -3px;
-        bottom: -3px;
-        width: 2px;
-        background: var(--ta-ink-title);
-        opacity: 0.5;
-        pointer-events: none;
-    }
-
-    .ta-rc-tl-scale {
-        display: flex;
-        justify-content: space-between;
-        font-size: 9px;
-        color: var(--ta-ink-faint);
-        margin-top: 4px;
-        font-variant-numeric: tabular-nums;
-    }
-
     .ta-rc-tl-empty {
         font-size: 11px;
         color: var(--ta-ink-faint);
@@ -1362,26 +1320,86 @@
         padding: 4px 0 2px;
     }
 
-    .ta-rc-tl-future {
-        display: flex;
-        flex-direction: column;
-        gap: 3px;
-        margin-top: 8px;
-        padding-top: 8px;
-        border-top: 1px dashed var(--ta-line);
+    /* ===== Lưới Ngày × Khung giờ (view "Dải giờ") — cùng cấu trúc hàng/cột với trang đặt phòng
+       của khách (book.blade.php/_desktop-grid.blade.php: hàng = khung giờ, cột = ngày), nhưng ở
+       đây chỉ để XEM tình trạng (đã đặt/còn trống), không phải màn hình chọn khung giờ để đặt. ===== */
+    .ta-rc-grid-wrap {
+        overflow-x: auto;
     }
 
-    .ta-rc-tl-future-item {
-        display: flex;
-        align-items: center;
-        gap: 6px;
+    .ta-rc-grid {
+        border-collapse: separate;
+        border-spacing: 3px;
+        width: 100%;
+    }
+
+    .ta-rc-grid-corner {
+        min-width: 46px;
+    }
+
+    .ta-rc-grid-datehead {
+        min-width: 30px;
+        font-weight: 500;
+        text-align: center;
+        padding-bottom: 2px;
+    }
+
+    .ta-rc-grid-datehead.is-today .ta-rc-grid-dow,
+    .ta-rc-grid-datehead.is-today .ta-rc-grid-dnum {
+        color: var(--ta-ink-title);
+        font-weight: 700;
+    }
+
+    .ta-rc-grid-dow {
+        display: block;
+        font-size: 9px;
+        color: var(--ta-ink-faint);
+        text-transform: uppercase;
+    }
+
+    .ta-rc-grid-dnum {
+        display: block;
         font-size: 10.5px;
         color: var(--ta-ink-mute);
-        text-decoration: none;
+        font-variant-numeric: tabular-nums;
     }
 
-    .ta-rc-tl-future-item:hover {
-        color: var(--ta-ink-title);
+    .ta-rc-grid-rowhead {
+        font-size: 10px;
+        font-weight: 500;
+        color: var(--ta-ink-mute);
+        text-align: right;
+        white-space: nowrap;
+        padding-right: 4px;
+    }
+
+    .ta-rc-grid-cell {
+        width: 26px;
+        height: 20px;
+        padding: 0;
+        border-radius: 5px;
+        background: var(--ta-line-soft);
+    }
+
+    .ta-rc-grid-cell.is-free {
+        opacity: 0.55;
+    }
+
+    .ta-rc-grid-cell.is-booked {
+        background: none;
+    }
+
+    .ta-rc-grid-cell.is-booked a {
+        display: block;
+        width: 100%;
+        height: 100%;
+        border-radius: 5px;
+    }
+
+    .ta-rc-grid-cell.is-booked a:hover,
+    .ta-rc-grid-cell.is-booked a:focus-visible {
+        outline: 2px solid var(--ta-ink-title);
+        outline-offset: 1px;
     }
 
     /* ===== Tooltip dùng chung (view Danh sách + Dải giờ) =====

@@ -85,7 +85,10 @@ class ExtraChargeService
                 $total += $basePrice + (float) $item->extra_fee;
             }
 
-            $total += $this->calcGuestSurcharge($product, (int) ($groupItems->first()->guest_count ?? 1), 1);
+            // itemCount = $slotCount, KHÔNG phải hardcode 1 — phòng "đặt theo ngày" (styles != 1)
+            // tách MỖI ĐÊM thành 1 order_item riêng, nên số dòng của nhóm này CHÍNH LÀ số đêm, và
+            // calcGuestSurcharge() cần nhân phụ thu theo đúng số đêm đó (xem $nights bên trong).
+            $total += $this->calcGuestSurcharge($product, (int) ($groupItems->first()->guest_count ?? 1), $slotCount);
         }
 
         foreach ($items->filter(fn ($item) => ! $item->product_id) as $item) {

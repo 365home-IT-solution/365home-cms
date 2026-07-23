@@ -7,6 +7,7 @@ namespace Modules\Dashboard\App\Services;
 use Carbon\Carbon;
 use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
+use Modules\Product\App\Models\RoomTimeSlot;
 
 class RoomCardsService
 {
@@ -100,7 +101,19 @@ class RoomCardsService
                 ];
             });
 
-        $rooms = $products->map(function ($product) use ($allItems, $pendingRefundsByProduct, $statusLabels, $statusColors, $newThreshold, $today, $now) {
+        // View "Dải giờ" — lưới Ngày × Khung giờ giống hệt trang đặt phòng của khách (book.blade.php)
+        // thay cho thanh 24h cũ. Nạp SẴN 1 LẦN toàn bộ khung giờ (RoomTimeSlot) của MỌI phòng kiểu
+        // "khung giờ" (style 1) ở đây — tránh N+1 query nếu tự query riêng cho từng phòng bên dưới.
+        // Phòng "đặt theo ngày" (style 2) không có khung giờ cố định nên không cần tra bảng này.
+        $slotStyleProductIds = $products->filter(fn ($p) => (int) $p->styles === 1)->pluck('id')->toArray();
+        $allRoomTimeSlots = RoomTimeSlot::whereIn('room_id', $slotStyleProductIds)
+            ->whereNull('date')
+            ->with('timeSlot')
+            ->get()
+            ->filter(fn (RoomTimeSlot $slot) => $slot->timeSlot !== null)
+            ->groupBy('room_id');
+
+        $rooms = $products->map(function ($product) use ($allItems, $pendingRefundsByProduct, $statusLabels, $statusColors, $newThreshold, $today, $now, $allRoomTimeSlots) {
             $category   = $product->categories->first();
             $parent     = $category ? $category->parent : null;
             $branchName = $parent ? $parent->name : ($category ? $category->name : 'Chưa phân loại');
@@ -290,6 +303,13 @@ class RoomCardsService
             $upcomingCount = count(array_filter($orders, fn ($o) => $o['segment'] === 'upcoming'));
             $overdueCount  = count(array_filter($orders, fn ($o) => $o['segment'] === 'overdue'));
 
+            $timeslotGrid = self::buildTimeslotGrid(
+                $product,
+                $orders,
+                $today,
+                $allRoomTimeSlots->get($product->id, collect())
+            );
+
             return [
                 'product_id'          => $product->id,
                 'room_name'           => $product->name,
@@ -297,6 +317,7 @@ class RoomCardsService
                 'branch_id'           => $branchId,
                 'styles'              => (int) $product->styles,
                 'orders'              => $orders,
+                'timeslot_grid'       => $timeslotGrid,
                 'count'               => count($orders),
                 'active_count'        => $activeCount,
                 'today_count'         => $todayCount,
@@ -363,6 +384,112 @@ class RoomCardsService
             // trùng khớp nhau.
             'today_start_ts' => $today->copy()->startOfDay()->timestamp,
             'today_end_ts'   => $today->copy()->endOfDay()->timestamp,
+        ];
+    }
+
+    // View "Dải giờ" — lưới Ngày × Khung giờ CHO ĐÚNG 1 PHÒNG này, cùng cấu trúc hàng/cột với
+    // trang đặt phòng của khách (book.blade.php/_desktop-grid.blade.php: hàng = khung giờ cố định
+    // của phòng, cột = ngày) — khác ở chỗ đây là xem TÌNH TRẠNG (đã đặt/còn trống), không phải màn
+    // hình CHỌN khung giờ để đặt, nên không cần tính giá/khuyến mãi từng ô. Phòng "đặt theo ngày"
+    // (style 2) không có khung giờ cố định — chỉ có đúng 1 "hàng" duy nhất ứng với cả ngày.
+    //
+    // $days: số cột ngày hiển thị — 7 ngày (tuần hiện tại) đủ để thấy tình trạng gần mà vẫn gọn
+    // trong 1 thẻ phòng, không tính lại nếu admin muốn xem xa hơn (đã có view "Danh sách" liệt kê
+    // đủ mọi đơn upcoming cho việc đó rồi).
+    private static function buildTimeslotGrid(Product $product, array $orders, Carbon $today, $roomTimeSlots, int $days = 7): array
+    {
+        $isSlotStyle = (int) $product->styles === 1;
+
+        $dates = [];
+        for ($i = 0; $i < $days; $i++) {
+            $d = $today->copy()->addDays($i);
+            $dates[] = [
+                'iso'      => $d->format('Y-m-d'),
+                'label'    => $d->format('d/m'),
+                'dow'      => ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'][$d->dayOfWeek],
+                'is_today' => $d->isSameDay($today),
+            ];
+        }
+
+        if ($isSlotStyle) {
+            $rows = $roomTimeSlots
+                ->sortBy(fn (RoomTimeSlot $slot) => $slot->timeSlot->start_time)
+                ->values()
+                ->map(fn (RoomTimeSlot $slot) => [
+                    'id'         => (string) $slot->id,
+                    'label'      => $slot->timeSlot->label
+                        ?: (substr($slot->timeSlot->start_time, 0, 5) . '-' . substr($slot->timeSlot->end_time, 0, 5)),
+                    'start_time' => $slot->timeSlot->start_time,
+                    'end_time'   => $slot->timeSlot->end_time,
+                    'over_night' => (bool) ($slot->timeSlot->over_night ?? false),
+                ])
+                ->toArray();
+        } else {
+            $rows = [[
+                'id'         => 'day',
+                'label'      => 'Cả ngày',
+                'start_time' => null,
+                'end_time'   => null,
+                'over_night' => false,
+            ]];
+        }
+
+        // Gộp mọi khoảng thời gian đã có khách vào 1 danh sách phẳng để so khớp — ưu tiên
+        // 'slot_ranges' (đã tách ĐÚNG từng khung giờ riêng của đơn) nếu có, không thì dùng
+        // checkin_ts/checkout_ts gộp (đơn "đặt theo ngày" không có slot_ranges).
+        $ranges = [];
+        foreach ($orders as $o) {
+            if (! empty($o['slot_ranges'])) {
+                foreach ($o['slot_ranges'] as $r) {
+                    $ranges[] = ['start' => $r['start_ts'], 'end' => $r['end_ts'], 'order' => $o];
+                }
+            } elseif (! empty($o['checkin_ts']) && ! empty($o['checkout_ts'])) {
+                $ranges[] = ['start' => $o['checkin_ts'], 'end' => $o['checkout_ts'], 'order' => $o];
+            }
+        }
+
+        $cells = [];
+        foreach ($rows as $row) {
+            foreach ($dates as $date) {
+                if ($isSlotStyle) {
+                    $start = Carbon::parse($date['iso'] . ' ' . $row['start_time']);
+                    $end   = Carbon::parse($date['iso'] . ' ' . $row['end_time']);
+                    if ($row['over_night'] || $end->lessThanOrEqualTo($start)) {
+                        $end->addDay();
+                    }
+                } else {
+                    $start = Carbon::parse($date['iso'])->startOfDay();
+                    $end   = Carbon::parse($date['iso'])->endOfDay();
+                }
+
+                $match = null;
+                foreach ($ranges as $r) {
+                    if ($start->timestamp < $r['end'] && $end->timestamp > $r['start']) {
+                        $match = $r['order'];
+                        break;
+                    }
+                }
+
+                $cells[$row['id'] . '|' . $date['iso']] = $match ? [
+                    'status'       => $match['status'],
+                    'status_label' => $match['status_label'],
+                    'color'        => $match['status_color'],
+                    'order_id'     => $match['order_id'],
+                    'order_code'   => $match['order_code'],
+                    'buyer_name'   => $match['buyer_name'],
+                    'buyer_phone'  => $match['buyer_phone'],
+                    'checkin'      => $match['checkin'],
+                    'checkout'     => $match['checkout'],
+                    'amount'       => $match['amount'],
+                ] : null;
+            }
+        }
+
+        return [
+            'is_slot_style' => $isSlotStyle,
+            'dates'         => $dates,
+            'rows'          => $rows,
+            'cells'         => $cells,
         ];
     }
 

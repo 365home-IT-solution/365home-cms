@@ -169,65 +169,48 @@
                 <div class="ta-rc-no-match" style="display:none;">Không có đơn ở chế độ xem này</div>
             </div>
 
-            {{-- View "Dải giờ" — thanh 24h hôm nay + danh sách rút gọn các lượt sắp tới ngày khác --}}
-            @php
-                $todayStart = $roomCards['today_start_ts'];
-                $todayEnd   = $roomCards['today_end_ts'];
-
-                // 1 đơn có thể có NHIỀU khung giờ (vd 8h30-11h20 và 11h50-14h40) — coi là 1 lượt
-                // lưu trú LIÊN TỤC của cùng 1 khách, nối liền thành 1 đoạn duy nhất từ khung SỚM
-                // NHẤT tới khung MUỘN NHẤT (checkin_ts/checkout_ts đã được RoomCardsService tính
-                // đúng theo toàn bộ khung giờ của đơn, không chỉ khung đầu tiên).
-                $todayOrders  = [];
-                $futureOrders = [];
-                foreach ($room['orders'] as $o) {
-                    $cin  = $o['checkin_ts']  ?? null;
-                    $cout = $o['checkout_ts'] ?? null;
-                    if ($cin === null || $cout === null) {
-                        continue;
-                    }
-                    if ($cin <= $todayEnd && $cout >= $todayStart) {
-                        $todayOrders[] = $o;
-                    } elseif ($cin > $todayEnd) {
-                        $futureOrders[] = $o;
-                    }
-                }
-                $nowTs  = now()->timestamp;
-                $nowPct = max(0, min(100, ($nowTs - $todayStart) / max(1, $todayEnd - $todayStart) * 100));
-            @endphp
+            {{-- View "Dải giờ" — lưới Ngày × Khung giờ giống hệt trang đặt phòng của khách
+                 (book.blade.php/_desktop-grid.blade.php: hàng = khung giờ cố định, cột = ngày),
+                 chỉ khác là xem TÌNH TRẠNG (đã đặt/còn trống), không phải màn hình chọn khung giờ
+                 để đặt — xem RoomCardsService::buildTimeslotGrid(). --}}
+            @php $grid = $room['timeslot_grid'] ?? null; @endphp
             <div class="ta-rc-timeline">
-                <div class="ta-rc-tl-track">
-                    @foreach($todayOrders as $order)
-                        @php
-                            $segStart = max($todayStart, $order['checkin_ts']);
-                            $segEnd   = min($todayEnd, $order['checkout_ts']);
-                            $left     = ($segStart - $todayStart) / max(1, $todayEnd - $todayStart) * 100;
-                            $width    = max(1.5, ($segEnd - $segStart) / max(1, $todayEnd - $todayStart) * 100);
-                            // Nhãn giờ hiển thị trong tooltip: có nhiều khung giờ thì liệt kê đủ
-                            // từng khung (slot_labels), không thì dùng checkin/checkout thường.
-                            $segTimeLabel = !empty($order['slot_labels'])
-                                ? ($order['checkin'] ? $order['checkin'].', ' : '').$order['slot_labels']
-                                : ($order['checkin'].($order['checkout'] ? ' → '.$order['checkout'] : ''));
-                        @endphp
-                        <a href="/admin/orders/{{ $order['order_id'] }}/edit" class="ta-rc-tl-seg" data-segment="{{ $order['segment'] }}" data-status="{{ $order['status'] }}"
-                           data-order="{{ json_encode(['order_id'=>$order['order_id'],'order_code'=>$order['order_code'],'buyer_name'=>$order['buyer_name'],'buyer_phone'=>$order['buyer_phone'],'checkin'=>$segTimeLabel,'checkout'=>null,'status_label'=>$order['status_label'],'status_color'=>$order['status_color'],'amount'=>$order['amount'],'segment'=>$order['segment'],'created_at'=>$order['created_at'],'created_at_fmt'=>$order['created_at_fmt']??'','deposit_room'=>$order['deposit_room']??'']) }}"
-                           style="left:{{ $left }}%;width:{{ $width }}%;background:{{ $order['status_color'] }};">
-                        </a>
-                    @endforeach
-                    <div class="ta-rc-tl-now" style="left:{{ $nowPct }}%;"></div>
+                @if($grid && !empty($grid['rows']) && !empty($grid['dates']))
+                <div class="ta-rc-grid-wrap">
+                    <table class="ta-rc-grid">
+                        <thead>
+                            <tr>
+                                <th class="ta-rc-grid-corner"></th>
+                                @foreach($grid['dates'] as $date)
+                                <th class="ta-rc-grid-datehead {{ $date['is_today'] ? 'is-today' : '' }}">
+                                    <span class="ta-rc-grid-dow">{{ $date['dow'] }}</span>
+                                    <span class="ta-rc-grid-dnum">{{ $date['label'] }}</span>
+                                </th>
+                                @endforeach
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach($grid['rows'] as $row)
+                            <tr>
+                                <th class="ta-rc-grid-rowhead">{{ $row['label'] }}</th>
+                                @foreach($grid['dates'] as $date)
+                                    @php $cell = $grid['cells'][$row['id'].'|'.$date['iso']] ?? null; @endphp
+                                    @if($cell)
+                                    <td class="ta-rc-grid-cell is-booked"
+                                        data-order="{{ json_encode(['order_id'=>$cell['order_id'],'order_code'=>$cell['order_code'],'buyer_name'=>$cell['buyer_name'],'buyer_phone'=>$cell['buyer_phone'],'checkin'=>$cell['checkin'],'checkout'=>$cell['checkout'],'status_label'=>$cell['status_label'],'status_color'=>$cell['color'],'amount'=>$cell['amount']]) }}">
+                                        <a href="/admin/orders/{{ $cell['order_id'] }}/edit" style="background:{{ $cell['color'] }};" title="{{ $cell['buyer_name'] }} — {{ $cell['status_label'] }}"></a>
+                                    </td>
+                                    @else
+                                    <td class="ta-rc-grid-cell is-free" title="Còn trống"></td>
+                                    @endif
+                                @endforeach
+                            </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
                 </div>
-                <div class="ta-rc-tl-scale"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
-                @if(empty($todayOrders))
-                    <div class="ta-rc-tl-empty">Trống hôm nay</div>
-                @endif
-                @if(!empty($futureOrders))
-                    <div class="ta-rc-tl-future">
-                        @foreach($futureOrders as $order)
-                        <a href="/admin/orders/{{ $order['order_id'] }}/edit" class="ta-rc-tl-future-item">
-                            <span class="ta-rc-dot" style="background:{{ $order['status_color'] }};"></span>{{ $order['checkin'] }} · {{ $order['buyer_name'] }}
-                        </a>
-                        @endforeach
-                    </div>
+                @else
+                <div class="ta-rc-tl-empty">Chưa khai báo khung giờ cho phòng này</div>
                 @endif
             </div>
 

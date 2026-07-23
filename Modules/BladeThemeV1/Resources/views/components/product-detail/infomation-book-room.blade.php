@@ -575,7 +575,7 @@
         </div>
 
         <p class="text-[11px] text-[#717171]">
-            * Bạn đang đặt phòng tại 365Home - {{ $categories['c3'] }}. Sau khi bấm "Đặt phòng", bạn sẽ được chuyển
+            * Bạn đang đặt phòng tại 365Home - {{ $categories['c3'] ?? '' }}. Sau khi bấm "Đặt phòng", bạn sẽ được chuyển
             sang quét mã QR để thanh toán, thời gian giữ phòng là 15 phút chờ thanh toán.
         </p>
 
