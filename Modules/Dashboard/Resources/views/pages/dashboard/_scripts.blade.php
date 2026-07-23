@@ -76,6 +76,16 @@ window.rcSwitchTime = function(btn) {
     window.rcApplyFilters();
 };
 
+// Bấm vào thẻ phòng (vùng trống, không phải nút/link/checkbox bên trong) → mở trang sửa phòng
+// (ProductResource edit, xem data-edit-url gắn từ $room['edit_url'] — Dashboard::getRoomCardsData()).
+// Không dùng closest('a, button, input') vì nút ⋮ (rcOpenRoomMenu) đã tự stopPropagation() rồi,
+// nhưng vẫn chặn ở đây phòng khi các link/checkbox khác (đơn, timeline, "Chi tiết (cũ)") không có.
+window.rcCardClick = function(event, card) {
+    if (event.target.closest('a, button, input, label')) return;
+    var url = card.dataset.editUrl;
+    if (url) window.location.href = url;
+};
+
 // ── Order selection ───────────────────────────────────────────────
 window._rcSelectedOrders = {};
 
@@ -947,12 +957,14 @@ window.rcSetView = function(mode) {
                 card = document.createElement('div');
                 card.className = 'ta-room-card';
                 card.dataset.product = pid;
+                card.addEventListener('click', function(e) { window.rcCardClick(e, card); });
                 grid.appendChild(card);
                 existingCards[pid] = card;
             }
-            card.dataset.branch  = room.branch;
-            card.dataset.styles  = String(room.styles || 1);
-            card.dataset.time    = room.latest_time;
+            card.dataset.branch   = room.branch;
+            card.dataset.styles   = String(room.styles || 1);
+            card.dataset.time     = room.latest_time;
+            card.dataset.editUrl  = room.edit_url || '';
             card.classList.toggle('has-new',    isNew);
             card.classList.toggle('has-active', room.active_count > 0);
 

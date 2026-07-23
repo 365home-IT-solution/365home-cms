@@ -678,6 +678,7 @@
         overflow: hidden;
         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
         transition: transform 0.2s, box-shadow 0.2s;
+        cursor: pointer;
     }
 
     .ta-room-card:hover {

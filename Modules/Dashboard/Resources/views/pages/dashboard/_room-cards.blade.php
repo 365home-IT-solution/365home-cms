@@ -113,7 +113,9 @@
              data-branch="{{ $room['branch'] }}"
              data-product="{{ $room['product_id'] }}"
              data-styles="{{ $room['styles'] ?? 1 }}"
-             data-time="{{ $room['latest_time'] }}">
+             data-time="{{ $room['latest_time'] }}"
+             data-edit-url="{{ $room['edit_url'] }}"
+             onclick="rcCardClick(event, this)">
             <div class="ta-rc-head">
                 <div class="ta-rc-info">
                     <div class="ta-rc-name">

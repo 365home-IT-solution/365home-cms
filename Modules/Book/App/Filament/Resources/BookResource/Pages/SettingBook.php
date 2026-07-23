@@ -362,11 +362,14 @@ class SettingBook extends Page implements HasForms
     {
         $rooms = Product::whereIn('id', $this->currentRoomIds())->orderBy('name')->get();
 
-        $buildSlotRoomTab = function ($product) {
-            return Tabs\Tab::make($product->name)
-                ->icon('heroicon-o-home')
-                ->schema([
-                    Section::make('Thông tin Phòng')
+        // Chỉ super_admin được xem/sửa Khung giờ, giá và Thiết lập khuyến mãi — các role khác chỉ
+        // được thao tác trên Thông tin Phòng, nên 2 section thiết lập giá/khuyến mãi theo khung giờ
+        // (buildSlotRoomTab) và theo ngày (buildDayRoomTab) bị ẩn hẳn khỏi form với các role khác.
+        $isSuperAdmin = (bool) auth()->user()?->isSuperAdmin();
+
+        $buildSlotRoomTab = function ($product) use ($isSuperAdmin) {
+            $schema = [
+                Section::make('Thông tin Phòng')
                         ->schema([
                             Hidden::make('room_' . $product->id . '.product_id')
                                 ->default($product->id),
@@ -428,80 +431,84 @@ class SettingBook extends Page implements HasForms
                                 ->orderColumn('slots')
                                 ->columnSpanFull(),
                         ])->columns(2),
+            ];
 
-                    Section::make('Khung giờ, giá, Thiết lập khuyến mãi')
-                        ->description('Thiết lập khung giờ, giá và khuyến mãi cho phòng ' . $product->name)
-                        ->schema([
-                            TableRepeater::make('room_' . $product->id . '.roomTimeSlots')
-                                ->headers([
-                                    Header::make('timeslot_id')->label('Khung giờ')->width('200px'),
-                                    Header::make('price')->label('Giá')->width('150px'),
-                                    Header::make('promotions')->label('Khuyến mãi')->width('250px'),
-                                    Header::make('over_night')->label('Qua đêm')->width('100px'),
-                                ])
-                                ->schema([
-                                    Hidden::make('id'),
+            if ($isSuperAdmin) {
+                $schema[] = Section::make('Khung giờ, giá, Thiết lập khuyến mãi')
+                    ->description('Thiết lập khung giờ, giá và khuyến mãi cho phòng ' . $product->name)
+                    ->schema([
+                        TableRepeater::make('room_' . $product->id . '.roomTimeSlots')
+                            ->headers([
+                                Header::make('timeslot_id')->label('Khung giờ')->width('200px'),
+                                Header::make('price')->label('Giá')->width('150px'),
+                                Header::make('promotions')->label('Khuyến mãi')->width('250px'),
+                                Header::make('over_night')->label('Qua đêm')->width('100px'),
+                            ])
+                            ->schema([
+                                Hidden::make('id'),
 
-                                    Select::make('timeslot_id')
-                                        ->label('Khung giờ')
-                                        ->options(TimeSlot::all()->pluck('label', 'id'))
-                                        ->preload()
-                                        ->searchable()
-                                        ->createOptionForm([
-                                            TextInput::make('label')->required(),
-                                            TextInput::make('start_time')
-                                                ->label('Giờ bắt đầu')
-                                                ->required()
-                                                ->placeholder('07:50')
-                                                ->helperText('Định dạng HH:MM (VD: 07:50)')
-                                                ->rules(['regex:/^\d{1,2}:\d{2}$/']),
-                                            TextInput::make('end_time')
-                                                ->label('Giờ kết thúc')
-                                                ->required()
-                                                ->placeholder('10:40')
-                                                ->helperText('Định dạng HH:MM (VD: 10:40)')
-                                                ->rules(['regex:/^\d{1,2}:\d{2}$/']),
-                                        ])
-                                        ->createOptionUsing(fn (array $data) => TimeSlot::create(array_merge($data, ['type' => 'time']))->id)
-                                        ->required(),
+                                Select::make('timeslot_id')
+                                    ->label('Khung giờ')
+                                    ->options(TimeSlot::all()->pluck('label', 'id'))
+                                    ->preload()
+                                    ->searchable()
+                                    ->createOptionForm([
+                                        TextInput::make('label')->required(),
+                                        TextInput::make('start_time')
+                                            ->label('Giờ bắt đầu')
+                                            ->required()
+                                            ->placeholder('07:50')
+                                            ->helperText('Định dạng HH:MM (VD: 07:50)')
+                                            ->rules(['regex:/^\d{1,2}:\d{2}$/']),
+                                        TextInput::make('end_time')
+                                            ->label('Giờ kết thúc')
+                                            ->required()
+                                            ->placeholder('10:40')
+                                            ->helperText('Định dạng HH:MM (VD: 10:40)')
+                                            ->rules(['regex:/^\d{1,2}:\d{2}$/']),
+                                    ])
+                                    ->createOptionUsing(fn (array $data) => TimeSlot::create(array_merge($data, ['type' => 'time']))->id)
+                                    ->required(),
 
-                                    TextInput::make('price')
-                                        ->label('Giá')
-                                        ->required()
-                                        ->suffix('VNĐ')
-                                        ->extraInputAttributes(['inputmode' => 'numeric']),
+                                TextInput::make('price')
+                                    ->label('Giá')
+                                    ->required()
+                                    ->suffix('VNĐ')
+                                    ->extraInputAttributes(['inputmode' => 'numeric']),
 
-                                    Select::make('promotions')
-                                        ->label('Khuyến mãi')
-                                        ->options(fn () => $this->allowedPromotionOptions())
-                                        ->multiple()
-                                        ->preload()
-                                        ->searchable(),
+                                Select::make('promotions')
+                                    ->label('Khuyến mãi')
+                                    ->options(fn () => $this->allowedPromotionOptions())
+                                    ->multiple()
+                                    ->preload()
+                                    ->searchable(),
 
-                                    Toggle::make('over_night')
-                                        ->label('Qua đêm')
-                                        ->default(false),
+                                Toggle::make('over_night')
+                                    ->label('Qua đêm')
+                                    ->default(false),
 
-                                    Hidden::make('status')->default('available'),
-                                ])
-                                ->defaultItems(0)
-                                ->columns(4)
-                                ->label('')
-                                ->emptyLabel('Chưa thiết lập cấu hình giá')
-                                ->reorderableWithButtons()
-                                ->reorderable(true)
-                                ->createItemButtonLabel('Thêm khung giờ')
-                                ->columnSpan('full')
-                                ->collapsible()
-                        ]),
-                ]);
-        };
+                                Hidden::make('status')->default('available'),
+                            ])
+                            ->defaultItems(0)
+                            ->columns(4)
+                            ->label('')
+                            ->emptyLabel('Chưa thiết lập cấu hình giá')
+                            ->reorderableWithButtons()
+                            ->reorderable(true)
+                            ->createItemButtonLabel('Thêm khung giờ')
+                            ->columnSpan('full')
+                            ->collapsible()
+                    ]);
+            }
 
-        $buildDayRoomTab = function ($product) {
             return Tabs\Tab::make($product->name)
                 ->icon('heroicon-o-home')
-                ->schema([
-                    Section::make('Thiết lập chung')
+                ->schema($schema);
+        };
+
+        $buildDayRoomTab = function ($product) use ($isSuperAdmin) {
+            $schema = [
+                Section::make('Thiết lập chung')
                         ->schema([
                             Hidden::make('room_' . $product->id . '.product_id')
                                 ->default($product->id),
@@ -578,16 +585,23 @@ class SettingBook extends Page implements HasForms
                                 ->dehydrateStateUsing(fn ($state) => (int) preg_replace('/[^0-9]/', '', (string)($state ?? '0'))),
                         ])->columns(2),
 
-                    Section::make('Ngày đặc biệt & Khuyến mãi')
-                        ->description('Nhấn vào ô ngày để thiết lập giá và khuyến mãi. Ưu tiên cao hơn giá gốc của phòng.')
-                        ->schema([
-                            DatePriceCalendarField::make('room_' . $product->id . '.dateTimeSlots')
-                                ->roomId($product->id)
-                                ->basePrice((int) ($product->price ?? 0))
-                                ->label('')
-                                ->columnSpan('full'),
-                        ]),
-                ]);
+            ];
+
+            if ($isSuperAdmin) {
+                $schema[] = Section::make('Ngày đặc biệt & Khuyến mãi')
+                    ->description('Nhấn vào ô ngày để thiết lập giá và khuyến mãi. Ưu tiên cao hơn giá gốc của phòng.')
+                    ->schema([
+                        DatePriceCalendarField::make('room_' . $product->id . '.dateTimeSlots')
+                            ->roomId($product->id)
+                            ->basePrice((int) ($product->price ?? 0))
+                            ->label('')
+                            ->columnSpan('full'),
+                    ]);
+            }
+
+            return Tabs\Tab::make($product->name)
+                ->icon('heroicon-o-home')
+                ->schema($schema);
         };
 
         $slotRooms = $rooms->filter(fn($p) => ((int)($p->styles ?? 1)) === 1)->values();

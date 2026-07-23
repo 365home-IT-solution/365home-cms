@@ -2409,6 +2409,12 @@ class OrderForm
     // số khung giờ đã chọn trong lượt đặt đó — nhiều khung giờ liên tiếp trong CÙNG 1 lượt đặt 1
     // phòng chỉ phụ thu 1 lần duy nhất (không phải mỗi khung giờ trừ phụ thu 1 lần). Vì vậy phải
     // tính trên $items GỐC (trước khi expandOrderItemsForPersistence() tách thành nhiều khung giờ).
+    //
+    // Style 2 ("đặt theo ngày") là NGOẠI LỆ — phòng ở NHIỀU ĐÊM thì phụ thu khách phải nhân theo
+    // SỐ ĐÊM (khớp ExtraChargeService::calcGuestSurcharge() — nights = itemCount cho phòng không
+    // phải slot vì mỗi đêm tách thành 1 order_item riêng — VÀ BookingController::buildGuestSurcharge()
+    // phía client, cũng nhân theo nights cho type=daily). Trước đây tính 1 lần duy nhất bất kể số
+    // đêm, khiến "Tổng thanh toán" ở OrderForm thấp hơn số client thấy khi tự đặt qua web.
     private static function calculateGuestSurcharge(array $items): float
     {
         $total = 0;
@@ -2426,9 +2432,24 @@ class OrderForm
 
             $guestCount = (int) ($item['guest_count'] ?? 1);
 
-            if ($feeEach > 0 && $guestCount > $maxFree) {
-                $total += ($guestCount - $maxFree) * $feeEach;
+            if ($feeEach <= 0 || $guestCount <= $maxFree) {
+                continue;
             }
+
+            $nights = 1;
+            $itemStyle = (int) ($item['product_style'] ?? ($product->styles ?? 1));
+
+            if ($itemStyle === 2) {
+                $checkin  = $item['checkin_day'] ?? $item['checkin_date'] ?? null;
+                $checkout = $item['checkout_day'] ?? $item['checkout_date'] ?? null;
+
+                if ($checkin && $checkout) {
+                    $nights = max(1, (int) \Carbon\Carbon::parse($checkin)->startOfDay()
+                        ->diffInDays(\Carbon\Carbon::parse($checkout)->startOfDay()));
+                }
+            }
+
+            $total += ($guestCount - $maxFree) * $feeEach * $nights;
         }
 
         return $total;
@@ -2440,6 +2461,14 @@ class OrderForm
     // nhiều khung giờ/phụ thu khách — khiến số hiển thị sai khác với số thực sự lưu).
     public static function computeOrderTotal(array $items, array $services): float
     {
+        // Loại dòng order_item "Phụ phí khách thêm" CŨ (extra_fee > 0, product_id = null — do
+        // luồng đặt phòng cũ ProductDetail.php tự tạo riêng 1 dòng cho phụ thu khách). Phụ thu
+        // khách giờ LUÔN tính LIVE qua calculateGuestSurcharge() dựa trên guest_count của từng
+        // phòng — giữ lại dòng này sẽ cộng phụ thu 2 LẦN (1 lần từ chính dòng đó, 1 lần từ
+        // calculateGuestSurcharge()). Cùng quy ước với ExtraChargeService::calculateRealTotal()
+        // (->where('extra_fee', 0)) — 3 nơi tính tổng PHẢI cùng ra 1 số.
+        $items = array_filter($items, fn ($item) => (float) ($item['extra_fee'] ?? 0) <= 0);
+
         // Phụ thu khách tính theo LƯỢT ĐẶT (dòng gốc), phải tính TRƯỚC khi expand thành nhiều
         // khung giờ — nếu không, 1 phòng chọn 3 khung giờ liên tiếp sẽ bị tính phụ thu 3 lần.
         $guestSurchargeTotal = self::calculateGuestSurcharge($items);

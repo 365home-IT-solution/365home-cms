@@ -1,4 +1,17 @@
 @php
+    // Loại dòng order_item "Phụ phí khách thêm" CŨ (extra_fee > 0, product_id = null — do luồng
+    // đặt phòng cũ ProductDetail.php tự tạo riêng 1 dòng cho phụ thu khách). Phụ thu khách ở card
+    // này LUÔN tính LIVE ở $guestSurchargeDetails/$totalGuestSurcharge bên dưới (dựa trên
+    // guest_count của từng phòng) — giữ lại dòng này sẽ hiện thành 1 "khung giờ" giả VÀ cộng phụ
+    // thu 2 LẦN. Cùng quy ước với OrderForm::computeOrderTotal() / ExtraChargeService::
+    // calculateRealTotal() (->where('extra_fee', 0)) — 3 nơi tính tổng PHẢI cùng ra 1 số.
+    $items = is_array($items)
+        ? array_values(array_filter($items, fn ($item) => (float) ($item['extra_fee'] ?? 0) <= 0))
+        : $items;
+    $originalItems = isset($originalItems) && is_array($originalItems)
+        ? array_values(array_filter($originalItems, fn ($item) => (float) ($item['extra_fee'] ?? 0) <= 0))
+        : ($originalItems ?? null);
+
     // Mỗi khung giờ = 1 dòng order_item (giống đúng cách client/API tạo dữ liệu) — $slotCount
     // (số dòng) CHÍNH LÀ số khung giờ đã đặt, không cần suy ra từ đâu khác.
     $slotCount      = is_array($items) ? count($items) : 0;
@@ -111,6 +124,11 @@
     // Phụ thu khách tính 1 LẦN cho mỗi LƯỢT ĐẶT PHÒNG (1 dòng Repeater gốc), KHÔNG nhân theo số
     // khung giờ đã chọn trong lượt đặt đó — vì vậy phải tính trên $originalItems (dòng gốc, TRƯỚC
     // khi tách thành nhiều khung giờ ở $items), không phải $groupItems (đã bị tách theo khung giờ).
+    //
+    // Style 2 ("đặt theo ngày") là NGOẠI LỆ — phòng ở NHIỀU ĐÊM thì phụ thu khách phải nhân theo
+    // SỐ ĐÊM (khớp OrderForm::calculateGuestSurcharge() / ExtraChargeService::calcGuestSurcharge()
+    // / BookingController::buildGuestSurcharge() phía client) — trước đây card này chỉ tính 1 lần
+    // duy nhất bất kể số đêm, thấp hơn số khách thấy khi tự đặt qua web.
     $rawItems = (isset($originalItems) && is_array($originalItems)) ? $originalItems : ($items ?? []);
     foreach ($rawItems as $item) {
         $pid = $item['product_id'] ?? null;
@@ -127,13 +145,26 @@
 
         if ($feeEach > 0 && $itemGuestCount > $maxFree) {
             $extraGuests = $itemGuestCount - $maxFree;
-            $surcharge   = $extraGuests * $feeEach;
+
+            $itemNights = 1;
+            $itemStyle  = (int) ($item['product_style'] ?? ($prod->styles ?? 1));
+            if ($itemStyle === 2) {
+                $itemCheckin  = $item['checkin_day'] ?? $item['checkin_date'] ?? null;
+                $itemCheckout = $item['checkout_day'] ?? $item['checkout_date'] ?? null;
+                if ($itemCheckin && $itemCheckout) {
+                    $itemNights = max(1, (int) \Carbon\Carbon::parse($itemCheckin)->startOfDay()
+                        ->diffInDays(\Carbon\Carbon::parse($itemCheckout)->startOfDay()));
+                }
+            }
+
+            $surcharge   = $extraGuests * $feeEach * $itemNights;
             $totalGuestSurcharge += $surcharge;
             $guestSurchargeDetails[] = [
                 'room'         => $item['name'] ?? '',
                 'extra_guests' => $extraGuests,
                 'max_free'     => $maxFree,
                 'fee_each'     => $feeEach,
+                'nights'       => $itemNights,
                 'total'        => $surcharge,
             ];
         }
@@ -471,7 +502,7 @@
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem;">
                 <span style="font-size:0.75rem; color:#6b7280; display:flex; align-items:center; gap:0.3rem;">
                     <x-heroicon-o-user-plus style="width:0.75rem; height:0.75rem;" />
-                    Phụ thu {{ $detail['extra_guests'] }} người (trên {{ $detail['max_free'] }} miễn phí){{ !empty($detail['room']) ? ' — ' . $detail['room'] : '' }}
+                    Phụ thu {{ $detail['extra_guests'] }} người (trên {{ $detail['max_free'] }} miễn phí){{ ($detail['nights'] ?? 1) > 1 ? ' × ' . $detail['nights'] . ' đêm' : '' }}{{ !empty($detail['room']) ? ' — ' . $detail['room'] : '' }}
                 </span>
                 <span style="font-size:0.75rem; font-weight:600; color:#ea580c;">
                     +{{ number_format($detail['total'], 0, ',', '.') }} đ
