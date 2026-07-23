@@ -38,9 +38,15 @@ class SettingBook extends Page implements HasForms
 
     protected function getHeaderActions(): array
     {
+        $isSuperAdmin = (bool) auth()->user()?->isSuperAdmin();
+
+        $hiddenActions = $isSuperAdmin
+            ? ['block_calendar']
+            : ['block_calendar', 'create_coupon', 'create_promotion'];
+
         return array_values(array_filter(
             $this->traitGetHeaderActions(),
-            fn ($action) => $action->getName() !== 'block_calendar',
+            fn ($action) => ! in_array($action->getName(), $hiddenActions, true),
         ));
     }
 

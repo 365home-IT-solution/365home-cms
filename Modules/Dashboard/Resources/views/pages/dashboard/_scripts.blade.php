@@ -445,20 +445,25 @@ window.rcOpenRoomMenu = function(event, productId) {
     html += '<button type="button" class="ta-rc-menu-item" onclick="window.rcOpenBlockModal(\'' + productId + '\')"> Khóa khung giờ</button>';
     html += '<div class="ta-rc-menu-sep"></div>';
 
-    var cleanLabels = { available: 'Sẵn sàng', cleaning: 'Đang dọn', maintenance: 'Bảo trì' };
-    var cleanLabel  = cleanLabels[data.cleaning] || data.cleaning || 'Sẵn sàng';
-    var cleanPill   = data.cleaning === 'available' || !data.cleaning ? 'ok' : 'warn';
+    // Tạm thời ẩn khối "Dọn vệ sinh" khỏi popup thẻ phòng — bật lại bằng cách đổi `false` thành
+    // `true` bên dưới, không cần khôi phục lại toàn bộ khối code.
+    var showHousekeepingBlock = false;
+    if (showHousekeepingBlock) {
+        var cleanLabels = { available: 'Sẵn sàng', cleaning: 'Đang dọn', maintenance: 'Bảo trì' };
+        var cleanLabel  = cleanLabels[data.cleaning] || data.cleaning || 'Sẵn sàng';
+        var cleanPill   = data.cleaning === 'available' || !data.cleaning ? 'ok' : 'warn';
 
-    html += '<div class="ta-rc-menu-status-block">';
-    html += '  <div class="ta-rc-menu-status-label">Dọn vệ sinh</div>';
-    html += '  <div class="ta-rc-menu-status-row"><span>Tình trạng</span><span class="ta-rc-menu-pill ' + cleanPill + '">' + esc(cleanLabel) + '</span></div>';
-    if (data.cleaning === 'cleaning') {
-        // product_id là ULID dạng chuỗi (không phải số) — PHẢI có dấu nháy đơn khi nhúng vào
-        // biểu thức wire:click, nếu không Livewire/Alpine parse '01ksfmbs...' như 1 token số
-        // không hợp lệ → "Uncaught SyntaxError: Invalid or unexpected token".
-        html += '  <button type="button" class="ta-rc-menu-confirm-btn" wire:click="confirmRoomCleaning(\'' + productId + '\')" wire:loading.attr="disabled" wire:target="confirmRoomCleaning(\'' + productId + '\')" onclick="window.rcCloseRoomMenu()">Xác nhận đã dọn xong</button>';
+        html += '<div class="ta-rc-menu-status-block">';
+        html += '  <div class="ta-rc-menu-status-label">Dọn vệ sinh</div>';
+        html += '  <div class="ta-rc-menu-status-row"><span>Tình trạng</span><span class="ta-rc-menu-pill ' + cleanPill + '">' + esc(cleanLabel) + '</span></div>';
+        if (data.cleaning === 'cleaning') {
+            // product_id là ULID dạng chuỗi (không phải số) — PHẢI có dấu nháy đơn khi nhúng vào
+            // biểu thức wire:click, nếu không Livewire/Alpine parse '01ksfmbs...' như 1 token số
+            // không hợp lệ → "Uncaught SyntaxError: Invalid or unexpected token".
+            html += '  <button type="button" class="ta-rc-menu-confirm-btn" wire:click="confirmRoomCleaning(\'' + productId + '\')" wire:loading.attr="disabled" wire:target="confirmRoomCleaning(\'' + productId + '\')" onclick="window.rcCloseRoomMenu()">Xác nhận đã dọn xong</button>';
+        }
+        html += '</div>';
     }
-    html += '</div>';
 
     // Hoàn tiền — bấm 1 trong 2 nút gọi thẳng confirmRoomRefund() trên Dashboard, tái dùng ĐÚNG
     // ExtraChargeService::markRefundAsDone() giống hệt nút hoàn tiền ở trang sửa đơn (EditOrder).

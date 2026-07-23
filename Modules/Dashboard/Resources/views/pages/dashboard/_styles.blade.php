@@ -681,11 +681,6 @@
         cursor: pointer;
     }
 
-    .ta-room-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.07);
-    }
-
     .ta-room-card.has-new {
         border-color: #FCA5A5;
     }
@@ -1176,14 +1171,12 @@
     }
 
     /* ===== View "Danh sách gọn" — 2 dòng, không icon phụ ===== */
-    /* Bỏ viền màu bên trái (đã có chấm màu ta-rc-dot thể hiện trạng thái, không cần lặp lại) và
-       nền tô màu (is-new/seg-overdue) — chỉ giữ viền mỏng trung tính, cảm giác gọn/phẳng hơn.
+    /* Giữ viền màu bên trái (theo trạng thái/segment, xem .ta-rc-order-item.seg-* bên trên) —
+       chỉ tô nền trung tính, không lặp lại màu nền is-new/seg-overdue cho gọn.
        CHỈ áp dụng cho view Danh sách — view "Chi tiết (cũ)" vẫn giữ nguyên để so sánh. */
     .ta-rc-orders .ta-rc-order-item {
-        border-left: none;
         padding: 7px 9px 6px;
         background: var(--ta-panel);
-        border-color: var(--ta-line);
     }
 
     .ta-rc-orders .ta-rc-order-item.is-new,

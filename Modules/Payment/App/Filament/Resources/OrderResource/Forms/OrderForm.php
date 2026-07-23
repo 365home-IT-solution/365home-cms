@@ -398,18 +398,19 @@ class OrderForm
                                                                     ->content(function(Get $get) {
                                                                         $checkin  = $get('checkin_day') ?: $get('checkin_date');
                                                                         $checkout = $get('checkout_day') ?: $get('checkout_date');
-                                                                        $ppn = (float)($get('price_per_night') ?? 0);
-                                                                        if ($checkin && $checkout && $ppn > 0) {
-                                                                            $nights = \Carbon\Carbon::parse($checkin)->diffInDays(\Carbon\Carbon::parse($checkout));
-                                                                            if ($nights > 0) {
-                                                                                $total = $nights * $ppn;
-                                                                                return new \Illuminate\Support\HtmlString(
-                                                                                    '<div class="text-sm" style="color:var(--color-primary)">' .
-                                                                                    '<span class="font-bold text-base">' . number_format($total, 0, ',', '.') . 'đ</span>' .
-                                                                                    ' <span class="text-gray-400 font-normal">(' . $nights . ' đêm × ' . number_format($ppn, 0, ',', '.') . 'đ/đêm)</span>' .
-                                                                                    '</div>'
-                                                                                );
-                                                                            }
+                                                                        $priced   = self::calculateDailyRoomPrice($get('product_id'), $checkin, $checkout);
+
+                                                                        if ($priced['nights'] > 0) {
+                                                                            $nightsLabel = $priced['uniform_price'] !== null
+                                                                                ? $priced['nights'] . ' đêm × ' . number_format($priced['uniform_price'], 0, ',', '.') . 'đ/đêm'
+                                                                                : $priced['nights'] . ' đêm (giá riêng từng ngày, đã gồm khuyến mãi)';
+
+                                                                            return new \Illuminate\Support\HtmlString(
+                                                                                '<div class="text-sm" style="color:var(--color-primary)">' .
+                                                                                '<span class="font-bold text-base">' . number_format($priced['total'], 0, ',', '.') . 'đ</span>' .
+                                                                                ' <span class="text-gray-400 font-normal">(' . $nightsLabel . ')</span>' .
+                                                                                '</div>'
+                                                                            );
                                                                         }
                                                                         return new \Illuminate\Support\HtmlString('<span class="text-gray-400 italic text-xs">Chọn ngày nhận & trả phòng để tính giá</span>');
                                                                     }),
@@ -614,11 +615,10 @@ class OrderForm
                                                                             $set('checkin_date', $checkinDateOnly . ' ' . $checkinTime . ':00');
 
                                                                             if ($checkout) {
-                                                                                $nights = \Carbon\Carbon::parse($state)->startOfDay()
-                                                                                    ->diffInDays(\Carbon\Carbon::parse($checkout)->startOfDay());
-                                                                                $pricePerNight = (float)($get('price_per_night') ?? 0);
-                                                                                if ($pricePerNight > 0 && $nights > 0) {
-                                                                                    $set('price', $pricePerNight * $nights);
+                                                                                $priced = self::calculateDailyRoomPrice($get('product_id'), $state, $checkout);
+                                                                                if ($priced['nights'] > 0) {
+                                                                                    $set('price', $priced['total']);
+                                                                                    $set('price_per_night', $priced['uniform_price'] ?? round($priced['total'] / $priced['nights']));
                                                                                     self::calculateTotal($get, $set);
                                                                                 }
                                                                             }
@@ -685,11 +685,10 @@ class OrderForm
                                                                             $set('checkout_date', $checkoutDateOnly . ' ' . $checkoutTime . ':00');
 
                                                                             if ($checkin) {
-                                                                                $nights = \Carbon\Carbon::parse($checkin)->startOfDay()
-                                                                                    ->diffInDays(\Carbon\Carbon::parse($state)->startOfDay());
-                                                                                $pricePerNight = (float)($get('price_per_night') ?? 0);
-                                                                                if ($pricePerNight > 0 && $nights > 0) {
-                                                                                    $set('price', $pricePerNight * $nights);
+                                                                                $priced = self::calculateDailyRoomPrice($get('product_id'), $checkin, $state);
+                                                                                if ($priced['nights'] > 0) {
+                                                                                    $set('price', $priced['total']);
+                                                                                    $set('price_per_night', $priced['uniform_price'] ?? round($priced['total'] / $priced['nights']));
                                                                                     self::calculateTotal($get, $set);
                                                                                 }
                                                                             }
@@ -707,13 +706,17 @@ class OrderForm
                                                                                 if ($c->gte($o)) {
                                                                                     return new \Illuminate\Support\HtmlString('<span class="text-danger-600 text-xs">Ngày trả phải sau ngày nhận</span>');
                                                                                 }
-                                                                                $nights = $c->diffInDays($o);
-                                                                                $pricePerNight = (float)($get('price_per_night') ?? 0);
-                                                                                $total = $pricePerNight * $nights;
+                                                                                $priced = self::calculateDailyRoomPrice($get('product_id'), $checkin, $checkout);
+                                                                                if ($priced['nights'] <= 0) {
+                                                                                    return new \Illuminate\Support\HtmlString('<span class="text-gray-400 italic text-xs">Chọn ngày để tính đêm</span>');
+                                                                                }
+                                                                                $rateLabel = $priced['uniform_price'] !== null
+                                                                                    ? ' × ' . number_format($priced['uniform_price'], 0, ',', '.') . 'đ'
+                                                                                    : ' (giá riêng từng ngày)';
                                                                                 return new \Illuminate\Support\HtmlString(
                                                                                     '<div class="text-sm font-bold" style="color:var(--color-primary)">' .
-                                                                                    $nights . ' đêm' .
-                                                                                    ($pricePerNight > 0 ? ' × ' . number_format($pricePerNight, 0, ',', '.') . 'đ = <span class="text-base">' . number_format($total, 0, ',', '.') . 'đ</span>' : '') .
+                                                                                    $priced['nights'] . ' đêm' . $rateLabel .
+                                                                                    ' = <span class="text-base">' . number_format($priced['total'], 0, ',', '.') . 'đ</span>' .
                                                                                     '</div>'
                                                                                 );
                                                                             }
@@ -2021,6 +2024,70 @@ class OrderForm
             // tránh hiển thị lộn xộn trên lưới chọn khung giờ.
             ->sortBy(fn (RoomTimeSlot $slot) => $slot->timeSlot->start_time)
             ->values();
+    }
+
+    // Style 2 (đặt theo ngày) — tính giá phòng GIỐNG HỆT luồng đặt phòng của khách trên web
+    // (BookingController::buildDailyItems() + applyDailyPromotions()): mỗi đêm tự tra RoomTimeSlot
+    // "type=date" của ĐÚNG phòng này khớp đúng ngày đó (label = "Y-m-d") để lấy giá override riêng
+    // ngày (không có thì dùng giá gốc Product::price), rồi áp khuyến mãi ĐANG HOẠT ĐỘNG gắn trên
+    // ĐÚNG RoomTimeSlot đó qua PromotionCalculator::calculateForDate() — TRƯỚC ĐÂY admin chỉ nhân
+    // giá gốc × số đêm, bỏ qua hoàn toàn giá riêng theo ngày/khuyến mãi mà khách thấy khi tự đặt
+    // qua web, khiến "Tổng thanh toán" ở đây luôn cao hơn số tiền thật khách đã trả.
+    //
+    // @return array{nights:int, total:float, nightly:array<string,float>, uniform_price:?float}
+    public static function calculateDailyRoomPrice(?string $productId, ?string $checkin, ?string $checkout): array
+    {
+        $empty = ['nights' => 0, 'total' => 0.0, 'nightly' => [], 'uniform_price' => null];
+
+        if (! $productId || ! $checkin || ! $checkout) {
+            return $empty;
+        }
+
+        $product = Product::find($productId);
+        if (! $product) {
+            return $empty;
+        }
+
+        $checkinDate  = \Carbon\Carbon::parse($checkin)->startOfDay();
+        $checkoutDate = \Carbon\Carbon::parse($checkout)->startOfDay();
+        $nights       = $checkinDate->diffInDays($checkoutDate);
+
+        if ($nights <= 0) {
+            return $empty;
+        }
+
+        $slotsByDate = RoomTimeSlot::where('room_id', $productId)
+            ->whereHas('timeSlot', fn ($q) => $q->where('type', 'date'))
+            ->with(['timeSlot', 'promotions' => fn ($q) => $q->where('is_active', true)])
+            ->get()
+            ->filter(fn (RoomTimeSlot $slot) => $slot->timeSlot !== null)
+            ->keyBy(fn (RoomTimeSlot $slot) => $slot->timeSlot->label);
+
+        $basePrice  = (float) $product->price;
+        $calculator = app(\App\Services\PromotionCalculator::class);
+
+        $nightly = [];
+        $current = $checkinDate->copy();
+
+        while ($current->lt($checkoutDate)) {
+            $dateStr = $current->format('Y-m-d');
+            $rts     = $slotsByDate->get($dateStr);
+
+            $nightPrice = $rts?->price !== null ? (float) $rts->price : $basePrice;
+            $result     = $calculator->calculateForDate($rts, $nightPrice, $dateStr);
+
+            $nightly[$dateStr] = $result['final_price'];
+            $current->addDay();
+        }
+
+        $distinctPrices = array_unique($nightly);
+
+        return [
+            'nights'        => $nights,
+            'total'         => array_sum($nightly),
+            'nightly'       => $nightly,
+            'uniform_price' => count($distinctPrices) === 1 ? (float) reset($distinctPrices) : null,
+        ];
     }
 
     // Style 2 — giờ nhận/trả phòng THẬT SỰ áp dụng cho phòng: luôn dùng giờ mặc định đã cài trên

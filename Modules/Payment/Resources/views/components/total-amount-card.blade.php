@@ -311,13 +311,20 @@
                         </span>
                     </div>
 
-                    {{-- Style 2: ngày nhận/trả + số đêm --}}
+                    {{-- Style 2: ngày nhận/trả + số đêm — giá/đêm tra LẠI qua RoomTimeSlot theo ngày +
+                         khuyến mãi (OrderForm::calculateDailyRoomPrice(), GIỐNG HỆT client) thay vì
+                         dùng thẳng item['price_per_night'] (có thể lệch nếu mỗi đêm giá khác nhau,
+                         hoặc field này đang giữ tổng cũ từ trước khi sửa ngày). --}}
                     @if($itemStyle === 2 && !empty($item['checkin_date']) && !empty($item['checkout_date']))
                         @php
-                            $ci = \Carbon\Carbon::parse($item['checkin_date']);
-                            $co = \Carbon\Carbon::parse($item['checkout_date']);
-                            $nights = max(0, $ci->diffInDays($co));
-                            $ppn    = (float)($item['price_per_night'] ?? 0);
+                            $ci     = \Carbon\Carbon::parse($item['checkin_date']);
+                            $co     = \Carbon\Carbon::parse($item['checkout_date']);
+                            $priced = \Modules\Payment\App\Filament\Resources\OrderResource\Forms\OrderForm::calculateDailyRoomPrice(
+                                $item['product_id'] ?? null,
+                                $item['checkin_date'],
+                                $item['checkout_date']
+                            );
+                            $nights = $priced['nights'] > 0 ? $priced['nights'] : max(0, $ci->diffInDays($co));
                         @endphp
                         @if($nights > 0)
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.35rem; padding-top:0.35rem; border-top:1px dashed #e2e8f0;">
@@ -326,7 +333,7 @@
                                 {{ $ci->format('d/m') }} → {{ $co->format('d/m/Y') }}
                             </span>
                             <span style="font-size:0.7rem; color:#64748b; font-weight:500; white-space:nowrap;">
-                                {{ $nights }} đêm{{ $ppn > 0 ? ' × ' . number_format($ppn, 0, ',', '.') . 'đ' : '' }}
+                                {{ $nights }} đêm{{ $priced['uniform_price'] !== null ? ' × ' . number_format($priced['uniform_price'], 0, ',', '.') . 'đ' : '' }}
                             </span>
                         </div>
                         @endif
