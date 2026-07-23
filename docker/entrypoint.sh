@@ -1,6 +1,14 @@
 #!/bin/sh
 set -e
 
+# Service khác dùng CHUNG image này nhưng override "command:" trong compose.yaml (VD service
+# "reverb" chạy "php artisan reverb:start ...") — chạy THẲNG lệnh đó, bỏ qua toàn bộ luồng
+# migrate/seed/cache/supervisord bên dưới (chỉ dành cho service "app" chính, không truyền
+# command nên $# = 0, rơi xuống dưới y như cũ).
+if [ "$#" -gt 0 ]; then
+    exec "$@"
+fi
+
 # Ensure required storage directories exist (handles fresh host mounts)
 mkdir -p /var/www/html/storage/framework/views \
          /var/www/html/storage/framework/cache \
