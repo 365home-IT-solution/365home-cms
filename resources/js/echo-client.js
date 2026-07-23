@@ -22,6 +22,9 @@ if (import.meta.env.VITE_REVERB_APP_KEY) {
         wsHost: import.meta.env.VITE_REVERB_HOST,
         wsPort: import.meta.env.VITE_REVERB_PORT ?? 80,
         wssPort: import.meta.env.VITE_REVERB_PORT ?? 443,
+        // Reverb chạy sau nginx, dùng CHUNG port 443 với web chính qua tiền tố path riêng (giống
+        // /ws cho Node WS) thay vì mở port riêng — VITE_REVERB_PATH để trống thì không ảnh hưởng gì.
+        wsPath: import.meta.env.VITE_REVERB_PATH ?? '',
         forceTLS: (import.meta.env.VITE_REVERB_SCHEME ?? 'https') === 'https',
         enabledTransports: ['ws', 'wss'],
     });
