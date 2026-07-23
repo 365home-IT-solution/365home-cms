@@ -79,7 +79,9 @@ class SearchController extends Controller
             ->where('status', true)
             ->with('category')
             ->get()
-            ->filter(fn ($branch) => $branch->category && $branch->category->status);
+            ->filter(fn ($branch) => $branch->category && $branch->category->status)
+            ->sortBy(fn ($branch) => $branch->category->sort_order)
+            ->values();
 
         // Đếm số phòng khả dụng theo từng chi nhánh (tính cả category con) — cùng pattern đã
         // dùng ở ProvinceList::mount() (Modules/BladeThemeV1/Livewire/ProvinceList.php).

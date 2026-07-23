@@ -14,6 +14,7 @@ return [
             'slug' => 'Đường dẫn',
             'description' => 'Mô tả',
             'parent_id' => 'Thuộc chi nhánh',
+            'sort_order' => 'Thứ tự hiển thị',
             'category_type' => 'Kiểu hiển thị',
             'status' => 'Trạng thái',
             'image' => 'Hình ảnh địa điểm'
@@ -23,6 +24,7 @@ return [
             'slug' => 'Tự động tạo từ tên địa điểm...',
             'description' => 'Nhập mô tả...',
             'parent_id' => 'Thuộc chi nhánh...',
+            'sort_order' => '0',
             'category_type' => 'Chọn loại hiển thị...',
         ],
         'options' => [
@@ -40,6 +42,7 @@ return [
             'name' => 'Tên địa điểm',
             'slug' => 'Đường dẫn',
             'parent_id' => 'Chi nhánh',
+            'sort_order' => 'Thứ tự',
             'category_type' => 'Kiểu hiển thị',
             'status' => 'Trạng thái',
 

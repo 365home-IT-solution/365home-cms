@@ -48,6 +48,10 @@ class CategoryTable
                     ->getStateUsing(function ($record) {
                         return $record->parent ? $record->parent->name : __('category::category.table.placeholder.parent_id');
                     }),
+                TextColumn::make('sort_order')
+                    ->label(__('category::category.table.label.sort_order'))
+                    ->sortable()
+                    ->alignCenter(),
                 TextColumn::make('category_type')
                     ->label(__('category::category.table.label.category_type'))
                     ->sortable()
@@ -81,11 +85,11 @@ class CategoryTable
                     ->selectRaw('
                         (
                             WITH RECURSIVE category_tree(id, path, depth) AS (
-                                SELECT id, CAST(id AS CHAR(200)), 0
+                                SELECT id, CAST(CONCAT(LPAD(sort_order, 10, "0"), "-", LPAD(id, 10, "0")) AS CHAR(200)), 0
                                 FROM cms_categories
                                 WHERE parent_id IS NULL
                                 UNION ALL
-                                SELECT c.id, CONCAT(ct.path, ",", c.id), ct.depth + 1
+                                SELECT c.id, CONCAT(ct.path, ",", LPAD(c.sort_order, 10, "0"), "-", LPAD(c.id, 10, "0")), ct.depth + 1
                                 FROM cms_categories c
                                 JOIN category_tree ct ON c.parent_id = ct.id
                             )

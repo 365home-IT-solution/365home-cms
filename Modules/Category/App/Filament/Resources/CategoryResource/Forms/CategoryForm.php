@@ -90,11 +90,27 @@ class CategoryForm
         return Section::make()
             ->schema([
                 self::parentCategoryInput(),
+                self::sortOrderInput(),
                 self::categoryTypeInput(),
                 self::partnerInput(),
                 self::statusToggle(),
             ])
             ->columnSpan(1);
+    }
+
+    // Thứ tự hiển thị giữa các chi nhánh/khu vực CÙNG CẤP (cùng parent_id) — số nhỏ hơn hiển thị
+    // trước. Ảnh hưởng danh sách chi nhánh ở trang tìm kiếm (?view=branches), API /v1/branches,
+    // /v1/search/branches và khối "Chi nhánh tại khu vực" trên trang chủ.
+    private static function sortOrderInput(): TextInput
+    {
+        return TextInput::make('sort_order')
+            ->label(__('category::category.form.label.sort_order'))
+            ->placeholder(__('category::category.form.placeholder.sort_order'))
+            ->numeric()
+            ->integer()
+            ->minValue(0)
+            ->default(0)
+            ->helperText('Số nhỏ hơn hiển thị trước. Chỉ so sánh giữa các mục cùng cấp (cùng "Thuộc chi nhánh").');
     }
 
     // Chỉ super_admin thấy field này (chọn chi nhánh thuộc đối tác nào) — tài khoản đối tác/nhân

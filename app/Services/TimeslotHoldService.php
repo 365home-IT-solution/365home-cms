@@ -154,6 +154,29 @@ class TimeslotHoldService
             ->first();
     }
 
+    // Bản gộp của isHeldByAdmin() — nạp 1 lần TẤT CẢ hold đang hiệu lực cho danh sách
+    // room_time_slot_id, trả về map "roomTimeSlotId|Y-m-d" => TimeslotHold để tra cứu bằng mảng
+    // (O(1), không query) thay vì gọi isHeldByAdmin() riêng cho MỖI ô lịch. Dùng ở lưới đặt phòng
+    // (book/_slot-cell.blade.php, qua Book::getActiveHoldsMap()) — nơi có thể render tới hàng trăm
+    // ô/lượt (số phòng x số khung giờ x số ngày), gọi isHeldByAdmin() cho từng ô từng gây ra hàng
+    // trăm round-trip DB (kể cả DELETE purge) mỗi lần render, khiến "Xem thêm ngày"/chọn phòng có
+    // khi mất hàng chục giây. Lọc expires_at > now() ngay trong query thay vì DELETE trước (purge
+    // thật sự đã có scheduler riêng, xem releaseExpiredHolds()) — tránh ghi DB trong 1 request chỉ
+    // để đọc dữ liệu hiển thị.
+    public function getActiveHoldsMap(array $roomTimeSlotIds): array
+    {
+        if (empty($roomTimeSlotIds)) {
+            return [];
+        }
+
+        return TimeslotHold::whereIn('room_time_slot_id', $roomTimeSlotIds)
+            ->where('expires_at', '>', now())
+            ->with('user')
+            ->get()
+            ->keyBy(fn (TimeslotHold $hold) => $hold->room_time_slot_id . '|' . $hold->date->format('Y-m-d'))
+            ->all();
+    }
+
     // CỐ Ý không broadcast — hàm này chỉ dùng nội bộ trước mỗi thao tác hold/check để đảm bảo
     // không đọc phải hold đã hết hạn, KHÔNG phải nơi duy nhất dọn hold hết hạn (xem
     // releaseExpiredHolds() bên dưới, chạy định kỳ qua scheduler — có broadcast đầy đủ).

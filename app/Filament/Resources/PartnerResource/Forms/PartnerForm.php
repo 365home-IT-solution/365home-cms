@@ -423,6 +423,10 @@ class PartnerForm
     // partner_id xuống Product/Order/AccessCode + dọn rác UserBranchPermission bên trong.
     public static function syncAssignments(Partner $record, array $branchIds, array $userIds): void
     {
+        // CheckboxList trả về id dạng string (Livewire); Category::id là int nên phải ép kiểu
+        // trước khi so sánh strict, nếu không in_array(..., true) luôn false → mất gán chi nhánh.
+        $branchIds = array_map('intval', $branchIds);
+
         Category::query()
             ->where('category_type', 'product')
             ->whereNull('parent_id')

@@ -241,7 +241,8 @@ class UserForm
                                 ->label('Mã nhân viên')
                                 ->placeholder('Mã tự động')
                                 ->disabled()
-                                ->dehydrated(false),
+                                ->dehydrated(false)
+                                ->hidden(),
 
                             Forms\Components\TextInput::make('phone')
                                 ->label('Số điện thoại')
@@ -252,7 +253,8 @@ class UserForm
                                 ->label('Chi nhánh trả lương')
                                 ->options(fn (Get $get) => self::branchOptions($get))
                                 ->searchable()
-                                ->live(),
+                                ->live()
+                                ->hidden(),
 
                             Forms\Components\Toggle::make('status')
                                 ->label('Đang làm việc')
@@ -267,18 +269,21 @@ class UserForm
                             ->preload()
                             ->disabled(fn (Get $get) => (bool) $get('works_all_branches'))
                             ->helperText('Bật "Làm việc tất cả chi nhánh" bên dưới nếu không giới hạn theo chi nhánh cụ thể.')
-                            ->columnSpanFull(),
+                            ->columnSpanFull()
+                            ->hidden(),
 
                         Forms\Components\Toggle::make('works_all_branches')
                             ->label('Làm việc tất cả chi nhánh')
                             ->live()
-                            ->columnSpanFull(),
+                            ->default(false)
+                            ->columnSpanFull()
+                            ->hidden(),
                     ])
                     ->visible(fn (Get $get): bool => $get('account_type') !== 'partner'),
 
                 Forms\Components\Section::make('Thông tin công việc')
                     ->collapsible()
-                    ->visible(fn (Get $get): bool => $get('account_type') !== 'partner')
+                    ->hidden()
                     ->schema([
                         Forms\Components\Grid::make(2)->schema([
                             Forms\Components\DatePicker::make('hire_date')
@@ -325,7 +330,7 @@ class UserForm
 
                 Forms\Components\Section::make('Thông tin cá nhân')
                     ->collapsible()
-                    ->visible(fn (Get $get): bool => $get('account_type') !== 'partner')
+                    ->hidden()
                     ->schema([
                         Forms\Components\Grid::make(2)->schema([
                             Forms\Components\TextInput::make('id_number')
@@ -347,7 +352,7 @@ class UserForm
 
                 Forms\Components\Section::make('Thông tin liên hệ')
                     ->collapsible()
-                    ->visible(fn (Get $get): bool => $get('account_type') !== 'partner')
+                    ->hidden()
                     ->schema([
                         Forms\Components\Grid::make(2)->schema([
                             Forms\Components\TextInput::make('address')
@@ -443,7 +448,7 @@ class UserForm
     {
         return Forms\Components\Tabs\Tab::make('Thiết lập lương')
             ->icon('heroicon-o-banknotes')
-            ->visible(fn (Get $get): bool => $get('account_type') !== 'partner')
+            ->hidden()
             ->schema([
                 Forms\Components\Section::make('Lương chính')
                     ->schema([
@@ -545,6 +550,7 @@ class UserForm
                     ->schema([
                         Forms\Components\Toggle::make('has_allowances')
                             ->label('Bật phụ cấp')
+                            ->default(false)
                             ->live(),
 
                         Forms\Components\Repeater::make('allowances')
@@ -614,6 +620,7 @@ class UserForm
                     ->schema([
                         Forms\Components\Toggle::make('has_deductions')
                             ->label('Bật giảm trừ')
+                            ->default(false)
                             ->live(),
 
                         Forms\Components\Repeater::make('deductions')

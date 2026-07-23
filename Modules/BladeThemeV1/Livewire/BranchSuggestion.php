@@ -48,6 +48,8 @@ class BranchSuggestion extends Component
             ->whereHas('category', fn ($q) => $q->where('status', true))
             ->with('category')
             ->get()
+            ->sortBy(fn ($branch) => $branch->category->sort_order)
+            ->values()
             ->map(fn ($branch) => [
                 'id'        => $branch->category->id,
                 'name'      => $branch->category->name,

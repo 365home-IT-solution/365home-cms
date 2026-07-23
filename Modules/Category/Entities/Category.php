@@ -16,6 +16,7 @@ class Category extends Model
         'slug',
         'description',
         'parent_id',
+        'sort_order',
         'category_type',
         'status',
         'image',
@@ -33,8 +34,9 @@ class Category extends Model
     ];
 
     protected $casts = [
-        'status'    => 'boolean',
-        'area_sqm'  => 'decimal:2',
+        'status'     => 'boolean',
+        'area_sqm'   => 'decimal:2',
+        'sort_order' => 'integer',
     ];
 
     public function parent()

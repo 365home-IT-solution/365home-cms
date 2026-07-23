@@ -75,9 +75,11 @@
     if (in_array($slotDateYmd, $blockedDates)) { $isSelectable = false; $classes .= ' blocked'; }
 
     // Đang bị ADMIN giữ chỗ real-time (xem TimeslotHoldService) — hiển thị MỜ, không ẩn hoàn toàn.
+    // Tra map đã nạp sẵn 1 lần/lượt render (Book::getActiveHoldsMap()) thay vì tự query riêng cho
+    // từng ô — xem lý do ở TimeslotHoldService::getActiveHoldsMap().
     $heldByName = null;
     if ($isSelectable) {
-        $activeHold = app(\App\Services\TimeslotHoldService::class)->isHeldByAdmin($roomTimeSlot->id, $slotDateYmd);
+        $activeHold = $this->getActiveHoldsMap()[$roomTimeSlot->id . '|' . $slotDateYmd] ?? null;
         if ($activeHold) {
             $isSelectable = false;
             $classes .= ' held';

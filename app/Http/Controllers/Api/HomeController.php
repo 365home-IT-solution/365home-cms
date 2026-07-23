@@ -190,6 +190,8 @@ class HomeController extends Controller
             ->with('category')
             ->get()
             ->filter(fn ($branch) => $branch->category && $branch->category->status)
+            ->sortBy(fn ($branch) => $branch->category->sort_order)
+            ->values()
             ->map(fn ($branch) => [
                 'id'        => $branch->category->id,
                 'name'      => $branch->category->name,

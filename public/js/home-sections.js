@@ -48,10 +48,15 @@ if (typeof window.mountBookDtSwiper === 'undefined') {
 // Hook toàn cục (đăng ký 1 lần): mỗi khi Livewire morph lại 1 vùng chứa (hoặc nằm trong)
 // .book-dt-wrap — ví dụ đổi chi nhánh, hoặc lần đầu nạp dữ liệu sau khi mount rỗng — gắn lại
 // Swiper để không bị mất class active/next/prev do morph ghi đè DOM.
+// Dùng "morphed" (bắn 1 LẦN sau khi TOÀN BỘ cây DOM của component đã morph xong), KHÔNG dùng
+// "morph.updated" (bắn cho TỪNG node bị thay đổi trong cây — bảng lịch có thể có hàng trăm ô
+// thay đổi trong 1 lượt render, tức mountBookDtSwiper() — destroy() + new Swiper() — sẽ chạy
+// lặp lại hàng trăm lần, có lần chạy giữa lúc DOM còn đang morph dở, dễ để lại state Swiper
+// (transform/width lệch) không khớp DOM cuối cùng).
 if (typeof window.__bookDtMorphHookRegistered === 'undefined') {
     window.__bookDtMorphHookRegistered = true;
     document.addEventListener('livewire:init', () => {
-        Livewire.hook('morph.updated', ({ el }) => {
+        Livewire.hook('morphed', ({ el }) => {
             const wraps = el.classList && el.classList.contains('book-dt-wrap')
                 ? [el]
                 : (el.querySelectorAll ? Array.from(el.querySelectorAll('.book-dt-wrap')) : []);

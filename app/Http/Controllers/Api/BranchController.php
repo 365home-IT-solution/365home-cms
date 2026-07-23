@@ -272,7 +272,7 @@ class BranchController extends Controller
             $query->whereIn('id', $branchIds);
         }
 
-        $branches = $query->orderBy('name')->get();
+        $branches = $query->orderBy('sort_order')->orderBy('name')->get();
 
         return response()->json([
             'branches' => $branches->map(fn ($branch) => $this->mapBranch($branch))->values(),

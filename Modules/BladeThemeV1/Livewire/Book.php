@@ -2,6 +2,7 @@
 
 namespace Modules\BladeThemeV1\Livewire;
 
+use App\Services\TimeslotHoldService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
@@ -54,6 +55,32 @@ class Book extends Component
     public function getRoomIdsProperty(): array
     {
         return collect($this->activeCategoryData['products'] ?? [])->pluck('id')->all();
+    }
+
+    /** Cache trong-request (không phải property Livewire, không persist giữa các lượt request)
+     *  cho map hold real-time — tính 1 lần/lượt render dù bảng lịch gọi lại nhiều lần khi lặp
+     *  qua từng ô (xem getActiveHoldsMap() bên dưới). */
+    protected ?array $activeHoldsCache = null;
+
+    // Nạp 1 LẦN toàn bộ hold đang hiệu lực cho tất cả room_time_slot_id đang hiển thị trên bảng
+    // (mọi phòng, kể cả phòng "peek" chưa active — book/_desktop-grid.blade.php render đủ giá cho
+    // tất cả), rồi book/_slot-cell.blade.php tra map này thay vì tự gọi
+    // TimeslotHoldService::isHeldByAdmin() cho TỪNG ô — trước đây mỗi ô tự query (+ DELETE purge)
+    // riêng, với bảng nhiều ngày/phòng có thể thành hàng trăm round-trip DB chỉ để vẽ 1 lượt bảng
+    // (xem TimeslotHoldService::getActiveHoldsMap() để biết lý do đổi).
+    public function getActiveHoldsMap(): array
+    {
+        if ($this->activeHoldsCache !== null) {
+            return $this->activeHoldsCache;
+        }
+
+        $roomTimeSlotIds = collect($this->activeCategoryData['products'] ?? [])
+            ->flatMap(fn ($room) => $room->roomTimeSlots->pluck('id'))
+            ->unique()
+            ->values()
+            ->all();
+
+        return $this->activeHoldsCache = app(TimeslotHoldService::class)->getActiveHoldsMap($roomTimeSlotIds);
     }
 
     // resources/js/echo-client.js nghe kênh public "timeslot-holds.{roomId}" cho MỌI phòng đang
