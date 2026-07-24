@@ -52,7 +52,7 @@ class SettingBook extends Page implements HasForms
 
     protected static string $resource = BookResource::class;
     protected static ?string $slug = 'cai-dat-he-thong-booking';
-    protected static ?string $title = 'Hệ thống Giá & Ưu đãi';
+    protected static ?string $title = 'Hệ thống giá';
 
     protected static string $view = 'book::filament.resources.book-resource.pages.setting-book';
 

@@ -203,7 +203,7 @@
     </div>
     @endif
 
-    <div class="grid grid-cols-2 mt-3">
+    <div class="grid grid-cols-1 sm:grid-cols-2 mt-3">
         {{-- Status --}}
         <div class="info-banner">
             <p class="text-xs text-white dark:text-white mb-1">Trạng thái:</p>

@@ -43,7 +43,6 @@ class OrderForm
                 // yêu cầu gộp lại thành 1 trang duy nhất, cuộn liên tục, không còn điều hướng tab.
                 // Giữ nguyên 2 Section (tiêu đề + icon) để vẫn phân biệt rõ 2 phần nội dung cũ.
                 Section::make('Thông tin đơn đặt phòng')
-                    ->icon('heroicon-m-home-modern')
                             ->schema([
                                 Section::make('Mật khẩu phòng thủ công')
                                     ->icon('heroicon-o-key')
@@ -170,13 +169,13 @@ class OrderForm
                                                     ]);
                                                 }),
                                             ])
-                                            ->visible(fn($record) => $record && $record->status === 'paid' && ! ($record->items->sortBy('checkin_date')->first()?->product?->has_manual_lock))
+                                            ->visible(fn($record) => self::hasAccessCodeSection($record))
                                             ->collapsible(),
 
                                         Section::make('Thông tin khách hàng')
-                                            ->columnSpan(1)
-                                            ->icon('heroicon-m-identification')
-                                            ->iconColor('primary')
+                                            // Không có Mã cổng để hiển thị cạnh (đơn chưa 'paid', hoặc phòng dùng
+                                            // khóa thủ công) — chiếm trọn hàng thay vì chỉ 1/2 cột như bình thường.
+                                            ->columnSpan(fn($record) => self::hasAccessCodeSection($record) ? 1 : 2)
                                             ->collapsible()
                                             ->schema([
                                                 TextInput::make('buyer_name')
@@ -184,9 +183,6 @@ class OrderForm
                                                     ->placeholder('VD: Nguyễn Văn An')
                                                     ->required()
                                                     ->maxLength(255)
-                                                    ->hintIcon('heroicon-m-user-circle')
-                                                    ->hintColor('primary')
-                                                    ->hintIconTooltip('Họ tên đầy đủ như trong CCCD.')
                                                     ->live(onBlur: true)
                                                     ->validationMessages([
                                                         'required' => 'Vui lòng nhập họ tên khách hàng',
@@ -200,9 +196,6 @@ class OrderForm
                                                     ->required()
                                                     ->regex('/^[0-9]{10,11}$/')
                                                     ->live(onBlur: true)
-                                                    ->hintIcon('heroicon-m-phone')
-                                                    ->hintColor('primary')
-                                                    ->hintIconTooltip('Số điện thoại để liên hệ xác nhận')
                                                     ->validationMessages([
                                                         'required' => 'Vui lòng nhập số điện thoại',
                                                         'regex' => 'Số điện thoại không đúng định dạng (10-11 số)'
@@ -214,10 +207,7 @@ class OrderForm
                                                     ->nullable()
                                                     ->default('')
                                                     ->rows(4)
-                                                    ->maxLength(1000)
-                                                    ->hintIcon('heroicon-m-pencil-square')
-                                                    ->hintColor('primary')
-                                                    ->hintIconTooltip('Ghi chú thêm về yêu cầu đặc biệt của khách hàng'),
+                                                    ->maxLength(1000),
                                             ]),
                                     ]),
                                 // Bố cục 2 cột giống trang chi tiết phòng phía client (BookingForm nằm
@@ -229,8 +219,6 @@ class OrderForm
                                     ->schema([
                                             Section::make('Chi tiết đặt phòng')
                                                 ->description('Thông tin về phòng và thời gian lưu trú')
-                                                ->icon('heroicon-m-calendar-days')
-                                                ->iconColor('primary')
                                                 ->schema([
                                                     Grid::make(2)
                                                         ->schema([
@@ -245,7 +233,8 @@ class OrderForm
                                                                 ->visible(fn () => self::isPlatformStaff())
                                                                 ->required(fn () => self::isPlatformStaff())
                                                                 ->dehydrated(false)
-                                                                ->columnSpanFull()
+                                                                // Chung hàng với "Chi nhánh" ngay bên cạnh (Grid 2 cột) — chỉ hiện
+                                                                // với platform staff nên KHÔNG cần columnSpanFull() nữa.
                                                                 // Chỉ liệt kê đối tác ĐÃ ĐƯỢC XÁC NHẬN (verification_status =
                                                                 // 'approved') — đối tác đang chờ duyệt/bị từ chối chưa đủ điều
                                                                 // kiện vận hành thật, không nên đặt phòng hộ cho họ.
@@ -272,10 +261,7 @@ class OrderForm
                                                                 ->live()
                                                                 ->afterStateUpdated(function (Set $set) {
                                                                     $set('category_id', null);
-                                                                })
-                                                                ->hintIcon('heroicon-m-building-office-2')
-                                                                ->hintColor('primary')
-                                                                ->hintIconTooltip('Đặt phòng hộ cho đối tác nào'),
+                                                                }),
 
                                                             Select::make('category_id')
                                                                 ->label('Chi nhánh')
@@ -321,6 +307,9 @@ class OrderForm
                                                                 ->preload()
                                                                 ->native(false)
                                                                 ->live()
+                                                                // Không phải platform staff thì "Đối tác" ở trên ẩn hẳn (không chiếm
+                                                                // cột nào) — chiếm trọn cả hàng thay vì chỉ nửa Grid 2 cột.
+                                                                ->columnSpan(fn () => self::isPlatformStaff() ? 1 : 2)
                                                                 ->disabled(fn (Get $get) => self::isPlatformStaff() && ! $get('booking_partner_id'))
                                                                 ->afterStateUpdated(function (Set $set, Get $get) {
                                                                     // Đổi chi nhánh thì các phòng đã chọn ở Repeater bên dưới (nếu có)
@@ -329,10 +318,7 @@ class OrderForm
                                                                     foreach (array_keys($get('orderItems') ?? []) as $key) {
                                                                         $set("orderItems.{$key}.product_id", null);
                                                                     }
-                                                                })
-                                                                ->hintIcon('heroicon-m-star')
-                                                                ->hintColor('primary')
-                                                                ->hintIconTooltip('Chi nhánh đặt phòng'),
+                                                                }),
 
                                                         ]),
 
@@ -408,9 +394,6 @@ class OrderForm
                                                                         ->preload()
                                                                         ->required()
                                                                         ->reactive()
-                                                                        ->hintIcon('heroicon-s-home')
-                                                                        ->hintColor('primary')
-                                                                        ->hintIconTooltip('Chọn phòng muốn đặt')
                                                                         ->afterStateUpdated(function ($state, Get $get, Set $set) {
                                                                             if ($state) {
                                                                                 $product = Product::find($state);
@@ -440,8 +423,6 @@ class OrderForm
                                                                         ->minValue(1)
                                                                         ->default(1)
                                                                         ->required()
-                                                                        ->hintIcon('heroicon-c-user-plus')
-                                                                        ->hintColor('primary')
                                                                         ->afterStateUpdated(function ($state, Get $get, Set $set) {
                                                                             self::calculateTotal($get, $set);
                                                                         }),
@@ -581,9 +562,6 @@ class OrderForm
                                                                         ->placeholder('Chọn ngày & giờ nhận phòng')
                                                                         ->displayFormat('d/m/Y H:i')
                                                                         ->seconds(false)
-                                                                        ->hintIcon('heroicon-m-arrow-right-end-on-rectangle')
-                                                                        ->hintColor('primary')
-                                                                        ->hintIconTooltip('Thời gian nhận phòng dự kiến')
                                                                         ->native(false)
                                                                         ->dehydrated(false)
                                                                         ->afterStateHydrated(function ($component, Get $get) {
@@ -600,9 +578,6 @@ class OrderForm
                                                                         ->placeholder('Chọn ngày & giờ trả phòng')
                                                                         ->displayFormat('d/m/Y H:i')
                                                                         ->seconds(false)
-                                                                        ->hintIcon('heroicon-m-arrow-right-start-on-rectangle')
-                                                                        ->hintColor('primary')
-                                                                        ->hintIconTooltip('Thời gian trả phòng dự kiến')
                                                                         ->native(false)
                                                                         ->dehydrated(false)
                                                                         ->afterStateHydrated(function ($component, Get $get) {
@@ -625,8 +600,6 @@ class OrderForm
                                                                         ->displayFormat('d/m/Y')
                                                                         ->native(false)
                                                                         ->icon('heroicon-o-calendar-days')
-                                                                        ->hintIcon('heroicon-m-arrow-right-end-on-rectangle')
-                                                                        ->hintColor('primary')
                                                                         ->weekStartsOnMonday()
                                                                         ->closeOnDateSelection()
                                                                         ->locale('vi')
@@ -696,8 +669,6 @@ class OrderForm
                                                                         ->displayFormat('d/m/Y')
                                                                         ->native(false)
                                                                         ->icon('heroicon-o-calendar-days')
-                                                                        ->hintIcon('heroicon-m-arrow-right-start-on-rectangle')
-                                                                        ->hintColor('primary')
                                                                         ->weekStartsOnMonday()
                                                                         ->closeOnDateSelection()
                                                                         ->locale('vi')
@@ -827,8 +798,6 @@ class OrderForm
                                                 ->schema([
                                                     Section::make('Tổng thanh toán')
                                                         ->description('Chi tiết tính toán chi phí')
-                                                        ->icon('heroicon-s-currency-dollar')
-                                                        ->iconColor('primary')
                                                         ->schema([
                                                             Repeater::make('orderServices')
                                                                 ->relationship('services')
@@ -849,9 +818,6 @@ class OrderForm
                                                                             ->preload()
                                                                             ->live()
                                                                             ->columnSpan(2)
-                                                                            ->hintIcon('heroicon-o-shopping-bag')
-                                                                            ->hintColor('primary')
-                                                                            ->hintIconTooltip('Chọn dịch vụ thêm')
                                                                             ->afterStateUpdated(function ($state, Get $get, Set $set) {
                                                                                 if ($state) {
                                                                                     $service = \Modules\BladeThemeV1\App\Models\AdditionService::find($state);
@@ -872,8 +838,6 @@ class OrderForm
                                                                             ->default(1)
                                                                             ->required()
                                                                             ->live(debounce: 300)
-                                                                            ->hintIcon('heroicon-o-hashtag')
-                                                                            ->hintColor('primary')
                                                                             ->afterStateUpdated(function ($state, Get $get, Set $set) {
                                                                                 $price = (float) ($get('price') ?? 0);
                                                                                 $qty = max(1, (int) $state);
@@ -888,18 +852,14 @@ class OrderForm
                                                                             ->numeric()
                                                                             ->suffix('đ')
                                                                             ->disabled()
-                                                                            ->dehydrated(true)
-                                                                            ->hintIcon('heroicon-o-banknotes')
-                                                                            ->hintColor('gray'),
+                                                                            ->dehydrated(true),
 
                                                                         TextInput::make('subtotal')
                                                                             ->label('Thành tiền')
                                                                             ->numeric()
                                                                             ->suffix('đ')
                                                                             ->disabled()
-                                                                            ->dehydrated(true)
-                                                                            ->hintIcon('heroicon-o-calculator')
-                                                                            ->hintColor('success'),
+                                                                            ->dehydrated(true),
                                                                     ]),
 
                                                                     Hidden::make('service_name'),
@@ -917,12 +877,44 @@ class OrderForm
                                                                     ? $state['service_name'] . (!empty($state['quantity']) ? ' × ' . $state['quantity'] : '') . (!empty($state['subtotal']) ? ' — ' . number_format((float) $state['subtotal'], 0, ',', '.') . 'đ' : '')
                                                                     : 'Dịch vụ mới'),
 
-                                                            // Card breakdown (phòng/dịch vụ/giảm giá/phụ thu khách) TRUYỀN
-                                                            // THÊM 'displayTotal' = giá trị HIỆN TẠI của field 'amount' bên
-                                                            // dưới — để dòng "TỔNG THANH TOÁN" trên card LUÔN khớp CHÍNH XÁC
-                                                            // với số trong ô "Tổng tiền đơn" (kể cả khi admin đã gõ đè tay),
-                                                            // thay vì card tự tính lại 1 số khác đứng cạnh 1 ô nhập tay có
-                                                            // thể đang giữ số khác — 2 chỗ hiển thị PHẢI luôn đồng bộ.
+                                                            Grid::make(2)
+                                                                ->schema([
+                                                                    // Phụ thu ngoài đơn giá phòng/dịch vụ (vd phí phát sinh admin thoả
+                                                                    // thuận riêng với khách) — admin gõ tay, CỘNG THẲNG vào tổng ở
+                                                                    // calculateTotal()/amount_preview bên dưới, giống cách 'orderServices'
+                                                                    // được cộng vào tổng.
+                                                                    TextInput::make('surcharge')
+                                                                        ->label('Phụ thu (có thể sửa tay)')
+                                                                        ->numeric()
+                                                                        ->minValue(0)
+                                                                        ->default(0)
+                                                                        ->suffix('đ')
+                                                                        ->live()
+                                                                        ->dehydrated(true)
+                                                                        ->afterStateUpdated(function (Get $get, Set $set) {
+                                                                            self::calculateTotal($get, $set);
+                                                                        }),
+
+                                                                    // Tổng tiền THẬT SỰ sẽ lưu vào đơn — mặc định tự điền theo đúng số
+                                                                    // hệ thống vừa tính ở dưới (mỗi khi sửa phòng/dịch vụ/phụ thu,
+                                                                    // calculateTotal() sẽ ghi đè lại field này bằng số tính đúng). Admin
+                                                                    // vẫn có thể gõ đè 1 số KHÁC ngay tại đây nếu cần điều chỉnh giá
+                                                                    // thực thu.
+                                                                    TextInput::make('amount')
+                                                                        ->label('Tổng tiền đơn (có thể sửa tay)')
+                                                                        ->numeric()
+                                                                        ->minValue(0)
+                                                                        ->suffix('đ')
+                                                                        ->live()
+                                                                        ->dehydrated(true),
+                                                                ]),
+
+                                                            // Card breakdown (phòng/dịch vụ/giảm giá/phụ thu khách/phụ thu) TRUYỀN
+                                                            // THÊM 'displayTotal' = giá trị HIỆN TẠI của field 'amount' ở trên —
+                                                            // để dòng "TỔNG THANH TOÁN" trên card LUÔN khớp CHÍNH XÁC với số
+                                                            // trong ô "Tổng tiền đơn" (kể cả khi admin đã gõ đè tay), thay vì
+                                                            // card tự tính lại 1 số khác đứng cạnh 1 ô nhập tay có thể đang giữ
+                                                            // số khác — 2 chỗ hiển thị PHẢI luôn đồng bộ.
                                                             Placeholder::make('amount_preview')
                                                                 ->label('')
                                                                 ->live()
@@ -934,7 +926,9 @@ class OrderForm
                                                                     $servicesFormState = $get('orderServices') ?? [];
                                                                     $servicesFormState = is_array($servicesFormState) ? $servicesFormState : [];
 
-                                                                    $total = self::computeOrderTotal($items, $servicesFormState);
+                                                                    $surcharge = (float) ($get('surcharge') ?? 0);
+
+                                                                    $total = self::computeOrderTotal($items, $servicesFormState) + $surcharge;
 
                                                                     $expandedItems = self::expandOrderItemsForPersistence($items);
 
@@ -947,28 +941,13 @@ class OrderForm
                                                                         'originalItems' => $items,
                                                                         'record' => $record,
                                                                         'servicesFormState' => $servicesFormState,
+                                                                        'surcharge' => $surcharge,
                                                                     ]);
                                                                 }),
-
-                                                            // Tổng tiền THẬT SỰ sẽ lưu vào đơn — mặc định tự điền theo đúng số hệ
-                                                            // thống vừa tính ở trên (mỗi khi sửa phòng/dịch vụ, calculateTotal() sẽ
-                                                            // ghi đè lại field này bằng số tính đúng). Admin vẫn có thể gõ đè 1 số
-                                                            // KHÁC ngay tại đây nếu cần điều chỉnh giá thực thu.
-                                                            TextInput::make('amount')
-                                                                ->label('Tổng tiền đơn (có thể sửa tay)')
-                                                                ->numeric()
-                                                                ->minValue(0)
-                                                                ->suffix('đ')
-                                                                ->live()
-                                                                ->dehydrated(true)
-                                                                ->hintIcon('heroicon-o-pencil-square')
-                                                                ->hintColor('warning'),
                                                         ]),
 
                                                     Section::make('Upload CCCD/CMND')
                                                         ->description('Tải lên ảnh CCCD/CMND rõ nét để xác minh danh tính')
-                                                        ->icon('heroicon-m-credit-card')
-                                                        ->iconColor('primary')
                                                         ->collapsible(false)
                                                         ->collapsed()
                                                         ->schema([
@@ -1190,13 +1169,20 @@ class OrderForm
                                     ]),
 
                         Section::make(__('payment::order.form.fieldset.payment_info'))
-                            ->icon('heroicon-m-credit-card')
                             ->schema([
+                                // Lịch sử thanh toán bên trái, Phương thức thanh toán bên phải —
+                                // responsive: gộp về 1 cột dọc trên màn hình < 1024px.
+                                // Section/Grid::setUp() TỰ ĐỘNG ->columnSpan('full') (xem ghi chú ở
+                                // Grid "Mã cổng"/"Thông tin khách hàng" phía trên) nên PHẢI tự
+                                // ->columnSpan(1) đè lại ở cả 2 Grid con dưới đây.
+                                Grid::make(['default' => 1, 'lg' => 2])
+                                    ->schema([
+                                        Grid::make(1)
+                                            ->columnSpan(1)
+                                            ->schema([
                                 // TIMELINE THANH TOÁN
                                 Section::make('Lịch sử thanh toán')
                                     ->description('Thời điểm tạo đơn và các mốc thanh toán')
-                                    ->icon('heroicon-m-clock')
-                                    ->iconColor('info')
                                     ->schema([
                                         Placeholder::make('payment_timeline')
                                             ->label('')
@@ -1809,10 +1795,13 @@ class OrderForm
                                     ->collapsible()
                                     ->collapsed(false),
 
+                                            ]),
+
+                                        Grid::make(1)
+                                            ->columnSpan(1)
+                                            ->schema([
                                 Section::make('Phương thức thanh toán')
                                     ->description('Chọn phương thức thanh toán và trạng thái đơn hàng')
-                                    ->icon('heroicon-m-banknotes')
-                                    ->iconColor('primary')
                                     ->schema([
                                         Grid::make(3)->schema([
                                             Select::make('payment_method')
@@ -1904,9 +1893,6 @@ class OrderForm
                                             ->suffix('VNĐ')
                                             ->numeric()
                                             ->minValue(0)
-                                            ->hintIcon('heroicon-o-banknotes')
-                                            ->hintColor('warning')
-                                            ->hintIconTooltip('Số tiền khách đã đặt cọc thực tế')
                                             ->visible(fn (Get $get) => $get('status') === 'deposit')
                                             ->live(onBlur: true),
 
@@ -1920,7 +1906,8 @@ class OrderForm
                                             ->maxLength(3000),
                                     ])
                                     ->columns(3),
-
+                                            ]),
+                                    ]),
                             ]),
             ]);
     }
@@ -2020,6 +2007,16 @@ class OrderForm
         return $record
             && (int) ($record->extra_refund_amount ?? 0) > 0
             && is_null($record->extra_refund_paid_at);
+    }
+
+    // Section "Mã cổng" chỉ hiện khi đơn đã 'paid' VÀ phòng không dùng khóa thủ công — dùng chung
+    // điều kiện này ở cả ->visible() của chính nó lẫn ->columnSpan() của "Thông tin khách hàng"
+    // cạnh nó, để khi Mã cổng ẩn thì Thông tin khách hàng tự chiếm trọn hàng thay vì để trống 1 cột.
+    private static function hasAccessCodeSection($record): bool
+    {
+        return $record
+            && $record->status === 'paid'
+            && ! ($record->items->sortBy('checkin_date')->first()?->product?->has_manual_lock);
     }
 
     // super_admin và nhân viên đối tác NỀN TẢNG (vd 365home) đặt phòng hộ mọi đối tác — cần chọn
@@ -2139,6 +2136,29 @@ class OrderForm
     // HAI ĐẦU MÚT — mặc định KHÔNG cho turnover cùng ngày (ngày trả phòng của lượt đặt cũ vẫn bị
     // khoá) — TRỪ khi ngày đó là HÔM NAY và giờ hiện tại đã qua giờ trả phòng thật sự đã cấu hình
     // cho phòng ngày đó (nghĩa là khách chắc chắn đã trả phòng rồi, không còn lý do gì để khoá).
+    // Order KHÔNG có FK cascade tới order_items (xem ghi chú ở Order::booted() — xoá đơn qua raw
+    // SQL/bulk delete để lại order_item mồ côi, order_id trỏ tới 1 đơn không còn tồn tại). Đơn đã
+    // 'failed'/'cancelled_payment'/'refunded' hoặc 'pending' đã hết hạn cũng KHÔNG còn thật sự giữ
+    // chỗ. whereHas('order', ...) vừa tự loại order_item mồ côi (không JOIN được thì không tính)
+    // vừa chỉ tính đúng đơn CÒN THẬT SỰ CHIẾM CHỖ — thiếu điều kiện này khiến lịch hiện "Đã đặt"
+    // cho cả những ngày/khung giờ không hề có đơn nào khi tra lại (đã xác nhận thực tế với phòng
+    // LUMEN: 134 order_item mồ côi trỏ tới các đơn #3227-3279 đã bị xoá từ trước).
+    private static function applyActiveOrderConstraint(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
+    {
+        return $query->whereHas('order', function ($q) {
+            $q->where(function ($inner) {
+                $inner->whereIn('status', ['paid', 'deposit'])
+                    ->orWhere(function ($pendingQ) {
+                        $pendingQ->where('status', 'pending')
+                            ->where(function ($expQ) {
+                                $expQ->whereNull('expired_at')
+                                    ->orWhere('expired_at', '>', now());
+                            });
+                    });
+            });
+        });
+    }
+
     private static function getOccupiedDaysForProduct(?string $productId, $currentOrderItemId = null): array
     {
         if (! $productId) {
@@ -2147,9 +2167,11 @@ class OrderForm
 
         $product = Product::find($productId);
 
-        $query = OrderItem::where('product_id', $productId)
-            ->whereNotNull('checkin_date')
-            ->whereNotNull('checkout_date');
+        $query = self::applyActiveOrderConstraint(
+            OrderItem::where('product_id', $productId)
+                ->whereNotNull('checkin_date')
+                ->whereNotNull('checkout_date')
+        );
 
         if ($currentOrderItemId) {
             $query->where('id', '!=', $currentOrderItemId);
@@ -2288,9 +2310,11 @@ class OrderForm
                 if ($isPast) {
                     $status = 'past';
                 } else {
-                    $occupiedQuery = OrderItem::where('product_id', $productId)
-                        ->where('checkin_date', '<', $end)
-                        ->where('checkout_date', '>', $start);
+                    $occupiedQuery = self::applyActiveOrderConstraint(
+                        OrderItem::where('product_id', $productId)
+                            ->where('checkin_date', '<', $end)
+                            ->where('checkout_date', '>', $start)
+                    );
 
                     if ($currentOrderItemId) {
                         $occupiedQuery->where('id', '!=', $currentOrderItemId);
@@ -2348,13 +2372,14 @@ class OrderForm
 
     private static function calculateTotal(Get $get, Set $set): void
     {
-        $items    = $get('../../orderItems') ?? $get('orderItems') ?? [];
-        $services = $get('../../orderServices') ?? $get('orderServices') ?? [];
+        $items     = $get('../../orderItems') ?? $get('orderItems') ?? [];
+        $services  = $get('../../orderServices') ?? $get('orderServices') ?? [];
+        $surcharge = $get('../../surcharge') ?? $get('surcharge') ?? 0;
 
         $total = self::computeOrderTotal(
             is_array($items) ? $items : [],
             is_array($services) ? $services : []
-        );
+        ) + (float) $surcharge;
 
         $set('../../amount', $total);
         $set('amount', $total);

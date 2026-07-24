@@ -20,7 +20,7 @@ class BookResource extends Resource
 
     public static function getNavigationLabel(): string
     {
-        return 'Hệ thống Giá & Ưu đãi';
+        return 'Hệ thống giá';
     }
 
     public static function getModelLabel(): string

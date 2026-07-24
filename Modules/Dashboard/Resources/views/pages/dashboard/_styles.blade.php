@@ -1320,57 +1320,73 @@
         padding: 4px 0 2px;
     }
 
-    /* ===== Lưới Ngày × Khung giờ (view "Dải giờ") — cùng cấu trúc hàng/cột với trang đặt phòng
-       của khách (book.blade.php/_desktop-grid.blade.php: hàng = khung giờ, cột = ngày), nhưng ở
-       đây chỉ để XEM tình trạng (đã đặt/còn trống), không phải màn hình chọn khung giờ để đặt. ===== */
+    /* ===== Lưới Ngày × Khung giờ (view "Dải giờ") — ĐẢO TRỤC so với trang đặt phòng của khách
+       (book.blade.php/_desktop-grid.blade.php: hàng = khung giờ, cột = ngày, cuộn NGANG). Ở đây mỗi
+       phòng thường chỉ có vài khung giờ (ít) nhưng luôn có 7 ngày cố định (nhiều hơn) — đặt khung
+       giờ LÀM CỘT/đứng yên trên đầu (thead sticky), ngày LÀM HÀNG để cuộn DỌC xem tiếp thay vì cuộn
+       NGANG, hợp với bề ngang hẹp sẵn của thẻ phòng. ===== */
     .ta-rc-grid-wrap {
-        overflow-x: auto;
+        max-height: 190px;
+        overflow-y: auto;
+        overflow-x: hidden;
     }
 
     .ta-rc-grid {
+        /* KHÔNG width:100% — bảng giờ chỉ có vài cột khung giờ (ít) nên nếu ép full chiều
+           rộng thẻ, trình duyệt tự giãn các ô vượt xa kích thước 26x20px đã định (ô chọn/đã
+           đặt hiện to bất thường, không còn "nhỏ gọn" như thiết kế ban đầu). Để bảng tự co
+           theo đúng nội dung, phần dư bên phải để trống là bình thường. */
         border-collapse: separate;
         border-spacing: 3px;
-        width: 100%;
+        width: auto;
     }
 
     .ta-rc-grid-corner {
         min-width: 46px;
     }
 
-    .ta-rc-grid-datehead {
-        min-width: 30px;
-        font-weight: 500;
-        text-align: center;
-        padding-bottom: 2px;
+    .ta-rc-grid thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: var(--ta-panel);
     }
 
-    .ta-rc-grid-datehead.is-today .ta-rc-grid-dow,
-    .ta-rc-grid-datehead.is-today .ta-rc-grid-dnum {
+    .ta-rc-grid-rowhead-top {
+        min-width: 30px;
+        font-size: 10px;
+        font-weight: 500;
+        color: var(--ta-ink-mute);
+        text-align: center;
+        padding-bottom: 2px;
+        white-space: nowrap;
+    }
+
+    .ta-rc-grid-datehead-left {
+        font-weight: 500;
+        text-align: left;
+        padding-right: 4px;
+    }
+
+    .ta-rc-grid-datehead-left.is-today .ta-rc-grid-dow,
+    .ta-rc-grid-datehead-left.is-today .ta-rc-grid-dnum {
         color: var(--ta-ink-title);
         font-weight: 700;
     }
 
     .ta-rc-grid-dow {
-        display: block;
+        display: inline-block;
         font-size: 9px;
         color: var(--ta-ink-faint);
         text-transform: uppercase;
+        margin-right: 3px;
     }
 
     .ta-rc-grid-dnum {
-        display: block;
+        display: inline-block;
         font-size: 10.5px;
         color: var(--ta-ink-mute);
         font-variant-numeric: tabular-nums;
-    }
-
-    .ta-rc-grid-rowhead {
-        font-size: 10px;
-        font-weight: 500;
-        color: var(--ta-ink-mute);
-        text-align: right;
-        white-space: nowrap;
-        padding-right: 4px;
     }
 
     .ta-rc-grid-cell {

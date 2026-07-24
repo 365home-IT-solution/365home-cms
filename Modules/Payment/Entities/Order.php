@@ -22,6 +22,7 @@ class Order extends Model implements Eventable
         'created_by',
         'order_code',
         'amount',
+        'surcharge',
         'full_amount',
         'deposit_percent',
         'deposit_paid_amount',

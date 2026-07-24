@@ -176,24 +176,29 @@
             @php $grid = $room['timeslot_grid'] ?? null; @endphp
             <div class="ta-rc-timeline">
                 @if($grid && !empty($grid['rows']) && !empty($grid['dates']))
+                {{-- Đảo trục so với lưới ở OrderForm/trang đặt phòng khách (ở đó hàng=khung giờ,
+                     cột=ngày, cuộn NGANG) — ở đây khung giờ mỗi phòng thường chỉ 2-4 khung (ít) còn
+                     ngày thì cố định 7 ngày (nhiều hơn), nên đặt khung giờ LÀM CỘT (nằm trên, đứng
+                     yên nhờ thead sticky) và ngày LÀM HÀNG để cuộn DỌC xem tiếp các ngày sau thay vì
+                     phải cuộn NGANG — hợp lý hơn khi thẻ phòng đã hẹp sẵn theo chiều ngang. --}}
                 <div class="ta-rc-grid-wrap">
                     <table class="ta-rc-grid">
                         <thead>
                             <tr>
                                 <th class="ta-rc-grid-corner"></th>
-                                @foreach($grid['dates'] as $date)
-                                <th class="ta-rc-grid-datehead {{ $date['is_today'] ? 'is-today' : '' }}">
-                                    <span class="ta-rc-grid-dow">{{ $date['dow'] }}</span>
-                                    <span class="ta-rc-grid-dnum">{{ $date['label'] }}</span>
-                                </th>
+                                @foreach($grid['rows'] as $row)
+                                <th class="ta-rc-grid-rowhead-top">{{ $row['label'] }}</th>
                                 @endforeach
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach($grid['rows'] as $row)
+                            @foreach($grid['dates'] as $date)
                             <tr>
-                                <th class="ta-rc-grid-rowhead">{{ $row['label'] }}</th>
-                                @foreach($grid['dates'] as $date)
+                                <th class="ta-rc-grid-datehead-left {{ $date['is_today'] ? 'is-today' : '' }}">
+                                    <span class="ta-rc-grid-dow">{{ $date['dow'] }}</span>
+                                    <span class="ta-rc-grid-dnum">{{ $date['label'] }}</span>
+                                </th>
+                                @foreach($grid['rows'] as $row)
                                     @php $cell = $grid['cells'][$row['id'].'|'.$date['iso']] ?? null; @endphp
                                     @if($cell)
                                     <td class="ta-rc-grid-cell is-booked"

@@ -225,7 +225,11 @@
         $serviceTotal = $serviceItems->sum('subtotal');
     }
 
-    $computedLiveTotal = $totalAfterBulk + $totalGuestSurcharge + $serviceTotal;
+    // Phụ thu admin gõ tay ở field 'surcharge' (xem OrderForm.php) — cộng thẳng vào tổng, giống
+    // cách dịch vụ thêm được cộng vào.
+    $manualSurcharge = (float) ($surcharge ?? 0);
+
+    $computedLiveTotal = $totalAfterBulk + $totalGuestSurcharge + $serviceTotal + $manualSurcharge;
 
     // 'displayTotal' (nếu được truyền vào — xem OrderForm.php) = giá trị HIỆN TẠI của field 'amount'
     // thật sự sẽ lưu vào đơn, kể cả khi admin đã gõ đè tay khác với số hệ thống tự tính — số cuối
@@ -277,7 +281,6 @@
     @if($slotCount === 0)
         {{-- Empty state --}}
         <div style="text-align:center; padding: 2rem 1rem;">
-            <div style="font-size:2.5rem; margin-bottom:0.5rem;">🏠</div>
             <div style="font-size:1.5rem; font-weight:700; color:#d1d5db; margin-bottom:0.25rem;">0 VNĐ</div>
             <p style="color:#9ca3af; font-size:0.8125rem;">Chưa có phòng nào được chọn</p>
         </div>
@@ -533,6 +536,15 @@
                 </span>
             </div>
             @endif
+
+            @if($manualSurcharge > 0)
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.3rem;">
+                <span style="font-size:0.75rem; color:#6b7280;">Phụ thu</span>
+                <span style="font-size:0.75rem; font-weight:600; color:#ea580c;">
+                    +{{ number_format($manualSurcharge, 0, ',', '.') }} đ
+                </span>
+            </div>
+            @endif
             @endif
         </div>
 
@@ -618,7 +630,7 @@
                 @endif
             </div>
             {{-- 3-box grid --}}
-            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.5rem; padding:0.6rem 0.75rem; background:#ffffff;">
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(90px, 1fr)); gap:0.5rem; padding:0.6rem 0.75rem; background:#ffffff;">
                 <div style="background:#f0fdf4; border:1px solid #86efac; border-radius:0.5rem; padding:0.5rem 0.6rem; text-align:center;">
                     <div style="font-size:0.65rem; color:#6b7280; margin-bottom:0.2rem;">Tổng tiền phòng</div>
                     <div style="font-size:0.875rem; font-weight:700; color:#15803d;">{{ number_format($realTotal, 0, ',', '.') }}đ</div>
@@ -704,13 +716,6 @@
             <x-heroicon-o-check-circle style="width:0.875rem; height:0.875rem; color:#16a34a; flex-shrink:0; margin-top:0.05rem;" />
             <span style="font-size:0.7rem; color:#15803d; line-height:1.4;">
                 Tổng tính từ dữ liệu thực tế của đơn hàng (bao gồm KM và chiết khấu đã áp dụng).
-            </span>
-        </div>
-        @else
-        <div style="margin-top:0.5rem; background:#fef9c3; border:1px solid #fde047; border-radius:0.375rem; padding:0.4rem 0.6rem; display:flex; align-items:flex-start; gap:0.35rem;">
-            <x-heroicon-o-exclamation-triangle style="width:0.875rem; height:0.875rem; color:#ca8a04; flex-shrink:0; margin-top:0.05rem;" />
-            <span style="font-size:0.7rem; color:#854d0e; line-height:1.4;">
-                Ước tính chưa bao gồm: <strong>khuyến mãi khung giờ</strong> và <strong>coupon</strong>. Giá thực tế có thể thấp hơn khi đặt qua API.
             </span>
         </div>
         @endif

@@ -113,7 +113,7 @@ class CreateOrder extends CreateRecord
             $this->data['amount'] = OrderForm::computeOrderTotal(
                 $this->data['orderItems'] ?? [],
                 $this->data['orderServices'] ?? []
-            );
+            ) + (float) ($this->data['surcharge'] ?? 0);
         }
     }
 

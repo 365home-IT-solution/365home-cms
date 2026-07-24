@@ -78,7 +78,7 @@ trait HasTimeslotGridSelection
         $this->data['amount'] = OrderForm::computeOrderTotal(
             $this->data['orderItems'] ?? [],
             $this->data['orderServices'] ?? []
-        );
+        ) + (float) ($this->data['surcharge'] ?? 0);
 
         // Ghi thẳng vào $this->data (bỏ qua Set của Filament — xem ghi chú đầu file) khiến
         // Placeholder "Tổng thanh toán" (đọc qua $get('orderItems'), phụ thuộc cơ chế theo dõi
@@ -151,7 +151,7 @@ trait HasTimeslotGridSelection
             $this->data['amount'] = OrderForm::computeOrderTotal(
                 $this->data['orderItems'] ?? [],
                 $this->data['orderServices'] ?? []
-            );
+            ) + (float) ($this->data['surcharge'] ?? 0);
 
             \Filament\Notifications\Notification::make()
                 ->title('Một số khung giờ bạn chọn đã bị người khác chiếm mất')

@@ -785,15 +785,15 @@ window.rcSetView = function(mode) {
             return '<div class="ta-rc-tl-empty">Chưa khai báo khung giờ cho phòng này</div>';
         }
 
+        // Đảo trục (khung giờ làm cột trên đầu, ngày làm hàng cuộn dọc) — xem ghi chú ĐẢO TRỤC
+        // ở _room-cards.blade.php/_styles.blade.php, 2 nơi PHẢI khớp cùng cấu trúc.
         var theadHtml = '<tr><th class="ta-rc-grid-corner"></th>' +
-            grid.dates.map(function(d) {
-                return '<th class="ta-rc-grid-datehead' + (d.is_today ? ' is-today' : '') + '">' +
-                       '<span class="ta-rc-grid-dow">' + d.dow + '</span>' +
-                       '<span class="ta-rc-grid-dnum">' + d.label + '</span></th>';
+            grid.rows.map(function(row) {
+                return '<th class="ta-rc-grid-rowhead-top">' + row.label + '</th>';
             }).join('') + '</tr>';
 
-        var tbodyHtml = grid.rows.map(function(row) {
-            var cellsHtml = grid.dates.map(function(d) {
+        var tbodyHtml = grid.dates.map(function(d) {
+            var cellsHtml = grid.rows.map(function(row) {
                 var cell = (grid.cells || {})[row.id + '|' + d.iso];
                 if (!cell) {
                     return '<td class="ta-rc-grid-cell is-free" title="Còn trống"></td>';
@@ -810,7 +810,9 @@ window.rcSetView = function(mode) {
                        '<a href="/admin/orders/' + cell.order_id + '/edit" style="background:' + col + ';" title="' +
                        (cell.buyer_name || '') + ' — ' + (cell.status_label || '') + '"></a></td>';
             }).join('');
-            return '<tr><th class="ta-rc-grid-rowhead">' + row.label + '</th>' + cellsHtml + '</tr>';
+            return '<tr><th class="ta-rc-grid-datehead-left' + (d.is_today ? ' is-today' : '') + '">' +
+                   '<span class="ta-rc-grid-dow">' + d.dow + '</span>' +
+                   '<span class="ta-rc-grid-dnum">' + d.label + '</span></th>' + cellsHtml + '</tr>';
         }).join('');
 
         return '<div class="ta-rc-grid-wrap"><table class="ta-rc-grid"><thead>' + theadHtml +

@@ -208,7 +208,7 @@ class RoomController extends Controller
     // Xem trước phụ thu khi chọn số lượng khách, áp dụng cho cả phòng theo
     // khung giờ (styles=1, truyền dates[]) và phòng theo ngày (styles=2,
     // truyền checkin/checkout). Cấu hình phụ thu lấy từ room_config
-    // (max_free_guests, extra_guest_fee) — set trong Hệ thống Giá & Ưu đãi.
+    // (max_free_guests, extra_guest_fee) — set trong Hệ thống giá.
     public function guestSurchargePreview(Request $request, string $id): JsonResponse
     {
         $room = Product::where('id', $id)

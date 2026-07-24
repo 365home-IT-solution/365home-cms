@@ -14,7 +14,7 @@ declare(strict_types=1);
 return [
     'Quản lý' => [
         'Quản lý vận hành / Booking' => ['BOOKING', 'Chi nhánh và khu vực', 'Thiết lập Phòng', 'Mật khẩu khóa thủ công', 'Khai báo lưu trú'],
-        'Giá & Khuyến mãi' => ['Hệ thống Giá & Ưu đãi', 'Ưu đãi', 'Mã giảm giá', 'Pass Cổng'],
+        'Giá & Khuyến mãi' => ['Hệ thống giá', 'Ưu đãi', 'Mã giảm giá', 'Pass Cổng'],
         'Nội dung & Marketing' => ['Bài viết', 'Dịch vụ Bổ sung'],
         'Chăm sóc khách hàng' => ['Tư vấn khách hàng', 'Tin nhắn khách hàng'],
         'Đối tác & Báo cáo' => ['Đối tác', 'Thống kê lương'],
