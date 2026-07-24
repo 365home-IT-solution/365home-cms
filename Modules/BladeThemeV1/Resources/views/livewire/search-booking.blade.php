@@ -294,13 +294,6 @@
                         <div class="text-center">
                             <p class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Mã mở khóa</p>
                             <p class="text-3xl font-mono font-black tracking-[0.25em] text-gray-900 mt-1">{{ $unlockCode }}#</p>
-                            <div class="flex items-center justify-center gap-1.5 mt-1.5">
-                                <span class="relative flex w-2 h-2">
-                                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-75"></span>
-                                    <span class="relative inline-flex rounded-full w-2 h-2 bg-green-500"></span>
-                                </span>
-                                <span class="text-xs text-gray-500">/ {{ $accessCode->max_uses ?? '3' }} lượt dùng</span>
-                            </div>
                         </div>
                         @endif
 
