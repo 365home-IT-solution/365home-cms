@@ -262,8 +262,7 @@ class Product extends Model implements HasMedia, Resourceable
 
     public function getBranchCategoryIdAttribute()
     {
-        $category = $this->primary_category;
-        return $category ? $category->id : null;
+        return $this->categories()->where('category_type', 'product')->value('categories.id');
     }
 
     public function toCalendarResource(): CalendarResource

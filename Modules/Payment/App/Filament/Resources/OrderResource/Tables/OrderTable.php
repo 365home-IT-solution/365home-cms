@@ -3,6 +3,7 @@
 namespace Modules\Payment\App\Filament\Resources\OrderResource\Tables;
 
 use App\Filament\Support\PartnerTableHelpers;
+use App\Services\TTLockService;
 use Filament\Notifications\Notification;
 use Filament\Support\Enums\FontWeight;
 use Filament\Tables\Actions\Action;
@@ -212,6 +213,9 @@ class OrderTable
                     ->trueColor('warning')
                     ->falseColor('gray')
                     ->tooltip(fn ($record) => $record->unlock_anytime ? 'Khách có thể mở cổng bất kỳ lúc nào' : 'Mở cổng giới hạn theo giờ đặt phòng')
+                    // Chi nhánh chưa có tài khoản TTLock kích hoạt thì trạng thái "mở cổng tự do"
+                    // không có ý nghĩa gì (không có khóa điện tử nào để mở) — ẩn hẳn cột.
+                    ->visible(fn ($record) => TTLockService::hasAccountForCategory($record?->category_id))
                     ->toggleable(isToggledHiddenByDefault: false),
             ])
             ->defaultSort('created_at', 'desc')
@@ -673,6 +677,18 @@ class OrderTable
                     ->label(fn ($record) => $record->unlock_anytime ? 'Khoá giờ mở cổng' : 'Cho mở cổng tự do')
                     ->icon(fn ($record) => $record->unlock_anytime ? 'heroicon-o-lock-closed' : 'heroicon-o-lock-open')
                     ->color(fn ($record) => $record->unlock_anytime ? 'gray' : 'warning')
+                    // Chi nhánh chưa có tài khoản TTLock kích hoạt thì không có khóa điện tử nào để
+                    // "mở tự do" — ẩn hẳn nút này, giống điều kiện của OpenGateAction ("Mở cổng tự do").
+                    ->visible(function ($record): bool {
+                        if (!in_array($record->status, ['paid', 'deposit'])) {
+                            return false;
+                        }
+                        $product = $record->items->first()?->product;
+                        if (!$product || !$product->lock_id) {
+                            return false;
+                        }
+                        return TTLockService::hasAccountForCategory($record->category_id);
+                    })
                     ->requiresConfirmation()
                     ->modalHeading(fn ($record) => $record->unlock_anytime
                         ? 'Khoá lại giờ mở cổng?'
