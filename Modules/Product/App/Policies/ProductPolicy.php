@@ -15,7 +15,7 @@ class ProductPolicy
      */
     public function viewAny(User $user): bool
     {
-        return $user->can('view_any_room::housekeeping');
+        return $user->can('view_any_product');
     }
 
     /**
@@ -23,7 +23,7 @@ class ProductPolicy
      */
     public function view(User $user, Product $product): bool
     {
-        return $user->can('view_room::housekeeping');
+        return $user->can('view_product');
     }
 
     /**
@@ -31,7 +31,7 @@ class ProductPolicy
      */
     public function create(User $user): bool
     {
-        return $user->can('create_room::housekeeping');
+        return $user->can('create_product');
     }
 
     /**
@@ -39,7 +39,7 @@ class ProductPolicy
      */
     public function update(User $user, Product $product): bool
     {
-        return $user->can('update_room::housekeeping');
+        return $user->can('update_product');
     }
 
     /**
@@ -47,7 +47,7 @@ class ProductPolicy
      */
     public function delete(User $user, Product $product): bool
     {
-        return $user->can('delete_room::housekeeping');
+        return $user->can('delete_product');
     }
 
     /**
@@ -55,7 +55,7 @@ class ProductPolicy
      */
     public function deleteAny(User $user): bool
     {
-        return $user->can('delete_any_room::housekeeping');
+        return $user->can('delete_any_product');
     }
 
     /**
@@ -63,7 +63,7 @@ class ProductPolicy
      */
     public function forceDelete(User $user, Product $product): bool
     {
-        return $user->can('force_delete_room::housekeeping');
+        return $user->can('force_delete_product');
     }
 
     /**
@@ -71,7 +71,7 @@ class ProductPolicy
      */
     public function forceDeleteAny(User $user): bool
     {
-        return $user->can('force_delete_any_room::housekeeping');
+        return $user->can('force_delete_any_product');
     }
 
     /**
@@ -79,7 +79,7 @@ class ProductPolicy
      */
     public function restore(User $user, Product $product): bool
     {
-        return $user->can('restore_room::housekeeping');
+        return $user->can('restore_product');
     }
 
     /**
@@ -87,7 +87,7 @@ class ProductPolicy
      */
     public function restoreAny(User $user): bool
     {
-        return $user->can('restore_any_room::housekeeping');
+        return $user->can('restore_any_product');
     }
 
     /**
@@ -95,7 +95,7 @@ class ProductPolicy
      */
     public function replicate(User $user, Product $product): bool
     {
-        return $user->can('replicate_room::housekeeping');
+        return $user->can('replicate_product');
     }
 
     /**
@@ -103,6 +103,6 @@ class ProductPolicy
      */
     public function reorder(User $user): bool
     {
-        return $user->can('reorder_room::housekeeping');
+        return $user->can('reorder_product');
     }
 }
