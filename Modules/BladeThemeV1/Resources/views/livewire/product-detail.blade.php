@@ -2230,17 +2230,27 @@
                         <div class="w-full bg-white rounded-2xl p-4 border border-[#DDDDDD]">
                             <h3 class="text-base font-semibold text-[#222222] mb-3">Thời gian đã chọn</h3>
 
-                            @if (!empty($selectedSlots) && !empty($startTime) && !empty($endTime))
+                            @php
+                                // Tính TRỰC TIẾP từ $selectedSlots ngay tại đây (thay vì đọc $startTime/
+                                // $endTime) — 2 property đó chỉ được cập nhật trong updatedSelectedSlots(),
+                                // có lúc chưa kịp đồng bộ đúng lúc Blade render (đã ghi nhận thực tế: panel
+                                // chỉ hiện đúng khung giờ vừa bấm cuối thay vì gộp min/max toàn bộ khung đã
+                                // chọn). Gọi lại đúng công thức min(start)/max(end) mỗi lần render đảm bảo
+                                // luôn khớp với số lượng "N khung giờ đã chọn" hiển thị ngay bên dưới.
+                                [$pdDisplayStart, $pdDisplayEnd] = $this->computeCheckinCheckoutFromSlots();
+                            @endphp
+
+                            @if (!empty($selectedSlots) && !empty($pdDisplayStart) && !empty($pdDisplayEnd))
                                 <div class="grid grid-cols-2 gap-3">
                                     <div class="rounded-xl border border-[#DDDDDD] p-3 text-center">
                                         <p class="text-[10px] font-semibold uppercase tracking-wide text-[#717171] mb-1">Nhận phòng</p>
-                                        <p class="text-lg font-bold text-[#222222]">{{ \Carbon\Carbon::parse($startTime)->format('H:i') }}</p>
-                                        <p class="text-xs text-[#717171] mt-0.5">{{ \Carbon\Carbon::parse($startTime)->format('d/m/Y') }}</p>
+                                        <p class="text-lg font-bold text-[#222222]">{{ \Carbon\Carbon::parse($pdDisplayStart)->format('H:i') }}</p>
+                                        <p class="text-xs text-[#717171] mt-0.5">{{ \Carbon\Carbon::parse($pdDisplayStart)->format('d/m/Y') }}</p>
                                     </div>
                                     <div class="rounded-xl border border-[#DDDDDD] p-3 text-center">
                                         <p class="text-[10px] font-semibold uppercase tracking-wide text-[#717171] mb-1">Trả phòng</p>
-                                        <p class="text-lg font-bold text-[#222222]">{{ \Carbon\Carbon::parse($endTime)->format('H:i') }}</p>
-                                        <p class="text-xs text-[#717171] mt-0.5">{{ \Carbon\Carbon::parse($endTime)->format('d/m/Y') }}</p>
+                                        <p class="text-lg font-bold text-[#222222]">{{ \Carbon\Carbon::parse($pdDisplayEnd)->format('H:i') }}</p>
+                                        <p class="text-xs text-[#717171] mt-0.5">{{ \Carbon\Carbon::parse($pdDisplayEnd)->format('d/m/Y') }}</p>
                                     </div>
                                 </div>
                                 <p class="text-xs text-center font-semibold text-primary mt-3">

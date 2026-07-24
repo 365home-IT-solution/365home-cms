@@ -27,7 +27,9 @@ class PartnerRolePermissionsSeeder extends Seeder
         // quyền ở đây cũng không có tác dụng.
         'room::service',        // Dịch vụ Phòng
         'room::special',        // Điểm Đặc Biệt
-        'room::housekeeping',   // Kiểm tra dọn phòng (xem tình trạng + xác nhận đã dọn)
+        // 'room::housekeeping' (Kiểm tra dọn phòng) KHÔNG đưa vào đây — RoomHousekeepingResource
+        // hard-code canViewAny() chỉ cho super_admin (không dựa vào permission), nên cấp quyền ở
+        // đây cũng không có tác dụng.
         'coupon',
         'promotion',
         'order',
@@ -54,7 +56,7 @@ class PartnerRolePermissionsSeeder extends Seeder
         'room::amenity::assign',
         'room::service',
         'room::special',
-        'room::housekeeping',
+        // 'room::housekeeping' KHÔNG đưa vào đây — xem ghi chú ở PARTNER_RESOURCES phía trên.
         'coupon',
         'promotion',
         'order',

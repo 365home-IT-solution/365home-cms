@@ -709,27 +709,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             return;
         }
 
-        // Lấy mốc bắt đầu/kết thúc THỰC của từng slot (mỗi slot tự cộng thêm 1 ngày nếu
-        // là khung giờ qua đêm), sau đó lấy min(start) → max(end) trên toàn bộ slot đã chọn.
-        // KHÔNG chỉ dựa vào slot có startTime muộn nhất, vì slot đó chưa chắc có endTime muộn
-        // nhất (vd: slot qua đêm ngày 1 kết thúc 06:00 ngày 2 vẫn có thể muộn hơn 1 slot khác
-        // bắt đầu sớm trong ngày 2).
-        $slotStarts = [];
-        $slotEnds = [];
-        foreach ($this->selectedSlots as $slot) {
-            $slotStart = Carbon::parse("{$slot['date']} {$slot['startTime']}");
-            $slotEnd = Carbon::parse("{$slot['date']} {$slot['endTime']}");
-
-            if ((($slot['overNight'] ?? 0) == 1) || $slotEnd->lt($slotStart)) {
-                $slotEnd->addDay();
-            }
-
-            $slotStarts[] = $slotStart;
-            $slotEnds[] = $slotEnd;
-        }
-
-        $this->startTime = collect($slotStarts)->min()->format('Y-m-d H:i');
-        $this->endTime = collect($slotEnds)->max()->format('Y-m-d H:i');
+        [$this->startTime, $this->endTime] = $this->computeCheckinCheckoutFromSlots();
 
         // ========== ✅ KIỂM TRA FULL BOOKING TRƯỚC ==========
         $this->hasFullDayBooking = $this->checkFullDayBooking();
@@ -849,6 +829,42 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
                 : collect();
         }
         $this->isCalculating = false;
+    }
+
+    // Nhận phòng = mốc bắt đầu SỚM NHẤT, trả phòng = mốc kết thúc MUỘN NHẤT trên TOÀN BỘ khung
+    // giờ đã chọn (mỗi slot tự cộng thêm 1 ngày nếu là khung giờ qua đêm) — KHÔNG chỉ dựa vào
+    // slot có startTime muộn nhất, vì slot đó chưa chắc có endTime muộn nhất (vd: slot qua đêm
+    // ngày 1 kết thúc 06:00 ngày 2 vẫn có thể muộn hơn 1 slot khác bắt đầu sớm trong ngày 2).
+    // Tách thành method riêng (thay vì chỉ tính 1 lần trong updatedSelectedSlots()) để panel
+    // "Thời gian đã chọn" trong blade luôn gọi TRỰC TIẾP hàm này và tính lại NGAY từ
+    // $selectedSlots hiện có mỗi lần render, không phụ thuộc vào việc $startTime/$endTime đã
+    // được cập nhật kịp hay chưa (đã ghi nhận thực tế: hiển thị đôi khi chỉ hiện đúng khung giờ
+    // vừa bấm cuối cùng thay vì gộp toàn bộ khung đã chọn).
+    public function computeCheckinCheckoutFromSlots(): array
+    {
+        if (empty($this->selectedSlots)) {
+            return ['', ''];
+        }
+
+        $slotStarts = [];
+        $slotEnds = [];
+
+        foreach ($this->selectedSlots as $slot) {
+            $slotStart = Carbon::parse("{$slot['date']} {$slot['startTime']}");
+            $slotEnd = Carbon::parse("{$slot['date']} {$slot['endTime']}");
+
+            if ((($slot['overNight'] ?? 0) == 1) || $slotEnd->lt($slotStart)) {
+                $slotEnd->addDay();
+            }
+
+            $slotStarts[] = $slotStart;
+            $slotEnds[] = $slotEnd;
+        }
+
+        return [
+            collect($slotStarts)->min()->format('Y-m-d H:i'),
+            collect($slotEnds)->max()->format('Y-m-d H:i'),
+        ];
     }
 
     /**
@@ -1600,14 +1616,22 @@ public function confirmBooking()
 
             // ✅ 2. Phụ phí khách
             if ($extraFee > 0) {
+                // Style 1 (khung giờ): tính lại TRỰC TIẾP từ selectedSlots thay vì đọc $this->startTime/
+                // $this->endTime — 2 property đó có thể chưa kịp đồng bộ đúng lúc submit (cùng nguyên
+                // nhân khiến panel "Thời gian đã chọn" từng hiện sai, xem computeCheckinCheckoutFromSlots()).
+                // Style 2 (theo ngày) không dùng selectedSlots nên vẫn giữ nguyên $this->startTime/$this->endTime.
+                [$extraFeeCheckin, $extraFeeCheckout] = $this->bookingStyle == 2
+                    ? [$this->startTime, $this->endTime]
+                    : $this->computeCheckinCheckoutFromSlots();
+
                 $order->items()->create([
                     'product_id'    => null,
                     'name'          => 'Phụ phí khách thêm (' . ($this->guests - 2) . ' người)',
                     'price'         => $extraFee,
                     'quantity'      => 1,
                     'extra_fee'     => $extraFee,
-                    'checkin_date'  => $this->startTime,
-                    'checkout_date' => $this->endTime,
+                    'checkin_date'  => $extraFeeCheckin,
+                    'checkout_date' => $extraFeeCheckout,
                     'guest_count'   => $this->guests,
                 ]);
             }

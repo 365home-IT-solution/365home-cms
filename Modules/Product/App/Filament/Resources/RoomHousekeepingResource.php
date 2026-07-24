@@ -5,13 +5,17 @@ declare(strict_types=1);
 namespace Modules\Product\App\Filament\Resources;
 
 use Filament\Resources\Resource;
-use Illuminate\Database\Eloquent\Builder;
 use Modules\Product\App\Filament\Resources\RoomHousekeepingResource\Pages;
 use Modules\Product\App\Models\Product;
 
-// Màn hình RIÊNG để cả nhân viên lẫn chủ đối tác cùng theo dõi/kiểm tra tình trạng dọn vệ sinh
-// từng phòng — tách khỏi ProductResource ("Thiết lập Phòng", nhiều field không liên quan) để
-// không phải đào bới. Chỉ xem + 2 action dọn phòng (đã có sẵn từ ProductAction/RoomCleaningAction).
+// Màn hình RIÊNG để theo dõi/kiểm tra tình trạng dọn vệ sinh từng phòng — tách khỏi ProductResource
+// ("Thiết lập Phòng", nhiều field không liên quan) để không phải đào bới. Chỉ xem + 2 action dọn
+// phòng (đã có sẵn từ ProductAction/RoomCleaningAction).
+//
+// CHỈ super_admin được xem trang này — canViewAny() hard-code isSuperAdmin(), KHÔNG dựa vào
+// permission Shield (*_room::housekeeping), nên tick/bỏ tick quyền này ở Roles & Permissions cho
+// role khác không có tác dụng (giống quy ước ở RoomImageResource cho room::image). Trước đây cấp
+// quyền này cho role 'partner'/'employee' qua PartnerRolePermissionsSeeder — đã gỡ khỏi seeder đó.
 class RoomHousekeepingResource extends Resource
 {
     protected static ?string $model = Product::class;
@@ -34,31 +38,6 @@ class RoomHousekeepingResource extends Resource
 
     protected static ?int $navigationSort = 6;
 
-    // Nhân viên KHÔNG được gán "làm việc tất cả chi nhánh" chỉ thấy phòng thuộc đúng chi nhánh
-    // mình phụ trách — chủ đối tác/super_admin thấy toàn bộ phòng của đối tác (partner_id đã
-    // được BelongsToPartner trên Product tự lọc, không cần lặp lại ở đây).
-    public static function getEloquentQuery(): Builder
-    {
-        $query = parent::getEloquentQuery();
-        $user  = auth()->user();
-
-        if (! $user || $user->isSuperAdmin() || $user->isPartnerOwner()) {
-            return $query;
-        }
-
-        $employee = $user->employee;
-
-        if ($employee && ! $employee->works_all_branches) {
-            $branchIds = $employee->workBranches()->pluck('categories.id');
-
-            $query->whereHas('categories', function (Builder $q) use ($branchIds) {
-                $q->where('category_type', 'product')->whereIn('categories.id', $branchIds);
-            });
-        }
-
-        return $query;
-    }
-
     public static function getNavigationBadge(): ?string
     {
         return (string) static::getEloquentQuery()->where('housekeeping_status', 'cleaning')->count();
@@ -78,7 +57,7 @@ class RoomHousekeepingResource extends Resource
 
     public static function canViewAny(): bool
     {
-        return auth()->user()?->can('view_any_room::housekeeping') ?? false;
+        return auth()->user()?->isSuperAdmin() ?? false;
     }
 
     public static function canCreate(): bool
