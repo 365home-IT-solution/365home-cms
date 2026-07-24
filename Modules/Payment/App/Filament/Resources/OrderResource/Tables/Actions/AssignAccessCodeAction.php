@@ -12,6 +12,7 @@ use Illuminate\Support\HtmlString;
 use Modules\BladeThemeV1\Services\AccessCode\AccessCodeService;
 use Modules\Payment\Entities\Order;
 use Modules\Product\App\Models\ManualLockPassword;
+use App\Services\TTLockService;
 
 class AssignAccessCodeAction
 {
@@ -26,7 +27,16 @@ class AssignAccessCodeAction
                     return false;
                 }
                 $product = $record->items->first()?->product;
-                return $product && ($product->has_manual_lock || $product->lock_id !== null);
+                if (! $product) {
+                    return false;
+                }
+                if ($product->has_manual_lock) {
+                    return true;
+                }
+                // Phòng đã gán lock_id nhưng chi nhánh KHÔNG CÒN tài khoản TTLock đang hoạt động
+                // (vd tài khoản bị vô hiệu hóa sau khi đã gán khóa) — không thể cấp mã thật sự
+                // được nữa, ẩn nút thay vì hiện ra rồi báo lỗi khi bấm.
+                return $product->lock_id !== null && TTLockService::hasAccountForCategory($record->category_id);
             })
             ->modalHeading(fn (Order $record) => "Cấp mã cổng — Đơn #{$record->order_code}")
             ->modalWidth('md')

@@ -2009,14 +2009,24 @@ class OrderForm
             && is_null($record->extra_refund_paid_at);
     }
 
-    // Section "Mã cổng" chỉ hiện khi đơn đã 'paid' VÀ phòng không dùng khóa thủ công — dùng chung
-    // điều kiện này ở cả ->visible() của chính nó lẫn ->columnSpan() của "Thông tin khách hàng"
-    // cạnh nó, để khi Mã cổng ẩn thì Thông tin khách hàng tự chiếm trọn hàng thay vì để trống 1 cột.
+    // Section "Mã cổng" chỉ hiện khi đơn đã 'paid' VÀ phòng không dùng khóa thủ công VÀ chi nhánh
+    // của phòng đó CÒN tài khoản TTLock đang hoạt động (không có ttlock thì không thể cấp/hiện mã
+    // cổng thật sự nào) — dùng chung điều kiện này ở cả ->visible() của chính nó lẫn ->columnSpan()
+    // của "Thông tin khách hàng" cạnh nó, để khi Mã cổng ẩn thì Thông tin khách hàng tự chiếm trọn
+    // hàng thay vì để trống 1 cột.
     private static function hasAccessCodeSection($record): bool
     {
-        return $record
-            && $record->status === 'paid'
-            && ! ($record->items->sortBy('checkin_date')->first()?->product?->has_manual_lock);
+        if (! $record || $record->status !== 'paid') {
+            return false;
+        }
+
+        $product = $record->items->sortBy('checkin_date')->first()?->product;
+
+        if (! $product || $product->has_manual_lock) {
+            return false;
+        }
+
+        return \App\Services\TTLockService::hasAccountForCategory($record->category_id);
     }
 
     // super_admin và nhân viên đối tác NỀN TẢNG (vd 365home) đặt phòng hộ mọi đối tác — cần chọn

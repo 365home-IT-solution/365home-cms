@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use App\Http\Middleware\MarkAdminPanelContext;
 use App\Http\Middleware\RedirectUnauthorizedDashboard;
 use App\Livewire\MyProfileExtended;
 use App\Settings\GeneralSettings;
@@ -61,7 +62,7 @@ class AdminPanelProvider extends PanelProvider
      */
     public function panel(Panel $panel): Panel
     {
-        return $panel
+        $panel = $panel
             ->default()
             ->id('admin')
             ->path('admin')
@@ -102,6 +103,11 @@ class AdminPanelProvider extends PanelProvider
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
             ])
+            // Đánh dấu request đang thực sự chạy trong panel admin — xem App\Support\AdminPanelContext,
+            // dùng bởi BelongsToPartner để không lọc partner_id trên các trang client. Đăng ký persistent
+            // (isPersistent: true) để Livewire replay đúng middleware này trên các request /livewire/update
+            // phát sinh từ panel admin (giống cách Filament tự làm với SetUpPanel).
+            ->middleware([MarkAdminPanelContext::class], isPersistent: true)
             ->authGuard('web')
             ->authMiddleware([
                 Authenticate::class,
@@ -170,6 +176,8 @@ class AdminPanelProvider extends PanelProvider
                 Platform::Mac => '⌘K',
                 default => null,
             });
+
+        return $panel;
     }
 
     public function register(): void

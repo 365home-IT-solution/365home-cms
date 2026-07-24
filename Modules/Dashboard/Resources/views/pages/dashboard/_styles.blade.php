@@ -2,6 +2,15 @@
     /* ================================================================
    DASHBOARD – off-white, minimal color, premium
    ================================================================ */
+    /* Filament bọc mọi trang trong <section class="... gap-y-8 py-8"> và 1 div
+       "grid ... gap-y-8" (xem vendor/filament/filament/resources/views/components/page/index.blade.php) —
+       khoảng gap-y-8 này tạo khoảng trắng thừa phía trên khung .ta-wrap (giữa các
+       livewire modal ẩn và card dashboard). Chỉ tắt trên trang Dashboard (:has(.ta-wrap)),
+       không đụng tới các trang Filament khác. */
+    .fi-page:has(.ta-wrap) [class~="gap-y-8"] {
+        gap: 0;
+    }
+
     .ta-wrap {
         --ta-bg: #FAFAFA;
         --ta-panel: #FFFFFF;

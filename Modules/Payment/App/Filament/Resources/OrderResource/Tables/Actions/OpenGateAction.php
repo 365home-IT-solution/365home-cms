@@ -26,7 +26,10 @@ class OpenGateAction
                 if (!$product || !$product->lock_id) {
                     return false;
                 }
-                return TTLockService::forCategory($record->category_id) !== null;
+                // Dùng hasAccountForCategory() (có cache tĩnh trong request) thay vì forCategory()
+                // — ->visible() chạy lại cho MỖI dòng của bảng đơn hàng, forCategory() dựng cả 1
+                // instance TTLockService mỗi lần dù chỉ cần biết có/không, tốn hơn không cần thiết.
+                return TTLockService::hasAccountForCategory($record->category_id);
             })
             ->requiresConfirmation()
             ->modalHeading(fn (Order $record) => "Mở cổng — Đơn #{$record->order_code}")
