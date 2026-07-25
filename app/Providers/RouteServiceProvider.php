@@ -78,6 +78,12 @@ class RouteServiceProvider extends ServiceProvider
                 ->prefix('api')
                 ->group(base_path('routes/api.php'));
 
+            // API dành cho admin/nhân viên nội bộ (App\Models\User) — tách riêng khỏi
+            // routes/api.php vốn phục vụ app khách hàng (customer), để 2 phía không lẫn lộn.
+            Route::middleware('api')
+                ->prefix('api')
+                ->group(base_path('routes/api_admin.php'));
+
             Route::middleware('web')
                 ->group(base_path('routes/web.php'));
         });
