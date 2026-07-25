@@ -33,8 +33,8 @@ class BookingController extends Controller
      *     gắn customer_id như đơn khách tự đặt qua app.
      *
      * Dùng lại NGUYÊN engine tính giá (slot/daily/monthly, khuyến mãi, giảm giá bulk/full-booking,
-     * coupon, đặt cọc) của app khách hàng — xem BuildsRoomBooking — để giá tạo ra ở đây không lệch
-     * với giá app hiển thị.
+     * đặt cọc) của app khách hàng — xem BuildsRoomBooking — để giá tạo ra ở đây không lệch với giá
+     * app hiển thị. KHÔNG xử lý mã giảm giá (coupon_codes) — admin tạo đơn nền, không cần áp coupon.
      *
      * CCCD (mặt trước/sau) là TÙY CHỌN (khác app khách/guest luôn bắt buộc) — lễ tân đã xác minh
      * giấy tờ trực tiếp tại quầy nên không bắt phải chụp ảnh ngay bước này; nếu có gửi kèm thì hệ
@@ -60,8 +60,6 @@ class BookingController extends Controller
             'payment_method'          => 'sometimes|in:PayOS,cod',
             'payment_type'            => 'sometimes|in:full,deposit',
             'status'                  => 'sometimes|in:pending,paid,deposit,failed,cancelled_payment,refunded',
-            'coupon_codes'            => 'sometimes|nullable|array',
-            'coupon_codes.*'          => 'string',
             'services'                => 'sometimes|nullable|array',
             'services.*.service_id'   => 'required_with:services|integer',
             'services.*.quantity'     => 'required_with:services|integer|min:1',
@@ -94,15 +92,6 @@ class BookingController extends Controller
         }
 
         $request->validate($baseRules);
-
-        $couponInput = $request->input('coupon_codes');
-        if (empty($couponInput)) {
-            $raw = $request->input('coupon_code');
-            if ($raw !== null) {
-                $couponInput = is_array($raw) ? $raw : [$raw];
-            }
-        }
-        $couponCodes = array_values(array_unique(array_map('strtoupper', array_filter((array) ($couponInput ?? [])))));
 
         // ── 2. Xác định khách: thành viên có sẵn hay khách vãng lai ────────────
         $customer = null;
@@ -230,18 +219,11 @@ class BookingController extends Controller
         $promotionDiscount     = 0;
         $appliedSystemDiscount = null;
         $systemDiscount        = 0;
-        $appliedCoupons        = [];
-        $couponDiscount        = 0;
 
         $hasFullBooking = ! empty($slotSummary) && $this->checkFullDayBooking($slotSummary, $room);
 
         if ($hasFullBooking) {
             [$systemDiscount, $appliedSystemDiscount] = $this->applyFullBookingDiscount($basePrice, $room);
-
-            $couponBase = $basePrice - $systemDiscount;
-            if (! empty($couponCodes)) {
-                [$couponDiscount, $appliedCoupons] = $this->applyBookingCoupons($couponCodes, $couponBase, $room, $rtsCollection, $customer);
-            }
         } else {
             if ($rtsCollection->isNotEmpty()) {
                 if ($request->input('type') === 'daily') {
@@ -258,14 +240,9 @@ class BookingController extends Controller
                     $basePrice - $promotionDiscount
                 );
             }
-
-            $couponBase = $basePrice - $promotionDiscount - $systemDiscount;
-            if (! empty($couponCodes)) {
-                [$couponDiscount, $appliedCoupons] = $this->applyBookingCoupons($couponCodes, $couponBase, $room, $rtsCollection, $customer);
-            }
         }
 
-        $discountAmount = $promotionDiscount + $systemDiscount + $couponDiscount;
+        $discountAmount = $promotionDiscount + $systemDiscount;
         $slotFinalPrice = max(0, $basePrice - $discountAmount);
         $finalAmount    = $slotFinalPrice + $servicesTotal + $guestSurcharge;
 
@@ -317,7 +294,6 @@ class BookingController extends Controller
         }
 
         $depositPercentToSave = $depositInfo !== null ? (int) ($depositInfo['percentage']) : null;
-        $appliedCouponCodes   = collect($appliedCoupons)->pluck('code')->values()->all();
 
         // Đơn PayOS LUÔN bắt đầu ở "pending" (đang xử lý) — trạng thái thật chỉ được cập nhật qua
         // webhook PayOS khi khách thanh toán (xem OrderController::paymentStatus/webhook), nên bỏ
@@ -329,7 +305,7 @@ class BookingController extends Controller
         $order = DB::transaction(function () use (
             $room, $finalAmount, $buyerName, $buyerPhone,
             $customer, $category, $itemsData, $servicesData,
-            $paymentMethod, $request, $appliedCoupons, $appliedCouponCodes, $depositPercentToSave,
+            $paymentMethod, $request, $depositPercentToSave,
             $admin, $initialStatus, $cccdFront, $cccdBack, $cccdData, $guestCccdRows
         ) {
             Product::where('id', $room->id)->lockForUpdate()->first();
@@ -353,14 +329,10 @@ class BookingController extends Controller
                 }
             }
 
-            $firstCode = $appliedCouponCodes[0] ?? null;
-
             $order = Order::create([
                 'amount'          => $finalAmount,
                 'full_amount'     => $finalAmount,
                 'deposit_percent' => $depositPercentToSave,
-                'coupon_code'     => $firstCode,
-                'coupon_codes'    => $appliedCouponCodes ?: null,
                 'description'     => 'Đặt phòng (admin) - ' . $room->name,
                 'buyer_name'      => $buyerName,
                 'buyer_phone'     => $buyerPhone,
@@ -406,12 +378,6 @@ class BookingController extends Controller
                 $order->services()->create($svc);
             }
 
-            foreach ($appliedCoupons as $couponInfo) {
-                if (isset($couponInfo['_model'])) {
-                    $couponInfo['_model']->incrementUsage();
-                }
-            }
-
             return $order;
         });
 
@@ -443,8 +409,6 @@ class BookingController extends Controller
         }
 
         $order->refresh();
-
-        $couponsForResponse = collect($appliedCoupons)->map(fn ($c) => collect($c)->except('_model')->all())->values()->all();
 
         return response()->json([
             'order' => [
@@ -483,13 +447,11 @@ class BookingController extends Controller
             'guest_surcharge'  => $guestSurchargeInfo,
             'promotions'       => $appliedPromotions,
             'system_discount'  => $appliedSystemDiscount,
-            'coupons'          => $couponsForResponse,
             'deposit'          => $depositInfo,
             'summary' => [
                 'slots_total'          => $basePrice,
                 'promotion_discount'   => $promotionDiscount,
                 'system_discount'      => $systemDiscount,
-                'coupon_discount'      => $couponDiscount,
                 'discount_amount'      => $discountAmount,
                 'slots_final'          => $slotFinalPrice,
                 'guest_surcharge'      => $guestSurcharge,

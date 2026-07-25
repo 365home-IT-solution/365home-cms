@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Concerns;
 
-use App\Models\Customer;
 use App\Services\PromotionCalculator;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -15,8 +14,6 @@ use Illuminate\Validation\ValidationException;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
-use Modules\Product\App\Models\RoomTimeSlot;
-use Modules\Promotion\App\Models\Coupon;
 use PayOS\PayOS;
 
 /**
@@ -482,119 +479,6 @@ trait BuildsRoomBooking
             'total'          => $total,
             'label'          => $label,
         ]];
-    }
-
-    // ── Coupons (chấp nhận cả coupon cá nhân nếu có $customer, hoặc chỉ coupon công
-    //    khai nếu $customer null — dùng chung cho khách vãng lai lẫn khách thành viên) ──
-
-    private function validateBookingCoupon(
-        string $code,
-        int $index,
-        Product $room,
-        Collection $rtsCollection,
-        ?Customer $customer,
-        float $orderAmount
-    ): Coupon {
-        $coupon = Coupon::where('code', $code)
-            ->where('is_active', true)
-            ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', now()))
-            ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', now()))
-            ->first();
-
-        $field = "coupon_codes.{$index}";
-
-        if (! $coupon) {
-            throw ValidationException::withMessages([
-                $field => ["Mã \"{$code}\" không tồn tại hoặc đã hết hạn."],
-            ]);
-        }
-
-        $isRestricted = $coupon->customer_id !== null || $coupon->customers()->exists();
-        if ($isRestricted) {
-            $owns = $customer && (
-                $coupon->customer_id === $customer->id
-                || $coupon->customers()->where('customer_id', $customer->id)->exists()
-            );
-
-            if (! $owns) {
-                throw ValidationException::withMessages([
-                    $field => ["Mã \"{$code}\" không tồn tại hoặc đã hết hạn."],
-                ]);
-            }
-        }
-
-        if ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {
-            throw ValidationException::withMessages([
-                $field => ["Mã \"{$code}\" đã hết lượt sử dụng."],
-            ]);
-        }
-
-        if ($coupon->min_order_value && $orderAmount < (float) $coupon->min_order_value) {
-            throw ValidationException::withMessages([
-                $field => ['Mã "' . $code . '" yêu cầu đơn hàng tối thiểu ' . number_format((float) $coupon->min_order_value) . 'đ.'],
-            ]);
-        }
-
-        $applicable = match ($coupon->apply_type) {
-            'all_rooms'     => true,
-            'specific_room' => $coupon->room_id === $room->id,
-            'specific_slot' => $rtsCollection->some(fn (RoomTimeSlot $rts) => $coupon->isApplicableToSlot($rts)),
-            default         => false,
-        };
-
-        if (! $applicable) {
-            throw ValidationException::withMessages([
-                $field => ["Mã \"{$code}\" không áp dụng cho phòng hoặc khung giờ này."],
-            ]);
-        }
-
-        return $coupon;
-    }
-
-    private function applyBookingCoupons(
-        array $codes,
-        float $orderAmount,
-        Product $room,
-        Collection $rtsCollection,
-        ?Customer $customer
-    ): array {
-        if (empty($codes)) {
-            return [0, []];
-        }
-
-        $codes = array_values(array_unique(array_map('strtoupper', $codes)));
-
-        $coupons = [];
-        foreach ($codes as $index => $code) {
-            $coupons[] = $this->validateBookingCoupon($code, $index, $room, $rtsCollection, $customer, $orderAmount);
-        }
-
-        usort($coupons, fn ($a, $b) => ($b->type === 'percentage' ? 1 : 0) - ($a->type === 'percentage' ? 1 : 0));
-
-        $totalDiscount = 0;
-        $applied       = [];
-        $remaining     = $orderAmount;
-
-        foreach ($coupons as $coupon) {
-            if ($remaining <= 0) {
-                break;
-            }
-
-            $discount   = (int) $coupon->calculateDiscount($remaining);
-            $remaining -= $discount;
-            $totalDiscount += $discount;
-
-            $applied[] = [
-                'code'            => $coupon->code,
-                'name'            => $coupon->name,
-                'type'            => $coupon->type,
-                'value'           => $coupon->value,
-                'discount_amount' => $discount,
-                '_model'          => $coupon,
-            ];
-        }
-
-        return [(int) $totalDiscount, $applied];
     }
 
     // ── PayOS ─────────────────────────────────────────────────────────────────
