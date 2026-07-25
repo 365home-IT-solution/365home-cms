@@ -71,6 +71,7 @@ class AuthController extends Controller
             'email'          => $user->email,
             'roles'          => $user->roles()->pluck('name'),
             'partner_id'     => $user->partner_id,
+            'partner_name'   => $user->partner?->name,
             'is_super_admin' => $user->isSuperAdmin(),
         ];
     }
