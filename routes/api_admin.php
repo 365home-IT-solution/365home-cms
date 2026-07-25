@@ -119,12 +119,18 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 |                                              nội bộ. Nhận CẢ PUT lẫn POST — dùng POST khi cần gửi
 |                                              multipart/form-data kèm file (PHP không tự parse
 |                                              form-data cho method PUT thật, kể cả không có file).
+| DELETE /api/admin/orders/{order_code}/guests/{guest_index}
+|                                          → xoá CCCD 1 khách đi cùng (guest_index từ 2) — dùng khi
+|                                            giảm số khách, không tự giảm guest_count của đơn.
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/orders')->name('api.admin.orders.')->group(function () {
     Route::get('/',                       [OrderController::class, 'index'])->name('index');
     Route::post('/',                      [AdminBookingController::class, 'store'])->name('store');
     Route::match(['put', 'post'], '/{order_code}', [OrderController::class, 'update'])->name('update');
+    Route::delete('/{order_code}/guests/{guest_index}', [OrderController::class, 'destroyGuestCccd'])
+        ->name('guests.destroy')
+        ->whereNumber('guest_index');
 });
 
 /*

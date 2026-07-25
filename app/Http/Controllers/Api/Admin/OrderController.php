@@ -376,6 +376,54 @@ class OrderController extends Controller
         ]);
     }
 
+    /**
+     * DELETE /api/admin/orders/{order_code}/guests/{guest_index}
+     * Xoá CCCD của 1 khách đi cùng (guest_index >= 2) — dùng khi giảm guest_count và không còn cần
+     * lưu thông tin khách đó nữa (vd đơn từ 3 khách giảm xuống 2, xoá guest_index=3 vừa dư ra).
+     * Xoá luôn 2 file ảnh trong storage, không chỉ xoá bản ghi DB.
+     *
+     * KHÔNG dùng để xoá CCCD khách chính (guest_index=1 — lưu trực tiếp ở Order.cccd_front/back/
+     * data, không nằm trong bảng order_guest_cccds) — muốn thay CCCD khách chính, gửi cccd_front/
+     * cccd_back mới qua API cập nhật đơn (PUT/POST /api/admin/orders/{order_code}).
+     *
+     * Không tự động giảm 'guest_count' của đơn — nếu cần, gọi kèm API cập nhật đơn với guest_count
+     * mới (endpoint này chỉ dọn CCCD dư ra, tách biệt để admin chủ động, tránh xoá nhầm hàng loạt).
+     */
+    public function destroyGuestCccd(Request $request, string $orderCode, int $guestIndex): JsonResponse
+    {
+        /** @var User $admin */
+        $admin = $request->user();
+
+        $order = Order::where('order_code', $orderCode)->first();
+
+        if (! $order || (! $admin->isSuperAdmin() && $order->partner_id !== $admin->partner_id)) {
+            return response()->json(['message' => 'Không tìm thấy đơn.'], 404);
+        }
+
+        if ($guestIndex < 2) {
+            return response()->json([
+                'message' => 'guest_index phải từ 2 trở lên (khách đi cùng) — CCCD khách chính sửa qua API cập nhật đơn, không xoá qua đây.',
+            ], 422);
+        }
+
+        $guestCccd = $order->guestCccds()->where('guest_index', $guestIndex)->first();
+
+        if (! $guestCccd) {
+            return response()->json(['message' => 'Không tìm thấy CCCD khách đi cùng với guest_index này.'], 404);
+        }
+
+        if ($guestCccd->cccd_front) {
+            Storage::disk('public')->delete($guestCccd->cccd_front);
+        }
+        if ($guestCccd->cccd_back) {
+            Storage::disk('public')->delete($guestCccd->cccd_back);
+        }
+
+        $guestCccd->delete();
+
+        return response()->json(['message' => 'Đã xoá CCCD khách đi cùng.', 'guest_index' => $guestIndex]);
+    }
+
     private function toListItem(Order $order): array
     {
         return [
