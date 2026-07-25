@@ -4,14 +4,22 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api\Admin;
 
+use App\Http\Controllers\Api\Concerns\BuildsRoomBooking;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Payment\Entities\Order;
+use Modules\Product\App\Models\Product;
 
 class OrderController extends Controller
 {
+    use BuildsRoomBooking;
+
     /**
      * GET /api/admin/orders
      * Danh sách đơn đặt phòng lọc theo đối tác của tài khoản đang đăng nhập — user thuộc đối
@@ -75,26 +83,37 @@ class OrderController extends Controller
     /**
      * PUT /api/admin/orders/{order_code}
      * Cập nhật đơn (đơn admin/lễ tân tạo qua BookingController hoặc đơn bất kỳ trong phạm vi
-     * đối tác của tài khoản đang đăng nhập). Phạm vi CHỈ gồm các trường điều chỉnh tại quầy:
-     *   - note_for_admin     : ghi chú nội bộ
-     *   - description        : mô tả đầy đủ của đơn
-     *   - short_description  : mô tả ngắn (hiển thị danh sách/thông báo)
-     *   - status         : chỉ áp dụng cho đơn cod (giống rule ở BookingController::store —
-     *                      đơn PayOS luôn đổi trạng thái qua webhook thật, không cho gõ tay đè)
-     *   - surcharge      : phụ thu sửa tay (Order.surcharge — cộng thêm ngoài giá phòng/dịch vụ,
-     *                      giống hệt field "Phụ thu (có thể sửa tay)" bên CMS OrderForm)
-     *   - amount         : tổng tiền đơn sửa tay — admin ghi đè trực tiếp số cuối cùng, giống
-     *                      field "Tổng tiền đơn (có thể sửa tay)" bên CMS.
+     * đối tác của tài khoản đang đăng nhập). Mọi field đều tuỳ chọn — chỉ gửi field nào cần sửa.
      *
-     * 'surcharge' và 'amount' SỬA ĐƯỢC BẤT KỂ trạng thái đơn (kể cả đã paid/deposit) — admin toàn
-     * quyền điều chỉnh tại quầy, không giới hạn như CMS. Sửa 'amount' luôn đồng bộ thẳng vào
-     * 'full_amount' — LƯU Ý: điều này phá vỡ bất biến "full_amount cố định sau khi thanh toán" mà
-     * các chỗ khác (vd Order::depositDueAmount(), báo cáo tài chính) đang dựa vào, là đánh đổi có
-     * chủ đích theo yêu cầu nghiệp vụ, không phải sơ suất.
+     * Field đơn giản:
+     *   - note_for_admin, description, short_description : text
+     *   - buyer_name, buyer_phone                         : thông tin người đặt
+     *   - status     : sửa được bất kể payment_method (kể cả đơn PayOS — trạng thái bình thường do
+     *                  webhook thanh toán tự cập nhật, nhưng admin vẫn có thể gõ tay đè nếu cần)
+     *   - surcharge  : phụ thu sửa tay (Order.surcharge — cộng thêm ngoài giá phòng/dịch vụ)
+     *   - amount     : tổng tiền đơn sửa tay — ghi đè trực tiếp số cuối cùng, ÁP DỤNG SAU CÙNG nên
+     *                  luôn thắng số tự tính lại ở phần "đổi khung giờ" bên dưới nếu gửi chung.
+     *   'status'/'surcharge'/'amount' sửa được BẤT KỂ trạng thái/payment_method đơn (kể cả đã
+     *   paid/deposit, kể cả PayOS) — admin toàn quyền điều chỉnh tại quầy, khác CMS. Sửa 'amount'
+     *   luôn đồng bộ thẳng 'full_amount', phá vỡ bất biến "full_amount cố định sau khi thanh toán"
+     *   — đánh đổi có chủ đích theo yêu cầu nghiệp vụ.
      *
-     * LƯU Ý: gửi 'surcharge' không tự động cộng vào 'amount' — 2 field độc lập (giống hệt CMS,
-     * nơi 'amount' chỉ tự đồng bộ qua tính toán JS phía client). Muốn tổng tiền phản ánh đúng
-     * phụ thu mới, phải tự tính và gửi kèm 'amount' mới trong cùng request.
+     * CCCD (tùy chọn, không bắt buộc — giống lúc tạo đơn):
+     *   - cccd_front, cccd_back       : ảnh khách chính, gửi thì quét lại QR, xoá ảnh cũ
+     *   - guests[{guest_index}][front|back] : ảnh khách đi cùng, guest_index từ 2 — chỉ ghi đè
+     *     đúng khách nào có gửi ảnh mới (updateOrCreate theo guest_index), không đụng khách khác.
+     *
+     * Đổi khung giờ/ngày (tùy chọn — gửi 'type' để kích hoạt, bỏ qua nếu không đổi lịch):
+     *   - type: slot|daily|monthly + slots[]/checkin_date+checkout_date như lúc tạo đơn.
+     *   - Xoá TOÀN BỘ order_items cũ, dựng lại theo dữ liệu mới (dùng lại đúng engine tính giá ở
+     *     BuildsRoomBooking — promotions, bulk/full-booking discount), tính lại 'amount'/'full_amount'
+     *     = giá phòng mới + phụ thu khách + tổng dịch vụ + surcharge hiện có (hoặc vừa sửa ở field
+     *     'surcharge' bên trên) — TRỪ KHI có gửi kèm 'amount' thủ công (Phase cuối, luôn thắng).
+     *   - guest_count gửi kèm 'type' sẽ áp cho cả items mới lẫn Order; gửi RIÊNG guest_count (không
+     *     kèm 'type') chỉ cập nhật số khách trên items hiện có, KHÔNG tính lại giá.
+     *   - services gửi kèm sẽ THAY THẾ toàn bộ dịch vụ cũ (xoá hết, tạo lại theo danh sách mới).
+     *   - Vẫn kiểm tra trùng khung giờ với đơn KHÁC (không tự đụng chính đơn này vì items cũ đã xoá
+     *     trước khi dựng lại, trong cùng 1 transaction — lỗi trùng sẽ rollback về y hệt trước đó).
      */
     public function update(Request $request, string $orderCode): JsonResponse
     {
@@ -102,7 +121,7 @@ class OrderController extends Controller
         $admin = $request->user();
 
         $order = Order::query()
-            ->with(['items.product:id,name', 'category:id,name', 'customer:id,fullname,phone'])
+            ->with(['items.product:id,name', 'category:id,name', 'customer:id,fullname,phone', 'guestCccds'])
             ->where('order_code', $orderCode)
             ->first();
 
@@ -112,30 +131,64 @@ class OrderController extends Controller
             return response()->json(['message' => 'Không tìm thấy đơn.'], 404);
         }
 
-        $data = $request->validate([
+        $rules = [
             'note_for_admin'     => 'sometimes|nullable|string|max:500',
             'description'        => 'sometimes|nullable|string|max:500',
             'short_description'  => 'sometimes|nullable|string|max:255',
             'status'             => 'sometimes|in:pending,paid,deposit,failed,cancelled_payment,refunded',
             'surcharge'          => 'sometimes|nullable|numeric|min:0',
             'amount'             => 'sometimes|nullable|numeric|min:0',
-        ]);
+            'buyer_name'         => 'sometimes|nullable|string|max:100',
+            'buyer_phone'        => 'sometimes|nullable|string|max:20',
+            'cccd_front'         => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
+            'cccd_back'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
+            'guests'                 => 'sometimes|array',
+            'guests.*.front'         => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
+            'guests.*.back'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
+            'guest_count'            => 'sometimes|integer|min:1',
+            'type'                   => 'sometimes|in:slot,daily,monthly',
+            'services'               => 'sometimes|nullable|array',
+            'services.*.service_id'  => 'required_with:services|integer',
+            'services.*.quantity'    => 'required_with:services|integer|min:1',
+        ];
 
-        $updates = [];
-
-        if (array_key_exists('note_for_admin', $data)) {
-            $updates['note_for_admin'] = $data['note_for_admin'];
+        if ($request->input('type') === 'slot') {
+            $rules['date']                = 'sometimes|date_format:Y-m-d|after_or_equal:today';
+            $rules['slots']               = 'required|array|min:1';
+            $rules['slots.*.timeslot_id'] = 'required|integer';
+            $rules['slots.*.date']        = 'sometimes|date_format:Y-m-d|after_or_equal:today';
+        } elseif ($request->filled('type')) {
+            $rules['checkin_date']  = 'required|date|after_or_equal:today';
+            $rules['checkout_date'] = 'required|date|after:checkin_date';
         }
 
-        if (array_key_exists('description', $data)) {
-            $updates['description'] = $data['description'];
+        if ($request->input('type') === 'daily') {
+            $rules['checkin_date']  = 'required|date_format:Y-m-d|after_or_equal:today';
+            $rules['checkout_date'] = 'required|date_format:Y-m-d|after:checkin_date';
         }
 
-        if (array_key_exists('short_description', $data)) {
-            $updates['short_description'] = $data['short_description'];
+        $data = $request->validate($rules);
+
+        $oldAmount = (int) $order->amount;
+        $updates   = [];
+
+        // ── Field đơn giản ───────────────────────────────────────────────────
+        foreach (['note_for_admin', 'description', 'short_description'] as $field) {
+            if (array_key_exists($field, $data)) {
+                $updates[$field] = $data[$field];
+            }
         }
 
-        if (array_key_exists('status', $data) && $order->payment_method !== 'PayOS') {
+        foreach (['buyer_name', 'buyer_phone'] as $field) {
+            if (array_key_exists($field, $data)) {
+                $updates[$field] = $data[$field] !== null ? trim((string) $data[$field]) : null;
+            }
+        }
+
+        // Sửa được bất kể payment_method — kể cả đơn PayOS (trước đây chỉ cho phép với cod, vì
+        // trạng thái đơn PayOS thường được webhook thanh toán cập nhật tự động; giờ admin cũng có
+        // thể gõ tay đè theo yêu cầu nghiệp vụ, đồng nhất với 'amount'/'surcharge').
+        if (array_key_exists('status', $data)) {
             $updates['status'] = $data['status'];
         }
 
@@ -143,22 +196,161 @@ class OrderController extends Controller
             $updates['surcharge'] = (int) ($data['surcharge'] ?? 0);
         }
 
-        if (array_key_exists('amount', $data)) {
-            $newAmount = (int) $data['amount'];
-            $oldAmount = (int) $order->amount;
+        // ── CCCD khách chính (tùy chọn) ────────────────────────────────────────
+        if ($request->hasFile('cccd_front') && $request->hasFile('cccd_back')) {
+            $newFront = $request->file('cccd_front')->store('cccd', 'public');
+            $newBack  = $request->file('cccd_back')->store('cccd', 'public');
 
-            // Sửa được bất kể trạng thái đơn (kể cả đã paid/deposit) — theo yêu cầu nghiệp vụ,
-            // khác với CMS (chỉ đồng bộ full_amount khi đơn chưa thanh toán). Luôn đồng bộ thẳng
-            // 'full_amount' = 'amount' mới, không phân biệt trạng thái.
-            $updates['amount']      = $newAmount;
-            $updates['full_amount'] = $newAmount;
-
-            // Giá đổi mà đơn đang có link PayOS cũ -> QR cũ sai số tiền, phải huỷ để tạo lại.
-            if ($newAmount !== $oldAmount && $order->checkout_url) {
-                $updates['checkout_url']       = null;
-                $updates['qr_code']            = null;
-                $updates['current_payos_code'] = null;
+            $cccdData = null;
+            try {
+                $tempOrder = new Order(['cccd_front' => $newFront, 'cccd_back' => $newBack]);
+                $cccdData  = app(CccdScannerService::class)->scanOrder($tempOrder);
+            } catch (\Throwable $e) {
+                Log::warning('Admin API: quét lại CCCD khách chính thất bại', ['order_code' => $order->order_code, 'error' => $e->getMessage()]);
             }
+            // Không bắt buộc đọc được QR (giống lúc tạo đơn) — vẫn lưu ảnh, cccd_data để trống nếu quét lỗi.
+
+            if ($order->cccd_front) Storage::disk('public')->delete($order->cccd_front);
+            if ($order->cccd_back)  Storage::disk('public')->delete($order->cccd_back);
+
+            $updates['cccd_front'] = $newFront;
+            $updates['cccd_back']  = $newBack;
+            $updates['cccd_data']  = $cccdData;
+        }
+
+        // ── CCCD khách đi cùng (tùy chọn) — chỉ ghi đè guest_index nào có gửi ảnh mới ──────────
+        foreach ((array) $request->file('guests', []) as $guestIndex => $files) {
+            $front = $files['front'] ?? null;
+            $back  = $files['back']  ?? null;
+            if (! $front || ! $back) {
+                continue;
+            }
+
+            $frontPath = $front->store('cccd', 'public');
+            $backPath  = $back->store('cccd', 'public');
+
+            $guestData = null;
+            try {
+                $guestData = app(CccdScannerService::class)->scanPaths($frontPath, $backPath);
+            } catch (\Throwable $e) {
+                Log::warning('Admin API: quét lại CCCD khách đi cùng thất bại', ['guest_index' => $guestIndex, 'error' => $e->getMessage()]);
+            }
+
+            $existing = $order->guestCccds->firstWhere('guest_index', (int) $guestIndex);
+            if ($existing) {
+                if ($existing->cccd_front) Storage::disk('public')->delete($existing->cccd_front);
+                if ($existing->cccd_back)  Storage::disk('public')->delete($existing->cccd_back);
+            }
+
+            $order->guestCccds()->updateOrCreate(
+                ['guest_index' => (int) $guestIndex],
+                ['cccd_front' => $frontPath, 'cccd_back' => $backPath, 'cccd_data' => $guestData]
+            );
+        }
+
+        // ── Đổi khung giờ/ngày (chỉ khi có gửi 'type') ─────────────────────────
+        if ($request->filled('type')) {
+            $productId = $order->items->first()?->product_id;
+            $room = Product::where('id', $productId)
+                ->where('is_activated', true)
+                ->with([
+                    'roomType',
+                    'additionalServices',
+                    'roomTimeSlots.timeSlot',
+                    'roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
+                ])
+                ->first();
+
+            if (! $room) {
+                return response()->json(['message' => 'Phòng của đơn này không còn tồn tại hoặc đã ngừng hoạt động.'], 422);
+            }
+
+            // buildSlotItems/buildDailyItems/buildMonthlyItem đọc guest_count qua $request->guest_count
+            // — nếu admin không gửi kèm, giữ nguyên số khách hiện có của đơn.
+            if (! $request->filled('guest_count')) {
+                $request->merge(['guest_count' => $order->guest_count]);
+            }
+
+            DB::transaction(function () use ($request, $room, $order, $data, &$updates) {
+                Product::where('id', $room->id)->lockForUpdate()->first();
+
+                // Xoá items cũ TRƯỚC khi dựng lại — để không tự báo trùng với chính đơn này. Nằm
+                // trong transaction nên nếu build bên dưới ném lỗi (trùng đơn KHÁC thật sự), toàn
+                // bộ rollback, items cũ khôi phục nguyên vẹn.
+                $order->items()->delete();
+
+                $rtsCollection = collect();
+                $slotSummary   = [];
+
+                if ($request->input('type') === 'slot') {
+                    [$basePrice, , $itemsData, $rtsCollection, $slotSummary] = $this->buildSlotItems($request, $room);
+                } elseif ($request->input('type') === 'daily') {
+                    [$basePrice, , $itemsData, $rtsCollection, $slotSummary] = $this->buildDailyItems($request, $room);
+                } else {
+                    [$basePrice, , $itemsData] = $this->buildMonthlyItem($request, $room);
+                }
+
+                foreach ($itemsData as $itemData) {
+                    $order->items()->create($itemData);
+                }
+
+                [$guestSurcharge] = $this->buildGuestSurcharge($request, $room, $slotSummary);
+
+                $promotionDiscount = 0;
+                $systemDiscount    = 0;
+                $hasFullBooking    = ! empty($slotSummary) && $this->checkFullDayBooking($slotSummary, $room);
+
+                if ($hasFullBooking) {
+                    [$systemDiscount] = $this->applyFullBookingDiscount($basePrice, $room);
+                } else {
+                    if ($rtsCollection->isNotEmpty()) {
+                        [$promotionDiscount] = $request->input('type') === 'daily'
+                            ? $this->applyDailyPromotions($rtsCollection, $slotSummary)
+                            : $this->applyPromotions($rtsCollection, $slotSummary);
+                    }
+                    if (! empty($slotSummary)) {
+                        [$systemDiscount] = $this->applyBulkDiscount(count($slotSummary), $room, $basePrice - $promotionDiscount);
+                    }
+                }
+
+                $slotFinalPrice = max(0, $basePrice - $promotionDiscount - $systemDiscount);
+
+                // Dịch vụ: THAY THẾ toàn bộ nếu có gửi 'services', không thì giữ nguyên (cộng theo DB).
+                if (array_key_exists('services', $data)) {
+                    [$servicesTotal, $servicesData] = $this->buildServices($request, $room);
+                    $order->services()->delete();
+                    foreach ($servicesData as $svc) {
+                        $order->services()->create($svc);
+                    }
+                } else {
+                    $servicesTotal = (int) $order->services()->sum('subtotal');
+                }
+
+                $effectiveSurcharge = array_key_exists('surcharge', $updates) ? (int) $updates['surcharge'] : (int) $order->surcharge;
+                $newTotal = (int) $slotFinalPrice + (int) $guestSurcharge + $servicesTotal + $effectiveSurcharge;
+
+                $updates['amount']      = $newTotal;
+                $updates['full_amount'] = $newTotal;
+                $updates['guest_count'] = (int) $request->guest_count;
+            });
+        } elseif (array_key_exists('guest_count', $data)) {
+            // Chỉ đổi số khách, KHÔNG đổi khung giờ -> cập nhật số khách trên items hiện có, không
+            // tự tính lại giá (đổi giá do guest_count nên đi kèm 'type' để dựng lại đúng phụ thu).
+            $order->items()->update(['guest_count' => $data['guest_count']]);
+            $updates['guest_count'] = $data['guest_count'];
+        }
+
+        // ── Sửa tổng tiền thủ công (áp dụng SAU CÙNG — luôn thắng số vừa tính lại ở trên) ──────
+        if (array_key_exists('amount', $data)) {
+            $updates['amount']      = (int) $data['amount'];
+            $updates['full_amount'] = (int) $data['amount'];
+        }
+
+        // Giá đổi (do bất kỳ nhánh nào ở trên) mà đơn đang có link PayOS cũ -> QR cũ sai số tiền.
+        if (isset($updates['amount']) && (int) $updates['amount'] !== $oldAmount && $order->checkout_url) {
+            $updates['checkout_url']       = null;
+            $updates['qr_code']            = null;
+            $updates['current_payos_code'] = null;
         }
 
         if (empty($updates)) {
@@ -166,9 +358,22 @@ class OrderController extends Controller
         }
 
         $order->update($updates);
-        $order->refresh();
+        $order->load(['items.product:id,name', 'category:id,name', 'customer:id,fullname,phone', 'guestCccds']);
 
-        return response()->json(['order' => $this->toListItem($order) + ['surcharge' => (int) $order->surcharge]]);
+        return response()->json([
+            'order' => $this->toListItem($order) + [
+                'surcharge' => (int) $order->surcharge,
+                'cccd_front' => $order->cccd_front ? Storage::disk('public')->url($order->cccd_front) : null,
+                'cccd_back'  => $order->cccd_back  ? Storage::disk('public')->url($order->cccd_back)  : null,
+                'cccd_data'  => $order->cccd_data,
+                'guests'     => $order->guestCccds->map(fn ($g) => [
+                    'guest_index' => $g->guest_index,
+                    'cccd_front'  => Storage::disk('public')->url($g->cccd_front),
+                    'cccd_back'   => Storage::disk('public')->url($g->cccd_back),
+                    'cccd_data'   => $g->cccd_data,
+                ])->values(),
+            ],
+        ]);
     }
 
     private function toListItem(Order $order): array
