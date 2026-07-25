@@ -25,7 +25,7 @@ class OrderController extends Controller
      *  - payment_method : PayOS|cod
      *  - search         : order_code / buyer_name / buyer_phone
      *  - from, to       : lọc theo created_at (yyyy-mm-dd)
-     *  - per_page       : mặc định 20
+     *  - per_page       : mặc định 10
      */
     public function index(Request $request): JsonResponse
     {
@@ -43,7 +43,7 @@ class OrderController extends Controller
             // dữ liệu hợp lệ để xem — trả rỗng thay vì lộ toàn bộ đơn (WHERE partner_id = NULL sẽ
             // không khớp dòng nào nên về mặt kết quả tương đương, nhưng viết tường minh cho rõ ý).
             if (empty($user->partner_id)) {
-                return response()->json($query->whereRaw('1 = 0')->paginate($request->integer('per_page', 20)));
+                return response()->json($query->whereRaw('1 = 0')->paginate($request->integer('per_page', 10)));
             }
 
             $query->where('partner_id', $user->partner_id);
@@ -65,7 +65,7 @@ class OrderController extends Controller
             ->when($request->filled('to'), fn ($q) => $q->whereDate('created_at', '<=', $request->date('to')))
             ->orderByDesc('created_at');
 
-        $orders = $query->paginate($request->integer('per_page', 20));
+        $orders = $query->paginate($request->integer('per_page', 10));
 
         $orders->getCollection()->transform(fn (Order $order) => $this->toListItem($order));
 
