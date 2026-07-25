@@ -36,6 +36,7 @@ class Order extends Model implements Eventable
         'remaining_checkout_url',
         'current_payos_code',
         'description',
+        'short_description',
         'buyer_name',
         'buyer_email',
         'buyer_phone',

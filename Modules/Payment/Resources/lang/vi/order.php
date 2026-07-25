@@ -27,6 +27,7 @@ return [
             'note_for_admin' => 'Ghi chú dành cho admin',
             'items' => 'Sản phẩm',
             'description' => 'Ghi chú dành cho đơn hàng',
+            'short_description' => 'Mô tả ngắn',
             'created_at' => 'Ngày tạo',
             'updated_at' => 'Ngày cập nhật'
         ],

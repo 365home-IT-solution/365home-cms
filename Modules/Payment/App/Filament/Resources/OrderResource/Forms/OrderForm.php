@@ -208,6 +208,12 @@ class OrderForm
                                                     ->default('')
                                                     ->rows(4)
                                                     ->maxLength(1000),
+
+                                                TextInput::make('short_description')
+                                                    ->label(__('payment::order.form.label.short_description'))
+                                                    ->placeholder('VD: Yêu cầu phòng tầng cao')
+                                                    ->nullable()
+                                                    ->maxLength(255),
                                             ]),
                                     ]),
                                 // Bố cục 2 cột giống trang chi tiết phòng phía client (BookingForm nằm

@@ -64,6 +64,8 @@ class BookingController extends Controller
             'services.*.service_id'   => 'required_with:services|integer',
             'services.*.quantity'     => 'required_with:services|integer|min:1',
             'note_for_admin'          => 'sometimes|nullable|string|max:500',
+            'description'             => 'sometimes|nullable|string|max:500',
+            'short_description'       => 'sometimes|nullable|string|max:255',
             'return_url'              => 'sometimes|nullable|string|max:500',
             'cancel_url'              => 'sometimes|nullable|string|max:500',
             // CCCD khách chính — không bắt buộc (xem docblock). Chỉ validate ĐỊNH DẠNG nếu có gửi.
@@ -333,7 +335,9 @@ class BookingController extends Controller
                 'amount'          => $finalAmount,
                 'full_amount'     => $finalAmount,
                 'deposit_percent' => $depositPercentToSave,
-                'description'     => 'Đặt phòng (admin) - ' . $room->name,
+                // Admin có thể tự nhập mô tả; không gửi thì fallback về mô tả tự sinh như trước.
+                'description'       => $request->input('description') ?: ('Đặt phòng (admin) - ' . $room->name),
+                'short_description' => $request->input('short_description'),
                 'buyer_name'      => $buyerName,
                 'buyer_phone'     => $buyerPhone,
                 'payment_method'  => $paymentMethod,
@@ -423,6 +427,8 @@ class BookingController extends Controller
                 'buyer_name'     => $order->buyer_name,
                 'buyer_phone'    => $order->buyer_phone,
                 'customer_id'    => $order->customer_id,
+                'description'       => $order->description,
+                'short_description' => $order->short_description,
                 'created_by'     => $admin->fullname,
                 'cccd_front'     => $order->cccd_front ? Storage::disk('public')->url($order->cccd_front) : null,
                 'cccd_back'      => $order->cccd_back  ? Storage::disk('public')->url($order->cccd_back)  : null,
