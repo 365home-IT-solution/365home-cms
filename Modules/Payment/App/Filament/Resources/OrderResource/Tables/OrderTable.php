@@ -56,12 +56,11 @@ class OrderTable
 
                 PartnerTableHelpers::column(),
 
-                TextColumn::make('computed_total')
+                TextColumn::make('amount')
                     ->label('Tổng tiền')
                     ->weight(FontWeight::Bold)
-                    ->getStateUsing(fn ($record) => static::computeOrderTotal($record))
                     ->formatStateUsing(fn ($state) => number_format((int)$state, 0, ',', '.') . ' ₫')
-                    ->sortable(false),
+                    ->sortable(),
 
                 TextColumn::make('created_at')
                     ->label(__('payment::order.table.label.created_at'))
