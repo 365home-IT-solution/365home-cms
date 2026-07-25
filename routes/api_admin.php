@@ -113,14 +113,15 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 | Orders — Danh sách đơn đặt phòng theo đối tác của tài khoản đang đăng nhập
 | GET /api/admin/orders      → lọc tự động theo users.partner_id (super_admin xem hết);
 |                               hỗ trợ thêm branch_id, status, payment_method, search, from, to, per_page
-| POST /api/admin/orders     → tạo đơn hộ khách (vãng lai hoặc đã là thành viên)
-| PUT  /api/admin/orders/{id}→ sửa đơn (ghi chú, trạng thái đơn cod, phụ thu tay, tổng tiền tay)
+| POST /api/admin/orders                → tạo đơn hộ khách (vãng lai hoặc đã là thành viên)
+| PUT  /api/admin/orders/{order_code}   → sửa đơn (ghi chú, trạng thái đơn cod, phụ thu tay, tổng tiền tay)
+|                                          — tra theo order_code (mã đơn hiển thị), KHÔNG phải id nội bộ
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/orders')->name('api.admin.orders.')->group(function () {
-    Route::get('/',      [OrderController::class, 'index'])->name('index');
-    Route::post('/',     [AdminBookingController::class, 'store'])->name('store');
-    Route::put('/{id}',  [OrderController::class, 'update'])->name('update')->whereNumber('id');
+    Route::get('/',              [OrderController::class, 'index'])->name('index');
+    Route::post('/',             [AdminBookingController::class, 'store'])->name('store');
+    Route::put('/{order_code}',  [OrderController::class, 'update'])->name('update');
 });
 
 /*

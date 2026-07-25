@@ -73,7 +73,7 @@ class OrderController extends Controller
     }
 
     /**
-     * PUT /api/admin/orders/{id}
+     * PUT /api/admin/orders/{order_code}
      * Cập nhật đơn (đơn admin/lễ tân tạo qua BookingController hoặc đơn bất kỳ trong phạm vi
      * đối tác của tài khoản đang đăng nhập). Phạm vi CHỈ gồm các trường điều chỉnh tại quầy:
      *   - note_for_admin     : ghi chú nội bộ
@@ -96,12 +96,15 @@ class OrderController extends Controller
      * nơi 'amount' chỉ tự đồng bộ qua tính toán JS phía client). Muốn tổng tiền phản ánh đúng
      * phụ thu mới, phải tự tính và gửi kèm 'amount' mới trong cùng request.
      */
-    public function update(Request $request, int $id): JsonResponse
+    public function update(Request $request, string $orderCode): JsonResponse
     {
         /** @var User $admin */
         $admin = $request->user();
 
-        $order = Order::query()->with(['items.product:id,name', 'category:id,name', 'customer:id,fullname,phone'])->find($id);
+        $order = Order::query()
+            ->with(['items.product:id,name', 'category:id,name', 'customer:id,fullname,phone'])
+            ->where('order_code', $orderCode)
+            ->first();
 
         // Không thuộc phạm vi đối tác của admin -> trả 404 (không phải 403) để không lộ sự tồn
         // tại của đơn đó cho admin không liên quan, cùng quy ước với EmployeeController.
