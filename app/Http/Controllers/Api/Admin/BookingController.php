@@ -51,6 +51,7 @@ class BookingController extends Controller
             'buyer_phone'             => 'sometimes|nullable|string|max:20',
             'payment_method'          => 'sometimes|in:PayOS,cod',
             'payment_type'            => 'sometimes|in:full,deposit',
+            'status'                  => 'sometimes|in:pending,paid,deposit,failed,cancelled_payment,refunded',
             'coupon_codes'            => 'sometimes|nullable|array',
             'coupon_codes.*'          => 'string',
             'services'                => 'sometimes|nullable|array',
@@ -242,12 +243,18 @@ class BookingController extends Controller
         $depositPercentToSave = $depositInfo !== null ? (int) ($depositInfo['percentage']) : null;
         $appliedCouponCodes   = collect($appliedCoupons)->pluck('code')->values()->all();
 
+        // Đơn PayOS LUÔN bắt đầu ở "pending" (đang xử lý) — trạng thái thật chỉ được cập nhật qua
+        // webhook PayOS khi khách thanh toán (xem OrderController::paymentStatus/webhook), nên bỏ
+        // qua status admin gửi lên nếu có. Đơn tiền mặt (cod) không qua cổng thanh toán nên admin có
+        // thể chỉnh trạng thái ngay lúc tạo (vd đã thu tiền mặt tại quầy → 'paid' luôn).
+        $initialStatus = $paymentMethod === 'PayOS' ? 'pending' : $request->input('status', 'pending');
+
         // ── 7. Tạo đơn + items + services trong transaction ──────────────────
         $order = DB::transaction(function () use (
             $room, $finalAmount, $buyerName, $buyerPhone,
             $customer, $category, $itemsData, $servicesData,
             $paymentMethod, $request, $appliedCoupons, $appliedCouponCodes, $depositPercentToSave,
-            $admin
+            $admin, $initialStatus
         ) {
             Product::where('id', $room->id)->lockForUpdate()->first();
 
@@ -282,7 +289,7 @@ class BookingController extends Controller
                 'buyer_name'      => $buyerName,
                 'buyer_phone'     => $buyerPhone,
                 'payment_method'  => $paymentMethod,
-                'status'          => 'pending',
+                'status'          => $initialStatus,
                 'guest_count'     => $request->guest_count,
                 'note_for_admin'  => $request->input('note_for_admin'),
                 'category_id'     => $category?->id,
