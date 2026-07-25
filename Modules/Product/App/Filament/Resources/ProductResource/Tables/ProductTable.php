@@ -56,6 +56,7 @@ class ProductTable extends Table
                 TextColumn::make('housekeeping_status')
                     ->label('Tình trạng phòng')
                     ->hidden(fn () => self::shouldHideTTLockColumns())
+                    ->toggleable()
                     ->badge()
                     ->formatStateUsing(function (string $state, Product $record): string {
                         if (! TTLockService::hasAccountForCategory($record->branch_category_id)) {
@@ -80,7 +81,7 @@ class ProductTable extends Table
                     ->sortable(),
                 TextColumn::make('lock_id')
                     ->label('Khóa ngoài (check-in)')
-                    ->hidden(fn () => self::shouldHideTTLockColumns())
+                    ->hidden(fn ($livewire) => self::shouldHideTTLockColumns() || self::isFilteredToBranchWithoutTTLock($livewire))
                     ->placeholder('Chưa gán')
                     ->icon('heroicon-o-key')
                     ->badge()
@@ -91,7 +92,7 @@ class ProductTable extends Table
                     ->sortable(),
                 TextColumn::make('lock_id_checkout')
                     ->label('Khóa trong (check-out)')
-                    ->hidden(fn () => self::shouldHideTTLockColumns())
+                    ->hidden(fn ($livewire) => self::shouldHideTTLockColumns() || self::isFilteredToBranchWithoutTTLock($livewire))
                     ->placeholder('Chưa gán')
                     ->icon('heroicon-o-key')
                     ->badge()
@@ -126,7 +127,10 @@ class ProductTable extends Table
                     ->label(__('product::product.table.label.created_at'))
                     ->dateTime()
                     ->sortable(),
-                PartnerTableHelpers::column(),
+                PartnerTableHelpers::column()
+                    // Mặc định ẩn ở "Thiết lập Phòng" (đỡ rối cho đối tác 1-chi-nhánh), vẫn bật
+                    // lại được qua nút "Cột" khi cần (vd super_admin muốn xem nhanh theo đối tác).
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->defaultSort('created_at', 'desc')
             ->filters([
@@ -181,5 +185,20 @@ class ProductTable extends Table
         }
 
         return true;
+    }
+
+    // True nếu bảng đang được lọc theo ĐÚNG 1 chi nhánh cụ thể (bộ lọc "Chi nhánh/Khu vực") và
+    // chi nhánh đó không có tài khoản TTLock kích hoạt — áp dụng cho MỌI người dùng, kể cả
+    // super_admin, vì khi đã lọc rõ về 1 chi nhánh không dùng khóa điện tử thì 2 cột Khóa
+    // ngoài/Khóa trong chắc chắn không có ý nghĩa gì cho danh sách đang xem.
+    protected static function isFilteredToBranchWithoutTTLock($livewire): bool
+    {
+        $branchId = data_get($livewire, 'tableFilters.categories.value');
+
+        if (! $branchId) {
+            return false;
+        }
+
+        return ! TTLockService::hasAccountForCategory((int) $branchId);
     }
 }
