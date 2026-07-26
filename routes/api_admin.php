@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Admin\AuthController as AdminAuthController;
 use App\Http\Controllers\Api\Admin\BookingController as AdminBookingController;
+use App\Http\Controllers\Api\Admin\BranchController as AdminBranchController;
 use App\Http\Controllers\Api\Admin\ChatController as AdminChatController;
 use App\Http\Controllers\Api\Admin\AllowanceTypeController;
 use App\Http\Controllers\Api\Admin\DeductionTypeController;
@@ -10,6 +11,7 @@ use App\Http\Controllers\Api\Admin\EmployeeController;
 use App\Http\Controllers\Api\Admin\OrderController;
 use App\Http\Controllers\Api\Admin\OrderPaymentController;
 use App\Http\Controllers\Api\Admin\PositionController;
+use App\Http\Controllers\Api\Admin\RoomController as AdminRoomController;
 use App\Http\Controllers\Api\Admin\SalaryTemplateController;
 use App\Http\Controllers\Api\Admin\SalaryTypeController;
 use App\Http\Controllers\Api\Admin\UnlockController as AdminUnlockController;
@@ -108,6 +110,24 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
         Route::put('/{id}',    [SalaryTemplateController::class, 'update'])->name('update')->whereNumber('id');
         Route::delete('/{id}', [SalaryTemplateController::class, 'destroy'])->name('destroy')->whereNumber('id');
     });
+});
+
+/*
+|--------------------------------------------------------------------------
+| Branches / Rooms — dữ liệu nền để admin chọn khi tạo/sửa đơn (room_id)
+| GET /api/admin/branches → chi nhánh CHA (parent_id=null, category_type=product) theo đối tác;
+|                            super_admin thấy tất cả. Dùng khi user có nhiều chi nhánh cần chọn lọc.
+| GET /api/admin/rooms    → id/name/slug các phòng đang hoạt động (is_activated=true) theo đối tác;
+|                            ?categories={slug chi nhánh} lọc thêm đúng 1 chi nhánh (gồm danh mục con).
+| GET /api/admin/rooms/{id}/time-slots
+|                          → khung giờ x ngày của 1 phòng, mặc định 10 ngày — dùng ?offset_days= để
+|                            xem thêm 10 ngày tiếp theo (xem docblock RoomController::timeSlots()).
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.admin.')->group(function () {
+    Route::get('branches', [AdminBranchController::class, 'index'])->name('branches.index');
+    Route::get('rooms',    [AdminRoomController::class, 'index'])->name('rooms.index');
+    Route::get('rooms/{id}/time-slots', [AdminRoomController::class, 'timeSlots'])->name('rooms.time-slots');
 });
 
 /*
