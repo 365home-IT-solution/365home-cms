@@ -970,6 +970,7 @@
         border-radius: 8px;
         padding: 8px 10px;
         transition: border-color 0.2s;
+        cursor: pointer;
     }
 
     .ta-rc-order-item.is-new {

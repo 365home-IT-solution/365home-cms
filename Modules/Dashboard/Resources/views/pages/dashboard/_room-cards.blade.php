@@ -143,7 +143,8 @@
                 <div class="ta-rc-order-item {{ $order['is_new'] ? 'is-new' : '' }} seg-{{ $order['segment'] }}"
                      data-segment="{{ $order['segment'] }}"
                      data-status="{{ $order['status'] }}"
-                     data-order="{{ json_encode(['order_id'=>$order['order_id'],'order_code'=>$order['order_code'],'buyer_name'=>$order['buyer_name'],'buyer_phone'=>$order['buyer_phone'],'checkin'=>$order['checkin'],'checkout'=>$order['checkout'],'status_label'=>$order['status_label'],'status_color'=>$order['status_color'],'amount'=>$order['amount'],'segment'=>$order['segment'],'slot_count'=>$order['slot_count']??null,'slot_labels'=>$order['slot_labels']??'','slot_ranges'=>$order['slot_ranges']??[],'created_at'=>$order['created_at'],'created_at_fmt'=>$order['created_at_fmt']??'','is_new'=>$order['is_new']??false,'deposit_room'=>$order['deposit_room']??'']) }}">
+                     data-order="{{ json_encode(['order_id'=>$order['order_id'],'order_code'=>$order['order_code'],'buyer_name'=>$order['buyer_name'],'buyer_phone'=>$order['buyer_phone'],'checkin'=>$order['checkin'],'checkout'=>$order['checkout'],'status_label'=>$order['status_label'],'status_color'=>$order['status_color'],'amount'=>$order['amount'],'segment'=>$order['segment'],'slot_count'=>$order['slot_count']??null,'slot_labels'=>$order['slot_labels']??'','slot_ranges'=>$order['slot_ranges']??[],'created_at'=>$order['created_at'],'created_at_fmt'=>$order['created_at_fmt']??'','is_new'=>$order['is_new']??false,'deposit_room'=>$order['deposit_room']??'']) }}"
+                     onclick="rcOrderItemClick(event, this)">
                     <div class="ta-rc-line1">
                         <span class="ta-rc-status-compact" style="background:{{ $order['status_color'] }}1a;color:{{ $order['status_color'] }};">{{ $order['status_label'] }}</span>
                         <span class="ta-rc-guest-compact">{{ $order['buyer_name'] }}</span>
@@ -225,7 +226,8 @@
                 <div class="ta-rc-order-item {{ $order['is_new'] ? 'is-new' : '' }} seg-{{ $order['segment'] }}"
                      data-segment="{{ $order['segment'] }}"
                      data-status="{{ $order['status'] }}"
-                     data-order="{{ json_encode(['order_id'=>$order['order_id'],'order_code'=>$order['order_code'],'buyer_name'=>$order['buyer_name'],'buyer_phone'=>$order['buyer_phone'],'checkin'=>$order['checkin'],'checkout'=>$order['checkout'],'status_label'=>$order['status_label'],'status_color'=>$order['status_color'],'amount'=>$order['amount'],'segment'=>$order['segment'],'slot_count'=>$order['slot_count']??null,'slot_labels'=>$order['slot_labels']??'','slot_ranges'=>$order['slot_ranges']??[],'created_at'=>$order['created_at'],'created_at_fmt'=>$order['created_at_fmt']??'','is_new'=>$order['is_new']??false,'deposit_room'=>$order['deposit_room']??'']) }}">
+                     data-order="{{ json_encode(['order_id'=>$order['order_id'],'order_code'=>$order['order_code'],'buyer_name'=>$order['buyer_name'],'buyer_phone'=>$order['buyer_phone'],'checkin'=>$order['checkin'],'checkout'=>$order['checkout'],'status_label'=>$order['status_label'],'status_color'=>$order['status_color'],'amount'=>$order['amount'],'segment'=>$order['segment'],'slot_count'=>$order['slot_count']??null,'slot_labels'=>$order['slot_labels']??'','slot_ranges'=>$order['slot_ranges']??[],'created_at'=>$order['created_at'],'created_at_fmt'=>$order['created_at_fmt']??'','is_new'=>$order['is_new']??false,'deposit_room'=>$order['deposit_room']??'']) }}"
+                     onclick="rcOrderItemClick(event, this)">
                     <div class="ta-rc-order-top">
                         <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
                             <label class="ta-rc-check-wrap"><input type="checkbox" class="ta-rc-checkbox" onchange="rcToggleOrder(this)"><span class="ta-rc-check-box"></span></label>

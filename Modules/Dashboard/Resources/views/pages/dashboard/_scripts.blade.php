@@ -79,6 +79,18 @@ window.rcCardClick = function(event, card) {
     if (url) window.location.href = url;
 };
 
+// Bấm vào 1 dòng đơn trong danh sách của thẻ phòng → mở thẳng trang chi tiết đơn đó, không cần
+// bấm đúng icon mũi tên/nút "Chi tiết" nhỏ bên trong nữa. stopPropagation() để rcCardClick ở thẻ
+// phòng cha (bên trên) không bắt lại sự kiện rồi điều hướng nhầm sang trang sửa phòng.
+window.rcOrderItemClick = function(event, item) {
+    if (event.target.closest('a, button, input, label')) return;
+    event.stopPropagation();
+    var orderData = {};
+    try { orderData = JSON.parse(item.dataset.order || '{}'); } catch (e) { return; }
+    if (!orderData.order_id) return;
+    window.location.href = '/admin/orders/' + orderData.order_id + '/edit';
+};
+
 // ── Order selection ───────────────────────────────────────────────
 window._rcSelectedOrders = {};
 
@@ -693,7 +705,7 @@ window.rcSetView = function(mode) {
                 deposit_room: o.deposit_room
             })) : '';
             html +=
-                '<div class="ta-rc-order-item' + (o.is_new ? ' is-new' : '') + ' seg-' + seg + '" data-segment="' + seg + '" data-status="' + o.status + '" data-order="' + _oAttr + '">' +
+                '<div class="ta-rc-order-item' + (o.is_new ? ' is-new' : '') + ' seg-' + seg + '" data-segment="' + seg + '" data-status="' + o.status + '" data-order="' + _oAttr + '" onclick="rcOrderItemClick(event, this)">' +
                   '<div class="ta-rc-line1">' +
                     '<span class="ta-rc-status-compact" style="background:' + col + '1a;color:' + col + ';">' + o.status_label + '</span>' +
                     '<span class="ta-rc-guest-compact">' + o.buyer_name + '</span>' +
@@ -749,7 +761,7 @@ window.rcSetView = function(mode) {
                 deposit_room: o.deposit_room
             })) : '';
             html +=
-                '<div class="ta-rc-order-item' + (o.is_new ? ' is-new' : '') + ' seg-' + seg + '" data-segment="' + seg + '" data-status="' + o.status + '" data-order="' + _oAttr + '">' +
+                '<div class="ta-rc-order-item' + (o.is_new ? ' is-new' : '') + ' seg-' + seg + '" data-segment="' + seg + '" data-status="' + o.status + '" data-order="' + _oAttr + '" onclick="rcOrderItemClick(event, this)">' +
                   '<div class="ta-rc-order-top">' +
                     '<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">' +
                       '<label class="ta-rc-check-wrap"><input type="checkbox" class="ta-rc-checkbox" onchange="rcToggleOrder(this)"><span class="ta-rc-check-box"></span></label>' +
