@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Admin\BookingController as AdminBookingController;
 use App\Http\Controllers\Api\Admin\BranchController as AdminBranchController;
 use App\Http\Controllers\Api\Admin\ChatController as AdminChatController;
 use App\Http\Controllers\Api\Admin\AllowanceTypeController;
+use App\Http\Controllers\Api\Admin\DailyRoomHoldController as AdminDailyRoomHoldController;
 use App\Http\Controllers\Api\Admin\DeductionTypeController;
 use App\Http\Controllers\Api\Admin\DepartmentController;
 use App\Http\Controllers\Api\Admin\EmployeeController;
@@ -14,6 +15,7 @@ use App\Http\Controllers\Api\Admin\PositionController;
 use App\Http\Controllers\Api\Admin\RoomController as AdminRoomController;
 use App\Http\Controllers\Api\Admin\SalaryTemplateController;
 use App\Http\Controllers\Api\Admin\SalaryTypeController;
+use App\Http\Controllers\Api\Admin\TimeSlotHoldController as AdminTimeSlotHoldController;
 use App\Http\Controllers\Api\Admin\UnlockController as AdminUnlockController;
 use Illuminate\Support\Facades\Route;
 
@@ -122,12 +124,29 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 | GET /api/admin/rooms/{id}/time-slots
 |                          → khung giờ x ngày của 1 phòng, mặc định 10 ngày — dùng ?offset_days= để
 |                            xem thêm 10 ngày tiếp theo (xem docblock RoomController::timeSlots()).
+| POST/DELETE /api/admin/rooms/{id}/time-slot-hold
+|                          → giữ/bỏ giữ tạm 1 ô khung giờ x ngày khi admin đang chọn (chưa bấm tạo
+|                            đơn) — dùng CHUNG kho dữ liệu + kênh realtime với khách hàng
+|                            (TimeSlotHoldController) nhưng định danh bằng chính token admin
+|                            ("admin:{user_id}"), không nhận session_id từ client.
+| GET /api/admin/rooms/{id}/dates
+|                          → lịch phòng theo NGÀY (styles=2) — ?month=YYYY-MM (calendar) hoặc
+|                            ?from=&to= (xem trước 1 khoảng, có subtotal/deposit/holding).
+| POST/DELETE /api/admin/rooms/{id}/hold
+|                          → giữ/bỏ giữ tạm 1 khoảng ngày cho phòng theo NGÀY — cùng nguyên tắc với
+|                            time-slot-hold ở trên (định danh admin:{user_id}, dùng chung kho dữ
+|                            liệu + kênh realtime với DailyRoomHoldController khách hàng).
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.admin.')->group(function () {
     Route::get('branches', [AdminBranchController::class, 'index'])->name('branches.index');
     Route::get('rooms',    [AdminRoomController::class, 'index'])->name('rooms.index');
     Route::get('rooms/{id}/time-slots', [AdminRoomController::class, 'timeSlots'])->name('rooms.time-slots');
+    Route::post('rooms/{id}/time-slot-hold',   [AdminTimeSlotHoldController::class, 'hold'])->name('rooms.time-slot-hold');
+    Route::delete('rooms/{id}/time-slot-hold', [AdminTimeSlotHoldController::class, 'release'])->name('rooms.time-slot-hold.release');
+    Route::get('rooms/{id}/dates', [AdminRoomController::class, 'dates'])->name('rooms.dates');
+    Route::post('rooms/{id}/hold',   [AdminDailyRoomHoldController::class, 'hold'])->name('rooms.daily-hold');
+    Route::delete('rooms/{id}/hold', [AdminDailyRoomHoldController::class, 'release'])->name('rooms.daily-hold.release');
 });
 
 /*

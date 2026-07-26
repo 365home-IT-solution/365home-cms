@@ -19,7 +19,37 @@ class SlotRealtimeService
         $this->push($roomId, $date, [], 'available');
     }
 
+    /**
+     * Giải phóng ĐÚNG các khung giờ cụ thể (khác broadcastReleased() — hàm đó không nhận slot_ids,
+     * ý nghĩa mơ hồ nếu ngày đó còn khung giờ KHÁC vẫn đang bị chiếm bởi đơn khác). Dùng khi admin
+     * sửa đơn đổi khung giờ (xoá items cũ, tạo items mới) — các khung giờ cũ cần báo lại "available"
+     * chính xác từng ô, không đụng tới các khung giờ khác cùng ngày của phòng.
+     */
+    public function broadcastSlotsAvailable(string $roomId, string $date, array $slotIds): void
+    {
+        $this->push($roomId, $date, $slotIds, 'available');
+    }
+
     public function broadcastDailyBooked(string $roomId, string $checkin, string $checkout): void
+    {
+        $this->pushDaily($roomId, $checkin, $checkout, 'booked');
+    }
+
+    /**
+     * Giải phóng 1 khoảng ngày đã đặt trước đó (dùng khi admin sửa đơn daily đổi checkin/checkout —
+     * khoảng ngày CŨ cần báo lại "còn trống"). LƯU Ý: gửi kèm 'status' => 'available' trong CÙNG
+     * payload /internal/daily-booked mà broadcastDailyBooked() đang dùng (field 'status' là field
+     * MỚI, thêm thuần tuý — không phá payload cũ vì các consumer hiện tại chỉ đọc room_id/checkin/
+     * checkout). Server WebSocket nội bộ (Node, ngoài repo này) CẦN được cập nhật để đọc field
+     * 'status' và xử lý đúng 2 nhánh — nếu chưa cập nhật, lệnh gọi này sẽ không có tác dụng (hoặc
+     * tác dụng sai) cho tới khi phía đó được vá theo.
+     */
+    public function broadcastDailyReleased(string $roomId, string $checkin, string $checkout): void
+    {
+        $this->pushDaily($roomId, $checkin, $checkout, 'available');
+    }
+
+    private function pushDaily(string $roomId, string $checkin, string $checkout, string $status): void
     {
         $url = rtrim(config('services.websocket.url', 'http://localhost:3001'), '/');
         $key = config('services.websocket.internal_key', '');
@@ -35,6 +65,7 @@ class SlotRealtimeService
                     'room_id'  => $roomId,
                     'checkin'  => $checkin,
                     'checkout' => $checkout,
+                    'status'   => $status,
                 ]);
         } catch (\Throwable $e) {
             Log::warning('WS daily booked push failed', ['room_id' => $roomId, 'error' => $e->getMessage()]);

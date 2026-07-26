@@ -98,6 +98,13 @@ class TimeSlotHoldController extends Controller
      * Chỉ bắn WS cho ĐÚNG ngày vừa thay đổi (không phải toàn bộ holds của phòng) — kể cả khi rỗng
      * (vừa release hold cuối của ngày đó), để client subscribe kênh room:{room_id}:{date} (cùng
      * kênh slot.updated) biết chính xác trạng thái ngày đang xem, không suy đoán qua im lặng.
+     *
+     * KHÔNG phát session_id ra ngoài — trước đây gửi kèm session_id của người đang giữ cho MỌI
+     * client khác đang xem cùng phòng, để lộ session_id cho phép bất kỳ ai cũng gọi được release()
+     * giả mạo hộ người khác (chỉ cần biết đúng session_id, không cần xác thực gì thêm). Các client
+     * khác chỉ cần biết "ô nào đang bị giữ" để tô xám, không cần biết giữ bởi ai; mỗi client tự nhớ
+     * session_id CỦA CHÍNH MÌNH (đã có ngay từ lúc gọi hold()) để tự suy ra held_by_me, không cần
+     * server xác nhận lại qua broadcast.
      */
     private function broadcastForDate(string $roomId, string $date, array $allHolds): void
     {
@@ -107,7 +114,7 @@ class TimeSlotHoldController extends Controller
         ));
 
         app(SlotRealtimeService::class)->broadcastSlotHold($roomId, $date, array_map(
-            fn ($h) => ['session_id' => $h['session_id'], 'timeslot_id' => $h['timeslot_id']],
+            fn ($h) => ['timeslot_id' => $h['timeslot_id']],
             $holdsForDate
         ));
     }

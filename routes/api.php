@@ -193,8 +193,8 @@ Route::delete('rooms/{id}/hold',       [DailyRoomHoldController::class, 'release
 | đang bị người khác giữ (held=true, is_selectable=false).
 |--------------------------------------------------------------------------
 */
-Route::post('rooms/{id}/time-slot-hold',   [TimeSlotHoldController::class, 'hold'])->name('api.rooms.time-slot.hold');
-Route::delete('rooms/{id}/time-slot-hold', [TimeSlotHoldController::class, 'release'])->name('api.rooms.time-slot.hold.release');
+Route::post('rooms/{id}/time-slot-hold',   [TimeSlotHoldController::class, 'hold'])->name('api.rooms.time-slot.hold')->middleware('throttle:hold-slot');
+Route::delete('rooms/{id}/time-slot-hold', [TimeSlotHoldController::class, 'release'])->name('api.rooms.time-slot.hold.release')->middleware('throttle:hold-slot');
 
 /*
 |--------------------------------------------------------------------------

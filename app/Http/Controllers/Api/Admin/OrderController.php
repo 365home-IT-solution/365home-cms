@@ -7,6 +7,8 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Api\Concerns\BuildsRoomBooking;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\SlotRealtimeService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -282,7 +284,43 @@ class OrderController extends Controller
                 $request->merge(['guest_count' => $order->guest_count]);
             }
 
-            DB::transaction(function () use ($request, $room, $order, $data, &$updates) {
+            // Chụp lại (ngày, timeslot_id) của items CŨ trước khi transaction xoá — dùng để bắn
+            // realtime "giải phóng" sau khi commit thành công. order_items không lưu timeslot_id
+            // trực tiếp nên suy ngược qua giờ bắt đầu (checkin_date) khớp với RoomTimeSlot lặp lại
+            // (date IS NULL) của phòng — best-effort cho mục đích hiển thị realtime, không ảnh
+            // hưởng tính đúng đắn dữ liệu nếu suy sai (khoá DB lúc submit vẫn là chốt chặn chính).
+            $recurringSlotsByStartTime = $room->roomTimeSlots
+                ->filter(fn ($rts) => $rts->timeSlot && is_null($rts->date))
+                ->keyBy(fn ($rts) => $rts->timeSlot->start_time);
+
+            $oldSlotSummary = $order->items
+                ->filter(fn ($item) => $item->checkin_date)
+                ->map(function ($item) use ($recurringSlotsByStartTime) {
+                    $checkin = Carbon::parse($item->checkin_date);
+                    $rts     = $recurringSlotsByStartTime->get($checkin->format('H:i:s'));
+
+                    return $rts ? ['date' => $checkin->toDateString(), 'timeslot_id' => $rts->timeslot_id] : null;
+                })
+                ->filter()
+                ->values();
+
+            // Khoảng ngày CŨ (min checkin - max checkout của items hiện có) — dùng để giải phóng
+            // đúng khoảng cũ khi rebuild sang type=daily. Không phân biệt items cũ vốn là slot hay
+            // daily (chỉ cần có checkin/checkout) — trường hợp đổi hẳn loại đặt (slot ↔ daily) rất
+            // hiếm, nếu có thì bắn thêm 1 broadcast daily-released dư cũng vô hại.
+            $oldDailyRange = null;
+            $oldCheckinRaw  = $order->items->pluck('checkin_date')->filter()->min();
+            $oldCheckoutRaw = $order->items->pluck('checkout_date')->filter()->max();
+            if ($oldCheckinRaw && $oldCheckoutRaw) {
+                $oldDailyRange = [
+                    'checkin'  => Carbon::parse($oldCheckinRaw)->toDateString(),
+                    'checkout' => Carbon::parse($oldCheckoutRaw)->toDateString(),
+                ];
+            }
+
+            $newSlotSummary = [];
+
+            DB::transaction(function () use ($request, $room, $order, $data, &$updates, &$newSlotSummary) {
                 Product::where('id', $room->id)->lockForUpdate()->first();
 
                 // Xoá items cũ TRƯỚC khi dựng lại — để không tự báo trùng với chính đơn này. Nằm
@@ -300,6 +338,8 @@ class OrderController extends Controller
                 } else {
                     [$basePrice, , $itemsData] = $this->buildMonthlyItem($request, $room);
                 }
+
+                $newSlotSummary = $slotSummary;
 
                 foreach ($itemsData as $itemData) {
                     $order->items()->create($itemData);
@@ -373,6 +413,37 @@ class OrderController extends Controller
                     }
                 }
             });
+
+            // Bắn realtime SAU KHI transaction đã commit thành công — khung giờ mới bị chiếm phải
+            // báo ngay để ai khác đang xem lịch phòng này không cố chọn trùng (dù khoá DB lúc submit
+            // vẫn chặn đúng, đây chỉ để UI cập nhật sớm, giống hệt BookingController::store()).
+            $realtimeService = app(SlotRealtimeService::class);
+
+            if ($request->input('type') === 'daily') {
+                if (! empty($newSlotSummary)) {
+                    $realtimeService->broadcastDailyBooked($room->id, $request->input('checkin_date'), $request->input('checkout_date'));
+                }
+
+                // Giải phóng khoảng ngày CŨ — xem broadcastDailyReleased()/pushDaily() trong
+                // SlotRealtimeService: cần server WebSocket nội bộ đọc field 'status' để xử lý
+                // đúng, nếu chưa cập nhật phía đó thì lệnh gọi này tạm thời chưa có tác dụng.
+                if ($oldDailyRange !== null) {
+                    $realtimeService->broadcastDailyReleased($room->id, $oldDailyRange['checkin'], $oldDailyRange['checkout']);
+                }
+            } elseif (! empty($newSlotSummary)) {
+                collect($newSlotSummary)->groupBy('date')->each(
+                    fn ($slots, $date) => $realtimeService->broadcastBooked($room->id, $date, $slots->pluck('timeslot_id')->values()->toArray())
+                );
+            }
+
+            // Giải phóng khung giờ CŨ (chỉ có ý nghĩa với type=slot — daily không có API "giải
+            // phóng theo khoảng ngày" riêng nên bỏ qua, khách xem lại sẽ tự thấy đúng qua
+            // broadcastDailyBooked ở trên hoặc lúc tải lại trang).
+            if ($oldSlotSummary->isNotEmpty()) {
+                $oldSlotSummary->groupBy('date')->each(
+                    fn ($slots, $date) => $realtimeService->broadcastSlotsAvailable($room->id, $date, $slots->pluck('timeslot_id')->values()->toArray())
+                );
+            }
         } elseif (array_key_exists('guest_count', $data)) {
             // Chỉ đổi số khách, KHÔNG đổi khung giờ -> cập nhật số khách trên items hiện có, không
             // tự tính lại giá (đổi giá do guest_count nên đi kèm 'type' để dựng lại đúng phụ thu).

@@ -7,11 +7,14 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Api\TimeSlotHoldController;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\PromotionCalculator;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Modules\BladeThemeV1\Livewire\Book;
 use Modules\Category\Entities\Category;
+use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
 
 class RoomController extends Controller
@@ -91,8 +94,10 @@ class RoomController extends Controller
      * Query params:
      *  - days        : số ngày muốn lấy mỗi lần gọi (mặc định 10, tối đa 60)
      *  - offset_days : số ngày bỏ qua kể từ hôm nay (mặc định 0) — dùng để "xem thêm"
-     *  - session_id  : tuỳ chọn — nếu admin app cũng giữ chỗ tạm (time-slot-hold) bằng session_id
-     *    riêng, truyền vào để "held_by_me" nhận đúng ô mình đang giữ.
+     *
+     * "held_by_me" tự suy từ chính admin đang gọi API (Admin\TimeSlotHoldController dùng định danh
+     * "admin:{user_id}", KHÔNG phải session_id tự khai như phía khách) — không cần client tự truyền
+     * gì thêm.
      */
     public function timeSlots(Request $request, string $id): JsonResponse
     {
@@ -121,7 +126,8 @@ class RoomController extends Controller
 
         $days       = max(1, min((int) $request->query('days', self::DEFAULT_DAYS), self::MAX_DAYS));
         $offsetDays = max(0, (int) $request->query('offset_days', 0));
-        $sessionId  = $request->query('session_id');
+        // Định danh khớp đúng Admin\TimeSlotHoldController — không nhận session_id từ client.
+        $sessionId  = 'admin:' . $user->id;
 
         $startDate = Carbon::today()->addDays($offsetDays);
         $endDate   = $startDate->copy()->addDays($days - 1)->endOfDay();
@@ -272,6 +278,177 @@ class RoomController extends Controller
                 'label' => $p->lable_client,
             ])->values(),
         ];
+    }
+
+    /**
+     * GET /api/admin/rooms/{id}/dates
+     * Lịch phòng theo NGÀY (styles=2) — bản admin của DailyRoomController::dates(), dùng lại đúng
+     * PromotionCalculator nên giá/khuyến mãi khớp 100% với app khách hàng.
+     *
+     * Chế độ calendar (tháng):    ?month=YYYY-MM        → không có totals
+     * Chế độ xem trước 1 khoảng:  ?from=YYYY-MM-DD&to=YYYY-MM-DD (from=checkin, to=checkout,
+     *                             exclusive) → có thêm subtotal/deposit + cờ "holding" (đang bị
+     *                             giữ tạm bởi người khác — xem Admin\DailyRoomHoldController).
+     */
+    public function dates(Request $request, string $id): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $room = Product::where('id', $id)
+            ->where('is_activated', true)
+            ->where('styles', 2)
+            ->with([
+                'roomTimeSlots' => fn ($q) => $q->whereHas('timeSlot', fn ($q2) => $q2->where('type', 'date')),
+                'roomTimeSlots.timeSlot',
+                'roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
+            ])
+            ->first();
+
+        if (! $room || (! $user->isSuperAdmin() && $room->partner_id !== $user->partner_id)) {
+            return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
+        }
+
+        $isRangeMode = $request->has('from') || $request->has('to');
+
+        if ($isRangeMode) {
+            $request->validate([
+                'from' => 'required|date_format:Y-m-d',
+                'to'   => 'required|date_format:Y-m-d|after:from',
+            ]);
+            $rangeStart = Carbon::parse($request->query('from'))->startOfDay();
+            $rangeEnd   = Carbon::parse($request->query('to'))->startOfDay();
+
+            if ($rangeStart->diffInDays($rangeEnd) > 92) {
+                return response()->json(['message' => 'Khoảng ngày tối đa 3 tháng.'], 422);
+            }
+        } else {
+            $monthStr = $request->query('month', now()->format('Y-m'));
+            try {
+                $month = Carbon::createFromFormat('Y-m', $monthStr)->startOfMonth();
+            } catch (\Throwable) {
+                return response()->json(['message' => 'Định dạng month không hợp lệ. Dùng YYYY-MM.'], 422);
+            }
+            $rangeStart = $month->copy()->startOfMonth();
+            $rangeEnd   = $month->copy()->endOfMonth();
+        }
+
+        $slotsByDate = $room->roomTimeSlots->keyBy(fn ($rts) => $rts->timeSlot?->label);
+        $bookedDates = $this->dailyBookedDates($room->id, $rangeStart, $rangeEnd);
+        $basePrice   = (float) $room->price;
+        $defCheckin  = $room->default_checkin  ?? '14:00';
+        $defCheckout = $room->default_checkout ?? '12:00';
+        $calculator  = app(PromotionCalculator::class);
+
+        $dates              = [];
+        $subtotal           = 0;
+        $totalPromoDiscount = 0;
+        $current            = $rangeStart->copy();
+
+        while ($isRangeMode ? $current->lt($rangeEnd) : $current->lte($rangeEnd)) {
+            $dateStr = $current->format('Y-m-d');
+            $rts     = $slotsByDate->get($dateStr);
+
+            $price  = $rts?->price !== null ? (float) $rts->price : $basePrice;
+            $promos = $calculator->calculateForDate($rts, $price, $dateStr);
+            $disc   = $price - $promos['final_price'];
+
+            $subtotal           += $price;
+            $totalPromoDiscount += $disc;
+
+            $dates[] = [
+                'date'               => $dateStr,
+                'price'              => (int) $price,
+                'final_price'        => (int) $promos['final_price'],
+                'promotion_discount' => (int) $disc,
+                'has_override'       => $rts !== null,
+                'available'          => ! in_array($dateStr, $bookedDates),
+                'checkin'            => $rts?->checkin  ?? $defCheckin,
+                'checkout'           => $rts?->checkout ?? $defCheckout,
+                'promotions'         => $promos['applied'],
+            ];
+
+            $current->addDay();
+        }
+
+        $response = [
+            'room'             => ['id' => $room->id, 'name' => $room->name, 'slug' => $room->slug],
+            'from'             => $rangeStart->format('Y-m-d'),
+            'to'               => $rangeEnd->format('Y-m-d'),
+            'base_price'       => (int) $basePrice,
+            'default_checkin'  => $defCheckin,
+            'default_checkout' => $defCheckout,
+            'dates'            => $dates,
+        ];
+
+        if ($isRangeMode) {
+            // "holding" đánh dấu theo người KHÁC đang giữ (loại trừ chính admin đang gọi) — dùng
+            // đúng định danh admin:{user_id} khớp Admin\DailyRoomHoldController.
+            $holderId    = 'admin:' . $user->id;
+            $activeHolds = array_values(array_filter(
+                Cache::get("daily_holds:{$room->id}", []),
+                fn ($h) => ($h['session_id'] ?? '') !== $holderId
+                    && Carbon::parse($h['expires_at'] ?? now()->subSecond())->isFuture()
+            ));
+
+            $dates = array_map(function ($day) use ($activeHolds) {
+                $d = $day['date'];
+                $day['holding'] = count(array_filter(
+                    $activeHolds,
+                    fn ($h) => $d >= $h['checkin'] && $d < $h['checkout']
+                )) > 0;
+                return $day;
+            }, $dates);
+
+            $response['dates'] = $dates;
+
+            $nights          = count($dates);
+            $totalAfterPromo = (int) max(0, $subtotal - $totalPromoDiscount);
+            $depositMin      = (int) ($room->deposit_min_nights  ?? 0);
+            $depositPct      = (int) ($room->deposit_multi_night ?? 50);
+            $canDeposit      = $depositMin > 0 && $nights >= $depositMin && $depositPct < 100;
+            $depositAmt      = $canDeposit ? (int) ceil($totalAfterPromo * $depositPct / 100) : null;
+
+            $response['nights']             = $nights;
+            $response['subtotal']           = (int) $subtotal;
+            $response['promotion_discount'] = (int) $totalPromoDiscount;
+            $response['total_after_promo']  = $totalAfterPromo;
+            $response['deposit']            = $canDeposit ? [
+                'eligible'         => true,
+                'min_nights'       => $depositMin,
+                'percentage'       => $depositPct,
+                'deposit_amount'   => $depositAmt,
+                'remaining_amount' => $totalAfterPromo - $depositAmt,
+            ] : [
+                'eligible'   => false,
+                'min_nights' => $depositMin,
+            ];
+        }
+
+        return response()->json($response);
+    }
+
+    private function dailyBookedDates(string $roomId, Carbon $from, Carbon $to): array
+    {
+        $items = OrderItem::where('product_id', $roomId)
+            ->whereNotNull('checkin_date')
+            ->whereNotNull('checkout_date')
+            ->where('checkout_date', '>', $from)
+            ->where('checkin_date', '<', $to->copy()->addDay())
+            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped', 'confirmed']))
+            ->get(['checkin_date', 'checkout_date']);
+
+        $booked = [];
+        foreach ($items as $item) {
+            $night = Carbon::parse($item->checkin_date)->startOfDay();
+            $end   = Carbon::parse($item->checkout_date)->startOfDay();
+            while ($night->lt($end)) {
+                $booked[] = $night->format('Y-m-d');
+                $night->addDay();
+            }
+        }
+
+        return array_unique($booked);
     }
 
     /** Mở rộng 1 chi nhánh (branch category) ra chính nó + toàn bộ danh mục con (khu vực/tầng...). */
