@@ -175,20 +175,22 @@
     }
 
     // Khi edit đơn CỌC đã tồn tại: dùng discount thực tế từ DB (bao gồm KM khung giờ)
-    // record->amount - reconstructed_real_total = tổng giảm giá trên slot (bất biến dù service
-    // thay đổi). full_amount CHỈ có ý nghĩa với đơn CỌC (là số tiền đã cọc, xem field "Số tiền đã
-    // cọc" ở Section "Thanh toán còn lại") — đơn thanh toán đủ (deposit_percent = null) KHÔNG BAO
-    // GIỜ set full_amount (luôn rỗng), nên KHÔNG được dùng full_amount để suy discount cho đơn
-    // loại này (trước đây coi full_amount rỗng = 0 khiến discount = gần như toàn bộ amount, sai
-    // hoàn toàn) — đơn thường luôn dùng discount tính LIVE từ bulk_discount_rules.
+    // record->amount - full_amount = tổng giảm giá trên slot (bất biến dù service thay đổi).
+    // full_amount là tổng giá CỐ ĐỊNH của đơn (đặt cọc hay không cũng vậy) — đơn thanh toán đủ
+    // (deposit_percent = null) KHÔNG BAO GIỜ set full_amount (luôn rỗng), nên KHÔNG được dùng
+    // full_amount để suy discount cho đơn loại này (trước đây coi full_amount rỗng = 0 khiến
+    // discount = gần như toàn bộ amount, sai hoàn toàn) — đơn thường luôn dùng discount tính LIVE
+    // từ bulk_discount_rules.
     $hasRecord         = isset($record) && $record && $record->id;
     $actualSlotDiscount = 0;
     $useActualDiscount  = false;
     if ($hasRecord && (int)($record->amount ?? 0) > 0) {
         $recordDepositPct = $record->deposit_percent !== null ? (int)$record->deposit_percent : null;
         if ($recordDepositPct !== null && $recordDepositPct > 0 && $recordDepositPct < 100 && (int)($record->full_amount ?? 0) > 0) {
-            // Đơn cọc: full_amount = tiền cọc, phải reconstruct tổng thực trước khi tính discount
-            $recordRealTotal    = (int) round((int)$record->full_amount * 100 / $recordDepositPct);
+            // full_amount CỐ ĐỊNH = tổng giá thật — dùng thẳng, không "reconstruct" bằng cách chia
+            // ngược cho %cọc nữa (công thức cũ coi full_amount là tiền cọc, sai — xem ghi chú ở
+            // khối "THÔNG TIN CỌC" bên dưới).
+            $recordRealTotal    = (int) $record->full_amount;
             $actualSlotDiscount = max(0, (int)$record->amount - $recordRealTotal);
             if ($actualSlotDiscount > 0) { $useActualDiscount = true; }
         }
@@ -604,9 +606,13 @@
         {{-- ===== THÔNG TIN CỌC (chỉ hiện với style=2 khi có cọc) ===== --}}
         @if(isset($record) && $record && $record->deposit_percent !== null && $isStyle2)
         @php
+            // full_amount CỐ ĐỊNH = tổng giá thật của đơn (KHÔNG phải số tiền đã cọc) — số cọc phải
+            // tính XUÔI full_amount * %cọc / 100 (khớp Order::depositDueAmount()), không chia ngược
+            // như trước đây (coi full_amount là tiền cọc rồi suy ngược ra tổng — sai, ra tổng gấp
+            // đôi thực tế khi %cọc = 50).
             $depPct      = (int) $record->deposit_percent;
-            $depositAmt  = (int) $record->full_amount;
-            $realTotal   = $depPct > 0 ? (int) round($depositAmt * 100 / $depPct) : $depositAmt;
+            $realTotal   = (int) $record->full_amount;
+            $depositAmt  = $record->depositDueAmount();
             $depExtra    = (int) ($record->extra_charge_amount ?? 0);
             $baseRemain  = max(0, $realTotal - $depositAmt);
             $remain2     = $baseRemain + $depExtra;

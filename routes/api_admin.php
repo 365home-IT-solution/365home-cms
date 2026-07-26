@@ -135,7 +135,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 |                                            ở bảng đơn hàng (Filament).
 | POST /api/admin/orders/{order_code}/remaining-payment
 |                                          → QR (hoặc xác nhận tiền mặt) cho phần còn lại của đơn
-|                                            đang ĐẶT CỌC — không đặt thêm gì, chỉ tất toán cọc.
+|                                            đặt cọc — áp dụng cho cả status="deposit" LẪN "pending"
+|                                            (PayOS mới tạo luôn ở pending, không cần bước xác nhận
+|                                            trung gian nào khác) — không đặt thêm gì, chỉ tất toán cọc.
 | POST /api/admin/orders/{order_code}/extra
 |                                          → đặt thêm dịch vụ/khách/khung giờ hộ khách trên đơn đã
 |                                            paid/deposit (áp dụng cả slot lẫn daily) — trả kèm QR

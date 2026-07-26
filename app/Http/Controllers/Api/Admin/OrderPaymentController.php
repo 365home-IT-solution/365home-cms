@@ -26,9 +26,16 @@ class OrderPaymentController extends Controller
 {
     /**
      * POST /api/admin/orders/{order_code}/remaining-payment
-     * Admin tạo QR thanh toán phần còn lại cho đơn ĐANG ĐẶT CỌC — dùng khi khách đến thanh toán
-     * số tiền còn lại (không đặt thêm gì cả, chỉ tất toán phần cọc ban đầu). Khác với
-     * POST .../extra (bên dưới) — chỗ đó dành cho khi khách ĐẶT THÊM dịch vụ/khách trước.
+     * Admin tạo QR thanh toán phần còn lại cho đơn đặt cọc — dùng khi khách đến thanh toán số tiền
+     * còn lại (không đặt thêm gì cả, chỉ tất toán phần cọc ban đầu). Khác với POST .../extra (bên
+     * dưới) — chỗ đó dành cho khi khách ĐẶT THÊM dịch vụ/khách trước.
+     *
+     * Áp dụng cho đơn đang "deposit" LẪN "pending" — đơn PayOS mới tạo luôn ở "pending" (kể cả đơn
+     * đặt cọc) và CHỈ tự chuyển "deposit" khi PayOS xác nhận thanh toán qua webhook thật (xem
+     * GuestBookingController::paymentStatus()); "pending" không phải lỗi, chỉ là "chưa ai trả tiền
+     * qua QR ban đầu". depositDueAmount()/full_amount đã đủ dữ kiện để tính đúng số còn lại ngay cả
+     * khi status vẫn "pending", nên không cần bước xác nhận trung gian nào khác — gọi thẳng
+     * endpoint này là đủ cho cả 2 trường hợp.
      *
      * Body:
      *  - payment_method : "PayOS" (mặc định, trả QR để khách chuyển khoản) | "cod" (khách trả tiền
@@ -49,8 +56,12 @@ class OrderPaymentController extends Controller
             return response()->json(['message' => 'Không tìm thấy đơn.'], 404);
         }
 
-        if ($order->status !== 'deposit') {
-            return response()->json(['message' => 'Chỉ áp dụng cho đơn đang ở trạng thái đặt cọc.'], 422);
+        if (! in_array($order->status, ['pending', 'deposit'], true)) {
+            return response()->json(['message' => 'Chỉ áp dụng cho đơn đang đặt cọc hoặc chờ thanh toán ban đầu.'], 422);
+        }
+
+        if ($order->deposit_percent === null) {
+            return response()->json(['message' => 'Đơn này không phải đơn đặt cọc.'], 422);
         }
 
         if ($request->input('payment_method', 'PayOS') === 'cod') {
