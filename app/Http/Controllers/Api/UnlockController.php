@@ -73,7 +73,7 @@ class UnlockController extends Controller
     // PRIVATE
     // =========================================================
 
-    private function processUnlock(Order $order): JsonResponse
+    protected function processUnlock(Order $order): JsonResponse
     {
         if (!in_array($order->status, ['paid', 'deposit'])) {
             return response()->json([

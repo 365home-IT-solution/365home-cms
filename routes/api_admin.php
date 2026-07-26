@@ -8,9 +8,11 @@ use App\Http\Controllers\Api\Admin\DeductionTypeController;
 use App\Http\Controllers\Api\Admin\DepartmentController;
 use App\Http\Controllers\Api\Admin\EmployeeController;
 use App\Http\Controllers\Api\Admin\OrderController;
+use App\Http\Controllers\Api\Admin\OrderPaymentController;
 use App\Http\Controllers\Api\Admin\PositionController;
 use App\Http\Controllers\Api\Admin\SalaryTemplateController;
 use App\Http\Controllers\Api\Admin\SalaryTypeController;
+use App\Http\Controllers\Api\Admin\UnlockController as AdminUnlockController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -122,6 +124,26 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 | DELETE /api/admin/orders/{order_code}/guests/{guest_index}
 |                                          → xoá CCCD 1 khách đi cùng (guest_index từ 2) — dùng khi
 |                                            giảm số khách, không tự giảm guest_count của đơn.
+| POST /api/admin/orders/{order_code}/unlock
+|                                          → mở cổng TTLock hộ khách — CHỈ áp dụng cho đơn thuộc
+|                                            chi nhánh đã đăng ký tài khoản TTLock đang hoạt động.
+| POST /api/admin/orders/{order_code}/open-gate
+|                                          → "Mở cổng tự do": mở cổng TTLock ngay, KHÔNG kiểm tra
+|                                            cửa sổ giờ nhận/trả phòng, KHÔNG cập nhật trạng thái
+|                                            đơn — dùng khi cần hỗ trợ khách vào phòng ngoài giờ/
+|                                            trước giờ nhận phòng. Cùng logic với nút "Mở cổng tự do"
+|                                            ở bảng đơn hàng (Filament).
+| POST /api/admin/orders/{order_code}/remaining-payment
+|                                          → QR (hoặc xác nhận tiền mặt) cho phần còn lại của đơn
+|                                            đang ĐẶT CỌC — không đặt thêm gì, chỉ tất toán cọc.
+| POST /api/admin/orders/{order_code}/extra
+|                                          → đặt thêm dịch vụ/khách/khung giờ hộ khách trên đơn đã
+|                                            paid/deposit (áp dụng cả slot lẫn daily) — trả kèm QR
+|                                            cho phần còn lại (đơn deposit) hoặc phần vừa đặt thêm
+|                                            (đơn paid) ngay trong response.
+| POST /api/admin/orders/{order_code}/extra-charge-qr
+|                                          → tạo lại QR cho khoản phát sinh đang chờ thanh toán (đơn
+|                                            paid, QR cũ từ .../extra đã hết hạn).
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/orders')->name('api.admin.orders.')->group(function () {
@@ -131,6 +153,11 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/orders')->name('
     Route::delete('/{order_code}/guests/{guest_index}', [OrderController::class, 'destroyGuestCccd'])
         ->name('guests.destroy')
         ->whereNumber('guest_index');
+    Route::post('/{order_code}/unlock',            [AdminUnlockController::class, 'unlock'])->name('unlock');
+    Route::post('/{order_code}/open-gate',         [AdminUnlockController::class, 'openGate'])->name('open-gate');
+    Route::post('/{order_code}/remaining-payment', [OrderPaymentController::class, 'remainingPayment'])->name('remaining-payment');
+    Route::post('/{order_code}/extra',             [OrderPaymentController::class, 'addExtra'])->name('extra');
+    Route::post('/{order_code}/extra-charge-qr',   [OrderPaymentController::class, 'extraChargeQr'])->name('extra-charge-qr');
 });
 
 /*

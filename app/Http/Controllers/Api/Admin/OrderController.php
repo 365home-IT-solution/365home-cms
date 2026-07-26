@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Payment\Entities\Order;
 use Modules\Product\App\Models\Product;
@@ -114,6 +115,15 @@ class OrderController extends Controller
      *   - services gửi kèm sẽ THAY THẾ toàn bộ dịch vụ cũ (xoá hết, tạo lại theo danh sách mới).
      *   - Vẫn kiểm tra trùng khung giờ với đơn KHÁC (không tự đụng chính đơn này vì items cũ đã xoá
      *     trước khi dựng lại, trong cùng 1 transaction — lỗi trùng sẽ rollback về y hệt trước đó).
+     *   - payment_type: CHỈ có tác dụng khi type=daily. Không gửi -> giữ nguyên deposit_percent hiện
+     *     có (không đụng gì, tránh vô tình "mất cọc" khi admin chỉ định sửa khung giờ khác). Gửi
+     *     payment_type=deposit -> tính lại % cọc theo cấu hình phòng (room.deposit_min_nights/
+     *     deposit_multi_night), lỗi 422 nếu không đủ điều kiện (số đêm chưa tới mức tối thiểu) hoặc
+     *     payment_method hiện tại của đơn là cod (đặt cọc bắt buộc qua PayOS). Gửi payment_type=full
+     *     -> xoá cọc, chuyển hẳn về thanh toán đủ (deposit_percent = null). LƯU Ý: 'amount'/
+     *     'full_amount' LUÔN là TỔNG GIÁ ĐẦY ĐỦ bất kể có cọc hay không — số tiền cọc thực tế xem
+     *     qua Order::depositDueAmount() (tính động = full_amount * deposit_percent / 100), không
+     *     phải chính 'amount' trả về.
      */
     public function update(Request $request, string $orderCode): JsonResponse
     {
@@ -147,6 +157,7 @@ class OrderController extends Controller
             'guests.*.back'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'guest_count'            => 'sometimes|integer|min:1',
             'type'                   => 'sometimes|in:slot,daily,monthly',
+            'payment_type'           => 'sometimes|in:full,deposit',
             'services'               => 'sometimes|nullable|array',
             'services.*.service_id'  => 'required_with:services|integer',
             'services.*.quantity'    => 'required_with:services|integer|min:1',
@@ -332,6 +343,35 @@ class OrderController extends Controller
                 $updates['amount']      = $newTotal;
                 $updates['full_amount'] = $newTotal;
                 $updates['guest_count'] = (int) $request->guest_count;
+
+                // Đặt cọc: CHỈ áp dụng cho type=daily, và CHỈ đụng tới deposit_percent khi admin có
+                // gửi 'payment_type' trong request này — không gửi thì giữ nguyên % cọc hiện có.
+                if ($request->input('type') === 'daily' && $request->filled('payment_type')) {
+                    if ($request->input('payment_type') === 'deposit') {
+                        if ($order->payment_method === 'cod') {
+                            throw ValidationException::withMessages([
+                                'payment_type' => ['Đặt cọc không áp dụng cho phương thức thanh toán tiền mặt.'],
+                            ]);
+                        }
+
+                        $depositMin = (int) ($room->deposit_min_nights  ?? 0);
+                        $depositPct = (int) ($room->deposit_multi_night ?? 50);
+                        $nights     = count($slotSummary);
+
+                        if ($depositMin > 0 && $nights >= $depositMin && $depositPct < 100) {
+                            $updates['deposit_percent'] = $depositPct;
+                        } else {
+                            throw ValidationException::withMessages([
+                                'payment_type' => [
+                                    'Đặt cọc không áp dụng' . ($depositMin > 0 ? " (cần tối thiểu {$depositMin} đêm)" : '') . '.',
+                                ],
+                            ]);
+                        }
+                    } else {
+                        // payment_type=full -> huỷ cọc, chuyển hẳn về thanh toán đủ.
+                        $updates['deposit_percent'] = null;
+                    }
+                }
             });
         } elseif (array_key_exists('guest_count', $data)) {
             // Chỉ đổi số khách, KHÔNG đổi khung giờ -> cập nhật số khách trên items hiện có, không
@@ -372,6 +412,11 @@ class OrderController extends Controller
                     'cccd_back'   => Storage::disk('public')->url($g->cccd_back),
                     'cccd_data'   => $g->cccd_data,
                 ])->values(),
+                'deposit' => $order->deposit_percent !== null ? [
+                    'percentage'       => (int) $order->deposit_percent,
+                    'deposit_amount'   => $order->depositDueAmount(),
+                    'remaining_amount' => (int) $order->full_amount - $order->depositDueAmount(),
+                ] : null,
             ],
         ]);
     }
