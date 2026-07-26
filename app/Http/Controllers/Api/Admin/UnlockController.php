@@ -25,9 +25,9 @@ class UnlockController extends BaseUnlockController
      * xem processUnlock()/handleTTLockUnlock() ở lớp cha. Chỉ khác phần xác thực: thay vì xác thực
      * chủ đơn (owner token hoặc SĐT khách vãng lai), ở đây xác thực bằng quyền admin theo đối tác.
      *
-     * Vẫn giữ nguyên điều kiện đơn phải 'paid'/'deposit' và (nếu không unlock_anytime) đúng cửa sổ
-     * giờ nhận/trả phòng — admin mở hộ khi khách gặp sự cố với app, không phải để bỏ qua các điều
-     * kiện nghiệp vụ đó.
+     * Vẫn giữ nguyên điều kiện đơn phải 'paid'/'deposit', nhưng BỎ QUA cửa sổ giờ nhận/trả phòng
+     * (truyền $bypassTimeWindow = true cho processUnlock()) — admin được phép mở cổng ngay dù ngoài
+     * khung giờ đặt, không bị chặn bởi thông báo "Ngoài thời gian đặt phòng..." như khách tự mở.
      */
     public function unlock(Request $request, string $orderCode): JsonResponse
     {
@@ -49,16 +49,19 @@ class UnlockController extends BaseUnlockController
             ], 422);
         }
 
-        return $this->processUnlock($order);
+        return $this->processUnlock($order, bypassTimeWindow: true);
     }
 
     /**
      * POST /api/admin/orders/{order_code}/open-gate
-     * Mở cổng tự do — copy nguyên logic từ OpenGateAction (nút "Mở cổng tự do" ở bảng đơn hàng,
-     * Filament OrderResource): gửi lệnh mở khóa TTLock ngay lập tức, KHÔNG kiểm tra cửa sổ giờ
-     * nhận/trả phòng (unlock_anytime) và KHÔNG cập nhật checked_in_at/order_status — dùng để hỗ trợ
-     * khách vào phòng ngoài giờ/trước giờ nhận phòng, không phải luồng check-in/check-out chính thức
-     * (xem unlock() ở trên cho luồng đó, có cập nhật trạng thái đơn).
+     * "Cho mở cổng tự do" — copy nguyên logic từ Action toggle_unlock_anytime ở bảng đơn hàng
+     * (Filament OrderResource, cột/nút "Mở cổng tự do"): BẬT/TẮT cờ unlock_anytime trên đơn.
+     *
+     * Đây KHÔNG phải admin tự mở cổng ngay — đây là API cấp quyền cho CHÍNH KHÁCH HÀNG của đơn được
+     * tự mở cổng qua app (UnlockController::unlock()/unlockGuest() ở lớp cha) vào BẤT KỲ lúc nào,
+     * không bị giới hạn theo khung giờ nhận/trả phòng (±30 phút) — dùng khi khách đến sớm hoặc về
+     * muộn. Là API TOGGLE: gọi lại lần nữa sẽ khoá lại theo giờ. Muốn admin tự mở cổng ngay lập tức
+     * hộ khách thì dùng unlock() ở trên (đã tự động bypass khung giờ cho riêng lần mở đó).
      */
     public function openGate(Request $request, string $orderCode): JsonResponse
     {
@@ -90,35 +93,28 @@ class UnlockController extends BaseUnlockController
             ], 422);
         }
 
-        $ttlock = TTLockService::forCategory($order->category_id);
-
-        if (! $ttlock) {
+        if (! TTLockService::hasAccountForCategory($order->category_id)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Chi nhánh chưa kết nối TTLock.',
+                'message' => 'Chi nhánh chưa đăng ký tài khoản TTLock.',
             ], 422);
         }
 
-        $success = $ttlock->remoteUnlock((int) $product->lock_id);
+        $order->update(['unlock_anytime' => ! $order->unlock_anytime]);
 
-        Log::info('AdminUnlockController::openGate', [
-            'order_id'   => $order->id,
-            'order_code' => $order->order_code,
-            'lock_id'    => $product->lock_id,
-            'success'    => $success,
-            'admin'      => $admin->email,
+        Log::info('AdminUnlockController::openGate (toggle unlock_anytime)', [
+            'order_id'       => $order->id,
+            'order_code'     => $order->order_code,
+            'unlock_anytime' => $order->unlock_anytime,
+            'admin'          => $admin->email,
         ]);
 
-        if (! $success) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Mở cổng thất bại. TTLock không phản hồi hoặc tính năng Remote Unlock chưa được bật trên khóa.',
-            ], 503);
-        }
-
         return response()->json([
-            'success' => true,
-            'message' => 'Đã mở cổng. Lệnh mở khóa đã được gửi thành công đến TTLock.',
+            'success'        => true,
+            'unlock_anytime' => $order->unlock_anytime,
+            'message'        => $order->unlock_anytime
+                ? 'Đã cho phép mở cổng ngoài giờ check-in.'
+                : 'Đã tắt cho phép mở cổng ngoài giờ check-in.',
         ]);
     }
 }

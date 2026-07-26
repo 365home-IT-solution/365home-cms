@@ -10,6 +10,8 @@ use App\Services\OrderExtraBookingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Log;
+use Modules\BladeThemeV1\Services\AccessCode\AccessCodeService;
 use Modules\Payment\Entities\Order;
 use PayOS\PayOS;
 
@@ -24,6 +26,111 @@ use PayOS\PayOS;
  */
 class OrderPaymentController extends Controller
 {
+    /**
+     * POST /api/admin/orders/{order_code}/retry-payment
+     * Admin tạo lại QR PayOS cho đơn thanh toán THẤT BẠI/ĐÃ HUỶ (status "failed" hoặc
+     * "cancelled_payment") để gửi khách thanh toán lại — đơn tự động chuyển về "pending" ngay khi
+     * tạo QR mới thành công. Khi khách quét & trả tiền, webhook thanh toán chung tự động chuyển
+     * đơn sang "paid"/"deposit" như bình thường (không cần xử lý gì thêm ở đây).
+     *
+     * Huỷ link PayOS cũ (nếu có current_payos_code) trước khi tạo link mới với 1 orderCode PayOS
+     * MỚI (không dùng lại order_code cũ) — PayOS không cho tạo trùng orderCode chưa được huỷ/hết
+     * hạn, đơn failed/cancelled gần như chắc chắn đã có 1 link cũ từ lần thử trước. Tự tính đúng số
+     * tiền cần thu qua depositDueAmount() (đơn cọc chỉ thu lại đúng % cọc, không phải full_amount).
+     */
+    public function retryPayment(Request $request, string $orderCode): JsonResponse
+    {
+        /** @var User $admin */
+        $admin = $request->user();
+
+        $order = Order::with('items')->where('order_code', $orderCode)->first();
+
+        if (! $order || (! $admin->isSuperAdmin() && $order->partner_id !== $admin->partner_id)) {
+            return response()->json(['message' => 'Không tìm thấy đơn.'], 404);
+        }
+
+        if (! in_array($order->status, ['failed', 'cancelled_payment'], true)) {
+            return response()->json(['message' => 'Chỉ áp dụng cho đơn thanh toán thất bại hoặc đã huỷ.'], 422);
+        }
+
+        if ($order->payment_method !== 'PayOS') {
+            return response()->json(['message' => 'Đơn này không thanh toán qua PayOS.'], 422);
+        }
+
+        $dueNow = $order->depositDueAmount();
+
+        if ($dueNow < 2000) {
+            return response()->json(['message' => 'Số tiền thanh toán không đủ tối thiểu.'], 422);
+        }
+
+        $clientId    = Config::get('payos.client_id');
+        $apiKey      = Config::get('payos.api_key');
+        $checksumKey = Config::get('payos.checksum_key');
+
+        if (! $clientId || ! $apiKey || ! $checksumKey) {
+            return response()->json(['message' => 'Cổng thanh toán chưa được cấu hình.'], 500);
+        }
+
+        $payOS = new PayOS($clientId, $apiKey, $checksumKey);
+
+        $oldPayosCode = $order->current_payos_code ?? (int) $order->order_code;
+        try {
+            $payOS->cancelPaymentLink((int) $oldPayosCode);
+        } catch (\Throwable $e) {
+            Log::info('Admin API retryPayment: cancel old PayOS link skipped', [
+                'order_code' => $order->order_code,
+                'reason'     => $e->getMessage(),
+            ]);
+        }
+
+        $itemName     = $order->items->first()?->name ?? 'Đặt phòng';
+        $newPayosCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
+        $expiredAt    = now()->addMinutes(15);
+
+        try {
+            $response = $payOS->createPaymentLink([
+                'orderCode'   => $newPayosCode,
+                'amount'      => $dueNow,
+                'description' => 'TT lai don ' . $order->order_code,
+                'returnUrl'   => $request->input('return_url') ?? route('payment.success') . '?orderCode=' . $order->order_code,
+                'cancelUrl'   => $request->input('cancel_url') ?? route('payment.cancel') . '?orderCode=' . $order->order_code,
+                'buyerName'   => $order->buyer_name ?? '',
+                'buyerPhone'  => $order->buyer_phone ?? '',
+                'expiredAt'   => $expiredAt->timestamp,
+                'items'       => [['name' => $itemName, 'quantity' => 1, 'price' => $dueNow]],
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Admin API retryPayment: createPaymentLink failed', [
+                'order_code' => $order->order_code,
+                'error'      => $e->getMessage(),
+            ]);
+            return response()->json(['message' => 'Không thể tạo lại link thanh toán. Vui lòng thử lại sau.'], 500);
+        }
+
+        $checkoutUrl = $response['checkoutUrl'] ?? null;
+        $qrCode      = $response['qrCode'] ?? null;
+
+        if (! $checkoutUrl) {
+            return response()->json(['message' => 'Không thể tạo lại link thanh toán. Vui lòng thử lại sau.'], 500);
+        }
+
+        $order->update([
+            'status'             => 'pending',
+            'checkout_url'       => $checkoutUrl,
+            'qr_code'            => $qrCode,
+            'expired_at'         => $expiredAt,
+            'current_payos_code' => $newPayosCode,
+        ]);
+        $order->refresh();
+
+        return response()->json([
+            'order_code' => $order->order_code,
+            'status'     => $order->status,
+            'qr_code'    => $order->qr_code,
+            'expired_at' => $order->expired_at,
+        ]);
+    }
+
     /**
      * POST /api/admin/orders/{order_code}/remaining-payment
      * Admin tạo QR thanh toán phần còn lại cho đơn đặt cọc — dùng khi khách đến thanh toán số tiền
@@ -50,7 +157,7 @@ class OrderPaymentController extends Controller
             'payment_method' => 'sometimes|in:PayOS,cod',
         ]);
 
-        $order = Order::with('items')->where('order_code', $orderCode)->first();
+        $order = Order::with('items.product')->where('order_code', $orderCode)->first();
 
         if (! $order || (! $admin->isSuperAdmin() && $order->partner_id !== $admin->partner_id)) {
             return response()->json(['message' => 'Không tìm thấy đơn.'], 404);
@@ -74,11 +181,35 @@ class OrderPaymentController extends Controller
                 'remaining_payment_method' => 'cod',
             ]);
 
+            // Đơn cọc KHÔNG được gán mã cổng lúc mới cọc (xem PaymentController::handlePaidStatus())
+            // — chỉ gán khi thanh toán phần còn lại xong (status vừa chuyển "paid" ở trên). Với QR
+            // PayOS (nhánh bên dưới), việc gán mã đã được webhook thanh toán chung xử lý tự động khi
+            // khách quét & trả tiền — CHỈ nhánh tiền mặt ở đây mới cần tự gọi tay vì không qua webhook.
+            // assignCodeToOrder() tự quyết định TTLock hay mã thủ công theo đúng cấu hình chi nhánh —
+            // không gán gì cả nếu chi nhánh chưa đăng ký TTLock lẫn không có mã thủ công khả dụng.
+            try {
+                if (! $order->hasAccessCode()) {
+                    $firstItem    = $order->items->sortBy('checkin_date')->first();
+                    $checkinDate  = $order->items->min('checkin_date');
+                    $checkoutDate = $order->items->max('checkout_date');
+                    $product      = $firstItem?->product;
+
+                    app(AccessCodeService::class)
+                        ->assignCodeToOrder($order->id, $order->category_id, $checkinDate, $checkoutDate, $product);
+                }
+            } catch (\Throwable $codeErr) {
+                Log::warning('Admin API: gán mã cổng sau khi xác nhận tiền mặt phần còn lại thất bại', [
+                    'order_code' => $order->order_code,
+                    'error'      => $codeErr->getMessage(),
+                ]);
+            }
+
             return response()->json([
-                'message'    => 'Đã xác nhận thu tiền mặt phần còn lại.',
-                'order_code' => $order->order_code,
-                'amount'     => $remaining,
-                'status'     => $order->status,
+                'message'     => 'Đã xác nhận thu tiền mặt phần còn lại.',
+                'order_code'  => $order->order_code,
+                'amount'      => $remaining,
+                'status'      => $order->status,
+                'access_code' => $order->refresh()->accessCode?->code,
             ]);
         }
 

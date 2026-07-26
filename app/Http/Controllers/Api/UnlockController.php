@@ -73,7 +73,7 @@ class UnlockController extends Controller
     // PRIVATE
     // =========================================================
 
-    protected function processUnlock(Order $order): JsonResponse
+    protected function processUnlock(Order $order, bool $bypassTimeWindow = false): JsonResponse
     {
         if (!in_array($order->status, ['paid', 'deposit'])) {
             return response()->json([
@@ -93,8 +93,10 @@ class UnlockController extends Controller
             ], 422);
         }
 
-        // Kiểm tra cửa sổ thời gian - hỗ trợ nhiều khung giờ (buffer 30 phút trước/sau)
-        if (!$order->unlock_anytime) {
+        // Kiểm tra cửa sổ thời gian - hỗ trợ nhiều khung giờ (buffer 30 phút trước/sau).
+        // $bypassTimeWindow: admin mở hộ được phép bỏ qua cửa sổ giờ (vd hỗ trợ khách vào sớm/muộn) —
+        // xem Admin\UnlockController::unlock().
+        if (!$order->unlock_anytime && !$bypassTimeWindow) {
             $now          = now();
             $activeItem   = null;
             $earliestItem = null;

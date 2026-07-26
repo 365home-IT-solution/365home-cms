@@ -127,12 +127,16 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 | POST /api/admin/orders/{order_code}/unlock
 |                                          → mở cổng TTLock hộ khách — CHỈ áp dụng cho đơn thuộc
 |                                            chi nhánh đã đăng ký tài khoản TTLock đang hoạt động.
+|                                            Admin được BỎ QUA cửa sổ giờ nhận/trả phòng (khách tự mở
+|                                            qua app thì vẫn bị chặn ngoài giờ) — vẫn cập nhật
+|                                            checked_in_at/checked_out_at + order_status như bình thường.
 | POST /api/admin/orders/{order_code}/open-gate
-|                                          → "Mở cổng tự do": mở cổng TTLock ngay, KHÔNG kiểm tra
-|                                            cửa sổ giờ nhận/trả phòng, KHÔNG cập nhật trạng thái
-|                                            đơn — dùng khi cần hỗ trợ khách vào phòng ngoài giờ/
-|                                            trước giờ nhận phòng. Cùng logic với nút "Mở cổng tự do"
-|                                            ở bảng đơn hàng (Filament).
+|                                          → TOGGLE cờ unlock_anytime của đơn (BẬT/TẮT — gọi lại lần
+|                                            nữa để khoá lại). Khi bật, CHÍNH KHÁCH HÀNG của đơn được
+|                                            tự mở cổng qua app (POST /api/orders/{order_code}/unlock
+|                                            hoặc /api/guest/...) vào bất kỳ lúc nào, không giới hạn
+|                                            khung giờ nhận/trả phòng. Cùng logic với action
+|                                            toggle_unlock_anytime ở bảng đơn hàng (Filament).
 | POST /api/admin/orders/{order_code}/remaining-payment
 |                                          → QR (hoặc xác nhận tiền mặt) cho phần còn lại của đơn
 |                                            đặt cọc — áp dụng cho cả status="deposit" LẪN "pending"
@@ -146,6 +150,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 | POST /api/admin/orders/{order_code}/extra-charge-qr
 |                                          → tạo lại QR cho khoản phát sinh đang chờ thanh toán (đơn
 |                                            paid, QR cũ từ .../extra đã hết hạn).
+| POST /api/admin/orders/{order_code}/retry-payment
+|                                          → tạo lại QR PayOS cho đơn "failed"/"cancelled_payment",
+|                                            đơn tự chuyển về "pending" — trả kèm qr_code + expired_at.
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/orders')->name('api.admin.orders.')->group(function () {
@@ -157,6 +164,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/orders')->name('
         ->whereNumber('guest_index');
     Route::post('/{order_code}/unlock',            [AdminUnlockController::class, 'unlock'])->name('unlock');
     Route::post('/{order_code}/open-gate',         [AdminUnlockController::class, 'openGate'])->name('open-gate');
+    Route::post('/{order_code}/retry-payment',     [OrderPaymentController::class, 'retryPayment'])->name('retry-payment');
     Route::post('/{order_code}/remaining-payment', [OrderPaymentController::class, 'remainingPayment'])->name('remaining-payment');
     Route::post('/{order_code}/extra',             [OrderPaymentController::class, 'addExtra'])->name('extra');
     Route::post('/{order_code}/extra-charge-qr',   [OrderPaymentController::class, 'extraChargeQr'])->name('extra-charge-qr');

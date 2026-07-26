@@ -19,6 +19,9 @@ use Modules\AuditLog\Services\AuditLogger;
 use Modules\Payment\App\Filament\Resources\OrderResource\Concerns\HasTimeslotGridSelection;
 use Modules\Payment\App\Filament\Resources\OrderResource\Forms\OrderForm;
 use Modules\Payment\Entities\OrderGuestCccd;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Log;
+use PayOS\PayOS;
 
 class EditOrder extends EditRecord
 {
@@ -292,6 +295,112 @@ class EditOrder extends EditRecord
                             ->danger()
                             ->send();
                     }
+                }),
+
+            // =========================================================
+            // Thanh toán lại — đơn PayOS bị "failed"/"cancelled_payment": tạo QR mới gửi khách,
+            // đơn tự chuyển về "pending" chờ thanh toán. Khi khách quét & trả tiền, webhook PayOS
+            // chung (PaymentController::handlePaidStatus) tự chuyển "paid"/"deposit" như bình
+            // thường — action này chỉ lo phần tạo lại QR + đổi trạng thái.
+            // =========================================================
+            Actions\Action::make('retryPayment')
+                ->label('Thanh toán lại')
+                ->icon('heroicon-m-qr-code')
+                ->color('warning')
+                ->visible(fn () => in_array($this->record->status, ['failed', 'cancelled_payment'], true)
+                    && $this->record->payment_method === 'PayOS')
+                ->requiresConfirmation()
+                ->modalHeading('Tạo lại QR thanh toán')
+                ->modalDescription(function () {
+                    $dueNow = $this->record->depositDueAmount();
+                    return 'Tạo QR PayOS mới cho số tiền ' . number_format($dueNow, 0, ',', '.')
+                        . 'đ và gửi lại cho khách. Đơn sẽ chuyển về trạng thái "Đang xử lý" (pending).';
+                })
+                ->modalSubmitActionLabel('Tạo QR mới')
+                ->action(function () {
+                    $record = $this->record->fresh(['items']);
+                    $dueNow = $record->depositDueAmount();
+
+                    if ($dueNow < 2000) {
+                        Notification::make()->title('Số tiền thanh toán không đủ tối thiểu')->danger()->send();
+                        return;
+                    }
+
+                    $clientId    = Config::get('payos.client_id');
+                    $apiKey      = Config::get('payos.api_key');
+                    $checksumKey = Config::get('payos.checksum_key');
+
+                    if (! $clientId || ! $apiKey || ! $checksumKey) {
+                        Notification::make()->title('Cổng thanh toán chưa được cấu hình')->danger()->send();
+                        return;
+                    }
+
+                    $payOS = new PayOS($clientId, $apiKey, $checksumKey);
+
+                    $oldPayosCode = $record->current_payos_code ?? (int) $record->order_code;
+                    try {
+                        $payOS->cancelPaymentLink((int) $oldPayosCode);
+                    } catch (\Throwable $e) {
+                        Log::info('EditOrder retryPayment: cancel old PayOS link skipped', [
+                            'order_code' => $record->order_code,
+                            'reason'     => $e->getMessage(),
+                        ]);
+                    }
+
+                    $itemName     = $record->items->first()?->name ?? 'Đặt phòng';
+                    $newPayosCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
+                    $expiredAt    = now()->addMinutes(15);
+
+                    try {
+                        $response = $payOS->createPaymentLink([
+                            'orderCode'   => $newPayosCode,
+                            'amount'      => $dueNow,
+                            'description' => 'TT lai don ' . $record->order_code,
+                            'returnUrl'   => route('payment.success') . '?orderCode=' . $record->order_code,
+                            'cancelUrl'   => route('payment.cancel') . '?orderCode=' . $record->order_code,
+                            'buyerName'   => $record->buyer_name ?? '',
+                            'buyerPhone'  => $record->buyer_phone ?? '',
+                            'expiredAt'   => $expiredAt->timestamp,
+                            'items'       => [['name' => $itemName, 'quantity' => 1, 'price' => $dueNow]],
+                        ]);
+                    } catch (\Throwable $e) {
+                        Log::error('EditOrder retryPayment: createPaymentLink failed', [
+                            'order_code' => $record->order_code,
+                            'error'      => $e->getMessage(),
+                        ]);
+                        Notification::make()->title('Không thể tạo lại link thanh toán')->body($e->getMessage())->danger()->send();
+                        return;
+                    }
+
+                    $checkoutUrl = $response['checkoutUrl'] ?? null;
+                    $qrCode      = $response['qrCode'] ?? null;
+
+                    if (! $checkoutUrl) {
+                        Notification::make()->title('Không thể tạo lại link thanh toán')->danger()->send();
+                        return;
+                    }
+
+                    $record->update([
+                        'status'             => 'pending',
+                        'checkout_url'       => $checkoutUrl,
+                        'qr_code'            => $qrCode,
+                        'expired_at'         => $expiredAt,
+                        'current_payos_code' => $newPayosCode,
+                    ]);
+
+                    AuditLogger::log(
+                        'update', 'Order', $record, [],
+                        ['Tạo lại QR thanh toán' => number_format($dueNow, 0, ',', '.') . 'đ'],
+                        'Đơn #' . $record->order_code,
+                    );
+
+                    Notification::make()
+                        ->title('Đã tạo QR thanh toán mới')
+                        ->body('Đơn chuyển về "Đang xử lý" — gửi QR mới cho khách để thanh toán lại.')
+                        ->success()
+                        ->send();
+
+                    $this->redirect($this->getResource()::getUrl('edit', ['record' => $record]));
                 }),
 
             Actions\Action::make('assignAccessCode')
