@@ -1,8 +1,8 @@
 {{--
     Desktop (≥lg): cột "Thời gian" (ngày) đứng cố định bên trái, KHÔNG nằm trong carousel — chỉ
     khối khung giờ của từng phòng mới trượt (Swiper): 2 phòng hiển thị đầy đủ cùng lúc, cạnh
-    nhau, cả 2 đều chọn được khung giờ. Bấm mũi tên Trước/Sau (hoặc vuốt) để lật sang cặp phòng
-    kế tiếp.
+    nhau, cả 2 đều chọn được khung giờ. Bấm mũi tên Trước/Sau (hoặc vuốt) chỉ trượt 1 phòng mỗi
+    lần (slidesPerGroup: 1) — không nhảy cả cặp 2 phòng.
     Mobile (< lg) vẫn dùng book/_mobile.blade.php (carousel 1 phòng kiểu cũ, không đổi).
     Inherits: $dates, $styleOneRooms, $today, $category
 --}}
@@ -36,10 +36,9 @@
             <h3 class="book-room-name book-dt-room-name" style="visibility:hidden;" aria-hidden="true">&nbsp;</h3>
             <div class="book-dt-col-header">Thời gian</div>
             <div class="book-dt-dates-card">
-                {{-- Đồng bộ cuộn dọc với TẤT CẢ phòng (kể cả phòng đang ở trang/cặp khác, chưa
-                     hiện ra) chứ không riêng 1 phòng "active" — vì giờ 2 phòng cùng hiện đầy đủ
-                     cùng lúc, không còn khái niệm 1 phòng active duy nhất. Sync cả phòng ẩn để
-                     khi lật sang cặp kế tiếp, vị trí cuộn của chúng đã khớp sẵn. --}}
+                {{-- Đồng bộ cuộn dọc với TẤT CẢ phòng (kể cả phòng chưa hiện ra, đang ở slide
+                     khác) — sync cả phòng ẩn để khi lật sang phòng kế tiếp, vị trí cuộn của
+                     chúng đã khớp sẵn. --}}
                 <div class="book-dt-dates-scroll" x-ref="bookDtDatesScroll"
                     @scroll="$refs.bookDtSwiperEl.querySelectorAll('.book-dt-slots-scroll').forEach(el => el.scrollTop = $event.target.scrollTop)">
                     @foreach ($dates as $date)

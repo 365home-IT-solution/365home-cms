@@ -1,5 +1,7 @@
 // ── Carousel 2 phòng/hàng cho lịch đặt phòng (book/_desktop-grid.blade.php) — cả 2 phòng đang
-// hiện ra đều "active" (chọn được khung giờ), bấm Trước/Sau để lật sang cặp phòng kế tiếp.
+// hiện ra đều "active" (chọn được khung giờ). Bấm Trước/Sau chỉ trượt 1 phòng mỗi lần (không
+// phải cả cặp): phòng thứ 2 đôn lên vị trí đầu, phòng thứ 1 ẩn đi, lộ ra 1 phòng mới ở vị trí
+// sau — không nhảy cả cặp 2 phòng như carousel thường (xem slidesPerGroup: 1 bên dưới).
 // Đặt ở đây (thay vì 1 <script> nằm trong chính view của Book) vì view đó chỉ xuất hiện trong DOM
 // SAU KHI Livewire morph vào (Book mount với config rỗng trước, nạp chi nhánh đầu tiên qua sự
 // kiện 'load-branch' — xem homeBookingBoard() bên dưới) — trình duyệt KHÔNG tự thực thi <script>
@@ -28,7 +30,7 @@ if (typeof window.mountBookDtSwiper === 'undefined') {
             observer: true,
             observeParents: true,
             slidesPerView: 2,
-            slidesPerGroup: 2,
+            slidesPerGroup: 1,
             spaceBetween: 16,
             breakpoints: {
                 1536: { spaceBetween: 20 },
