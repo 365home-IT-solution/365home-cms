@@ -441,7 +441,14 @@ class Dashboard extends FilamentDashboard
         }
 
         if ($branchCategoryIds !== null) {
-            $inner->whereIn('o.category_id', $branchCategoryIds);
+            // KHÔNG lọc bằng o.category_id — cột này ghi nhận danh mục lúc TẠO đơn (có thể lệch
+            // chi nhánh thật của phòng do nhập liệu), dẫn tới lộ phòng của chi nhánh khác khi lọc.
+            // Phải lọc theo product thực sự thuộc chi nhánh (qua bảng pivot categories), giống
+            // cách allowedCategoryIds ở trên đã làm cho phân quyền nhân viên.
+            $branchProductIds = Product::whereHas('categories', function ($q) use ($branchCategoryIds) {
+                $q->whereIn('categories.id', $branchCategoryIds);
+            })->pluck('id')->toArray();
+            $inner->whereIn('oi.product_id', $branchProductIds);
         }
 
         $rooms = DB::table(DB::raw("({$inner->toSql()}) as sub"))
@@ -496,7 +503,14 @@ class Dashboard extends FilamentDashboard
         }
 
         if ($branchCategoryIds !== null) {
-            $query->whereIn('category_id', $branchCategoryIds);
+            // Lọc theo product thực sự thuộc chi nhánh (qua pivot categories), không dùng
+            // category_id trên đơn — xem giải thích tại getRoomRevenueData().
+            $branchProductIds = Product::whereHas('categories', function ($q) use ($branchCategoryIds) {
+                $q->whereIn('categories.id', $branchCategoryIds);
+            })->pluck('id')->toArray();
+            $query->whereHas('items', function ($q) use ($branchProductIds) {
+                $q->whereIn('product_id', $branchProductIds);
+            });
         }
 
         $data = $query

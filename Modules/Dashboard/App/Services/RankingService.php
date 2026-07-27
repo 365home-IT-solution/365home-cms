@@ -7,6 +7,7 @@ namespace Modules\Dashboard\App\Services;
 use Modules\Category\Entities\Category;
 use Modules\Dashboard\App\Filament\Pages\Dashboard;
 use Modules\Payment\Entities\Order;
+use Modules\Product\App\Models\Product;
 
 /**
  * Dữ liệu "phân tích" ở khu vực dưới trang Tổng quan admin — lọc theo NĂM (khác KpiService,
@@ -89,11 +90,20 @@ class RankingService
             $childIds  = Category::where('parent_id', $branch->id)->pluck('id')->toArray();
             $allCatIds = array_merge([$branch->id], $childIds);
 
+            // KHÔNG lọc bằng category_id trên đơn — cột này có thể lệch chi nhánh thật của phòng.
+            // Lọc theo product thực sự thuộc chi nhánh qua pivot categories (xem giải thích tại
+            // Dashboard::getRoomRevenueData()).
+            $branchProductIds = Product::whereHas('categories', function ($q) use ($allCatIds) {
+                $q->whereIn('categories.id', $allCatIds);
+            })->pluck('id')->toArray();
+
             $rows = Order::query()
                 ->where('exclude_from_stats', false)
                 ->selectRaw('MONTH(created_at) as m, SUM(amount) as rev_paid, SUM(money_deposit) as rev_dep')
                 ->whereYear('created_at', $year)
-                ->whereIn('category_id', $allCatIds)
+                ->whereHas('items', function ($q) use ($branchProductIds) {
+                    $q->whereIn('product_id', $branchProductIds);
+                })
                 ->where(function ($q) {
                     $q->where('status', 'paid')
                         ->orWhere(function ($q2) { $q2->where('status', 'deposit')->whereNotNull('money_deposit'); });
@@ -140,7 +150,15 @@ class RankingService
         }
 
         if ($branchCategoryIds !== null) {
-            $query->whereIn('category_id', $branchCategoryIds);
+            // KHÔNG lọc bằng category_id trên đơn — cột này có thể lệch chi nhánh thật của phòng
+            // (ghi nhận lúc tạo đơn, không đảm bảo khớp chi nhánh sở hữu phòng). Phải lọc theo
+            // product thực sự thuộc chi nhánh qua bảng pivot categories (xem Dashboard::getRoomRevenueData()).
+            $branchProductIds = Product::whereHas('categories', function ($q) use ($branchCategoryIds) {
+                $q->whereIn('categories.id', $branchCategoryIds);
+            })->pluck('id')->toArray();
+            $query->whereHas('items', function ($q) use ($branchProductIds) {
+                $q->whereIn('product_id', $branchProductIds);
+            });
         }
 
         $rows = $query
