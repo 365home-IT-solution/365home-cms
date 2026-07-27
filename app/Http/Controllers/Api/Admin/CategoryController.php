@@ -63,6 +63,47 @@ class CategoryController extends Controller
         return response()->json(['data' => $categories->map(fn (Category $c) => $this->toItem($c))->values()]);
     }
 
+    /**
+     * GET /api/admin/categories/tree
+     * Toàn bộ chi nhánh (parent_id=null) KÈM khu vực con (mọi cấp), dạng CÂY lồng nhau — dùng cho
+     * FE hiển thị dropdown/tree chọn "Thuộc chi nhánh" (chi nhánh cha có thể expand ra khu vực con).
+     * Phạm vi hiển thị GIỐNG HỆT field "categories" trả về ở POST /api/admin/login: super_admin thấy
+     * hết; chủ đối tác (không có bản ghi branchPermissions riêng) thấy toàn bộ chi nhánh của đối tác
+     * mình; nhân viên chỉ thấy chi nhánh được cấp quyền — nhưng đã được cấp branch nào thì thấy
+     * TOÀN BỘ khu vực con của branch đó (visibleCategoriesQuery() qua allowedCategoryIds() đã tự
+     * gồm cả cây con, không cần lọc thêm ở từng cấp).
+     */
+    public function tree(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $categories = $this->visibleCategoriesQuery($user)
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->get(['id', 'name', 'slug', 'parent_id', 'sort_order', 'status', 'image']);
+
+        // groupBy ép key null (chi nhánh gốc) thành '' trên PHP array — dùng sentinel 'root' cho
+        // rõ ràng thay vì phụ thuộc hành vi ép kiểu ngầm đó.
+        $byParent = $categories->groupBy(fn (Category $c) => $c->parent_id ?? 'root');
+
+        $buildBranch = function ($parentKey) use (&$buildBranch, $byParent) {
+            return $byParent->get($parentKey, collect())
+                ->map(fn (Category $c) => [
+                    'id'         => $c->id,
+                    'name'       => $c->name,
+                    'slug'       => $c->slug,
+                    'sort_order' => $c->sort_order,
+                    'status'     => $c->status,
+                    'image_url'  => $c->image ? asset('storage/' . $c->image) : null,
+                    'children'   => $buildBranch($c->id),
+                ])
+                ->values();
+        };
+
+        return response()->json(['data' => $buildBranch('root')]);
+    }
+
     // GET /api/admin/categories/{id}
     public function show(Request $request, int $id): JsonResponse
     {

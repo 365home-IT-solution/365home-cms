@@ -51,7 +51,8 @@ class CategoryTable
                 TextColumn::make('sort_order')
                     ->label(__('category::category.table.label.sort_order'))
                     ->sortable()
-                    ->alignCenter(),
+                    ->alignCenter()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('category_type')
                     ->label(__('category::category.table.label.category_type'))
                     ->sortable()

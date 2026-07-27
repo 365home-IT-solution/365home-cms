@@ -156,6 +156,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 | category_type luôn 'product' — xem docblock App\Http\Controllers\Api\Admin\CategoryController.
 | GET    /api/admin/categories          → ?parent_id= (bỏ trống=chi nhánh gốc, 1 id=khu vực con,
 |                                          'all'=phẳng hết) + ?search=
+| GET    /api/admin/categories/tree     → toàn bộ chi nhánh + khu vực con, dạng CÂY lồng nhau
+|                                          (children[]) — cùng phạm vi hiển thị với field
+|                                          "categories" ở POST /api/admin/login. Dùng cho FE hiển
+|                                          thị dropdown/tree chọn "Thuộc chi nhánh".
 | GET    /api/admin/categories/{id}     → chi tiết 1 chi nhánh/khu vực
 | POST   /api/admin/categories          → tạo (multipart/form-data nếu có ảnh)
 | PUT|POST /api/admin/categories/{id}   → sửa (POST khi cần gửi kèm ảnh, PHP không tự parse
@@ -166,6 +170,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/categories')->name('api.admin.categories.')->group(function () {
     Route::get('/',        [AdminCategoryController::class, 'index'])->name('index');
+    Route::get('/tree',    [AdminCategoryController::class, 'tree'])->name('tree');
     Route::get('/{id}',    [AdminCategoryController::class, 'show'])->name('show')->whereNumber('id');
     Route::post('/',       [AdminCategoryController::class, 'store'])->name('store');
     Route::put('/{id}',    [AdminCategoryController::class, 'update'])->name('update')->whereNumber('id');
