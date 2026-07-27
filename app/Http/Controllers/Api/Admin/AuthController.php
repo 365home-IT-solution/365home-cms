@@ -9,6 +9,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Modules\Category\Entities\Category;
 
 class AuthController extends Controller
 {
@@ -73,6 +74,38 @@ class AuthController extends Controller
             'partner_id'     => $user->partner_id,
             'partner_name'   => $user->partner?->name,
             'is_super_admin' => $user->isSuperAdmin(),
+            'categories'     => $this->branchCategories($user),
         ];
+    }
+
+    // Danh sách chi nhánh (category gốc, category_type=product, parent_id=null) mà user được
+    // phép xem — dùng để app lưu lại và lọc các API thống kê/dữ liệu khác theo chi nhánh.
+    // super_admin: tất cả chi nhánh. Chủ đối tác (không có bản ghi branchPermissions riêng):
+    // toàn bộ chi nhánh thuộc đối tác mình. Nhân viên: chỉ chi nhánh được cấp quyền.
+    private function branchCategories(User $user): array
+    {
+        $query = Category::whereNull('parent_id')->where('category_type', 'product');
+
+        if (! $user->isSuperAdmin()) {
+            if (empty($user->partner_id)) {
+                return [];
+            }
+
+            $query->where('partner_id', $user->partner_id);
+
+            $allowedBranchIds = $user->allowedBranchIds();
+            if (! empty($allowedBranchIds)) {
+                $query->whereIn('id', $allowedBranchIds);
+            }
+        }
+
+        return $query->orderBy('sort_order')
+            ->get(['id', 'name', 'slug', 'sort_order'])
+            ->map(fn (Category $c) => [
+                'id'         => $c->id,
+                'name'       => $c->name,
+                'slug'       => $c->slug,
+                'sort_order' => $c->sort_order,
+            ])->toArray();
     }
 }

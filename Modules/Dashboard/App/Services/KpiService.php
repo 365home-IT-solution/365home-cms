@@ -17,10 +17,20 @@ class KpiService
 
         $query = Order::query()->where('exclude_from_stats', false);
         if ($user && ! $user->isSuperAdmin()) {
-            $allCategoryIds = $user->allowedCategoryIds();
-            // Order đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds chỉ thu hẹp thêm.
-            if (! empty($allCategoryIds)) {
-                $query->whereIn('category_id', $allCategoryIds);
+            // BelongsToPartner chỉ tự lọc partner_id khi chạy TRONG Filament panel
+            // (AdminPanelContext::isActive() — xem app/Models/Concerns/BelongsToPartner.php).
+            // Route API token (Sanctum, KHÔNG qua panel) không có global scope này nên PHẢI lọc
+            // tường minh ở đây, nếu không tài khoản chủ đối tác (không có bản ghi branchPermissions
+            // riêng nên allowedCategoryIds() rỗng) sẽ thấy dữ liệu của TẤT CẢ đối tác khác.
+            if (empty($user->partner_id)) {
+                $query->whereRaw('1 = 0');
+            } else {
+                $query->where('partner_id', $user->partner_id);
+
+                $allCategoryIds = $user->allowedCategoryIds();
+                if (! empty($allCategoryIds)) {
+                    $query->whereIn('category_id', $allCategoryIds);
+                }
             }
         }
 
@@ -44,18 +54,41 @@ class KpiService
         } elseif ($period === 'yesterday') {
             $start = Carbon::yesterday()->startOfDay();
             $end   = Carbon::yesterday()->endOfDay();
-        } elseif ($period === 'ytd') {
+        } elseif ($period === 'this_month') {
+            $start = Carbon::now()->startOfMonth()->startOfDay();
+            $end   = Carbon::now()->endOfDay();
+        } elseif ($period === 'last_month') {
+            $start = Carbon::now()->subMonthNoOverflow()->startOfMonth()->startOfDay();
+            $end   = Carbon::now()->subMonthNoOverflow()->endOfMonth()->endOfDay();
+        } elseif ($period === 'this_year' || $period === 'ytd') {
             $start = Carbon::today()->startOfYear()->startOfDay();
             $end   = Carbon::now()->endOfDay();
+        } elseif ($period === 'last_year') {
+            $start = Carbon::now()->subYear()->startOfYear()->startOfDay();
+            $end   = Carbon::now()->subYear()->endOfYear()->endOfDay();
         } else {
             $days  = match ($period) { '7d' => 7, '90d' => 90, default => 30 };
             $end   = Carbon::now()->endOfDay();
             $start = Carbon::now()->subDays($days - 1)->startOfDay();
         }
 
-        $periodDays    = max(1, (int) $start->diffInDays($end));
-        $prevEnd       = $start->copy()->subSecond();
-        $prevStart     = $prevEnd->copy()->subDays($periodDays - 1)->startOfDay();
+        // Kỳ so sánh: tháng này → cùng số ngày đầu tháng trước; tháng trước/năm trước → cùng kỳ
+        // năm ngoái; các kỳ còn lại (today/yesterday/Nd/custom/this_year) → liền trước cùng độ dài.
+        if ($period === 'this_month') {
+            $prevStart = Carbon::now()->subMonthNoOverflow()->startOfMonth()->startOfDay();
+            $prevEnd   = $prevStart->copy()->addDays(Carbon::now()->day - 1)->endOfDay();
+        } elseif ($period === 'last_month') {
+            $prevStart = Carbon::now()->subMonths(2)->startOfMonth()->startOfDay();
+            $prevEnd   = Carbon::now()->subMonths(2)->endOfMonth()->endOfDay();
+        } elseif ($period === 'last_year') {
+            $prevStart = Carbon::now()->subYears(2)->startOfYear()->startOfDay();
+            $prevEnd   = Carbon::now()->subYears(2)->endOfYear()->endOfDay();
+        } else {
+            $periodDays = max(1, (int) $start->diffInDays($end));
+            $prevEnd    = $start->copy()->subSecond();
+            $prevStart  = $prevEnd->copy()->subDays($periodDays - 1)->startOfDay();
+        }
+
         $dateRange     = $start->format('j/n') . ' – ' . $end->format('j/n');
         $prevDateRange = $prevStart->format('j/n') . ' – ' . $prevEnd->format('j/n');
 
