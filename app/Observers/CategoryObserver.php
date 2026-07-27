@@ -38,6 +38,14 @@ class CategoryObserver
         $partnerId   = $category->partner_id;
         $categoryIds = $category->children()->pluck('id')->push($category->id);
 
+        // Khu vực con (chính bảng categories) — PHẢI cascade lại cột partner_id của chính nó,
+        // không chỉ của Product/Order/AccessCode bên dưới. Thiếu dòng này khiến khu vực con tạo
+        // trước observer/migration backfill partner_id (hoặc lệch vì lý do khác) mãi mãi có
+        // partner_id sai/null, làm mọi query lọc theo category.partner_id (CategoryResource,
+        // CategoryController::visibleCategoriesQuery, API tree...) trả về chi nhánh cha đúng
+        // nhưng KHÔNG BAO GIỜ thấy khu vực con — dù allowedCategoryIds() đã cho phép đúng id đó.
+        Category::whereIn('id', $categoryIds)->update(['partner_id' => $partnerId]);
+
         // Product gắn qua bảng pivot categorizables (morphToMany), không có cột category_id trực
         // tiếp — phải whereHas qua quan hệ categories().
         Product::withoutGlobalScope('partner')

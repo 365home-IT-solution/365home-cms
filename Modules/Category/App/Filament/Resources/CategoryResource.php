@@ -72,19 +72,15 @@ class CategoryResource extends Resource implements HasKnowledgeBase
 
         $allowedProductCategoryIds = $user->allowedCategoryIds();
         $allowedPostCategoryIds    = $user->allowedPostCategoryIds();
+        $visibleProductIds         = static::visibleProductCategoryIds($user, $allowedProductCategoryIds);
 
-        return $query->where(function (Builder $q) use ($user, $allowedProductCategoryIds, $allowedPostCategoryIds) {
-            // Chi nhánh (category_type='product'): mặc định thấy TOÀN BỘ chi nhánh của đối tác
-            // mình (partner_id) — không còn bắt buộc phải được cấp quyền chi nhánh cụ thể qua
+        return $query->where(function (Builder $q) use ($visibleProductIds, $allowedPostCategoryIds) {
+            // Chi nhánh (category_type='product') + khu vực con: mặc định thấy TOÀN BỘ chi nhánh
+            // của đối tác mình — không còn bắt buộc phải được cấp quyền chi nhánh cụ thể qua
             // user_branch_permissions như trước (đó là nguyên nhân đối tác mới tạo không thấy
             // chi nhánh/phòng nào). Nếu user được gán quyền chi nhánh cụ thể thì thu hẹp thêm
             // theo đó (dùng để giới hạn 1 nhân viên chỉ thấy 1/vài chi nhánh trong số của đối tác).
-            $q->where('category_type', 'product')
-                ->where('partner_id', $user->partner_id)
-                ->when(
-                    ! empty($allowedProductCategoryIds),
-                    fn (Builder $q2) => $q2->whereIn('id', $allowedProductCategoryIds)
-                );
+            $q->where('category_type', 'product')->whereIn('id', $visibleProductIds);
 
             // Category loại 'post' vẫn dùng chung, giữ nguyên yêu cầu quyền chi nhánh cụ thể
             // như trước (không liên quan tới partner_id).
@@ -92,6 +88,39 @@ class CategoryResource extends Resource implements HasKnowledgeBase
                 $q->orWhereIn('id', $allowedPostCategoryIds);
             }
         });
+    }
+
+    /**
+     * Id chi nhánh (partner_id đáng tin cậy — luôn set đúng lúc tạo/sửa chi nhánh) + toàn bộ khu
+     * vực con (mọi cấp, đệ quy theo parent_id). KHÔNG lọc khu vực con bằng cột partner_id của
+     * chính nó — cột đó có thể lệch/null với dữ liệu tạo trước khi CategoryObserver cascade
+     * partner_id xuống tới cấp con (xem CategoryObserver::saved()), lọc trực tiếp sẽ ẩn mất khu
+     * vực con của 1 chi nhánh hợp lệ (chi nhánh cha hiện đúng nhưng danh sách con trống/thiếu).
+     */
+    private static function visibleProductCategoryIds($user, array $allowedProductCategoryIds): array
+    {
+        $branchIds = Category::whereNull('parent_id')
+            ->where('category_type', 'product')
+            ->where('partner_id', $user->partner_id)
+            ->pluck('id')
+            ->toArray();
+
+        if (! empty($allowedProductCategoryIds)) {
+            $branchIds = array_values(array_intersect($branchIds, $allowedProductCategoryIds));
+        }
+
+        $visibleIds   = $branchIds;
+        $currentLevel = $branchIds;
+        while (! empty($currentLevel)) {
+            $children = Category::whereIn('parent_id', $currentLevel)->pluck('id')->toArray();
+            if (empty($children)) {
+                break;
+            }
+            $visibleIds   = array_merge($visibleIds, $children);
+            $currentLevel = $children;
+        }
+
+        return array_unique($visibleIds);
     }
 
     public static function form(Form $form): Form

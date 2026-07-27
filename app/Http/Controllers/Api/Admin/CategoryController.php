@@ -292,8 +292,14 @@ class CategoryController extends Controller
 
     /**
      * Phạm vi nhìn thấy: super_admin xem hết. User thường chỉ xem category_type='product' thuộc
-     * đúng đối tác mình (partner_id) — thu hẹp thêm theo allowedCategoryIds() nếu được cấp quyền
-     * chi nhánh cụ thể. Mirror chính xác CategoryResource::getEloquentQuery() (phần product).
+     * đúng đối tác mình — thu hẹp thêm theo allowedCategoryIds() nếu được cấp quyền chi nhánh cụ
+     * thể. Mirror ý định của CategoryResource::getEloquentQuery() (phần product), NHƯNG không lọc
+     * bằng cột partner_id trên khu vực CON — chỉ chi nhánh GỐC mới dùng cột này (nguồn xác thực
+     * đáng tin cậy, luôn được set đúng lúc tạo/sửa chi nhánh). Khu vực con được coi là thuộc đối
+     * tác qua QUAN HỆ CHA-CON (đệ quy): cột partner_id của chính khu vực con có thể lệch/null với
+     * dữ liệu tạo trước khi CategoryObserver cascade xuống tới cấp con (xem CategoryObserver),
+     * nếu lọc trực tiếp bằng cột đó sẽ ẩn mất toàn bộ khu vực con của chi nhánh đúng — đúng lỗi đã
+     * gặp ở API tree (chi nhánh cha hiện đúng nhưng children luôn rỗng).
      */
     private function visibleCategoriesQuery(User $user): Builder
     {
@@ -307,14 +313,43 @@ class CategoryController extends Controller
             return $query->whereRaw('1 = 0');
         }
 
-        $query->where('partner_id', $user->partner_id);
+        $branchIds = Category::whereNull('parent_id')
+            ->where('category_type', 'product')
+            ->where('partner_id', $user->partner_id)
+            ->pluck('id')
+            ->toArray();
 
+        // allowedCategoryIds() rỗng = không bị cấp quyền chi nhánh cụ thể (chủ đối tác) → xem hết
+        // chi nhánh của đối tác mình, không thu hẹp thêm.
         $allowedIds = $user->allowedCategoryIds();
         if (! empty($allowedIds)) {
-            $query->whereIn('id', $allowedIds);
+            $branchIds = array_values(array_intersect($branchIds, $allowedIds));
         }
 
-        return $query;
+        if (empty($branchIds)) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereIn('id', array_unique(array_merge($branchIds, $this->descendantCategoryIds($branchIds))));
+    }
+
+    // Toàn bộ id khu vực con (mọi cấp) của các chi nhánh gốc truyền vào — đệ quy theo parent_id,
+    // KHÔNG lọc theo partner_id (xem lý do tại visibleCategoriesQuery()).
+    private function descendantCategoryIds(array $rootIds): array
+    {
+        $descendantIds = [];
+        $currentLevel  = $rootIds;
+
+        while (! empty($currentLevel)) {
+            $children = Category::whereIn('parent_id', $currentLevel)->pluck('id')->toArray();
+            if (empty($children)) {
+                break;
+            }
+            $descendantIds = array_merge($descendantIds, $children);
+            $currentLevel  = $children;
+        }
+
+        return $descendantIds;
     }
 
     // true nếu $candidateParentId nằm trong cây con của $ofId — tức gán làm cha sẽ tạo vòng lặp.
