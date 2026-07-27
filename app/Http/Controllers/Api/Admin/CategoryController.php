@@ -152,7 +152,7 @@ class CategoryController extends Controller
                 return response()->json(['message' => 'Chi nhánh cha không hợp lệ.'], 422);
             }
 
-            if (! $user->isSuperAdmin() && $parent->partner_id !== $user->partner_id) {
+            if (! $user->isSuperAdmin() && $this->rootPartnerId($parent) !== $user->partner_id) {
                 return response()->json(['message' => 'Không có quyền tạo khu vực trong chi nhánh này.'], 403);
             }
         }
@@ -160,8 +160,11 @@ class CategoryController extends Controller
         $partnerId = $user->isSuperAdmin() ? ($data['partner_id'] ?? null) : $user->partner_id;
 
         if ($parent) {
-            // Khu vực luôn thuộc cùng đối tác với chi nhánh cha — kế thừa, không cho lệch.
-            $partnerId = $parent->partner_id;
+            // Khu vực luôn thuộc cùng đối tác với chi nhánh cha — kế thừa, không cho lệch. Lấy
+            // theo CHI NHÁNH GỐC (rootPartnerId), không dùng thẳng $parent->partner_id: nếu $parent
+            // lại là 1 khu vực con (parent_id khác null), cột partner_id của chính nó có thể lệch/
+            // null với dữ liệu tạo trước khi CategoryObserver cascade tới cấp con (xem CategoryObserver).
+            $partnerId = $this->rootPartnerId($parent);
         } elseif ($user->isSuperAdmin() && empty($partnerId)) {
             return response()->json(['message' => 'Chi nhánh (không có cha) bắt buộc chọn đối tác sở hữu (partner_id).'], 422);
         }
@@ -223,12 +226,14 @@ class CategoryController extends Controller
                 return response()->json(['message' => 'Không thể chọn 1 khu vực con của chính nó làm chi nhánh cha (tạo vòng lặp).'], 422);
             }
 
-            if (! $user->isSuperAdmin() && $parent->partner_id !== $user->partner_id) {
+            if (! $user->isSuperAdmin() && $this->rootPartnerId($parent) !== $user->partner_id) {
                 return response()->json(['message' => 'Không có quyền chuyển vào chi nhánh này.'], 403);
             }
 
-            // Khu vực luôn kế thừa đối tác của chi nhánh cha mới — tránh lệch đối tác giữa 2 cấp.
-            $data['partner_id'] = $parent->partner_id;
+            // Khu vực luôn kế thừa đối tác của CHI NHÁNH GỐC chứa chi nhánh cha mới — tránh lệch
+            // đối tác giữa các cấp, và không trực tiếp tin cột partner_id của $parent (xem lý do ở
+            // store()/rootPartnerId()).
+            $data['partner_id'] = $this->rootPartnerId($parent);
         }
 
         // partner_id chỉ super_admin được đổi trực tiếp (khi KHÔNG đổi parent_id) — user thường bỏ qua field này dù có gửi lên.
@@ -288,6 +293,26 @@ class CategoryController extends Controller
         $category->delete();
 
         return response()->json(['message' => 'Đã xoá.']);
+    }
+
+    // Đối tác THẬT SỰ của 1 category = partner_id của CHI NHÁNH GỐC (đi ngược parent_id tới khi
+    // parent_id null) — không tin thẳng cột partner_id của chính category truyền vào, vì cột đó
+    // trên khu vực con có thể lệch/null (dữ liệu tạo trước khi CategoryObserver cascade tới cấp
+    // con, xem CategoryObserver::saved()). Dùng khi cần biết 1 chi nhánh/khu vực THUỘC đối tác nào
+    // để so quyền (store/update parent_id) — chi nhánh gốc luôn đáng tin vì partner_id được set
+    // trực tiếp lúc tạo/sửa chi nhánh, không qua cascade.
+    private function rootPartnerId(Category $category): ?string
+    {
+        $current = $category;
+        while ($current->parent_id) {
+            $parent = Category::find($current->parent_id);
+            if (! $parent) {
+                break;
+            }
+            $current = $parent;
+        }
+
+        return $current->partner_id;
     }
 
     /**
