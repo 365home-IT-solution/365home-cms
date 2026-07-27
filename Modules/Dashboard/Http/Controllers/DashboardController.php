@@ -8,6 +8,7 @@ use Illuminate\Routing\Controller;
 use Modules\Category\Entities\Category;
 use Modules\Dashboard\App\Services\KpiService;
 use Modules\Dashboard\App\Services\OverviewService;
+use Modules\Dashboard\App\Services\RankingService;
 
 class DashboardController extends Controller
 {
@@ -26,8 +27,10 @@ class DashboardController extends Controller
      *  - filter: today | yesterday | 7d | 30d | 90d | this_month | last_month | this_year |
      *            last_year | custom (mặc định: today)
      *  - start_date, end_date: bắt buộc khi filter=custom, định dạng yyyy-mm-dd
-     *  - branch_id: id chi nhánh (category gốc, category_type=product, parent_id=null);
-     *               bỏ trống = tất cả chi nhánh user được phép xem
+     *  - categories: danh sách slug chi nhánh cách nhau bởi dấu phẩy (khớp field 'categories'
+     *                trả về ở POST /api/admin/login), vd: categories=chi-nhanh-q1,chi-nhanh-q3
+     *  - branch_id: id chi nhánh (category gốc); chỉ dùng khi KHÔNG truyền 'categories'
+     *  Không truyền categories/branch_id → tất cả chi nhánh user được phép xem
      */
     public function kpiStats(Request $request): JsonResponse
     {
@@ -35,21 +38,42 @@ class DashboardController extends Controller
             ? $request->query('filter')
             : 'today';
 
-        $branchCategoryIds = null;
-        $branchId = $request->query('branch_id');
-        if ($branchId && ctype_digit((string) $branchId)) {
-            $branchId = (int) $branchId;
-            $childIds = Category::where('parent_id', $branchId)->pluck('id')->toArray();
-            $branchCategoryIds = array_merge([$branchId], $childIds);
-        }
-
         $data = KpiService::getData(
             $filter,
             $request->user(),
             $filter === 'custom' ? $request->query('start_date') : null,
             $filter === 'custom' ? $request->query('end_date') : null,
-            $branchCategoryIds
+            $this->resolveBranchCategoryIds($request)
         );
+
+        return response()->json(['data' => $data]);
+    }
+
+    /**
+     * GET /api/admin/dashboard/rankings
+     * Dữ liệu phân tích theo NĂM (khác kpi-stats — lọc theo period): Xếp hạng phòng, Top khách
+     * đặt phòng nhiều nhất, Doanh thu theo tháng, Doanh thu từng chi nhánh theo tháng.
+     * (xem RankingService::getData()).
+     *
+     * Query params:
+     *  - year: mặc định năm hiện tại
+     *  - categories: danh sách slug chi nhánh cách nhau bởi dấu phẩy (khớp field 'categories'
+     *                trả về ở POST /api/admin/login), vd: categories=chi-nhanh-q1,chi-nhanh-q3
+     *  - branch_id: id chi nhánh (category gốc); chỉ dùng khi KHÔNG truyền 'categories'
+     *  - limit: số dòng top cho room_ranking/top_customers, mặc định 10
+     *  Không truyền categories/branch_id → tất cả chi nhánh user được phép xem
+     */
+    public function rankings(Request $request): JsonResponse
+    {
+        $year = $request->filled('year') && ctype_digit((string) $request->query('year'))
+            ? (int) $request->query('year')
+            : (int) date('Y');
+
+        $limit = $request->filled('limit') && ctype_digit((string) $request->query('limit'))
+            ? max(1, min(50, (int) $request->query('limit')))
+            : 10;
+
+        $data = RankingService::getData($request->user(), $year, $this->resolveBranchCategoryIds($request), $limit);
 
         return response()->json(['data' => $data]);
     }
@@ -88,5 +112,46 @@ class DashboardController extends Controller
         ]));
 
         return response()->json(['data' => $data]);
+    }
+
+    /**
+     * Chuyển 'categories' (danh sách slug chi nhánh cách nhau bởi dấu phẩy) hoặc 'branch_id'
+     * (1 id) thành danh sách category_id để lọc orders theo chi nhánh — gồm cả category con
+     * (khu vực/tầng...) của mỗi chi nhánh được chọn. 'categories' được ưu tiên nếu có.
+     *
+     * - Không truyền gì            → null (không lọc thêm, dùng toàn bộ chi nhánh user được phép xem)
+     * - Truyền nhưng không khớp gì → [] (lọc về rỗng, KHÔNG âm thầm trả toàn bộ dữ liệu)
+     */
+    private function resolveBranchCategoryIds(Request $request): ?array
+    {
+        $slugs = collect(explode(',', (string) $request->query('categories', '')))
+            ->map(fn ($s) => trim($s))
+            ->filter()
+            ->values();
+
+        if ($slugs->isNotEmpty()) {
+            $branchIds = Category::whereNull('parent_id')
+                ->where('category_type', 'product')
+                ->whereIn('slug', $slugs)
+                ->pluck('id');
+
+            $ids = [];
+            foreach ($branchIds as $branchId) {
+                $childIds = Category::where('parent_id', $branchId)->pluck('id')->toArray();
+                $ids = array_merge($ids, [$branchId], $childIds);
+            }
+
+            return array_values(array_unique($ids));
+        }
+
+        $branchId = $request->query('branch_id');
+        if ($branchId && ctype_digit((string) $branchId)) {
+            $branchId = (int) $branchId;
+            $childIds = Category::where('parent_id', $branchId)->pluck('id')->toArray();
+
+            return array_merge([$branchId], $childIds);
+        }
+
+        return null;
     }
 }

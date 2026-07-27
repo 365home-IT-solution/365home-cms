@@ -30,13 +30,23 @@ class OrderController extends Controller
      * (orders.partner_id, gán theo chi nhánh lúc đặt phòng — xem BelongsToPartner/Order::creating).
      * super_admin xem toàn bộ, không lọc.
      *
-     * Query params:
-     *  - branch_id      : lọc thêm theo 1 chi nhánh cụ thể (category_id) trong đối tác
-     *  - status         : pending|paid|deposit|cancelled|failed|refunded|shipped...
-     *  - payment_method : PayOS|cod
-     *  - search         : order_code / buyer_name / buyer_phone
-     *  - from, to       : lọc theo created_at (yyyy-mm-dd)
-     *  - per_page       : mặc định 10
+     * Mọi filter đọc được qua CẢ 2 cách tương đương — query param phẳng (?branch_id=...) HOẶC gộp
+     * trong ?filter[...] (?filter[branch_id]=...), dùng dot-notation của Request::input() nên
+     * không cần parse tay; filter[...] THẮNG nếu gửi trùng cả 2. Giữ đường cũ để không phá FE đang
+     * dùng param phẳng có sẵn (branch_id, status, payment_method, search, from, to).
+     *
+     * Danh sách filter:
+     *  - filter[branch_id]      : lọc theo 1 chi nhánh cụ thể (category_id) trong đối tác
+     *  - filter[room_id]        : lọc đơn có ít nhất 1 item thuộc phòng này (order_items.product_id)
+     *  - filter[status]         : pending|paid|deposit|cancelled|failed|refunded|shipped...
+     *  - filter[payment_method] : PayOS|cod
+     *  - filter[search]         : order_code / buyer_name / buyer_phone
+     *  - filter[from], filter[to]       : lọc theo ngày TẠO đơn — created_at (yyyy-mm-dd)
+     *  - filter[checkin_date]   : lọc theo ngày NHẬN phòng (order_items.checkin_date, yyyy-mm-dd)
+     *  - filter[checkout_date]  : lọc theo ngày TRẢ phòng (order_items.checkout_date, yyyy-mm-dd)
+     *    Gửi CẢ HAI cùng lúc = lọc đơn có 1 item khớp ĐÚNG cặp nhận-trả này (không phải 2 item
+     *    khác nhau) — vd filter[checkin_date]=2026-08-01&filter[checkout_date]=2026-08-03.
+     *  - per_page (không nằm trong filter) : mặc định 10
      */
     public function index(Request $request): JsonResponse
     {
@@ -60,20 +70,34 @@ class OrderController extends Controller
             $query->where('partner_id', $user->partner_id);
         }
 
+        $f = fn (string $key) => $request->input("filter.{$key}", $request->input($key));
+
         $query
-            ->when($request->filled('branch_id'), fn ($q) => $q->where('category_id', $request->integer('branch_id')))
-            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
-            ->when($request->filled('payment_method'), fn ($q) => $q->where('payment_method', $request->string('payment_method')))
-            ->when($request->filled('search'), function ($q) use ($request) {
-                $search = $request->string('search');
+            ->when(filled($f('branch_id')), fn ($q) => $q->where('category_id', (int) $f('branch_id')))
+            ->when(filled($f('room_id')), fn ($q) => $q->whereHas(
+                'items', fn ($q2) => $q2->where('product_id', (int) $f('room_id'))
+            ))
+            ->when(filled($f('status')), fn ($q) => $q->where('status', $f('status')))
+            ->when(filled($f('payment_method')), fn ($q) => $q->where('payment_method', $f('payment_method')))
+            ->when(filled($f('search')), function ($q) use ($f) {
+                $search = $f('search');
                 $q->where(function ($q2) use ($search) {
                     $q2->where('order_code', 'like', "%{$search}%")
                         ->orWhere('buyer_name', 'like', "%{$search}%")
                         ->orWhere('buyer_phone', 'like', "%{$search}%");
                 });
             })
-            ->when($request->filled('from'), fn ($q) => $q->whereDate('created_at', '>=', $request->date('from')))
-            ->when($request->filled('to'), fn ($q) => $q->whereDate('created_at', '<=', $request->date('to')))
+            ->when(filled($f('from')), fn ($q) => $q->whereDate('created_at', '>=', $f('from')))
+            ->when(filled($f('to')), fn ($q) => $q->whereDate('created_at', '<=', $f('to')))
+            // Ngày nhận/trả phòng nằm ở order_items, không phải Order — gộp chung 1 whereHas khi
+            // gửi cả 2 để đảm bảo khớp ĐÚNG 1 item (nhận đúng ngày NÀY và trả đúng ngày ĐÓ), thay
+            // vì 2 whereHas riêng (có thể khớp 2 item khác nhau trong cùng đơn multi-room/multi-slot).
+            ->when(filled($f('checkin_date')) || filled($f('checkout_date')), function ($q) use ($f) {
+                $q->whereHas('items', function ($q2) use ($f) {
+                    $q2->when(filled($f('checkin_date')), fn ($q3) => $q3->whereDate('checkin_date', $f('checkin_date')))
+                        ->when(filled($f('checkout_date')), fn ($q3) => $q3->whereDate('checkout_date', $f('checkout_date')));
+                });
+            })
             ->orderByDesc('created_at');
 
         $orders = $query->paginate($request->integer('per_page', 10));
@@ -538,6 +562,94 @@ class OrderController extends Controller
         $guestCccd->delete();
 
         return response()->json(['message' => 'Đã xoá CCCD khách đi cùng.', 'guest_index' => $guestIndex]);
+    }
+
+    /**
+     * DELETE /api/admin/orders/{order_code}
+     * Xoá HẲN 1 đơn (hard delete — không phải huỷ đơn qua 'status'). Dọn luôn dữ liệu con
+     * (order_items, order_services, order_guest_cccds) + toàn bộ ảnh CCCD liên quan trong storage
+     * trước khi xoá bản ghi Order, tránh để lại rác (bảng con không có ràng buộc khoá ngoại
+     * CASCADE ở DB, xem order_items migration — không tự dọn theo).
+     *
+     * KHÔNG kiểm tra status đơn — admin toàn quyền xoá kể cả đơn đã paid/deposit (giống triết lý
+     * update() ở trên). Cân nhắc kỹ trước khi gọi vì không thể khôi phục.
+     */
+    public function destroy(Request $request, string $orderCode): JsonResponse
+    {
+        /** @var User $admin */
+        $admin = $request->user();
+
+        $order = Order::with(['items', 'services', 'guestCccds'])
+            ->where('order_code', $orderCode)
+            ->first();
+
+        if (! $order || (! $admin->isSuperAdmin() && $order->partner_id !== $admin->partner_id)) {
+            return response()->json(['message' => 'Không tìm thấy đơn.'], 404);
+        }
+
+        $this->deleteOrderWithRelations($order);
+
+        return response()->json(['message' => 'Đã xoá đơn.', 'order_code' => $orderCode]);
+    }
+
+    /**
+     * DELETE /api/admin/orders
+     * Xoá NHIỀU đơn cùng lúc theo order_code — body: {"order_codes": ["OC001", "OC002", ...]}.
+     * Chỉ xoá đơn thuộc phạm vi đối tác của admin đang đăng nhập (super_admin không giới hạn);
+     * order_code không tồn tại hoặc không thuộc phạm vi bị BỎ QUA (không lỗi cả request), liệt kê
+     * riêng trong 'not_found' của response để FE biết đơn nào chưa xoá được.
+     */
+    public function destroyBatch(Request $request): JsonResponse
+    {
+        /** @var User $admin */
+        $admin = $request->user();
+
+        $data = $request->validate([
+            'order_codes'   => 'required|array|min:1',
+            'order_codes.*' => 'string',
+        ]);
+
+        $query = Order::with(['items', 'services', 'guestCccds'])
+            ->whereIn('order_code', $data['order_codes']);
+
+        if (! $admin->isSuperAdmin()) {
+            $query->where('partner_id', $admin->partner_id);
+        }
+
+        $orders = $query->get();
+
+        foreach ($orders as $order) {
+            $this->deleteOrderWithRelations($order);
+        }
+
+        $deletedCodes = $orders->pluck('order_code')->values();
+        $notFound     = collect($data['order_codes'])->diff($deletedCodes)->values();
+
+        return response()->json([
+            'message'   => "Đã xoá {$deletedCodes->count()} đơn.",
+            'deleted'   => $deletedCodes,
+            'not_found' => $notFound,
+        ]);
+    }
+
+    /**
+     * Dọn dữ liệu con + file CCCD trong storage rồi xoá bản ghi Order — dùng chung cho destroy()
+     * (xoá 1 đơn) và destroyBatch() (xoá nhiều đơn) để không lặp lại logic dọn dẹp.
+     */
+    private function deleteOrderWithRelations(Order $order): void
+    {
+        foreach ($order->guestCccds as $guestCccd) {
+            if ($guestCccd->cccd_front) Storage::disk('public')->delete($guestCccd->cccd_front);
+            if ($guestCccd->cccd_back)  Storage::disk('public')->delete($guestCccd->cccd_back);
+        }
+
+        if ($order->cccd_front) Storage::disk('public')->delete($order->cccd_front);
+        if ($order->cccd_back)  Storage::disk('public')->delete($order->cccd_back);
+
+        $order->guestCccds()->delete();
+        $order->items()->delete();
+        $order->services()->delete();
+        $order->delete();
     }
 
     private function toListItem(Order $order): array

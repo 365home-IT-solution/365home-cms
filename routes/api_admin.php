@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Admin\AuthController as AdminAuthController;
 use App\Http\Controllers\Api\Admin\BookingController as AdminBookingController;
 use App\Http\Controllers\Api\Admin\BranchController as AdminBranchController;
+use App\Http\Controllers\Api\Admin\CategoryController as AdminCategoryController;
 use App\Http\Controllers\Api\Admin\ChatController as AdminChatController;
 use App\Http\Controllers\Api\Admin\AllowanceTypeController;
 use App\Http\Controllers\Api\Admin\DailyRoomHoldController as AdminDailyRoomHoldController;
@@ -151,9 +152,34 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 
 /*
 |--------------------------------------------------------------------------
+| Categories — Quản lý CHI NHÁNH (parent_id=null) và KHU VỰC (parent_id=id chi nhánh),
+| category_type luôn 'product' — xem docblock App\Http\Controllers\Api\Admin\CategoryController.
+| GET    /api/admin/categories          → ?parent_id= (bỏ trống=chi nhánh gốc, 1 id=khu vực con,
+|                                          'all'=phẳng hết) + ?search=
+| GET    /api/admin/categories/{id}     → chi tiết 1 chi nhánh/khu vực
+| POST   /api/admin/categories          → tạo (multipart/form-data nếu có ảnh)
+| PUT|POST /api/admin/categories/{id}   → sửa (POST khi cần gửi kèm ảnh, PHP không tự parse
+|                                          multipart cho method PUT thật)
+| DELETE /api/admin/categories/{id}     → xoá — CHẶN nếu còn khu vực con / đang gán quyền nhân
+|                                          viên / còn phòng hoặc đơn đặt phòng gắn vào
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/categories')->name('api.admin.categories.')->group(function () {
+    Route::get('/',        [AdminCategoryController::class, 'index'])->name('index');
+    Route::get('/{id}',    [AdminCategoryController::class, 'show'])->name('show')->whereNumber('id');
+    Route::post('/',       [AdminCategoryController::class, 'store'])->name('store');
+    Route::put('/{id}',    [AdminCategoryController::class, 'update'])->name('update')->whereNumber('id');
+    Route::post('/{id}',   [AdminCategoryController::class, 'update'])->name('update.multipart')->whereNumber('id');
+    Route::delete('/{id}', [AdminCategoryController::class, 'destroy'])->name('destroy')->whereNumber('id');
+});
+
+/*
+|--------------------------------------------------------------------------
 | Orders — Danh sách đơn đặt phòng theo đối tác của tài khoản đang đăng nhập
-| GET /api/admin/orders      → lọc tự động theo users.partner_id (super_admin xem hết);
-|                               hỗ trợ thêm branch_id, status, payment_method, search, from, to, per_page
+| GET /api/admin/orders      → lọc tự động theo users.partner_id (super_admin xem hết); hỗ trợ
+|                               thêm ?filter[branch_id|room_id|status|payment_method|search|from|
+|                               to|checkin_date|checkout_date]=... (hoặc param phẳng tương đương,
+|                               vd ?branch_id=... — xem docblock OrderController::index()) + per_page
 | POST /api/admin/orders                    → tạo đơn hộ khách (vãng lai hoặc đã là thành viên)
 | PUT|POST /api/admin/orders/{order_code}   → sửa đơn (ghi chú, trạng thái, CCCD, khung giờ, phụ thu/
 |                                              tổng tiền tay) — tra theo order_code, KHÔNG phải id
@@ -192,12 +218,22 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 | POST /api/admin/orders/{order_code}/retry-payment
 |                                          → tạo lại QR PayOS cho đơn "failed"/"cancelled_payment",
 |                                            đơn tự chuyển về "pending" — trả kèm qr_code + expired_at.
+| DELETE /api/admin/orders/{order_code}
+|                                          → xoá HẲN 1 đơn (hard delete, không thể khôi phục) — dọn
+|                                            luôn order_items/order_services/order_guest_cccds + file
+|                                            CCCD trong storage. Không giới hạn theo status đơn.
+| DELETE /api/admin/orders
+|                                          → xoá NHIỀU đơn cùng lúc, body {"order_codes": [...]}.
+|                                            Đơn không tồn tại/ngoài phạm vi đối tác bị bỏ qua, trả về
+|                                            trong 'not_found' thay vì lỗi cả request.
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/orders')->name('api.admin.orders.')->group(function () {
     Route::get('/',                       [OrderController::class, 'index'])->name('index');
     Route::post('/',                      [AdminBookingController::class, 'store'])->name('store');
     Route::match(['put', 'post'], '/{order_code}', [OrderController::class, 'update'])->name('update');
+    Route::delete('/', [OrderController::class, 'destroyBatch'])->name('destroy-batch');
+    Route::delete('/{order_code}', [OrderController::class, 'destroy'])->name('destroy');
     Route::delete('/{order_code}/guests/{guest_index}', [OrderController::class, 'destroyGuestCccd'])
         ->name('guests.destroy')
         ->whereNumber('guest_index');
