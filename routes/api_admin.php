@@ -124,7 +124,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 |                            ?categories={slug chi nhánh} lọc thêm đúng 1 chi nhánh (gồm danh mục con).
 | GET /api/admin/rooms/{id}/time-slots
 |                          → khung giờ x ngày của 1 phòng, mặc định 10 ngày — dùng ?offset_days= để
-|                            xem thêm 10 ngày tiếp theo (xem docblock RoomController::timeSlots()).
+|                            xem thêm 10 ngày tiếp theo, hoặc ?offset_days=-10 để xem 10 ngày TRƯỚC
+|                            hôm nay (xem docblock RoomController::timeSlots()).
 | POST/DELETE /api/admin/rooms/{id}/time-slot-hold
 |                          → giữ/bỏ giữ tạm 1 ô khung giờ x ngày khi admin đang chọn (chưa bấm tạo
 |                            đơn) — dùng CHUNG kho dữ liệu + kênh realtime với khách hàng

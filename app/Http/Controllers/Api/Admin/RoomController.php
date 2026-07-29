@@ -91,9 +91,13 @@ class RoomController extends Controller
      *   Lần 2: ?offset_days=10           → ngày 10-19
      *   Lần 3: ?offset_days=20           → ngày 20-29
      *
+     * offset_days cũng nhận giá trị ÂM để xem các ngày TRƯỚC hôm nay (VD: ?offset_days=-10&days=10
+     * → hôm nay-10 .. hôm nay-1). Các ngày quá khứ luôn trả is_selectable=false (không thể đặt),
+     * chỉ dùng để xem lại lịch sử khung giờ.
+     *
      * Query params:
      *  - days        : số ngày muốn lấy mỗi lần gọi (mặc định 10, tối đa 60)
-     *  - offset_days : số ngày bỏ qua kể từ hôm nay (mặc định 0) — dùng để "xem thêm"
+     *  - offset_days : số ngày lệch so với hôm nay (mặc định 0, có thể âm để xem ngày trước)
      *
      * "held_by_me" tự suy từ chính admin đang gọi API (Admin\TimeSlotHoldController dùng định danh
      * "admin:{user_id}", KHÔNG phải session_id tự khai như phía khách) — không cần client tự truyền
@@ -125,7 +129,8 @@ class RoomController extends Controller
         }
 
         $days       = max(1, min((int) $request->query('days', self::DEFAULT_DAYS), self::MAX_DAYS));
-        $offsetDays = max(0, (int) $request->query('offset_days', 0));
+        // Âm = xem các ngày TRƯỚC hôm nay, dương = các ngày SAU (mặc định) — không ép về 0.
+        $offsetDays = (int) $request->query('offset_days', 0);
         // Định danh khớp đúng Admin\TimeSlotHoldController — không nhận session_id từ client.
         $sessionId  = 'admin:' . $user->id;
 
