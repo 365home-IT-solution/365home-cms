@@ -4,8 +4,11 @@ use App\Http\Controllers\Api\Admin\AuthController as AdminAuthController;
 use App\Http\Controllers\Api\Admin\BookingController as AdminBookingController;
 use App\Http\Controllers\Api\Admin\BranchController as AdminBranchController;
 use App\Http\Controllers\Api\Admin\CategoryController as AdminCategoryController;
+use App\Http\Controllers\Api\Admin\CccdController as AdminCccdController;
 use App\Http\Controllers\Api\Admin\ChatController as AdminChatController;
 use App\Http\Controllers\Api\Admin\AllowanceTypeController;
+use App\Http\Controllers\Api\Admin\CustomerCompanionController as AdminCustomerCompanionController;
+use App\Http\Controllers\Api\Admin\CustomerController as AdminCustomerController;
 use App\Http\Controllers\Api\Admin\DailyRoomHoldController as AdminDailyRoomHoldController;
 use App\Http\Controllers\Api\Admin\DeductionTypeController;
 use App\Http\Controllers\Api\Admin\DepartmentController;
@@ -16,6 +19,7 @@ use App\Http\Controllers\Api\Admin\PositionController;
 use App\Http\Controllers\Api\Admin\RoomController as AdminRoomController;
 use App\Http\Controllers\Api\Admin\SalaryTemplateController;
 use App\Http\Controllers\Api\Admin\SalaryTypeController;
+use App\Http\Controllers\Api\Admin\ServiceController as AdminServiceController;
 use App\Http\Controllers\Api\Admin\TimeSlotHoldController as AdminTimeSlotHoldController;
 use App\Http\Controllers\Api\Admin\UnlockController as AdminUnlockController;
 use Illuminate\Support\Facades\Route;
@@ -278,4 +282,75 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/employees')->nam
     Route::post('/',       [EmployeeController::class, 'store'])->name('store');
     Route::post('/{id}',   [EmployeeController::class, 'update'])->name('update')->whereNumber('id');
     Route::delete('/{id}', [EmployeeController::class, 'destroy'])->name('destroy')->whereNumber('id');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Customers — Hồ sơ khách hàng (App\Models\Customer). Khách hàng KHÔNG thuộc riêng đối tác nào
+| (xem App\Models\Concerns\BelongsToPartner) nên không lọc theo partner_id như employees/rooms.
+| GET    /api/admin/customers      → Danh sách (?search=&status=&membership_tier_id=&page=)
+| GET    /api/admin/customers/{id} → Chi tiết (kèm tỉnh/thành, hạng thành viên, khách đi cùng đã lưu)
+| POST   /api/admin/customers      → Tạo mới (multipart/form-data — hỗ trợ upload CCCD 2 mặt, tự
+|                                     quét QR lưu vào cccd_data nếu đọc được, giống EditCustomer ở
+|                                     Filament — xem CustomerController::handleCccd())
+| POST   /api/admin/customers/{id} → Cập nhật (multipart/form-data — dùng POST thay PUT vì PHP
+|                                     không parse được multipart cho method PUT/PATCH thật)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/customers')->name('api.admin.customers.')->group(function () {
+    Route::get('/',      [AdminCustomerController::class, 'index'])->name('index');
+    Route::get('/{id}',  [AdminCustomerController::class, 'show'])->name('show');
+    Route::post('/',     [AdminCustomerController::class, 'store'])->name('store');
+    Route::post('/{id}', [AdminCustomerController::class, 'update'])->name('update');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Customer Companions — CCCD "khách đi cùng" đã LƯU SẴN vào hồ sơ 1 khách hàng
+| (customer_companions), tái sử dụng được cho nhiều lần đặt phòng qua đêm sau này — khác với CCCD
+| khách đi cùng gắn riêng theo từng đơn (guests[] ở POST /api/admin/orders).
+|
+| Luồng FE khi admin tạo đơn và CHỌN khách hàng có sẵn: dựa vào guest_count, hiển thị đúng
+| (guest_count - 1) ô khách đi cùng — mỗi ô cho CHỌN 1 companion có sẵn ở GET .../companions, hoặc
+| THÊM MỚI (quét CCCD ngay trong lúc tạo) qua POST .../companions nếu chưa đủ.
+|
+| GET    /api/admin/customers/{customer_id}/companions      → Danh sách companion đã lưu
+| POST   /api/admin/customers/{customer_id}/companions      → Thêm mới (multipart, front+back BẮT
+|                                                              BUỘC — tự quét QR lưu cccd_data)
+| POST   /api/admin/customers/{customer_id}/companions/{id} → Sửa (full_name, hoặc quét lại CCCD nếu
+|                                                              gửi ĐỦ CẢ front+back)
+| DELETE /api/admin/customers/{customer_id}/companions/{id} → Xoá
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/customers/{customer_id}/companions')->name('api.admin.customers.companions.')->group(function () {
+    Route::get('/',       [AdminCustomerCompanionController::class, 'index'])->name('index');
+    Route::post('/',      [AdminCustomerCompanionController::class, 'store'])->name('store');
+    Route::post('/{id}',  [AdminCustomerCompanionController::class, 'update'])->name('update')->whereNumber('id');
+    Route::delete('/{id}', [AdminCustomerCompanionController::class, 'destroy'])->name('destroy')->whereNumber('id');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Services — Danh sách dịch vụ bổ sung (additional_services) theo đối tác, dùng để admin lấy đúng
+| service_id khi tạo/sửa đơn (POST /api/admin/orders, services[].service_id) — xem
+| BuildsRoomBooking::buildServices() (dùng $room->additionalServices(), KHÔNG phải room_services).
+| GET /api/admin/services → ?is_active=&search=
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/services')->name('api.admin.services.')->group(function () {
+    Route::get('/', [AdminServiceController::class, 'index'])->name('index');
+});
+
+/*
+|--------------------------------------------------------------------------
+| CCCD — Quét độc lập 1 cặp ảnh CCCD (không gắn vào đơn/khách hàng nào), dùng cho FE hiển thị
+| preview thông tin từng khách TRƯỚC khi submit đơn — đặc biệt hữu ích khi khung giờ qua đêm có
+| guest_count > 1 (gọi lặp lại đúng guest_count lần, mỗi lần kèm guest_index để map đúng ô đang
+| nhập) — xem docblock CccdController::scan(). Quét lỗi vẫn trả 200 (scanned=false, data=null) để
+| admin/lễ tân tự nhập tay, không chặn luồng.
+| POST /api/admin/cccd/scan → body multipart {front, back, guest_index?}
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/cccd')->name('api.admin.cccd.')->group(function () {
+    Route::post('/scan', [AdminCccdController::class, 'scan'])->name('scan');
 });

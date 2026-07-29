@@ -1346,19 +1346,6 @@ public function confirmBooking()
                     // Không parse được ngày sinh → bỏ qua kiểm tra tuổi
                 }
             }
-
-            // scanPaths() ở trên gộp 2 ảnh thành 1 "pool" và dừng ở lần decode QR đầu tiên → không
-            // phát hiện được trường hợp khách upload nhầm mặt trước/mặt sau của 2 người khác nhau.
-            // Quét độc lập từng mặt và so sánh chéo để chặn đúng luồng này.
-            if ($frontPath && $backPath) {
-                $frontAbs = \Illuminate\Support\Facades\Storage::disk('public')->path($frontPath);
-                $backAbs  = \Illuminate\Support\Facades\Storage::disk('public')->path($backPath);
-                if ($this->cccdScanner->sidesConflict($frontAbs, $backAbs)) {
-                    $deleteAllUploaded();
-                    $this->bookingConfirmError = 'Ảnh mặt trước và mặt sau CCCD không khớp thông tin (có thể thuộc về 2 người khác nhau). Vui lòng chụp lại đúng CCCD của bạn.';
-                    return;
-                }
-            }
         }
 
         // Quét QR CCCD của từng người đi cùng (khung giờ qua đêm) — bắt buộc đọc được QR như CCCD
@@ -1379,18 +1366,6 @@ public function confirmBooking()
                 $deleteAllUploaded();
                 $this->bookingConfirmError = "Không đọc được mã QR trên CCCD người đi cùng thứ {$guestNumber}. Vui lòng upload ảnh gốc rõ nét, chụp thẳng mặt sau CCCD, không chụp lại màn hình.";
                 return;
-            }
-
-            // Cùng lý do như CCCD chính ở trên: quét độc lập từng mặt để phát hiện trường hợp
-            // upload nhầm mặt trước/mặt sau của 2 người đi cùng khác nhau.
-            if ($paths['front'] && $paths['back']) {
-                $companionFrontAbs = \Illuminate\Support\Facades\Storage::disk('public')->path($paths['front']);
-                $companionBackAbs  = \Illuminate\Support\Facades\Storage::disk('public')->path($paths['back']);
-                if ($this->cccdScanner->sidesConflict($companionFrontAbs, $companionBackAbs)) {
-                    $deleteAllUploaded();
-                    $this->bookingConfirmError = "Ảnh mặt trước và mặt sau CCCD của người đi cùng thứ {$guestNumber} không khớp thông tin (có thể thuộc về 2 người khác nhau). Vui lòng chụp lại đúng CCCD.";
-                    return;
-                }
             }
 
             // Chặn dùng chung 1 CCCD cho nhiều người trong cùng đơn (kể cả khách chính).
