@@ -177,6 +177,12 @@ class BookingController extends Controller
             // khai báo lưu trú — quét lỗi thì vẫn tạo đơn bình thường, cccd_data để trống, sửa tay sau.
         }
 
+        // Chặn dùng chung 1 CCCD cho nhiều người trong cùng đơn (kể cả khách chính) — cùng nguyên
+        // tắc seenCccds đã dùng ở luồng khách hàng tự đặt (ProductDetail::confirmBooking()). Khác
+        // với quét lỗi (KHÔNG chặn, xem ghi chú trên), đây là dữ liệu ĐÃ đọc được nhưng phát hiện
+        // trùng — 1 người thật không thể vừa là khách chính vừa là khách đi cùng của chính họ.
+        $seenCccds = array_filter([$cccdData['cccd'] ?? null]);
+
         // guest_index bắt đầu từ 2 (1 = khách chính) — mỗi phần tử LUÔN có mặt trong mảng trả về dù
         // chưa gửi ảnh (front/back/data = null), để FE biết cần hiển thị đủ (guest_count - 1) ô nhập.
         $guestCccdRows = [];
@@ -203,6 +209,16 @@ class BookingController extends Controller
                             'guest_index' => $guestIndex,
                             'error'       => $e->getMessage(),
                         ]);
+                    }
+
+                    $rowCccd = $row['data']['cccd'] ?? null;
+                    if (! empty($rowCccd)) {
+                        if (in_array($rowCccd, $seenCccds, true)) {
+                            throw ValidationException::withMessages([
+                                "guests.{$guestIndex}.front" => ["CCCD của người đi cùng thứ {$guestIndex} bị trùng với một CCCD khác trong đơn. Vui lòng upload CCCD của một người khác."],
+                            ]);
+                        }
+                        $seenCccds[] = $rowCccd;
                     }
                 }
 

@@ -64,6 +64,8 @@ class CustomerCompanionController extends Controller
         $front = $request->file('cccd_front')->store('cccd', 'public');
         $back  = $request->file('cccd_back')->store('cccd', 'public');
 
+        $this->assertSidesMatch($front, $back);
+
         $cccdData = null;
         try {
             $cccdData = app(CccdScannerService::class)->scanPaths($front, $back);
@@ -117,6 +119,8 @@ class CustomerCompanionController extends Controller
             $front = $request->file('cccd_front')->store('cccd', 'public');
             $back  = $request->file('cccd_back')->store('cccd', 'public');
 
+            $this->assertSidesMatch($front, $back);
+
             $cccdData = null;
             try {
                 $cccdData = app(CccdScannerService::class)->scanPaths($front, $back);
@@ -157,6 +161,24 @@ class CustomerCompanionController extends Controller
         $companion->delete();
 
         return response()->json(['message' => 'Đã xoá.']);
+    }
+
+    // Quét ĐỘC LẬP từng mặt (khác scanPaths() ở trên coi 2 ảnh là 1 "pool") để phát hiện trường
+    // hợp admin/lễ tân lỡ chụp nhầm mặt trước của người này ghép với mặt sau của người khác — cùng
+    // logic đã dùng ở luồng khách hàng tự đặt phòng (ProductDetail::confirmBooking()). Phát hiện
+    // xung đột thì xoá luôn 2 file vừa lưu, không để rác lại trên storage.
+    private function assertSidesMatch(string $frontPath, string $backPath): void
+    {
+        $frontAbs = Storage::disk('public')->path($frontPath);
+        $backAbs  = Storage::disk('public')->path($backPath);
+
+        if (app(CccdScannerService::class)->sidesConflict($frontAbs, $backAbs)) {
+            Storage::disk('public')->delete([$frontPath, $backPath]);
+
+            throw ValidationException::withMessages([
+                'cccd_front' => ['Ảnh mặt trước và mặt sau CCCD không khớp thông tin (có thể thuộc về 2 người khác nhau). Vui lòng chụp lại đúng CCCD.'],
+            ]);
+        }
     }
 
     // Chặn 1 người bị lưu trùng CCCD trong cùng hồ sơ khách hàng — vừa là chính khách hàng vừa là
