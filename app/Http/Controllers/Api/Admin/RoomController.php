@@ -102,6 +102,11 @@ class RoomController extends Controller
      * "held_by_me" tự suy từ chính admin đang gọi API (Admin\TimeSlotHoldController dùng định danh
      * "admin:{user_id}", KHÔNG phải session_id tự khai như phía khách) — không cần client tự truyền
      * gì thêm.
+     *
+     * Mỗi phần tử 'slots[]' có field 'order_code' (null nếu ô đang trống) — so sánh order_code giữa
+     * các ô để tự biết ô nào chung 1 đơn (giữ nguyên) hay khác đơn, không cần BE gộp sẵn. Khung QUA
+     * ĐÊM (over_night) luôn được gắn vào đúng ô của ngày checkin (ngày bắt đầu) — không lặp/lệch
+     * sang ô ngày checkout hôm sau.
      */
     public function timeSlots(Request $request, string $id): JsonResponse
     {
@@ -162,7 +167,10 @@ class RoomController extends Controller
         $room->load(['orderItems' => function ($q) use ($startDate, $endDate) {
             $q->where('checkout_date', '>', $startDate)
                 ->where('checkin_date', '<=', $endDate)
-                ->whereHas('order', fn ($o) => $o->whereIn('status', ['pending', 'paid', 'shipped', 'confirmed']));
+                // Chỉ pending/paid tính là đã chiếm chỗ trên API HIỂN THỊ này — đơn 'deposit' (đặt
+                // cọc, chưa thanh toán đủ) chủ động KHÔNG hiện là đã đặt theo yêu cầu nghiệp vụ,
+                // dù BuildsRoomBooking (lúc tạo đơn MỚI) vẫn coi deposit là xung đột (không đổi ở đó).
+                ->whereHas('order', fn ($o) => $o->whereIn('status', ['pending', 'paid']));
         }, 'orderItems.order']);
 
         $holds = TimeSlotHoldController::getActiveHolds((string) $room->id);
@@ -208,19 +216,24 @@ class RoomController extends Controller
     {
         $currentDateTime = Carbon::createFromFormat('d-m-Y H:i:s', $date['date'] . ' ' . $rts->timeSlot->start_time);
 
-        $status = 'available';
+        // Neo theo (ngày đang render + giờ BẮT ĐẦU khung) — với khung qua đêm (over_night, checkout
+        // sang hôm sau), mốc neo này vẫn nằm ở NGÀY BẮT ĐẦU, nên đơn qua đêm luôn được gắn đúng vào
+        // ô của ngày checkin (không bị lặp/lệch sang ô ngày checkout hôm sau).
+        $status     = 'available';
+        $orderCode  = null;
         foreach ($room->orderItems as $orderItem) {
             $checkin  = Carbon::parse($orderItem->checkin_date);
             $checkout = Carbon::parse($orderItem->checkout_date);
             if ($currentDateTime->between($checkin, $checkout)) {
                 if ($orderItem->order) {
-                    $status = $orderItem->order->status;
+                    $status    = $orderItem->order->status;
+                    $orderCode = $orderItem->order->order_code;
                 }
                 break;
             }
         }
 
-        $isSelectable = ! in_array($status, ['pending', 'paid', 'shipped', 'confirmed']);
+        $isSelectable = ! in_array($status, ['pending', 'paid']);
 
         $slotDate   = Carbon::createFromFormat('d-m-Y', $date['date'])->startOfDay();
         $yesterday  = now()->subDay()->startOfDay();
@@ -271,6 +284,9 @@ class RoomController extends Controller
             'is_blocked'    => $isBlocked,
             'held'          => $held,
             'held_by_me'    => $heldByMe,
+            // null nếu ô đang trống — có giá trị là mã đơn đang chiếm ô này (so sánh order_code
+            // giữa các ô để tự biết ô nào cùng 1 đơn, ô nào khác đơn — không cần BE gộp sẵn).
+            'order_code'    => $orderCode,
             'price'         => $originalPrice,
             'final_price'   => $finalPrice !== $originalPrice ? $finalPrice : null,
             'has_promotion' => $priceData['has_promotion'],
