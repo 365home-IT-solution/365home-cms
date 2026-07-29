@@ -168,8 +168,12 @@ class OverviewService
         ];
     }
 
-    /** CÔNG SUẤT PHÒNG: tỉ lệ lấp đầy tổng + theo ngày/tháng trong kỳ (không gồm top 5 — xem occupancyTop) */
-    private static function occupancyTrend(array $productIds, Carbon $start, Carbon $end): array
+    /**
+     * CÔNG SUẤT PHÒNG: tỉ lệ lấp đầy tổng + theo ngày/tháng trong kỳ (không gồm top 5 — xem
+     * occupancyTop). Public — tái dùng bởi Modules\Dashboard\App\Services\OccupancyService
+     * (GET /api/admin/dashboard/occupancy).
+     */
+    public static function occupancyTrend(array $productIds, Carbon $start, Carbon $end): array
     {
         $totalRooms = count($productIds);
         $rangeEnd   = Carbon::now()->lt($end) ? Carbon::now()->endOfDay() : $end;
@@ -454,8 +458,11 @@ class OverviewService
         return $query;
     }
 
-    /** Danh sách product_id mà user được phép xem, giới hạn thêm theo chi nhánh nếu có chọn */
-    private static function scopedProductIds($user, ?array $branchCategoryIds): array
+    /**
+     * Danh sách product_id mà user được phép xem, giới hạn thêm theo chi nhánh nếu có chọn.
+     * Public — tái dùng bởi OccupancyService để tính công suất riêng từng chi nhánh.
+     */
+    public static function scopedProductIds($user, ?array $branchCategoryIds): array
     {
         $query = Product::query()->where('is_activated', true);
 
@@ -512,8 +519,10 @@ class OverviewService
      * Quy đổi 1 tham số "period" (áp dụng riêng cho từng block) thành khoảng [start, end].
      * Hỗ trợ: today, yesterday, this_week, last_week, this_month, last_month,
      *         this_year, last_year, 7d, 30d, 90d, custom (kèm $customStart/$customEnd).
+     * Public — tái dùng bởi OccupancyService (GET /api/admin/dashboard/occupancy) để không tính
+     * lại logic quy đổi kỳ lần thứ 4 trong codebase (đã có ở đây, KpiService, Dashboard.php).
      */
-    private static function resolveRange(string $period, ?string $customStart, ?string $customEnd): array
+    public static function resolveRange(string $period, ?string $customStart, ?string $customEnd): array
     {
         if ($period === 'custom') {
             $start = $customStart ? Carbon::parse($customStart)->startOfDay() : Carbon::now()->subDays(29)->startOfDay();

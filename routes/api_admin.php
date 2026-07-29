@@ -160,6 +160,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 |                                          (children[]) — cùng phạm vi hiển thị với field
 |                                          "categories" ở POST /api/admin/login. Dùng cho FE hiển
 |                                          thị dropdown/tree chọn "Thuộc chi nhánh".
+|                                          ?categories={slug,...} → chỉ trả (những) chi nhánh đó
+|                                          kèm khu vực con của nó, giống ?categories= của các API
+|                                          admin khác (dashboard/kpi-stats, rankings, rooms).
 | GET    /api/admin/categories/{id}     → chi tiết 1 chi nhánh/khu vực
 | POST   /api/admin/categories          → tạo (multipart/form-data nếu có ảnh)
 | PUT|POST /api/admin/categories/{id}   → sửa (POST khi cần gửi kèm ảnh, PHP không tự parse

@@ -36,6 +36,9 @@ class CategoryController extends Controller
      *  - parent_id: bỏ trống = chi nhánh gốc (mặc định); 1 id = khu vực con của chi nhánh đó;
      *               'all' = toàn bộ (chi nhánh + khu vực) dạng phẳng
      *  - search: lọc theo tên
+     * Mỗi item (trừ khi parent_id=all — đã phẳng sẵn) kèm field `children`: TOÀN BỘ khu vực con
+     * (mọi cấp, dạng cây lồng nhau, cùng shape đầy đủ với item cha) — để FE không cần gọi thêm 1
+     * request/chi nhánh chỉ để lấy danh sách khu vực con của nó.
      */
     public function index(Request $request): JsonResponse
     {
@@ -45,7 +48,8 @@ class CategoryController extends Controller
         $query = $this->visibleCategoriesQuery($user)->withCount('children');
 
         $parentParam = $request->query('parent_id');
-        if ($parentParam === 'all') {
+        $flat        = $parentParam === 'all';
+        if ($flat) {
             // không lọc theo parent_id — trả phẳng cả chi nhánh lẫn khu vực
         } elseif ($parentParam !== null && $parentParam !== '') {
             $query->where('parent_id', (int) $parentParam);
@@ -60,7 +64,9 @@ class CategoryController extends Controller
 
         $categories = $query->orderBy('sort_order')->orderBy('name')->get();
 
-        return response()->json(['data' => $categories->map(fn (Category $c) => $this->toItem($c))->values()]);
+        $data = $categories->map(fn (Category $c) => $this->toItem($c, withChildren: ! $flat));
+
+        return response()->json(['data' => $data->values()]);
     }
 
     /**
@@ -72,6 +78,14 @@ class CategoryController extends Controller
      * mình; nhân viên chỉ thấy chi nhánh được cấp quyền — nhưng đã được cấp branch nào thì thấy
      * TOÀN BỘ khu vực con của branch đó (visibleCategoriesQuery() qua allowedCategoryIds() đã tự
      * gồm cả cây con, không cần lọc thêm ở từng cấp).
+     *
+     * Query params:
+     *  - categories: danh sách slug chi nhánh GỐC cách nhau bởi dấu phẩy (cùng field 'categories'
+     *                trả về ở POST /api/admin/login, giống ?categories= của các API admin khác —
+     *                dashboard/kpi-stats, rankings, rooms) — chỉ trả về (những) chi nhánh đó kèm
+     *                TOÀN BỘ khu vực con của nó, thay vì cả cây. Bỏ trống = trả về mọi chi nhánh
+     *                user được xem (mặc định như cũ). Slug không khớp chi nhánh nào user được xem
+     *                (gõ nhầm/không có quyền) → trả 'data': [] thay vì bỏ qua filter.
      */
     public function tree(Request $request): JsonResponse
     {
@@ -82,6 +96,21 @@ class CategoryController extends Controller
             ->orderBy('sort_order')
             ->orderBy('name')
             ->get(['id', 'name', 'slug', 'parent_id', 'sort_order', 'status', 'image']);
+
+        if ($request->filled('categories')) {
+            $slugs = collect(explode(',', (string) $request->string('categories')))
+                ->map(fn ($s) => trim($s))
+                ->filter()
+                ->values();
+
+            $rootIds = $categories->whereNull('parent_id')->whereIn('slug', $slugs)->pluck('id')->all();
+
+            if (empty($rootIds)) {
+                return response()->json(['data' => []]);
+            }
+
+            $categories = $this->filterToSubtree($categories, $rootIds);
+        }
 
         // groupBy ép key null (chi nhánh gốc) thành '' trên PHP array — dùng sentinel 'root' cho
         // rõ ràng thay vì phụ thuộc hành vi ép kiểu ngầm đó.
@@ -102,6 +131,25 @@ class CategoryController extends Controller
         };
 
         return response()->json(['data' => $buildBranch('root')]);
+    }
+
+    // Thu hẹp $categories (flat, đã lọc theo quyền) chỉ còn lại các id trong $rootIds + toàn bộ
+    // hậu duệ của chúng (đệ quy trong bộ nhớ, không query thêm — $categories đã có sẵn cả cây).
+    private function filterToSubtree(\Illuminate\Support\Collection $categories, array $rootIds): \Illuminate\Support\Collection
+    {
+        $keepIds      = $rootIds;
+        $currentLevel = $rootIds;
+
+        while (! empty($currentLevel)) {
+            $children = $categories->whereIn('parent_id', $currentLevel)->pluck('id')->all();
+            if (empty($children)) {
+                break;
+            }
+            $keepIds      = array_merge($keepIds, $children);
+            $currentLevel = $children;
+        }
+
+        return $categories->whereIn('id', array_unique($keepIds))->values();
     }
 
     // GET /api/admin/categories/{id}
@@ -392,9 +440,9 @@ class CategoryController extends Controller
         return false;
     }
 
-    private function toItem(Category $c): array
+    private function toItem(Category $c, bool $withChildren = false): array
     {
-        return [
+        $item = [
             'id'             => $c->id,
             'name'           => $c->name,
             'slug'           => $c->slug,
@@ -409,5 +457,18 @@ class CategoryController extends Controller
             'created_at'     => $c->created_at,
             'updated_at'     => $c->updated_at,
         ];
+
+        if ($withChildren) {
+            $item['children'] = Category::where('parent_id', $c->id)
+                ->where('category_type', 'product')
+                ->withCount('children')
+                ->orderBy('sort_order')
+                ->orderBy('name')
+                ->get()
+                ->map(fn (Category $child) => $this->toItem($child, withChildren: true))
+                ->values();
+        }
+
+        return $item;
     }
 }
