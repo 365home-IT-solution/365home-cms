@@ -34,13 +34,25 @@ class OccupancyService
         $productIds = OverviewService::scopedProductIds($user, $branchCategoryIds);
         $trend      = static::occupancyByOrderCount($productIds, $start, $end);
 
+        // Không lọc theo categories/branch_id (branchCategoryIds === null) → gộp chung 1 mục "all"
+        // (dùng luôn số tổng đã tính ở trên, không cần query lại) thay vì liệt kê từng chi nhánh —
+        // chỉ khi có chọn cụ thể 1/nhiều chi nhánh mới trả breakdown thật theo TỪNG chi nhánh đó.
+        $byBranch = $branchCategoryIds === null
+            ? [[
+                'id'          => null,
+                'name'        => 'all',
+                'total_rooms' => count($productIds),
+                'rate_pct'    => $trend['rate_pct'],
+            ]]
+            : static::byBranch($user, $branchCategoryIds, $start, $end);
+
         return [
             'filter'      => $period,
             'date_range'  => ['start' => $start->toDateString(), 'end' => $end->toDateString()],
             'total_rooms' => count($productIds),
             'rate_pct'    => $trend['rate_pct'],
             'series'      => $trend['series'],
-            'by_branch'   => static::byBranch($user, $branchCategoryIds, $start, $end),
+            'by_branch'   => $byBranch,
         ];
     }
 
