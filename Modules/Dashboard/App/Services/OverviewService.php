@@ -168,12 +168,8 @@ class OverviewService
         ];
     }
 
-    /**
-     * CÔNG SUẤT PHÒNG: tỉ lệ lấp đầy tổng + theo ngày/tháng trong kỳ (không gồm top 5 — xem
-     * occupancyTop). Public — tái dùng bởi Modules\Dashboard\App\Services\OccupancyService
-     * (GET /api/admin/dashboard/occupancy).
-     */
-    public static function occupancyTrend(array $productIds, Carbon $start, Carbon $end): array
+    /** CÔNG SUẤT PHÒNG: tỉ lệ lấp đầy tổng + theo ngày/tháng trong kỳ (không gồm top 5 — xem occupancyTop) */
+    private static function occupancyTrend(array $productIds, Carbon $start, Carbon $end): array
     {
         $totalRooms = count($productIds);
         $rangeEnd   = Carbon::now()->lt($end) ? Carbon::now()->endOfDay() : $end;

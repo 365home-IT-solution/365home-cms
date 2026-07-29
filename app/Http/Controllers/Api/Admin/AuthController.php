@@ -79,7 +79,10 @@ class AuthController extends Controller
     }
 
     // Danh sách chi nhánh (category gốc, category_type=product, parent_id=null) mà user được
-    // phép xem — dùng để app lưu lại và lọc các API thống kê/dữ liệu khác theo chi nhánh.
+    // phép xem — dùng để app lưu lại và lọc các API thống kê/dữ liệu khác theo chi nhánh. Kèm field
+    // `children`: TOÀN BỘ khu vực con (mọi cấp, dạng cây lồng nhau) của từng chi nhánh — để FE có
+    // luôn dữ liệu chi nhánh + khu vực con ngay từ lúc đăng nhập, không cần gọi thêm
+    // GET /api/admin/categories/tree chỉ để lấy khu vực con.
     // super_admin: tất cả chi nhánh. Chủ đối tác (không có bản ghi branchPermissions riêng):
     // toàn bộ chi nhánh thuộc đối tác mình. Nhân viên: chỉ chi nhánh được cấp quyền.
     private function branchCategories(User $user): array
@@ -106,6 +109,27 @@ class AuthController extends Controller
                 'name'       => $c->name,
                 'slug'       => $c->slug,
                 'sort_order' => $c->sort_order,
+                'children'   => $this->childBranches($c->id),
+            ])->toArray();
+    }
+
+    // Khu vực con (mọi cấp, đệ quy theo parent_id) của 1 chi nhánh, dạng cây lồng nhau. KHÔNG lọc
+    // lại theo cột partner_id của chính khu vực con — cột đó có thể lệch/null với dữ liệu tạo
+    // trước khi CategoryObserver cascade partner_id xuống tới cấp con (xem CategoryObserver::saved()
+    // và App\Http\Controllers\Api\Admin\CategoryController::visibleCategoriesQuery()), lọc trực
+    // tiếp bằng cột đó sẽ ẩn mất khu vực con hợp lệ của chi nhánh.
+    private function childBranches(int $parentId): array
+    {
+        return Category::where('parent_id', $parentId)
+            ->where('category_type', 'product')
+            ->orderBy('sort_order')
+            ->get(['id', 'name', 'slug', 'sort_order'])
+            ->map(fn (Category $c) => [
+                'id'         => $c->id,
+                'name'       => $c->name,
+                'slug'       => $c->slug,
+                'sort_order' => $c->sort_order,
+                'children'   => $this->childBranches($c->id),
             ])->toArray();
     }
 }
