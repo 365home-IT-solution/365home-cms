@@ -189,6 +189,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/categories')->na
 |                               to|checkin_date|checkout_date]=... (hoặc param phẳng tương đương,
 |                               vd ?branch_id=... — xem docblock OrderController::index()) + per_page
 | POST /api/admin/orders                    → tạo đơn hộ khách (vãng lai hoặc đã là thành viên)
+| GET /api/admin/orders/{order_code}        → chi tiết đầy đủ 1 đơn (items, dịch vụ, CCCD khách
+|                                              chính + khách đi cùng ĐÃ LƯU, cọc, mốc thời gian
+|                                              thanh toán/nhận-trả phòng, người tạo đơn) — xem
+|                                              ngay không cần gửi kèm request cập nhật.
 | PUT|POST /api/admin/orders/{order_code}   → sửa đơn (ghi chú, trạng thái, CCCD, khung giờ, phụ thu/
 |                                              tổng tiền tay) — tra theo order_code, KHÔNG phải id
 |                                              nội bộ. Nhận CẢ PUT lẫn POST — dùng POST khi cần gửi
@@ -239,6 +243,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/categories')->na
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/orders')->name('api.admin.orders.')->group(function () {
     Route::get('/',                       [OrderController::class, 'index'])->name('index');
     Route::post('/',                      [AdminBookingController::class, 'store'])->name('store');
+    Route::get('/{order_code}',            [OrderController::class, 'show'])->name('show');
+    Route::get('/{order_code}/cccds',      [OrderController::class, 'cccds'])->name('cccds');
     Route::match(['put', 'post'], '/{order_code}', [OrderController::class, 'update'])->name('update');
     Route::delete('/', [OrderController::class, 'destroyBatch'])->name('destroy-batch');
     Route::delete('/{order_code}', [OrderController::class, 'destroy'])->name('destroy');

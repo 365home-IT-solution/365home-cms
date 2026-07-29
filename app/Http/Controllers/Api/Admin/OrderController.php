@@ -108,6 +108,85 @@ class OrderController extends Controller
     }
 
     /**
+     * GET /api/admin/orders/{order_code}
+     * Chi tiết đầy đủ 1 đơn — items (phòng/khung giờ/giá), dịch vụ đã đặt, CCCD khách chính + khách
+     * đi cùng (ảnh ĐÃ LƯU, xem trực tiếp không cần gửi kèm request cập nhật như trước), thông tin
+     * cọc, mốc thời gian thanh toán/nhận-trả phòng, người tạo đơn. Cùng phạm vi truy cập với
+     * index()/update() — 404 nếu đơn không tồn tại hoặc không thuộc đối tác của tài khoản (không
+     * trả 403, tránh lộ sự tồn tại của đơn ngoài phạm vi).
+     */
+    public function show(Request $request, string $orderCode): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $order = Order::query()
+            ->with([
+                'items.product:id,name',
+                'services',
+                'category:id,name',
+                'customer:id,fullname,phone',
+                'guestCccds',
+                'creator:id,fullname',
+            ])
+            ->where('order_code', $orderCode)
+            ->first();
+
+        if (! $order || (! $user->isSuperAdmin() && $order->partner_id !== $user->partner_id)) {
+            return response()->json(['message' => 'Không tìm thấy đơn.'], 404);
+        }
+
+        return response()->json(['order' => $this->toDetailItem($order)]);
+    }
+
+    /**
+     * GET /api/admin/orders/{order_code}/cccds
+     * Toàn bộ CCCD đã lưu của 1 đơn, GỘP CHUNG khách chính (guest_index=1 — lưu trực tiếp trên
+     * Order.cccd_front/back/data) và khách đi cùng (guest_index từ 2 — bảng order_guest_cccds)
+     * thành 1 mảng phẳng duy nhất, sắp theo guest_index — dùng khi FE chỉ cần danh sách CCCD để
+     * hiển thị/duyệt qua, không cần cả object đơn như GET /api/admin/orders/{order_code}.
+     * Guest nào chưa có ảnh nào được lưu (chưa từng upload) thì không xuất hiện trong mảng.
+     */
+    public function cccds(Request $request, string $orderCode): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $order = Order::query()
+            ->with('guestCccds')
+            ->where('order_code', $orderCode)
+            ->first();
+
+        if (! $order || (! $user->isSuperAdmin() && $order->partner_id !== $user->partner_id)) {
+            return response()->json(['message' => 'Không tìm thấy đơn.'], 404);
+        }
+
+        $cccds = collect();
+
+        if ($order->cccd_front || $order->cccd_back || $order->cccd_data) {
+            $cccds->push([
+                'guest_index' => 1,
+                'is_primary'  => true,
+                'cccd_front'  => $order->cccd_front ? Storage::disk('public')->url($order->cccd_front) : null,
+                'cccd_back'   => $order->cccd_back  ? Storage::disk('public')->url($order->cccd_back)  : null,
+                'cccd_data'   => $order->cccd_data,
+            ]);
+        }
+
+        foreach ($order->guestCccds as $g) {
+            $cccds->push([
+                'guest_index' => $g->guest_index,
+                'is_primary'  => false,
+                'cccd_front'  => $g->cccd_front ? Storage::disk('public')->url($g->cccd_front) : null,
+                'cccd_back'   => $g->cccd_back  ? Storage::disk('public')->url($g->cccd_back)  : null,
+                'cccd_data'   => $g->cccd_data,
+            ]);
+        }
+
+        return response()->json(['data' => $cccds->values()]);
+    }
+
+    /**
      * PUT /api/admin/orders/{order_code}
      * Cập nhật đơn (đơn admin/lễ tân tạo qua BookingController hoặc đơn bất kỳ trong phạm vi
      * đối tác của tài khoản đang đăng nhập). Mọi field đều tuỳ chọn — chỉ gửi field nào cần sửa.
@@ -681,6 +760,66 @@ class OrderController extends Controller
             'checkin_date' => $order->items->pluck('checkin_date')->filter()->min(),
             'checkout_date' => $order->items->pluck('checkout_date')->filter()->max(),
             'created_at'   => $order->created_at,
+        ];
+    }
+
+    // Shape đầy đủ cho GET /api/admin/orders/{order_code} — mọi field không đổi theo request nào
+    // (không như update(), vốn chỉ trả field vừa gửi), luôn đọc thẳng từ $order hiện có trong DB.
+    private function toDetailItem(Order $order): array
+    {
+        return $this->toListItem($order) + [
+            'note_for_admin'    => $order->note_for_admin,
+            'surcharge'         => (int) $order->surcharge,
+            'checkout_url'      => $order->checkout_url,
+            'qr_code'           => $order->qr_code,
+            'expired_at'        => $order->expired_at,
+            'paid_at'           => $order->paid_at,
+            'deposit_paid_at'   => $order->deposit_paid_at,
+            'remaining_paid_at' => $order->remaining_paid_at,
+            'checked_in_at'     => $order->checked_in_at,
+            'checked_out_at'    => $order->checked_out_at,
+            'unlock_anytime'    => (bool) $order->unlock_anytime,
+            'creator'           => $order->creator ? [
+                'id'       => $order->creator->id,
+                'fullname' => $order->creator->fullname,
+            ] : null,
+            'deposit' => $order->deposit_percent !== null ? [
+                'percentage'       => (int) $order->deposit_percent,
+                'deposit_amount'   => $order->depositDueAmount(),
+                'remaining_amount' => (int) $order->full_amount - $order->depositDueAmount(),
+            ] : null,
+            'items' => $order->items->map(fn ($item) => [
+                'id'            => $item->id,
+                'product_id'    => $item->product_id,
+                'product_name'  => $item->product?->name ?? $item->name,
+                'price'         => (int) $item->price,
+                'quantity'      => $item->quantity,
+                'checkin_date'  => $item->checkin_date,
+                'checkout_date' => $item->checkout_date,
+                'slot_label'    => $item->slot_label,
+                'over_night'    => (bool) $item->over_night,
+                'guest_count'   => $item->guest_count,
+            ])->values(),
+            'services' => $order->services->map(fn ($s) => [
+                'id'           => $s->id,
+                'service_id'   => $s->service_id,
+                'service_name' => $s->service_name,
+                'price'        => (int) $s->price,
+                'quantity'     => $s->quantity,
+                'subtotal'     => (int) $s->subtotal,
+            ])->values(),
+            // Khách chính — ảnh CCCD đã lưu (dù không gửi gì trong request này vẫn xem lại được,
+            // khác update() vốn phải gửi kèm cccd_front/back mới thì mới nhận lại URL trong response).
+            'cccd_front' => $order->cccd_front ? Storage::disk('public')->url($order->cccd_front) : null,
+            'cccd_back'  => $order->cccd_back  ? Storage::disk('public')->url($order->cccd_back)  : null,
+            'cccd_data'  => $order->cccd_data,
+            // Khách đi cùng (guest_index từ 2) — bảng order_guest_cccds.
+            'guests' => $order->guestCccds->map(fn ($g) => [
+                'guest_index' => $g->guest_index,
+                'cccd_front'  => $g->cccd_front ? Storage::disk('public')->url($g->cccd_front) : null,
+                'cccd_back'   => $g->cccd_back  ? Storage::disk('public')->url($g->cccd_back)  : null,
+                'cccd_data'   => $g->cccd_data,
+            ])->values(),
         ];
     }
 }

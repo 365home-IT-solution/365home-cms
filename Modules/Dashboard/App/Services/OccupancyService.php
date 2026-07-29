@@ -10,12 +10,18 @@ use Modules\Category\Entities\Category;
 use Modules\Payment\Entities\OrderItem;
 
 /**
- * CÔNG SUẤT PHÒNG (tỉ lệ lấp đầy) theo kỳ — tính theo SỐ ĐƠN: % phòng CÓ ÍT NHẤT 1 ĐƠN đặt
- * (created_at rơi vào kỳ/ngày đang xét, trạng thái hợp lệ) trên tổng số phòng — khác với cách
- * tính theo số NGÀY thực tế có khách ở (occupied room-nights) đang dùng ở
- * OverviewService::occupancyTrend() (block "Công suất phòng" của GET /dashboard/overview).
- * Chuỗi theo ngày/tháng KHÔNG cộng dồn — mỗi điểm là % phòng có đơn đặt riêng trong đúng
- * ngày/tháng đó; `rate_pct` tổng là % phòng có ít nhất 1 đơn trong TOÀN kỳ đã chọn.
+ * CÔNG SUẤT PHÒNG (tỉ lệ lấp đầy) theo kỳ — tính theo SỐ PHÒNG CÓ ĐƠN, dựa trên NGÀY Ở THỰC TẾ
+ * (order_items.checkin_date/checkout_date), KHÔNG dùng orders.created_at (ngày đặt) — 1 đơn đặt
+ * ngày 1/7 nhưng ở từ 20/7-25/7 phải tính là "có đặt" vào các ngày 20-25/7, không phải ngày 1/7.
+ * Cùng cơ sở dữ liệu (checkin/checkout range overlap) với RoomController::dailyBookedDates() và
+ * OverviewService::computeOccupiedDays() — nhưng khác 2 điểm:
+ *  - KHÔNG cộng dồn theo room-nights như occupancyTrend() (occupied nights / tổng nights) — chỉ
+ *    đếm SỐ PHÒNG có phủ ngày đó, mỗi phòng tính tối đa 1 lần/ngày dù có nhiều đơn.
+ *  - KHÔNG bỏ sót đặt theo khung giờ không qua đêm (checkin/checkout cùng 1 ngày) như
+ *    computeOccupiedDays() đang bị (do method đó ép cả 2 mốc về startOfDay() rồi so sánh <=).
+ * Chuỗi theo ngày/tháng CỘNG DỒN từ đầu kỳ (mỗi điểm = luỹ kế đến hết ngày/tháng đó, không phải
+ * riêng ngày/tháng đó) — đường luôn đi lên hoặc đi ngang, không giảm; điểm cuối cùng của series
+ * luôn bằng đúng `rate_pct` tổng (= % phòng có ít nhất 1 ngày được đặt trong TOÀN kỳ đã chọn).
  */
 class OccupancyService
 {
@@ -57,8 +63,9 @@ class OccupancyService
     }
 
     /**
-     * rate_pct = số phòng (trong $productIds) có ≥1 đơn hợp lệ trong [$start,$end] / tổng số phòng.
-     * series[i].pct = số phòng có đơn đặt RIÊNG trong ngày/tháng đó / tổng số phòng (không cộng dồn).
+     * rate_pct = số phòng (trong $productIds) có ≥1 NGÀY được đặt phủ trong [$start,$end] / tổng
+     *            số phòng — dựa theo checkin_date/checkout_date, không phải created_at.
+     * series[i].pct = số phòng có đặt phủ đúng ngày/tháng đó / tổng số phòng (không cộng dồn).
      */
     private static function occupancyByOrderCount(array $productIds, Carbon $start, Carbon $end): array
     {
@@ -67,42 +74,71 @@ class OccupancyService
             return ['rate_pct' => 0, 'series' => []];
         }
 
+        // Ngày trong tương lai chưa thể biết có khách hay không — giới hạn vế cuối về "hiện tại",
+        // cùng nguyên tắc với OverviewService::occupancyTrend()/occupancyTop().
+        $rangeEnd = Carbon::now()->lt($end) ? Carbon::now()->endOfDay() : $end;
+        if ($rangeEnd->lt($start)) {
+            return ['rate_pct' => 0, 'series' => []];
+        }
+
         $items = OrderItem::query()
             ->whereIn('product_id', $productIds)
+            ->whereNotNull('checkin_date')
+            ->whereNotNull('checkout_date')
+            // Overlap khoảng ở thực tế với [$start, $rangeEnd] — KHÔNG liên quan tới lúc đơn được tạo.
+            ->where('checkin_date', '<', $rangeEnd->copy()->addDay())
+            ->where('checkout_date', '>', $start)
             ->whereHas('order', fn ($o) => $o->where('exclude_from_stats', false)
-                ->whereNotIn('status', self::EXCLUDED_STATUSES)
-                ->whereBetween('created_at', [$start, $end]))
-            ->with(['order:id,created_at'])
-            ->get(['id', 'product_id', 'order_id']);
+                ->whereNotIn('status', self::EXCLUDED_STATUSES))
+            ->get(['id', 'product_id', 'checkin_date', 'checkout_date']);
 
         $allRoomIds    = [];
         $bucketRoomIds = []; // [bucketKey => [product_id => true]]
-        $byMonth       = max(1, (int) $start->diffInDays($end) + 1) > self::MAX_DAYS_FOR_DAILY_BREAKDOWN;
+        $byMonth       = max(1, (int) $start->diffInDays($rangeEnd) + 1) > self::MAX_DAYS_FOR_DAILY_BREAKDOWN;
 
         foreach ($items as $item) {
-            $createdAt = $item->order?->created_at;
-            if (! $createdAt) {
+            $from = $item->checkin_date->max($start)->startOfDay();
+            $to   = $item->checkout_date->min($rangeEnd->copy()->addDay())->startOfDay();
+
+            if ($to->lt($from)) {
                 continue;
+            }
+            if ($to->eq($from)) {
+                // checkout cùng ngày checkin (đặt theo khung giờ, không qua đêm) — vẫn tính đúng
+                // 1 ngày đó là "có đặt", khác với OverviewService::computeOccupiedDays() đang bỏ
+                // sót trường hợp này do so sánh <=.
+                $to = $from->copy()->addDay();
             }
 
             $allRoomIds[$item->product_id] = true;
 
-            $bucketKey = $byMonth ? $createdAt->format('Y-m') : $createdAt->toDateString();
-            $bucketRoomIds[$bucketKey][$item->product_id] = true;
+            foreach (CarbonPeriod::create($from, '1 day', $to->copy()->subDay()) as $day) {
+                $bucketKey = $byMonth ? $day->format('Y-m') : $day->toDateString();
+                $bucketRoomIds[$bucketKey][$item->product_id] = true;
+            }
         }
 
-        $series = [];
+        // Luỹ kế theo thời gian: mỗi điểm = SỐ PHÒNG đã có đơn TÍNH TỪ ĐẦU KỲ đến hết ngày/tháng
+        // đó (không phải riêng ngày/tháng đó) — nên đường luôn đi lên hoặc đi ngang, không bao giờ
+        // giảm, và điểm sau luôn ≥ điểm ngay trước nó.
+        $cumulativeRoomIds = [];
+        $series            = [];
+
         if ($byMonth) {
-            foreach (CarbonPeriod::create($start->copy()->startOfMonth(), '1 month', $end) as $m) {
-                $key      = $m->format('Y-m');
-                $count    = count($bucketRoomIds[$key] ?? []);
-                $series[] = ['date' => $key, 'pct' => round(($count / $totalRooms) * 100, 2)];
+            foreach (CarbonPeriod::create($start->copy()->startOfMonth(), '1 month', $rangeEnd) as $m) {
+                $key = $m->format('Y-m');
+                foreach ($bucketRoomIds[$key] ?? [] as $productId => $_) {
+                    $cumulativeRoomIds[$productId] = true;
+                }
+                $series[] = ['date' => $key, 'pct' => round((count($cumulativeRoomIds) / $totalRooms) * 100, 2)];
             }
         } else {
-            foreach (CarbonPeriod::create($start, '1 day', $end) as $day) {
-                $key      = $day->toDateString();
-                $count    = count($bucketRoomIds[$key] ?? []);
-                $series[] = ['date' => $key, 'pct' => round(($count / $totalRooms) * 100, 2)];
+            foreach (CarbonPeriod::create($start, '1 day', $rangeEnd) as $day) {
+                $key = $day->toDateString();
+                foreach ($bucketRoomIds[$key] ?? [] as $productId => $_) {
+                    $cumulativeRoomIds[$productId] = true;
+                }
+                $series[] = ['date' => $key, 'pct' => round((count($cumulativeRoomIds) / $totalRooms) * 100, 2)];
             }
         }
 
