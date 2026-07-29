@@ -152,7 +152,7 @@ class CategoryController extends Controller
         return $categories->whereIn('id', array_unique($keepIds))->values();
     }
 
-    // GET /api/admin/categories/{id}
+    // GET /api/admin/categories/{id} — kèm `children` (toàn bộ khu vực con, mọi cấp, dạng cây)
     public function show(Request $request, int $id): JsonResponse
     {
         $category = $this->visibleCategoriesQuery($request->user())->withCount('children')->find($id);
@@ -161,7 +161,7 @@ class CategoryController extends Controller
             return response()->json(['message' => 'Không tìm thấy chi nhánh/khu vực.'], 404);
         }
 
-        return response()->json(['data' => $this->toItem($category)]);
+        return response()->json(['data' => $this->toItem($category, withChildren: true)]);
     }
 
     /**

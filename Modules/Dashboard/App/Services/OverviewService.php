@@ -463,11 +463,24 @@ class OverviewService
         $query = Product::query()->where('is_activated', true);
 
         if ($user && ! $user->isSuperAdmin()) {
-            $allowedCategoryIds = $user->allowedCategoryIds() ?? [];
-            if (empty($allowedCategoryIds)) {
+            if (empty($user->partner_id)) {
                 return [];
             }
-            $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedCategoryIds));
+
+            // Mặc định thấy TOÀN BỘ chi nhánh của đối tác mình (partner_id) — KHÔNG bắt buộc phải
+            // có bản ghi branchPermissions riêng (chủ đối tác thường không có bản ghi này, chỉ
+            // nhân viên được giao hạn chế mới có). allowedCategoryIds() rỗng KHÔNG có nghĩa là
+            // "không được xem gì" — trước đây return [] ở đây khiến chủ đối tác luôn thấy 0 phòng.
+            $partnerCategoryIds = Category::where('partner_id', $user->partner_id)->pluck('id')->toArray();
+            if (empty($partnerCategoryIds)) {
+                return [];
+            }
+            $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $partnerCategoryIds));
+
+            $allowedCategoryIds = $user->allowedCategoryIds() ?? [];
+            if (! empty($allowedCategoryIds)) {
+                $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedCategoryIds));
+            }
         }
 
         if ($branchCategoryIds !== null) {
