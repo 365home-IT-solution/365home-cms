@@ -123,6 +123,7 @@ class OrderController extends Controller
         $order = Order::query()
             ->with([
                 'items.product:id,name',
+                'items.product.media',
                 'services',
                 'category:id,name',
                 'customer:id,fullname,phone',
@@ -792,6 +793,7 @@ class OrderController extends Controller
                 'id'            => $item->id,
                 'product_id'    => $item->product_id,
                 'product_name'  => $item->product?->name ?? $item->name,
+                'product_image' => $this->productImageUrl($item->product),
                 'price'         => (int) $item->price,
                 'quantity'      => $item->quantity,
                 'checkin_date'  => $item->checkin_date,
@@ -821,5 +823,20 @@ class OrderController extends Controller
                 'cccd_data'   => $g->cccd_data,
             ])->values(),
         ];
+    }
+
+    // Ảnh chính của phòng (Spatie MediaLibrary — cùng thứ tự ưu tiên collection với
+    // BuildsRoomCard::getMainImageUrl(), dùng cho room card khách hàng, để 2 nơi luôn khớp nhau).
+    private function productImageUrl(?Product $product): ?string
+    {
+        if (! $product) {
+            return null;
+        }
+
+        $media = $product->getFirstMedia('Ảnh bìa')
+              ?? $product->getFirstMedia('Ảnh chính')
+              ?? $product->getFirstMedia();
+
+        return $media?->getUrl();
     }
 }
