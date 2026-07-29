@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Modules\Category\Entities\Category;
 use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Payment\Entities\Order;
 use Modules\Product\App\Models\Product;
@@ -36,7 +37,14 @@ class OrderController extends Controller
      * dùng param phẳng có sẵn (branch_id, status, payment_method, search, from, to).
      *
      * Danh sách filter:
-     *  - filter[branch_id]      : lọc theo 1 chi nhánh cụ thể (category_id) trong đối tác
+     *  - filter[branch_id]      : lọc theo 1 chi nhánh cụ thể (category_id) trong đối tác — khớp
+     *                             CHÍNH XÁC category_id, không tự gồm khu vực con.
+     *  - filter[categories]     : danh sách slug chi nhánh GỐC cách nhau bởi dấu phẩy (cùng field
+     *                             'categories' trả về ở POST /api/admin/login, giống ?categories=
+     *                             của các API admin khác — dashboard/kpi-stats, rankings, rooms) —
+     *                             lọc đơn thuộc (những) chi nhánh đó KÈM toàn bộ khu vực con của
+     *                             nó. Có cả 2 (branch_id lẫn categories) thì categories thắng. Slug
+     *                             không khớp chi nhánh nào → trả rỗng thay vì bỏ qua filter.
      *  - filter[room_id]        : lọc đơn có ít nhất 1 item thuộc phòng này (order_items.product_id)
      *  - filter[status]         : pending|paid|deposit|cancelled|failed|refunded|shipped...
      *  - filter[payment_method] : PayOS|cod
@@ -55,6 +63,7 @@ class OrderController extends Controller
 
         $query = Order::query()->with([
             'items.product:id,name',
+            'items.product.media',
             'category:id,name',
             'customer:id,fullname,phone',
         ]);
@@ -73,7 +82,12 @@ class OrderController extends Controller
         $f = fn (string $key) => $request->input("filter.{$key}", $request->input($key));
 
         $query
-            ->when(filled($f('branch_id')), fn ($q) => $q->where('category_id', (int) $f('branch_id')))
+            // 'categories' (slug) thắng 'branch_id' (id số) nếu gửi cả 2 — giống resolveBranchCategoryIds
+            // ở DashboardController, tránh 2 filter cùng ý nghĩa đá nhau khi FE gửi thừa cả hai.
+            ->when(filled($f('categories')), function ($q) use ($f) {
+                $categoryIds = $this->resolveCategoryIdsFromSlugs((string) $f('categories'));
+                $q->whereIn('category_id', $categoryIds ?: [-1]);
+            }, fn ($q) => $q->when(filled($f('branch_id')), fn ($q2) => $q2->where('category_id', (int) $f('branch_id'))))
             ->when(filled($f('room_id')), fn ($q) => $q->whereHas(
                 'items', fn ($q2) => $q2->where('product_id', (int) $f('room_id'))
             ))
@@ -105,6 +119,39 @@ class OrderController extends Controller
         $orders->getCollection()->transform(fn (Order $order) => $this->toListItem($order));
 
         return response()->json($orders);
+    }
+
+    // Slug chi nhánh GỐC (cách nhau dấu phẩy) -> id chi nhánh đó + TOÀN BỘ khu vực con (đệ quy
+    // theo parent_id) — cùng logic với DashboardController::resolveBranchCategoryIds(). Slug rỗng
+    // hoặc không khớp chi nhánh nào -> mảng rỗng (caller tự quyết định lọc rỗng thay vì bỏ qua filter).
+    private function resolveCategoryIdsFromSlugs(string $slugsParam): array
+    {
+        $slugs = collect(explode(',', $slugsParam))
+            ->map(fn ($s) => trim($s))
+            ->filter()
+            ->values();
+
+        if ($slugs->isEmpty()) {
+            return [];
+        }
+
+        $ids          = Category::whereNull('parent_id')
+            ->where('category_type', 'product')
+            ->whereIn('slug', $slugs)
+            ->pluck('id')
+            ->toArray();
+        $currentLevel = $ids;
+
+        while (! empty($currentLevel)) {
+            $children = Category::whereIn('parent_id', $currentLevel)->pluck('id')->toArray();
+            if (empty($children)) {
+                break;
+            }
+            $ids          = array_merge($ids, $children);
+            $currentLevel = $children;
+        }
+
+        return array_unique($ids);
     }
 
     /**
@@ -758,6 +805,10 @@ class OrderController extends Controller
                 'name' => $order->category->name,
             ] : null,
             'rooms'        => $order->items->pluck('product.name')->filter()->unique()->values(),
+            // Ảnh đại diện đơn — ảnh chính của phòng ở item ĐẦU TIÊN (đơn multi-room hiếm khi khác
+            // chi nhánh/loại phòng nhau, đủ dùng làm thumbnail cho danh sách, xem chi tiết đủ ảnh
+            // từng phòng qua GET /api/admin/orders/{order_code}).
+            'product_image' => $this->productImageUrl($order->items->first()?->product),
             'checkin_date' => $order->items->pluck('checkin_date')->filter()->min(),
             'checkout_date' => $order->items->pluck('checkout_date')->filter()->max(),
             'created_at'   => $order->created_at,

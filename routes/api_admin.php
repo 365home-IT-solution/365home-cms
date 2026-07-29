@@ -186,9 +186,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/categories')->na
 |--------------------------------------------------------------------------
 | Orders — Danh sách đơn đặt phòng theo đối tác của tài khoản đang đăng nhập
 | GET /api/admin/orders      → lọc tự động theo users.partner_id (super_admin xem hết); hỗ trợ
-|                               thêm ?filter[branch_id|room_id|status|payment_method|search|from|
-|                               to|checkin_date|checkout_date]=... (hoặc param phẳng tương đương,
-|                               vd ?branch_id=... — xem docblock OrderController::index()) + per_page
+|                               thêm ?filter[branch_id|categories|room_id|status|payment_method|
+|                               search|from|to|checkin_date|checkout_date]=... (hoặc param phẳng
+|                               tương đương, vd ?branch_id=.../?categories=... — xem docblock
+|                               OrderController::index()) + per_page
 | POST /api/admin/orders                    → tạo đơn hộ khách (vãng lai hoặc đã là thành viên)
 | GET /api/admin/orders/{order_code}        → chi tiết đầy đủ 1 đơn (items, dịch vụ, CCCD khách
 |                                              chính + khách đi cùng ĐÃ LƯU, cọc, mốc thời gian
