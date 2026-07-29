@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
 use Modules\Payment\App\Services\CccdScannerService;
 
 /**
@@ -73,6 +74,8 @@ class CustomerCompanionController extends Controller
             ]);
         }
 
+        $this->assertNoCccdDuplicate($customer, $cccdData);
+
         // Không bắt buộc đọc được QR — quét lỗi vẫn tạo companion bình thường, cccd_data để trống,
         // admin sửa tay full_name/thông tin sau (cùng nguyên tắc CCCD "tùy chọn" toàn hệ thống).
         $companion = $customer->companions()->create([
@@ -124,6 +127,8 @@ class CustomerCompanionController extends Controller
                 ]);
             }
 
+            $this->assertNoCccdDuplicate($customer, $cccdData, $companion->id);
+
             $fields['cccd_front'] = $front;
             $fields['cccd_back']  = $back;
             $fields['cccd_data']  = $cccdData;
@@ -152,6 +157,39 @@ class CustomerCompanionController extends Controller
         $companion->delete();
 
         return response()->json(['message' => 'Đã xoá.']);
+    }
+
+    // Chặn 1 người bị lưu trùng CCCD trong cùng hồ sơ khách hàng — vừa là chính khách hàng vừa là
+    // khách đi cùng của chính họ, hoặc 2 companion khác nhau lại cùng 1 số CCCD (upload nhầm ảnh).
+    // Chỉ so sánh khi quét ra được số CCCD — quét lỗi/không đọc được số thì bỏ qua check này (không
+    // đủ dữ liệu để so, và CCCD vốn là thông tin "tùy chọn" trong toàn hệ thống).
+    private function assertNoCccdDuplicate(Customer $customer, ?array $cccdData, ?int $excludeCompanionId = null): void
+    {
+        $cccd = trim((string) ($cccdData['cccd'] ?? ''));
+
+        if ($cccd === '') {
+            return;
+        }
+
+        $customerCccd = trim((string) ($customer->cccd_data['cccd'] ?? ''));
+
+        if ($customerCccd !== '' && $customerCccd === $cccd) {
+            throw ValidationException::withMessages([
+                'cccd_front' => ['Số CCCD này trùng với CCCD của chính khách hàng — không thể vừa là khách chính vừa là khách đi cùng.'],
+            ]);
+        }
+
+        $duplicate = $customer->companions()
+            ->when($excludeCompanionId, fn ($q) => $q->where('id', '!=', $excludeCompanionId))
+            ->get()
+            ->first(fn (CustomerCompanion $c) => trim((string) ($c->cccd_data['cccd'] ?? '')) === $cccd);
+
+        if ($duplicate) {
+            $name = $duplicate->full_name ?: "#{$duplicate->id}";
+            throw ValidationException::withMessages([
+                'cccd_front' => ["Số CCCD này đã được lưu cho khách đi cùng khác ({$name})."],
+            ]);
+        }
     }
 
     private function formatCompanion(CustomerCompanion $companion): array
