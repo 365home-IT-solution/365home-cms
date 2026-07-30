@@ -13,6 +13,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Modules\Category\Entities\Category;
 use Modules\Payment\App\Services\CccdScannerService;
 
 class CustomerController extends Controller
@@ -27,8 +28,11 @@ class CustomerController extends Controller
     // super_admin xem hết. Khách hàng TẠO TRƯỚC tính năng này (chưa có categories nào — dữ liệu
     // cũ) vẫn hiển thị cho MỌI user như trước đây (xem visibleCustomersQuery()) — tránh việc nhân
     // viên đột nhiên mất quyền xem toàn bộ khách hàng cũ đang quản lý.
-    // ?search= (tên/SĐT — khớp CẢ 2), ?fullname= (chỉ tên), ?phone= (chỉ SĐT), ?branch_id= (chi
-    // nhánh gốc — categories.id), ?status=, ?membership_tier_id=, ?page=
+    // ?search= (tên/SĐT — khớp CẢ 2), ?fullname= (chỉ tên), ?phone= (chỉ SĐT),
+    // ?categories={slug chi nhánh gốc, cách nhau bởi dấu phẩy} — cùng field 'categories' trả về ở
+    // POST /api/admin/login, giống ?categories= của các API admin khác (dashboard/kpi-stats,
+    // rankings, rooms, orders); ?branch_id= (id số, dùng khi không có 'categories' — 'categories'
+    // thắng nếu gửi cả 2), ?status=, ?membership_tier_id=, ?page=
     public function index(Request $request): JsonResponse
     {
         $customers = $this->visibleCustomersQuery($request->user())
@@ -42,9 +46,16 @@ class CustomerController extends Controller
             })
             ->when($request->filled('fullname'), fn ($q) => $q->where('fullname', 'like', '%' . $request->string('fullname') . '%'))
             ->when($request->filled('phone'), fn ($q) => $q->where('phone', 'like', '%' . $request->string('phone') . '%'))
-            ->when($request->filled('branch_id'), fn ($q) => $q->whereHas(
-                'categories', fn ($q2) => $q2->where('categories.id', $request->integer('branch_id'))
-            ))
+            ->when(
+                $request->filled('categories'),
+                function ($q) use ($request) {
+                    $ids = $this->resolveRootCategoryIdsFromSlugs((string) $request->string('categories'));
+                    $q->whereHas('categories', fn ($q2) => $q2->whereIn('categories.id', $ids ?: [-1]));
+                },
+                fn ($q) => $q->when($request->filled('branch_id'), fn ($q2) => $q2->whereHas(
+                    'categories', fn ($q3) => $q3->where('categories.id', $request->integer('branch_id'))
+                ))
+            )
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
             ->when($request->filled('membership_tier_id'), fn ($q) => $q->where('membership_tier_id', $request->integer('membership_tier_id')))
             ->orderByDesc('created_at')
@@ -124,6 +135,27 @@ class CustomerController extends Controller
             $q->doesntHave('categories')
                 ->orWhereHas('categories', fn (Builder $q2) => $q2->whereIn('categories.id', $rootIds ?: [-1]));
         });
+    }
+
+    // Slug chi nhánh GỐC (parent_id=null) → id — categories gán cho customer chỉ bao giờ chứa id
+    // chi nhánh GỐC (xem store()), nên không cần mở rộng thêm khu vực con như
+    // OrderController::resolveCategoryIdsFromSlugs()/DashboardController::resolveBranchCategoryIds().
+    private function resolveRootCategoryIdsFromSlugs(string $slugsParam): array
+    {
+        $slugs = collect(explode(',', $slugsParam))
+            ->map(fn ($s) => trim($s))
+            ->filter()
+            ->values();
+
+        if ($slugs->isEmpty()) {
+            return [];
+        }
+
+        return Category::whereNull('parent_id')
+            ->where('category_type', 'product')
+            ->whereIn('slug', $slugs)
+            ->pluck('id')
+            ->toArray();
     }
 
     private function rules(Request $request, bool $isUpdate = false): array
