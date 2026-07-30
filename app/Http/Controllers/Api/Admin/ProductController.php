@@ -38,7 +38,10 @@ class ProductController extends Controller
 {
     use GeneratesUniqueSlug;
 
-    private const IMAGE_RULE = 'image|mimes:jpg,jpeg,png,webp|max:3072';
+    // Không dùng rule 'image' — Laravel hardcode whitelist mime của rule đó (jpg,jpeg,png,gif,bmp,
+    // svg,webp), KHÔNG có avif, nên avif hợp lệ vẫn bị chặn dù có mặt trong 'mimes' bên dưới. Chỉ
+    // cần 'mimes' (đã tự kiểm tra đúng là file ảnh qua mime type thật, không chỉ đọc phần đuôi file).
+    private const IMAGE_RULE = 'file|mimes:jpg,jpeg,png,webp,avif|max:3072';
 
     /**
      * GET /api/admin/products
