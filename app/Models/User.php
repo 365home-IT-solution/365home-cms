@@ -211,6 +211,65 @@ public function getFilamentAvatarUrl(): ?string
     }
 
     /**
+     * Danh sách category_id CHI NHÁNH GỐC (parent_id = null, loại 'product') mà user được phép
+     * xem — CHÍNH XÁC là tập hợp trả về ở field "categories" của POST /api/admin/login (xem
+     * AuthController::branchCategories(), dùng chung nguồn này). super_admin thấy hết chi nhánh
+     * gốc; user thường chỉ thấy chi nhánh gốc thuộc đúng partner_id của mình, thu hẹp thêm theo
+     * allowedBranchIds() nếu bị cấp quyền chi nhánh cụ thể (chủ đối tác thì không bị giới hạn).
+     */
+    public function rootProductCategoryIds(): array
+    {
+        $query = \Modules\Category\Entities\Category::whereNull('parent_id')->where('category_type', 'product');
+
+        if ($this->isSuperAdmin()) {
+            return $query->pluck('id')->toArray();
+        }
+
+        if (empty($this->partner_id)) {
+            return [];
+        }
+
+        $query->where('partner_id', $this->partner_id);
+
+        $allowedBranchIds = $this->allowedBranchIds();
+        if (! empty($allowedBranchIds)) {
+            $query->whereIn('id', $allowedBranchIds);
+        }
+
+        return $query->pluck('id')->toArray();
+    }
+
+    /**
+     * Toàn bộ category_id loại 'product' (chi nhánh gốc — rootProductCategoryIds() — VÀ khu vực
+     * con mọi cấp) mà user được phép CHỌN/GÁN — nguồn xác thực dùng chung cho mọi API cần validate
+     * 1 category_id do FE gửi lên nằm đúng phạm vi quyền.
+     */
+    public function visibleProductCategoryIds(): array
+    {
+        $categoryModel = \Modules\Category\Entities\Category::class;
+
+        $branchIds = $this->rootProductCategoryIds();
+
+        if (empty($branchIds)) {
+            return [];
+        }
+
+        $allIds       = $branchIds;
+        $currentLevel = $branchIds;
+
+        while (! empty($currentLevel)) {
+            $children = $categoryModel::whereIn('parent_id', $currentLevel)->pluck('id')->toArray();
+            if (empty($children)) {
+                break;
+            }
+            $allIds       = array_merge($allIds, $children);
+            $currentLevel = $children;
+        }
+
+        return array_unique($allIds);
+    }
+
+    /**
      * Trả về tất cả category_id (cha + con, loại product) mà user được phép xem.
      * Dùng cho các resource cần lọc theo nhánh + khu vực con.
      */

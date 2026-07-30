@@ -288,7 +288,12 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/employees')->nam
 |--------------------------------------------------------------------------
 | Customers — Hồ sơ khách hàng (App\Models\Customer). Khách hàng KHÔNG thuộc riêng đối tác nào
 | (xem App\Models\Concerns\BelongsToPartner) nên không lọc theo partner_id như employees/rooms.
-| GET    /api/admin/customers      → Danh sách (?search=&status=&membership_tier_id=&page=)
+| Lúc TẠO, tự động gán categories = toàn bộ chi nhánh gốc user đang tạo quản lý (xem
+| CustomerController::store()); user thường CHỈ xem/sửa được khách hàng thuộc categories mình
+| quản lý HOẶC khách hàng cũ chưa có categories nào (xem visibleCustomersQuery()), super_admin
+| xem hết.
+| GET    /api/admin/customers      → Danh sách (?search=&fullname=&phone=&branch_id=&status=&
+|                                     membership_tier_id=&page=)
 | GET    /api/admin/customers/{id} → Chi tiết (kèm tỉnh/thành, hạng thành viên, khách đi cùng đã lưu)
 | POST   /api/admin/customers      → Tạo mới (multipart/form-data — hỗ trợ upload CCCD 2 mặt, tự
 |                                     quét QR lưu vào cccd_data nếu đọc được, giống EditCustomer ở

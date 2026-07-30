@@ -382,47 +382,15 @@ class CategoryController extends Controller
             return $query;
         }
 
-        if (empty($user->partner_id)) {
+        // visibleProductCategoryIds() = nguồn xác thực dùng chung (xem User model) — trả rỗng nếu
+        // user không thuộc đối tác nào hoặc không có chi nhánh nào trong phạm vi quyền.
+        $categoryIds = $user->visibleProductCategoryIds();
+
+        if (empty($categoryIds)) {
             return $query->whereRaw('1 = 0');
         }
 
-        $branchIds = Category::whereNull('parent_id')
-            ->where('category_type', 'product')
-            ->where('partner_id', $user->partner_id)
-            ->pluck('id')
-            ->toArray();
-
-        // allowedCategoryIds() rỗng = không bị cấp quyền chi nhánh cụ thể (chủ đối tác) → xem hết
-        // chi nhánh của đối tác mình, không thu hẹp thêm.
-        $allowedIds = $user->allowedCategoryIds();
-        if (! empty($allowedIds)) {
-            $branchIds = array_values(array_intersect($branchIds, $allowedIds));
-        }
-
-        if (empty($branchIds)) {
-            return $query->whereRaw('1 = 0');
-        }
-
-        return $query->whereIn('id', array_unique(array_merge($branchIds, $this->descendantCategoryIds($branchIds))));
-    }
-
-    // Toàn bộ id khu vực con (mọi cấp) của các chi nhánh gốc truyền vào — đệ quy theo parent_id,
-    // KHÔNG lọc theo partner_id (xem lý do tại visibleCategoriesQuery()).
-    private function descendantCategoryIds(array $rootIds): array
-    {
-        $descendantIds = [];
-        $currentLevel  = $rootIds;
-
-        while (! empty($currentLevel)) {
-            $children = Category::whereIn('parent_id', $currentLevel)->pluck('id')->toArray();
-            if (empty($children)) {
-                break;
-            }
-            $descendantIds = array_merge($descendantIds, $children);
-            $currentLevel  = $children;
-        }
-
-        return $descendantIds;
+        return $query->whereIn('id', $categoryIds);
     }
 
     // true nếu $candidateParentId nằm trong cây con của $ofId — tức gán làm cha sẽ tạo vòng lặp.

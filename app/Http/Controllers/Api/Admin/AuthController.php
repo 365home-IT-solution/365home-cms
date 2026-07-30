@@ -87,22 +87,17 @@ class AuthController extends Controller
     // toàn bộ chi nhánh thuộc đối tác mình. Nhân viên: chỉ chi nhánh được cấp quyền.
     private function branchCategories(User $user): array
     {
-        $query = Category::whereNull('parent_id')->where('category_type', 'product');
+        // Nguồn ID dùng chung với CategoryController::visibleCategoriesQuery() và
+        // CustomerController (tự động gán chi nhánh gốc cho khách hàng lúc tạo) — xem
+        // User::rootProductCategoryIds(). Đảm bảo 3 nơi này LUÔN cùng 1 phạm vi chi nhánh gốc.
+        $rootIds = $user->rootProductCategoryIds();
 
-        if (! $user->isSuperAdmin()) {
-            if (empty($user->partner_id)) {
-                return [];
-            }
-
-            $query->where('partner_id', $user->partner_id);
-
-            $allowedBranchIds = $user->allowedBranchIds();
-            if (! empty($allowedBranchIds)) {
-                $query->whereIn('id', $allowedBranchIds);
-            }
+        if (empty($rootIds)) {
+            return [];
         }
 
-        return $query->orderBy('sort_order')
+        return Category::whereIn('id', $rootIds)
+            ->orderBy('sort_order')
             ->get(['id', 'name', 'slug', 'sort_order'])
             ->map(fn (Category $c) => [
                 'id'         => $c->id,

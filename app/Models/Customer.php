@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Modules\Category\Entities\Category;
 use Modules\Payment\Entities\Order;
 use Modules\Promotion\App\Models\Coupon;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -97,6 +98,17 @@ class Customer extends Authenticatable
     public function membershipTier(): BelongsTo
     {
         return $this->belongsTo(MembershipTier::class, 'membership_tier_id');
+    }
+
+    // Chi nhánh GỐC (parent_id=null) mà khách hàng thuộc về — tự động gán TOÀN BỘ chi nhánh gốc
+    // trong phạm vi quyền của user tạo (CustomerController::store(), cùng nguồn với field
+    // "categories" ở POST /api/admin/login — xem User::rootProductCategoryIds()), KHÔNG cho FE tự
+    // chọn tay. KHÔNG dùng để giới hạn ai xem được khách hàng này, xem ghi chú tại
+    // CustomerController::index().
+    public function categories(): BelongsToMany
+    {
+        return $this->belongsToMany(Category::class, 'customer_categories', 'customer_id', 'category_id')
+            ->withTimestamps();
     }
 
     public function membershipLogs(): HasMany
