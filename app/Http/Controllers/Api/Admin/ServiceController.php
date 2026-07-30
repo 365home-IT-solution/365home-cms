@@ -17,13 +17,18 @@ class ServiceController extends Controller
      * GET /api/admin/services
      * Danh sách dịch vụ bổ sung (additional_services) — dùng để admin chọn service_id khi tạo/sửa
      * đơn (POST /api/admin/orders, services[].service_id — xem BuildsRoomBooking::buildServices(),
-     * dùng đúng $room->additionalServices()).
+     * dùng đúng $room->additionalServices()), và để gán dịch vụ bổ sung cho phòng
+     * (POST /api/admin/products, additional_services[] — xem ProductController).
      *
      * Phạm vi hiển thị: super_admin xem tất cả; user thường chỉ xem dịch vụ thuộc đối tác mình
      * (additional_services.partner_id) — cùng nguyên tắc với RoomController::index().
      *
+     * Điều kiện hiển thị is_active=true LUÔN áp dụng mặc định (khớp modifyQueryUsing của field
+     * additionalServices trong ProductForm — chỉ dịch vụ đang bật mới được chọn để gán vào phòng);
+     * truyền ?is_active= để chủ động xem cả dịch vụ đang tắt khi thật sự cần.
+     *
      * Query params:
-     *  - is_active : lọc theo trạng thái hiển thị (1/0/true/false)
+     *  - is_active : ghi đè điều kiện mặc định (1/0/true/false) — bỏ trống mặc định chỉ lấy is_active=true
      *  - search    : lọc theo tên dịch vụ
      */
     public function index(Request $request): JsonResponse
@@ -37,9 +42,7 @@ class ServiceController extends Controller
             $query->where('partner_id', $user->partner_id);
         }
 
-        if ($request->filled('is_active')) {
-            $query->where('is_active', $request->boolean('is_active'));
-        }
+        $query->where('is_active', $request->has('is_active') ? $request->boolean('is_active') : true);
 
         if ($request->filled('search')) {
             $query->where('name', 'like', '%' . $request->string('search') . '%');

@@ -8,7 +8,8 @@ use Illuminate\Support\Str;
 
 trait GeneratesUniqueSlug
 {
-    private function uniqueSlug(string $modelClass, string $name, ?int $ignoreId = null): string
+    // $ignoreId nhận cả int (Category, Employee...) lẫn string (Product — khoá chính ULID char(36)).
+    private function uniqueSlug(string $modelClass, string $name, int|string|null $ignoreId = null): string
     {
         $base = Str::slug($name);
         $slug = $base;

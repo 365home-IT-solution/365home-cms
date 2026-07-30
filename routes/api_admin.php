@@ -16,10 +16,14 @@ use App\Http\Controllers\Api\Admin\EmployeeController;
 use App\Http\Controllers\Api\Admin\OrderController;
 use App\Http\Controllers\Api\Admin\OrderPaymentController;
 use App\Http\Controllers\Api\Admin\PositionController;
+use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
 use App\Http\Controllers\Api\Admin\RoomController as AdminRoomController;
+use App\Http\Controllers\Api\Admin\RoomTimeSlotController as AdminRoomTimeSlotController;
 use App\Http\Controllers\Api\Admin\SalaryTemplateController;
 use App\Http\Controllers\Api\Admin\SalaryTypeController;
 use App\Http\Controllers\Api\Admin\ServiceController as AdminServiceController;
+use App\Http\Controllers\Api\Admin\TagController as AdminTagController;
+use App\Http\Controllers\Api\Admin\TimeSlotController as AdminTimeSlotController;
 use App\Http\Controllers\Api\Admin\TimeSlotHoldController as AdminTimeSlotHoldController;
 use App\Http\Controllers\Api\Admin\UnlockController as AdminUnlockController;
 use Illuminate\Support\Facades\Route;
@@ -344,6 +348,63 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/customers/{custo
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/services')->name('api.admin.services.')->group(function () {
     Route::get('/', [AdminServiceController::class, 'index'])->name('index');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Tags — Danh sách TIỆN ÍCH phòng (bảng `tags`, field "tags" trong ProductForm — label hiển thị
+| "Tiện ích", KHÔNG phải RoomAmenity). Dùng để admin chọn tag_id khi tạo/sửa phòng
+| (POST/PUT /api/admin/products, tags[]).
+| GET /api/admin/tags → ?search=
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/tags')->name('api.admin.tags.')->group(function () {
+    Route::get('/', [AdminTagController::class, 'index'])->name('index');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Time Slots — Danh sách khung giờ dùng chung (bảng `time_slots`), đã chia sẵn 4 nhóm
+| Ngày/Chiều/Đêm/Qua đêm — xem TimeSlotController. Dùng làm dữ liệu nền để gán khung giờ cho
+| từng phòng (POST /api/admin/products/{id}/time-slots).
+| GET /api/admin/time-slots → ?type=&include_date_type=
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/time-slots')->name('api.admin.time-slots.')->group(function () {
+    Route::get('/', [AdminTimeSlotController::class, 'index'])->name('index');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Products — Quản lý PHÒNG (bảng `products`) — xem docblock App\Http\Controllers\Api\Admin\ProductController.
+| GET    /api/admin/products                     → ?category_id=&search=&status=&per_page= (ảnh
+|                                                    chính, tên, chi nhánh, trạng thái)
+| GET    /api/admin/products/{id}                → chi tiết đầy đủ
+| POST   /api/admin/products                     → tạo (multipart/form-data — ảnh chính bắt buộc)
+| PUT|POST /api/admin/products/{id}               → sửa (POST khi cần gửi kèm ảnh)
+| DELETE /api/admin/products/{id}                → xoá — chặn nếu còn đơn đặt phòng gắn vào
+| POST   /api/admin/products/discount-settings   → thiết lập full_booking_discount/
+|                                                    bulk_discount_rules/room_config cho 1 hoặc
+|                                                    nhiều phòng cùng lúc (body: room_ids[])
+| GET    /api/admin/products/{id}/time-slots     → danh sách khung giờ đã gán cho phòng
+|                                                    (room_time_slots: room_id, timeslot_id, price,
+|                                                    over_night)
+| POST   /api/admin/products/{id}/time-slots     → thêm/cập nhật khung giờ cho phòng (body: slots[])
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/products')->name('api.admin.products.')->group(function () {
+    Route::get('/',                  [AdminProductController::class, 'index'])->name('index');
+    // Đăng ký TRƯỚC route '/{id}' — 'discount-settings' sẽ bị route '/{id}' (không giới hạn định
+    // dạng, khớp mọi chuỗi vì khoá chính Product là ULID) nuốt mất nếu đứng sau.
+    Route::post('/discount-settings', [AdminProductController::class, 'discountSettings'])->name('discount-settings');
+    Route::post('/',                 [AdminProductController::class, 'store'])->name('store');
+    Route::get('/{id}',              [AdminProductController::class, 'show'])->name('show');
+    Route::put('/{id}',              [AdminProductController::class, 'update'])->name('update');
+    Route::post('/{id}',             [AdminProductController::class, 'update'])->name('update.multipart');
+    Route::delete('/{id}',           [AdminProductController::class, 'destroy'])->name('destroy');
+
+    Route::get('/{id}/time-slots',   [AdminRoomTimeSlotController::class, 'index'])->name('time-slots.index');
+    Route::post('/{id}/time-slots',  [AdminRoomTimeSlotController::class, 'store'])->name('time-slots.store');
 });
 
 /*
