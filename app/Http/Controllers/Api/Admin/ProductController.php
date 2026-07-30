@@ -162,7 +162,11 @@ class ProductController extends Controller
 
         $this->handleImages($request, $product);
 
-        $product->load(['categories:id,name,slug,parent_id', 'tags', 'additionalServices:id,name,price,image']);
+        // Lấy lại object hoàn toàn mới trước khi build response — phòng trường hợp Spatie MediaLibrary
+        // cache stale relation 'media' trên $product (đã từng xảy ra khi handleImages() lỡ gọi
+        // getMedia() giữa chừng, khiến toDetailItem() đọc phải snapshot media CŨ dù DB đã có ảnh mới —
+        // xem lịch sử fix). fresh() đảm bảo mọi getMedia()/getFirstMediaUrl() bên dưới luôn đọc thẳng DB.
+        $product = $product->fresh(['categories:id,name,slug,parent_id', 'tags', 'additionalServices:id,name,price,image']);
 
         return response()->json(['data' => $this->toDetailItem($product)], 201);
     }
@@ -194,6 +198,20 @@ class ProductController extends Controller
             $serviceError = $this->validateServiceIds($product->partner_id, $data['additional_services']);
             if ($serviceError) {
                 return response()->json(['message' => $serviceError], 422);
+            }
+        }
+
+        // Khác với store() (luôn bắt đầu từ 0 ảnh nên rule 'gallery' => 'max:8' đã đủ chặn), update()
+        // phải cộng dồn ảnh gallery ĐÃ CÓ SẴN của phòng — kiểm tra TRƯỚC khi ghi bất kỳ thay đổi nào
+        // xuống DB (fail fast), không để handleImages() âm thầm bỏ qua ảnh mới nếu vượt hạn mức.
+        if (array_key_exists('gallery', $data)) {
+            $existingGalleryCount = $product->getMedia('Thư viện')->count();
+            $newGalleryCount      = count($data['gallery']);
+
+            if ($existingGalleryCount + $newGalleryCount > 8) {
+                return response()->json([
+                    'message' => "Tổng số ảnh phụ vượt quá 8 (hiện có {$existingGalleryCount} ảnh, thêm mới {$newGalleryCount} ảnh). Hãy xoá bớt ảnh cũ hoặc thêm ít ảnh mới hơn.",
+                ], 422);
             }
         }
 
@@ -380,6 +398,12 @@ class ProductController extends Controller
         return null;
     }
 
+    // Giới hạn tổng ảnh gallery (ảnh cũ + ảnh mới) PHẢI được kiểm tra TRƯỚC khi gọi hàm này (xem
+    // store()/update()) — không kiểm tra ở đây vì gọi getMedia() tại đây (SAU khi đã thêm image_main
+    // nhưng TRƯỚC khi thêm gallery) sẽ vô tình cache stale relation 'media' trên $product, khiến
+    // các lần đọc getMedia()/getFirstMediaUrl() sau đó trong CÙNG request (vd toDetailItem()) không
+    // thấy media mới vừa thêm — đã từng gây bug "tạo xong không thấy gallery" dù ảnh đã lưu đúng
+    // trong DB. Hàm này chỉ đơn thuần ghi ảnh, không đọc lại media giữa chừng.
     private function handleImages(Request $request, Product $product): void
     {
         if ($request->hasFile('image_main')) {
@@ -388,13 +412,6 @@ class ProductController extends Controller
         }
 
         if ($request->hasFile('gallery')) {
-            $current = $product->getMedia('Thư viện')->count();
-            $incoming = count($request->file('gallery'));
-
-            if ($current + $incoming > 8) {
-                return;
-            }
-
             foreach ($request->file('gallery') as $file) {
                 $product->addMedia($file)->toMediaCollection('Thư viện');
             }
