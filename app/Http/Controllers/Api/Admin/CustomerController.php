@@ -17,7 +17,9 @@ use Modules\Payment\App\Services\CccdScannerService;
 
 class CustomerController extends Controller
 {
-    private const LIST_RELATIONS = ['province:id,name', 'membershipTier:id,name', 'categories:id,name,parent_id'];
+    // KHÔNG gồm 'categories' — categories vẫn được dùng để LỌC (visibleCustomersQuery(),
+    // ?branch_id=, sync() lúc tạo) nhưng chủ ý không trả về trong response (theo yêu cầu FE).
+    private const LIST_RELATIONS = ['province:id,name', 'membershipTier:id,name'];
 
     // GET /api/admin/customers
     // Từ khi có categories (chi nhánh gốc tự động gán lúc tạo — xem store()): user thường CHỈ
