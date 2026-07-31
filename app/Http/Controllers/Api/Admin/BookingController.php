@@ -53,7 +53,8 @@ class BookingController extends Controller
             'type'                    => 'required|in:slot,monthly,daily',
             'room_id'                 => 'required|string',
             'guest_count'             => 'required|integer|min:1',
-            'customer_id'             => 'sometimes|nullable|integer|exists:customers,id',
+            // customers.id là UUID (char 36), KHÔNG phải số nguyên — xem migration create_customers_table.
+            'customer_id'             => 'sometimes|nullable|string|size:36|exists:customers,id',
             'customer_phone'          => 'sometimes|nullable|string|max:20',
             'buyer_name'              => 'sometimes|nullable|string|max:100',
             'buyer_phone'             => 'sometimes|nullable|string|max:20',
@@ -98,7 +99,7 @@ class BookingController extends Controller
         // ── 2. Xác định khách: thành viên có sẵn hay khách vãng lai ────────────
         $customer = null;
         if ($request->filled('customer_id')) {
-            $customer = Customer::find($request->integer('customer_id'));
+            $customer = Customer::find($request->input('customer_id'));
         } elseif ($request->filled('customer_phone')) {
             $customer = Customer::where('phone', trim($request->input('customer_phone')))->first();
         }
