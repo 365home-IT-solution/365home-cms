@@ -67,7 +67,7 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # Install PHP 8.3 (Ondrej PPA) + Nginx + Supervisor
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      gnupg curl ca-certificates zip unzip git supervisor nginx cron \
+      gnupg curl ca-certificates zip unzip git supervisor nginx cron zbar-tools \
     && curl -sS 'https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xb8dc7e53946656efbce4c1dd71daeaab4ad4cab6' \
        | gpg --dearmor | tee /etc/apt/keyrings/ppa_ondrej_php.gpg > /dev/null \
     && echo "deb [signed-by=/etc/apt/keyrings/ppa_ondrej_php.gpg] https://ppa.launchpadcontent.net/ondrej/php/ubuntu noble main" \
