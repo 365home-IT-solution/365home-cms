@@ -63,8 +63,8 @@ class AssignAccessCodeAction
 
                 // ── Case: Phòng mật khẩu thủ công ──────────────────────────
                 if ($product && $product->has_manual_lock) {
-                    $checkinDate = $record->items->min('checkin_date');
-                    $manualPwd   = ManualLockPassword::getForProductAndDate($product, $checkinDate);
+                    $pwdAnchorDate = $record->paid_at ?? $record->deposit_paid_at ?? $record->created_at;
+                    $manualPwd     = ManualLockPassword::getForProductAndDate($product, $pwdAnchorDate);
 
                     if ($manualPwd && ($manualPwd->gate_password || $manualPwd->room_password)) {
                         $lines = [];
@@ -165,7 +165,8 @@ class AssignAccessCodeAction
 
                 // ── Case: Phòng mật khẩu thủ công ──────────────────────────
                 if ($product && $product->has_manual_lock) {
-                    $manualPwd = ManualLockPassword::getForProductAndDate($product, $checkinDate);
+                    $pwdAnchorDate = $record->paid_at ?? $record->deposit_paid_at ?? $record->created_at;
+                    $manualPwd = ManualLockPassword::getForProductAndDate($product, $pwdAnchorDate);
 
                     if (!$manualPwd || (!$manualPwd->gate_password && !$manualPwd->room_password)) {
                         Notification::make()

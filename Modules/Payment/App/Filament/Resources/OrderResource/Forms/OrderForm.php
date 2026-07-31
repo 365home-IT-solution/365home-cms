@@ -62,13 +62,11 @@ class OrderForm
                                                     return new \Illuminate\Support\HtmlString('<p class="text-gray-400 text-sm italic">Không tìm thấy thông tin phòng.</p>');
                                                 }
 
-                                                $checkinDate = $firstItem?->checkin_date
-                                                    ? \Carbon\Carbon::parse($firstItem->checkin_date)
-                                                    : null;
+                                                $pwdAnchorDate = $record->paid_at ?? $record->deposit_paid_at ?? $record->created_at;
 
                                                 $entry = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate(
                                                     $product,
-                                                    $checkinDate
+                                                    $pwdAnchorDate
                                                 );
 
                                                 if (! $entry) {

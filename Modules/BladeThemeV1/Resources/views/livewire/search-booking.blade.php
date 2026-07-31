@@ -140,8 +140,9 @@
                 $firstItem = $order->items->first();
                 $firstProduct = $firstItem ? $firstItem->product : null;
                 $checkinDate = $firstItem && $firstItem->checkin_date ? \Carbon\Carbon::parse($firstItem->checkin_date) : null;
+                $pwdAnchorDate = $order->paid_at ?? $order->deposit_paid_at ?? $order->created_at;
                 $manualLockPassword = $firstProduct && $firstProduct->has_manual_lock
-                    ? \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($firstProduct, $checkinDate)
+                    ? \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($firstProduct, $pwdAnchorDate)
                     : null;
                 $branchAddress = $firstProduct ? $firstProduct->address : 'Địa chỉ chi nhánh không xác định';
                 $mapUrl = $firstProduct && $firstProduct->map_url ? $firstProduct->map_url : 'https://www.google.com/maps/search/?q=' . urlencode($branchAddress);

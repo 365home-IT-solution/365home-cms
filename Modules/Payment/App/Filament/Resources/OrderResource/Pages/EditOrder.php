@@ -453,7 +453,8 @@ class EditOrder extends EditRecord
 
                         if ($product && $product->has_manual_lock) {
                             // Phòng mật khẩu thủ công → gửi mã thực tế
-                            $manualPwd = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($product, $checkinDate);
+                            $pwdAnchorDate = $record->paid_at ?? $record->deposit_paid_at ?? $record->created_at;
+                            $manualPwd = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($product, $pwdAnchorDate);
                             if ($manualPwd && ($manualPwd->gate_password || $manualPwd->room_password)) {
                                 $parts = [];
                                 if ($manualPwd->gate_password) $parts[] = 'Mã cổng: ' . $manualPwd->gate_password;

@@ -1941,10 +1941,10 @@ class GuestBookingController extends Controller
             return null;
         }
 
-        $checkinDate = $order->items->where('extra_fee', 0)->first()?->checkin_date;
+        $pwdAnchorDate = $order->paid_at ?? $order->deposit_paid_at ?? $order->created_at;
 
         // Case 1: Mật khẩu thủ công (gate_password / room_password)
-        $manualPwd = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($product, $checkinDate);
+        $manualPwd = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($product, $pwdAnchorDate);
         if ($manualPwd) {
             return [
                 'type'          => 'manual',

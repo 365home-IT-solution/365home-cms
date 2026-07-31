@@ -297,14 +297,14 @@ private function buildTelegramMessage(Order $order, string $status): string
             // FCM + WS theo loại khóa của phòng
             try {
                 $order->loadMissing(['items.product']);
-                $checkinDate = $order->items->min('checkin_date');
                 $notifTitle  = null;
                 $notifBody   = null;
                 $wsPayload   = ['access_code_assigned' => true];
 
                 if ($product && $product->has_manual_lock) {
                     // Phòng có mật khẩu thủ công (ManualLockPassword) → gửi mã thực tế
-                    $manualPwd = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($product, $checkinDate);
+                    $pwdAnchorDate = $order->paid_at ?? $order->deposit_paid_at ?? $order->created_at;
+                    $manualPwd = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($product, $pwdAnchorDate);
                     if ($manualPwd && ($manualPwd->gate_password || $manualPwd->room_password)) {
                         $parts = [];
                         if ($manualPwd->gate_password) $parts[] = 'Mã cổng: ' . $manualPwd->gate_password;
