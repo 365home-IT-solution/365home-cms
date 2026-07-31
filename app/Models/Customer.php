@@ -42,6 +42,7 @@ class Customer extends Authenticatable
         'total_spending',
         'welcome_coupon_sent_at',
         'province_id',
+        'province_name',
     ];
 
     protected $hidden = [

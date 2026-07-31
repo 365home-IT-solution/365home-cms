@@ -18,8 +18,26 @@ class ProvinceController extends Controller
 {
     // ─── GET /api/v1/provinces ───────────────────────────────────────────────
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
+        // ?filter=all → trả về tất cả tỉnh/thành, bỏ qua điều kiện "có phòng".
+        if ($request->query('filter') === 'all') {
+            $provinces = Province::orderByRaw('code IS NULL, code ASC')
+                ->orderBy('name')
+                ->get();
+
+            return response()->json([
+                'provinces' => $provinces->map(fn ($p) => [
+                    'id'            => $p->id,
+                    'name'          => $p->name,
+                    'slug'          => $p->slug,
+                    'code'          => $p->code,
+                    'division_type' => $p->division_type,
+                    'codename'      => $p->codename,
+                ])->values(),
+            ]);
+        }
+
         // Chỉ hiển thị tỉnh/thành có ít nhất 1 chi nhánh đang hoạt động (province_branches.status)
         // và chi nhánh đó có ít nhất 1 phòng đang bán (is_activated + is_in_stock) — cùng logic
         // lọc "chi nhánh có phòng" đang dùng ở RoomSearchService/RoomTypeController.
