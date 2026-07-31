@@ -9,6 +9,7 @@ use App\Models\Customer;
 use App\Models\CustomerCompanion;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -45,8 +46,14 @@ class CustomerCompanionController extends Controller
     }
 
     // POST /api/admin/customers/{customer_id}/companions (multipart/form-data)
-    // CCCD (2 mặt) là BẮT BUỘC — mục đích của companion là lưu sẵn CCCD đã quét, không có ảnh thì
-    // không có gì để tái sử dụng ở lần đặt phòng sau.
+    // Thêm CÙNG LÚC nhiều companion — số lượng do FE quyết định dựa trên guest_count của đơn
+    // (ví dụ guest_count=3 → gửi 3 companion trong 1 request thay vì gọi POST 3 lần riêng lẻ).
+    // Payload: companions[{index}][cccd_front|cccd_back], index bắt đầu từ 0. Không nhận full_name
+    // qua payload — full_name lấy tự động từ QR khi quét CCCD, sửa tay qua POST .../companions/{id}.
+    // CCCD (2 mặt) là BẮT BUỘC cho từng companion — mục đích của companion là lưu sẵn CCCD đã quét,
+    // không có ảnh thì không có gì để tái sử dụng ở lần đặt phòng sau.
+    // Xử lý theo TRANSACTION — 1 companion lỗi (trùng CCCD, 2 mặt không khớp...) thì rollback toàn
+    // bộ batch và xoá lại các ảnh đã upload trong request, tránh tạo dở dang nửa danh sách.
     public function store(Request $request, string $customerId): JsonResponse
     {
         $customer = Customer::find($customerId);
@@ -56,38 +63,65 @@ class CustomerCompanionController extends Controller
         }
 
         $data = $request->validate([
-            'full_name'  => 'nullable|string|max:255',
-            'cccd_front' => 'required|file|mimes:jpg,jpeg,png,webp|max:10240',
-            'cccd_back'  => 'required|file|mimes:jpg,jpeg,png,webp|max:10240',
+            'companions'              => 'required|array|min:1',
+            'companions.*.cccd_front' => 'required|file|mimes:jpg,jpeg,png,webp|max:10240',
+            'companions.*.cccd_back'  => 'required|file|mimes:jpg,jpeg,png,webp|max:10240',
         ]);
 
-        $front = $request->file('cccd_front')->store('cccd', 'public');
-        $back  = $request->file('cccd_back')->store('cccd', 'public');
+        $uploadedPaths = [];
 
-        $this->assertSidesMatch($front, $back);
-
-        $cccdData = null;
         try {
-            $cccdData = app(CccdScannerService::class)->scanPaths($front, $back);
+            $companions = DB::transaction(function () use ($request, $data, $customer, &$uploadedPaths) {
+                $seenCccds = [];
+                $created   = [];
+
+                foreach (array_keys($data['companions']) as $index) {
+                    $front = $request->file("companions.{$index}.cccd_front")->store('cccd', 'public');
+                    $back  = $request->file("companions.{$index}.cccd_back")->store('cccd', 'public');
+                    $uploadedPaths[] = $front;
+                    $uploadedPaths[] = $back;
+
+                    $this->assertSidesMatch($front, $back, $index);
+
+                    $cccdData = null;
+                    try {
+                        $cccdData = app(CccdScannerService::class)->scanPaths($front, $back);
+                    } catch (\Throwable $e) {
+                        Log::warning('Admin API: quét CCCD khách đi cùng (companion) thất bại', [
+                            'customer_id' => $customer->id,
+                            'index'       => $index,
+                            'error'       => $e->getMessage(),
+                        ]);
+                    }
+
+                    $this->assertNoCccdDuplicate($customer, $cccdData, null, $seenCccds, $index);
+
+                    $rowCccd = trim((string) ($cccdData['cccd'] ?? ''));
+                    if ($rowCccd !== '') {
+                        $seenCccds[$index] = $rowCccd;
+                    }
+
+                    // Không bắt buộc đọc được QR — quét lỗi vẫn tạo companion bình thường, cccd_data
+                    // để trống, full_name lấy từ QR (không nhận qua payload) — admin sửa tay sau nếu
+                    // cần (cùng nguyên tắc CCCD "tùy chọn" toàn hệ thống).
+                    $created[] = $customer->companions()->create([
+                        'full_name'  => $cccdData['full_name'] ?? null,
+                        'cccd_front' => $front,
+                        'cccd_back'  => $back,
+                        'cccd_data'  => $cccdData,
+                    ]);
+                }
+
+                return $created;
+            });
         } catch (\Throwable $e) {
-            Log::warning('Admin API: quét CCCD khách đi cùng (companion) thất bại', [
-                'customer_id' => $customer->id,
-                'error'       => $e->getMessage(),
-            ]);
+            Storage::disk('public')->delete($uploadedPaths);
+            throw $e;
         }
 
-        $this->assertNoCccdDuplicate($customer, $cccdData);
-
-        // Không bắt buộc đọc được QR — quét lỗi vẫn tạo companion bình thường, cccd_data để trống,
-        // admin sửa tay full_name/thông tin sau (cùng nguyên tắc CCCD "tùy chọn" toàn hệ thống).
-        $companion = $customer->companions()->create([
-            'full_name'  => $data['full_name'] ?? $cccdData['full_name'] ?? null,
-            'cccd_front' => $front,
-            'cccd_back'  => $back,
-            'cccd_data'  => $cccdData,
-        ]);
-
-        return response()->json(['companion' => $this->formatCompanion($companion)], 201);
+        return response()->json([
+            'companions' => collect($companions)->map(fn (CustomerCompanion $c) => $this->formatCompanion($c))->values(),
+        ], 201);
     }
 
     // POST /api/admin/customers/{customer_id}/companions/{id} (dùng POST thay PUT để hỗ trợ multipart)
@@ -167,16 +201,20 @@ class CustomerCompanionController extends Controller
     // hợp admin/lễ tân lỡ chụp nhầm mặt trước của người này ghép với mặt sau của người khác — cùng
     // logic đã dùng ở luồng khách hàng tự đặt phòng (ProductDetail::confirmBooking()). Phát hiện
     // xung đột thì xoá luôn 2 file vừa lưu, không để rác lại trên storage.
-    private function assertSidesMatch(string $frontPath, string $backPath): void
+    private function assertSidesMatch(string $frontPath, string $backPath, ?int $index = null): void
     {
         $frontAbs = Storage::disk('public')->path($frontPath);
         $backAbs  = Storage::disk('public')->path($backPath);
 
         if (app(CccdScannerService::class)->sidesConflict($frontAbs, $backAbs)) {
+            // update() không track uploadedPaths như store() nên tự dọn ở đây; store() sẽ dọn lại
+            // (an toàn, xoá 1 path đã xoá chỉ trả về false) trong catch của transaction.
             Storage::disk('public')->delete([$frontPath, $backPath]);
 
+            $key = $index === null ? 'cccd_front' : "companions.{$index}.cccd_front";
+
             throw ValidationException::withMessages([
-                'cccd_front' => ['Ảnh mặt trước và mặt sau CCCD không khớp thông tin (có thể thuộc về 2 người khác nhau). Vui lòng chụp lại đúng CCCD.'],
+                $key => ['Ảnh mặt trước và mặt sau CCCD không khớp thông tin (có thể thuộc về 2 người khác nhau). Vui lòng chụp lại đúng CCCD.'],
             ]);
         }
     }
@@ -185,20 +223,37 @@ class CustomerCompanionController extends Controller
     // khách đi cùng của chính họ, hoặc 2 companion khác nhau lại cùng 1 số CCCD (upload nhầm ảnh).
     // Chỉ so sánh khi quét ra được số CCCD — quét lỗi/không đọc được số thì bỏ qua check này (không
     // đủ dữ liệu để so, và CCCD vốn là thông tin "tùy chọn" trong toàn hệ thống).
-    private function assertNoCccdDuplicate(Customer $customer, ?array $cccdData, ?int $excludeCompanionId = null): void
-    {
+    // $seenCccds: cccd đã xử lý TRONG CÙNG request batch (index => cccd) — chặn 2 companion mới
+    // trong cùng lần gửi lại trùng nhau (upload nhầm ảnh 1 người vào 2 ô).
+    private function assertNoCccdDuplicate(
+        Customer $customer,
+        ?array $cccdData,
+        ?int $excludeCompanionId = null,
+        array $seenCccds = [],
+        ?int $index = null,
+    ): void {
         $cccd = trim((string) ($cccdData['cccd'] ?? ''));
 
         if ($cccd === '') {
             return;
         }
 
+        $key = $index === null ? 'cccd_front' : "companions.{$index}.cccd_front";
+
         $customerCccd = trim((string) ($customer->cccd_data['cccd'] ?? ''));
 
         if ($customerCccd !== '' && $customerCccd === $cccd) {
             throw ValidationException::withMessages([
-                'cccd_front' => ['Số CCCD này trùng với CCCD của chính khách hàng — không thể vừa là khách chính vừa là khách đi cùng.'],
+                $key => ['Số CCCD này trùng với CCCD của chính khách hàng — không thể vừa là khách chính vừa là khách đi cùng.'],
             ]);
+        }
+
+        foreach ($seenCccds as $seenIndex => $seenCccd) {
+            if ($seenCccd === $cccd) {
+                throw ValidationException::withMessages([
+                    $key => ["Số CCCD này trùng với khách đi cùng thứ " . ($seenIndex + 1) . ' trong cùng danh sách vừa gửi.'],
+                ]);
+            }
         }
 
         $duplicate = $customer->companions()
@@ -209,7 +264,7 @@ class CustomerCompanionController extends Controller
         if ($duplicate) {
             $name = $duplicate->full_name ?: "#{$duplicate->id}";
             throw ValidationException::withMessages([
-                'cccd_front' => ["Số CCCD này đã được lưu cho khách đi cùng khác ({$name})."],
+                $key => ["Số CCCD này đã được lưu cho khách đi cùng khác ({$name})."],
             ]);
         }
     }

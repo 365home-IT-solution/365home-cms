@@ -321,11 +321,16 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/customers')->nam
 |
 | Luồng FE khi admin tạo đơn và CHỌN khách hàng có sẵn: dựa vào guest_count, hiển thị đúng
 | (guest_count - 1) ô khách đi cùng — mỗi ô cho CHỌN 1 companion có sẵn ở GET .../companions, hoặc
-| THÊM MỚI (quét CCCD ngay trong lúc tạo) qua POST .../companions nếu chưa đủ.
+| THÊM MỚI (quét CCCD ngay trong lúc tạo) qua POST .../companions — gửi ĐƯỢC NHIỀU companion cùng
+| lúc trong 1 request (ví dụ guest_count=3 → gửi 3 companion 1 lần thay vì gọi POST 3 lần).
 |
 | GET    /api/admin/customers/{customer_id}/companions      → Danh sách companion đã lưu
-| POST   /api/admin/customers/{customer_id}/companions      → Thêm mới (multipart, front+back BẮT
-|                                                              BUỘC — tự quét QR lưu cccd_data)
+| POST   /api/admin/customers/{customer_id}/companions      → Thêm mới HÀNG LOẠT (multipart),
+|                                                              payload companions[{i}][cccd_front|
+|                                                              cccd_back], front+back BẮT BUỘC mỗi
+|                                                              companion (không nhận full_name — lấy
+|                                                              tự động từ QR) — transaction, 1 lỗi
+|                                                              rollback cả batch
 | POST   /api/admin/customers/{customer_id}/companions/{id} → Sửa (full_name, hoặc quét lại CCCD nếu
 |                                                              gửi ĐỦ CẢ front+back)
 | DELETE /api/admin/customers/{customer_id}/companions/{id} → Xoá
