@@ -117,7 +117,11 @@ class ManualLockPassword extends Model
         Product $product,
         ?\Carbon\Carbon $checkinDate = null
     ): ?self {
-        $date = $checkinDate ?? now();
+        // Không được lấy mật khẩu của một khoảng hiệu lực chưa bắt đầu (tương lai):
+        // nếu check-in còn ở tương lai, luôn so khớp theo thời điểm hiện tại (now())
+        // để mật khẩu hiển thị là mật khẩu đang thực sự có hiệu lực lúc xem, chứ
+        // không phải mật khẩu sẽ có hiệu lực vào ngày check-in.
+        $date = $checkinDate ? $checkinDate->copy()->min(now()) : now();
 
         // 1. Tìm bản ghi có valid_from <= checkin <= valid_until (ưu tiên)
         $match = static::active()
