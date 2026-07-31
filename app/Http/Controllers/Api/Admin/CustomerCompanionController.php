@@ -72,8 +72,9 @@ class CustomerCompanionController extends Controller
 
         try {
             $companions = DB::transaction(function () use ($request, $data, $customer, &$uploadedPaths) {
-                $seenCccds = [];
-                $created   = [];
+                $seenCccds  = [];
+                $seenImages = [];
+                $created    = [];
 
                 foreach (array_keys($data['companions']) as $index) {
                     $front = $request->file("companions.{$index}.cccd_front")->store('cccd', 'public');
@@ -82,6 +83,11 @@ class CustomerCompanionController extends Controller
                     $uploadedPaths[] = $back;
 
                     $this->assertSidesMatch($front, $back, $index);
+
+                    // Trùng ẢNH (so hash nội dung file) — bắt được cả trường hợp OCR không đọc được
+                    // số CCCD (quét lỗi/ảnh mờ) nên assertNoCccdDuplicate bên dưới không có dữ liệu
+                    // để so. Check TRƯỚC khi quét QR vì không phụ thuộc kết quả quét.
+                    $seenImages[$index] = $this->assertNoImageDuplicate($customer, $front, $back, null, $seenImages, $index);
 
                     $cccdData = null;
                     try {
@@ -125,8 +131,10 @@ class CustomerCompanionController extends Controller
     }
 
     // POST /api/admin/customers/{customer_id}/companions/{id} (dùng POST thay PUT để hỗ trợ multipart)
-    // Ảnh CCCD chỉ được thay khi gửi ĐỦ CẢ 2 mặt cùng lúc — gửi thiếu 1 mặt thì ảnh cũ giữ nguyên
-    // (tránh trường hợp chỉ đổi mặt trước làm mất luôn liên kết QR hợp lệ của mặt sau cũ).
+    // Đồng bộ với POST .../companions (tạo mới): không nhận full_name qua payload — full_name luôn
+    // tự động lấy từ QR khi quét lại CCCD. Do đó API này chỉ có tác dụng khi gửi ĐỦ CẢ 2 mặt CCCD
+    // cùng lúc — gửi thiếu 1 mặt (hoặc không gửi) thì không có gì để cập nhật, ảnh + full_name cũ
+    // giữ nguyên (tránh trường hợp chỉ đổi mặt trước làm mất luôn liên kết QR hợp lệ của mặt sau cũ).
     public function update(Request $request, string $customerId, int $id): JsonResponse
     {
         $customer = Customer::find($customerId);
@@ -141,13 +149,12 @@ class CustomerCompanionController extends Controller
             return response()->json(['message' => 'Không tìm thấy khách đi cùng.'], 404);
         }
 
-        $data = $request->validate([
-            'full_name'  => 'sometimes|nullable|string|max:255',
+        $request->validate([
             'cccd_front' => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'cccd_back'  => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
         ]);
 
-        $fields = collect($data)->only(['full_name'])->toArray();
+        $fields = [];
 
         if ($request->hasFile('cccd_front') && $request->hasFile('cccd_back')) {
             $front = $request->file('cccd_front')->store('cccd', 'public');
@@ -170,6 +177,11 @@ class CustomerCompanionController extends Controller
             $fields['cccd_front'] = $front;
             $fields['cccd_back']  = $back;
             $fields['cccd_data']  = $cccdData;
+
+            // Quét lỗi/không đọc được QR thì giữ nguyên full_name cũ — không ghi đè bằng null.
+            if (! empty($cccdData['full_name'])) {
+                $fields['full_name'] = $cccdData['full_name'];
+            }
         }
 
         $companion->update($fields);
@@ -269,9 +281,61 @@ class CustomerCompanionController extends Controller
         }
     }
 
+    // Trùng ẢNH — so hash nội dung file (không phụ thuộc OCR đọc được số CCCD hay không), bắt trường
+    // hợp lỡ upload lại đúng 2 ảnh của 1 người vào nhiều ô companion trong khi ảnh mờ/QR hỏng khiến
+    // assertNoCccdDuplicate() không có số CCCD để so. Coi là trùng khi CẢ 2 mặt cùng khớp hash — chỉ
+    // 1 mặt khớp thì bỏ qua (đủ khác biệt, tránh báo nhầm). $seenImages: index => ['front'=>hash,
+    // 'back'=>hash] đã xử lý TRONG CÙNG batch. Trả về hash của ảnh vừa check để caller lưu lại.
+    private function assertNoImageDuplicate(
+        Customer $customer,
+        string $frontPath,
+        string $backPath,
+        ?int $excludeCompanionId,
+        array $seenImages,
+        ?int $index,
+    ): array {
+        $frontHash = $this->imageHash($frontPath);
+        $backHash  = $this->imageHash($backPath);
+        $key       = $index === null ? 'cccd_front' : "companions.{$index}.cccd_front";
+
+        foreach ($seenImages as $seenIndex => $seen) {
+            if ($seen['front'] === $frontHash && $seen['back'] === $backHash) {
+                throw ValidationException::withMessages([
+                    $key => ['Ảnh CCCD này trùng với khách đi cùng thứ ' . ($seenIndex + 1) . ' trong cùng danh sách vừa gửi.'],
+                ]);
+            }
+        }
+
+        $duplicate = $customer->companions()
+            ->when($excludeCompanionId, fn ($q) => $q->where('id', '!=', $excludeCompanionId))
+            ->get()
+            ->first(function (CustomerCompanion $c) use ($frontHash, $backHash) {
+                if (! $c->cccd_front || ! $c->cccd_back) {
+                    return false;
+                }
+
+                return $this->imageHash($c->cccd_front) === $frontHash
+                    && $this->imageHash($c->cccd_back) === $backHash;
+            });
+
+        if ($duplicate) {
+            $name = $duplicate->full_name ?: "#{$duplicate->id}";
+            throw ValidationException::withMessages([
+                $key => ["Ảnh CCCD này đã được lưu cho khách đi cùng khác ({$name})."],
+            ]);
+        }
+
+        return ['front' => $frontHash, 'back' => $backHash];
+    }
+
+    private function imageHash(string $path): string
+    {
+        return hash_file('sha256', Storage::disk('public')->path($path));
+    }
+
     private function formatCompanion(CustomerCompanion $companion): array
     {
-        $data = $companion->toArray();
+        $data = collect($companion->toArray())->except(['cccd_front', 'cccd_back'])->toArray();
 
         $data['cccd_front_url'] = $companion->cccd_front ? Storage::disk('public')->url($companion->cccd_front) : null;
         $data['cccd_back_url']  = $companion->cccd_back  ? Storage::disk('public')->url($companion->cccd_back)  : null;

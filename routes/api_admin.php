@@ -331,8 +331,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/customers')->nam
 |                                                              companion (không nhận full_name — lấy
 |                                                              tự động từ QR) — transaction, 1 lỗi
 |                                                              rollback cả batch
-| POST   /api/admin/customers/{customer_id}/companions/{id} → Sửa (full_name, hoặc quét lại CCCD nếu
-|                                                              gửi ĐỦ CẢ front+back)
+| POST   /api/admin/customers/{customer_id}/companions/{id} → Quét lại CCCD (không nhận full_name,
+|                                                              đồng bộ với POST tạo mới) — chỉ có tác
+|                                                              dụng khi gửi ĐỦ CẢ front+back
 | DELETE /api/admin/customers/{customer_id}/companions/{id} → Xoá
 |--------------------------------------------------------------------------
 */
