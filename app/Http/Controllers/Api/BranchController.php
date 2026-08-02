@@ -208,7 +208,10 @@ class BranchController extends Controller
             }
         }
 
-        $rtsSettings  = is_array($rts->settings) ? $rts->settings : (json_decode($rts->settings, true) ?? []);
+        // 'settings' đã được RoomTimeSlot cast 'array' (xem RoomTimeSlot::$casts) — giá trị luôn là
+        // array HOẶC null (chưa từng được ghi), KHÔNG BAO GIỜ là chuỗi JSON thô, nên không cần
+        // json_decode() ở đây. json_decode(null) từng gây TypeError khi khung giờ chưa có settings.
+        $rtsSettings  = $rts->settings ?? [];
         $blockedDates = $rtsSettings['blocked_dates'] ?? [];
         $slotDateYmd  = $slotDate->toDateString();
         $isBlocked    = in_array($slotDateYmd, $blockedDates);

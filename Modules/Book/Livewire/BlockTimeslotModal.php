@@ -347,9 +347,9 @@ class BlockTimeslotModal extends Component
             $rts = RoomTimeSlot::find($rtsId);
             if (!$rts) continue;
 
-            $settings = is_array($rts->settings)
-                ? $rts->settings
-                : (json_decode($rts->settings, true) ?? []);
+            // 'settings' đã cast 'array' ở RoomTimeSlot — luôn là array hoặc null, không phải chuỗi
+            // JSON thô, nên json_decode() ở đây gây TypeError khi khung giờ chưa từng có settings.
+            $settings = $rts->settings ?? [];
 
             $existing = $settings['blocked_dates'] ?? [];
             $merged   = array_values(array_unique(array_merge($existing, $blockedDates)));
@@ -388,9 +388,7 @@ class BlockTimeslotModal extends Component
         $rts = RoomTimeSlot::find($rtsId);
         if (!$rts) return;
 
-        $settings = is_array($rts->settings)
-            ? $rts->settings
-            : (json_decode($rts->settings, true) ?? []);
+        $settings = $rts->settings ?? [];
 
         $settings['blocked_dates'] = array_values(
             array_diff($settings['blocked_dates'] ?? [], [$date])
@@ -488,9 +486,7 @@ class BlockTimeslotModal extends Component
             $rts = RoomTimeSlot::find($rtsId);
             if (!$rts) continue;
 
-            $settings = is_array($rts->settings)
-                ? $rts->settings
-                : (json_decode($rts->settings, true) ?? []);
+            $settings = $rts->settings ?? [];
 
             $settings['blocked_dates'] = array_values(
                 array_diff($settings['blocked_dates'] ?? [], $dates)
@@ -539,9 +535,7 @@ class BlockTimeslotModal extends Component
             ->get();
 
         foreach ($slots as $rts) {
-            $settings = is_array($rts->settings)
-                ? $rts->settings
-                : (json_decode($rts->settings, true) ?? []);
+            $settings = $rts->settings ?? [];
 
             foreach ($settings['blocked_dates'] ?? [] as $date) {
                 $this->blockedList[] = [
@@ -581,9 +575,7 @@ class BlockTimeslotModal extends Component
 
             $slots = RoomTimeSlot::where('room_id', $this->product_id)->get();
             foreach ($slots as $rts) {
-                $settings = is_array($rts->settings)
-                    ? $rts->settings
-                    : (json_decode($rts->settings, true) ?? []);
+                $settings = $rts->settings ?? [];
                 $settings['blocked_dates'] = [];
                 $rts->update(['settings' => $settings]);
             }
