@@ -849,13 +849,12 @@ class OrderController extends Controller
                 'deposit_amount'   => $order->depositDueAmount(),
                 'remaining_amount' => (int) $order->full_amount - $order->depositDueAmount(),
             ] : null,
+            // Không lặp lại product_id/product_name/product_image/quantity ở từng item — thông tin
+            // phòng đã có sẵn ở cấp đơn ('rooms', 'product_image' trong toListItem()); items[] chỉ
+            // còn đúng phần khách chọn theo khung giờ/ngày.
             'items' => $order->items->map(fn ($item) => [
                 'id'            => $item->id,
-                'product_id'    => $item->product_id,
-                'product_name'  => $item->product?->name ?? $item->name,
-                'product_image' => $this->productImageUrl($item->product),
                 'price'         => (int) $item->price,
-                'quantity'      => $item->quantity,
                 'checkin_date'  => $item->checkin_date,
                 'checkout_date' => $item->checkout_date,
                 'slot_label'    => $item->slot_label,
