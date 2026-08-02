@@ -59,21 +59,24 @@ class BlockTimeslotModal extends Component
 
     // Chi nhánh = Category gốc (parent_id null, category_type = product), giống cách Dashboard
     // build bộ lọc chi nhánh — xem Modules\Dashboard\App\Filament\Pages\Dashboard::mount()/render().
+    //
+    // Dùng User::rootProductCategoryIds() (nguồn chuẩn, cùng nguồn với AuthController::
+    // branchCategories()) thay vì allowedCategoryIds() — allowedCategoryIds() CHỈ dựa vào bảng cấp
+    // quyền chi nhánh cụ thể (UserBranchPermission), không tự lọc theo partner_id. Chủ đối tác mặc
+    // định KHÔNG có bản ghi cấp quyền chi nhánh nào (không bị giới hạn theo branch — xem docblock
+    // rootProductCategoryIds()), nên trước đây $allowedIds rỗng → bỏ qua lọc → dropdown hiện TOÀN
+    // BỘ chi nhánh của MỌI đối tác thay vì chỉ đối tác của họ (Category không dùng trait
+    // BelongsToPartner nên không có global scope tự lọc partner_id như Product).
     private function buildBranchOptions(): array
     {
-        $user  = auth()->user();
+        $user = auth()->user();
+
         $query = \Modules\Category\Entities\Category::whereNull('parent_id')
             ->where('category_type', 'product')
             ->orderBy('name');
 
         if ($user && ! $user->isSuperAdmin()) {
-            $allowedIds = $user->allowedCategoryIds() ?? [];
-            if (! empty($allowedIds)) {
-                $query->where(function ($q) use ($allowedIds) {
-                    $q->whereIn('id', $allowedIds)
-                        ->orWhereIn('id', \Modules\Category\Entities\Category::whereIn('id', $allowedIds)->pluck('parent_id')->filter());
-                });
-            }
+            $query->whereIn('id', $user->rootProductCategoryIds());
         }
 
         return $query->pluck('name', 'id')->toArray();
