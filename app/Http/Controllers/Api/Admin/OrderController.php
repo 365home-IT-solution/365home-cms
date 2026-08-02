@@ -62,7 +62,7 @@ class OrderController extends Controller
         $user = $request->user();
 
         $query = Order::query()->with([
-            'items.product:id,name',
+            'items.product:id,name,styles',
             'items.product.media',
             'category:id,name',
             'customer:id,fullname,phone',
@@ -169,8 +169,13 @@ class OrderController extends Controller
 
         $order = Order::query()
             ->with([
-                'items.product:id,name',
+                'items.product:id,name,styles',
                 'items.product.media',
+                // Suy timeslot_id cho từng item (đơn theo giờ) — order_items không lưu timeslot_id
+                // trực tiếp, phải khớp ngược qua giờ bắt đầu (checkin_date) với RoomTimeSlot lặp
+                // lại (date IS NULL) của phòng, cùng cách làm với update() ở trên.
+                'items.product.roomTimeSlots' => fn ($q) => $q->whereNull('date'),
+                'items.product.roomTimeSlots.timeSlot',
                 'services',
                 'category:id,name',
                 'customer:id,fullname,phone',
@@ -805,6 +810,10 @@ class OrderController extends Controller
                 'name' => $order->category->name,
             ] : null,
             'rooms'        => $order->items->pluck('product.name')->filter()->unique()->values(),
+            // slot = đặt theo khung giờ, daily = đặt theo ngày — suy từ Product.styles của phòng ở
+            // item ĐẦU TIÊN (đơn multi-room hiếm khi lẫn lộn 2 kiểu phòng), cùng quy ước với mọi
+            // nơi khác trong hệ thống (styles=1 => slot, styles=2 => daily, xem BuildsRoomBooking).
+            'type' => ((int) ($order->items->first()?->product?->styles ?? 1)) === 2 ? 'daily' : 'slot',
             // Ảnh đại diện đơn — ảnh chính của phòng ở item ĐẦU TIÊN (đơn multi-room hiếm khi khác
             // chi nhánh/loại phòng nhau, đủ dùng làm thumbnail cho danh sách, xem chi tiết đủ ảnh
             // từng phòng qua GET /api/admin/orders/{order_code}).
@@ -850,6 +859,7 @@ class OrderController extends Controller
                 'checkin_date'  => $item->checkin_date,
                 'checkout_date' => $item->checkout_date,
                 'slot_label'    => $item->slot_label,
+                'timeslot_id'   => $this->resolveItemTimeslotId($item),
                 'over_night'    => (bool) $item->over_night,
                 'guest_count'   => $item->guest_count,
             ])->values(),
@@ -874,6 +884,23 @@ class OrderController extends Controller
                 'cccd_data'   => $g->cccd_data,
             ])->values(),
         ];
+    }
+
+    // Suy timeslot_id của 1 order_item (đơn theo giờ) — order_items không lưu timeslot_id trực
+    // tiếp, khớp ngược qua giờ bắt đầu (checkin_date, HH:mm:ss) với RoomTimeSlot lặp lại (date IS
+    // NULL) của phòng, cùng cách làm với đoạn "Đổi khung giờ/ngày" ở update(). Đơn theo ngày
+    // (daily) hoặc item không xác định được khung giờ khớp -> null.
+    private function resolveItemTimeslotId($item): ?int
+    {
+        if (! $item->checkin_date || ! $item->product) {
+            return null;
+        }
+
+        $startTime = Carbon::parse($item->checkin_date)->format('H:i:s');
+        $rts       = $item->product->roomTimeSlots
+            ->first(fn ($rts) => $rts->timeSlot && $rts->timeSlot->start_time === $startTime);
+
+        return $rts?->timeslot_id;
     }
 
     // Ảnh chính của phòng (Spatie MediaLibrary — cùng thứ tự ưu tiên collection với

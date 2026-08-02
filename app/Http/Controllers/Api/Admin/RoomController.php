@@ -98,6 +98,10 @@ class RoomController extends Controller
      * Query params:
      *  - days        : số ngày muốn lấy mỗi lần gọi (mặc định 10, tối đa 60)
      *  - offset_days : số ngày lệch so với hôm nay (mặc định 0, có thể âm để xem ngày trước)
+     *  - order_code  : (tuỳ chọn) đơn đang sửa ở FE — khung giờ nào đơn NÀY đang giữ sẽ có thêm cờ
+     *    held_by_order=true trong mỗi ô ngày x khung giờ (is_selectable KHÔNG đổi theo cờ này, vẫn
+     *    false như slot bị đơn khác giữ — FE tự quyết định cho chọn lại dựa vào held_by_order thay
+     *    vì phải tự đối chiếu checkin_date của item với time_slots[].time).
      *
      * "held_by_me" tự suy từ chính admin đang gọi API (Admin\TimeSlotHoldController dùng định danh
      * "admin:{user_id}", KHÔNG phải session_id tự khai như phía khách) — không cần client tự truyền
@@ -142,6 +146,32 @@ class RoomController extends Controller
             ->sortBy(fn ($rts) => $rts->timeSlot->start_time)
             ->values();
 
+        // order_code (tuỳ chọn) = đơn đang sửa ở FE — slot nào đơn NÀY đang giữ sẽ được đánh dấu
+        // held_by_order=true (dù is_selectable vẫn false như slot bị đơn khác giữ, để không đổi
+        // hành vi mặc định), giúp FE tự cho phép chọn lại đúng khung của chính đơn mà không phải
+        // tự đối chiếu checkin_date với time_slots[].time.
+        $currentOrderSlotKeys = [];
+        if ($request->filled('order_code')) {
+            $currentOrderItems = OrderItem::where('product_id', $room->id)
+                ->whereNotNull('checkin_date')
+                ->whereHas('order', function ($q) use ($request, $user) {
+                    $q->where('order_code', $request->query('order_code'));
+                    if (! $user->isSuperAdmin()) {
+                        $q->where('partner_id', $user->partner_id);
+                    }
+                })
+                ->get(['checkin_date']);
+
+            foreach ($currentOrderItems as $item) {
+                $checkin   = Carbon::parse($item->checkin_date);
+                $startTime = $checkin->format('H:i:s');
+                $rts       = $timeSlots->first(fn ($rts) => $rts->timeSlot->start_time === $startTime);
+                if ($rts) {
+                    $currentOrderSlotKeys[$checkin->toDateString() . '|' . $rts->timeslot_id] = true;
+                }
+            }
+        }
+
         $roomInfo = [
             'id'   => $room->id,
             'name' => $room->name,
@@ -183,7 +213,7 @@ class RoomController extends Controller
             ];
 
             $slots = $timeSlots
-                ->map(fn ($rts) => $this->buildSlotStatus($room, $rts, $dateArr, $book, $today, $holds, $sessionId))
+                ->map(fn ($rts) => $this->buildSlotStatus($room, $rts, $dateArr, $book, $today, $holds, $sessionId, $currentOrderSlotKeys))
                 ->values();
 
             $daysOut[] = $dateArr + ['slots' => $slots];
@@ -207,7 +237,7 @@ class RoomController extends Controller
      * khớp nhau, chỉ khác nguồn dữ liệu đầu vào (1 phòng theo đối tác admin, không phải mọi phòng
      * trong 1 chi nhánh public).
      */
-    private function buildSlotStatus(Product $room, $rts, array $date, Book $book, Carbon $today, array $holds, ?string $sessionId): array
+    private function buildSlotStatus(Product $room, $rts, array $date, Book $book, Carbon $today, array $holds, ?string $sessionId, array $currentOrderSlotKeys = []): array
     {
         $currentDateTime = Carbon::createFromFormat('d-m-Y H:i:s', $date['date'] . ' ' . $rts->timeSlot->start_time);
 
@@ -267,13 +297,19 @@ class RoomController extends Controller
         $finalPrice    = (int) $priceData['final_price'];
         $originalPrice = (int) $priceData['original_price'];
 
+        // true nếu chính khung này đang bị đơn được truyền qua ?order_code= giữ (xem timeSlots())
+        // — is_selectable KHÔNG đổi theo cờ này (vẫn false như slot bị đơn khác giữ), FE tự quyết
+        // định cho chọn lại dựa vào held_by_order thay vì phải tự đối chiếu checkin_date.
+        $heldByOrder = isset($currentOrderSlotKeys[$slotDate->toDateString() . '|' . $rts->timeslot_id]);
+
         return [
-            'timeslot_id'   => $rts->timeslot_id,
-            'status'        => $status,
-            'is_selectable' => $isSelectable,
-            'is_blocked'    => $isBlocked,
-            'held'          => $held,
-            'held_by_me'    => $heldByMe,
+            'timeslot_id'    => $rts->timeslot_id,
+            'status'         => $status,
+            'is_selectable'  => $isSelectable,
+            'is_blocked'     => $isBlocked,
+            'held'           => $held,
+            'held_by_me'     => $heldByMe,
+            'held_by_order'  => $heldByOrder,
             'price'         => $originalPrice,
             'final_price'   => $finalPrice !== $originalPrice ? $finalPrice : null,
             'has_promotion' => $priceData['has_promotion'],
