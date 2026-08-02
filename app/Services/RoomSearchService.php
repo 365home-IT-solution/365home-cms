@@ -9,6 +9,7 @@ use App\Models\Customer;
 use App\Models\Province;
 use App\Models\ProvinceBranch;
 use Carbon\Carbon;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -56,8 +57,16 @@ class RoomSearchService
         ];
     }
 
-    public function search(array $filters, ?Customer $authUser = null): array
+    public function search(array $filters, ?Authenticatable $authUser = null): array
     {
+        // Route public (guest lẫn customer đăng nhập đều gọi được) — nhưng auth('sanctum')->user()
+        // trả về BẤT KỲ model nào có HasApiTokens khớp token, không riêng Customer (User/nhân viên
+        // CMS cũng tạo token qua Admin\AuthController, cùng bảng personal_access_tokens). Trước đây
+        // tham số ép kiểu cứng ?Customer nên 1 token hợp lệ của User (không phải Customer) làm PHP
+        // ném TypeError ngay khi gọi hàm (type-hint class luôn được kiểm dù không strict_types) →
+        // 500. Coi mọi authenticatable KHÔNG PHẢI Customer như khách vãng lai (null) thay vì crash.
+        $authUser = $authUser instanceof Customer ? $authUser : null;
+
         $validated = Validator::make($filters, self::validationRules())->validate();
 
         $query = Product::where('is_activated', true)
@@ -156,8 +165,12 @@ class RoomSearchService
      * khác với branches() trong SearchController vốn chỉ lọc theo province. Dùng chung
      * applyFilters() với search() để không lệch logic lọc phòng giữa 2 đường.
      */
-    public function searchBranches(array $filters, ?Customer $authUser = null): array
+    public function searchBranches(array $filters, ?Authenticatable $authUser = null): array
     {
+        // Xem ghi chú ở search() — chuẩn hoá về Customer|null trước khi dùng, tránh TypeError khi
+        // token hợp lệ thuộc về User (nhân viên/CMS) thay vì Customer.
+        $authUser = $authUser instanceof Customer ? $authUser : null;
+
         $validated = Validator::make($filters, self::validationRules())->validate();
 
         $query = Product::where('is_activated', true)
