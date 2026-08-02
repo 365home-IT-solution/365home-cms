@@ -810,6 +810,10 @@ class OrderController extends Controller
                 'name' => $order->category->name,
             ] : null,
             'rooms'        => $order->items->pluck('product.name')->filter()->unique()->values(),
+            // id phòng (products.id) của item ĐẦU TIÊN — cùng giả định "đơn thường 1 phòng" như
+            // product_image bên dưới, đủ dùng để FE gọi thẳng GET /admin/rooms/{id}/time-slots từ
+            // chi tiết đơn mà không phải tra cứu id phòng qua API khác.
+            'product_id' => $order->items->first()?->product_id,
             // slot = đặt theo khung giờ, daily = đặt theo ngày — suy từ Product.styles của phòng ở
             // item ĐẦU TIÊN (đơn multi-room hiếm khi lẫn lộn 2 kiểu phòng), cùng quy ước với mọi
             // nơi khác trong hệ thống (styles=1 => slot, styles=2 => daily, xem BuildsRoomBooking).
