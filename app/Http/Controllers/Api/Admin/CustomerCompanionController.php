@@ -48,10 +48,12 @@ class CustomerCompanionController extends Controller
     // POST /api/admin/customers/{customer_id}/companions (multipart/form-data)
     // Thêm CÙNG LÚC nhiều companion — số lượng do FE quyết định dựa trên guest_count của đơn
     // (ví dụ guest_count=3 → gửi 3 companion trong 1 request thay vì gọi POST 3 lần riêng lẻ).
-    // Payload: companions[{index}][cccd_front|cccd_back], index bắt đầu từ 0. Không nhận full_name
-    // qua payload — full_name lấy tự động từ QR khi quét CCCD, sửa tay qua POST .../companions/{id}.
-    // CCCD (2 mặt) là BẮT BUỘC cho từng companion — mục đích của companion là lưu sẵn CCCD đã quét,
-    // không có ảnh thì không có gì để tái sử dụng ở lần đặt phòng sau.
+    // Mỗi companion CHỌN 1 trong 2 chế độ, tự nhận diện qua field nào được gửi:
+    //  - Chế độ ẢNH:  companions[{index}][cccd_front|cccd_back] — quét QR/OCR, full_name lấy tự
+    //    động từ kết quả quét (không nhận qua payload).
+    //  - Chế độ NHẬP TAY: companions[{index}][full_name|cccd|dob|gender|address] — dùng khi admin
+    //    đã có sẵn thông tin (không có ảnh chụp), full_name và cccd bắt buộc, dob/gender/address
+    //    tuỳ chọn. Không quét ảnh, cccd_front/cccd_back lưu null.
     // Xử lý theo TRANSACTION — 1 companion lỗi (trùng CCCD, 2 mặt không khớp...) thì rollback toàn
     // bộ batch và xoá lại các ảnh đã upload trong request, tránh tạo dở dang nửa danh sách.
     public function store(Request $request, string $customerId): JsonResponse
@@ -63,9 +65,14 @@ class CustomerCompanionController extends Controller
         }
 
         $data = $request->validate([
-            'companions'              => 'required|array|min:1',
-            'companions.*.cccd_front' => 'required|file|mimes:jpg,jpeg,png,webp|max:10240',
-            'companions.*.cccd_back'  => 'required|file|mimes:jpg,jpeg,png,webp|max:10240',
+            'companions'                => 'required|array|min:1',
+            'companions.*.cccd_front'   => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
+            'companions.*.cccd_back'    => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
+            'companions.*.full_name'    => 'sometimes|nullable|string|max:255',
+            'companions.*.cccd'         => 'sometimes|nullable|string|max:20',
+            'companions.*.dob'          => 'sometimes|nullable|string|max:20',
+            'companions.*.gender'       => 'sometimes|nullable|string|max:20',
+            'companions.*.address'      => 'sometimes|nullable|string|max:255',
         ]);
 
         $uploadedPaths = [];
@@ -77,43 +84,81 @@ class CustomerCompanionController extends Controller
                 $created    = [];
 
                 foreach (array_keys($data['companions']) as $index) {
-                    $front = $request->file("companions.{$index}.cccd_front")->store('cccd', 'public');
-                    $back  = $request->file("companions.{$index}.cccd_back")->store('cccd', 'public');
-                    $uploadedPaths[] = $front;
-                    $uploadedPaths[] = $back;
+                    $hasFront = $request->hasFile("companions.{$index}.cccd_front");
+                    $hasBack  = $request->hasFile("companions.{$index}.cccd_back");
 
-                    $this->assertSidesMatch($front, $back, $index);
+                    if ($hasFront && $hasBack) {
+                        $front = $request->file("companions.{$index}.cccd_front")->store('cccd', 'public');
+                        $back  = $request->file("companions.{$index}.cccd_back")->store('cccd', 'public');
+                        $uploadedPaths[] = $front;
+                        $uploadedPaths[] = $back;
 
-                    // Trùng ẢNH (so hash nội dung file) — bắt được cả trường hợp OCR không đọc được
-                    // số CCCD (quét lỗi/ảnh mờ) nên assertNoCccdDuplicate bên dưới không có dữ liệu
-                    // để so. Check TRƯỚC khi quét QR vì không phụ thuộc kết quả quét.
-                    $seenImages[$index] = $this->assertNoImageDuplicate($customer, $front, $back, null, $seenImages, $index);
+                        $this->assertSidesMatch($front, $back, $index);
 
-                    $cccdData = null;
-                    try {
-                        $cccdData = app(CccdScannerService::class)->scanPaths($front, $back);
-                    } catch (\Throwable $e) {
-                        Log::warning('Admin API: quét CCCD khách đi cùng (companion) thất bại', [
-                            'customer_id' => $customer->id,
-                            'index'       => $index,
-                            'error'       => $e->getMessage(),
+                        // Trùng ẢNH (so hash nội dung file) — bắt được cả trường hợp OCR không đọc
+                        // được số CCCD (quét lỗi/ảnh mờ) nên assertNoCccdDuplicate bên dưới không có
+                        // dữ liệu để so. Check TRƯỚC khi quét QR vì không phụ thuộc kết quả quét.
+                        $seenImages[$index] = $this->assertNoImageDuplicate($customer, $front, $back, null, $seenImages, $index);
+
+                        $cccdData = null;
+                        try {
+                            $cccdData = app(CccdScannerService::class)->scanPaths($front, $back);
+                        } catch (\Throwable $e) {
+                            Log::warning('Admin API: quét CCCD khách đi cùng (companion) thất bại', [
+                                'customer_id' => $customer->id,
+                                'index'       => $index,
+                                'error'       => $e->getMessage(),
+                            ]);
+                        }
+
+                        $this->assertNoCccdDuplicate($customer, $cccdData, null, $seenCccds, $index);
+
+                        $rowCccd = trim((string) ($cccdData['cccd'] ?? ''));
+                        if ($rowCccd !== '') {
+                            $seenCccds[$index] = $rowCccd;
+                        }
+
+                        // Không bắt buộc đọc được QR — quét lỗi vẫn tạo companion bình thường,
+                        // cccd_data để trống, full_name lấy từ QR (không nhận qua payload) — admin
+                        // sửa tay sau nếu cần (cùng nguyên tắc CCCD "tùy chọn" toàn hệ thống).
+                        $created[] = $customer->companions()->create([
+                            'full_name'  => $cccdData['full_name'] ?? null,
+                            'cccd_front' => $front,
+                            'cccd_back'  => $back,
+                            'cccd_data'  => $cccdData,
+                        ]);
+
+                        continue;
+                    }
+
+                    // Chế độ NHẬP TAY — không có ảnh, admin gõ trực tiếp thông tin CCCD đã biết sẵn.
+                    $row      = $data['companions'][$index];
+                    $fullName = trim((string) ($row['full_name'] ?? ''));
+                    $cccd     = trim((string) ($row['cccd'] ?? ''));
+                    $key      = "companions.{$index}.full_name";
+
+                    if ($fullName === '' || $cccd === '') {
+                        throw ValidationException::withMessages([
+                            $key => ['Không có ảnh CCCD thì phải nhập đủ họ tên và số CCCD.'],
                         ]);
                     }
 
+                    $cccdData = [
+                        'cccd'      => $cccd,
+                        'full_name' => $fullName,
+                        'dob'       => trim((string) ($row['dob'] ?? '')),
+                        'gender'    => trim((string) ($row['gender'] ?? '')),
+                        'address'   => trim((string) ($row['address'] ?? '')),
+                        'source'    => 'manual',
+                    ];
+
                     $this->assertNoCccdDuplicate($customer, $cccdData, null, $seenCccds, $index);
+                    $seenCccds[$index] = $cccd;
 
-                    $rowCccd = trim((string) ($cccdData['cccd'] ?? ''));
-                    if ($rowCccd !== '') {
-                        $seenCccds[$index] = $rowCccd;
-                    }
-
-                    // Không bắt buộc đọc được QR — quét lỗi vẫn tạo companion bình thường, cccd_data
-                    // để trống, full_name lấy từ QR (không nhận qua payload) — admin sửa tay sau nếu
-                    // cần (cùng nguyên tắc CCCD "tùy chọn" toàn hệ thống).
                     $created[] = $customer->companions()->create([
-                        'full_name'  => $cccdData['full_name'] ?? null,
-                        'cccd_front' => $front,
-                        'cccd_back'  => $back,
+                        'full_name'  => $fullName,
+                        'cccd_front' => null,
+                        'cccd_back'  => null,
                         'cccd_data'  => $cccdData,
                     ]);
                 }

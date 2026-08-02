@@ -255,6 +255,73 @@ class BranchController extends Controller
         ];
     }
 
+    /**
+     * GET /api/v1/branches/{branch}/daily-rooms
+     *
+     * Danh sách phòng THEO NGÀY (styles=2 — khách đặt theo đêm/ngày, khác với phòng theo khung
+     * giờ ở timeSlots() phía trên) thuộc 1 chi nhánh. {branch} linh hoạt — chấp nhận id, slug,
+     * hoặc tên chi nhánh (thử theo thứ tự đó), để client không bắt buộc phải biết trước slug.
+     */
+    public function dailyRooms(string $branch): JsonResponse
+    {
+        $branchModel = $this->resolveBranchIdentifier($branch);
+
+        if (! $branchModel) {
+            return response()->json(['message' => 'Chi nhánh không tồn tại.'], 404);
+        }
+
+        $categoryIds = array_merge(
+            [$branchModel->id],
+            Category::where('parent_id', $branchModel->id)->pluck('id')->toArray()
+        );
+
+        $authUser      = auth('sanctum')->user();
+        $wishlistedIds = $authUser
+            ? $authUser->wishlists()->pluck('product_id')->toArray()
+            : null;
+
+        $rooms = Product::where('is_activated', true)
+            ->where('is_in_stock', true)
+            ->where('styles', 2)
+            ->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $categoryIds))
+            ->with('media')
+            ->orderBy('sort_order')
+            ->get();
+
+        $branchInfo = [
+            'id'   => $branchModel->id,
+            'name' => $branchModel->name,
+            'slug' => $branchModel->slug,
+        ];
+
+        $roomList = $rooms->map(function (Product $room) use ($wishlistedIds, $branchInfo) {
+            $wishlistStatus  = $wishlistedIds === null ? null : in_array($room->id, $wishlistedIds);
+            $card            = $this->mapRoom($room, $wishlistStatus);
+            $card['branch']  = $branchInfo;
+
+            return $card;
+        })->values();
+
+        return response()->json([
+            'branch'    => $branchInfo,
+            'room_list' => $roomList,
+        ]);
+    }
+
+    // Tìm chi nhánh (Category gốc) theo id (số), slug, hoặc tên — dùng cho các endpoint nhận
+    // {branch} linh hoạt thay vì bắt buộc đúng 1 định dạng.
+    private function resolveBranchIdentifier(string $branch): ?Category
+    {
+        $query = Category::whereNull('parent_id')->where('category_type', 'product');
+
+        if (is_numeric($branch)) {
+            return (clone $query)->where('id', (int) $branch)->first();
+        }
+
+        return (clone $query)->where('slug', $branch)->first()
+            ?? (clone $query)->where('name', $branch)->first();
+    }
+
     // GET /api/v1/branches
     // ?province_id={id} → chỉ lấy chi nhánh đang active tại tỉnh đó
     public function index(Request $request): JsonResponse

@@ -86,6 +86,8 @@ Route::get('v1/branches/{id}', [BranchController::class, 'show'])->name('api.v1.
 | GET /api/v1/branches/{slug}/time-slots?days=15 → Lịch đặt phòng đầy đủ 1 chi nhánh (mọi phòng
 |                                                    theo khung giờ x ngày, kèm giá/khuyến mãi/
 |                                                    trạng thái đã đặt) — days tối đa 31.
+| GET /api/v1/branches/{branch}/daily-rooms      → Danh sách phòng THEO NGÀY (styles=2) thuộc 1
+|                                                    chi nhánh — {branch} nhận id, slug, hoặc tên.
 |--------------------------------------------------------------------------
 */
 Route::prefix('v1')->name('api.v1.')->group(function () {
@@ -93,6 +95,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
     Route::get('branches/{slug}/time-slots', [BranchController::class, 'timeSlots'])
         ->name('branches.time-slots')
+        ->middleware('throttle:public-api');
+
+    Route::get('branches/{branch}/daily-rooms', [BranchController::class, 'dailyRooms'])
+        ->name('branches.daily-rooms')
         ->middleware('throttle:public-api');
 
     Route::prefix('provinces')->name('provinces.')->group(function () {

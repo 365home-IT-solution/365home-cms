@@ -326,11 +326,14 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/customers')->nam
 |
 | GET    /api/admin/customers/{customer_id}/companions      → Danh sách companion đã lưu
 | POST   /api/admin/customers/{customer_id}/companions      → Thêm mới HÀNG LOẠT (multipart),
-|                                                              payload companions[{i}][cccd_front|
-|                                                              cccd_back], front+back BẮT BUỘC mỗi
-|                                                              companion (không nhận full_name — lấy
-|                                                              tự động từ QR) — transaction, 1 lỗi
-|                                                              rollback cả batch
+|                                                              mỗi companion CHỌN 1 trong 2 chế độ:
+|                                                              - ẢNH: companions[{i}][cccd_front|
+|                                                                cccd_back] — quét QR/OCR, full_name
+|                                                                lấy tự động từ kết quả quét
+|                                                              - NHẬP TAY: companions[{i}][full_name|
+|                                                                cccd|dob|gender|address] — không có
+|                                                                ảnh, full_name + cccd bắt buộc
+|                                                              — transaction, 1 lỗi rollback cả batch
 | POST   /api/admin/customers/{customer_id}/companions/{id} → Quét lại CCCD (không nhận full_name,
 |                                                              đồng bộ với POST tạo mới) — chỉ có tác
 |                                                              dụng khi gửi ĐỦ CẢ front+back

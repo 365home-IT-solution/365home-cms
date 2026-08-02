@@ -1,5 +1,5 @@
-<div x-data="{ open: false }"
-     @open-block-timeslot-modal.window="open = true; $wire.resetModal()"
+<div x-data="{ open: false, selectedBranch: '', allRooms: @js($allRooms) }"
+     @open-block-timeslot-modal.window="open = true; selectedBranch = ''; $wire.resetModal()"
      @open-block-timeslot-modal-for-room.window="open = true"
      @close-block-timeslot-modal.window="open = false">
 
@@ -53,6 +53,23 @@
                         @if ($isStyle2) Khóa khoảng ngày mới @else Thiết lập tô đen mới @endif
                     </p>
 
+                    {{-- Chọn chi nhánh — lọc bớt danh sách phòng bên dưới cho dễ tìm. Ẩn khi mở
+                         sẵn cho 1 phòng cụ thể (đã biết phòng, không cần lọc lại). --}}
+                    @if (!$lockedToProduct)
+                    <div>
+                        <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Chi nhánh</label>
+                        {{-- Lọc client-side bằng Alpine (không gọi lại server) nên chọn xong danh
+                             sách phòng bên dưới hiện ra ngay, không phải chờ round-trip Livewire. --}}
+                        <select x-model="selectedBranch" @change="$wire.set('product_id', null)"
+                            class="w-full rounded-lg border-gray-300 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                            <option value="">-- Tất cả chi nhánh --</option>
+                            @foreach ($branchOptions as $id => $name)
+                                <option value="{{ $id }}">{{ $name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    @endif
+
                     {{-- Chọn phòng — ẩn khi mở sẵn cho 1 phòng cụ thể (từ menu ⋮ trên thẻ phòng ở
                          Dashboard, xem BlockTimeslotModal::openForProduct()), không bắt chọn lại. --}}
                     @if ($lockedToProduct)
@@ -70,9 +87,9 @@
                         <select wire:model.live="product_id"
                             class="w-full rounded-lg border-gray-300 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
                             <option value="">-- Chọn phòng --</option>
-                            @foreach ($roomOptions as $id => $name)
-                                <option value="{{ $id }}">{{ $name }}</option>
-                            @endforeach
+                            <template x-for="room in allRooms.filter(r => !selectedBranch || String(r.branch_id) === String(selectedBranch))" :key="room.id">
+                                <option :value="room.id" x-text="room.name"></option>
+                            </template>
                         </select>
                         @error('product_id')
                             <p class="mt-1 text-xs text-danger-500">{{ $message }}</p>
@@ -162,17 +179,27 @@
                             @endif
                         </div>
 
-                        @if ($product_id && count($blockedList) > 0 && !$showConfirmClear)
-                        <button wire:click="confirmClear"
-                            class="inline-flex items-center gap-1 rounded-lg border border-danger-200 bg-danger-50 px-2.5 py-1 text-xs font-medium text-danger-600 transition hover:bg-danger-100 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-400 dark:hover:bg-danger-900">
-                            <x-heroicon-o-trash class="h-3.5 w-3.5" />
-                            Xóa tất cả
-                        </button>
-                        @endif
+                        <div class="flex items-center gap-2">
+                            @if (count($selectedBlockedKeys) > 0 && !$showConfirmClear && !$showConfirmBulkDelete && $pendingRangeIndex === null && $pendingDateItem === null)
+                            <button wire:click="confirmDeleteSelected"
+                                class="inline-flex items-center gap-1 rounded-lg border border-danger-200 bg-danger-50 px-2.5 py-1 text-xs font-medium text-danger-600 transition hover:bg-danger-100 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-400 dark:hover:bg-danger-900">
+                                <x-heroicon-o-trash class="h-3.5 w-3.5" />
+                                Xóa đã chọn ({{ count($selectedBlockedKeys) }})
+                            </button>
+                            @endif
+
+                            @if ($product_id && count($blockedList) > 0 && !$showConfirmClear)
+                            <button wire:click="confirmClear"
+                                class="inline-flex items-center gap-1 rounded-lg border border-danger-200 bg-danger-50 px-2.5 py-1 text-xs font-medium text-danger-600 transition hover:bg-danger-100 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-400 dark:hover:bg-danger-900">
+                                <x-heroicon-o-trash class="h-3.5 w-3.5" />
+                                Xóa tất cả
+                            </button>
+                            @endif
+                        </div>
                     </div>
 
                     {{-- Filament-style confirmation box --}}
-                    @if ($showConfirmClear || $pendingRangeIndex !== null || $pendingDateItem !== null)
+                    @if ($showConfirmClear || $showConfirmBulkDelete || $pendingRangeIndex !== null || $pendingDateItem !== null)
                     <div class="mb-4 rounded-xl border border-danger-200 bg-danger-50 p-4 dark:border-danger-800 dark:bg-danger-950/60">
                         <div class="flex items-start gap-3">
                             <x-heroicon-o-exclamation-triangle class="mt-0.5 h-5 w-5 flex-shrink-0 text-danger-500" />
@@ -181,6 +208,8 @@
                                 <p class="mt-0.5 text-sm text-danger-600 dark:text-danger-400">
                                     @if ($showConfirmClear)
                                         Xóa tất cả lịch bị khóa của phòng này? Hành động không thể hoàn tác.
+                                    @elseif ($showConfirmBulkDelete)
+                                        Xóa {{ count($selectedBlockedKeys) }} mục đã chọn? Hành động không thể hoàn tác.
                                     @elseif ($pendingRangeIndex !== null && isset($blockedList[$pendingRangeIndex]))
                                         Gỡ khóa khoảng
                                         <strong>{{ $blockedList[$pendingRangeIndex]['start_display'] }}
@@ -226,6 +255,11 @@
                             <table class="w-full text-sm">
                                 <thead>
                                     <tr class="bg-gray-50 dark:bg-gray-800">
+                                        <th class="w-8 px-4 py-2.5 text-center">
+                                            <input type="checkbox" wire:click="toggleSelectAllBlocked"
+                                                @checked(count($selectedBlockedKeys) > 0 && count($selectedBlockedKeys) >= count($blockedList))
+                                                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                                        </th>
                                         <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Từ ngày</th>
                                         <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Đến ngày</th>
                                         <th class="w-12 px-4 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-gray-500">Xóa</th>
@@ -236,6 +270,10 @@
                                     <tr class="group transition
                                         {{ $pendingRangeIndex === $item['index'] ? 'bg-danger-50 dark:bg-danger-950/30' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50' }}"
                                         wire:key="blockrange-{{ $item['index'] }}">
+                                        <td class="px-4 py-2.5 text-center">
+                                            <input type="checkbox" wire:model="selectedBlockedKeys" value="{{ $item['index'] }}"
+                                                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                                        </td>
                                         <td class="px-4 py-2.5">
                                             <span class="flex items-center gap-1.5 text-danger-600 dark:text-danger-400">
                                                 <x-heroicon-o-calendar class="h-3.5 w-3.5 flex-shrink-0" />
@@ -270,6 +308,11 @@
                             <table class="w-full text-sm">
                                 <thead>
                                     <tr class="bg-gray-50 dark:bg-gray-800">
+                                        <th class="w-8 px-4 py-2.5 text-center">
+                                            <input type="checkbox" wire:click="toggleSelectAllBlocked"
+                                                @checked(count($selectedBlockedKeys) > 0 && count($selectedBlockedKeys) >= count($blockedList))
+                                                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                                        </th>
                                         <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Khung giờ</th>
                                         <th class="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">Ngày bị chặn</th>
                                         <th class="w-12 px-4 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-gray-500">Xóa</th>
@@ -281,6 +324,10 @@
                                     <tr class="group transition
                                         {{ $isPending ? 'bg-danger-50 dark:bg-danger-950/30' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50' }}"
                                         wire:key="block-{{ $item['rts_id'] }}-{{ $item['date'] }}">
+                                        <td class="px-4 py-2.5 text-center">
+                                            <input type="checkbox" wire:model="selectedBlockedKeys" value="{{ $item['rts_id'] }}|{{ $item['date'] }}"
+                                                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+                                        </td>
                                         <td class="px-4 py-2.5">
                                             <span class="inline-flex items-center gap-1.5 rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
                                                 <x-heroicon-o-clock class="h-3 w-3" />

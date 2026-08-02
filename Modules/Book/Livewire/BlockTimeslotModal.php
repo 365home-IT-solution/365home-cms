@@ -28,13 +28,23 @@ class BlockTimeslotModal extends Component
     public bool $lockedToProduct = false;
 
     // ---- Confirmation state ----
-    public bool   $showConfirmClear  = false;
+    public bool   $showConfirmClear      = false;
+    public bool   $showConfirmBulkDelete = false;
     public ?int   $pendingRangeIndex = null;
     public ?array $pendingDateItem   = null;
 
+    // ---- Chọn nhiều mục trong danh sách đã tô đen để xóa hàng loạt ----
+    // Style1: key = "{rts_id}|{date}"; Style2: key = "{index}" (dạng chuỗi).
+    public array $selectedBlockedKeys = [];
+
     // ---- Options ----
+    public array $branchOptions   = [];
     public array $roomOptions     = [];
     public array $timeslotOptions = [];
+
+    // Toàn bộ phòng (id/name/branch_id) nạp 1 lần, đẩy xuống Alpine để lọc theo chi nhánh NGAY
+    // trên trình duyệt — chọn chi nhánh không cần round-trip Livewire nên không phải chờ.
+    public array $allRooms = [];
 
     // ---- Danh sách blocked hiển thị ----
     // [ ['rts_id' => X, 'label' => '...', 'date' => 'YYYY-MM-DD', 'date_display' => 'dd/mm/yyyy'], ... ]
@@ -42,13 +52,40 @@ class BlockTimeslotModal extends Component
 
     public function mount(): void
     {
-        $this->roomOptions = $this->buildRoomOptions();
+        $this->branchOptions = $this->buildBranchOptions();
+        $this->allRooms      = $this->buildAllRooms();
+        $this->roomOptions   = collect($this->allRooms)->pluck('name', 'id')->toArray();
     }
 
-    private function buildRoomOptions(): array
+    // Chi nhánh = Category gốc (parent_id null, category_type = product), giống cách Dashboard
+    // build bộ lọc chi nhánh — xem Modules\Dashboard\App\Filament\Pages\Dashboard::mount()/render().
+    private function buildBranchOptions(): array
     {
         $user  = auth()->user();
-        $query = Product::where('is_activated', true);
+        $query = \Modules\Category\Entities\Category::whereNull('parent_id')
+            ->where('category_type', 'product')
+            ->orderBy('name');
+
+        if ($user && ! $user->isSuperAdmin()) {
+            $allowedIds = $user->allowedCategoryIds() ?? [];
+            if (! empty($allowedIds)) {
+                $query->where(function ($q) use ($allowedIds) {
+                    $q->whereIn('id', $allowedIds)
+                        ->orWhereIn('id', \Modules\Category\Entities\Category::whereIn('id', $allowedIds)->pluck('parent_id')->filter());
+                });
+            }
+        }
+
+        return $query->pluck('name', 'id')->toArray();
+    }
+
+    // Nạp toàn bộ phòng kèm branch_id đã resolve sẵn (parent category, giống cách
+    // RoomCardsService xác định chi nhánh của phòng) — Alpine dùng mảng này để lọc theo chi nhánh
+    // ngay trên trình duyệt, không cần gọi lại server mỗi lần đổi chi nhánh.
+    private function buildAllRooms(): array
+    {
+        $user  = auth()->user();
+        $query = Product::where('is_activated', true)->with('categories.parent');
 
         if ($user && ! $user->isSuperAdmin()) {
             $categoryIds = $user->allowedCategoryIds();
@@ -63,7 +100,16 @@ class BlockTimeslotModal extends Component
             // partner_id (BelongsToPartner).
         }
 
-        return $query->pluck('name', 'id')->toArray();
+        return $query->get()->map(function (Product $product) {
+            $category = $product->categories->first();
+            $parent   = $category?->parent;
+
+            return [
+                'id'        => $product->id,
+                'name'      => $product->name,
+                'branch_id' => $parent?->id ?? $category?->id ?? 0,
+            ];
+        })->values()->all();
     }
 
     // Called from Alpine via $wire.resetModal() when button is clicked — modal visibility
@@ -73,7 +119,8 @@ class BlockTimeslotModal extends Component
         $this->reset([
             'product_id', 'timeslot_ids', 'date_from', 'date_to',
             'blockedList', 'timeslotOptions', 'isStyle2', 'lockedToProduct',
-            'showConfirmClear', 'pendingRangeIndex', 'pendingDateItem',
+            'showConfirmClear', 'showConfirmBulkDelete', 'pendingRangeIndex', 'pendingDateItem',
+            'selectedBlockedKeys',
         ]);
     }
 
@@ -107,29 +154,57 @@ class BlockTimeslotModal extends Component
 
     public function cancelConfirm(): void
     {
-        $this->showConfirmClear  = false;
-        $this->pendingRangeIndex = null;
-        $this->pendingDateItem   = null;
+        $this->showConfirmClear      = false;
+        $this->showConfirmBulkDelete = false;
+        $this->pendingRangeIndex     = null;
+        $this->pendingDateItem       = null;
     }
 
     public function confirmClear(): void
     {
+        $this->pendingRangeIndex     = null;
+        $this->pendingDateItem       = null;
+        $this->showConfirmBulkDelete = false;
+        $this->showConfirmClear      = true;
+    }
+
+    // Xóa nhiều mục đã tô đen/khóa cùng lúc — chọn qua checkbox trong danh sách bên phải.
+    public function confirmDeleteSelected(): void
+    {
+        if (empty($this->selectedBlockedKeys)) return;
+
+        $this->showConfirmClear  = false;
         $this->pendingRangeIndex = null;
         $this->pendingDateItem   = null;
-        $this->showConfirmClear  = true;
+        $this->showConfirmBulkDelete = true;
+    }
+
+    // Tick/untick tất cả các dòng đang hiển thị trong danh sách đã tô đen/khóa.
+    public function toggleSelectAllBlocked(): void
+    {
+        if (count($this->selectedBlockedKeys) >= count($this->blockedList) && ! empty($this->blockedList)) {
+            $this->selectedBlockedKeys = [];
+            return;
+        }
+
+        $this->selectedBlockedKeys = $this->isStyle2
+            ? collect($this->blockedList)->map(fn ($item) => (string) $item['index'])->values()->all()
+            : collect($this->blockedList)->map(fn ($item) => $item['rts_id'] . '|' . $item['date'])->values()->all();
     }
 
     public function confirmDeleteRange(int $index): void
     {
-        $this->showConfirmClear  = false;
-        $this->pendingDateItem   = null;
-        $this->pendingRangeIndex = $index;
+        $this->showConfirmClear      = false;
+        $this->showConfirmBulkDelete = false;
+        $this->pendingDateItem       = null;
+        $this->pendingRangeIndex     = $index;
     }
 
     public function confirmDeleteDate(int $rtsId, string $date): void
     {
-        $this->showConfirmClear  = false;
-        $this->pendingRangeIndex = null;
+        $this->showConfirmClear      = false;
+        $this->showConfirmBulkDelete = false;
+        $this->pendingRangeIndex     = null;
         $item = collect($this->blockedList)
             ->first(fn ($i) => ($i['rts_id'] ?? null) === $rtsId && ($i['date'] ?? '') === $date);
         $this->pendingDateItem = $item ?? [
@@ -145,6 +220,9 @@ class BlockTimeslotModal extends Component
         if ($this->showConfirmClear) {
             $this->showConfirmClear = false;
             $this->clearAllBlocked();
+        } elseif ($this->showConfirmBulkDelete) {
+            $this->showConfirmBulkDelete = false;
+            $this->removeSelectedBlocked();
         } elseif ($this->pendingRangeIndex !== null) {
             $index = $this->pendingRangeIndex;
             $this->pendingRangeIndex = null;
@@ -159,10 +237,11 @@ class BlockTimeslotModal extends Component
     // Reactive: chọn phòng → load khung giờ + blocked list
     public function updatedProductId(): void
     {
-        $this->timeslot_ids    = [];
-        $this->timeslotOptions = [];
-        $this->blockedList     = [];
-        $this->isStyle2        = false;
+        $this->timeslot_ids       = [];
+        $this->timeslotOptions    = [];
+        $this->blockedList        = [];
+        $this->selectedBlockedKeys = [];
+        $this->isStyle2           = false;
         $this->cancelConfirm();
 
         if (!$this->product_id) return;
@@ -359,10 +438,80 @@ class BlockTimeslotModal extends Component
             ->send();
     }
 
+    // Xóa hàng loạt các mục đã chọn (checkbox) trong danh sách bên phải — cả 2 kiểu style.
+    public function removeSelectedBlocked(): void
+    {
+        if (empty($this->selectedBlockedKeys)) return;
+
+        $realtime = app(SlotRealtimeService::class);
+
+        if ($this->isStyle2) {
+            $product = Product::find($this->product_id);
+            if (!$product) return;
+
+            $config  = is_array($product->room_config) ? $product->room_config : [];
+            $ranges  = $config['blocked_ranges'] ?? [];
+            $indexes = array_map('intval', $this->selectedBlockedKeys);
+
+            foreach ($indexes as $idx) {
+                unset($ranges[$idx]);
+            }
+            $config['blocked_ranges'] = array_values($ranges);
+            $product->update(['room_config' => $config]);
+
+            $removedCount = count($indexes);
+            $this->selectedBlockedKeys = [];
+            $this->refreshBlockedList();
+
+            $realtime->broadcastDailyBlocked((string) $this->product_id, $config['blocked_ranges']);
+
+            Notification::make()
+                ->title("Đã gỡ khóa {$removedCount} khoảng thời gian")
+                ->success()
+                ->send();
+            return;
+        }
+
+        // Style1: mỗi key có dạng "rts_id|date" — gom theo rts_id để update 1 lần/slot.
+        $byRoomTimeSlot = [];
+        foreach ($this->selectedBlockedKeys as $key) {
+            [$rtsId, $date] = array_pad(explode('|', $key, 2), 2, null);
+            if ($rtsId === null || $date === null) continue;
+            $byRoomTimeSlot[(int) $rtsId][] = $date;
+        }
+
+        $removedCount = 0;
+        foreach ($byRoomTimeSlot as $rtsId => $dates) {
+            $rts = RoomTimeSlot::find($rtsId);
+            if (!$rts) continue;
+
+            $settings = is_array($rts->settings)
+                ? $rts->settings
+                : (json_decode($rts->settings, true) ?? []);
+
+            $settings['blocked_dates'] = array_values(
+                array_diff($settings['blocked_dates'] ?? [], $dates)
+            );
+            $rts->update(['settings' => $settings]);
+            $removedCount += count($dates);
+
+            $realtime->broadcastBlockedRange((string) $this->product_id, $dates, [$rtsId], 'available');
+        }
+
+        $this->selectedBlockedKeys = [];
+        $this->refreshBlockedList();
+
+        Notification::make()
+            ->title("Đã gỡ tô đen {$removedCount} mục")
+            ->success()
+            ->send();
+    }
+
     // Build lại danh sách từ DB
     protected function refreshBlockedList(): void
     {
-        $this->blockedList = [];
+        $this->blockedList        = [];
+        $this->selectedBlockedKeys = [];
         if (!$this->product_id) return;
 
         if ($this->isStyle2) {
