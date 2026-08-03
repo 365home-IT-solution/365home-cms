@@ -161,6 +161,13 @@ class OrderController extends Controller
      * cọc, mốc thời gian thanh toán/nhận-trả phòng, người tạo đơn. Cùng phạm vi truy cập với
      * index()/update() — 404 nếu đơn không tồn tại hoặc không thuộc đối tác của tài khoản (không
      * trả 403, tránh lộ sự tồn tại của đơn ngoài phạm vi).
+     *
+     * 'guest_surcharge': {guest_count, threshold, extra_guests, fee_per_person, nights, total, label}
+     * — phụ thu do khách vượt ngưỡng miễn phí của phòng (products.room_config), TÍNH LẠI mỗi lần gọi
+     * từ order.guest_count + order_items hiện có (không đọc số đã cộng sẵn vào 'amount' lúc tạo/sửa
+     * đơn — số đó không persist riêng), cùng công thức với client (xem OrderController::buildDetail()
+     * phía app khách) để 2 nơi luôn khớp số. null nếu phòng không cấu hình phụ thu hoặc không vượt
+     * ngưỡng — xem buildGuestSurchargeInfo().
      */
     public function show(Request $request, string $orderCode): JsonResponse
     {
@@ -169,7 +176,9 @@ class OrderController extends Controller
 
         $order = Order::query()
             ->with([
-                'items.product:id,name,styles',
+                // room_config: nguồn tính guest_surcharge (extra_guest_fee/max_free_guests) — xem
+                // toDetailItem()/buildGuestSurchargeInfo().
+                'items.product:id,name,styles,room_config',
                 'items.product.media',
                 // Suy timeslot_id cho từng item (đơn theo giờ) — order_items không lưu timeslot_id
                 // trực tiếp, phải khớp ngược qua giờ bắt đầu (checkin_date) với RoomTimeSlot lặp
@@ -877,6 +886,7 @@ class OrderController extends Controller
         return $this->toListItem($order) + [
             'note_for_admin'    => $order->note_for_admin,
             'surcharge'         => (int) $order->surcharge,
+            'guest_surcharge'   => $this->buildGuestSurchargeInfo($order),
             'checkout_url'      => $order->checkout_url,
             'qr_code'           => $order->qr_code,
             'expired_at'        => $order->expired_at,
@@ -928,6 +938,50 @@ class OrderController extends Controller
                 'cccd_back'   => $g->cccd_back  ? Storage::disk('public')->url($g->cccd_back)  : null,
                 'cccd_data'   => $g->cccd_data,
             ])->values(),
+        ];
+    }
+
+    // Phụ thu khách vượt ngưỡng miễn phí của phòng (products.room_config: extra_guest_fee/
+    // max_free_guests) — TÍNH LẠI từ dữ liệu đã lưu (order.guest_count + order_items), không đọc số
+    // đã cộng vào 'amount' lúc tạo/sửa đơn (không persist riêng), cùng công thức với client
+    // (OrderController::buildDetail() -> countNights()/guest_surcharge), để 2 nơi luôn khớp số.
+    // Trả null nếu phòng không cấu hình phụ thu hoặc guest_count không vượt ngưỡng.
+    private function buildGuestSurchargeInfo(Order $order): ?array
+    {
+        $product = $order->items->first()?->product;
+        if (! $product) {
+            return null;
+        }
+
+        $config    = $product->room_config ?? [];
+        $fee       = (int) ($config['extra_guest_fee'] ?? 0);
+        $threshold = (int) ($config['max_free_guests'] ?? 2);
+        $guests    = (int) $order->guest_count;
+        $extra     = max(0, $guests - $threshold);
+
+        if ($fee <= 0 || $extra <= 0) {
+            return null;
+        }
+
+        $isSlotType = (int) ($product->styles ?? 1) === 1;
+        // slot: đếm số NGÀY riêng biệt (nhiều khung giờ cùng ngày chỉ tính 1 đêm); daily: mỗi item
+        // đã là 1 đêm nên đếm trực tiếp số item — cùng quy ước với countNights() phía client.
+        $nights = $isSlotType
+            ? $order->items->pluck('checkin_date')->filter()->map(fn ($d) => Carbon::parse($d)->format('Y-m-d'))->unique()->count()
+            : $order->items->count();
+        $nights = max(1, $nights);
+
+        $total       = $extra * $fee * $nights;
+        $nightsLabel = (! $isSlotType && $nights > 1) ? " × {$nights} đêm" : '';
+
+        return [
+            'guest_count'    => $guests,
+            'threshold'      => $threshold,
+            'extra_guests'   => $extra,
+            'fee_per_person' => $fee,
+            'nights'         => $nights,
+            'total'          => $total,
+            'label'          => "Phụ thu {$extra} người (trên {$threshold} người){$nightsLabel}",
         ];
     }
 
