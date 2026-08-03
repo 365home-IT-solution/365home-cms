@@ -484,4 +484,75 @@ class BookingController extends Controller
             ],
         ], 201);
     }
+
+    /**
+     * POST /api/admin/orders/preview
+     * Tính giá cho 1 đơn MỚI (chưa tạo) — body GIỐNG HỆT POST /api/admin/orders (type, room_id,
+     * guest_count, slots[]/checkin_date+checkout_date, services[], payment_type) nhưng KHÔNG tạo
+     * đơn, KHÔNG giữ chỗ (không ghi order/order_items nào) — dùng cho FE hiển thị giá trước khi bấm
+     * "Xác nhận đặt". Gọi lại được liên tục, kể cả khung giờ/dữ liệu không đổi (idempotent, không có
+     * tác dụng phụ) — dùng lại NGUYÊN engine tính giá của store() (xem BuildsRoomBooking) nên số
+     * luôn khớp với đơn thật nếu submit ngay sau đó (trừ khi khung giờ vừa bị người khác đặt mất
+     * giữa 2 lần gọi — vẫn còn tự kiểm tra trùng lịch bên trong buildSlotItems/buildDailyItems nên
+     * trả lỗi 422 thay vì giá sai, không phải lỗi của preview).
+     *
+     * Response CHỈ gồm các khối đã có sẵn ở response tạo đơn — không có 'order'/'room'/CCCD (không
+     * có đơn nào được tạo để trả về các field đó):
+     *   summary { slots_total, promotion_discount, system_discount, discount_amount, slots_final,
+     *             guest_surcharge, services_total, total_after_discount, final_amount }
+     *   guest_surcharge, system_discount, deposit — cùng cấu trúc với response tạo đơn.
+     */
+    public function preview(Request $request): JsonResponse
+    {
+        /** @var User $admin */
+        $admin = $request->user();
+
+        $rules = [
+            'type'                   => 'required|in:slot,monthly,daily',
+            'room_id'                => 'required|string',
+            'guest_count'            => 'required|integer|min:1',
+            'payment_method'         => 'sometimes|in:PayOS,cod',
+            'payment_type'           => 'sometimes|in:full,deposit',
+            'services'               => 'sometimes|nullable|array',
+            'services.*.service_id'  => 'required_with:services|integer',
+            'services.*.quantity'    => 'required_with:services|integer|min:1',
+        ];
+
+        if ($request->input('type') === 'slot') {
+            $rules['date']                = 'sometimes|date_format:Y-m-d|after_or_equal:today';
+            $rules['slots']               = 'required|array|min:1';
+            $rules['slots.*.timeslot_id'] = 'required|integer';
+            $rules['slots.*.date']        = 'sometimes|date_format:Y-m-d|after_or_equal:today';
+        } else {
+            $rules['checkin_date']  = 'required|date|after_or_equal:today';
+            $rules['checkout_date'] = 'required|date|after:checkin_date';
+        }
+
+        if ($request->input('type') === 'daily') {
+            $rules['checkin_date']  = 'required|date_format:Y-m-d|after_or_equal:today';
+            $rules['checkout_date'] = 'required|date_format:Y-m-d|after:checkin_date';
+        }
+
+        $request->validate($rules);
+
+        $room = Product::where('id', $request->input('room_id'))
+            ->where('is_activated', true)
+            ->with([
+                'roomType',
+                'additionalServices',
+                'roomTimeSlots.timeSlot',
+                'roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
+            ])
+            ->first();
+
+        if (! $room) {
+            return response()->json(['message' => 'Phòng không tồn tại hoặc đã ngừng hoạt động.'], 404);
+        }
+
+        if (! $admin->isSuperAdmin() && ! $admin->belongsToPlatformPartner() && $room->partner_id !== $admin->partner_id) {
+            return response()->json(['message' => 'Bạn không có quyền đặt phòng của đối tác khác.'], 403);
+        }
+
+        return response()->json($this->computeBookingPreview($request, $room));
+    }
 }

@@ -700,6 +700,109 @@ class OrderController extends Controller
     }
 
     /**
+     * POST /api/admin/orders/{order_code}/preview
+     * Tính lại giá cho 1 đơn ĐANG SỬA (đổi phòng/khung giờ/khách/dịch vụ) — body GIỐNG HỆT phần
+     * "Đổi khung giờ/ngày" của PUT|POST /api/admin/orders/{order_code} (type, room_id, guest_count,
+     * slots[]/checkin_date+checkout_date, services[], payment_type) nhưng KHÔNG ghi gì vào DB (không
+     * xoá/tạo lại order_items, không đổi Order) — dùng cho FE hiển thị giá mới trước khi bấm "Lưu".
+     * Gọi lại liên tục không có tác dụng phụ (idempotent).
+     *
+     * Khác update() ở đúng 2 điểm để tính đúng SỐ mà không cần đụng DB:
+     *   - room_id/guest_count vẫn tuỳ chọn, mặc định lấy theo phòng/số khách HIỆN CÓ của đơn giống
+     *     update() — nhưng 'type' + slots[]/checkin_date+checkout_date LUÔN bắt buộc (không suy được
+     *     lịch cũ ngược lại thành slots[] một cách an toàn cho mọi trường hợp phòng đổi cấu hình khung
+     *     giờ), khác update() vốn cho bỏ qua 'type' để giữ nguyên lịch — preview chỉ dùng khi FE đang
+     *     đổi lịch, không dùng để xem giá không đổi gì.
+     *   - Kiểm tra trùng khung giờ (trong buildSlotItems/buildDailyItems) tự loại trừ chính order_items
+     *     hiện có của đơn này (xem BuildsRoomBooking::computeBookingPreview $excludeOrderId) — vì
+     *     preview KHÔNG xoá items cũ trước như update() thật, nếu không loại trừ sẽ luôn báo trùng
+     *     với chính lịch hiện tại của đơn khi FE gửi lại y hệt slot cũ.
+     *   - payment_type=deposit xét theo payment_method THẬT của đơn (không đổi được qua API sửa đơn),
+     *     không phải theo request — giống hệt update().
+     *
+     * Response CHỈ gồm các khối đã có sẵn ở response tạo/sửa đơn — không có 'order' (không ghi gì để
+     * trả lại toàn bộ đơn):
+     *   summary { slots_total, promotion_discount, system_discount, discount_amount, slots_final,
+     *             guest_surcharge, services_total, total_after_discount, final_amount }
+     *   guest_surcharge, system_discount, deposit — cùng cấu trúc với response tạo/sửa đơn.
+     */
+    public function preview(Request $request, string $orderCode): JsonResponse
+    {
+        /** @var User $admin */
+        $admin = $request->user();
+
+        $order = Order::query()
+            ->with(['items.product:id,name'])
+            ->where('order_code', $orderCode)
+            ->first();
+
+        if (! $order || (! $admin->isSuperAdmin() && $order->partner_id !== $admin->partner_id)) {
+            return response()->json(['message' => 'Không tìm thấy đơn.'], 404);
+        }
+
+        $rules = [
+            'type'                   => 'required|in:slot,daily,monthly',
+            'room_id'                => 'sometimes|string',
+            'guest_count'            => 'sometimes|integer|min:1',
+            'payment_type'           => 'sometimes|in:full,deposit',
+            'services'               => 'sometimes|nullable|array',
+            'services.*.service_id'  => 'required_with:services|integer',
+            'services.*.quantity'    => 'required_with:services|integer|min:1',
+        ];
+
+        if ($request->input('type') === 'slot') {
+            $rules['date']                = 'sometimes|date_format:Y-m-d|after_or_equal:today';
+            $rules['slots']               = 'required|array|min:1';
+            $rules['slots.*.timeslot_id'] = 'required|integer';
+            $rules['slots.*.date']        = 'sometimes|date_format:Y-m-d|after_or_equal:today';
+        } else {
+            $rules['checkin_date']  = 'required|date|after_or_equal:today';
+            $rules['checkout_date'] = 'required|date|after:checkin_date';
+        }
+
+        if ($request->input('type') === 'daily') {
+            $rules['checkin_date']  = 'required|date_format:Y-m-d|after_or_equal:today';
+            $rules['checkout_date'] = 'required|date_format:Y-m-d|after:checkin_date';
+        }
+
+        $request->validate($rules);
+
+        // room_id không gửi -> dùng đúng phòng hiện có của đơn, giống update().
+        $isRoomChange = $request->filled('room_id');
+        $productId    = $isRoomChange ? (string) $request->input('room_id') : $order->items->first()?->product_id;
+
+        $room = Product::where('id', $productId)
+            ->where('is_activated', true)
+            ->with([
+                'roomType',
+                'additionalServices',
+                'roomTimeSlots.timeSlot',
+                'roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
+            ])
+            ->first();
+
+        if (! $room) {
+            return response()->json([
+                'message' => $isRoomChange
+                    ? 'Phòng muốn chuyển đến không tồn tại hoặc đã ngừng hoạt động.'
+                    : 'Phòng của đơn này không còn tồn tại hoặc đã ngừng hoạt động.',
+            ], 422);
+        }
+
+        if ($isRoomChange && ! $admin->isSuperAdmin() && ! $admin->belongsToPlatformPartner() && $room->partner_id !== $admin->partner_id) {
+            return response()->json(['message' => 'Bạn không có quyền chuyển sang phòng của đối tác khác.'], 403);
+        }
+
+        // guest_count không gửi -> giữ nguyên số khách hiện có của đơn, giống update() — buildSlotItems/
+        // buildDailyItems/buildGuestSurcharge đọc guest_count qua $request->guest_count.
+        if (! $request->filled('guest_count')) {
+            $request->merge(['guest_count' => $order->guest_count]);
+        }
+
+        return response()->json($this->computeBookingPreview($request, $room, $order->id, $order->payment_method));
+    }
+
+    /**
      * DELETE /api/admin/orders/{order_code}/guests/{guest_index}
      * Xoá CCCD của 1 khách đi cùng (guest_index >= 2) — dùng khi giảm guest_count và không còn cần
      * lưu thông tin khách đó nữa (vd đơn từ 3 khách giảm xuống 2, xoá guest_index=3 vừa dư ra).

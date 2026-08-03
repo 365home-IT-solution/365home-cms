@@ -199,6 +199,11 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/categories')->na
 |                               tương đương, vd ?branch_id=.../?categories=... — xem docblock
 |                               OrderController::index()) + per_page
 | POST /api/admin/orders                    → tạo đơn hộ khách (vãng lai hoặc đã là thành viên)
+| POST /api/admin/orders/preview            → tính giá đơn MỚI, KHÔNG tạo/giữ chỗ (dry-run) — body
+|                                              giống hệt POST /api/admin/orders, trả về đúng khối
+|                                              summary/guest_surcharge/system_discount/deposit như
+|                                              response tạo đơn, không có 'order'. Gọi lại liên tục
+|                                              không tác dụng phụ — xem docblock BookingController::preview().
 | GET /api/admin/orders/{order_code}        → chi tiết đầy đủ 1 đơn (items, dịch vụ, CCCD khách
 |                                              chính + khách đi cùng ĐÃ LƯU, cọc, mốc thời gian
 |                                              thanh toán/nhận-trả phòng, người tạo đơn) — xem
@@ -211,6 +216,12 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/categories')->na
 |                                              Đổi phòng: gửi kèm 'room_id' (id phòng đích) cùng với
 |                                              'type' + slots[]/checkin_date+checkout_date theo cấu
 |                                              hình PHÒNG MỚI — xem docblock OrderController::update().
+| POST /api/admin/orders/{order_code}/preview
+|                                          → tính lại giá khi đổi phòng/khung giờ/khách/dịch vụ của
+|                                            đơn NÀY, KHÔNG ghi DB (dry-run) — body giống phần "Đổi
+|                                            khung giờ/ngày" ở trên, trả cùng khối summary/
+|                                            guest_surcharge/system_discount/deposit như response
+|                                            tạo/sửa đơn — xem docblock OrderController::preview().
 | DELETE /api/admin/orders/{order_code}/guests/{guest_index}
 |                                          → xoá CCCD 1 khách đi cùng (guest_index từ 2) — dùng khi
 |                                            giảm số khách, không tự giảm guest_count của đơn.
@@ -256,8 +267,12 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/categories')->na
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/orders')->name('api.admin.orders.')->group(function () {
     Route::get('/',                       [OrderController::class, 'index'])->name('index');
     Route::post('/',                      [AdminBookingController::class, 'store'])->name('store');
+    // /preview đứng TRƯỚC /{order_code} — route param sẽ nuốt luôn chuỗi 'preview' làm order_code
+    // nếu định nghĩa sau, do Laravel khớp theo thứ tự khai báo (xem docblock preview() ở BookingController).
+    Route::post('/preview',               [AdminBookingController::class, 'preview'])->name('preview');
     Route::get('/{order_code}',            [OrderController::class, 'show'])->name('show');
     Route::get('/{order_code}/cccds',      [OrderController::class, 'cccds'])->name('cccds');
+    Route::post('/{order_code}/preview',   [OrderController::class, 'preview'])->name('order-preview');
     Route::match(['put', 'post'], '/{order_code}', [OrderController::class, 'update'])->name('update');
     Route::delete('/', [OrderController::class, 'destroyBatch'])->name('destroy-batch');
     Route::delete('/{order_code}', [OrderController::class, 'destroy'])->name('destroy');

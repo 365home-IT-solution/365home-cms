@@ -27,7 +27,11 @@ trait BuildsRoomBooking
 {
     // ── Slot (nhiều khung giờ) ────────────────────────────────────────────────
 
-    private function buildSlotItems(Request $request, Product $room): array
+    // $excludeOrderId: bỏ qua chính đơn này khi kiểm tra trùng khung giờ — dùng cho preview() sửa
+    // đơn (dry-run, KHÔNG xoá order_items cũ trước như update() thật nên phải tự loại trừ, tránh
+    // báo trùng với chính lịch hiện tại của đơn đang xem). null (mặc định, các luồng tạo/sửa đơn
+    // thật) => không loại trừ gì, giữ nguyên hành vi cũ.
+    private function buildSlotItems(Request $request, Product $room, ?int $excludeOrderId = null): array
     {
         $slots         = $request->input('slots');
         $defaultDate   = $request->input('date');
@@ -75,6 +79,7 @@ trait BuildsRoomBooking
                 ->whereNotNull('checkout_date')
                 ->where('checkin_date', '<', $checkout)
                 ->where('checkout_date', '>', $checkin)
+                ->when($excludeOrderId, fn ($q) => $q->where('order_id', '!=', $excludeOrderId))
                 ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped']))
                 ->exists();
 
@@ -124,7 +129,7 @@ trait BuildsRoomBooking
 
     // ── Daily (phòng theo ngày) ───────────────────────────────────────────────
 
-    private function buildDailyItems(Request $request, Product $room): array
+    private function buildDailyItems(Request $request, Product $room, ?int $excludeOrderId = null): array
     {
         $checkin  = Carbon::parse($request->checkin_date)->startOfDay();
         $checkout = Carbon::parse($request->checkout_date)->startOfDay();
@@ -141,6 +146,7 @@ trait BuildsRoomBooking
             ->whereNotNull('checkout_date')
             ->where('checkin_date', '<', $checkout)
             ->where('checkout_date', '>', $checkin)
+            ->when($excludeOrderId, fn ($q) => $q->where('order_id', '!=', $excludeOrderId))
             ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped', 'confirmed']))
             ->exists();
 
@@ -206,7 +212,7 @@ trait BuildsRoomBooking
 
     // ── Monthly (thuê tháng) ─────────────────────────────────────────────────
 
-    private function buildMonthlyItem(Request $request, Product $room): array
+    private function buildMonthlyItem(Request $request, Product $room, ?int $excludeOrderId = null): array
     {
         $checkin  = Carbon::parse($request->checkin_date);
         $checkout = Carbon::parse($request->checkout_date);
@@ -216,6 +222,7 @@ trait BuildsRoomBooking
             ->whereNotNull('checkout_date')
             ->where('checkin_date', '<', $checkout)
             ->where('checkout_date', '>', $checkin)
+            ->when($excludeOrderId, fn ($q) => $q->where('order_id', '!=', $excludeOrderId))
             ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped']))
             ->exists();
 
@@ -479,6 +486,122 @@ trait BuildsRoomBooking
             'total'          => $total,
             'label'          => $label,
         ]];
+    }
+
+    // ── Preview (dry-run) ─────────────────────────────────────────────────────
+
+    /**
+     * Tính giá đầy đủ (items + khuyến mãi + giảm giá + phụ thu khách + dịch vụ + cọc) mà KHÔNG tạo
+     * item/order nào — dùng chung cho preview() ở BookingController (tạo mới) và OrderController
+     * (đang sửa đơn). Chạy lại ĐÚNG các bước tính giá của store()/update() theo thứ tự, chỉ khác là
+     * dừng lại trước bước ghi DB (không gọi $order->items()->create()/Order::create()).
+     *
+     * $excludeOrderId: đơn đang sửa (nếu có) — loại trừ chính order_items hiện có của đơn này khỏi
+     * kiểm tra trùng khung giờ trong buildSlotItems/buildDailyItems/buildMonthlyItem, vì preview
+     * không xoá items cũ trước như update() thật (dry-run, không đụng DB).
+     * $paymentMethodForDeposit: dùng payment_method THẬT của đơn đang sửa để xét điều kiện cọc
+     * (payment_type=deposit chặn nếu cod) — update() không cho đổi payment_method nên phải đọc từ
+     * đơn hiện có, KHÔNG phải từ request (khác preview tạo mới, nơi payment_method nằm trong body).
+     *
+     * @throws ValidationException nếu khung giờ trùng, dịch vụ không hợp lệ, hoặc điều kiện cọc
+     *         không thoả — Laravel tự chuyển thành response 422, giống hệt store()/update().
+     */
+    private function computeBookingPreview(
+        Request $request,
+        Product $room,
+        ?int $excludeOrderId = null,
+        ?string $paymentMethodForDeposit = null
+    ): array {
+        $type          = $request->input('type');
+        $rtsCollection = collect();
+        $slotSummary   = [];
+
+        if ($type === 'slot') {
+            [$basePrice, , , $rtsCollection, $slotSummary] = $this->buildSlotItems($request, $room, $excludeOrderId);
+        } elseif ($type === 'daily') {
+            [$basePrice, , , $rtsCollection, $slotSummary] = $this->buildDailyItems($request, $room, $excludeOrderId);
+        } else {
+            [$basePrice] = $this->buildMonthlyItem($request, $room, $excludeOrderId);
+        }
+
+        [$servicesTotal] = $this->buildServices($request, $room);
+        [$guestSurcharge, $guestSurchargeInfo] = $this->buildGuestSurcharge($request, $room, $slotSummary);
+
+        $promotionDiscount     = 0;
+        $systemDiscount        = 0;
+        $appliedSystemDiscount = null;
+
+        $hasFullBooking = ! empty($slotSummary) && $this->checkFullDayBooking($slotSummary, $room);
+
+        if ($hasFullBooking) {
+            [$systemDiscount, $appliedSystemDiscount] = $this->applyFullBookingDiscount($basePrice, $room);
+        } else {
+            if ($rtsCollection->isNotEmpty()) {
+                [$promotionDiscount] = $type === 'daily'
+                    ? $this->applyDailyPromotions($rtsCollection, $slotSummary)
+                    : $this->applyPromotions($rtsCollection, $slotSummary);
+            }
+            if (! empty($slotSummary)) {
+                [$systemDiscount, $appliedSystemDiscount] = $this->applyBulkDiscount(
+                    count($slotSummary),
+                    $room,
+                    $basePrice - $promotionDiscount
+                );
+            }
+        }
+
+        $discountAmount = $promotionDiscount + $systemDiscount;
+        $slotFinalPrice = max(0, $basePrice - $discountAmount);
+        $finalAmount    = $slotFinalPrice + $servicesTotal + $guestSurcharge;
+
+        // ── Cọc (chỉ áp dụng type=daily, giống store()/update()) ──────────────
+        $depositInfo = null;
+
+        if ($type === 'daily' && $request->input('payment_type') === 'deposit') {
+            $paymentMethod = $paymentMethodForDeposit ?? $request->input('payment_method', 'cod');
+
+            if ($paymentMethod === 'cod') {
+                throw ValidationException::withMessages([
+                    'payment_type' => ['Đặt cọc không áp dụng cho phương thức thanh toán tiền mặt.'],
+                ]);
+            }
+
+            $depositMin = (int) ($room->deposit_min_nights  ?? 0);
+            $depositPct = (int) ($room->deposit_multi_night ?? 50);
+            $nights     = count($slotSummary);
+
+            if ($depositMin > 0 && $nights >= $depositMin && $depositPct < 100) {
+                $depositAmount = (int) ceil($finalAmount * $depositPct / 100);
+                $depositInfo   = [
+                    'percentage'       => $depositPct,
+                    'deposit_amount'   => $depositAmount,
+                    'remaining_amount' => (int) $finalAmount - $depositAmount,
+                ];
+            } else {
+                throw ValidationException::withMessages([
+                    'payment_type' => [
+                        'Đặt cọc không áp dụng' . ($depositMin > 0 ? " (cần tối thiểu {$depositMin} đêm)" : '') . '.',
+                    ],
+                ]);
+            }
+        }
+
+        return [
+            'guest_surcharge' => $guestSurchargeInfo,
+            'system_discount' => $appliedSystemDiscount,
+            'deposit'         => $depositInfo,
+            'summary' => [
+                'slots_total'          => (int) $basePrice,
+                'promotion_discount'   => $promotionDiscount,
+                'system_discount'      => $systemDiscount,
+                'discount_amount'      => $discountAmount,
+                'slots_final'          => $slotFinalPrice,
+                'guest_surcharge'      => $guestSurcharge,
+                'services_total'       => $servicesTotal,
+                'total_after_discount' => (int) $finalAmount,
+                'final_amount'         => (int) $finalAmount,
+            ],
+        ];
     }
 
     // ── PayOS ─────────────────────────────────────────────────────────────────
