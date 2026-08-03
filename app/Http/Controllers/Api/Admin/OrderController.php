@@ -268,6 +268,15 @@ class OrderController extends Controller
      *     BuildsRoomBooking — promotions, bulk/full-booking discount), tính lại 'amount'/'full_amount'
      *     = giá phòng mới + phụ thu khách + tổng dịch vụ + surcharge hiện có (hoặc vừa sửa ở field
      *     'surcharge' bên trên) — TRỪ KHI có gửi kèm 'amount' thủ công (Phase cuối, luôn thắng).
+     *   - room_id (tùy chọn, CHỈ có tác dụng khi gửi kèm 'type'): ĐỔI SANG PHÒNG KHÁC — id phòng đích
+     *     (products.id), phải is_activated=true. Không gửi -> giữ nguyên phòng hiện có của đơn (hành
+     *     vi cũ, chỉ đổi khung giờ/ngày). Cùng quyền hạn với BookingController::store() — nhân viên
+     *     đối tác thường CHỈ đổi sang phòng cùng đối tác (room.partner_id === admin.partner_id), nhân
+     *     viên đối tác nền tảng (User::belongsToPlatformPartner()) đổi được sang phòng của đối tác bất
+     *     kỳ, super_admin không giới hạn. slots[]/checkin_date+checkout_date phải khớp cấu hình khung
+     *     giờ/giá của PHÒNG MỚI (không phải phòng cũ) — dùng GET /api/admin/rooms/{room_id}/time-slots
+     *     hoặc /dates trước để lấy đúng dữ liệu khả dụng của phòng đích. Đổi phòng khác chi nhánh/đối
+     *     tác sẽ tự cập nhật lại category_id/partner_id của đơn theo phòng mới.
      *   - guest_count gửi kèm 'type' sẽ áp cho cả items mới lẫn Order; gửi RIÊNG guest_count (không
      *     kèm 'type') chỉ cập nhật số khách trên items hiện có, KHÔNG tính lại giá.
      *   - services gửi kèm sẽ THAY THẾ toàn bộ dịch vụ cũ (xoá hết, tạo lại theo danh sách mới).
@@ -315,6 +324,7 @@ class OrderController extends Controller
             'guests.*.back'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'guest_count'            => 'sometimes|integer|min:1',
             'type'                   => 'sometimes|in:slot,daily,monthly',
+            'room_id'                => 'sometimes|string',
             'payment_type'           => 'sometimes|in:full,deposit',
             'services'               => 'sometimes|nullable|array',
             'services.*.service_id'  => 'required_with:services|integer',
@@ -419,7 +429,11 @@ class OrderController extends Controller
 
         // ── Đổi khung giờ/ngày (chỉ khi có gửi 'type') ─────────────────────────
         if ($request->filled('type')) {
-            $productId = $order->items->first()?->product_id;
+            // room_id gửi kèm 'type' -> ĐỔI PHÒNG (dùng phòng đích thay vì phòng hiện có của đơn).
+            // Không gửi -> hành vi cũ, chỉ đổi khung giờ/ngày trong cùng phòng.
+            $isRoomChange = $request->filled('room_id');
+            $productId    = $isRoomChange ? (string) $request->input('room_id') : $order->items->first()?->product_id;
+
             $room = Product::where('id', $productId)
                 ->where('is_activated', true)
                 ->with([
@@ -431,7 +445,35 @@ class OrderController extends Controller
                 ->first();
 
             if (! $room) {
-                return response()->json(['message' => 'Phòng của đơn này không còn tồn tại hoặc đã ngừng hoạt động.'], 422);
+                return response()->json([
+                    'message' => $isRoomChange
+                        ? 'Phòng muốn chuyển đến không tồn tại hoặc đã ngừng hoạt động.'
+                        : 'Phòng của đơn này không còn tồn tại hoặc đã ngừng hoạt động.',
+                ], 422);
+            }
+
+            // Cùng quyền hạn với BookingController::store() bước 3 — nhân viên đối tác thường chỉ
+            // đổi được sang phòng cùng đối tác mình, nhân viên đối tác nền tảng (365home) đổi được
+            // sang phòng của bất kỳ đối tác nào, super_admin không giới hạn.
+            if ($isRoomChange && ! $admin->isSuperAdmin() && ! $admin->belongsToPlatformPartner() && $room->partner_id !== $admin->partner_id) {
+                return response()->json(['message' => 'Bạn không có quyền chuyển sang phòng của đối tác khác.'], 403);
+            }
+
+            // Đổi phòng khác chi nhánh/đối tác -> đơn phải theo đúng category_id/partner_id của
+            // phòng MỚI (cùng cách gán lúc tạo đơn ở BookingController::store()), không giữ theo
+            // phòng cũ nữa.
+            if ($isRoomChange) {
+                $newCategory = $room->categories()->first();
+                for ($i = 0; $i < 5 && $newCategory && $newCategory->parent_id; $i++) {
+                    $parent = Category::find($newCategory->parent_id);
+                    if (! $parent) {
+                        break;
+                    }
+                    $newCategory = $parent;
+                }
+
+                $updates['category_id'] = $newCategory?->id;
+                $updates['partner_id']  = $room->partner_id;
             }
 
             // buildSlotItems/buildDailyItems/buildMonthlyItem đọc guest_count qua $request->guest_count

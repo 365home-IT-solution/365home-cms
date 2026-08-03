@@ -204,10 +204,13 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/categories')->na
 |                                              thanh toán/nhận-trả phòng, người tạo đơn) — xem
 |                                              ngay không cần gửi kèm request cập nhật.
 | PUT|POST /api/admin/orders/{order_code}   → sửa đơn (ghi chú, trạng thái, CCCD, khung giờ, phụ thu/
-|                                              tổng tiền tay) — tra theo order_code, KHÔNG phải id
-|                                              nội bộ. Nhận CẢ PUT lẫn POST — dùng POST khi cần gửi
-|                                              multipart/form-data kèm file (PHP không tự parse
-|                                              form-data cho method PUT thật, kể cả không có file).
+|                                              tổng tiền tay, ĐỔI PHÒNG) — tra theo order_code, KHÔNG
+|                                              phải id nội bộ. Nhận CẢ PUT lẫn POST — dùng POST khi
+|                                              cần gửi multipart/form-data kèm file (PHP không tự
+|                                              parse form-data cho method PUT thật, kể cả không có file).
+|                                              Đổi phòng: gửi kèm 'room_id' (id phòng đích) cùng với
+|                                              'type' + slots[]/checkin_date+checkout_date theo cấu
+|                                              hình PHÒNG MỚI — xem docblock OrderController::update().
 | DELETE /api/admin/orders/{order_code}/guests/{guest_index}
 |                                          → xoá CCCD 1 khách đi cùng (guest_index từ 2) — dùng khi
 |                                            giảm số khách, không tự giảm guest_count của đơn.
