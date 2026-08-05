@@ -7,15 +7,14 @@ use Filament\Actions;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Storage;
 use Modules\BladeThemeV1\Services\AccessCode\AccessCodeService;
-use Modules\BladeThemeV1\Services\Zns\ZaloZnsService;
-use Modules\BladeThemeV1\Services\OcrSpaceService;
 use Modules\Payment\App\Services\CccdScannerService;
 use App\Services\CccdDeclarationService;
 use App\Services\OrderRealtimeService;
 use App\Services\ExtraChargeService;
 use Modules\AuditLog\Services\AuditLogger;
+use Modules\Payment\App\Filament\Resources\OrderResource\Concerns\HasMemberCompanionManagement;
+use Modules\Payment\App\Filament\Resources\OrderResource\Concerns\HasOrderServicesManagement;
 use Modules\Payment\App\Filament\Resources\OrderResource\Concerns\HasTimeslotGridSelection;
 use Modules\Payment\App\Filament\Resources\OrderResource\Forms\OrderForm;
 use Modules\Payment\Entities\OrderGuestCccd;
@@ -26,6 +25,8 @@ use PayOS\PayOS;
 class EditOrder extends EditRecord
 {
     use HasTimeslotGridSelection;
+    use HasOrderServicesManagement;
+    use HasMemberCompanionManagement;
 
     protected static string $resource = OrderResource::class;
 
@@ -71,6 +72,21 @@ class EditOrder extends EditRecord
     protected function mutateFormDataBeforeFill(array $data): array
     {
         $data['orderItems'] = OrderForm::buildOrderItemsFormState($this->record);
+
+        // 'orderServices' giờ là Hidden field trần (không còn ->relationship('services') của
+        // Repeater cũ tự động nạp), nên phải tự đổ lại từ order_services đã lưu — giống hệt cách
+        // orderItems/guest_cccds bên dưới đã làm, nếu không danh sách dịch vụ sẽ hiện RỖNG khi mở
+        // sửa đơn đã có dịch vụ (dữ liệu vẫn còn trong DB, chỉ là form không nạp lại).
+        $data['orderServices'] = $this->record->services
+            ->map(fn ($service) => [
+                'service_id'   => $service->service_id,
+                'service_name' => $service->service_name,
+                'price'        => $service->price,
+                'quantity'     => $service->quantity,
+                'subtotal'     => $service->subtotal,
+            ])
+            ->values()
+            ->all();
 
         // Nạp lại khách đi cùng đã lưu (order_guest_cccds, guest_index=2,3,4...) vào Repeater
         // 'guest_cccds' — field ảo, không map cột nào nên phải tự đổ lại giống orderItems ở trên.
@@ -137,32 +153,47 @@ class EditOrder extends EditRecord
         }
         $record->update($data);
 
-        // Khách đi cùng (order_guest_cccds, guest_index=2,3,4...) — updateOrCreate() theo guest_index
-        // để GIỮ NGUYÊN cccd_data đã quét trước đó nếu ảnh không đổi (không xoá-tạo-lại như
-        // orderItems bên dưới, vì sẽ buộc quét OCR lại mỗi lần sửa đơn dù ảnh không đổi gì). Xoá
-        // đúng các guest_index không còn trong form nữa (admin giảm số khách/xoá dòng).
-        $keepGuestIndexes = [];
-        foreach (array_values(is_array($guestCccds) ? $guestCccds : []) as $i => $guest) {
-            $guestIndex = $i + 2;
-            $keepGuestIndexes[] = $guestIndex;
-            $front = $guest['cccd_front'] ?? null;
-            $back  = $guest['cccd_back'] ?? null;
+        // Khách đi cùng KIỂU VÃNG LAI (order_guest_cccds, guest_index=2,3,4..., companion_id=NULL)
+        // — updateOrCreate() theo guest_index để GIỮ NGUYÊN cccd_data đã quét trước đó nếu ảnh
+        // không đổi (không xoá-tạo-lại như orderItems bên dưới, vì sẽ buộc quét OCR lại mỗi lần
+        // sửa đơn dù ảnh không đổi gì). Xoá đúng các guest_index không còn trong form nữa (admin
+        // giảm số khách/xoá dòng).
+        //
+        // CHỈ chạy khi đơn KHÔNG gắn thành viên (customer_id rỗng, dùng $record->customer_id SAU
+        // $record->update($data) ở trên nên đã là giá trị MỚI) — đơn có thành viên dùng popup
+        // "CCCD thành viên" riêng để quản lý người đi cùng (ghi companion_id KHÔNG NULL, xem
+        // OrderForm::buildMemberCccdAction()), Repeater 'guest_cccds' ở form chính bị ẨN hẳn khi đó
+        // nên $guestCccds ở trên LUÔN là dữ liệu CŨ nạp lúc mở trang (KHÔNG thấy được người đi cùng
+        // vừa lưu qua popup) — nếu vẫn chạy đoạn dọn dẹp bên dưới sẽ XOÁ SẠCH các dòng người đi cùng
+        // vừa lưu (đã xác nhận qua thực tế: lưu CCCD thành viên xong, bấm "Lưu thay đổi" ở form
+        // chính là mất hết). whereNull('companion_id') thêm 1 lớp an toàn nữa, phòng khi đơn vừa
+        // đổi qua lại giữa 2 kiểu (thành viên ⇄ vãng lai) mà dữ liệu cũ còn sót.
+        if (! $record->customer_id) {
+            $keepGuestIndexes = [];
+            foreach (array_values(is_array($guestCccds) ? $guestCccds : []) as $i => $guest) {
+                $guestIndex = $i + 2;
+                $keepGuestIndexes[] = $guestIndex;
+                $front = $guest['cccd_front'] ?? null;
+                $back  = $guest['cccd_back'] ?? null;
 
-            if (! $front && ! $back) {
-                continue;
+                if (! $front && ! $back) {
+                    continue;
+                }
+
+                OrderGuestCccd::updateOrCreate(
+                    ['order_id' => $record->id, 'guest_index' => $guestIndex],
+                    ['cccd_front' => $front, 'cccd_back' => $back, 'companion_id' => null]
+                );
             }
 
-            OrderGuestCccd::updateOrCreate(
-                ['order_id' => $record->id, 'guest_index' => $guestIndex],
-                ['cccd_front' => $front, 'cccd_back' => $back]
-            );
+            $staleGuestCccds = OrderGuestCccd::where('order_id', $record->id)
+                ->where('guest_index', '>=', 2)
+                ->whereNull('companion_id');
+            if (! empty($keepGuestIndexes)) {
+                $staleGuestCccds->whereNotIn('guest_index', $keepGuestIndexes);
+            }
+            $staleGuestCccds->delete();
         }
-
-        $staleGuestCccds = OrderGuestCccd::where('order_id', $record->id)->where('guest_index', '>=', 2);
-        if (! empty($keepGuestIndexes)) {
-            $staleGuestCccds->whereNotIn('guest_index', $keepGuestIndexes);
-        }
-        $staleGuestCccds->delete();
 
         $expandedItems = OrderForm::expandOrderItemsForPersistence(is_array($orderItems) ? $orderItems : []);
 
@@ -208,95 +239,6 @@ class EditOrder extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            // =========================================================
-            // TEST: Giả lập thanh toán cọc thành công (không cần QR)
-            // =========================================================
-            Actions\Action::make('simulateDepositPaid')
-                ->label('⚡ Giả lập: Cọc đã thanh toán')
-                ->icon('heroicon-m-beaker')
-                ->color('warning')
-                ->visible(function () {
-                    $record = $this->record;
-                    return app()->isLocal()
-                        || config('app.debug')
-                        || (auth()->user()?->isSuperAdmin() ?? false);
-                })
-                ->visible(fn () => $this->record->status === 'pending')
-                ->requiresConfirmation()
-                ->modalHeading('Giả lập thanh toán cọc thành công')
-                ->modalDescription(function () {
-                    $r = $this->record;
-                    $depositPct = $r->deposit_percent;
-                    $fullAmt    = (int) $r->full_amount;
-                    $amountPaid = $r->depositDueAmount();
-                    if ($depositPct) {
-                        $remaining  = $fullAmt - $amountPaid;
-                        return "Giả lập khách đã quét QR và thanh toán CỌC {$depositPct}% = "
-                            . number_format($amountPaid, 0, ',', '.') . "đ.\n"
-                            . "Còn lại " . number_format($remaining, 0, ',', '.') . "đ thanh toán khi nhận phòng.\n"
-                            . "Hệ thống sẽ: đánh dấu PAID → gán mã cổng → gửi ZNS cho khách.";
-                    }
-                    return "Giả lập khách đã thanh toán " . number_format($amountPaid, 0, ',', '.') . "đ.\n"
-                        . "Hệ thống sẽ: đánh dấu PAID → gán mã cổng → gửi ZNS cho khách.";
-                })
-                ->modalSubmitActionLabel('Xác nhận giả lập')
-                ->action(function () {
-                    $record = $this->record->fresh(['items']);
-
-                    try {
-                        // 1. Đánh dấu đã thanh toán
-                        $record->update(['status' => 'paid']);
-
-                        // 2. Gán mã cổng
-                        $firstItem    = $record->items->sortBy('checkin_date')->first();
-                        $checkinDate  = $record->items->min('checkin_date');
-                        $checkoutDate = $record->items->max('checkout_date');
-                        $product      = $firstItem?->product;
-
-                        $accessCodeService = app(AccessCodeService::class);
-                        $accessCode = $accessCodeService->assignCodeToOrder(
-                            $record->id,
-                            $record->category_id,
-                            $checkinDate,
-                            $checkoutDate,
-                            $product,
-                        );
-
-                        // 3. Gửi ZNS cho khách
-                        try {
-                            $znsService = app(ZaloZnsService::class);
-                            $znsService->sendBookingSuccessNotification($record, $accessCode);
-                        } catch (\Exception $e) {
-                            \Illuminate\Support\Facades\Log::warning('simulateDepositPaid: ZNS failed', ['error' => $e->getMessage()]);
-                        }
-
-                        $depositPct  = $record->deposit_percent;
-                        $fullAmt     = (int) $record->full_amount;
-                        $amountPaid  = $record->depositDueAmount();
-                        $remaining   = $fullAmt - $amountPaid;
-
-                        $body = $depositPct
-                            ? "Đã nhận cọc {$depositPct}% = " . number_format($amountPaid, 0, ',', '.') . "đ. "
-                              . "Còn lại " . number_format($remaining, 0, ',', '.') . "đ khi nhận phòng."
-                            : "Đã thanh toán đủ " . number_format($amountPaid, 0, ',', '.') . "đ. Mã cổng đã gửi qua Zalo.";
-
-                        Notification::make()
-                            ->title('Giả lập thành công')
-                            ->body($body)
-                            ->success()
-                            ->send();
-
-                        $this->redirect($this->getResource()::getUrl('edit', ['record' => $record]));
-
-                    } catch (\Exception $e) {
-                        Notification::make()
-                            ->title('Lỗi giả lập')
-                            ->body($e->getMessage())
-                            ->danger()
-                            ->send();
-                    }
-                }),
-
             // =========================================================
             // Thanh toán lại — đơn PayOS bị "failed"/"cancelled_payment": tạo QR mới gửi khách,
             // đơn tự chuyển về "pending" chờ thanh toán. Khi khách quét & trả tiền, webhook PayOS
@@ -654,198 +596,6 @@ class EditOrder extends EditRecord
                     }
                 }),
 
-            Actions\Action::make('scanCccdQr')
-                ->label('[TEST] Quét QR CCCD')
-                ->icon('heroicon-m-qr-code')
-                ->color('gray')
-                ->visible(fn () => (bool) ($this->record->cccd_front || $this->record->cccd_back))
-                ->action(function () {
-                    $record = $this->record->fresh();
-                    $data   = app(CccdScannerService::class)->scanOrder($record);
-
-                    if (! $data) {
-                        Notification::make()
-                            ->title('Không đọc được QR CCCD')
-                            ->body('Ảnh quá nhỏ hoặc QR bị mờ. Vui lòng upload lại ảnh gốc chất lượng cao (không resize).')
-                            ->warning()
-                            ->send();
-                        return;
-                    }
-
-                    $note = implode("\n", array_filter([
-                        $data['cccd']        ? "Số CCCD:   {$data['cccd']}"        : null,
-                        $data['full_name']   ? "Họ và tên: {$data['full_name']}"   : null,
-                        $data['dob']         ? "Ngày sinh: {$data['dob']}"         : null,
-                        $data['gender']      ? "Giới tính: {$data['gender']}"      : null,
-                        $data['address']     ? "Địa chỉ:   {$data['address']}"     : null,
-                    ]));
-
-                    $updateFields = [
-                        'cccd_data'      => $data,
-                        'note_for_admin' => $note,
-                    ];
-
-                    if (! empty($data['full_name'])) {
-                        $updateFields['buyer_name'] = $data['full_name'];
-                    }
-                    if (! empty($data['address'])) {
-                        $updateFields['buyer_address'] = $data['address'];
-                    }
-
-                    $record->update($updateFields);
-
-                    // Cập nhật ngay "Khai báo lưu trú" với họ tên/số CCCD vừa quét được — không
-                    // đợi admin bấm "Lưu" cả form (afterSave() chỉ chạy khi submit toàn bộ form).
-                    app(CccdDeclarationService::class)->upsertFromOrder($record->fresh(['items']));
-
-                    $this->refreshFormData(['note_for_admin', 'cccd_data', 'buyer_name', 'buyer_address']);
-
-                    Notification::make()
-                        ->title('Quét CCCD thành công')
-                        ->body($note)
-                        ->success()
-                        ->send();
-                }),
-
-            // Khách đi cùng (order_guest_cccds, guest_index=2,3,4...) — quét riêng vì ảnh lưu ở
-            // bảng khác, dùng scanPaths() thay vì scanOrder() (chỉ đọc đúng cột chính trên orders).
-            // Quét TẤT CẢ khách đi cùng đang có ảnh, không riêng 1 người như trước.
-            Actions\Action::make('scanCccdQrGuests')
-                ->label('Quét QR CCCD khách đi cùng')
-                ->icon('heroicon-m-qr-code')
-                ->color('gray')
-                ->visible(fn () => $this->record->guestCccds()->where(fn ($q) => $q->whereNotNull('cccd_front')->orWhereNotNull('cccd_back'))->exists())
-                ->action(function () {
-                    $record = $this->record->fresh();
-                    $notes  = [];
-
-                    foreach ($record->guestCccds as $guest) {
-                        if (! $guest->cccd_front && ! $guest->cccd_back) {
-                            continue;
-                        }
-
-                        $data = app(CccdScannerService::class)->scanPaths($guest->cccd_front, $guest->cccd_back);
-
-                        if (! $data) {
-                            continue;
-                        }
-
-                        $guest->update(['cccd_data' => $data]);
-
-                        $notes[] = "Khách #{$guest->guest_index}: " . implode(', ', array_filter([
-                            $data['full_name'] ?? null,
-                            $data['cccd'] ?? null,
-                        ]));
-                    }
-
-                    if (empty($notes)) {
-                        Notification::make()
-                            ->title('Không đọc được QR CCCD khách đi cùng nào')
-                            ->body('Ảnh quá nhỏ hoặc QR bị mờ. Vui lòng upload lại ảnh gốc chất lượng cao (không resize).')
-                            ->warning()
-                            ->send();
-                        return;
-                    }
-
-                    $note = implode("\n", $notes);
-
-                    // Cập nhật ngay "Khai báo lưu trú" — không đợi admin bấm "Lưu" cả form.
-                    app(CccdDeclarationService::class)->upsertFromOrder($record->fresh(['items']));
-
-                    $this->refreshFormData(['guest_cccds']);
-
-                    Notification::make()
-                        ->title('Quét CCCD khách đi cùng thành công')
-                        ->body($note)
-                        ->success()
-                        ->send();
-                }),
-
-            Actions\Action::make('retryOcr')
-                ->label('Thu thập lại CCCD')
-                ->icon('heroicon-m-arrow-path')
-                ->color('primary')
-                ->visible(fn () => auth()->user()?->can('update_order') ?? false)
-                ->requiresConfirmation()
-                ->modalHeading('Thu thập lại thông tin OCR từ CCCD')
-                ->modalDescription('Hệ thống sẽ quét lại ảnh CCCD mặt trước và cập nhật thông tin vào trường "Thông tin người dùng". Bạn có chắc chắn muốn tiếp tục?')
-                ->modalSubmitActionLabel('Xác nhận')
-                ->action(function () {
-                    // Refresh the record to get the latest data
-                    $record = $this->record->fresh();
-
-                    if (!$record->cccd_front) {
-                        Notification::make()
-                            ->title('Không tìm thấy ảnh CCCD')
-                            ->body('Vui lòng upload ảnh CCCD mặt trước trước khi thu thập OCR.')
-                            ->danger()
-                            ->send();
-                        return;
-                    }
-
-                    try {
-                        $ocrService = app(OcrSpaceService::class);
-
-                        if (!$ocrService->isConfigured()) {
-                            Notification::make()
-                                ->title('OCR chưa được cấu hình')
-                                ->body('Vui lòng cấu hình OCR_SPACE_API_KEY trong file .env')
-                                ->danger()
-                                ->send();
-                            return;
-                        }
-
-                        // Get the full path to the CCCD image
-                        $cccdPath = Storage::disk('public')->path($record->cccd_front);
-
-                        if (!file_exists($cccdPath)) {
-                            Notification::make()
-                                ->title('File không tồn tại')
-                                ->body("Không tìm thấy file: {$record->cccd_front}")
-                                ->danger()
-                                ->send();
-                            return;
-                        }
-
-                        // Extract text from CCCD front
-                        $frontText = $ocrService->extractTextFromImage($cccdPath);
-
-                        if (empty($frontText)) {
-                            Notification::make()
-                                ->title('OCR thất bại')
-                                ->body('Không thể trích xuất văn bản từ ảnh CCCD. Vui lòng kiểm tra log để biết chi tiết.')
-                                ->danger()
-                                ->send();
-                            return;
-                        }
-
-                        // Format CCCD info (Name, ID, Home address)
-                        $formattedInfo = $ocrService->formatCccdInfo($frontText);
-
-                        // Update the record
-                        $record->update([
-                            'note_for_admin' => $formattedInfo
-                        ]);
-
-                        // Refresh form data to show the updated value immediately
-                        $this->refreshFormData([
-                            'note_for_admin'
-                        ]);
-
-                        Notification::make()
-                            ->title('Thu thập OCR thành công')
-                            ->body('Thông tin CCCD đã được cập nhật vào trường "Thông tin người dùng".')
-                            ->success()
-                            ->send();
-
-                    } catch (\Exception $e) {
-                        Notification::make()
-                            ->title('Lỗi khi thu thập OCR')
-                            ->body('Chi tiết: ' . $e->getMessage())
-                            ->danger()
-                            ->send();
-                    }
-                }),
             Actions\Action::make('regenerateExtraChargeQr')
                 ->label('Tạo lại QR phát sinh')
                 ->icon('heroicon-m-qr-code')
@@ -1050,16 +800,7 @@ class EditOrder extends EditRecord
     protected int     $oldItemsCount    = 0;
     protected array   $oldItemSnapshot  = [];
     protected array   $oldServiceDetails = [];
-    /**
-     * Khoản phát sinh/hoàn tiền CÒN ĐANG CHỜ XỬ LÝ (chưa xác nhận thanh toán/hoàn) NGAY TRƯỚC lần
-     * lưu này — dương = đang nợ thêm, âm = đang cần hoàn. Dùng làm MỐC SO SÁNH để tính đúng
-     * INCREMENTAL diff (chỉ riêng lần sửa này thay đổi bao nhiêu) cho "Lịch sử thanh toán", KHÔNG
-     * dùng $cumulativeDiff (tổng chênh lệch tích luỹ từ full_amount gốc) cho mục đích hiển thị lịch
-     * sử — nếu không, thêm khung X (+206.8) rồi bớt lại khung X sẽ hiện "Bớt khung X +100.000đ"
-     * (vẫn dương, vì dịch vụ khác còn giữ), gây hiểu lầm "2 dòng thêm/bớt độc lập không liên quan"
-     * dù thực chất lần sau đã LÀM GIẢM so với lần trước (xem handlePriceDiff()).
-     */
-    protected int $previousNetAdjustment = 0;
+    protected int     $oldSurcharge     = 0;
 
     /**
      * Ghi nhớ ngày cũ, trạng thái cũ, guest_count cũ và services cũ trước khi lưu để so sánh sau.
@@ -1090,19 +831,13 @@ class EditOrder extends EditRecord
         $this->oldItemsTotal = (int) $oldItems->sum('price');
         $this->oldItemsCount = (int) $oldItems->count();
         $this->oldItemSnapshot = $oldItems
-            ->mapWithKeys(fn ($item) => [$this->itemChangeKey($item) => $this->formatItemChangeLabel($item)])
+            ->mapWithKeys(fn ($item) => [$this->itemChangeKey($item) => $this->itemChangeParts($item)])
             ->all();
 
-        // Chỉ tính khoản CÒN PENDING (chưa xác nhận thu/hoàn) làm mốc — khoản ĐÃ xác nhận xong
-        // (extra_charge_paid_at/extra_refund_paid_at khác null) coi như đã "chốt sổ", không phải
-        // là phần "đang chờ xử lý" nữa nên không được cộng vào mốc so sánh cho lần sửa mới.
-        $pendingCharge = ((int) ($this->record->extra_charge_amount ?? 0) > 0 && is_null($this->record->extra_charge_paid_at))
-            ? (int) $this->record->extra_charge_amount
-            : 0;
-        $pendingRefund = ((int) ($this->record->extra_refund_amount ?? 0) > 0 && is_null($this->record->extra_refund_paid_at))
-            ? (int) $this->record->extra_refund_amount
-            : 0;
-        $this->previousNetAdjustment = $pendingCharge - $pendingRefund;
+        // Phụ thu tay ("Phụ thu (có thể sửa tay)" trên Group B) — trước đây KHÔNG được theo dõi,
+        // nên admin chỉ gõ tay phụ thu trên đơn đã paid/deposit (không đổi phòng/dịch vụ/số khách
+        // gì khác) sẽ không kích hoạt được handlePriceDiff() ở afterSave() (xem $surchargeChanged).
+        $this->oldSurcharge = (int) ($this->record->surcharge ?? 0);
     }
 
     /**
@@ -1167,7 +902,11 @@ class EditOrder extends EditRecord
         $itemsChanged  = $newItemsTotal !== $this->oldItemsTotal;
         $newItemsCount = (int) $record->items->where('extra_fee', 0)->count();
 
-        if ($guestCountChanged || $servicesChanged || $itemsChanged) {
+        // Phụ thu gõ tay đổi cũng phải kích hoạt handlePriceDiff() giống hệt đổi phòng/dịch vụ/số
+        // khách — xem $this->oldSurcharge ở beforeSave() và ExtraChargeService::calculateDiff().
+        $surchargeChanged = (int) ($record->surcharge ?? 0) !== $this->oldSurcharge;
+
+        if ($guestCountChanged || $servicesChanged || $itemsChanged || $surchargeChanged) {
             $changes = [];
 
             if ($guestCountChanged) {
@@ -1182,6 +921,9 @@ class EditOrder extends EditRecord
             }
             if ($itemsChanged) {
                 $changes['items_total'] = ['from' => $this->oldItemsTotal, 'to' => $newItemsTotal];
+            }
+            if ($surchargeChanged) {
+                $changes['surcharge'] = ['from' => $this->oldSurcharge, 'to' => (int) ($record->surcharge ?? 0)];
             }
 
             // Broadcast realtime đến client
@@ -1217,6 +959,7 @@ class EditOrder extends EditRecord
                     $servicesChanged,
                     $newItemsCount,
                     $newServicesSnapshot,
+                    $surchargeChanged,
                 ));
             }
         }
@@ -1293,26 +1036,39 @@ class EditOrder extends EditRecord
         bool $servicesChanged,
         int $newItemsCount,
         array $newServicesSnapshot,
+        bool $surchargeChanged = false,
     ): array {
         $summary = [];
 
         $newItemSnapshot = $record->items
             ->where('extra_fee', 0)
-            ->mapWithKeys(fn ($item) => [$this->itemChangeKey($item) => $this->formatItemChangeLabel($item)])
+            ->mapWithKeys(fn ($item) => [$this->itemChangeKey($item) => $this->itemChangeParts($item)])
             ->all();
 
-        $addedItems = array_values(array_diff_key($newItemSnapshot, $this->oldItemSnapshot));
-        $removedItems = array_values(array_diff_key($this->oldItemSnapshot, $newItemSnapshot));
+        $addedParts = array_values(array_diff_key($newItemSnapshot, $this->oldItemSnapshot));
+        $removedParts = array_values(array_diff_key($this->oldItemSnapshot, $newItemSnapshot));
 
-        if (! empty($addedItems)) {
-            $summary[] = 'Thêm khung ' . implode(', ', $addedItems);
-        }
-        if (! empty($removedItems)) {
-            $summary[] = 'Bớt khung ' . implode(', ', $removedItems);
+        // Đúng 1 dòng cũ mất + 1 dòng mới xuất hiện trong CÙNG 1 lần lưu = khách đổi sang phòng/
+        // khung giờ khác (product_id đổi khiến itemChangeKey() khác hẳn dòng cũ) — hiển thị gộp
+        // thành 1 dòng "Đổi phòng: A → B" dễ hiểu hơn 2 dòng "Thêm khung"/"Bớt khung" rời rạc, dù
+        // giá chênh lệch (hiển thị ở 'sub' của bước lịch sử) đã được tính đúng từ trước.
+        if (count($addedParts) === 1 && count($removedParts) === 1) {
+            $summary[] = 'Đổi phòng: ' . $this->formatChangePartLabel($removedParts[0])
+                . ' → ' . $this->formatChangePartLabel($addedParts[0]);
+        } else {
+            // Gộp NHIỀU khung giờ thay đổi CÙNG LÚC của CÙNG 1 phòng thành 1 cụm "Tên phòng:
+            // giờ1, giờ2, ..." thay vì lặp lại "Tên phòng:" cho từng khung giờ (trước đây 3 khung
+            // cùng phòng hiện thành "PIXEL: ..., PIXEL: ..., PIXEL: ..." dài dòng khó đọc).
+            if (! empty($addedParts)) {
+                $summary[] = '+ ' . $this->formatGroupedChangeParts($addedParts);
+            }
+            if (! empty($removedParts)) {
+                $summary[] = '- ' . $this->formatGroupedChangeParts($removedParts);
+            }
         }
 
         $itemsCountDelta = $newItemsCount - $this->oldItemsCount;
-        if (empty($addedItems) && empty($removedItems) && $itemsCountDelta !== 0) {
+        if (empty($addedParts) && empty($removedParts) && $itemsCountDelta !== 0) {
             $summary[] = $itemsCountDelta > 0
                 ? "Thêm {$itemsCountDelta} khung giờ"
                 : 'Bớt ' . abs($itemsCountDelta) . ' khung giờ';
@@ -1326,23 +1082,43 @@ class EditOrder extends EditRecord
                 ]])
                 ->all();
 
+            // Gộp MỖI LOẠI thay đổi dịch vụ (thêm/tăng/giảm/bớt) thành 1 dòng DUY NHẤT liệt kê hết
+            // các dịch vụ cùng loại thay đổi, thay vì 1 dòng riêng cho TỪNG dịch vụ (trước đây bớt
+            // 4 dịch vụ ra 4 dòng "Bớt dịch vụ X" nối nhau bằng " · ", quá dài — xem cách hiển thị
+            // ở OrderForm::buildPaymentTimelineSteps(), implode(' · ', $changeSummary)).
+            $addedLabels = [];
             foreach (array_diff_key($newServices, $this->oldServiceDetails) as $service) {
-                $summary[] = 'Thêm dịch vụ ' . $service['name'] . ' x' . $service['quantity'];
+                $addedLabels[] = $service['name'] . ' (' . $service['quantity'] . ')';
+            }
+            if (! empty($addedLabels)) {
+                $summary[] = '+ ' . implode(', ', $addedLabels);
             }
 
+            $increasedLabels = [];
+            $decreasedLabels = [];
             foreach (array_intersect_key($newServices, $this->oldServiceDetails) as $key => $service) {
                 $oldQuantity = (int) ($this->oldServiceDetails[$key]['quantity'] ?? 0);
                 $newQuantity = (int) ($service['quantity'] ?? 0);
 
                 if ($newQuantity > $oldQuantity) {
-                    $summary[] = 'Tăng dịch vụ ' . $service['name'] . ': ' . $oldQuantity . ' → ' . $newQuantity;
+                    $increasedLabels[] = $service['name'] . ': ' . $oldQuantity . ' → ' . $newQuantity;
                 } elseif ($newQuantity < $oldQuantity) {
-                    $summary[] = 'Giảm dịch vụ ' . $service['name'] . ': ' . $oldQuantity . ' → ' . $newQuantity;
+                    $decreasedLabels[] = $service['name'] . ': ' . $oldQuantity . ' → ' . $newQuantity;
                 }
             }
+            if (! empty($increasedLabels)) {
+                $summary[] = 'Tăng dịch vụ ' . implode(', ', $increasedLabels);
+            }
+            if (! empty($decreasedLabels)) {
+                $summary[] = 'Giảm dịch vụ ' . implode(', ', $decreasedLabels);
+            }
 
+            $removedLabels = [];
             foreach (array_diff_key($this->oldServiceDetails, $newServices) as $service) {
-                $summary[] = 'Bớt dịch vụ ' . $service['name'];
+                $removedLabels[] = $service['name'] . ' (' . (int) ($service['quantity'] ?? 1) . ')';
+            }
+            if (! empty($removedLabels)) {
+                $summary[] = '- ' . implode(', ', $removedLabels);
             }
         }
 
@@ -1351,6 +1127,13 @@ class EditOrder extends EditRecord
             $summary[] = $guestDelta > 0
                 ? "Thêm {$guestDelta} người"
                 : 'Giảm ' . abs($guestDelta) . ' người';
+        }
+
+        if ($surchargeChanged) {
+            $surchargeDelta = (int) ($record->surcharge ?? 0) - $this->oldSurcharge;
+            $summary[] = $surchargeDelta > 0
+                ? 'Phụ thu +' . number_format($surchargeDelta, 0, ',', '.') . 'đ'
+                : 'Giảm phụ thu ' . number_format(abs($surchargeDelta), 0, ',', '.') . 'đ';
         }
 
         return $summary;
@@ -1369,19 +1152,73 @@ class EditOrder extends EditRecord
         ]);
     }
 
-    private function formatItemChangeLabel($item): string
+    // Tách riêng "tên phòng" và "khung giờ" (thay vì gộp sẵn thành 1 chuỗi như
+    // formatItemChangeLabel() cũ) — CẦN giữ riêng 2 phần này để formatGroupedChangeParts() gộp
+    // được NHIỀU khung giờ cùng 1 phòng thành 1 cụm, không lặp lại tên phòng cho từng khung. Giữ
+    // 'start'/'end' dạng Carbon (KHÔNG format sẵn thành chuỗi) để formatGroupedChangeParts() gộp
+    // được nhiều khung LIỀN NHAU trong CÙNG 1 ngày thành 1 khoảng min(start)-max(end) duy nhất.
+    private function itemChangeParts($item): array
     {
         $room = trim((string) ($item->product?->name ?: $item->name ?: 'Phòng'));
         $roomWithoutSlot = preg_replace('/\s*-\s*\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}(?:\s*\([^)]*\))?\s*$/u', '', $room);
         $room = filled($roomWithoutSlot) ? trim($roomWithoutSlot) : $room;
 
-        $checkin = $item->checkin_date ? \Carbon\Carbon::parse($item->checkin_date)->format('d/m H:i') : null;
-        $checkout = $item->checkout_date ? \Carbon\Carbon::parse($item->checkout_date)->format('d/m H:i') : null;
-        $time = $checkin && $checkout
-            ? $checkin . ' - ' . $checkout
-            : trim((string) ($item->slot_label ?? ''));
+        return [
+            'room'       => $room,
+            'start'      => $item->checkin_date ? \Carbon\Carbon::parse($item->checkin_date) : null,
+            'end'        => $item->checkout_date ? \Carbon\Carbon::parse($item->checkout_date) : null,
+            'slot_label' => trim((string) ($item->slot_label ?? '')),
+        ];
+    }
 
-        return $time ? $room . ': ' . $time : $room;
+    private function formatChangePartLabel(array $part): string
+    {
+        $time = $this->formatChangePartTimeRange($part['start'] ?? null, $part['end'] ?? null) ?: ($part['slot_label'] ?? '');
+
+        return $time !== '' ? $part['room'] . ': ' . $time : $part['room'];
+    }
+
+    private function formatChangePartTimeRange(?\Carbon\Carbon $start, ?\Carbon\Carbon $end): string
+    {
+        return $start && $end ? $start->format('H:i') . ' - ' . $end->format('H:i') . ' (' . $start->format('d/m') . ')' : '';
+    }
+
+    // Gộp nhiều phần {room,start,end} thành 1 chuỗi gọn — CÙNG 1 phòng thì chỉ nêu tên phòng 1
+    // lần; các khung giờ CÙNG NGÀY của phòng đó gộp thành 1 khoảng DUY NHẤT
+    // "giờ-bắt-đầu-sớm-nhất - giờ-kết-thúc-muộn-nhất (ngày)" thay vì liệt kê từng khung rời rạc
+    // (theo yêu cầu — 3 khung liền nhau 13:50-16:40/17:10-20:00/20:30-23:20 cùng ngày 04/08 chỉ
+    // cần hiện "PIXEL: 13:50 - 23:20 (04/08)"). Khác ngày thì tách thành cụm riêng, nối nhau bằng
+    // dấu phẩy.
+    private function formatGroupedChangeParts(array $parts): string
+    {
+        $byRoom = [];
+        foreach ($parts as $part) {
+            $byRoom[$part['room']][] = $part;
+        }
+
+        return implode(', ', array_map(
+            function (string $room, array $roomParts) {
+                $ranges = [];
+
+                $byDate = [];
+                foreach ($roomParts as $part) {
+                    if ($part['start'] && $part['end']) {
+                        $byDate[$part['start']->format('Y-m-d')][] = $part;
+                    } elseif ($part['slot_label'] !== '') {
+                        $ranges[] = $part['slot_label'];
+                    }
+                }
+                foreach ($byDate as $dateParts) {
+                    $minStart = min(array_column($dateParts, 'start'));
+                    $maxEnd   = max(array_column($dateParts, 'end'));
+                    $ranges[] = $this->formatChangePartTimeRange($minStart, $maxEnd);
+                }
+
+                return $ranges === [] ? $room : $room . ': ' . implode(', ', $ranges);
+            },
+            array_keys($byRoom),
+            $byRoom
+        ));
     }
 
     private function serviceChangeKey($service): string
@@ -1393,15 +1230,51 @@ class EditOrder extends EditRecord
     {
         try {
             $extraChargeService = app(ExtraChargeService::class);
-            // $cumulativeDiff = TỔNG chênh lệch tích luỹ so với full_amount GỐC (dùng để biết ĐANG
-            // NỢ/CẦN HOÀN bao nhiêu tính đến bây giờ — QR/remaining PHẢI dùng số này).
-            // $incrementalDiff = riêng LẦN SỬA NÀY làm tăng/giảm bao nhiêu so với lần sửa trước (so
-            // với $previousNetAdjustment ghi ở beforeSave()) — dùng cho audit log/lịch sử để mỗi
-            // dòng phản ánh ĐÚNG tác động của chính lần sửa đó, không lẫn với các lần trước.
-            $cumulativeDiff  = $extraChargeService->calculateDiff($order);
-            $incrementalDiff = $cumulativeDiff - $this->previousNetAdjustment;
 
-            if ($incrementalDiff === 0) {
+            // $diff = TỔNG chênh lệch RÒNG hiện tại so với full_amount GỐC (đã trừ phần đã xác
+            // nhận thu/hoàn xong — settled_adjustment_total, xem ExtraChargeService::calculateDiff())
+            // — 1 số DUY NHẤT, dùng thống nhất cho QR/remaining LẪN audit log/thông báo. Trước đây
+            // tách riêng "tổng tích luỹ" (dùng cho QR) và "riêng lần sửa này" (dùng cho thông báo,
+            // cần 1 property $previousNetAdjustment ghi ở beforeSave() để so sánh) — bỏ bớt cho
+            // đơn giản, chỉ còn hiện "hiện đang phát sinh/cần hoàn bao nhiêu" thay vì tách riêng
+            // "lần này thay đổi bao nhiêu".
+            $diff = $extraChargeService->calculateDiff($order);
+
+            // So với khoản ĐANG CHỜ XỬ LÝ (từ lần trước, nếu có — đọc thẳng từ $order hiện tại,
+            // không cần property riêng ghi ở beforeSave()) — không có gì mới thì bỏ qua, tránh tạo
+            // QR mới/ghi audit log dù giá không thực sự đổi (vd đổi sang khung giờ khác cùng giá).
+            // CHỈ tính phần CHƯA xác nhận thu/hoàn (paid_at còn null) — extra_charge_amount KHÔNG bị
+            // xoá sau khi xác nhận thu (giữ lại làm lịch sử "đã thu Xđ"), nên nếu không lọc theo
+            // paid_at sẽ nhầm 1 khoản ĐÃ THU XONG thành "đang chờ", khiến 1 lần sửa đơn không liên
+            // quan sau đó xoá mất luôn dấu vết đã thu.
+            $pendingCharge  = ((int) ($order->extra_charge_amount ?? 0) > 0 && is_null($order->extra_charge_paid_at))
+                ? (int) $order->extra_charge_amount : 0;
+            $pendingRefund  = ((int) ($order->extra_refund_amount ?? 0) > 0 && is_null($order->extra_refund_paid_at))
+                ? (int) $order->extra_refund_amount : 0;
+            $currentPending = $pendingCharge - $pendingRefund;
+            if ($diff === $currentPending) {
+                return;
+            }
+
+            // Đơn ĐÃ paid, tổng vừa quay lại ĐÚNG bằng lúc đặt (thêm rồi bớt lại triệt tiêu nhau) —
+            // không còn nợ/cần hoàn gì cả, dọn sạch cờ pending CŨ để panel "Phát sinh thêm"/"Hoàn
+            // tiền chưa xử lý" không tiếp tục hiện 1 khoản không còn tồn tại. Đơn deposit tự dọn qua
+            // applyDiffToDeposit($order, 0) ở nhánh dưới, không cần xử lý riêng ở đây.
+            if ($diff === 0 && $order->status !== 'deposit') {
+                $order->update([
+                    'extra_charge_amount' => null, 'extra_charge_payos_code' => null,
+                    'extra_charge_checkout_url' => null, 'extra_charge_qr_code' => null,
+                    'extra_charge_payment_method' => null, 'extra_charge_paid_at' => null,
+                    'extra_charge_expired_at' => null,
+                    'extra_refund_amount' => null, 'extra_refund_method' => null, 'extra_refund_paid_at' => null,
+                ]);
+
+                Notification::make()
+                    ->title('Tổng tiền đã trở về đúng số đã thanh toán')
+                    ->body('Không còn khoản phát sinh/hoàn tiền nào cần xử lý.')
+                    ->success()
+                    ->send();
+
                 return;
             }
 
@@ -1414,7 +1287,7 @@ class EditOrder extends EditRecord
                 action: 'price_adjustment',
                 module: 'Order',
                 record: $order,
-                new: ['diff' => $incrementalDiff, 'status' => $order->status, 'change_summary' => $changeSummary],
+                new: ['diff' => $diff, 'status' => $order->status, 'change_summary' => $changeSummary],
                 label: "Đơn #{$order->order_code}",
             );
 
@@ -1423,10 +1296,7 @@ class EditOrder extends EditRecord
 
             // ── Đơn deposit: cộng vào remaining ──────────────────────────────
             if ($order->status === 'deposit') {
-                // applyDiffToDeposit CỘNG DỒN diff vào extra_charge_amount hiện có — phải truyền
-                // $incrementalDiff (thay đổi RIÊNG lần này), không phải $cumulativeDiff (đã bao gồm
-                // cả phần cũ), nếu không sẽ cộng dồn 2 lần phần cũ.
-                $extraChargeService->applyDiffToDeposit($order, $incrementalDiff);
+                $extraChargeService->applyDiffToDeposit($order, $diff);
 
                 // full_amount CỐ ĐỊNH = tổng giá thật, không đổi — remaining = (tổng - đã cọc) + phát sinh
                 $order->refresh();
@@ -1435,9 +1305,9 @@ class EditOrder extends EditRecord
                 $extraCharge  = (int) ($order->extra_charge_amount ?? 0);
                 $newRemaining = max(0, $newRealTotal - $depositPaid) + $extraCharge;
 
-                $label = $incrementalDiff > 0
-                    ? 'Phần còn lại tăng thêm ' . number_format($incrementalDiff, 0, ',', '.') . 'đ'
-                    : 'Phần còn lại giảm ' . number_format(abs($incrementalDiff), 0, ',', '.') . 'đ';
+                $label = $diff > 0
+                    ? 'Phần còn lại tăng thêm ' . number_format($diff, 0, ',', '.') . 'đ'
+                    : 'Phần còn lại giảm ' . number_format(abs($diff), 0, ',', '.') . 'đ';
 
                 // Notify admin (Filament)
                 Notification::make()
@@ -1471,44 +1341,23 @@ class EditOrder extends EditRecord
 
                 // FCM notify khách
                 $clientTitle = "Đơn #{$order->order_code}: số tiền còn lại đã thay đổi";
-                $clientBody  = $incrementalDiff > 0
-                    ? 'Đơn hàng vừa được cập nhật (dịch vụ/số người/khung giờ) làm tăng ' . number_format($incrementalDiff, 0, ',', '.') . 'đ. Số tiền còn lại: ' . number_format($newRemaining, 0, ',', '.') . 'đ.'
-                    : 'Điều chỉnh giảm ' . number_format(abs($incrementalDiff), 0, ',', '.') . 'đ. Số tiền còn lại: ' . number_format($newRemaining, 0, ',', '.') . 'đ.';
+                $clientBody  = $diff > 0
+                    ? 'Đơn hàng vừa được cập nhật (dịch vụ/số người/khung giờ) làm tăng ' . number_format($diff, 0, ',', '.') . 'đ. Số tiền còn lại: ' . number_format($newRemaining, 0, ',', '.') . 'đ.'
+                    : 'Điều chỉnh giảm ' . number_format(abs($diff), 0, ',', '.') . 'đ. Số tiền còn lại: ' . number_format($newRemaining, 0, ',', '.') . 'đ.';
 
                 $this->pushClientNotification($order, $notifService, $clientTitle, $clientBody, 'order_deposit_updated', $extra);
 
                 return;
             }
 
-            // ── Đơn đã paid, tổng đã về ĐÚNG bằng lúc đặt (thêm rồi bớt lại triệt tiêu nhau) ───
-            // Không còn nợ/cần hoàn gì cả — xoá sạch cờ pending CŨ (nếu có) để panel "Phát sinh
-            // thêm"/"Hoàn tiền chưa xử lý" không tiếp tục hiện 1 khoản không còn tồn tại.
-            if ($cumulativeDiff === 0) {
-                $order->update([
-                    'extra_charge_amount' => null, 'extra_charge_payos_code' => null,
-                    'extra_charge_checkout_url' => null, 'extra_charge_qr_code' => null,
-                    'extra_charge_payment_method' => null, 'extra_charge_paid_at' => null,
-                    'extra_charge_expired_at' => null,
-                    'extra_refund_amount' => null, 'extra_refund_method' => null, 'extra_refund_paid_at' => null,
-                ]);
-
-                Notification::make()
-                    ->title('Tổng tiền đã trở về đúng số đã thanh toán')
-                    ->body('Không còn khoản phát sinh/hoàn tiền nào cần xử lý.')
-                    ->success()
-                    ->send();
-
-                return;
-            }
-
             // ── Đơn đã paid: tạo PayOS mới cho khoản phát sinh ───────────────
-            if ($cumulativeDiff > 0) {
-                $result = $extraChargeService->createExtraChargePayOS($order, $cumulativeDiff);
+            if ($diff > 0) {
+                $result = $extraChargeService->createExtraChargePayOS($order, $diff);
 
                 // Notify admin (Filament)
                 Notification::make()
-                    ->title('Phát sinh thêm ' . number_format($incrementalDiff, 0, ',', '.') . 'đ')
-                    ->body('Tổng cần thu thêm hiện tại: ' . number_format($cumulativeDiff, 0, ',', '.') . 'đ. Link thanh toán: ' . $result['checkout_url'])
+                    ->title('Đang phát sinh ' . number_format($diff, 0, ',', '.') . 'đ')
+                    ->body('Cần thu thêm: ' . number_format($diff, 0, ',', '.') . 'đ. Link thanh toán: ' . $result['checkout_url'])
                     ->actions([
                         \Filament\Notifications\Actions\Action::make('view_link')
                             ->label('Mở link PayOS')
@@ -1520,16 +1369,16 @@ class EditOrder extends EditRecord
                     ->send();
 
                 // FCM + WS → khách
-                $clientTitle = "Đơn #{$order->order_code}: phát sinh thêm " . number_format($incrementalDiff, 0, ',', '.') . 'đ';
+                $clientTitle = "Đơn #{$order->order_code}: phát sinh thêm " . number_format($diff, 0, ',', '.') . 'đ';
                 $clientBody  = 'Đơn hàng vừa được cập nhật (dịch vụ/số người/khung giờ). Vui lòng thanh toán khoản phát sinh.';
                 $this->pushClientNotification($order, $notifService, $clientTitle, $clientBody, 'order_extra_charge',
-                    array_merge($extra, ['amount' => $cumulativeDiff])
+                    array_merge($extra, ['amount' => $diff])
                 );
 
                 try {
                     app(OrderRealtimeService::class)->broadcastOrderUpdate(
                         (string) $order->order_code,
-                        ['extra_charge' => ['amount' => $cumulativeDiff, 'qr_code' => $result['qr_code'], 'is_paid' => false]],
+                        ['extra_charge' => ['amount' => $diff, 'qr_code' => $result['qr_code'], 'is_paid' => false]],
                         $order->customer_id ? (int) $order->customer_id : null,
                     );
                 } catch (\Throwable $e) {
@@ -1542,17 +1391,17 @@ class EditOrder extends EditRecord
                 // (extra_refund_amount), KHÔNG chỉ bắn Notification thoáng qua như trước — nếu
                 // không lưu, admin bỏ lỡ thông báo là mất dấu hoàn toàn, không còn cách nào biết đơn
                 // này đang nợ khách 1 khoản hoàn tiền. Xem panel "Hoàn tiền chưa xử lý" ở OrderForm.
-                $extraChargeService->recordPendingRefund($order, abs($cumulativeDiff));
+                $extraChargeService->recordPendingRefund($order, abs($diff));
 
                 Notification::make()
-                    ->title('Tổng tiền giảm ' . number_format(abs($incrementalDiff), 0, ',', '.') . 'đ')
-                    ->body('Tổng cần hoàn khách hiện tại: ' . number_format(abs($cumulativeDiff), 0, ',', '.') . 'đ — xem panel "Hoàn tiền chưa xử lý" ở tab Thông tin thanh toán.')
+                    ->title('Đang cần hoàn ' . number_format(abs($diff), 0, ',', '.') . 'đ')
+                    ->body('Xem panel "Hoàn tiền chưa xử lý" ở tab Thông tin thanh toán.')
                     ->info()
                     ->persistent()
                     ->send();
 
                 $clientTitle = "Đơn #{$order->order_code}: tổng tiền đã giảm";
-                $clientBody  = 'Đơn hàng đã được điều chỉnh (dịch vụ/số người/khung giờ), giảm ' . number_format(abs($incrementalDiff), 0, ',', '.') . 'đ.';
+                $clientBody  = 'Đơn hàng đã được điều chỉnh (dịch vụ/số người/khung giờ), giảm ' . number_format(abs($diff), 0, ',', '.') . 'đ.';
                 $this->pushClientNotification($order, $notifService, $clientTitle, $clientBody, 'order_extra_charge', $extra);
 
                 try {

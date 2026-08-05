@@ -7,7 +7,6 @@ namespace App\Services;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
 use Modules\Payment\Entities\Order;
-use Modules\Product\App\Models\Product;
 use PayOS\PayOS;
 
 class ExtraChargeService
@@ -31,22 +30,29 @@ class ExtraChargeService
      *
      * calculateRealTotal() dùng ĐÚNG 1 công thức duy nhất, khớp OrderForm::computeOrderTotal()
      * (dùng cho form admin) và total-amount-card.blade.php (card client) — 3 nơi PHẢI cùng ra 1 số.
+     * KHÔNG cộng 'surcharge' (phụ thu gõ tay) vào calculateRealTotal() vì lý do tương tự —
+     * computeOrderTotal() cũng KHÔNG gồm surcharge (cộng RIÊNG ở OrderForm::calculateTotal()), nên
+     * cộng surcharge NGAY TẠI ĐÂY (chỉ ảnh hưởng công thức chênh lệch, không đụng
+     * calculateRealTotal() dùng chung cho cột "Tổng tiền"/card client) để phụ thu gõ tay trên đơn
+     * đã paid/deposit cũng tự động tính vào khoản phát sinh/hoàn tiền giống hệt đổi phòng/dịch vụ/
+     * số khách — xem EditOrder::beforeSave() ($oldSurcharge) / afterSave() ($surchargeChanged).
      *
      * @param  Order  $order  Đơn đã refresh với relations (items.product, services)
-     * @return int    Dương = khách còn nợ thêm (thêm khung giờ), âm = cần hoàn tiền (bớt khung giờ)
+     * @return int    Dương = khách còn nợ thêm (thêm khung giờ/phụ thu), âm = cần hoàn tiền (bớt khung giờ/giảm phụ thu)
      */
     public function calculateDiff(Order $order): int
     {
         return $this->calculateRealTotal($order)
+            + (int) ($order->surcharge ?? 0)
             - (int) ($order->full_amount ?? 0)
             - (int) ($order->settled_adjustment_total ?? 0);
     }
 
     /**
-     * Tính TỔNG THẬT của đơn — áp dụng bulk_discount_rules theo nhóm product (số khung giờ cùng 1
-     * phòng càng nhiều càng được giảm %) + phụ thu khách vượt số miễn phí (tính 1 lần theo LƯỢT ĐẶT,
-     * xấp xỉ bằng cách lấy guest_count của dòng đầu mỗi nhóm product — cùng quy ước với
-     * OrderTable::computeItemsBulkData()) + tổng dịch vụ thêm.
+     * Tính TỔNG THẬT của đơn — dùng chung OrderForm::resolveProductGroupPricing() (port chính xác
+     * BuildsRoomBooking::computeBookingPreview(), engine tính giá THẬT dùng cho mọi đơn tạo/sửa
+     * qua API — /api/admin/orders/preview) để ra ĐÚNG giá phòng + khuyến mãi/giảm giá hệ thống +
+     * phụ thu khách cho từng nhóm product, cộng thêm tổng dịch vụ thêm.
      */
     public function calculateRealTotal(Order $order): int
     {
@@ -62,33 +68,22 @@ class ExtraChargeService
         $itemsByProduct = $items->filter(fn ($item) => $item->product_id)->groupBy('product_id');
 
         foreach ($itemsByProduct as $groupItems) {
-            $product   = $groupItems->first()->product;
-            $slotCount = $groupItems->count();
+            $product = $groupItems->first()->product;
 
-            $bulkDiscountPct = 0;
-            if ($product && $slotCount >= 2) {
-                $rules = $product->bulk_discount_rules ?? [];
-                usort($rules, fn ($a, $b) => (int) ($b['slots'] ?? 0) - (int) ($a['slots'] ?? 0));
-                foreach ($rules as $rule) {
-                    if ($slotCount >= (int) ($rule['slots'] ?? 0)) {
-                        $bulkDiscountPct = (float) ($rule['discount'] ?? 0);
-                        break;
-                    }
-                }
-            }
+            // Giá phòng (đã áp khuyến mãi/giảm giá hệ thống) + phụ thu khách — dùng chung 1 công
+            // thức với OrderForm::computeOrderTotal()/total-amount-card.blade.php (3 nơi PHẢI
+            // cùng ra 1 số, xem OrderForm::resolveProductGroupPricing()). OrderItem model hỗ trợ
+            // ArrayAccess ($item['price']/['checkin_date']...) nên dùng thẳng được, chỉ cần
+            // ->all() để khớp type-hint array của hàm dùng chung.
+            $pricing = \Modules\Payment\App\Filament\Resources\OrderResource\Forms\OrderForm::resolveProductGroupPricing(
+                $groupItems->all(),
+                $product,
+            );
+            $total += $pricing['total'] + $pricing['guest_surcharge'];
 
             foreach ($groupItems as $item) {
-                $basePrice = (float) $item->price;
-                if ($bulkDiscountPct > 0) {
-                    $basePrice = round($basePrice * (1 - $bulkDiscountPct / 100));
-                }
-                $total += $basePrice + (float) $item->extra_fee;
+                $total += (float) $item->extra_fee;
             }
-
-            // itemCount = $slotCount, KHÔNG phải hardcode 1 — phòng "đặt theo ngày" (styles != 1)
-            // tách MỖI ĐÊM thành 1 order_item riêng, nên số dòng của nhóm này CHÍNH LÀ số đêm, và
-            // calcGuestSurcharge() cần nhân phụ thu theo đúng số đêm đó (xem $nights bên trong).
-            $total += $this->calcGuestSurcharge($product, (int) ($groupItems->first()->guest_count ?? 1), $slotCount);
         }
 
         foreach ($items->filter(fn ($item) => ! $item->product_id) as $item) {
@@ -102,38 +97,21 @@ class ExtraChargeService
         return (int) round($total);
     }
 
-    private function calcGuestSurcharge(?Product $product, int $guestCount, int $itemCount): int
-    {
-        if (! $product) {
-            return 0;
-        }
-
-        $config         = $product->room_config ?? [];
-        $guestFee       = (int) ($config['extra_guest_fee'] ?? 0);
-        $guestThreshold = (int) ($config['max_free_guests'] ?? 2);
-        $isSlotType     = (int) $product->styles === 1;
-        $nights         = $isSlotType ? 1 : max(1, $itemCount);
-        $extraGuests    = max(0, $guestCount - $guestThreshold);
-
-        return $extraGuests * $guestFee * $nights;
-    }
-
     // ─── Xử lý đơn deposit (cập nhật full_amount) ───────────────────────────
 
     /**
-     * Với đơn deposit: cộng diff vào full_amount và xóa link remaining cũ
-     * để force regenerate khi khách thanh toán lần 2.
+     * Với đơn deposit: GHI ĐÈ extra_charge_amount = $diff (không cộng dồn) và xóa link remaining
+     * cũ để force regenerate khi khách thanh toán lần 2.
+     *
+     * $diff = calculateDiff($order) — đã là số RÒNG hiện tại (tổng giá thật − full_amount −
+     * settled_adjustment_total), tức "đang phát sinh/cần hoàn bao nhiêu TÍNH ĐẾN BÂY GIỜ", không
+     * phải riêng phần thay đổi của lần sửa này — nên phải SET, cộng thêm vào extra_charge_amount
+     * cũ sẽ tính lặp lại phần đã nằm trong đó.
      */
     public function applyDiffToDeposit(Order $order, int $diff): void
     {
-        // full_amount = TỔNG GIÁ CỐ ĐỊNH của đơn (KHÔNG thay đổi dù giá phát sinh thêm).
-        // Extra charge được cộng dồn riêng vào extra_charge_amount.
-        // remaining_payment API sẽ cộng extra_charge_amount vào remaining khi tính link QR.
-        $currentExtra = (int) ($order->extra_charge_amount ?? 0);
-        $newExtra     = $currentExtra + $diff;
-
         $order->update([
-            'extra_charge_amount'    => $newExtra !== 0 ? $newExtra : null,
+            'extra_charge_amount'    => $diff !== 0 ? $diff : null,
             'remaining_payos_code'   => null,
             'remaining_checkout_url' => null,
             'remaining_qr_code'      => null,
@@ -142,9 +120,7 @@ class ExtraChargeService
         Log::info('ExtraCharge: deposit extra_charge_amount updated', [
             'order_id'      => $order->id,
             'deposit_pct'   => $order->deposit_percent,
-            'diff'          => $diff,
-            'old_extra'     => $currentExtra,
-            'new_extra'     => $newExtra,
+            'new_extra'     => $diff,
             'full_amount'   => $order->full_amount,
         ]);
     }

@@ -4,5 +4,6 @@
 @import '/resources/css/filament/admin/table.css';
 @import '/resources/css/filament/admin/logo.css';
 @import '/resources/css/filament/admin/tiny.css';
+@import '/resources/css/filament/admin/order-form.css';
 @config 'tailwind.config.js';
 

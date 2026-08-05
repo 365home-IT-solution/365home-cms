@@ -197,6 +197,11 @@ html:not(.dark) .fi-mega-menu-grid .fi-dropdown-header-label {
     @apply !text-white;
 }
 
+/* Placeholder text in Choices.js selects should remain readable in both light and dark mode. */
+.choices__placeholder.choices__item {
+    @apply !text-gray-400 dark:!text-gray-400;
+}
+
 /* Select đã CHỌN giá trị (vd "Chi nhánh"/"Phòng" khi disabled) đôi lúc vẫn được Choices.js gắn
    chung class .choices__placeholder như ô để trống (chưa chọn), nên bị dính luôn rule "!text-white"
    ở trên dù đang ở theme sáng — chữ trắng trên nền sáng gần như không đọc được. Ép lại màu chữ rõ

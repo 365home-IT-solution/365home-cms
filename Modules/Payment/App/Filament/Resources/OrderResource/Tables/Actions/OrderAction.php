@@ -10,11 +10,13 @@ use Modules\Payment\App\Filament\Resources\OrderResource\Forms\OrderForm;
 
 class OrderAction
 {
-    public static function action()
+    // $extraGroupActions — action bổ sung (vd AssignAccessCodeAction/OpenGateAction/
+    // toggle_unlock_anytime ở OrderTable.php) gộp CHUNG vào đúng ActionGroup "..." này (theo yêu
+    // cầu — không tạo thêm 1 icon/ActionGroup riêng nằm cạnh, tất cả action của 1 dòng phải nằm
+    // trong CÙNG 1 dropdown "Xem chi tiết/Cập nhật/Xóa").
+    public static function action(array $extraGroupActions = [])
     {
         return [
-            AssignAccessCodeAction::make(),
-            OpenGateAction::make(),
             ActionGroup::make([
                 // ViewAction dùng chung OrderForm::form() nhưng KHÔNG đi qua EditRecord (không có
                 // mutateFormDataBeforeFill()) — Repeater 'orderItems' không còn ->relationship('items')
@@ -33,7 +35,8 @@ class OrderAction
                         return $data;
                     }),
                 EditAction::make()->label('Cập nhật'),
-                DeleteAction::make('Xóa')
+                DeleteAction::make('Xóa'),
+                ...$extraGroupActions,
             ])
         ];
     }

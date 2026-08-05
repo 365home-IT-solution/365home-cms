@@ -1,0 +1,168 @@
+/*
+ * Order form (Payment -> OrderResource) custom layout.
+ *
+ * Cùng ngôn ngữ thị giác với trang chi tiết phòng phía khách hàng (product-detail):
+ * card bo góc lớn (rounded-2xl), viền mảnh thay vì "ring" mặc định của Filament,
+ * padding gọn hơn, không lồng card-trong-card.
+ *
+ * Bảng màu "boulder" (neutral, xám ánh xanh) — CHỈ áp dụng cho phần khung/chữ TRUNG
+ * TÍNH (nền, viền, tiêu đề, chữ phụ) trong order form, KHÔNG đổi các màu NGỮ NGHĨA
+ * (xanh lá=thành công, đỏ=lỗi, hổ phách=cảnh báo...) hay var(--color-primary) (màu
+ * thương hiệu dùng cho số tiền/mã cổng) — những màu đó vẫn giữ nguyên ý nghĩa cũ.
+ *
+ * Scope bằng class `.order-form-root` gắn trên 2 Section ngoài cùng của OrderForm
+ * (xem OrderForm::form()) — CSS dưới đây KHÔNG ảnh hưởng tới các resource Filament
+ * khác.
+ *
+ * LƯU Ý: Filament render nội dung modal của Actions (->form()/->modalContent()) ở 1
+ * vị trí RIÊNG trong DOM (cuối trang), KHÔNG nằm trong .order-form-root — mọi rule
+ * scope theo `.order-form-root` bên dưới sẽ KHÔNG áp dụng bên trong các modal đó
+ * (đã có lần gây lỗi ảnh/nút tràn kích thước thật). Nội dung hiển thị trong modal
+ * (xem OrderForm::renderCccdImageWithDownload()) nên tự dùng inline style, không phụ
+ * thuộc CSS ở file này.
+ */
+.order-form-root {
+    --boulder-99: #FBFCFD; /* Nền phụ / vùng sáng nhất — nền card */
+    --boulder-95: #F9FAFB; /* Nền chính — nền khu vực bao quanh card */
+    --boulder-80: #E5E7EB; /* Đường viền, phân tách */
+    --boulder-50: #737882; /* Chữ phụ, icon */
+    --boulder-30: #363B45; /* Tiêu đề, nút bấm phụ */
+    --boulder-20: #272B35; /* Nút chính / badge nổi bật nhất */
+}
+
+/* Section ngoài cùng ("Thông tin đơn đặt phòng" / "Thông tin thanh toán") chỉ là
+   tiêu đề nhóm — không có khung/đổ bóng (tránh cảnh "hộp trong hộp" với các Section
+   card thật nằm bên trong), chỉ có nền phụ nhạt làm "canvas" cho toàn bộ khối card
+   bên trong nổi lên rõ hơn. */
+.order-form-root.fi-section {
+    background: var(--boulder-95);
+    box-shadow: none;
+    border-radius: 1rem;
+    padding: 1rem;
+}
+
+.order-form-root.fi-section > .fi-section-header {
+    padding: 0 .25rem 1rem;
+    border-bottom: none;
+}
+
+.order-form-root.fi-section > .fi-section-content-ctn {
+    border-top: none;
+}
+
+.order-form-root.fi-section > .fi-section-content-ctn > .fi-section-content {
+    padding: 0 .25rem .25rem;
+}
+
+/* Mọi Section nằm bên trong (Mã cổng, Thông tin khách hàng, Chi tiết đặt phòng,
+   Tổng thanh toán...) mới thực sự là "card" — nền sáng nhất trong bảng màu, viền
+   mảnh, bo góc lớn, không ring. */
+.order-form-root .fi-section {
+    border-radius: 1rem;
+    background-color: var(--boulder-99);
+    border: 1px solid var(--boulder-80);
+    box-shadow: none;
+}
+.dark .order-form-root .fi-section {
+    background-color: theme('colors.gray.900');
+    border-color: rgb(255 255 255 / 0.1);
+}
+
+.order-form-root .fi-section > .fi-section-header {
+    @apply px-4 py-3 sm:px-5;
+}
+
+.order-form-root .fi-section > .fi-section-header .fi-section-header-heading {
+    color: var(--boulder-30);
+}
+
+.order-form-root .fi-section > .fi-section-header .fi-section-header-description {
+    color: var(--boulder-50);
+}
+
+.order-form-root .fi-section > .fi-section-content-ctn {
+    border-top: 1px solid var(--boulder-95);
+}
+.dark .order-form-root .fi-section > .fi-section-content-ctn {
+    border-top-color: rgb(255 255 255 / 0.05);
+}
+
+.order-form-root .fi-section > .fi-section-content-ctn > .fi-section-content {
+    @apply p-4 sm:p-5;
+}
+
+/* Section cảnh báo (khóa thủ công, CCCD khách đi cùng, thanh toán còn lại, hoàn
+   tiền...) dùng icon màu warning — thêm 1 vệt viền trái màu hổ phách để nổi bật hơn,
+   giữ nguyên ý nghĩa cảnh báo (không đổi sang màu trung tính). Trình duyệt không hỗ
+   trợ :has() sẽ tự bỏ qua rule này, không vỡ layout. */
+.order-form-root .fi-section:has(> .fi-section-header .fi-color-warning) {
+    border-left-width: 3px;
+    border-left-color: theme('colors.amber.400');
+}
+
+/* Khoảng cách giữa các field/section gọn lại (mặc định Filament dùng gap-6 = 24px)
+   — 16px vẫn đủ thoáng nhưng tổng thể trang đỡ dài. */
+.order-form-root .fi-fo-component-ctn {
+    gap: 1rem;
+}
+
+/* Nhãn field, helper text, mô tả phụ — dùng chữ phụ của bảng màu thay vì xám mặc
+   định của Filament. */
+.order-form-root .fi-fo-field-wrp-label,
+.order-form-root .fi-fo-field-wrp-hint,
+.order-form-root .fi-fo-field-wrp-helper-text {
+    color: var(--boulder-50);
+}
+
+/* Mỗi dòng trong Repeater (phòng đặt / dịch vụ thêm / khách đi cùng) theo cùng
+   ngôn ngữ card — viền mảnh thay vì ring, bo góc vừa (rounded-xl, nhỏ hơn card cha
+   1 bậc để thấy rõ thứ bậc lồng nhau), nền header phụ nhạt để phân tách khỏi nội
+   dung bên dưới. */
+.order-form-root .fi-fo-repeater-item {
+    border-radius: .75rem;
+    background-color: var(--boulder-99);
+    border: 1px solid var(--boulder-80);
+    box-shadow: none;
+}
+.dark .order-form-root .fi-fo-repeater-item {
+    background-color: rgb(255 255 255 / 0.05);
+    border-color: rgb(255 255 255 / 0.1);
+}
+
+.order-form-root .fi-fo-repeater-item-header {
+    border-top-left-radius: .75rem;
+    border-top-right-radius: .75rem;
+    background-color: var(--boulder-95);
+}
+.dark .order-form-root .fi-fo-repeater-item-header {
+    background-color: rgb(255 255 255 / 0.05);
+}
+
+/* "Thông tin khách hàng" — bỏ khung/nền/viền theo yêu cầu, chỉ còn tiêu đề + nội
+   dung trần, không còn là "card" như các Section khác nữa (ngoại lệ CỤ THỂ, các
+   Section khác vẫn giữ nguyên card — xem rule chung .order-form-root .fi-section
+   phía trên). */
+.order-form-root .fi-section.khach-hang-no-card {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+}
+.order-form-root .fi-section.khach-hang-no-card > .fi-section-header {
+    padding-left: 0;
+    padding-right: 0;
+}
+.order-form-root .fi-section.khach-hang-no-card > .fi-section-content-ctn {
+    border-top: none;
+}
+.order-form-root .fi-section.khach-hang-no-card > .fi-section-content-ctn > .fi-section-content {
+    padding-left: 0;
+    padding-right: 0;
+}
+
+/* Badge/khung cho cột 2 của "Thông tin khách hàng" (Đối tác/Chi nhánh + Chọn phòng/Số lượng
+   khách + Dịch vụ) — Section không tiêu đề nên đã tự có card chung (xem .order-form-root
+   .fi-section phía trên), chỉ cần padding gọn hơn cho hợp cột hẹp. */
+.order-form-root .fi-section.cot2-badge > .fi-section-content-ctn > .fi-section-content {
+    padding: .875rem;
+}
+

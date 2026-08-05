@@ -2,20 +2,23 @@
 
 namespace Modules\Payment\App\Filament\Resources\OrderResource\Forms;
 
+use App\Models\Customer;
+use App\Models\CustomerCompanion;
 use Dom\Text;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Fieldset;
 use Filament\Forms\Components\Grid;
+use Filament\Forms\Components\Group;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
-use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Forms\Components\ToggleButtons;
 use Filament\Forms\Components\ViewField;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
@@ -32,6 +35,7 @@ use Modules\Category\Entities\Categorizable;
 use Modules\Product\App\Models\RoomTimeSlot;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
+use Modules\Payment\Entities\OrderGuestCccd;
 
 class OrderForm
 {
@@ -41,299 +45,484 @@ class OrderForm
             ->schema([
                 // Trước đây tách 2 tab ("Thông tin đơn đặt phòng" / "Thông tin thanh toán") — theo
                 // yêu cầu gộp lại thành 1 trang duy nhất, cuộn liên tục, không còn điều hướng tab.
-                // Giữ nguyên 2 Section (tiêu đề + icon) để vẫn phân biệt rõ 2 phần nội dung cũ.
-                Section::make('Thông tin đơn đặt phòng')
+                // Không đặt heading nữa (Section::make() rỗng) — chỉ dùng làm khung bọc vô hình
+                // (order-form-root, xem order-form.css) để gom nhóm layout, các card thật bên trong
+                // đã tự đủ rõ ràng.
+                Section::make()
+                            ->extraAttributes(['class' => 'order-form-root'])
                             ->schema([
-                                Section::make('Mật khẩu phòng thủ công')
-                                    ->icon('heroicon-o-key')
-                                    ->iconColor('warning')
-                                    ->description('Phòng này dùng khóa cơ, vui lòng cung cấp thông tin bên dưới cho khách.')
-                                    ->schema([
-                                        Placeholder::make('manual_lock_info')
-                                            ->label('')
-                                            ->content(function ($record) {
-                                                if (! $record) return '';
-
-                                                $record->load(['items.product']);
-                                                $firstItem = $record->items->sortBy('checkin_date')->first();
-                                                $product   = $firstItem?->product;
-
-                                                if (! $product) {
-                                                    return new \Illuminate\Support\HtmlString('<p class="text-gray-400 text-sm italic">Không tìm thấy thông tin phòng.</p>');
-                                                }
-
-                                                $pwdAnchorDate = $record->paid_at ?? $record->deposit_paid_at ?? $record->created_at;
-
-                                                $entry = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate(
-                                                    $product,
-                                                    $pwdAnchorDate
-                                                );
-
-                                                if (! $entry) {
-                                                    return new \Illuminate\Support\HtmlString(
-                                                        '<div class="flex items-center gap-2 text-warning-600 font-medium">'
-                                                        . '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M12 3a9 9 0 100 18A9 9 0 0012 3z"/></svg>'
-                                                        . 'Phòng được đánh dấu khóa thủ công nhưng chưa có mật khẩu. Vui lòng cấu hình trong <strong>Mật khẩu khóa thủ công</strong>.'
-                                                        . '</div>'
-                                                    );
-                                                }
-
-                                                $rows = '';
-
-                                                $rows .= '
-                                                    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f3f4f6;">
-                                                        <div style="width:120px;font-size:13px;color:#6b7280;font-weight:500;">Pass Cổng</div>
-                                                        <div style="font-size:20px;font-weight:700;letter-spacing:4px;color:#111827;font-family:monospace;">'
-                                                    . e($entry->gate_password)
-                                                    . '</div>
-                                                    </div>';
-
-                                                if ($entry->room_password) {
-                                                    $rows .= '
-                                                        <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f3f4f6;">
-                                                            <div style="width:120px;font-size:13px;color:#6b7280;font-weight:500;">Pass Phòng</div>
-                                                            <div style="font-size:20px;font-weight:700;letter-spacing:4px;color:#111827;font-family:monospace;">'
-                                                        . e($entry->room_password)
-                                                        . '</div>
-                                                        </div>';
-                                                }
-
-                                                if ($entry->notes) {
-                                                    $rows .= '
-                                                        <div style="display:flex;align-items:flex-start;gap:12px;padding:10px 0;">
-                                                            <div style="width:120px;font-size:13px;color:#6b7280;font-weight:500;">Ghi chú</div>
-                                                            <div style="font-size:13px;color:#374151;">' . nl2br(e($entry->notes)) . '</div>
-                                                        </div>';
-                                                }
-
-                                                return new \Illuminate\Support\HtmlString(
-                                                    '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;">'
-                                                    . $rows
-                                                    . '</div>'
-                                                );
-                                            }),
-                                    ])
-                                    ->visible(function ($record) {
-                                        if (! $record || ! in_array($record->status, ['paid', 'deposit'])) {
-                                            return false;
-                                        }
-                                        $product = $record->items->sortBy('checkin_date')->first()?->product;
-                                        return $product?->has_manual_lock === true;
-                                    })
-                                    ->collapsible(),
-
-                                // Mã cổng + Thông tin khách hàng đặt cạnh nhau (2 cột đều nhau) — Mã
-                                // cổng chỉ hiện khi đơn đã 'paid' và phòng không dùng khóa thủ công
-                                // (xem ->visible() của chính Section đó), nên khi ẩn thì Thông tin
-                                // khách hàng tự chiếm trọn hàng (Grid không tự thêm cột trống).
+                                // Mã cổng + Thông tin khách hàng đặt cạnh nhau — Mã cổng chỉ hiện khi
+                                // đơn đã 'paid' và phòng không dùng khóa thủ công (xem ->visible() của
+                                // chính component đó). Lịch sử thanh toán LUÔN hiện (không phụ thuộc mã
+                                // cổng) nên nằm CHUNG cột với mã cổng (bọc trong 1 Grid::make(1) riêng),
+                                // KHÔNG còn theo kiểu "ẩn mã cổng thì nhường hết chỗ cho Thông tin khách
+                                // hàng" như trước — cột này giờ LUÔN có ít nhất Lịch sử thanh toán, nên
+                                // "Thông tin khách hàng" cố định 4/5, không cần columnSpan động nữa.
                                 //
-                                // Grid::make(2) mặc định của Filament quy đổi thành ->columns(['lg' =>
-                                // 2]) — CHỈ chia 2 cột khi màn hình rộng >= 1024px, hẹp hơn thì luôn
-                                // xếp dọc 1 cột. Khai báo tay breakpoint 'sm' (>=640px) để lên 2 cột
-                                // sớm hơn, khớp yêu cầu "chia 2 thành 1 hàng có 2 cột".
+                                // Grid 5 cột để chia tỉ lệ LỆCH 1/5 - 4/5 (20%/80%): nội dung mã cổng +
+                                // lịch sử thanh toán khá gọn, trong khi Thông tin khách hàng có nhiều
+                                // field hơn nên cần rộng hơn. Khai báo tay breakpoint 'sm' (>=640px) để
+                                // lên nhiều cột sớm hơn mặc định 'lg' (>=1024px) của Filament.
                                 //
                                 // QUAN TRỌNG: Section::setUp() TỰ ĐỘNG gọi ->columnSpan('full') (xem
                                 // vendor/filament/forms/src/Components/Section.php:61) — MỌI Section
                                 // mặc định LUÔN chiếm trọn 100% Grid cha bất kể Grid mấy cột, nên PHẢI
-                                // tự ->columnSpan(1) đè lại ở cả 2 Section dưới đây, nếu không Grid dù
-                                // đã lên 2 cột vẫn hiện xếp dọc (mỗi Section tự chiếm cả hàng riêng).
-                                Grid::make(['default' => 1, 'sm' => 2])
+                                // tự ->columnSpan() đè lại ở Section "Thông tin khách hàng" dưới đây,
+                                // nếu không Grid dù đã lên nhiều cột vẫn hiện xếp dọc (Section tự chiếm
+                                // cả hàng riêng).
+                                Grid::make(['default' => 1, 'sm' => 5])
                                     ->schema([
-                                        Section::make('Mã cổng')
+                                        Grid::make(1)
                                             ->columnSpan(1)
                                             ->schema([
+                                                // Không bọc Section riêng nữa (bỏ khung/tiêu đề "Mã cổng") — nội dung
+                                                // access-code-info.blade.php đã tự có khung gradient riêng, bọc thêm
+                                                // Section chỉ tạo ra khung lồng khung không cần thiết.
                                                 Placeholder::make('access_code_info')
                                                     ->label('')
+                                                    ->visible(fn($record) => self::hasAccessCodeSection($record))
                                                     ->content(function ($record) {
-                                                    if (!$record) {
-                                                        return 'Chưa có mã cổng';
-                                                    }
+                                                        if (!$record) {
+                                                            return 'Chưa có mã cổng';
+                                                        }
 
-                                                    $record->load('accessCodes');
+                                                        $product = $record->items->sortBy('checkin_date')->first()?->product;
 
-                                                    $code = $record->accessCodes->first();
-                                                    if (!$code) {
-                                                        return new \Illuminate\Support\HtmlString(
-                                                            '<div class="flex items-center gap-2 text-warning-600 font-medium">'
-                                                            . '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M12 3a9 9 0 100 18A9 9 0 0012 3z"/></svg>'
-                                                            . 'Chưa có mã cổng — Nhấn nút <strong>Gán mã cổng</strong> ở đầu trang để gán.'
-                                                            . '</div>'
-                                                        );
-                                                    }
+                                                        // Phòng khóa THỦ CÔNG — chi nhánh không có TTLock nên KHÔNG tra
+                                                        // accessCodes (bảng đó luôn rỗng cho case này), thay thế bằng
+                                                        // ManualLockPassword::getForProductAndDate(). Mốc $referenceDate
+                                                        // PHẢI là thời điểm đơn được CHỐT (paid_at/deposit_paid_at/
+                                                        // created_at) — CÙNG mốc dùng ở assignAccessCode action
+                                                        // (EditOrder.php) — KHÔNG dùng checkin_date/now(), nếu không mật
+                                                        // khẩu hiển thị sẽ đổi qua ngày khác mỗi lần admin mở lại đơn
+                                                        // (xem docblock ManualLockPassword::getForProductAndDate()).
+                                                        if ($product && $product->has_manual_lock) {
+                                                            $pwdAnchorDate = $record->paid_at ?? $record->deposit_paid_at ?? $record->created_at;
+                                                            $manualPwd = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($product, $pwdAnchorDate);
 
-                                                    return view('payment::components.access-code-info', [
-                                                        'code' => $code,
-                                                        'order' => $record,
-                                                    ]);
-                                                }),
-                                            ])
-                                            ->visible(fn($record) => self::hasAccessCodeSection($record))
-                                            ->collapsible(),
+                                                            return view('payment::components.manual-lock-info', [
+                                                                'manualPwd' => $manualPwd,
+                                                                'order' => $record,
+                                                            ]);
+                                                        }
 
-                                        Section::make('Thông tin khách hàng')
-                                            // Không có Mã cổng để hiển thị cạnh (đơn chưa 'paid', hoặc phòng dùng
-                                            // khóa thủ công) — chiếm trọn hàng thay vì chỉ 1/2 cột như bình thường.
-                                            ->columnSpan(fn($record) => self::hasAccessCodeSection($record) ? 1 : 2)
-                                            ->collapsible()
-                                            ->schema([
-                                                TextInput::make('buyer_name')
-                                                    ->label('Tên khách hàng')
-                                                    ->placeholder('VD: Nguyễn Văn An')
-                                                    ->required()
-                                                    ->maxLength(255)
-                                                    ->live(onBlur: true)
-                                                    ->validationMessages([
-                                                        'required' => 'Vui lòng nhập họ tên khách hàng',
-                                                        'max' => 'Họ tên không được quá 255 ký tự'
-                                                    ]),
+                                                        $record->load('accessCodes');
 
-                                                TextInput::make('buyer_phone')
-                                                    ->label(__('payment::order.form.label.buyer_phone'))
-                                                    ->placeholder('VD: 0912345678')
-                                                    ->tel()
-                                                    ->required()
-                                                    ->regex('/^[0-9]{10,11}$/')
-                                                    ->live(onBlur: true)
-                                                    ->validationMessages([
-                                                        'required' => 'Vui lòng nhập số điện thoại',
-                                                        'regex' => 'Số điện thoại không đúng định dạng (10-11 số)'
-                                                    ]),
+                                                        $code = $record->accessCodes->first();
+                                                        if (!$code) {
+                                                            return new \Illuminate\Support\HtmlString(
+                                                                '<div class="flex items-center gap-2 text-warning-600 font-medium">'
+                                                                . '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M12 3a9 9 0 100 18A9 9 0 0012 3z"/></svg>'
+                                                                . 'Chưa có mã cổng — Nhấn nút <strong>Gán mã cổng</strong> ở đầu trang để gán.'
+                                                                . '</div>'
+                                                            );
+                                                        }
 
-                                                Textarea::make('description')
-                                                    ->label(__('payment::order.form.label.description'))
-                                                    ->placeholder('VD: Yêu cầu phòng tầng cao, view đẹp...')
-                                                    ->nullable()
-                                                    ->default('')
-                                                    ->rows(4)
-                                                    ->maxLength(1000),
+                                                        return view('payment::components.access-code-info', [
+                                                            'code' => $code,
+                                                            'order' => $record,
+                                                        ]);
+                                                    }),
 
-                                                TextInput::make('short_description')
-                                                    ->label(__('payment::order.form.label.short_description'))
-                                                    ->placeholder('VD: Yêu cầu phòng tầng cao')
-                                                    ->nullable()
-                                                    ->maxLength(255),
+                                                self::buildPaymentTimelineSection(),
                                             ]),
-                                    ]),
-                                // Bố cục 2 cột giống trang chi tiết phòng phía client (BookingForm nằm
-                                // cột phải, sticky): cột trái (span 4/7) là khu vực chọn phòng/khung
-                                // giờ; cột phải (span 3/7) gộp thông tin khách hàng + CCCD + tổng thanh
-                                // toán theo đúng thứ tự trên xuống của BookingForm — thông tin khách
-                                // hàng/CCCD trước, tổng thanh toán nằm dưới cùng cột phải.
-                                Grid::make(3)
-                                    ->schema([
-                                            Section::make('Chi tiết đặt phòng')
-                                                ->description('Thông tin về phòng và thời gian lưu trú')
-                                                ->schema([
-                                                    Grid::make(2)
-                                                        ->schema([
-                                                            // Chỉ super_admin/nhân viên đối tác NỀN TẢNG (365home) mới thấy field
-                                                            // này — họ đặt phòng hộ mọi đối tác nên phải CHỌN ĐÚNG đối tác trước,
-                                                            // rồi "Chi nhánh" bên dưới mới lọc theo đúng đối tác đó (thay vì liệt kê
-                                                            // lẫn lộn chi nhánh của mọi đối tác cùng lúc). Không dehydrate vào Order
-                                                            // — chỉ dùng để LỌC, partner_id thật sự lấy từ category_id đã chọn
-                                                            // (xem CreateOrder::mutateFormDataBeforeCreate()).
-                                                            Select::make('booking_partner_id')
-                                                                ->label('Đối tác')
-                                                                ->visible(fn () => self::isPlatformStaff())
-                                                                ->required(fn () => self::isPlatformStaff())
-                                                                ->dehydrated(false)
-                                                                // Chung hàng với "Chi nhánh" ngay bên cạnh (Grid 2 cột) — chỉ hiện
-                                                                // với platform staff nên KHÔNG cần columnSpanFull() nữa.
-                                                                // Chỉ liệt kê đối tác ĐÃ ĐƯỢC XÁC NHẬN (verification_status =
-                                                                // 'approved') — đối tác đang chờ duyệt/bị từ chối chưa đủ điều
-                                                                // kiện vận hành thật, không nên đặt phòng hộ cho họ.
-                                                                ->options(fn () => \App\Models\Partner::query()
-                                                                    ->where('verification_status', 'approved')
-                                                                    ->orderBy('name')
-                                                                    ->pluck('name', 'id'))
-                                                                ->searchable()
-                                                                ->preload()
-                                                                // Mở lại 1 đơn ĐÃ ĐẶT (sửa đơn): field này dehydrated(false) nên
-                                                                // luôn rỗng lúc mới mở — nếu không tự điền lại, "Chi nhánh" bên
-                                                                // dưới không lọc được gì (options() rỗng vì thiếu booking_partner_id),
-                                                                // khiến Select không tìm được nhãn cho category_id đã lưu và hiện
-                                                                // NHẦM thành số ID thô thay vì tên chi nhánh.
-                                                                ->afterStateHydrated(function ($component, $record) {
-                                                                    if ($component->getState() || ! $record) {
-                                                                        return;
-                                                                    }
 
-                                                                    if ($record->partner_id) {
-                                                                        $component->state($record->partner_id);
-                                                                    }
-                                                                })
-                                                                ->live()
-                                                                ->afterStateUpdated(function (Set $set) {
-                                                                    $set('category_id', null);
-                                                                }),
+                                        // Không đặt heading nữa (Section::make() rỗng) — bỏ luôn tiêu đề
+                                        // "Thông tin khách hàng" theo yêu cầu. Bỏ luôn ->collapsible() vì không
+                                        // còn tiêu đề để bấm thu gọn (chỉ còn 1 chevron trơ trọi thì kỳ).
+                                        Section::make()
+                                            ->columnSpan(4)
+                                            // Bỏ khung/nền/viền theo yêu cầu — chỉ còn nội dung, không còn là
+                                            // "card" riêng nữa (xem .khach-hang-no-card trong order-form.css).
+                                            ->extraAttributes(['class' => 'khach-hang-no-card'])
+                                            ->columns(2)
+                                            ->schema([
+                                                // Cột 1: thông tin liên hệ + ghi chú.
+                                                Grid::make(1)
+                                                    ->columnSpan(1)
+                                                    ->schema([
+                                                        Grid::make(2)
+                                                            ->schema([
+                                                                Select::make('customer_id')
+                                                                    ->label('Thành viên')
+                                                                    ->placeholder('Tìm theo tên hoặc số điện thoại')
+                                                                    // Chỉ super_admin thấy được — toàn bộ luồng "chọn thành viên" (CCCD
+                                                                    // thành viên, người đi cùng từ customer_companions...) CHƯA hoàn
+                                                                    // thiện hết, ẩn khỏi các role khác cho tới khi xong hẳn. ->dehydrated()
+                                                                    // BẮT BUỘC dù đang ẩn — nếu không, admin thường (không phải
+                                                                    // super_admin) mở sửa 1 đơn ĐÃ có customer_id (do super_admin gán từ
+                                                                    // trước) rồi lưu lại sẽ vô tình xoá mất customer_id đó (field ẩn mặc
+                                                                    // định không dehydrate, xem HasState::isDehydrated()).
+                                                                    ->visible(fn () => (bool) auth()->user()?->isSuperAdmin())
+                                                                    ->dehydrated()
+                                                                    ->searchable()
+                                                                    ->preload()
+                                                                    ->options([])
+                                                                    ->getSearchResultsUsing(function (string $search): array {
+                                                                        $query = Customer::query()
+                                                                            ->where(function ($q) use ($search) {
+                                                                                $search = trim($search);
+                                                                                if ($search === '') {
+                                                                                    return;
+                                                                                }
+                                                                                $q->where('fullname', 'like', '%' . $search . '%')
+                                                                                    ->orWhere('phone', 'like', '%' . $search . '%');
+                                                                            })
+                                                                            ->orderBy('fullname')
+                                                                            ->limit(20);
 
-                                                            Select::make('category_id')
-                                                                ->label('Chi nhánh')
-                                                                ->options(function (Get $get) {
-                                                                    $user  = auth()->user();
-                                                                    // whereNull('parent_id') — chi nhánh là category CẤP GỐC; nếu không
-                                                                    // lọc thêm điều kiện này, các category CON (dùng để phân loại
-                                                                    // phòng bên trong 1 chi nhánh, cũng category_type='product') sẽ
-                                                                    // lẫn vào danh sách, hiện nhầm tên phòng thay vì tên chi nhánh.
-                                                                    $query = Category::query()
-                                                                        ->where('category_type', 'product')
-                                                                        ->whereNull('parent_id')
-                                                                        ->orderBy('name');
-
-                                                                    if (self::isPlatformStaff()) {
-                                                                        $partnerId = $get('booking_partner_id');
-
-                                                                        // Chưa chọn đối tác — chưa hiện chi nhánh nào, tránh liệt kê lẫn
-                                                                        // lộn chi nhánh của TẤT CẢ đối tác cùng lúc.
-                                                                        if (! $partnerId) {
-                                                                            return [];
+                                                                        return $query->get()
+                                                                            ->mapWithKeys(fn (Customer $customer) => [
+                                                                                $customer->id => trim(($customer->fullname ?: '') . ($customer->phone ? ' — ' . $customer->phone : '')),
+                                                                            ])
+                                                                            ->toArray();
+                                                                    })
+                                                                    ->getOptionLabelUsing(function ($value) {
+                                                                        if (! $value) {
+                                                                            return null;
                                                                         }
 
-                                                                        $query->where('partner_id', $partnerId);
-                                                                    } elseif ($user) {
-                                                                        $allowedIds = $user->allowedCategoryIds();
-                                                                        if (! empty($allowedIds)) {
-                                                                            $query->whereIn('id', $allowedIds);
-                                                                        } else {
-                                                                            // Mặc định thấy toàn bộ chi nhánh của đối tác mình.
-                                                                            $query->where('partner_id', $user->partner_id);
+                                                                        $customer = Customer::find($value);
+                                                                        if (! $customer) {
+                                                                            return null;
                                                                         }
-                                                                    }
-                                                                    return $query->pluck('name', 'id');
-                                                                })
-                                                                // Đảm bảo LUÔN hiện đúng tên chi nhánh cho giá trị ĐÃ CHỌN, bất kể
-                                                                // options() ở trên có đang bị thu hẹp/rỗng do timing (vd
-                                                                // booking_partner_id chưa kịp hydrate) hay không — tránh lặp lại lỗi
-                                                                // "hiện số ID thô thay vì tên chi nhánh" khi mở sửa/xem đơn đã tạo.
-                                                                ->getOptionLabelUsing(fn ($value) => Category::find($value)?->name)
-                                                                ->searchable()
-                                                                ->required()
-                                                                ->preload()
-                                                                ->native(false)
-                                                                ->live()
-                                                                // Không phải platform staff thì "Đối tác" ở trên ẩn hẳn (không chiếm
-                                                                // cột nào) — chiếm trọn cả hàng thay vì chỉ nửa Grid 2 cột.
-                                                                ->columnSpan(fn () => self::isPlatformStaff() ? 1 : 2)
-                                                                ->disabled(fn (Get $get) => self::isPlatformStaff() && ! $get('booking_partner_id'))
-                                                                ->afterStateUpdated(function (Set $set, Get $get) {
-                                                                    // Đổi chi nhánh thì các phòng đã chọn ở Repeater bên dưới (nếu có)
-                                                                    // rất có thể không còn thuộc chi nhánh mới — reset lại để tránh giữ
-                                                                    // nhầm phòng của chi nhánh cũ.
-                                                                    foreach (array_keys($get('orderItems') ?? []) as $key) {
-                                                                        $set("orderItems.{$key}.product_id", null);
-                                                                    }
-                                                                }),
 
-                                                        ]),
+                                                                        return trim(($customer->fullname ?: '') . ($customer->phone ? ' — ' . $customer->phone : ''));
+                                                                    })
+                                                                    ->live()
+                                                                    ->afterStateUpdated(function ($state, Set $set) {
+                                                                        if (! $state) {
+                                                                            return;
+                                                                        }
 
-                                                    Repeater::make('orderItems')
-                                                        // KHÔNG dùng ->relationship('items') nữa — Filament sẽ tự tạo ĐÚNG 1
-                                                        // bản ghi order_item cho mỗi 1 dòng hiển thị, nên 1 phòng chọn nhiều
-                                                        // khung giờ trên CÙNG 1 bảng (không thêm dòng/thẻ phòng mới nào) sẽ
-                                                        // không thể sinh ra nhiều order_item qua cơ chế đó được. Thay vào đó,
-                                                        // mỗi dòng lưu 1 mảng 'selected_slots' (nhiều khung giờ cho ĐÚNG 1
-                                                        // phòng), và CreateOrder/EditOrder tự tay tạo đúng số order_item cần
-                                                        // thiết khi lưu (xem OrderForm::expandOrderItemsForPersistence()).
+                                                                        $customer = Customer::find($state);
+                                                                        if (! $customer) {
+                                                                            return;
+                                                                        }
+
+                                                                        $set('buyer_name', $customer->fullname);
+                                                                        $set('buyer_phone', $customer->phone);
+                                                                    }),
+
+                                                                TextInput::make('buyer_name')
+                                                                    ->label('Tên khách hàng')
+                                                                    ->placeholder('VD: Nguyễn Văn An')
+                                                                    ->required()
+                                                                    ->maxLength(255)
+                                                                    ->live(onBlur: true)
+                                                                    ->validationMessages([
+                                                                        'required' => 'Vui lòng nhập họ tên khách hàng',
+                                                                        'max' => 'Họ tên không được quá 255 ký tự'
+                                                                    ]),
+                                                            ]),
+
+                                                        TextInput::make('buyer_phone')
+                                                            ->label(__('payment::order.form.label.buyer_phone'))
+                                                            ->placeholder('VD: 0912345678')
+                                                            ->tel()
+                                                            ->required()
+                                                            ->regex('/^[0-9]{10,11}$/')
+                                                            ->live(onBlur: true)
+                                                            ->validationMessages([
+                                                                'required' => 'Vui lòng nhập số điện thoại',
+                                                                'regex' => 'Số điện thoại không đúng định dạng (10-11 số)'
+                                                            ]),
+
+                                                        Textarea::make('description')
+                                                            ->label(__('payment::order.form.label.description'))
+                                                            ->placeholder('VD: Yêu cầu phòng tầng cao, view đẹp...')
+                                                            ->nullable()
+                                                            ->default('')
+                                                            ->rows(4)
+                                                            ->maxLength(1000),
+
+                                                        // Ẩn khỏi giao diện theo yêu cầu — vẫn ->dehydrated() để KHÔNG mất
+                                                        // giá trị short_description đã lưu sẵn của các đơn cũ khi sửa/lưu lại
+                                                        // (field bị ẩn mặc định không dehydrate, xem HasState::isDehydrated()).
+                                                        TextInput::make('short_description')
+                                                            ->label(__('payment::order.form.label.short_description'))
+                                                            ->placeholder('VD: Yêu cầu phòng tầng cao')
+                                                            ->nullable()
+                                                            ->maxLength(255)
+                                                            ->hidden()
+                                                            ->dehydrated(),
+
+                                                        // Không còn hiện ảnh CCCD trực tiếp dưới ghi chú nữa — bấm nút "Xem
+                                                        // CCCD khách #N" bên dưới để xem (và với khách #1, upload/thay ảnh
+                                                        // luôn trong popup, xem self::buildGuestOneCccdAction()). Dãy nút
+                                                        // khách #1‑#8 chỉ dành cho khách VÃNG LAI (không customer_id) — đã
+                                                        // chọn thành viên thì đổi hẳn sang 1 nút CCCD thành viên duy nhất
+                                                        // (self::buildMemberCccdAction()) lấy CCCD/người đi cùng từ hồ sơ
+                                                        // thành viên (customer_companions) thay vì nhập tay lại từ đầu.
+                                                        \Filament\Forms\Components\Actions::make(array_merge(
+                                                            [self::buildGuestOneCccdAction()],
+                                                            array_map(
+                                                                fn (int $n) => self::buildGuestViewOnlyCccdAction($n),
+                                                                range(2, 8)
+                                                            )
+                                                        ))
+                                                            ->visible(fn (Get $get) => ! $get('customer_id'))
+                                                            ->columnSpanFull(),
+
+                                                        // Chỉ super_admin thấy nút này — cùng lý do ẩn Select 'customer_id'
+                                                        // ở trên (luồng CCCD thành viên chưa hoàn thiện hết). Vẫn cần check
+                                                        // thêm customer_id vì field đó ->dehydrated() dù ẩn — đơn ĐÃ có
+                                                        // customer_id do super_admin gán trước đó, admin thường mở lại thì
+                                                        // KHÔNG được thấy nút này.
+                                                        \Filament\Forms\Components\Actions::make([
+                                                            self::buildMemberCccdAction(),
+                                                        ])
+                                                            ->visible(fn (Get $get) => (bool) auth()->user()?->isSuperAdmin() && (bool) $get('customer_id'))
+                                                            ->columnSpanFull(),
+
+                                                        // Phương thức/trạng thái thanh toán — chuyển xuống cuối cột 1
+                                                        // (dưới nút "Xem CCCD"), nhường cột 2 cho Đối tác/Chi nhánh.
+                                                        Grid::make(2)
+                                                            ->schema([
+                                                                Select::make('payment_method')
+                                                                    ->label('Phương thức thanh toán')
+                                                                    ->placeholder('-- Chọn phương thức --')
+                                                                    ->options([
+                                                                        'cod' => ('Tiền mặt'),
+                                                                        'PayOS' => '' . __('payment::order.form.options.payment_method.PayOS'),
+                                                                    ])
+                                                                    ->required()
+                                                                    ->live()
+                                                                    ->dehydrateStateUsing(fn($state) => $state),
+
+                                                                Select::make('status')
+                                                                    ->label('Trạng thái thanh toán')
+                                                                    ->placeholder('-- Chọn trạng thái --')
+                                                                    ->options([
+                                                                        'pending'           => '' . __('payment::order.form.options.status.pending'),
+                                                                        'paid'              => '' . __('payment::order.form.options.status.paid'),
+                                                                        'deposit'           => 'Đã đặt cọc',
+                                                                        'failed'            => '' . __('payment::order.form.options.status.failed'),
+                                                                        'cancelled_payment' => 'Hủy QR',
+                                                                        'refunded'          => 'Hoàn tiền',
+                                                                    ])
+                                                                    ->default('pending')
+                                                                    ->live()
+                                                                    ->dehydrateStateUsing(fn($state) => $state)
+                                                                    ->afterStateUpdated(function ($state, $record, $old) {
+                                                                        if ($record) {
+                                                                            $prevStatus = $record->status;
+                                                                            $record->update(['status' => $state]);
+
+                                                                            AuditLogger::log(
+                                                                                'update', 'Order', $record,
+                                                                                ['status' => $prevStatus],
+                                                                                ['status' => $state],
+                                                                                'Đơn #' . $record->order_code
+                                                                            );
+
+                                                                            if ($state === 'paid' && !$record->hasAccessCode()) {
+                                                                                try {
+                                                                                    $record->load('items');
+                                                                                    $firstItem = $record->items->sortBy('checkin_date')->first();
+                                                                                    $checkinDate  = $record->items->min('checkin_date');
+                                                                                    $checkoutDate = $record->items->max('checkout_date');
+                                                                                    $product      = $firstItem?->product;
+
+                                                                                    /** @var \Modules\BladeThemeV1\Services\AccessCode\AccessCodeService $service */
+                                                                                    $service = app(\Modules\BladeThemeV1\Services\AccessCode\AccessCodeService::class);
+                                                                                    $service->assignCodeToOrder(
+                                                                                        $record->id,
+                                                                                        $record->category_id,
+                                                                                        $checkinDate,
+                                                                                        $checkoutDate,
+                                                                                        $product,
+                                                                                    );
+
+                                                                                    \Filament\Notifications\Notification::make()
+                                                                                        ->title('Đã gán mã cổng thành công')
+                                                                                        ->success()
+                                                                                        ->send();
+                                                                                } catch (\Exception $e) {
+                                                                                    \Filament\Notifications\Notification::make()
+                                                                                        ->title('Không thể gán mã cổng')
+                                                                                        ->body($e->getMessage())
+                                                                                        ->warning()
+                                                                                        ->send();
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }),
+
+                                                            ]),
+
+                                                        // Nằm riêng 1 hàng dưới phương thức/trạng thái thanh toán, dạng
+                                                        // toggle buttons (segmented control) thay vì dropdown — chọn nhanh
+                                                        // hơn vì chỉ có 4 lựa chọn cố định.
+                                                        //
+                                                        // BẮT BUỘC phải ->colors() tay — không khai báo thì Filament coi màu
+                                                        // là null (không phải mặc định 'primary' như hay tưởng), khiến nút
+                                                        // CHƯA chọn rơi vào nhánh CSS "fi-color-custom" nhưng biến CSS màu
+                                                        // (--button-600...) không được set (get_color_css_variables() trả
+                                                        // về null khi color=null) — chữ gần như vô hình do thiếu tương phản.
+                                                        // Đã xác nhận thực tế qua ảnh chụp màn hình.
+                                                        ToggleButtons::make('order_status')
+                                                            ->label('Trạng thái nhận/trả phòng')
+                                                            ->options([
+                                                                'pending'     => 'Chờ nhận phòng',
+                                                                'checked_in'  => 'Đã nhận phòng',
+                                                                'staying'     => 'Đang ở',
+                                                                'checked_out' => 'Đã trả phòng',
+                                                            ])
+                                                            ->colors([
+                                                                'pending'     => 'gray',
+                                                                'checked_in'  => 'info',
+                                                                'staying'     => 'warning',
+                                                                'checked_out' => 'success',
+                                                            ])
+                                                            ->default('pending')
+                                                            ->grouped()
+                                                            ->dehydrateStateUsing(fn($state) => $state),
+
+                                                        TextInput::make('money_deposit')
+                                                            ->label('Số tiền đã đặt cọc')
+                                                            ->placeholder('VD: 500000')
+                                                            ->suffix('VNĐ')
+                                                            ->numeric()
+                                                            ->minValue(0)
+                                                            ->visible(fn (Get $get) => $get('status') === 'deposit')
+                                                            ->live(onBlur: true),
+
+                                                        // Ẩn khỏi giao diện theo yêu cầu — thông tin này giờ đã hiển thị đầy
+                                                        // đủ hơn trong popup "Xem CCCD khách #N" (trích xuất trực tiếp từ
+                                                        // ảnh CCCD, xem self::renderExtractedCccdData()), không cần gõ tay
+                                                        // trùng lặp nữa. Vẫn ->dehydrated() để KHÔNG mất giá trị đã lưu sẵn
+                                                        // của các đơn cũ.
+                                                        Textarea::make('note_for_admin')
+                                                            ->label('Thông tin người dùng CCCD')
+                                                            ->placeholder('Thông tin người dùng CCCD')
+                                                            ->helperText(__('payment::order.form.helper_text.note_for_admin'))
+                                                            ->nullable()
+                                                            ->rows(3)
+                                                            ->maxLength(3000)
+                                                            ->hidden()
+                                                            ->dehydrated(),
+                                                    ]),
+
+                                                // Cột 2: Đối tác + Chi nhánh (chuyển từ đầu Section "Chi tiết đặt
+                                                // phòng" cũ vào đây — logic lọc/reset khi đổi đối tác-chi nhánh giữ
+                                                // nguyên 100%, xem 2 field bên dưới). "Chọn phòng"/"Số lượng khách"/
+                                                // lịch đặt phòng vẫn nằm trong Repeater "orderItems" ở Section "Chi
+                                                // tiết đặt phòng" như cũ — đó là dữ liệu LẶP LẠI theo từng phòng, tách
+                                                // khỏi Repeater sẽ phá vỡ cơ chế nhiều phòng/nhiều khung giờ.
+                                                // Badge/khung riêng cho cột 2 (Đối tác/Chi nhánh + Chọn phòng/Số
+                                                // lượng khách + Dịch vụ) — tái dùng đúng token màu "boulder" đã có
+                                                // (xem .cot2-badge trong order-form.css), không đổi tỉ lệ cột (vẫn
+                                                // ->columnSpan(1) trên chính Section thay vì Grid như trước).
+                                                Section::make()
+                                                    ->columnSpan(1)
+                                                    ->extraAttributes(['class' => 'cot2-badge'])
+                                                    ->schema([
+                                                        Grid::make(3)
+                                                            ->schema([
+                                                                // Chỉ super_admin/nhân viên đối tác NỀN TẢNG (365home) mới thấy field
+                                                                // này — họ đặt phòng hộ mọi đối tác nên phải CHỌN ĐÚNG đối tác trước,
+                                                                // rồi "Chi nhánh" bên dưới mới lọc theo đúng đối tác đó (thay vì liệt kê
+                                                                // lẫn lộn chi nhánh của mọi đối tác cùng lúc). Không dehydrate vào Order
+                                                                // — chỉ dùng để LỌC, partner_id thật sự lấy từ category_id đã chọn
+                                                                // (xem CreateOrder::mutateFormDataBeforeCreate()).
+                                                                Select::make('booking_partner_id')
+                                                                    ->label('Đối tác')
+                                                                    ->visible(fn () => self::isPlatformStaff())
+                                                                    ->required(fn () => self::isPlatformStaff())
+                                                                    ->dehydrated(false)
+                                                                    // Gọn hơn "Chi nhánh" bên cạnh (Grid 3 cột, chỉ chiếm 1/3) theo yêu
+                                                                    // cầu — tên đối tác thường ngắn hơn tên chi nhánh nên không cần
+                                                                    // chiếm nhiều chỗ bằng.
+                                                                    ->columnSpan(1)
+                                                                    // Chỉ liệt kê đối tác ĐÃ ĐƯỢC XÁC NHẬN (verification_status =
+                                                                    // 'approved') — đối tác đang chờ duyệt/bị từ chối chưa đủ điều
+                                                                    // kiện vận hành thật, không nên đặt phòng hộ cho họ.
+                                                                    ->options(fn () => \App\Models\Partner::query()
+                                                                        ->where('verification_status', 'approved')
+                                                                        ->orderBy('name')
+                                                                        ->pluck('name', 'id'))
+                                                                    ->searchable()
+                                                                    ->preload()
+                                                                    // Mở lại 1 đơn ĐÃ ĐẶT (sửa đơn): field này dehydrated(false) nên
+                                                                    // luôn rỗng lúc mới mở — nếu không tự điền lại, "Chi nhánh" bên
+                                                                    // dưới không lọc được gì (options() rỗng vì thiếu booking_partner_id),
+                                                                    // khiến Select không tìm được nhãn cho category_id đã lưu và hiện
+                                                                    // NHẦM thành số ID thô thay vì tên chi nhánh.
+                                                                    ->afterStateHydrated(function ($component, $record) {
+                                                                        if ($component->getState() || ! $record) {
+                                                                            return;
+                                                                        }
+
+                                                                        if ($record->partner_id) {
+                                                                            $component->state($record->partner_id);
+                                                                        }
+                                                                    })
+                                                                    ->live()
+                                                                    ->afterStateUpdated(function (Set $set) {
+                                                                        $set('category_id', null);
+                                                                    }),
+
+                                                                Select::make('category_id')
+                                                                    ->label('Chi nhánh')
+                                                                    ->options(function (Get $get) {
+                                                                        $user  = auth()->user();
+                                                                        // whereNull('parent_id') — chi nhánh là category CẤP GỐC; nếu không
+                                                                        // lọc thêm điều kiện này, các category CON (dùng để phân loại
+                                                                        // phòng bên trong 1 chi nhánh, cũng category_type='product') sẽ
+                                                                        // lẫn vào danh sách, hiện nhầm tên phòng thay vì tên chi nhánh.
+                                                                        $query = Category::query()
+                                                                            ->where('category_type', 'product')
+                                                                            ->whereNull('parent_id')
+                                                                            ->orderBy('name');
+
+                                                                        if (self::isPlatformStaff()) {
+                                                                            $partnerId = $get('booking_partner_id');
+
+                                                                            // Chưa chọn đối tác — chưa hiện chi nhánh nào, tránh liệt kê lẫn
+                                                                            // lộn chi nhánh của TẤT CẢ đối tác cùng lúc.
+                                                                            if (! $partnerId) {
+                                                                                return [];
+                                                                            }
+
+                                                                            $query->where('partner_id', $partnerId);
+                                                                        } elseif ($user) {
+                                                                            $allowedIds = $user->allowedCategoryIds();
+                                                                            if (! empty($allowedIds)) {
+                                                                                $query->whereIn('id', $allowedIds);
+                                                                            } else {
+                                                                                // Mặc định thấy toàn bộ chi nhánh của đối tác mình.
+                                                                                $query->where('partner_id', $user->partner_id);
+                                                                            }
+                                                                        }
+                                                                        return $query->pluck('name', 'id');
+                                                                    })
+                                                                    // Đảm bảo LUÔN hiện đúng tên chi nhánh cho giá trị ĐÃ CHỌN, bất kể
+                                                                    // options() ở trên có đang bị thu hẹp/rỗng do timing (vd
+                                                                    // booking_partner_id chưa kịp hydrate) hay không — tránh lặp lại lỗi
+                                                                    // "hiện số ID thô thay vì tên chi nhánh" khi mở sửa/xem đơn đã tạo.
+                                                                    ->getOptionLabelUsing(fn ($value) => Category::find($value)?->name)
+                                                                    ->searchable()
+                                                                    ->required()
+                                                                    ->preload()
+                                                                    ->native(false)
+                                                                    ->live()
+                                                                    // Không phải platform staff thì "Đối tác" ở trên ẩn hẳn (không chiếm
+                                                                    // cột nào) — chiếm 2/3 còn lại (rộng hơn "Đối tác" 1/3) khi cùng
+                                                                    // hiện, hoặc trọn cả hàng (3/3) khi "Đối tác" bị ẩn.
+                                                                    ->columnSpan(fn () => self::isPlatformStaff() ? 2 : 3)
+                                                                    ->disabled(fn (Get $get) => self::isPlatformStaff() && ! $get('booking_partner_id'))
+                                                                    ->afterStateUpdated(function (Set $set, Get $get) {
+                                                                        // Đổi chi nhánh thì các phòng đã chọn ở Repeater bên dưới (nếu có)
+                                                                        // rất có thể không còn thuộc chi nhánh mới — reset lại để tránh giữ
+                                                                        // nhầm phòng của chi nhánh cũ.
+                                                                        foreach (array_keys($get('orderItems') ?? []) as $key) {
+                                                                            $set("orderItems.{$key}.product_id", null);
+                                                                        }
+                                                                    }),
+                                                            ]),
+                                                    Group::make()
+                                                        ->statePath('orderItems.0')
                                                         ->schema([
                                                             Grid::make(2)
                                                                 ->schema([
@@ -405,10 +594,23 @@ class OrderForm
                                                                                     $set('name', $product->name);
                                                                                     $set('product_style', (int)($product->styles ?? 1));
                                                                                     $set('price_per_night', (float)($product->price ?? 0));
-                                                                                    $set('price', $product->price);
                                                                                     $displayPrice = $product->discount ?: $product->price;
                                                                                     $set('discount', $displayPrice);
-                                                                                    // Reset date fields khi đổi phòng
+
+                                                                                    // Đổi phòng — XOÁ SẠCH giá + khung giờ/ngày đã chọn của phòng
+                                                                                    // CŨ (không còn nghĩa gì với phòng MỚI, và mỗi khung giờ có
+                                                                                    // giá/khuyến mãi RIÊNG nên không thể suy ra giá đúng ngay khi
+                                                                                    // vừa đổi phòng — bắt buộc chọn lại khung giờ/ngày để tính giá
+                                                                                    // thật). 'price' set 0 (KHÔNG set = $product->price) để tổng
+                                                                                    // tiền không hiện nhầm giá phòng gốc trong lúc chưa chọn khung
+                                                                                    // giờ nào — selectTimeslot()/checkin_day-checkout_day sẽ tự
+                                                                                    // ghi đè lại đúng giá thật ngay khi chọn. KHÔNG đụng
+                                                                                    // 'orderServices' (dịch vụ đã chọn) — field đó tách riêng,
+                                                                                    // không phụ thuộc phòng.
+                                                                                    $set('price', 0);
+                                                                                    $set('selected_slots', []);
+                                                                                    $set('checkin_date', null);
+                                                                                    $set('checkout_date', null);
                                                                                     $set('checkin_day', null);
                                                                                     $set('checkout_day', null);
                                                                                     if (!$get('quantity')) {
@@ -422,15 +624,120 @@ class OrderForm
                                                                     TextInput::make('guest_count')
                                                                         ->label('Số lượng khách')
                                                                         ->placeholder('Số lượng khách')
-                                                                        ->helperText('Phụ thu theo cấu hình phòng từ khách thứ 3')
                                                                         ->numeric()
                                                                         ->minValue(1)
                                                                         ->default(1)
                                                                         ->required()
-                                                                        ->afterStateUpdated(function ($state, Get $get, Set $set) {
+                                                                        ->live()
+                                                                        ->afterStateUpdated(function (Get $get, Set $set) {
                                                                             self::calculateTotal($get, $set);
                                                                         }),
+
+                                                                    Grid::make(1)
+                                                                        ->schema([
+                                                                            Select::make('service_to_add')
+                                                                                ->label('Thêm dịch vụ')
+                                                                                ->dehydrated(false)
+                                                                                ->searchable()
+                                                                                ->preload()
+                                                                                ->options(function (Get $get) {
+                                                                                    // Ẩn dịch vụ ĐÃ chọn khỏi danh sách — chọn lại dịch vụ đã có
+                                                                                    // thì dùng nút +/- ở danh sách bên dưới để tăng số lượng
+                                                                                    // (xem afterStateUpdated() bên dưới đã tự cộng dồn quantity
+                                                                                    // theo service_id), không tạo thêm dòng trùng tên nữa.
+                                                                                    $selectedIds = collect($get('../../orderServices') ?? [])
+                                                                                        ->pluck('service_id')
+                                                                                        ->filter()
+                                                                                        ->all();
+
+                                                                                    return \Modules\BladeThemeV1\App\Models\AdditionService::where('is_active', 1)
+                                                                                        ->whereNotIn('id', $selectedIds)
+                                                                                        ->pluck('name', 'id');
+                                                                                })
+                                                                                ->placeholder('Chọn dịch vụ...')
+                                                                                ->reactive()
+                                                                                ->afterStateUpdated(function ($state, Get $get, Set $set) {
+                                                                                    if (! $state) {
+                                                                                        return;
+                                                                                    }
+
+                                                                                    $service = \Modules\BladeThemeV1\App\Models\AdditionService::find($state);
+
+                                                                                    if (! $service) {
+                                                                                        return;
+                                                                                    }
+
+                                                                                    $services = $get('../../orderServices') ?? [];
+                                                                                    $services = is_array($services) ? $services : [];
+
+                                                                                    $existingKey = null;
+                                                                                    foreach ($services as $key => $item) {
+                                                                                        if (($item['service_id'] ?? null) === $state) {
+                                                                                            $existingKey = $key;
+                                                                                            break;
+                                                                                        }
+                                                                                    }
+
+                                                                                    if ($existingKey !== null) {
+                                                                                        $services[$existingKey]['quantity'] = max(1, $services[$existingKey]['quantity'] + 1);
+                                                                                        $services[$existingKey]['subtotal'] = $services[$existingKey]['price'] * $services[$existingKey]['quantity'];
+                                                                                    } else {
+                                                                                        $services[] = [
+                                                                                            'service_id' => $service->id,
+                                                                                            'service_name' => $service->name,
+                                                                                            'price' => $service->price,
+                                                                                            'quantity' => 1,
+                                                                                            'subtotal' => $service->price,
+                                                                                        ];
+                                                                                    }
+
+                                                                                    $set('../../orderServices', $services);
+                                                                                    $set('service_to_add', null);
+                                                                                    self::calculateTotal($get, $set);
+                                                                                }),
+                                                                        ]),
                                                                 ]),
+                                                        ]),
+
+                                                    // Danh sách dịch vụ đã chọn — nằm NGAY DƯỚI "Thêm dịch vụ" (Select
+                                                    // service_to_add ở trên) trong CÙNG cột 2. Giao diện TỰ CHẾ (view
+                                                    // 'payment::components.order-services-list'), KHÔNG dùng Repeater
+                                                    // của Filament nữa (theo yêu cầu — repeater mặc định trông cồng
+                                                    // kềnh, khó custom gọn/đẹp). 'orderServices' vẫn LÀ dữ liệu thật
+                                                    // (Hidden field bên dưới dehydrate mảng này khi lưu) — ViewField chỉ
+                                                    // ĐỌC để hiển thị, tăng/giảm số lượng + xoá gọi thẳng qua wire:click
+                                                    // vào HasOrderServicesManagement (ghi trực tiếp $this->data, cùng kỹ
+                                                    // thuật đã dùng ổn định ở HasTimeslotGridSelection::selectTimeslot()
+                                                    // — tránh lặp lại lỗi reactivity Alpine/$wire.entangle từng gặp).
+                                                    Hidden::make('orderServices')
+                                                        ->default([])
+                                                        ->dehydrated(),
+
+                                                    ViewField::make('orderServices_display')
+                                                        ->label('')
+                                                        ->dehydrated(false)
+                                                        ->live()
+                                                        ->view('payment::components.order-services-list')
+                                                        ->viewData(fn (Get $get) => ['services' => $get('orderServices') ?? []]),
+                                            ]),
+                                    ]),
+                            ]),
+                                Grid::make(2)
+                                    ->schema([
+                                        // Chia 2 cột: cột 1 = lịch/khung giờ (bọc Group('orderItems.0')), cột
+                                        // 2 = "Tổng thanh toán" — ĐẶT NGOÀI Group đó vì đây là field CẤP ĐƠN
+                                        // (orders.amount/surcharge), không phải theo từng phòng. Để cả 2 cột
+                                        // trong CÙNG 1 Group('orderItems.0') (như bản trước) sẽ lưu NHẦM
+                                        // 'surcharge'/'amount' thành 'orderItems.0.surcharge'/'orderItems.0.amount'
+                                        // thay vì cột thật trên bảng orders — CreateOrder/EditOrder đọc
+                                        // $data['amount'] ở CẤP GỐC nên đọc ra null, tổng tiền KHÔNG được lưu
+                                        // (lỗi đã xảy ra thực tế — Group giờ chỉ bọc cột 1, không bọc cột 2 nữa).
+                                        Grid::make(1)
+                                            ->columnSpan(1)
+                                            ->schema([
+                                                Group::make()
+                                                    ->statePath('orderItems.0')
+                                                    ->schema([
                                                                 // Giá phòng — KHÔNG cho nhân viên gõ tay nữa (theo yêu cầu: ô này
                                                                 // không thực sự có tác dụng, giá thật luôn lấy từ Product lúc chọn
                                                                 // phòng ở trên/từ đơn giá×số đêm ở style 2, gõ tay vào đây không
@@ -780,715 +1087,112 @@ class OrderForm
                                                             // số bản ghi order_item cần thiết lúc lưu (1 khung giờ = 1 order_item).
                                                             Hidden::make('selected_slots')
                                                                 ->default([]),
-                                                        ])
-                                                        ->columns(2)
-                                                        ->label('Danh sách phòng đặt')
-                                                        ->collapsible()
-                                                        ->addActionLabel('Thêm phòng')
-                                                        ->addable(true)
-                                                        ->maxItems(20)
-                                                        ->minItems(1)
-                                                        ->itemLabel(fn($state) => !empty($state['name']) ? ' ' . $state['name'] : 'Phòng mới')
-                                                        ->defaultItems(0)
-                                                        ->live()
-                                                        ->afterStateUpdated(function ($state, Get $get, Set $set) {
-                                                            self::calculateTotal($get, $set);
-                                                        }),
-                                                ])
-                                                ->columnSpan(4),
+                                                    ]),
+                                            ]),
 
-                                            Grid::make(1)
-                                                ->columnSpan(3)
-                                                ->schema([
-                                                    Section::make('Tổng thanh toán')
-                                                        ->description('Chi tiết tính toán chi phí')
-                                                        ->schema([
-                                                            Repeater::make('orderServices')
-                                                                ->relationship('services')
-                                                                ->schema([
-                                                                    Grid::make(3)->schema([
-                                                                        Select::make('service_id')
-                                                                            ->label('Dịch vụ')
-                                                                            ->options(function () {
-                                                                                $query = \Modules\BladeThemeV1\App\Models\AdditionService::where('is_active', 1);
-
-                                                                                // AdditionService đã tự lọc theo partner_id (BelongsToPartner) —
-                                                                                // không cần thu hẹp gì thêm ở đây.
-
-                                                                                return $query->pluck('name', 'id');
-                                                                            })
-                                                                            ->required()
-                                                                            ->searchable()
-                                                                            ->preload()
-                                                                            ->live()
-                                                                            ->columnSpan(2)
-                                                                            ->afterStateUpdated(function ($state, Get $get, Set $set) {
-                                                                                if ($state) {
-                                                                                    $service = \Modules\BladeThemeV1\App\Models\AdditionService::find($state);
-                                                                                    if ($service) {
-                                                                                        $set('service_name', $service->name);
-                                                                                        $set('price', $service->price);
-                                                                                        $qty = (int) ($get('quantity') ?? 1);
-                                                                                        $set('subtotal', $service->price * $qty);
-                                                                                        self::calculateTotal($get, $set);
-                                                                                    }
-                                                                                }
-                                                                            }),
-
-                                                                        TextInput::make('quantity')
-                                                                            ->label('Số lượng')
-                                                                            ->numeric()
-                                                                            ->minValue(1)
-                                                                            ->default(1)
-                                                                            ->required()
-                                                                            ->live(debounce: 300)
-                                                                            ->afterStateUpdated(function ($state, Get $get, Set $set) {
-                                                                                $price = (float) ($get('price') ?? 0);
-                                                                                $qty = max(1, (int) $state);
-                                                                                $set('subtotal', $price * $qty);
-                                                                                self::calculateTotal($get, $set);
-                                                                            }),
-                                                                    ]),
-
-                                                                    Grid::make(2)->schema([
-                                                                        TextInput::make('price')
-                                                                            ->label('Đơn giá')
-                                                                            ->numeric()
-                                                                            ->suffix('đ')
-                                                                            ->disabled()
-                                                                            ->dehydrated(true),
-
-                                                                        TextInput::make('subtotal')
-                                                                            ->label('Thành tiền')
-                                                                            ->numeric()
-                                                                            ->suffix('đ')
-                                                                            ->disabled()
-                                                                            ->dehydrated(true),
-                                                                    ]),
-
-                                                                    Hidden::make('service_name'),
-                                                                ])
-                                                                ->columns(1)
-                                                                ->label('Dịch vụ thêm')
-                                                                ->collapsible()
-                                                                ->addActionLabel('+ Thêm dịch vụ')
-                                                                ->defaultItems(0)
-                                                                ->live()
-                                                                ->afterStateUpdated(function ($state, Get $get, Set $set) {
-                                                                    self::calculateTotal($get, $set);
-                                                                })
-                                                                ->itemLabel(fn ($state) => !empty($state['service_name'])
-                                                                    ? $state['service_name'] . (!empty($state['quantity']) ? ' × ' . $state['quantity'] : '') . (!empty($state['subtotal']) ? ' — ' . number_format((float) $state['subtotal'], 0, ',', '.') . 'đ' : '')
-                                                                    : 'Dịch vụ mới'),
-
-                                                            Grid::make(2)
-                                                                ->schema([
-                                                                    // Phụ thu ngoài đơn giá phòng/dịch vụ (vd phí phát sinh admin thoả
-                                                                    // thuận riêng với khách) — admin gõ tay, CỘNG THẲNG vào tổng ở
-                                                                    // calculateTotal()/amount_preview bên dưới, giống cách 'orderServices'
-                                                                    // được cộng vào tổng.
-                                                                    TextInput::make('surcharge')
-                                                                        ->label('Phụ thu (có thể sửa tay)')
-                                                                        ->numeric()
-                                                                        ->minValue(0)
-                                                                        ->default(0)
-                                                                        ->suffix('đ')
-                                                                        ->live()
-                                                                        ->dehydrated(true)
-                                                                        ->afterStateUpdated(function (Get $get, Set $set) {
-                                                                            self::calculateTotal($get, $set);
-                                                                        }),
-
-                                                                    // Tổng tiền THẬT SỰ sẽ lưu vào đơn — mặc định tự điền theo đúng số
-                                                                    // hệ thống vừa tính ở dưới (mỗi khi sửa phòng/dịch vụ/phụ thu,
-                                                                    // calculateTotal() sẽ ghi đè lại field này bằng số tính đúng). Admin
-                                                                    // vẫn có thể gõ đè 1 số KHÁC ngay tại đây nếu cần điều chỉnh giá
-                                                                    // thực thu.
-                                                                    TextInput::make('amount')
-                                                                        ->label('Tổng tiền đơn (có thể sửa tay)')
-                                                                        ->numeric()
-                                                                        ->minValue(0)
-                                                                        ->suffix('đ')
-                                                                        ->live()
-                                                                        ->dehydrated(true),
-                                                                ]),
-
-                                                            // Card breakdown (phòng/dịch vụ/giảm giá/phụ thu khách/phụ thu) TRUYỀN
-                                                            // THÊM 'displayTotal' = giá trị HIỆN TẠI của field 'amount' ở trên —
-                                                            // để dòng "TỔNG THANH TOÁN" trên card LUÔN khớp CHÍNH XÁC với số
-                                                            // trong ô "Tổng tiền đơn" (kể cả khi admin đã gõ đè tay), thay vì
-                                                            // card tự tính lại 1 số khác đứng cạnh 1 ô nhập tay có thể đang giữ
-                                                            // số khác — 2 chỗ hiển thị PHẢI luôn đồng bộ.
-                                                            Placeholder::make('amount_preview')
-                                                                ->label('')
-                                                                ->live()
-                                                                ->dehydrated(false)
-                                                                ->content(function (Get $get, $record) {
-                                                                    $items = $get('orderItems');
-                                                                    $items = is_array($items) ? $items : [];
-
-                                                                    $servicesFormState = $get('orderServices') ?? [];
-                                                                    $servicesFormState = is_array($servicesFormState) ? $servicesFormState : [];
-
-                                                                    $surcharge = (float) ($get('surcharge') ?? 0);
-
-                                                                    $total = self::computeOrderTotal($items, $servicesFormState) + $surcharge;
-
-                                                                    $expandedItems = self::expandOrderItemsForPersistence($items);
-
-                                                                    $currentAmount = $get('amount');
-
-                                                                    return view('payment::components.total-amount-card', [
-                                                                        'totalAmount' => $total,
-                                                                        'displayTotal' => ($currentAmount !== null && $currentAmount !== '') ? (float) $currentAmount : $total,
-                                                                        'items' => $expandedItems,
-                                                                        'originalItems' => $items,
-                                                                        'record' => $record,
-                                                                        'servicesFormState' => $servicesFormState,
-                                                                        'surcharge' => $surcharge,
-                                                                    ]);
-                                                                }),
-                                                        ]),
-
-                                                    Section::make('Upload CCCD/CMND')
-                                                        ->description('Tải lên ảnh CCCD/CMND rõ nét để xác minh danh tính')
-                                                        ->collapsible(false)
-                                                        ->collapsed()
-                                                        ->schema([
-                                                            Placeholder::make('cccd_download_links')
-                                                                ->label('')
-                                                                ->hiddenLabel()
-                                                                ->content(function ($record) {
-                                                                    if (! $record || (! $record->cccd_front && ! $record->cccd_back)) {
-                                                                        return '';
-                                                                    }
-
-                                                                    $btnStyle = fn(string $bg, string $border, string $color) =>
-                                                                        "display:inline-flex;align-items:center;gap:.375rem;padding:.4rem .875rem;" .
-                                                                        "background:{$bg};border:1px solid {$border};color:{$color};" .
-                                                                        "border-radius:.5rem;font-size:.8125rem;font-weight:600;text-decoration:none;" .
-                                                                        "transition:background .15s;";
-
-                                                                    $icon = '<svg xmlns="http://www.w3.org/2000/svg" style="width:.875rem;height:.875rem;flex-shrink:0;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">'
-                                                                        . '<path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>'
-                                                                        . '</svg>';
-
-                                                                    $html = '<div style="display:flex;gap:.625rem;flex-wrap:wrap;padding:.25rem 0;">';
-
-                                                                    if ($record->cccd_front) {
-                                                                        $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($record->cccd_front);
-                                                                        $name = 'CCCD_mat_truoc_' . ($record->order_code ?? $record->id) . '.jpg';
-                                                                        $html .= '<a href="' . e($url) . '" download="' . e($name) . '" target="_blank"'
-                                                                            . ' style="' . $btnStyle('#eff6ff', '#bfdbfe', '#1d4ed8') . '"'
-                                                                            . ' onmouseenter="this.style.background=\'#dbeafe\'"'
-                                                                            . ' onmouseleave="this.style.background=\'#eff6ff\'">'
-                                                                            . $icon . ' Tải mặt trước</a>';
-                                                                    }
-
-                                                                    if ($record->cccd_back) {
-                                                                        $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($record->cccd_back);
-                                                                        $name = 'CCCD_mat_sau_' . ($record->order_code ?? $record->id) . '.jpg';
-                                                                        $html .= '<a href="' . e($url) . '" download="' . e($name) . '" target="_blank"'
-                                                                            . ' style="' . $btnStyle('#f0fdf4', '#bbf7d0', '#15803d') . '"'
-                                                                            . ' onmouseenter="this.style.background=\'#dcfce7\'"'
-                                                                            . ' onmouseleave="this.style.background=\'#f0fdf4\'">'
-                                                                            . $icon . ' Tải mặt sau</a>';
-                                                                    }
-
-                                                                    // Khách đi cùng — lưu ở bảng order_guest_cccds (guest_index=2,3,4...),
-                                                                    // KHÔNG còn ở cột cccd_front_2/cccd_back_2 trên chính bảng orders nữa.
-                                                                    foreach ($record->guestCccds as $guest) {
-                                                                        if ($guest->cccd_front) {
-                                                                            $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($guest->cccd_front);
-                                                                            $name = 'CCCD_khach' . $guest->guest_index . '_mat_truoc_' . ($record->order_code ?? $record->id) . '.jpg';
-                                                                            $html .= '<a href="' . e($url) . '" download="' . e($name) . '" target="_blank"'
-                                                                                . ' style="' . $btnStyle('#fefce8', '#fde68a', '#a16207') . '"'
-                                                                                . ' onmouseenter="this.style.background=\'#fef9c3\'"'
-                                                                                . ' onmouseleave="this.style.background=\'#fefce8\'">'
-                                                                                . $icon . ' Tải mặt trước (khách #' . $guest->guest_index . ')</a>';
-                                                                        }
-
-                                                                        if ($guest->cccd_back) {
-                                                                            $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($guest->cccd_back);
-                                                                            $name = 'CCCD_khach' . $guest->guest_index . '_mat_sau_' . ($record->order_code ?? $record->id) . '.jpg';
-                                                                            $html .= '<a href="' . e($url) . '" download="' . e($name) . '" target="_blank"'
-                                                                                . ' style="' . $btnStyle('#fefce8', '#fde68a', '#a16207') . '"'
-                                                                                . ' onmouseenter="this.style.background=\'#fef9c3\'"'
-                                                                                . ' onmouseleave="this.style.background=\'#fefce8\'">'
-                                                                                . $icon . ' Tải mặt sau (khách #' . $guest->guest_index . ')</a>';
-                                                                        }
-                                                                    }
-
-                                                                    // Tương thích ngược: đơn TẠO TRƯỚC khi chuyển sang bảng
-                                                                    // order_guest_cccds vẫn còn ảnh khách thứ 2 ở cột cccd_front_2/
-                                                                    // cccd_back_2 cũ (không có bản ghi guestCccds nào) — vẫn hiện link
-                                                                    // tải, không để mất quyền xem lại ảnh cũ.
-                                                                    if ($record->guestCccds->isEmpty()) {
-                                                                        if ($record->cccd_front_2) {
-                                                                            $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($record->cccd_front_2);
-                                                                            $name = 'CCCD_nguoidicung_mat_truoc_' . ($record->order_code ?? $record->id) . '.jpg';
-                                                                            $html .= '<a href="' . e($url) . '" download="' . e($name) . '" target="_blank"'
-                                                                                . ' style="' . $btnStyle('#fefce8', '#fde68a', '#a16207') . '"'
-                                                                                . ' onmouseenter="this.style.background=\'#fef9c3\'"'
-                                                                                . ' onmouseleave="this.style.background=\'#fefce8\'">'
-                                                                                . $icon . ' Tải mặt trước (người đi cùng)</a>';
-                                                                        }
-
-                                                                        if ($record->cccd_back_2) {
-                                                                            $url  = \Illuminate\Support\Facades\Storage::disk('public')->url($record->cccd_back_2);
-                                                                            $name = 'CCCD_nguoidicung_mat_sau_' . ($record->order_code ?? $record->id) . '.jpg';
-                                                                            $html .= '<a href="' . e($url) . '" download="' . e($name) . '" target="_blank"'
-                                                                                . ' style="' . $btnStyle('#fefce8', '#fde68a', '#a16207') . '"'
-                                                                                . ' onmouseenter="this.style.background=\'#fef9c3\'"'
-                                                                                . ' onmouseleave="this.style.background=\'#fefce8\'">'
-                                                                                . $icon . ' Tải mặt sau (người đi cùng)</a>';
-                                                                        }
-                                                                    }
-
-                                                                    $html .= '</div>';
-                                                                    return new \Illuminate\Support\HtmlString($html);
-                                                                })
-                                                                ->visible(fn ($record) => (auth()->user()?->isSuperAdmin() ?? false)
-                                                                    && $record && ($record->cccd_front || $record->cccd_back || $record->guestCccds->isNotEmpty()
-                                                                        || $record->cccd_front_2 || $record->cccd_back_2)),
-
-                                                            Grid::make(2)
-                                                                ->schema([
-                                                                    FileUpload::make('cccd_front')
-                                                                        ->label('CCCD/CMND mặt trước')
-                                                                        ->helperText('Tối đa 10MB, ảnh gốc không crop/resize.')
-                                                                        ->image()
-                                                                        ->directory('cccd')
-                                                                        ->imagePreviewHeight('100')
-                                                                        ->loadingIndicatorPosition('center')
-                                                                        ->panelAspectRatio('16:10')
-                                                                        ->panelLayout('integrated')
-                                                                        ->removeUploadedFileButtonPosition('top-right')
-                                                                        ->uploadButtonPosition('center')
-                                                                        ->uploadProgressIndicatorPosition('center')
-                                                                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
-                                                                        ->maxSize(10240)
-                                                                        ->downloadable()
-                                                                        ->openable()
-                                                                        ->nullable(),
-
-                                                                    FileUpload::make('cccd_back')
-                                                                        ->label('CCCD/CMND mặt sau')
-                                                                        ->helperText('Tối đa 10MB, ảnh gốc không crop/resize.')
-                                                                        ->image()
-                                                                        ->directory('cccd')
-                                                                        ->imagePreviewHeight('100')
-                                                                        ->loadingIndicatorPosition('center')
-                                                                        ->panelAspectRatio('16:10')
-                                                                        ->panelLayout('integrated')
-                                                                        ->removeUploadedFileButtonPosition('top-right')
-                                                                        ->uploadButtonPosition('center')
-                                                                        ->uploadProgressIndicatorPosition('center')
-                                                                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
-                                                                        ->maxSize(10240)
-                                                                        ->downloadable()
-                                                                        ->openable()
-                                                                        ->nullable(),
-                                                                ]),
-                                                        ]),
-
-                                                    // Luật Cư trú (hiệu lực 01/07/2026) yêu cầu khai báo lưu trú ĐỦ
-                                                    // TỪNG NGƯỜI khi ở qua đêm — chỉ hiện khi có khung giờ/lượt đặt
-                                                    // QUA ĐÊM và số khách >= 2 (xem requiresSecondGuestCccd()). Số ô
-                                                    // khách đi cùng SCALE theo guest_count (giống hệt cơ chế
-                                                    // cccdFrontExtra/cccdBackExtra ở ProductDetail.php phía khách
-                                                    // hàng — trước đây CHỈ đủ 1 khách thêm cố định (cccd_front_2/
-                                                    // cccd_back_2 trên chính bảng orders), lưu vào bảng RIÊNG
-                                                    // order_guest_cccds (guest_index=2,3,4...) — dùng CHUNG bảng với
-                                                    // đơn khách tự đặt, xem Order::guestCccds() + CreateOrder::afterCreate()/
-                                                    // EditOrder.php + CccdDeclarationService.
-                                                    Section::make('CCCD/CMND khách đi cùng (bắt buộc khi ở qua đêm từ 2 khách trở lên)')
-                                                        ->description('Ở qua đêm phải khai báo lưu trú đủ TỪNG người theo quy định — tải thêm CCCD/CMND của mỗi khách đi cùng (không tính khách chính đã tải ở trên).')
-                                                        ->icon('heroicon-m-user-plus')
-                                                        ->iconColor('warning')
-                                                        ->collapsible(false)
-                                                        ->visible(fn (Get $get) => self::requiresSecondGuestCccd($get))
-                                                        ->schema([
-                                                            // ->dehydrated() BẮT BUỘC — Section cha ->visible(requiresSecondGuestCccd())
-                                                            // và Filament MẶC ĐỊNH KHÔNG dehydrate field nằm trong component
-                                                            // đang ẨN. requiresSecondGuestCccd() phụ thuộc 'orderItems' (số
-                                                            // khách/khung giờ qua đêm) — nếu điều kiện này bị đánh giá lại là
-                                                            // false dù chỉ trong 1 khoảnh khắc lúc submit (timing/reactive
-                                                            // Livewire), TOÀN BỘ dữ liệu khách đi cùng đã nhập sẽ bị lặng lẽ
-                                                            // KHÔNG LƯU (đã từng xác minh thực tế với field cũ). Ép dehydrate
-                                                            // luôn để không phụ thuộc thời điểm đánh giá visible().
-                                                            Repeater::make('guest_cccds')
-                                                                ->label('')
-                                                                ->addActionLabel('Thêm khách đi cùng')
-                                                                ->reorderable(false)
-                                                                ->maxItems(fn (Get $get) => max(0, self::maxGuestCountAcrossItems($get) - 1))
-                                                                ->dehydrated()
-                                                                ->columnSpanFull()
-                                                                ->schema([
-                                                                    Grid::make(2)
-                                                                        ->schema([
-                                                                            FileUpload::make('cccd_front')
-                                                                                ->label('CCCD/CMND - mặt trước')
-                                                                                ->helperText('Tối đa 10MB, ảnh gốc không crop/resize.')
-                                                                                ->image()
-                                                                                ->directory('cccd')
-                                                                                ->imagePreviewHeight('100')
-                                                                                ->loadingIndicatorPosition('center')
-                                                                                ->panelAspectRatio('16:10')
-                                                                                ->panelLayout('integrated')
-                                                                                ->removeUploadedFileButtonPosition('top-right')
-                                                                                ->uploadButtonPosition('center')
-                                                                                ->uploadProgressIndicatorPosition('center')
-                                                                                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
-                                                                                ->maxSize(10240)
-                                                                                ->downloadable()
-                                                                                ->openable()
-                                                                                ->dehydrated()
-                                                                                ->nullable(),
-
-                                                                            FileUpload::make('cccd_back')
-                                                                                ->label('CCCD/CMND - mặt sau')
-                                                                                ->helperText('Tối đa 10MB, ảnh gốc không crop/resize.')
-                                                                                ->image()
-                                                                                ->directory('cccd')
-                                                                                ->imagePreviewHeight('100')
-                                                                                ->loadingIndicatorPosition('center')
-                                                                                ->panelAspectRatio('16:10')
-                                                                                ->panelLayout('integrated')
-                                                                                ->removeUploadedFileButtonPosition('top-right')
-                                                                                ->uploadButtonPosition('center')
-                                                                                ->uploadProgressIndicatorPosition('center')
-                                                                                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
-                                                                                ->maxSize(10240)
-                                                                                ->downloadable()
-                                                                                ->openable()
-                                                                                ->dehydrated()
-                                                                                ->nullable(),
-                                                                        ]),
-                                                                ]),
-                                                        ]),
-                                                ]),
-
-                                    ])->columns(7),
-                                    ]),
-
-                        Section::make(__('payment::order.form.fieldset.payment_info'))
-                            ->schema([
-                                // Lịch sử thanh toán bên trái, Phương thức thanh toán bên phải —
-                                // responsive: gộp về 1 cột dọc trên màn hình < 1024px.
-                                // Section/Grid::setUp() TỰ ĐỘNG ->columnSpan('full') (xem ghi chú ở
-                                // Grid "Mã cổng"/"Thông tin khách hàng" phía trên) nên PHẢI tự
-                                // ->columnSpan(1) đè lại ở cả 2 Grid con dưới đây.
-                                Grid::make(['default' => 1, 'lg' => 2])
-                                    ->schema([
                                         Grid::make(1)
                                             ->columnSpan(1)
                                             ->schema([
-                                // TIMELINE THANH TOÁN
-                                Section::make('Lịch sử thanh toán')
-                                    ->description('Thời điểm tạo đơn và các mốc thanh toán')
-                                    ->schema([
-                                        Placeholder::make('payment_timeline')
-                                            ->label('')
-                                            ->content(function ($record) {
-                                                if (!$record) {
-                                                    return new \Illuminate\Support\HtmlString('<p class="text-gray-400 text-sm italic">Chưa có dữ liệu</p>');
-                                                }
+                                                // "Tổng thanh toán" (Chi tiết tính toán chi phí) — DI CHUYỂN nguyên
+                                                        // cả nhóm field vào đây theo yêu cầu, thay vì nằm rời phía dưới
+                                                        // hàng lịch đặt phòng như trước. Bỏ hẳn khung Section (theo yêu
+                                                        // cầu "gọn đẹp lại") — chỉ còn 1 nhãn nhỏ + nội dung trần, không
+                                                        // còn là "card" riêng. Group này vẫn nằm bên trong
+                                                        // Group('orderItems.0') (xem Group B ngay trên) nên MỌI $get()/
+                                                        // $set() bên trong đổi sang '../../...' (2 cấp) để vẫn trỏ đúng
+                                                        // 'data.orderItems'/'data.amount'/... ở gốc — giống hệt cách
+                                                        // calculateTotal() đã làm (Grid không tự thêm segment path, xem
+                                                        // HasState::getStatePath()).
+                                                        Grid::make(1)
+                                                            ->schema([
+                                                                Placeholder::make('tong_thanh_toan_label')
+                                                                    ->label('')
+                                                                    ->content(new \Illuminate\Support\HtmlString(
+                                                                        '<div class="text-xs font-semibold uppercase tracking-wide" style="color: var(--boulder-50, #6b7280);">Tổng thanh toán</div>'
+                                                                    )),
 
-                                                // full_amount CỐ ĐỊNH = tổng giá thật của đơn (không phải tiền cọc nữa) —
-                                                // tiền cọc đã thu lấy qua depositPaidAmount() (deposit_paid_amount nếu
-                                                // admin đã tự sửa tay, mặc định = depositDueAmount()).
-                                                $isDeposit   = $record->deposit_percent !== null;
-                                                $fullAmt     = (int) $record->full_amount;
-                                                $depositPctF = $isDeposit ? (int)$record->deposit_percent : 0;
-                                                if ($isDeposit && $depositPctF > 0) {
-                                                    $depositAmt   = $record->depositPaidAmount();
-                                                    $extraChargeF = (int) ($record->extra_charge_amount ?? 0);
-                                                    $remainingAmt = max(0, $fullAmt - $depositAmt) + $extraChargeF;
-                                                } else {
-                                                    $depositAmt   = null;
-                                                    $remainingAmt = null;
-                                                }
+                                                                Grid::make(2)
+                                                                    ->schema([
+                                                                        // Phụ thu ngoài đơn giá phòng/dịch vụ (vd phí phát sinh admin thoả
+                                                                        // thuận riêng với khách) — admin gõ tay, CỘNG THẲNG vào tổng ở
+                                                                        // calculateTotal()/amount_preview bên dưới, giống cách 'orderServices'
+                                                                        // được cộng vào tổng.
+                                                                        TextInput::make('surcharge')
+                                                                            ->label('Phụ thu (có thể sửa tay)')
+                                                                            ->numeric()
+                                                                            ->minValue(0)
+                                                                            ->default(0)
+                                                                            ->suffix('đ')
+                                                                            ->live()
+                                                                            ->dehydrated(true)
+                                                                            ->afterStateUpdated(function (Get $get, Set $set) {
+                                                                                self::calculateTotal($get, $set);
+                                                                            }),
 
-                                                $fmt = fn($dt) => $dt ? \Carbon\Carbon::parse($dt)->format('d/m/Y H:i') : null;
+                                                                        // Tổng tiền THẬT SỰ sẽ lưu vào đơn — mặc định tự điền theo đúng số
+                                                                        // hệ thống vừa tính ở dưới (mỗi khi sửa phòng/dịch vụ/phụ thu,
+                                                                        // calculateTotal() sẽ ghi đè lại field này bằng số tính đúng). Admin
+                                                                        // vẫn có thể gõ đè 1 số KHÁC ngay tại đây nếu cần điều chỉnh giá
+                                                                        // thực thu.
+                                                                        TextInput::make('amount')
+                                                                            ->label('Tổng tiền đơn (có thể sửa tay)')
+                                                                            ->numeric()
+                                                                            ->minValue(0)
+                                                                            ->suffix('đ')
+                                                                            ->live()
+                                                                            ->dehydrated(true),
+                                                                    ]),
 
-                                                // SVG icon helper
-                                                $svg = static function (string $type, string $stroke): string {
-                                                    $a = "xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"{$stroke}\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"";
-                                                    return match ($type) {
-                                                        'banknote' => "<svg {$a}><rect x=\"2\" y=\"5\" width=\"20\" height=\"14\" rx=\"2\"/><line x1=\"2\" y1=\"10\" x2=\"22\" y2=\"10\"/></svg>",
-                                                        'check'    => "<svg {$a}><path d=\"M22 11.08V12a10 10 0 1 1-5.93-9.14\"/><polyline points=\"22 4 12 14.01 9 11.01\"/></svg>",
-                                                        'file'     => "<svg {$a}><path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z\"/><polyline points=\"14 2 14 8 20 8\"/></svg>",
-                                                        'qr'       => "<svg {$a}><rect x=\"3\" y=\"3\" width=\"7\" height=\"7\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\"/></svg>",
-                                                        default    => "<svg {$a}><circle cx=\"12\" cy=\"12\" r=\"10\"/></svg>",
-                                                    };
-                                                };
+                                                                // Card breakdown (phòng/dịch vụ/giảm giá/phụ thu khách/phụ thu) TRUYỀN
+                                                                // THÊM 'displayTotal' = giá trị HIỆN TẠI của field 'amount' ở trên —
+                                                                // để dòng "TỔNG THANH TOÁN" trên card LUÔN khớp CHÍNH XÁC với số
+                                                                // trong ô "Tổng tiền đơn" (kể cả khi admin đã gõ đè tay), thay vì
+                                                                // card tự tính lại 1 số khác đứng cạnh 1 ô nhập tay có thể đang giữ
+                                                                // số khác — 2 chỗ hiển thị PHẢI luôn đồng bộ.
+                                                                Placeholder::make('amount_preview')
+                                                                    ->label('')
+                                                                    ->live()
+                                                                    ->dehydrated(false)
+                                                                    ->content(function (Get $get, $record) {
+                                                                        // Cột 2 KHÔNG còn nằm trong Group('orderItems.0') nữa (xem ghi chú ở
+                                                                        // Grid::make(2) bọc 2 cột phía trên) — $get() ở đây dùng path THƯỜNG
+                                                                        // (không '../../'), khớp đúng field 'orderItems'/'amount'/... ở gốc.
+                                                                        $items = $get('orderItems');
+                                                                        $items = is_array($items) ? $items : [];
 
-                                                if ($isDeposit) {
-                                                    $remainingDone = $record->status === 'paid' && $record->deposit_percent !== null;
-                                                    $remainingTime = $record->remaining_paid_at ? $fmt($record->remaining_paid_at) : null;
-                                                    $qrCreated     = ! empty($record->remaining_checkout_url);
-                                                    $payMethod     = $record->remaining_payment_method ?? null;
+                                                                        $servicesFormState = $get('orderServices') ?? [];
+                                                                        $servicesFormState = is_array($servicesFormState) ? $servicesFormState : [];
 
-                                                    if ($remainingDone) {
-                                                        if ($payMethod === 'cash') {
-                                                            $remainingLabel = 'Admin thu tiền mặt';
-                                                        } elseif ($payMethod === 'payos') {
-                                                            $remainingLabel = 'Khách thanh toán qua PayOS';
-                                                        } elseif ($payMethod === 'bank_transfer') {
-                                                            $remainingLabel = 'Admin xác nhận đã chuyển khoản';
-                                                        } else {
-                                                            $remainingLabel = $qrCreated ? 'Khách thanh toán qua QR/PayOS' : 'Admin xác nhận thu tiền mặt';
-                                                        }
-                                                    } else {
-                                                        $remainingLabel = 'Chờ thanh toán phần còn lại';
-                                                    }
+                                                                        $surcharge = (float) ($get('surcharge') ?? 0);
 
-                                                    $steps = [
-                                                        [
-                                                            'icon_type' => 'banknote',
-                                                            'label'     => 'Khách đặt cọc',
-                                                            'time'      => $fmt($record->created_at),
-                                                            'done'      => true,
-                                                            'color'     => 'yellow',
-                                                            'sub'       => $depositAmt ? number_format($depositAmt, 0, ',', '.') . 'đ (' . $record->deposit_percent . '%)' : null,
-                                                            'sort_time' => $record->created_at,
-                                                        ],
-                                                        [
-                                                            'icon_type' => 'qr',
-                                                            'label'     => $qrCreated ? 'QR thanh toán đã được tạo' : 'Chưa tạo QR thanh toán',
-                                                            'time'      => null,
-                                                            'done'      => $qrCreated,
-                                                            'color'     => 'yellow',
-                                                            'sub'       => null,
-                                                            // Không có mốc thời gian riêng lưu lại lúc tạo QR — ghim ngay sau
-                                                            // bước "đặt cọc" (không ảnh hưởng thứ tự hiển thị thực tế).
-                                                            'sort_time' => $record->created_at,
-                                                        ],
-                                                        [
-                                                            'icon_type' => $payMethod === 'cash' ? 'banknote' : 'check',
-                                                            'label'     => $remainingLabel,
-                                                            'time'      => $remainingTime,
-                                                            'done'      => $remainingDone,
-                                                            'color'     => 'green',
-                                                            'sub'       => ($remainingDone && $remainingAmt) ? number_format($remainingAmt, 0, ',', '.') . 'đ' : null,
-                                                            'sort_time' => $record->remaining_paid_at ?? $record->updated_at,
-                                                        ],
-                                                    ];
-                                                } else {
-                                                    // paid_at là mốc CỐ ĐỊNH, chỉ set 1 lần lúc chuyển sang 'paid' (xem
-                                                    // OrderObserver::saving()) — KHÔNG dùng updated_at vì cột đó bị đội
-                                                    // lên ở MỌI lần sửa đơn sau này (thêm/bớt khung giờ...), khiến mốc
-                                                    // "Khách thanh toán đầy đủ" hiển thị sai lệch theo lần sửa gần nhất.
-                                                    $paidAt = $record->status === 'paid' ? $fmt($record->paid_at ?? $record->updated_at) : null;
-                                                    $steps = [
-                                                        [
-                                                            'icon_type' => 'file',
-                                                            'label'     => 'Khách tạo đơn',
-                                                            'time'      => $fmt($record->created_at),
-                                                            'done'      => true,
-                                                            'color'     => 'blue',
-                                                            'sub'       => null,
-                                                            'sort_time' => $record->created_at,
-                                                        ],
-                                                        [
-                                                            'icon_type' => 'check',
-                                                            'label'     => 'Khách thanh toán đầy đủ',
-                                                            'time'      => $paidAt,
-                                                            'done'      => $record->status === 'paid',
-                                                            'color'     => 'green',
-                                                            'sub'       => $fullAmt ? number_format($fullAmt, 0, ',', '.') . 'đ' : null,
-                                                            'sort_time' => $record->status === 'paid' ? ($record->paid_at ?? $record->updated_at) : $record->created_at,
-                                                        ],
-                                                    ];
-                                                }
+                                                                        $total = self::computeOrderTotal($items, $servicesFormState) + $surcharge;
 
-                                                // Lịch sử phát sinh/hoàn tiền qua các lần sửa đơn (thêm/bớt khung
-                                                // giờ, dịch vụ, số khách) — orders.extra_charge_amount chỉ lưu ĐÚNG
-                                                // giá trị MỚI NHẤT (bị ghi đè mỗi lần có thay đổi), không tự giữ lại
-                                                // lịch sử nhiều lần phát sinh qua thời gian, nên đọc từ AuditLog (xem
-                                                // EditOrder::handlePriceDiff()) để người quản lý xem lại đầy đủ từng
-                                                // lần tăng/giảm, ai sửa, lúc nào.
-                                                $priceAdjustments = \Modules\AuditLog\Entities\AuditLog::where('module', 'Order')
-                                                    ->where('target_id', (string) $record->id)
-                                                    ->where('action', 'price_adjustment')
-                                                    ->orderBy('created_at')
-                                                    ->get();
+                                                                        $expandedItems = self::expandOrderItemsForPersistence($items);
 
-                                                foreach ($priceAdjustments as $adj) {
-                                                    $adjDiff = (int) ($adj->new_values['diff'] ?? 0);
-                                                    if ($adjDiff === 0) {
-                                                        continue;
-                                                    }
+                                                                        $currentAmount = $get('amount');
 
-                                                    // Hiện NGUYÊN NHÂN phát sinh (thêm khung giờ/dịch vụ/người) thay vì
-                                                    // tên admin đã sửa đơn — admin là nội bộ, người xem lịch sử chỉ cần
-                                                    // biết ĐÃ XẢY RA CHUYỆN GÌ (xem EditOrder::buildChangeSummary()). Log
-                                                    // cũ trước khi có field này thì fallback về nhãn chung chung.
-                                                    $changeSummary = $adj->new_values['change_summary'] ?? [];
-                                                    $label = (is_array($changeSummary) && ! empty($changeSummary))
-                                                        ? implode(' · ', $changeSummary)
-                                                        : ($adjDiff > 0 ? 'Phát sinh thêm' : 'Hoàn tiền');
+                                                                        return view('payment::components.total-amount-card', [
+                                                                            'totalAmount' => $total,
+                                                                            'displayTotal' => ($currentAmount !== null && $currentAmount !== '') ? (float) $currentAmount : $total,
+                                                                            'items' => $expandedItems,
+                                                                            'originalItems' => $items,
+                                                                            'record' => $record,
+                                                                            'servicesFormState' => $servicesFormState,
+                                                                            'surcharge' => $surcharge,
+                                                                        ]);
+                                                                    }),
+                                                            ]),
+                                                    ]),
+                                            ]),
+                                    ]),
 
-                                                    $steps[] = [
-                                                        'icon_type' => $adjDiff > 0 ? 'banknote' : 'check',
-                                                        'label'     => $label,
-                                                        'time'      => $fmt($adj->created_at),
-                                                        'done'      => true,
-                                                        'color'     => $adjDiff > 0 ? 'yellow' : 'green',
-                                                        'sub'       => ($adjDiff > 0 ? '+' : '') . number_format($adjDiff, 0, ',', '.') . 'đ',
-                                                        // Ghi tạm dấu +/- để bên dưới xác định dòng NÀO là lần phát sinh/
-                                                        // hoàn tiền GẦN NHẤT còn cần xử lý — chỉ dòng đó mới gắn nút hành
-                                                        // động (không lặp lại nút ở các dòng lịch sử cũ đã xử lý xong).
-                                                        'diff'      => $adjDiff,
-                                                        'sort_time' => $adj->created_at,
-                                                    ];
-                                                }
-
-                                                // Xác nhận "Tạo QR/Đã chuyển khoản/Đã thu tiền mặt phát sinh" và "Đã
-                                                // hoàn tiền" (từ EditOrder::quick*()/header actions) trước đây ghi
-                                                // AuditLog với action='update' — nhưng query ở trên CHỈ lọc
-                                                // action='price_adjustment', nên các xác nhận này ÂM THẦM không hiện
-                                                // ra ở đây dù đã lưu đúng vào DB (đã xác nhận qua audit_logs thực tế:
-                                                // "Xác nhận thu tiền mặt phát sinh" vẫn được ghi, chỉ là bị query này
-                                                // bỏ sót). Nhận diện qua các nhãn CỐ ĐỊNH đã dùng khi ghi log đó.
-                                                $confirmationLabels = [
-                                                    'Tạo QR phát sinh', 'Xác nhận chuyển khoản phát sinh',
-                                                    'Xác nhận thu tiền mặt phát sinh',
-                                                    'Đã hoàn tiền (chuyển khoản)', 'Đã hoàn tiền (tiền mặt)',
-                                                ];
-                                                $confirmationLogs = \Modules\AuditLog\Entities\AuditLog::where('module', 'Order')
-                                                    ->where('target_id', (string) $record->id)
-                                                    ->where('action', 'update')
-                                                    ->orderBy('created_at')
-                                                    ->get();
-
-                                                foreach ($confirmationLogs as $log) {
-                                                    $newValues = is_array($log->new_values) ? $log->new_values : [];
-                                                    $matchedLabel = null;
-                                                    foreach ($confirmationLabels as $candidate) {
-                                                        if (array_key_exists($candidate, $newValues)) {
-                                                            $matchedLabel = $candidate;
-                                                            break;
-                                                        }
-                                                    }
-
-                                                    if ($matchedLabel === null) {
-                                                        continue;
-                                                    }
-
-                                                    $steps[] = [
-                                                        'icon_type' => 'check',
-                                                        'label'     => $matchedLabel,
-                                                        'time'      => $fmt($log->created_at),
-                                                        'done'      => true,
-                                                        'color'     => 'green',
-                                                        'sub'       => (string) $newValues[$matchedLabel],
-                                                        'sort_time' => $log->created_at,
-                                                    ];
-                                                }
-
-                                                // Sắp xếp lại TOÀN BỘ dòng (mốc gốc + phát sinh/hoàn tiền) theo ĐÚNG
-                                                // thời gian thực (sort_time) — trước đây các mốc gốc (tạo đơn/thanh
-                                                // toán) luôn đứng ĐẦU mảng bất kể thời điểm thật, còn dòng phát sinh
-                                                // luôn nối ĐUÔI theo thứ tự thêm vào, nên nếu đơn được sửa (thêm/bớt
-                                                // khung giờ) SAU KHI đã thanh toán, mốc "Khách thanh toán đầy đủ" có
-                                                // thể hiện đứng SAI VỊ TRÍ (trước hoặc xen giữa) so với các dòng phát
-                                                // sinh thực sự xảy ra trước/sau nó.
-                                                usort($steps, fn ($a, $b) => ($a['sort_time'] ?? now()) <=> ($b['sort_time'] ?? now()));
-
-                                                // Đơn ĐANG có khoản phát sinh/hoàn tiền CHƯA xử lý (xem
-                                                // hasUnpaidExtraCharge()/hasPendingRefund()) — tìm dòng lịch sử GẦN
-                                                // NHẤT khớp chiều tăng/giảm để gắn nút "Tạo QR/Đã chuyển khoản/Đã thu
-                                                // tiền mặt" NGAY tại đó, thay vì bắt admin phải kéo xuống Section riêng
-                                                // ("Phát sinh thêm"/"Hoàn tiền chưa xử lý") mới xử lý được.
-                                                $pendingExtraChargeStepIndex = null;
-                                                $pendingRefundStepIndex     = null;
-                                                if (self::hasUnpaidExtraCharge($record) || self::hasPendingRefund($record)) {
-                                                    foreach ($steps as $stepIdx => $stepRow) {
-                                                        $stepDiff = $stepRow['diff'] ?? null;
-                                                        if ($stepDiff === null) {
-                                                            continue;
-                                                        }
-                                                        if ($stepDiff > 0 && self::hasUnpaidExtraCharge($record)) {
-                                                            $pendingExtraChargeStepIndex = $stepIdx;
-                                                        }
-                                                        if ($stepDiff < 0 && self::hasPendingRefund($record)) {
-                                                            $pendingRefundStepIndex = $stepIdx;
-                                                        }
-                                                    }
-                                                }
-
-                                                $html = '<div class="flex flex-col gap-0">';
-                                                foreach ($steps as $i => $step) {
-                                                    $isLast   = $i === count($steps) - 1;
-                                                    $dotBg    = $step['done']
-                                                        ? match($step['color']) {
-                                                            'blue'   => '#3b82f6',
-                                                            'yellow' => '#f59e0b',
-                                                            'green'  => '#22c55e',
-                                                            default  => '#6b7280',
-                                                        }
-                                                        : '#e5e7eb';
-                                                    $dotBorder  = $step['done'] ? '' : 'border:2px dashed #9ca3af;';
-                                                    $dotStroke  = $step['done'] ? 'white' : '#9ca3af';
-                                                    $labelColor = $step['done'] ? '#111827' : '#9ca3af';
-                                                    $iconHtml   = $svg($step['icon_type'], $dotStroke);
-
-                                                    $timeHtml = $step['time'] && $step['time'] !== '(Không rõ thời điểm)'
-                                                        ? '<span style="font-size:12px;color:#6b7280;">' . $step['time'] . '</span>'
-                                                        : ($step['done']
-                                                            ? '<span style="font-size:12px;color:#9ca3af;font-style:italic;">Không rõ thời điểm</span>'
-                                                            : '<span style="font-size:12px;color:#d1d5db;font-style:italic;">Chưa thực hiện</span>');
-
-                                                    $subHtml = $step['sub']
-                                                        ? ' <span style="font-size:12px;background:#f3f4f6;color:#374151;padding:1px 7px;border-radius:999px;font-weight:600;">' . $step['sub'] . '</span>'
-                                                        : '';
-
-                                                    // Gắn nút hành động NGAY trên dòng lịch sử phát sinh/hoàn tiền gần
-                                                    // nhất còn chờ xử lý — wire:click gọi thẳng EditOrder::quick*() (xem
-                                                    // EditOrder.php), không cần điều hướng xuống Section riêng bên dưới.
-                                                    $actionsHtml = '';
-                                                    $btnStyle2 = fn(string $border, string $bg, string $color) =>
-                                                        "font-size:11px;font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid {$border};background:{$bg};color:{$color};cursor:pointer;font-family:inherit;";
-                                                    $recordKeyPart = $record->id ?? 'new';
-                                                    if ($i === $pendingExtraChargeStepIndex) {
-                                                        $actionsHtml = '
-                                                            <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
-                                                                <button type="button" wire:key="tl-qr-' . $recordKeyPart . '" wire:click="quickCreateExtraChargeQr" wire:loading.attr="disabled" wire:target="quickCreateExtraChargeQr" style="' . $btnStyle2('#f59e0b', '#fffbeb', '#b45309') . '">Tạo QR</button>
-                                                                <button type="button" wire:key="tl-transfer-' . $recordKeyPart . '" wire:click="quickMarkExtraChargeTransfer" wire:loading.attr="disabled" wire:target="quickMarkExtraChargeTransfer" style="' . $btnStyle2('#3b82f6', '#eff6ff', '#1d4ed8') . '">Đã chuyển khoản</button>
-                                                                <button type="button" wire:key="tl-cash-' . $recordKeyPart . '" wire:click="quickMarkExtraChargeCash" wire:loading.attr="disabled" wire:target="quickMarkExtraChargeCash" style="' . $btnStyle2('#22c55e', '#f0fdf4', '#15803d') . '">Đã thu tiền mặt</button>
-                                                            </div>';
-                                                    } elseif ($i === $pendingRefundStepIndex) {
-                                                        $actionsHtml = '
-                                                            <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
-                                                                <button type="button" wire:key="tl-refund-transfer-' . $recordKeyPart . '" wire:click="quickMarkRefundTransfer" wire:loading.attr="disabled" wire:target="quickMarkRefundTransfer" style="' . $btnStyle2('#3b82f6', '#eff6ff', '#1d4ed8') . '">Đã chuyển khoản</button>
-                                                                <button type="button" wire:key="tl-refund-cash-' . $recordKeyPart . '" wire:click="quickMarkRefundCash" wire:loading.attr="disabled" wire:target="quickMarkRefundCash" style="' . $btnStyle2('#22c55e', '#f0fdf4', '#15803d') . '">Đã thu tiền mặt</button>
-                                                            </div>';
-                                                    }
-
-                                                    $html .= '
-                                                        <div style="display:flex;align-items:flex-start;gap:12px;">
-                                                            <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;">
-                                                                <div style="width:32px;height:32px;border-radius:50%;background:' . $dotBg . ';' . $dotBorder . 'display:flex;align-items:center;justify-content:center;flex-shrink:0;">' . $iconHtml . '</div>
-                                                                ' . (!$isLast ? '<div style="width:2px;background:#e5e7eb;flex:1;min-height:24px;margin:2px 0;"></div>' : '') . '
-                                                            </div>
-                                                            <div style="padding-bottom:' . (!$isLast ? '12px' : '0') . ';padding-top:4px;">
-                                                                <div style="font-weight:600;font-size:14px;color:' . $labelColor . ';">' . $step['label'] . $subHtml . '</div>
-                                                                <div style="margin-top:2px;">' . $timeHtml . '</div>
-                                                                ' . $actionsHtml . '
-                                                            </div>
-                                                        </div>
-                                                    ';
-                                                }
-                                                $html .= '</div>';
-
-                                                return new \Illuminate\Support\HtmlString($html);
-                                            }),
-                                    ])
-                                    ->collapsible()
-                                    ->collapsed(false),
-
+                        Section::make()
+                            ->extraAttributes(['class' => 'order-form-root'])
+                            ->schema([
+                                // "Lịch sử thanh toán" và "Phương thức thanh toán" đã chuyển vào cột 2
+                                // của Section "Thông tin khách hàng" phía trên (đã thu gọn) — ở đây chỉ
+                                // còn 2 Section hành động khi
+                                // có phát sinh/hoàn tiền chờ xử lý.
                                 // SECTION: Thanh toán còn lại — chỉ hiện với đơn cọc chưa thanh toán đủ
                                 Section::make('Thanh toán còn lại')
                                     ->description('Tạo link QR hoặc xác nhận thu tiền mặt phần còn lại')
@@ -1798,120 +1502,6 @@ class OrderForm
                                     ])
                                     ->collapsible()
                                     ->collapsed(false),
-
-                                            ]),
-
-                                        Grid::make(1)
-                                            ->columnSpan(1)
-                                            ->schema([
-                                Section::make('Phương thức thanh toán')
-                                    ->description('Chọn phương thức thanh toán và trạng thái đơn hàng')
-                                    ->schema([
-                                        Grid::make(3)->schema([
-                                            Select::make('payment_method')
-                                                ->label('Phương thức thanh toán')
-                                                ->placeholder('-- Chọn phương thức --')
-                                                ->options([
-                                                    'cod' => ('Tiền mặt'),
-                                                    'PayOS' => '' . __('payment::order.form.options.payment_method.PayOS'),
-                                                ])
-                                                ->required()
-                                                ->live()
-                                                ->dehydrateStateUsing(fn($state) => $state),
-
-                                            Select::make('status')
-                                                ->label('Trạng thái thanh toán')
-                                                ->placeholder('-- Chọn trạng thái --')
-                                                ->options([
-                                                    'pending'           => '' . __('payment::order.form.options.status.pending'),
-                                                    'paid'              => '' . __('payment::order.form.options.status.paid'),
-                                                    'deposit'           => 'Đã đặt cọc',
-                                                    'failed'            => '' . __('payment::order.form.options.status.failed'),
-                                                    'cancelled_payment' => 'Hủy QR',
-                                                    'refunded'          => 'Hoàn tiền',
-                                                ])
-                                                ->default('pending')
-                                                ->live()
-                                                ->dehydrateStateUsing(fn($state) => $state)
-                                                ->afterStateUpdated(function ($state, $record, $old) {
-                                                    if ($record) {
-                                                        $prevStatus = $record->status;
-                                                        $record->update(['status' => $state]);
-
-                                                        AuditLogger::log(
-                                                            'update', 'Order', $record,
-                                                            ['status' => $prevStatus],
-                                                            ['status' => $state],
-                                                            'Đơn #' . $record->order_code
-                                                        );
-
-                                                        if ($state === 'paid' && !$record->hasAccessCode()) {
-                                                            try {
-                                                                $record->load('items');
-                                                                $firstItem = $record->items->sortBy('checkin_date')->first();
-                                                                $checkinDate  = $record->items->min('checkin_date');
-                                                                $checkoutDate = $record->items->max('checkout_date');
-                                                                $product      = $firstItem?->product;
-
-                                                                /** @var \Modules\BladeThemeV1\Services\AccessCode\AccessCodeService $service */
-                                                                $service = app(\Modules\BladeThemeV1\Services\AccessCode\AccessCodeService::class);
-                                                                $service->assignCodeToOrder(
-                                                                    $record->id,
-                                                                    $record->category_id,
-                                                                    $checkinDate,
-                                                                    $checkoutDate,
-                                                                    $product,
-                                                                );
-
-                                                                \Filament\Notifications\Notification::make()
-                                                                    ->title('Đã gán mã cổng thành công')
-                                                                    ->success()
-                                                                    ->send();
-                                                            } catch (\Exception $e) {
-                                                                \Filament\Notifications\Notification::make()
-                                                                    ->title('Không thể gán mã cổng')
-                                                                    ->body($e->getMessage())
-                                                                    ->warning()
-                                                                    ->send();
-                                                            }
-                                                        }
-                                                    }
-                                                }),
-
-                                            Select::make('order_status')
-                                                ->label('Trạng thái nhận/trả phòng')
-                                                ->options([
-                                                    'pending'     => 'Chờ nhận phòng',
-                                                    'checked_in'  => 'Đã nhận phòng',
-                                                    'staying'     => 'Đang ở',
-                                                    'checked_out' => 'Đã trả phòng',
-                                                ])
-                                                ->default('pending')
-                                                ->dehydrateStateUsing(fn($state) => $state)
-                                                ->helperText('Tự động cập nhật khi khách mở khoá — chỉ chỉnh tay cho trường hợp đặc biệt.'),
-                                        ]),
-
-                                        TextInput::make('money_deposit')
-                                            ->label('Số tiền đã đặt cọc')
-                                            ->placeholder('VD: 500000')
-                                            ->suffix('VNĐ')
-                                            ->numeric()
-                                            ->minValue(0)
-                                            ->visible(fn (Get $get) => $get('status') === 'deposit')
-                                            ->live(onBlur: true),
-
-                                        Textarea::make('note_for_admin')
-                                            ->label('Thông tin người dùng CCCD')
-                                            ->placeholder('Thông tin người dùng CCCD')
-                                            ->helperText(__('payment::order.form.helper_text.note_for_admin'))
-                                            ->columnSpanFull()
-                                            ->nullable()
-                                            ->rows(5)
-                                            ->maxLength(3000),
-                                    ])
-                                    ->columns(3),
-                                            ]),
-                                    ]),
                             ]),
             ]);
     }
@@ -1997,7 +1587,7 @@ class OrderForm
     // ánh đơn phòng gốc đã trả đủ — khoản phát sinh sau khi sửa đơn là 1 nghĩa vụ thanh toán
     // RIÊNG, không tự động đổi status. Trước đây badge chỉ nhìn status nên vẫn hiện "Đã thanh
     // toán" (xanh) dù đơn đang còn nợ khoản phát sinh, gây hiểu nhầm cho admin.
-    private static function hasUnpaidExtraCharge($record): bool
+    public static function hasUnpaidExtraCharge($record): bool
     {
         return $record
             && (int) ($record->extra_charge_amount ?? 0) > 0
@@ -2006,18 +1596,1346 @@ class OrderForm
 
     // Khoản CẦN HOÀN cho khách (huỷ khung giờ/dịch vụ làm giá giảm trên đơn đã paid) chưa xử lý —
     // xem ExtraChargeService::recordPendingRefund()/markRefundAsDone().
-    private static function hasPendingRefund($record): bool
+    public static function hasPendingRefund($record): bool
     {
         return $record
             && (int) ($record->extra_refund_amount ?? 0) > 0
             && is_null($record->extra_refund_paid_at);
     }
 
-    // Section "Mã cổng" chỉ hiện khi đơn đã 'paid' VÀ phòng không dùng khóa thủ công VÀ chi nhánh
-    // của phòng đó CÒN tài khoản TTLock đang hoạt động (không có ttlock thì không thể cấp/hiện mã
-    // cổng thật sự nào) — dùng chung điều kiện này ở cả ->visible() của chính nó lẫn ->columnSpan()
-    // của "Thông tin khách hàng" cạnh nó, để khi Mã cổng ẩn thì Thông tin khách hàng tự chiếm trọn
-    // hàng thay vì để trống 1 cột.
+    // Nhãn tiếng Việt cho từng khoá trong cccd_data/OrderGuestCccd::cccd_data (JSON do
+    // CccdScannerService::parseQrData()/parseOcrText() trích xuất từ ảnh CCCD) — dùng chung cho cả
+    // popup "Xem CCCD khách #1" (form) lẫn "Xem CCCD khách #N" (view-only).
+    private const CCCD_FIELD_LABELS = [
+        'full_name'   => 'Họ và tên',
+        'cccd'        => 'Số CCCD/CMND',
+        'old_id'      => 'Số CMND cũ',
+        'dob'         => 'Ngày sinh',
+        'gender'      => 'Giới tính',
+        'address'     => 'Địa chỉ',
+        'issued_date' => 'Ngày cấp',
+    ];
+
+    // Tìm ảnh + dữ liệu CCCD đã trích xuất của ĐÚNG 1 khách theo guest_index — khách #1 luôn là
+    // khách chính (buyer, cột thẳng trên bảng orders); khách #2 trở đi tra bảng order_guest_cccds,
+    // fallback dữ liệu CŨ (đơn tạo trước khi có bảng này) ở cccd_front_2/cccd_back_2/cccd_data_2 khi
+    // guestCccds rỗng. Trả về null nếu khách đó CHƯA TỒN TẠI (dùng để ẩn nút "Xem CCCD khách #N"
+    // tương ứng — khác với khách #1 luôn hiện được để còn upload ảnh đầu tiên).
+    private static function resolveCccdGuestSource($record, int $guestIndex): ?array
+    {
+        if (! $record) {
+            return null;
+        }
+
+        if ($guestIndex === 1) {
+            return [
+                'front' => $record->cccd_front,
+                'back'  => $record->cccd_back,
+                'data'  => is_array($record->cccd_data) ? $record->cccd_data : null,
+            ];
+        }
+
+        $guest = $record->guestCccds->firstWhere('guest_index', $guestIndex);
+        if ($guest) {
+            return [
+                'front' => $guest->cccd_front,
+                'back'  => $guest->cccd_back,
+                'data'  => is_array($guest->cccd_data) ? $guest->cccd_data : null,
+            ];
+        }
+
+        if ($guestIndex === 2 && $record->guestCccds->isEmpty()
+            && ($record->cccd_front_2 || $record->cccd_back_2 || $record->cccd_data_2)) {
+            return [
+                'front' => $record->cccd_front_2,
+                'back'  => $record->cccd_back_2,
+                'data'  => is_array($record->cccd_data_2) ? $record->cccd_data_2 : null,
+            ];
+        }
+
+        return null;
+    }
+
+    // Bảng nhãn/giá trị cho phần "Thông tin đã trích xuất" trong popup xem CCCD.
+    private static function renderExtractedCccdData(?array $data): \Illuminate\Support\HtmlString
+    {
+        $data = $data ? array_filter($data) : [];
+
+        if (empty($data)) {
+            return new \Illuminate\Support\HtmlString(
+                '<p style="font-size:.75rem;font-style:italic;color:#9ca3af;">Chưa trích xuất được thông tin từ ảnh.</p>'
+            );
+        }
+
+        $rows = '';
+        foreach (self::CCCD_FIELD_LABELS as $key => $label) {
+            if (empty($data[$key])) {
+                continue;
+            }
+            $rows .= '<div style="display:flex;justify-content:space-between;gap:.75rem;font-size:.8125rem;'
+                . 'border-bottom:1px dashed #e5e7eb;padding-bottom:.35rem;margin-bottom:.35rem;">'
+                . '<span style="color:#6b7280;">' . e($label) . '</span>'
+                . '<span style="font-weight:600;color:#111827;text-align:right;">' . e($data[$key]) . '</span>'
+                . '</div>';
+        }
+
+        return new \Illuminate\Support\HtmlString('<div>' . $rows . '</div>');
+    }
+
+    // Ảnh CCCD (view-only, dùng trong popup "Xem CCCD khách #N" của khách đi cùng) kèm nhãn + nút
+    // tải xuống đè lên góc ảnh — không dùng kỹ thuật xếp chồng CSS Grid như cccdDownloadOverlay() vì
+    // đây chỉ là HTML tĩnh trong 1 modal ->modalContent(), không có FileUpload sống nào bên dưới để
+    // tranh giành z-index/overflow cả.
+    private static function renderCccdImageWithDownload(?string $path, string $label, ?string $orderCode, $recordId): string
+    {
+        if (! $path) {
+            return '';
+        }
+
+        $url      = \Illuminate\Support\Facades\Storage::disk('public')->url($path);
+        $filename = 'CCCD_' . \Illuminate\Support\Str::slug($label) . '_' . ($orderCode ?? $recordId) . '.jpg';
+
+        return '<div style="position:relative;border-radius:.5rem;overflow:hidden;border:1px solid #e5e7eb;">'
+            . '<img src="' . e($url) . '" alt="' . e($label) . '" style="width:100%;aspect-ratio:4/3;object-fit:cover;display:block;" />'
+            . '<span style="position:absolute;top:.375rem;left:.375rem;font-size:.625rem;font-weight:600;color:#fff;background:#111827;padding:.25rem .5rem;border-radius:9999px;">' . e($label) . '</span>'
+            . '<a href="' . e($url) . '" download="' . e($filename) . '" target="_blank" title="Tải ' . e($label) . '"'
+            . ' style="position:absolute;top:.375rem;right:.375rem;display:inline-flex;align-items:center;justify-content:center;width:1.75rem;height:1.75rem;border-radius:9999px;background:#111827;color:#fff;">'
+            . '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:.875rem;height:.875rem;">'
+            . '<path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>'
+            . '</svg></a>'
+            . '</div>';
+    }
+
+    private static function persistCccdUploadAndScan($record, int $guestIndex, array $data): void
+    {
+        if (! $record) {
+            return;
+        }
+
+        $front = array_key_exists('cccd_front', $data) ? $data['cccd_front'] : null;
+        $back  = array_key_exists('cccd_back', $data) ? $data['cccd_back'] : null;
+
+        if ($guestIndex === 1) {
+            $record->update([
+                'cccd_front' => $front,
+                'cccd_back'  => $back,
+            ]);
+
+            if ($front || $back) {
+                $scan = app(\Modules\Payment\App\Services\CccdScannerService::class)->scanPaths($front, $back);
+                if ($scan) {
+                    $updateFields = ['cccd_data' => $scan];
+                    if (! empty($scan['full_name'])) {
+                        $updateFields['buyer_name'] = $scan['full_name'];
+                    }
+                    if (! empty($scan['address'])) {
+                        $updateFields['buyer_address'] = $scan['address'];
+                    }
+                    $record->update($updateFields);
+                    app(\App\Services\CccdDeclarationService::class)->upsertFromOrder($record->fresh(['items']));
+                }
+            }
+
+            return;
+        }
+
+        $guest = $record->guestCccds()->firstOrNew([
+            'order_id' => $record->id,
+            'guest_index' => $guestIndex,
+        ]);
+
+        $guest->fill([
+            'cccd_front' => $front,
+            'cccd_back'  => $back,
+        ]);
+        $guest->save();
+
+        if ($front || $back) {
+            $scan = app(\Modules\Payment\App\Services\CccdScannerService::class)->scanPaths($front, $back);
+            if ($scan) {
+                $guest->update(['cccd_data' => $scan]);
+                app(\App\Services\CccdDeclarationService::class)->upsertFromOrder($record->fresh(['items']));
+            }
+        }
+    }
+
+    private static function shouldShowGuestCccdAction($record, int $guestIndex, ?Get $get = null): bool
+    {
+        if ($guestIndex === 1) {
+            return true;
+        }
+
+        if (self::resolveCccdGuestSource($record, $guestIndex) !== null) {
+            return true;
+        }
+
+        $guestCount = self::resolveGuestCountForCccdVisibility($get, $record);
+        if ($guestCount < $guestIndex) {
+            return false;
+        }
+
+        return self::requiresGuestCccdForCurrentSelection($get, $record);
+    }
+
+    // QUAN TRỌNG: $get() ở đây KHÔNG đáng tin cậy khi được gọi từ closure của 1 Action đã MOUNT
+    // (vd form/action của buildMemberCccdAction()/buildGuestOneCccdAction()) — Action mounted có
+    // state RIÊNG, tách biệt khỏi 'data' của form chính, nên $get('orderItems.0.guest_count') từ
+    // trong đó KHÔNG thấy được field 'guest_count' của form chính (đã xác nhận qua thực tế: admin
+    // đổi guest_count trong Group A nhưng popup CCCD thành viên vẫn luôn tính ra tối đa 1 người đi
+    // cùng). $get() chỉ thật sự đáng tin khi gọi từ 1 field/->visible() NẰM TRỰC TIẾP trong form
+    // chính (vd Actions::make(...)->visible() ở cột 1). Cách đáng tin cậy khi gọi từ BÊN TRONG 1
+    // Action đã mount là đọc thẳng $livewire->data (property Livewire thật của trang, KHÔNG qua
+    // $get()/$set() bị cô lập theo state riêng của Action — cùng kỹ thuật ghi trực tiếp đã dùng ổn
+    // định ở HasTimeslotGridSelection::selectTimeslot()) — 'livewire' luôn được Filament tự inject
+    // đúng object trang (EditOrder/CreateOrder) cho MỌI closure của Action, kể cả fillForm()/form()
+    // (xem MountableAction::resolveDefaultClosureDependencyForEvaluationByName()).
+    private static function resolveGuestCountForCccdVisibility(?Get $get, $record, $livewire = null): int
+    {
+        if ($livewire) {
+            $liveValue = data_get($livewire->data ?? [], 'orderItems.0.guest_count');
+            if ($liveValue !== null && $liveValue !== '') {
+                return (int) $liveValue;
+            }
+        }
+
+        if ($get) {
+            foreach (['guest_count', 'orderItems.0.guest_count'] as $path) {
+                $value = $get($path);
+                if ($value !== null && $value !== '') {
+                    return (int) $value;
+                }
+            }
+        }
+
+        $itemsMax = $record?->items?->max('guest_count');
+        if ($itemsMax) {
+            return (int) $itemsMax;
+        }
+
+        return (int) ($record?->guest_count ?? 1);
+    }
+
+    // Số người đi cùng CẦN CCCD tối đa cho popup "CCCD thành viên" (buildMemberCccdAction()) — ưu
+    // tiên đọc số khách SỐNG từ $livewire->data (xem ghi chú ở resolveGuestCountForCccdVisibility())
+    // để hoạt động NGAY cả khi đơn CHƯA lưu lần nào (tạo đơn mới, $record còn null — trước đây rơi
+    // về 0 khiến cả section "Người đi cùng" luôn ẩn lúc tạo đơn, "sai luồng" đã phản ánh), fallback
+    // về order_items.guest_count ĐÃ LƯU khi không có $livewire (vd gọi từ nơi khác).
+    private static function resolveMaxCompanionsForMember($record, $livewire = null): int
+    {
+        if ($livewire) {
+            $liveValue = data_get($livewire->data ?? [], 'orderItems.0.guest_count');
+            if ($liveValue !== null && $liveValue !== '') {
+                return max(0, (int) $liveValue - 1);
+            }
+        }
+
+        if (! $record) {
+            return 0;
+        }
+
+        $itemsMax   = $record->items?->max('guest_count');
+        $guestCount = $itemsMax ?: (int) ($record->guest_count ?? 0);
+
+        return max(0, (int) $guestCount - 1);
+    }
+
+    private static function requiresGuestCccdForCurrentSelection(?Get $get, $record): bool
+    {
+        if ($get) {
+            $guestCount = self::resolveGuestCountForCccdVisibility($get, $record);
+            if ($guestCount < 2) {
+                return false;
+            }
+
+            return self::hasOvernightSelection($get);
+        }
+
+        if (! $record) {
+            return false;
+        }
+
+        foreach ($record->items ?? [] as $item) {
+            $selectedSlots = $item->selected_slots ?? [];
+            if (! is_array($selectedSlots)) {
+                continue;
+            }
+
+            foreach ($selectedSlots as $selected) {
+                $slotId = $selected['slot_id'] ?? null;
+                if (! $slotId) {
+                    continue;
+                }
+
+                $slot = RoomTimeSlot::find($slotId);
+                if ($slot?->over_night) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static function hasOvernightSelection(Get $get): bool
+    {
+        $items = $get('orderItems');
+        if (! is_array($items)) {
+            return false;
+        }
+
+        foreach ($items as $item) {
+            $productStyle = (int) ($item['product_style'] ?? 1);
+            if ($productStyle === 2) {
+                return true;
+            }
+
+            $selectedSlots = $item['selected_slots'] ?? [];
+            if (! is_array($selectedSlots)) {
+                continue;
+            }
+
+            foreach ($selectedSlots as $selected) {
+                $slotId = $selected['slot_id'] ?? null;
+                if (! $slotId) {
+                    continue;
+                }
+
+                $slot = RoomTimeSlot::find($slotId);
+                if ($slot?->over_night) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // Khách #1 = khách chính (buyer) — CCCD nằm thẳng trên bảng orders (cccd_front/cccd_back/
+    // cccd_data), an toàn để cho upload/thay ảnh TRỰC TIẾP trong popup (chỉ 1 $record->update(), không
+    // đụng tới luồng lưu order_guest_cccds phức tạp của các khách đi cùng — xem
+    // buildGuestViewOnlyCccdAction() bên dưới, khách #2 trở đi vẫn phải upload qua popup riêng).
+    //
+    // QUAN TRỌNG: form của Action (->form()) được Filament render ở 1 vị trí RIÊNG trong DOM (cuối
+    // trang, xem vendor/filament/actions/resources/views/components/modals.blade.php), KHÔNG nằm
+    // trong .order-form-root — CSS scope theo class đó (cccd-upload-compact/cccd-upload-stack, kỹ
+    // thuật xếp chồng CSS Grid dùng cho FileUpload ngoài popup) sẽ KHÔNG áp dụng ở đây, khiến ảnh +
+    // nút tải hiện sai kích thước/tràn giao diện (đã xác nhận thực tế). Vì vậy ở đây KHÔNG dùng lại
+    // kỹ thuật đó — tách rõ 2 phần: ảnh hiện tại + nút tải (renderCccdImageWithDownload(), 100% inline
+    // style, không phụ thuộc CSS ngoài nên luôn đúng kích thước dù render ở đâu) hiển thị TRƯỚC, và
+    // FileUpload để THAY ảnh mới nằm RIÊNG bên dưới với ->label() bình thường của Filament.
+    private static function buildGuestOneCccdAction(): \Filament\Forms\Components\Actions\Action
+    {
+        return \Filament\Forms\Components\Actions\Action::make('view_cccd_guest_1')
+            ->label('Xem CCCD khách #1')
+            ->icon('heroicon-o-eye')
+            ->color('gray')
+            ->size('sm')
+            ->visible(fn (Get $get, $record) => self::shouldShowGuestCccdAction($record, 1, $get))
+            ->modalHeading('CCCD — Khách #1 (khách chính)')
+            ->modalWidth('4xl')
+            ->fillForm(fn ($record) => [
+                'cccd_front' => $record?->cccd_front,
+                'cccd_back'  => $record?->cccd_back,
+            ])
+            ->form([
+                // Cột 1: thông tin đã trích xuất. Cột 2: ảnh mặt trước/sau CHUNG 1 hàng, rồi khung
+                // upload để thay ảnh mặt trước/sau cũng CHUNG 1 hàng riêng bên dưới — modal mở rộng
+                // ('4xl') để 2 hàng đó đủ chỗ hiển thị rõ ràng, không còn xếp lộn xộn từng ảnh/khung
+                // riêng lẻ theo chiều dọc như trước.
+                //
+                // QUAN TRỌNG: Grid::setUp() TỰ ĐỘNG gọi ->columnSpan('full') (giống hệt Section, xem
+                // vendor/filament/forms/src/Components/Grid.php:39) — 2 Grid::make(1) con dưới đây
+                // PHẢI tự ->columnSpan(1) đè lại, nếu không cả 2 đều chiếm trọn hàng và xếp DỌC thay
+                // vì nằm cạnh nhau (đã xác nhận thực tế: popup hiện ra chỉ 1 cột).
+                Grid::make(2)->schema([
+                    Grid::make(1)->columnSpan(1)->schema([
+                        Placeholder::make('cccd_extracted_1')
+                            ->label('Thông tin đã trích xuất')
+                            ->content(fn ($record) => self::renderExtractedCccdData($record?->cccd_data)),
+                    ]),
+
+                    Grid::make(1)->columnSpan(1)->schema([
+                        // Hàng 1: ảnh hiện tại (mặt trước + mặt sau) CHUNG hàng.
+                        Grid::make(2)->schema([
+                            Placeholder::make('cccd_preview_front_1')
+                                ->label('Mặt trước — ảnh hiện tại')
+                                ->content(fn ($record) => new \Illuminate\Support\HtmlString(
+                                    self::renderCccdImageWithDownload($record?->cccd_front, 'Mặt trước', $record?->order_code, $record?->id)
+                                ))
+                                ->visible(fn ($record) => (bool) $record?->cccd_front),
+
+                            Placeholder::make('cccd_preview_back_1')
+                                ->label('Mặt sau — ảnh hiện tại')
+                                ->content(fn ($record) => new \Illuminate\Support\HtmlString(
+                                    self::renderCccdImageWithDownload($record?->cccd_back, 'Mặt sau', $record?->order_code, $record?->id)
+                                ))
+                                ->visible(fn ($record) => (bool) $record?->cccd_back),
+                        ]),
+
+                        // Hàng 2: khung tải/thay ảnh mới (mặt trước + mặt sau) CHUNG hàng.
+                        Grid::make(2)->schema([
+                            FileUpload::make('cccd_front')
+                                ->label(fn ($record) => $record?->cccd_front ? 'Thay ảnh mặt trước' : 'Tải ảnh mặt trước')
+                                ->image()
+                                ->directory('cccd')
+                                ->imagePreviewHeight('80')
+                                ->panelLayout('integrated')
+                                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                ->maxSize(10240)
+                                ->nullable(),
+
+                            FileUpload::make('cccd_back')
+                                ->label(fn ($record) => $record?->cccd_back ? 'Thay ảnh mặt sau' : 'Tải ảnh mặt sau')
+                                ->image()
+                                ->directory('cccd')
+                                ->imagePreviewHeight('80')
+                                ->panelLayout('integrated')
+                                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                ->maxSize(10240)
+                                ->nullable(),
+                        ]),
+                    ]),
+                ]),
+            ])
+            ->action(function (array $data, $record) {
+                if (! $record) {
+                    return;
+                }
+
+                self::persistCccdUploadAndScan($record, 1, $data);
+                $record->refresh();
+
+                \Filament\Notifications\Notification::make()
+                    ->title('Đã lưu CCCD khách #1')
+                    ->success()
+                    ->send();
+            });
+    }
+
+    // Khách #2 trở đi — có thể upload ảnh CCCD và hệ thống sẽ tự quét thông tin từ mặt trước/sau
+    // (đủ khả năng đọc QR ở bất kỳ mặt nào) rồi lưu vào bảng order_guest_cccds.
+    private static function buildGuestViewOnlyCccdAction(int $guestIndex): \Filament\Forms\Components\Actions\Action
+    {
+        return \Filament\Forms\Components\Actions\Action::make('view_cccd_guest_' . $guestIndex)
+            ->label('CCCD khách #' . $guestIndex)
+            ->icon('heroicon-o-identification')
+            ->color('gray')
+            ->size('sm')
+            ->visible(fn (Get $get, $record) => self::shouldShowGuestCccdAction($record, $guestIndex, $get))
+            ->modalHeading('CCCD — Khách #' . $guestIndex)
+            ->modalWidth('4xl')
+            ->fillForm(fn ($record) => [
+                'cccd_front' => self::resolveCccdGuestSource($record, $guestIndex)['front'] ?? null,
+                'cccd_back'  => self::resolveCccdGuestSource($record, $guestIndex)['back'] ?? null,
+            ])
+            ->form([
+                Grid::make(2)->schema([
+                    Grid::make(1)->columnSpan(1)->schema([
+                        Placeholder::make('cccd_extracted_' . $guestIndex)
+                            ->label('Thông tin đã trích xuất')
+                            ->content(fn ($record) => self::renderExtractedCccdData(self::resolveCccdGuestSource($record, $guestIndex)['data'] ?? null)),
+                    ]),
+
+                    Grid::make(1)->columnSpan(1)->schema([
+                        Grid::make(2)->schema([
+                            Placeholder::make('cccd_preview_front_' . $guestIndex)
+                                ->label('Mặt trước — ảnh hiện tại')
+                                ->content(fn ($record) => new \Illuminate\Support\HtmlString(
+                                    self::renderCccdImageWithDownload(self::resolveCccdGuestSource($record, $guestIndex)['front'] ?? null, 'Mặt trước', $record?->order_code, $record?->id)
+                                ))
+                                ->visible(fn ($record) => (bool) (self::resolveCccdGuestSource($record, $guestIndex)['front'] ?? null)),
+
+                            Placeholder::make('cccd_preview_back_' . $guestIndex)
+                                ->label('Mặt sau — ảnh hiện tại')
+                                ->content(fn ($record) => new \Illuminate\Support\HtmlString(
+                                    self::renderCccdImageWithDownload(self::resolveCccdGuestSource($record, $guestIndex)['back'] ?? null, 'Mặt sau', $record?->order_code, $record?->id)
+                                ))
+                                ->visible(fn ($record) => (bool) (self::resolveCccdGuestSource($record, $guestIndex)['back'] ?? null)),
+                        ]),
+
+                        Grid::make(2)->schema([
+                            FileUpload::make('cccd_front')
+                                ->label(fn ($record) => (self::resolveCccdGuestSource($record, $guestIndex)['front'] ?? null) ? 'Thay ảnh mặt trước' : 'Tải ảnh mặt trước')
+                                ->image()
+                                ->directory('cccd')
+                                ->imagePreviewHeight('80')
+                                ->panelLayout('integrated')
+                                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                ->maxSize(10240)
+                                ->nullable(),
+
+                            FileUpload::make('cccd_back')
+                                ->label(fn ($record) => (self::resolveCccdGuestSource($record, $guestIndex)['back'] ?? null) ? 'Thay ảnh mặt sau' : 'Tải ảnh mặt sau')
+                                ->image()
+                                ->directory('cccd')
+                                ->imagePreviewHeight('80')
+                                ->panelLayout('integrated')
+                                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                ->maxSize(10240)
+                                ->nullable(),
+                        ]),
+                    ]),
+                ]),
+            ])
+            ->action(function (array $data, $record) use ($guestIndex) {
+                if (! $record) {
+                    return;
+                }
+
+                self::persistCccdUploadAndScan($record, $guestIndex, $data);
+                $record->refresh();
+
+                \Filament\Notifications\Notification::make()
+                    ->title('Đã lưu CCCD khách #' . $guestIndex)
+                    ->success()
+                    ->send();
+            })
+            ->modalSubmitActionLabel('Lưu CCCD')
+            ->modalCancelActionLabel('Đóng');
+    }
+
+    // Khi đơn gắn với 1 THÀNH VIÊN (customer_id đã chọn) — thay dãy nút "Xem CCCD khách #1..#8"
+    // (dành cho khách vãng lai) bằng 1 nút DUY NHẤT quản lý CCCD của thành viên + người đi cùng LẤY
+    // TỪ HỒ SƠ THÀNH VIÊN (customer_companions — đã có sẵn model/API cho luồng khách tự đặt qua app
+    // di động, xem App\Http\Controllers\Api\Admin\CustomerCompanionController — logic thêm mới/kiểm
+    // tra trùng ở đây mô phỏng lại chính controller đó). Khi admin CHỌN companion có sẵn để gắn vào
+    // đơn, SAO CHÉP cccd_front/cccd_back/cccd_data từ customer_companions sang order_guest_cccds
+    // TẠI THỜI ĐIỂM CHỌN (không tạo FK tham chiếu — đơn giữ nguyên ảnh/dữ liệu tại thời điểm đặt,
+    // giống cách hệ thống đang snapshot CCCD khách vãng lai — quyết định đã chốt với người dùng).
+    // $record?->customer_id là NGUỒN TIN CẬY CHÍNH (Filament luôn inject $record đúng cho các Action
+    // gắn trên field, đã dùng ổn định ở buildGuestOneCccdAction()/buildGuestViewOnlyCccdAction()).
+    // $get('customer_id') KHÔNG đáng tin khi gọi từ BÊN TRONG ->form()/->fillForm() của 1 Action đã
+    // mount (modal 'CCCD thành viên' không có field 'customer_id' riêng, nên $get() ở đây LUÔN trả
+    // null) — đơn CHƯA lưu ($record null, đang tạo đơn mới) phải đọc qua $livewire->data['customer_id']
+    // (property Livewire thật của trang, KHÔNG bị cô lập theo state riêng của Action — xem ghi chú ở
+    // resolveMaxCompanionsForMember()) mới thấy đúng thành viên vừa chọn ở form chính (đã xác nhận
+    // qua thực tế: thiếu $livewire khiến danh sách "Người đi cùng đã lưu trong hồ sơ" luôn rỗng lúc
+    // tạo đơn mới, dù thành viên đã có sẵn companion trong hồ sơ).
+    private static function resolveMemberCustomerId(Get $get, $record, $livewire = null): ?string
+    {
+        if ($record?->customer_id) {
+            return $record->customer_id;
+        }
+
+        if ($livewire) {
+            $liveValue = data_get($livewire->data ?? [], 'customer_id');
+            if (filled($liveValue)) {
+                return $liveValue;
+            }
+        }
+
+        return $get('customer_id') ?: null;
+    }
+
+    // Trích xuất CCCD LUÔN đi qua CccdScannerService — nếu model (Customer hoặc CustomerCompanion,
+    // cả 2 đều có sẵn cccd_front/cccd_back/cccd_data) đã có ảnh nhưng cccd_data còn trống (thành
+    // viên/người đi cùng cũ tạo trước khi có bước tự động quét, hoặc quét lúc tạo bị lỗi), quét lại
+    // NGAY tại đây thay vì hiển thị trống, đồng thời LƯU LẠI kết quả để lần sau không cần quét nữa.
+    private static function ensureCccdDataScanned($model): ?array
+    {
+        if (! $model) {
+            return null;
+        }
+
+        if (! empty($model->cccd_data)) {
+            return $model->cccd_data;
+        }
+
+        if (! $model->cccd_front && ! $model->cccd_back) {
+            return null;
+        }
+
+        try {
+            $scan = app(\Modules\Payment\App\Services\CccdScannerService::class)->scanPaths($model->cccd_front, $model->cccd_back);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Quét CCCD theo yêu cầu (khi hiển thị) thất bại', [
+                'model' => get_class($model),
+                'id'    => $model->id ?? null,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+
+        if ($scan) {
+            $model->update(['cccd_data' => $scan]);
+        }
+
+        return $scan;
+    }
+
+    private static function buildMemberCccdAction(): \Filament\Forms\Components\Actions\Action
+    {
+        return \Filament\Forms\Components\Actions\Action::make('view_cccd_member')
+            ->label('CCCD thành viên')
+            ->icon('heroicon-o-identification')
+            ->color('gray')
+            ->size('sm')
+            ->visible(fn (Get $get) => (bool) $get('customer_id'))
+            ->modalHeading('CCCD — Thành viên')
+            ->modalWidth('4xl')
+            ->fillForm(function (Get $get, $record, $livewire) {
+                $customerId = self::resolveMemberCustomerId($get, $record, $livewire);
+
+                // Danh sách "người đi cùng cho đơn này" KHÔNG còn là field riêng trong ->form() của
+                // popup nữa (CheckboxList cũ) — chuyển hẳn ra $livewire->data['member_companion_ids']
+                // (đọc/ghi qua $livewire, đáng tin cậy xuyên suốt cả bảng ViewField LẪN các nút
+                // Sửa/Xoá/Thêm gọi thẳng wire:click, xem HasMemberCompanionManagement) để bảng hiển
+                // thị + Sửa/Xoá hoạt động được dù đơn CHƯA lưu lần nào. Đơn ĐÃ tồn tại thì LUÔN nạp
+                // lại đúng danh sách hiện có trong DB mỗi lần mở popup (đảm bảo khớp dữ liệu thật);
+                // đơn CHƯA tồn tại thì GIỮ NGUYÊN lựa chọn đã thao tác trong phiên này (nếu đã mở
+                // popup trước đó), chỉ khởi tạo rỗng lần đầu.
+                if ($record) {
+                    $livewire->data['member_companion_ids'] = $record->guestCccds()
+                        ->whereNotNull('companion_id')
+                        ->pluck('companion_id')
+                        ->all();
+                } elseif (! array_key_exists('member_companion_ids', $livewire->data ?? [])) {
+                    $livewire->data['member_companion_ids'] = [];
+                }
+                // Panel "Thêm/Sửa người đi cùng" luôn đóng lại mỗi lần mở popup.
+                $livewire->data['member_companion_panel_id'] = null;
+
+                return [
+                    'member_cccd_front' => Customer::find($customerId)?->cccd_front,
+                    'member_cccd_back'  => Customer::find($customerId)?->cccd_back,
+                    // Số người đi cùng tối đa — đọc số khách SỐNG qua $livewire->data (xem ghi chú
+                    // ở resolveMaxCompanionsForMember()), hoạt động NGAY CẢ KHI đơn CHƯA lưu lần
+                    // nào (đang tạo đơn mới, $record còn null — trước đây rơi về 0 khiến cả section
+                    // "Người đi cùng" luôn ẩn lúc tạo đơn).
+                    'max_companions' => self::resolveMaxCompanionsForMember($record, $livewire),
+                ];
+            })
+            ->form(function () {
+                // QUAN TRỌNG: TRÁNH đóng gói (closure "use") các giá trị $customer/$maxCompanions/
+                // $companions tính SẴN 1 LẦN ở đây rồi dùng lại trong các field bên dưới — closure
+                // ngoài cùng của ->form() được Filament đánh giá ở 1 thời điểm KHÔNG đảm bảo trùng
+                // với lúc admin thực sự mở popup (đã xác nhận qua thực tế: guest_count vừa gõ tay
+                // trong Group A không được closure ngoài này thấy, khiến maxItems() luôn tính ra 1
+                // dù đơn có 3 khách). Mỗi field/closure con dưới đây PHẢI tự nhận Get $get/$record
+                // RIÊNG và tự gọi lại self::resolveMemberCustomerId()/resolveGuestCountForCccdVisibility()
+                // — các closure cấp field NÀY được Filament đánh giá lại đúng lúc render/tương tác,
+                // luôn thấy đúng state sống.
+                return [
+                    Grid::make(2)->schema([
+                        Grid::make(1)->columnSpan(1)->schema([
+                            Placeholder::make('member_cccd_extracted')
+                                ->label('CCCD thành viên — thông tin đã trích xuất')
+                                ->content(fn (Get $get, $record, $livewire) => self::renderExtractedCccdData(
+                                    self::ensureCccdDataScanned(Customer::find(self::resolveMemberCustomerId($get, $record, $livewire)))
+                                )),
+                        ]),
+
+                        Grid::make(1)->columnSpan(1)->schema([
+                            Grid::make(2)->schema([
+                                Placeholder::make('member_cccd_preview_front')
+                                    ->label('Mặt trước — ảnh hiện tại')
+                                    ->content(function (Get $get, $record, $livewire) {
+                                        $customer = Customer::find(self::resolveMemberCustomerId($get, $record, $livewire));
+
+                                        return new \Illuminate\Support\HtmlString(
+                                            self::renderCccdImageWithDownload($customer?->cccd_front, 'Mặt trước', null, $customer?->id)
+                                        );
+                                    })
+                                    ->visible(fn (Get $get, $record, $livewire) => (bool) Customer::find(self::resolveMemberCustomerId($get, $record, $livewire))?->cccd_front),
+
+                                Placeholder::make('member_cccd_preview_back')
+                                    ->label('Mặt sau — ảnh hiện tại')
+                                    ->content(function (Get $get, $record, $livewire) {
+                                        $customer = Customer::find(self::resolveMemberCustomerId($get, $record, $livewire));
+
+                                        return new \Illuminate\Support\HtmlString(
+                                            self::renderCccdImageWithDownload($customer?->cccd_back, 'Mặt sau', null, $customer?->id)
+                                        );
+                                    })
+                                    ->visible(fn (Get $get, $record, $livewire) => (bool) Customer::find(self::resolveMemberCustomerId($get, $record, $livewire))?->cccd_back),
+                            ]),
+
+                            Grid::make(2)->schema([
+                                FileUpload::make('member_cccd_front')
+                                    ->label(fn (Get $get, $record, $livewire) => Customer::find(self::resolveMemberCustomerId($get, $record, $livewire))?->cccd_front ? 'Thay ảnh mặt trước' : 'Tải ảnh mặt trước')
+                                    ->image()
+                                    ->directory('cccd')
+                                    ->imagePreviewHeight('80')
+                                    ->panelLayout('integrated')
+                                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                    ->maxSize(10240)
+                                    ->nullable(),
+
+                                FileUpload::make('member_cccd_back')
+                                    ->label(fn (Get $get, $record, $livewire) => Customer::find(self::resolveMemberCustomerId($get, $record, $livewire))?->cccd_back ? 'Thay ảnh mặt sau' : 'Tải ảnh mặt sau')
+                                    ->image()
+                                    ->directory('cccd')
+                                    ->imagePreviewHeight('80')
+                                    ->panelLayout('integrated')
+                                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                    ->maxSize(10240)
+                                    ->nullable(),
+                            ]),
+                        ]),
+                    ]),
+
+                    Hidden::make('max_companions'),
+
+                    Section::make('Người đi cùng')
+                        ->description(function (Get $get) {
+                            $max = (int) $get('max_companions');
+
+                            return $max > 0
+                                ? 'Tối đa ' . $max . ' người (dựa theo số lượng khách của đơn).'
+                                : 'Số lượng khách hiện tại chỉ có 1 — không cần người đi cùng.';
+                        })
+                        ->visible(fn (Get $get) => (int) $get('max_companions') > 0)
+                        ->schema([
+                            // Bảng "người đi cùng cho đơn này" (tên + số CCCD + Sửa/Xoá) — giao diện
+                            // TỰ CHẾ (view 'payment::components.member-companions-table'), thay cho
+                            // CheckboxList/Repeater cũ. Sửa/Xoá/Thêm gọi thẳng wire:click vào trait
+                            // HasMemberCompanionManagement (ghi trực tiếp $livewire->data), cùng kỹ
+                            // thuật đã dùng ổn định ở "Dịch vụ đã chọn" (order-services-list.blade.php).
+                            ViewField::make('member_companions_display')
+                                ->label('')
+                                ->live()
+                                ->dehydrated(false)
+                                ->view('payment::components.member-companions-table')
+                                ->viewData(function (Get $get, $record, $livewire) {
+                                    $selectedIds = data_get($livewire->data ?? [], 'member_companion_ids', []);
+                                    $selectedIds = is_array($selectedIds) ? $selectedIds : [];
+
+                                    $customer = Customer::find(self::resolveMemberCustomerId($get, $record, $livewire));
+
+                                    // Hiện TẤT CẢ người đi cùng ĐÃ CÓ SẴN trong hồ sơ thành viên
+                                    // (customer_companions) — không chỉ những người đã gắn vào đơn
+                                    // này — để admin chọn nhanh lại (không phải tải ảnh quét lại từ
+                                    // đầu mỗi lần đặt đơn mới cho cùng 1 thành viên). Sắp người ĐÃ
+                                    // chọn cho đơn này lên đầu bảng.
+                                    $allCompanions = $customer
+                                        ? $customer->companions()->get()->sortByDesc(fn (CustomerCompanion $c) => in_array($c->id, $selectedIds, true))->values()
+                                        : collect();
+
+                                    return [
+                                        'companions'    => $allCompanions,
+                                        'selectedIds'   => $selectedIds,
+                                        'maxCompanions' => (int) $get('max_companions'),
+                                    ];
+                                }),
+
+                            // Panel "Thêm mới"/"Sửa ảnh" — CHỈ hiện khi bấm nút tương ứng trong bảng
+                            // ở trên (member_companion_panel_id: null = ẩn, 'new' = đang thêm, hoặc
+                            // = companion_id đang sửa). Dùng CHUNG 2 field upload cho cả 2 trường
+                            // hợp, phân biệt bằng panel_id lúc submit (xem Action 'save_companion_panel').
+                            Section::make(fn ($livewire) => data_get($livewire->data ?? [], 'member_companion_panel_id') === 'new'
+                                ? 'Thêm người đi cùng mới'
+                                : 'Sửa ảnh CCCD người đi cùng')
+                                ->description('Tải ảnh CCCD 2 mặt — hệ thống tự động quét thông tin.')
+                                ->icon('heroicon-o-user-plus')
+                                ->visible(fn ($livewire) => filled(data_get($livewire->data ?? [], 'member_companion_panel_id')))
+                                ->schema([
+                                    Grid::make(2)->schema([
+                                        FileUpload::make('new_companion_front')
+                                            ->label('Mặt trước')
+                                            ->image()
+                                            ->directory('cccd')
+                                            ->imagePreviewHeight('80')
+                                            ->panelLayout('integrated')
+                                            ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                            ->maxSize(10240)
+                                            ->nullable(),
+
+                                        FileUpload::make('new_companion_back')
+                                            ->label('Mặt sau')
+                                            ->image()
+                                            ->directory('cccd')
+                                            ->imagePreviewHeight('80')
+                                            ->panelLayout('integrated')
+                                            ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                            ->maxSize(10240)
+                                            ->nullable(),
+                                    ]),
+
+                                    \Filament\Forms\Components\Actions::make([
+                                        \Filament\Forms\Components\Actions\Action::make('save_companion_panel')
+                                            ->label('Lưu người đi cùng này')
+                                            ->color('primary')
+                                            ->action(function (Get $get, Set $set, $record, $livewire) {
+                                                self::saveMemberCompanionPanel($get, $set, $record, $livewire);
+                                            }),
+                                        \Filament\Forms\Components\Actions\Action::make('cancel_companion_panel')
+                                            ->label('Huỷ')
+                                            ->color('gray')
+                                            ->action(function (Set $set, $livewire) {
+                                                $set('new_companion_front', null);
+                                                $set('new_companion_back', null);
+                                                $livewire->data['member_companion_panel_id'] = null;
+                                            }),
+                                    ]),
+                                ]),
+                        ]),
+                ];
+            })
+            ->action(function (array $data, Get $get, $record, $livewire) {
+                $customer = Customer::find(self::resolveMemberCustomerId($get, $record, $livewire));
+                if (! $customer) {
+                    return;
+                }
+
+                // CCCD của chính thành viên — lưu thẳng vào Customer (KHÔNG phụ thuộc $record, tái
+                // dùng được cho MỌI đơn sau này của thành viên đó, giống scanCustomer()).
+                $memberFront = $data['member_cccd_front'] ?? null;
+                $memberBack  = $data['member_cccd_back'] ?? null;
+
+                if ($memberFront || $memberBack) {
+                    $newFront = $memberFront ?: $customer->cccd_front;
+                    $newBack  = $memberBack ?: $customer->cccd_back;
+
+                    $scan = null;
+                    try {
+                        $scan = app(\Modules\Payment\App\Services\CccdScannerService::class)->scanPaths($newFront, $newBack);
+                    } catch (\Throwable $e) {
+                        \Illuminate\Support\Facades\Log::warning('Quét CCCD thành viên thất bại', [
+                            'customer_id' => $customer->id,
+                            'error'       => $e->getMessage(),
+                        ]);
+                    }
+
+                    $customer->update(array_filter([
+                        'cccd_front' => $newFront,
+                        'cccd_back'  => $newBack,
+                        'cccd_data'  => $scan,
+                    ], fn ($v) => $v !== null));
+                }
+
+                // Danh sách người đi cùng đang chọn cho đơn này — quản lý qua bảng (Sửa/Xoá/Thêm ở
+                // trên, xem HasMemberCompanionManagement), luôn đọc thẳng từ $livewire->data (nguồn
+                // SỐNG duy nhất, không còn field 'companion_ids' riêng trong ->form() nữa).
+                $companionIds = data_get($livewire->data ?? [], 'member_companion_ids', []);
+                $companionIds = is_array($companionIds) ? $companionIds : [];
+
+                if ($record) {
+                    // Đơn ĐÃ tồn tại (đang sửa) — gắn NGAY vào order_guest_cccds như trước.
+                    $attachedCount = self::persistMemberCompanionsToOrder($record, $companionIds);
+
+                    $title = 'Đã lưu CCCD thành viên';
+                    if ($attachedCount > 0) {
+                        $title .= ' và ' . $attachedCount . ' người đi cùng';
+                    }
+
+                    \Filament\Notifications\Notification::make()->title($title)->success()->send();
+
+                    return;
+                }
+
+                // Đơn CHƯA tồn tại (đang tạo đơn mới) — CHƯA có order_id để gắn vào
+                // order_guest_cccds, nên hoãn lại: $livewire->data['member_companion_ids'] đã sẵn
+                // đúng danh sách (được bảng/panel ở trên duy trì suốt phiên), xử lý thật ở
+                // CreateOrder::afterCreate() ngay khi đơn vừa có ID (xem
+                // self::persistMemberCompanionsToOrder() gọi từ đó).
+                $title = 'Đã lưu CCCD thành viên';
+                if (count($companionIds) > 0) {
+                    $title .= ' — sẽ gắn ' . count($companionIds) . ' người đi cùng ngay khi tạo đơn';
+                }
+
+                \Filament\Notifications\Notification::make()->title($title)->success()->send();
+            })
+            ->modalSubmitActionLabel('Lưu')
+            ->modalCancelActionLabel('Đóng');
+    }
+
+    // Xử lý nút "Lưu người đi cùng này" trong panel Thêm/Sửa (bên trong popup "CCCD thành viên") —
+    // panel_id = 'new' thì tạo companion MỚI + thêm vào $livewire->data['member_companion_ids'];
+    // panel_id = 1 companion_id có sẵn thì SỬA (thay ảnh + quét lại) companion đó, không đổi danh
+    // sách. Cả 2 trường hợp đều KHÔNG đụng tới order_guest_cccds — bảng chỉ là danh sách "đang
+    // chọn cho đơn này", việc gắn thật vào đơn chỉ xảy ra khi bấm "Lưu" của popup (xem
+    // persistMemberCompanionsToOrder() ở ->action() bên trên).
+    private static function saveMemberCompanionPanel(Get $get, Set $set, $record, $livewire): void
+    {
+        $panelId = data_get($livewire->data ?? [], 'member_companion_panel_id');
+        if (! $panelId) {
+            return;
+        }
+
+        // $get() trả TRẠNG THÁI THÔ của FileUpload — dạng mảng [uuid => path] (KHÔNG phải chuỗi
+        // path đơn thuần) — chỉ được Filament tự chuyển thành string qua dehydrateStateUsing() khi
+        // đi qua $data của ->action() bình thường (form submit thật sự), không áp dụng cho $get()
+        // gọi tay như ở đây. Tự lấy phần tử đầu tiên để ra đúng path.
+        $normalizeUpload = fn ($value) => is_array($value) ? (array_values($value)[0] ?? null) : $value;
+        $front = $normalizeUpload($get('new_companion_front'));
+        $back  = $normalizeUpload($get('new_companion_back'));
+
+        if (! $front || ! $back) {
+            \Filament\Notifications\Notification::make()->title('Vui lòng tải đủ ảnh 2 mặt CCCD')->warning()->send();
+
+            return;
+        }
+
+        $customer = Customer::find(self::resolveMemberCustomerId($get, $record, $livewire));
+        if (! $customer) {
+            return;
+        }
+
+        if (self::cccdSidesConflict($front, $back)) {
+            \Filament\Notifications\Notification::make()
+                ->title('Ảnh 2 mặt không khớp')
+                ->body('Có thể đã chụp nhầm CCCD của 2 người khác nhau.')
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $scan = null;
+        try {
+            $scan = app(\Modules\Payment\App\Services\CccdScannerService::class)->scanPaths($front, $back);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Quét CCCD người đi cùng (thành viên) thất bại', [
+                'customer_id' => $customer->id,
+                'error'       => $e->getMessage(),
+            ]);
+        }
+
+        if ($panelId === 'new') {
+            $maxCompanions = (int) $get('max_companions');
+            $currentIds    = data_get($livewire->data ?? [], 'member_companion_ids', []);
+            $currentIds    = is_array($currentIds) ? $currentIds : [];
+
+            if ($maxCompanions > 0 && count($currentIds) >= $maxCompanions) {
+                \Filament\Notifications\Notification::make()
+                    ->title('Đã đạt tối đa ' . $maxCompanions . ' người đi cùng')
+                    ->warning()
+                    ->send();
+
+                return;
+            }
+
+            if (self::cccdIsDuplicateForCustomer($customer, $scan)) {
+                \Filament\Notifications\Notification::make()
+                    ->title('Trùng CCCD')
+                    ->body('Người này đã là chính thành viên hoặc đã có trong danh sách người đi cùng.')
+                    ->danger()
+                    ->send();
+
+                return;
+            }
+
+            $companion = $customer->companions()->create([
+                'full_name'  => $scan['full_name'] ?? null,
+                'cccd_front' => $front,
+                'cccd_back'  => $back,
+                'cccd_data'  => $scan,
+            ]);
+
+            $currentIds[] = $companion->id;
+            $livewire->data['member_companion_ids'] = $currentIds;
+
+            \Filament\Notifications\Notification::make()->title('Đã thêm người đi cùng')->success()->send();
+        } else {
+            $companion = CustomerCompanion::find($panelId);
+            if (! $companion || $companion->customer_id !== $customer->id) {
+                return;
+            }
+
+            $companion->update([
+                'full_name'  => $scan['full_name'] ?? $companion->full_name,
+                'cccd_front' => $front,
+                'cccd_back'  => $back,
+                'cccd_data'  => $scan,
+            ]);
+
+            \Filament\Notifications\Notification::make()->title('Đã cập nhật ảnh CCCD')->success()->send();
+        }
+
+        $set('new_companion_front', null);
+        $set('new_companion_back', null);
+        $livewire->data['member_companion_panel_id'] = null;
+    }
+
+    // Gắn danh sách người đi cùng (companion_id) đã chọn vào order_guest_cccds cho 1 đơn CỤ THỂ —
+    // SAO CHÉP cccd_front/cccd_back/cccd_data từ customer_companions TẠI THỜI ĐIỂM GẮN (snapshot,
+    // không tạo FK tham chiếu — xem ghi chú ở buildMemberCccdAction()). Dùng CHUNG cho cả lúc admin
+    // bấm "Lưu" ngay trong popup khi ĐANG SỬA đơn đã tồn tại, LẪN lúc CreateOrder::afterCreate() xử
+    // lý danh sách đã hoãn lại ($livewire->data['member_companion_ids']) ngay khi đơn VỪA có
+    // order_id thật.
+    // Trả về số người đã gắn thành công.
+    public static function persistMemberCompanionsToOrder($record, array $companionIds): int
+    {
+        if (empty($companionIds)) {
+            $deletedStale = OrderGuestCccd::where('order_id', $record->id)->where('guest_index', '>=', 2)->delete();
+            if ($deletedStale > 0) {
+                app(\App\Services\CccdDeclarationService::class)->upsertFromOrder($record->fresh(['items']));
+            }
+
+            return 0;
+        }
+
+        $companions = CustomerCompanion::whereIn('id', $companionIds)
+            ->where('customer_id', $record->customer_id)
+            ->get()
+            ->keyBy('id');
+
+        $guestIndex = 2;
+        $attached   = 0;
+
+        foreach ($companionIds as $id) {
+            $companion = $companions->get($id);
+            if (! $companion) {
+                continue;
+            }
+
+            OrderGuestCccd::updateOrCreate(
+                ['order_id' => $record->id, 'guest_index' => $guestIndex],
+                [
+                    // Ghi lại ĐÚNG companion nguồn — thiếu cột này thì lần mở popup SAU không biết
+                    // đã chọn ai trước đó, bảng "Người đi cùng" LUÔN hiện trống dù đã lưu (xem
+                    // ->fillForm() ở buildMemberCccdAction()).
+                    'companion_id' => $companion->id,
+                    'cccd_front'   => $companion->cccd_front,
+                    'cccd_back'    => $companion->cccd_back,
+                    'cccd_data'    => $companion->cccd_data,
+                ]
+            );
+            $guestIndex++;
+            $attached++;
+        }
+
+        // Đồng bộ ĐẦY ĐỦ: xoá các dòng THỪA còn sót từ lần lưu TRƯỚC — vd trước đó chọn 3 người đi
+        // cùng (guest_index 2,3,4), lần này bỏ bớt chỉ còn chọn 1 (guest_index 2) — nếu không xoá,
+        // guest_index 3/4 vẫn giữ CCCD của người ĐÃ BỊ BỎ CHỌN, "Khai báo lưu trú" vẫn hiện thừa
+        // người không có mặt thật.
+        $deletedStale = OrderGuestCccd::where('order_id', $record->id)
+            ->where('guest_index', '>=', $guestIndex)
+            ->delete();
+
+        if ($attached > 0 || $deletedStale > 0) {
+            app(\App\Services\CccdDeclarationService::class)->upsertFromOrder($record->fresh(['items']));
+        }
+
+        return $attached;
+    }
+
+    // Ảnh mặt trước/sau lệch người (vd chụp nhầm 2 người khác nhau) — quét ĐỘC LẬP từng mặt rồi so
+    // số CCCD (ưu tiên) hoặc họ tên đã chuẩn hoá nếu 1 trong 2 mặt không đọc được số. Cùng logic đã
+    // dùng ở CustomerCompanionController::assertSidesMatch() (luồng admin app di động) — mô phỏng
+    // lại ở đây vì Filament Action chạy ngay trong process, không cần gọi qua HTTP.
+    private static function cccdSidesConflict(string $frontPath, string $backPath): bool
+    {
+        try {
+            return app(\Modules\Payment\App\Services\CccdScannerService::class)->sidesConflict(
+                \Illuminate\Support\Facades\Storage::disk('public')->path($frontPath),
+                \Illuminate\Support\Facades\Storage::disk('public')->path($backPath),
+            );
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    // Chặn lưu trùng: 1 người vừa là chính thành viên vừa là "người đi cùng" của họ, hoặc trùng với
+    // 1 companion đã lưu sẵn khác — cùng logic CustomerCompanionController::assertNoCccdDuplicate().
+    // Chỉ so khi quét ra được số CCCD (quét lỗi thì bỏ qua check, CCCD vốn là dữ liệu tuỳ chọn).
+    private static function cccdIsDuplicateForCustomer(Customer $customer, ?array $scan): bool
+    {
+        $cccd = trim((string) ($scan['cccd'] ?? ''));
+        if ($cccd === '') {
+            return false;
+        }
+
+        $customerCccd = trim((string) ($customer->cccd_data['cccd'] ?? ''));
+        if ($customerCccd !== '' && $customerCccd === $cccd) {
+            return true;
+        }
+
+        return $customer->companions()
+            ->get()
+            ->contains(fn (CustomerCompanion $c) => trim((string) ($c->cccd_data['cccd'] ?? '')) === $cccd);
+    }
+
+    // "Lịch sử thanh toán" — nằm CHUNG cột với Mã cổng (xem Grid::make(1) bọc cả 2 trong
+    // OrderForm::form()), LUÔN hiện bất kể mã cổng có hay không (mã cổng chỉ hiện khi đơn 'paid',
+    // còn lịch sử thanh toán cần thấy ngay cả lúc đơn mới tạo/đang chờ cọc). Không bọc Section nữa
+    // (bỏ khung/tiêu đề theo yêu cầu) — trả thẳng Placeholder, giống cách "Mã cổng" cũng không còn
+    // khung riêng. Tách thành method riêng vì nội dung khá dài, dùng đi dùng lại ở 1 chỗ duy nhất.
+    private static function buildPaymentTimelineSection(): Placeholder
+    {
+        return Placeholder::make('payment_timeline')
+                    ->label('')
+                    ->content(function ($record) {
+                        if (!$record) {
+                            return new \Illuminate\Support\HtmlString('<p class="text-gray-400 text-sm italic">Chưa có dữ liệu</p>');
+                        }
+
+                        // full_amount CỐ ĐỊNH = tổng giá thật của đơn (không phải tiền cọc nữa) —
+                        // tiền cọc đã thu lấy qua depositPaidAmount() (deposit_paid_amount nếu
+                        // admin đã tự sửa tay, mặc định = depositDueAmount()).
+                        $isDeposit   = $record->deposit_percent !== null;
+                        $fullAmt     = (int) $record->full_amount;
+                        $depositPctF = $isDeposit ? (int)$record->deposit_percent : 0;
+                        if ($isDeposit && $depositPctF > 0) {
+                            $depositAmt   = $record->depositPaidAmount();
+                            $extraChargeF = (int) ($record->extra_charge_amount ?? 0);
+                            $remainingAmt = max(0, $fullAmt - $depositAmt) + $extraChargeF;
+                        } else {
+                            $depositAmt   = null;
+                            $remainingAmt = null;
+                        }
+
+                        $fmt = fn($dt) => $dt ? \Carbon\Carbon::parse($dt)->format('d/m/Y H:i') : null;
+
+                        if ($isDeposit) {
+                            $remainingDone = $record->status === 'paid' && $record->deposit_percent !== null;
+                            $remainingTime = $record->remaining_paid_at ? $fmt($record->remaining_paid_at) : null;
+                            $qrCreated     = ! empty($record->remaining_checkout_url);
+                            $payMethod     = $record->remaining_payment_method ?? null;
+
+                            if ($remainingDone) {
+                                if ($payMethod === 'cash') {
+                                    $remainingLabel = 'Admin thu tiền mặt';
+                                } elseif ($payMethod === 'payos') {
+                                    $remainingLabel = 'Khách thanh toán qua PayOS';
+                                } elseif ($payMethod === 'bank_transfer') {
+                                    $remainingLabel = 'Admin xác nhận đã chuyển khoản';
+                                } else {
+                                    $remainingLabel = $qrCreated ? 'Khách thanh toán qua QR/PayOS' : 'Admin xác nhận thu tiền mặt';
+                                }
+                            } else {
+                                $remainingLabel = 'Chờ thanh toán phần còn lại';
+                            }
+
+                            $steps = [
+                                [
+                                    'icon_type' => 'banknote',
+                                    'label'     => 'Khách đặt cọc',
+                                    'time'      => $fmt($record->created_at),
+                                    'done'      => true,
+                                    'color'     => 'yellow',
+                                    'sub'       => $depositAmt ? number_format($depositAmt, 0, ',', '.') . 'đ (' . $record->deposit_percent . '%)' : null,
+                                    'sort_time' => $record->created_at,
+                                ],
+                                [
+                                    'icon_type' => 'qr',
+                                    'label'     => $qrCreated ? 'QR thanh toán đã được tạo' : 'Chưa tạo QR thanh toán',
+                                    'time'      => null,
+                                    'done'      => $qrCreated,
+                                    'color'     => 'yellow',
+                                    'sub'       => null,
+                                    // Không có mốc thời gian riêng lưu lại lúc tạo QR — ghim ngay sau
+                                    // bước "đặt cọc" (không ảnh hưởng thứ tự hiển thị thực tế).
+                                    'sort_time' => $record->created_at,
+                                ],
+                                [
+                                    'icon_type' => $payMethod === 'cash' ? 'banknote' : 'check',
+                                    'label'     => $remainingLabel,
+                                    'time'      => $remainingTime,
+                                    'done'      => $remainingDone,
+                                    'color'     => 'green',
+                                    'sub'       => ($remainingDone && $remainingAmt) ? number_format($remainingAmt, 0, ',', '.') . 'đ' : null,
+                                    'sort_time' => $record->remaining_paid_at ?? $record->updated_at,
+                                ],
+                            ];
+                        } else {
+                            // paid_at là mốc CỐ ĐỊNH, chỉ set 1 lần lúc chuyển sang 'paid' (xem
+                            // OrderObserver::saving()) — KHÔNG dùng updated_at vì cột đó bị đội
+                            // lên ở MỌI lần sửa đơn sau này (thêm/bớt khung giờ...), khiến mốc
+                            // "Khách thanh toán đầy đủ" hiển thị sai lệch theo lần sửa gần nhất.
+                            $paidAt = $record->status === 'paid' ? $fmt($record->paid_at ?? $record->updated_at) : null;
+                            $steps = [
+                                [
+                                    'icon_type' => 'file',
+                                    'label'     => 'Khách tạo đơn',
+                                    'time'      => $fmt($record->created_at),
+                                    'done'      => true,
+                                    'color'     => 'blue',
+                                    'sub'       => null,
+                                    'sort_time' => $record->created_at,
+                                ],
+                                [
+                                    'icon_type' => 'check',
+                                    'label'     => 'Khách thanh toán đầy đủ',
+                                    'time'      => $paidAt,
+                                    'done'      => $record->status === 'paid',
+                                    'color'     => 'green',
+                                    'sub'       => $fullAmt ? number_format($fullAmt, 0, ',', '.') . 'đ' : null,
+                                    'sort_time' => $record->status === 'paid' ? ($record->paid_at ?? $record->updated_at) : $record->created_at,
+                                ],
+                            ];
+                        }
+
+                        // Lịch sử phát sinh/hoàn tiền qua các lần sửa đơn (thêm/bớt khung
+                        // giờ, dịch vụ, số khách) — orders.extra_charge_amount chỉ lưu ĐÚNG
+                        // giá trị MỚI NHẤT (bị ghi đè mỗi lần có thay đổi), không tự giữ lại
+                        // lịch sử nhiều lần phát sinh qua thời gian, nên đọc từ AuditLog (xem
+                        // EditOrder::handlePriceDiff()) để người quản lý xem lại đầy đủ từng
+                        // lần tăng/giảm, ai sửa, lúc nào.
+                        $priceAdjustments = \Modules\AuditLog\Entities\AuditLog::where('module', 'Order')
+                            ->where('target_id', (string) $record->id)
+                            ->where('action', 'price_adjustment')
+                            ->orderBy('created_at')
+                            ->get();
+
+                        foreach ($priceAdjustments as $adj) {
+                            $adjDiff = (int) ($adj->new_values['diff'] ?? 0);
+                            if ($adjDiff === 0) {
+                                continue;
+                            }
+
+                            // Hiện NGUYÊN NHÂN phát sinh (thêm khung giờ/dịch vụ/người) thay vì
+                            // tên admin đã sửa đơn — admin là nội bộ, người xem lịch sử chỉ cần
+                            // biết ĐÃ XẢY RA CHUYỆN GÌ (xem EditOrder::buildChangeSummary()). Log
+                            // cũ trước khi có field này thì fallback về nhãn chung chung.
+                            $changeSummary = $adj->new_values['change_summary'] ?? [];
+                            $label = (is_array($changeSummary) && ! empty($changeSummary))
+                                ? implode(' · ', $changeSummary)
+                                : ($adjDiff > 0 ? 'Phát sinh thêm' : 'Hoàn tiền');
+
+                            $steps[] = [
+                                'icon_type' => $adjDiff > 0 ? 'banknote' : 'check',
+                                'label'     => $label,
+                                'time'      => $fmt($adj->created_at),
+                                'done'      => true,
+                                'color'     => $adjDiff > 0 ? 'yellow' : 'green',
+                                'sub'       => ($adjDiff > 0 ? '+' : '') . number_format($adjDiff, 0, ',', '.') . 'đ',
+                                // Ghi tạm dấu +/- để bên dưới xác định dòng NÀO là lần phát sinh/
+                                // hoàn tiền GẦN NHẤT còn cần xử lý — chỉ dòng đó mới gắn nút hành
+                                // động (không lặp lại nút ở các dòng lịch sử cũ đã xử lý xong).
+                                'diff'      => $adjDiff,
+                                'sort_time' => $adj->created_at,
+                            ];
+                        }
+
+                        // Xác nhận "Tạo QR/Đã chuyển khoản/Đã thu tiền mặt phát sinh" và "Đã
+                        // hoàn tiền" (từ EditOrder::quick*()/header actions) trước đây ghi
+                        // AuditLog với action='update' — nhưng query ở trên CHỈ lọc
+                        // action='price_adjustment', nên các xác nhận này ÂM THẦM không hiện
+                        // ra ở đây dù đã lưu đúng vào DB (đã xác nhận qua audit_logs thực tế:
+                        // "Xác nhận thu tiền mặt phát sinh" vẫn được ghi, chỉ là bị query này
+                        // bỏ sót). Nhận diện qua các nhãn CỐ ĐỊNH đã dùng khi ghi log đó.
+                        $confirmationLabels = [
+                            'Tạo QR phát sinh', 'Xác nhận chuyển khoản phát sinh',
+                            'Xác nhận thu tiền mặt phát sinh',
+                            'Đã hoàn tiền (chuyển khoản)', 'Đã hoàn tiền (tiền mặt)',
+                        ];
+                        $confirmationLogs = \Modules\AuditLog\Entities\AuditLog::where('module', 'Order')
+                            ->where('target_id', (string) $record->id)
+                            ->where('action', 'update')
+                            ->orderBy('created_at')
+                            ->get();
+
+                        foreach ($confirmationLogs as $log) {
+                            $newValues = is_array($log->new_values) ? $log->new_values : [];
+                            $matchedLabel = null;
+                            foreach ($confirmationLabels as $candidate) {
+                                if (array_key_exists($candidate, $newValues)) {
+                                    $matchedLabel = $candidate;
+                                    break;
+                                }
+                            }
+
+                            if ($matchedLabel === null) {
+                                continue;
+                            }
+
+                            $steps[] = [
+                                'icon_type' => 'check',
+                                'label'     => $matchedLabel,
+                                'time'      => $fmt($log->created_at),
+                                'done'      => true,
+                                'color'     => 'green',
+                                'sub'       => (string) $newValues[$matchedLabel],
+                                'sort_time' => $log->created_at,
+                            ];
+                        }
+
+                        // Sắp xếp lại TOÀN BỘ dòng (mốc gốc + phát sinh/hoàn tiền) theo ĐÚNG
+                        // thời gian thực (sort_time) — trước đây các mốc gốc (tạo đơn/thanh
+                        // toán) luôn đứng ĐẦU mảng bất kể thời điểm thật, còn dòng phát sinh
+                        // luôn nối ĐUÔI theo thứ tự thêm vào, nên nếu đơn được sửa (thêm/bớt
+                        // khung giờ) SAU KHI đã thanh toán, mốc "Khách thanh toán đầy đủ" có
+                        // thể hiện đứng SAI VỊ TRÍ (trước hoặc xen giữa) so với các dòng phát
+                        // sinh thực sự xảy ra trước/sau nó.
+                        usort($steps, fn ($a, $b) => ($a['sort_time'] ?? now()) <=> ($b['sort_time'] ?? now()));
+
+                        // Đơn ĐANG có khoản phát sinh/hoàn tiền CHƯA xử lý (xem
+                        // hasUnpaidExtraCharge()/hasPendingRefund()) — tìm dòng lịch sử GẦN
+                        // NHẤT khớp chiều tăng/giảm để gắn nút "Tạo QR/Đã chuyển khoản/Đã thu
+                        // tiền mặt" NGAY tại đó, thay vì bắt admin phải kéo xuống Section riêng
+                        // ("Phát sinh thêm"/"Hoàn tiền chưa xử lý") mới xử lý được.
+                        $pendingExtraChargeStepIndex = null;
+                        $pendingRefundStepIndex     = null;
+                        if (self::hasUnpaidExtraCharge($record) || self::hasPendingRefund($record)) {
+                            foreach ($steps as $stepIdx => $stepRow) {
+                                $stepDiff = $stepRow['diff'] ?? null;
+                                if ($stepDiff === null) {
+                                    continue;
+                                }
+                                if ($stepDiff > 0 && self::hasUnpaidExtraCharge($record)) {
+                                    $pendingExtraChargeStepIndex = $stepIdx;
+                                }
+                                if ($stepDiff < 0 && self::hasPendingRefund($record)) {
+                                    $pendingRefundStepIndex = $stepIdx;
+                                }
+                            }
+                        }
+
+                        // Dạng LIST gọn — không còn chấm tròn màu + icon + đường nối dọc (theo yêu
+                        // cầu "bỏ icon/badge chứa icon"), tham khảo đúng phong cách hàng trong
+                        // "Xem chi tiết từng khung giờ" (total-amount-card.blade.php): mỗi thao tác
+                        // là 1 hàng phẳng, viền đứt phân cách, nhãn+giờ bên trái, số tiền (nếu có)
+                        // bên phải — dễ nhìn lại toàn bộ lịch sử thao tác trên đơn.
+                        $html = '<div>';
+                        foreach ($steps as $i => $step) {
+                            $isLast     = $i === count($steps) - 1;
+                            $labelColor = $step['done'] ? '#111827' : '#9ca3af';
+
+                            $timeHtml = $step['time'] && $step['time'] !== '(Không rõ thời điểm)'
+                                ? '<span style="font-size:11px;color:#6b7280;">' . $step['time'] . '</span>'
+                                : ($step['done']
+                                    ? '<span style="font-size:11px;color:#9ca3af;font-style:italic;">Không rõ thời điểm</span>'
+                                    : '<span style="font-size:11px;color:#d1d5db;font-style:italic;">Chưa thực hiện</span>');
+
+                            $subHtml = $step['sub']
+                                ? '<span style="font-size:12px;font-weight:700;color:#1e40af;white-space:nowrap;">' . $step['sub'] . '</span>'
+                                : '';
+
+                            // Gắn nút hành động NGAY trên dòng lịch sử phát sinh/hoàn tiền gần
+                            // nhất còn chờ xử lý — wire:click gọi thẳng EditOrder::quick*() (xem
+                            // EditOrder.php), không cần điều hướng xuống Section riêng bên dưới.
+                            $actionsHtml = '';
+                            $btnStyle2 = fn(string $border, string $bg, string $color) =>
+                                "font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;border:1px solid {$border};background:{$bg};color:{$color};cursor:pointer;font-family:inherit;";
+                            $recordKeyPart = $record->id ?? 'new';
+                            if ($i === $pendingExtraChargeStepIndex) {
+                                $actionsHtml = '
+                                    <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;">
+                                        <button type="button" wire:key="tl-qr-' . $recordKeyPart . '" wire:click="quickCreateExtraChargeQr" wire:loading.attr="disabled" wire:target="quickCreateExtraChargeQr" style="' . $btnStyle2('#f59e0b', '#fffbeb', '#b45309') . '">Tạo QR</button>
+                                        <button type="button" wire:key="tl-transfer-' . $recordKeyPart . '" wire:click="quickMarkExtraChargeTransfer" wire:loading.attr="disabled" wire:target="quickMarkExtraChargeTransfer" style="' . $btnStyle2('#3b82f6', '#eff6ff', '#1d4ed8') . '">Đã chuyển khoản</button>
+                                        <button type="button" wire:key="tl-cash-' . $recordKeyPart . '" wire:click="quickMarkExtraChargeCash" wire:loading.attr="disabled" wire:target="quickMarkExtraChargeCash" style="' . $btnStyle2('#22c55e', '#f0fdf4', '#15803d') . '">Đã thu tiền mặt</button>
+                                    </div>';
+                            } elseif ($i === $pendingRefundStepIndex) {
+                                $actionsHtml = '
+                                    <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;">
+                                        <button type="button" wire:key="tl-refund-transfer-' . $recordKeyPart . '" wire:click="quickMarkRefundTransfer" wire:loading.attr="disabled" wire:target="quickMarkRefundTransfer" style="' . $btnStyle2('#3b82f6', '#eff6ff', '#1d4ed8') . '">Đã chuyển khoản</button>
+                                        <button type="button" wire:key="tl-refund-cash-' . $recordKeyPart . '" wire:click="quickMarkRefundCash" wire:loading.attr="disabled" wire:target="quickMarkRefundCash" style="' . $btnStyle2('#22c55e', '#f0fdf4', '#15803d') . '">Đã thu tiền mặt</button>
+                                    </div>';
+                            }
+
+                            $html .= '
+                                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:6px 0;' . (!$isLast ? 'border-bottom:1px dashed #e2e8f0;' : '') . '">
+                                    <div style="min-width:0;">
+                                        <div style="font-weight:600;font-size:12.5px;color:' . $labelColor . ';">' . $step['label'] . '</div>
+                                        <div style="margin-top:2px;">' . $timeHtml . '</div>
+                                        ' . $actionsHtml . '
+                                    </div>
+                                    ' . $subHtml . '
+                                </div>
+                            ';
+                        }
+                        $html .= '</div>';
+
+                        return new \Illuminate\Support\HtmlString($html);
+                    });
+    }
+
+    // "Mã cổng" chỉ hiện khi đơn đã 'paid' VÀ phòng không dùng khóa thủ công VÀ chi nhánh của phòng
+    // đó CÒN tài khoản TTLock đang hoạt động (không có ttlock thì không thể cấp/hiện mã cổng thật sự
+    // nào). Khi false, cột mã cổng không còn trống hẳn nữa — vẫn còn Lịch sử thanh toán ở đó (xem
+    // buildPaymentTimelineSection()), nên "Thông tin khách hàng" cạnh nó giữ nguyên columnSpan(4).
     private static function hasAccessCodeSection($record): bool
     {
         if (! $record || $record->status !== 'paid') {
@@ -2026,8 +2944,17 @@ class OrderForm
 
         $product = $record->items->sortBy('checkin_date')->first()?->product;
 
-        if (! $product || $product->has_manual_lock) {
+        if (! $product) {
             return false;
+        }
+
+        // Phòng khóa THỦ CÔNG (has_manual_lock) — chi nhánh không có tài khoản TTLock nên
+        // KHÔNG có gì để tra ở bảng access_codes/TTLockService, thay vào đó luôn hiện khung này
+        // để hiển thị mật khẩu thủ công (xem manual-lock-info.blade.php bên dưới) — trước đây
+        // return false luôn cho case này, khiến cả khung "Mã cổng" biến mất hoàn toàn, không có
+        // gì thay thế cho khách/nhân viên xem lại mật khẩu.
+        if ($product->has_manual_lock) {
+            return true;
         }
 
         return \App\Services\TTLockService::hasAccountForCategory($record->category_id);
@@ -2047,13 +2974,26 @@ class OrderForm
     // thể (đây là định nghĩa dùng lại mỗi ngày, giống cách BlockTimeslotModal đang dùng để chặn
     // lịch). Trả rỗng nếu phòng chưa khai báo khung giờ nào (dùng để fallback về DateTimePicker
     // nhập tự do như trước).
+    // Nhớ tạm trong PHẠM VI 1 REQUEST (mảng static, tự reset giữa các request vì dự án không
+    // dùng Octane — xem composer.json) — hàm này bị gọi LẶP LẠI với CÙNG 1 $productId nhiều lần
+    // trong CÙNG 1 lượt render (2 lần ở ->visible() của 2 Grid khác nhau trong form() + 1 lần
+    // trong getTimeslotGridData(), xem các nơi gọi self::getRoomTimeSlots() trong file này), mỗi
+    // lần tự chạy lại ~3 query (RoomTimeSlot + eager load timeSlot + promotions) dù dữ liệu chắc
+    // chắn không đổi giữa các lần gọi đó — cộng dồn vào đúng độ trễ "chọn khung giờ 1 lúc mới
+    // selectable" (mỗi lần bấm là 1 lượt Livewire re-render, tức lại chạy hết các lần gọi này).
+    private static array $roomTimeSlotsCache = [];
+
     private static function getRoomTimeSlots(string $productId): \Illuminate\Support\Collection
     {
         if (! $productId) {
             return collect();
         }
 
-        return RoomTimeSlot::where('room_id', $productId)
+        if (isset(self::$roomTimeSlotsCache[$productId])) {
+            return self::$roomTimeSlotsCache[$productId];
+        }
+
+        return self::$roomTimeSlotsCache[$productId] = RoomTimeSlot::where('room_id', $productId)
             ->whereNull('date')
             ->with(['timeSlot', 'promotions' => fn ($q) => $q->where('is_active', true)])
             ->get()
@@ -2306,6 +3246,44 @@ class OrderForm
             array_unshift($dates, $mustIncludeDate);
         }
 
+        // 1 QUERY DUY NHẤT lấy hết OrderItem của phòng này có thể chồng lấn khoảng ngày đang hiển
+        // thị, rồi so khớp CHỒNG LẤN TRONG PHP cho từng ô bên dưới — TRƯỚC ĐÂY mỗi ô (ngày × khung
+        // giờ, mặc định 14 ngày × ~5 khung = ~70 ô) tự chạy 1 query exists() RIÊNG (kèm subquery
+        // whereHas('order',...)), khiến MỖI lần bấm chọn 1 ô phải đợi ~70 query tuần tự chạy lại
+        // (selectTimeslot() dispatch '$refresh' → viewData() của ViewField render lại từ đầu) mới
+        // bấm được ô tiếp theo — đúng hiện tượng "chọn xong 1 lúc mới selectable" đã phản ánh. Cùng
+        // kỹ thuật với getOccupiedDaysForProduct() ở trên (1 query rồi lọc bằng PHP), +2 ngày đệm ở
+        // 2 đầu để chắc chắn phủ hết khung "qua đêm" bắt đầu từ ngày cuối/kết thúc muộn hơn 1 ngày.
+        $minDateTime = \Carbon\Carbon::parse(min($dates))->startOfDay()->subDay();
+        $maxDateTime = \Carbon\Carbon::parse(max($dates))->startOfDay()->addDays(2);
+
+        $occupiedQuery = self::applyActiveOrderConstraint(
+            OrderItem::where('product_id', $productId)
+                ->where('checkin_date', '<', $maxDateTime)
+                ->where('checkout_date', '>', $minDateTime)
+        );
+
+        if ($currentOrderItemId) {
+            $occupiedQuery->where('id', '!=', $currentOrderItemId);
+        }
+
+        // Đơn đang sửa sẽ bị XOÁ HẾT rồi tạo lại toàn bộ order_items khi lưu (xem
+        // EditOrder::handleRecordUpdate) — nên TOÀN BỘ order_item hiện có của CHÍNH đơn này phải
+        // loại trừ khỏi kiểm tra "đã đặt", không chỉ đúng 1 dòng Repeater đang thao tác
+        // ($currentOrderItemId chỉ là ID của khung giờ ĐẦU TIÊN trong dòng, 1 dòng có thể có nhiều
+        // khung giờ = nhiều order_item thật). Thiếu bước này thì khung giờ thứ 2 trở đi của CHÍNH
+        // đơn đang sửa hiện nhầm "Đã đặt", và bỏ chọn 1 khung giờ trên form (chưa lưu, order_item
+        // thật vẫn còn nguyên trong DB) cũng không chọn lại được luôn.
+        if ($excludeOrderId) {
+            $occupiedQuery->where('order_id', '!=', $excludeOrderId);
+        }
+
+        $occupiedRanges = $occupiedQuery->get(['checkin_date', 'checkout_date'])
+            ->map(fn (OrderItem $item) => [
+                \Carbon\Carbon::parse($item->checkin_date),
+                \Carbon\Carbon::parse($item->checkout_date),
+            ]);
+
         $cells = [];
         $promotionCalculator = app(\App\Services\PromotionCalculator::class);
 
@@ -2324,29 +3302,11 @@ class OrderForm
                 if ($isPast) {
                     $status = 'past';
                 } else {
-                    $occupiedQuery = self::applyActiveOrderConstraint(
-                        OrderItem::where('product_id', $productId)
-                            ->where('checkin_date', '<', $end)
-                            ->where('checkout_date', '>', $start)
+                    $isOccupied = $occupiedRanges->contains(
+                        fn (array $range) => $range[0]->lt($end) && $range[1]->gt($start)
                     );
 
-                    if ($currentOrderItemId) {
-                        $occupiedQuery->where('id', '!=', $currentOrderItemId);
-                    }
-
-                    // Đơn đang sửa sẽ bị XOÁ HẾT rồi tạo lại toàn bộ order_items khi lưu (xem
-                    // EditOrder::handleRecordUpdate) — nên TOÀN BỘ order_item hiện có của CHÍNH đơn
-                    // này phải loại trừ khỏi kiểm tra "đã đặt", không chỉ đúng 1 dòng Repeater đang
-                    // thao tác ($currentOrderItemId chỉ là ID của khung giờ ĐẦU TIÊN trong dòng, 1
-                    // dòng có thể có nhiều khung giờ = nhiều order_item thật). Thiếu bước này thì
-                    // khung giờ thứ 2 trở đi của CHÍNH đơn đang sửa hiện nhầm "Đã đặt", và bỏ chọn 1
-                    // khung giờ trên form (chưa lưu, order_item thật vẫn còn nguyên trong DB) cũng
-                    // không chọn lại được luôn.
-                    if ($excludeOrderId) {
-                        $occupiedQuery->where('order_id', '!=', $excludeOrderId);
-                    }
-
-                    if ($occupiedQuery->exists()) {
+                    if ($isOccupied) {
                         $status = 'booked';
                     } elseif ($heldBy = $activeHolds->get($slot->id . '|' . $date)) {
                         // Admin KHÁC đang giữ chỗ real-time ô này (chưa hết hạn) — khóa tạm, không
@@ -2410,33 +3370,40 @@ class OrderForm
     // và cùng product_id được GỘP LẠI thành 1 dòng duy nhất (mảng 'selected_slots' nhiều phần tử)
     // để hiển thị đúng như lúc đặt — 1 bảng, nhiều ô đã chọn. Các order_item KHÔNG khớp khung giờ
     // nào (style "đặt theo ngày", hoặc nhập tay) giữ nguyên mỗi item 1 dòng riêng như trước.
+    // Trước đây trả về NHIỀU dòng (key UUID ngẫu nhiên) khớp với Repeater nhiều dòng cũ. Giờ
+    // OrderForm.php đã đổi 'orderItems' sang 2 Group::make()->statePath('orderItems.0') CỐ ĐỊNH
+    // (đơn chỉ còn đúng 1 phòng, xem form()) nên PHẢI trả về ĐÚNG 1 phần tử, key cố định '0'.
+    //
+    // RỦI RO ĐÃ BIẾT (chấp nhận theo yêu cầu): đơn CŨ tạo TRƯỚC khi giới hạn "1 phòng/đơn" có thể
+    // đang có NHIỀU order_item khác product_id nhau — hàm này giờ CHỈ lấy phòng có checkin_date
+    // SỚM NHẤT, các phòng khác sẽ không hiển thị và sẽ MẤT nếu admin mở sửa rồi lưu lại đơn đó.
     public static function buildOrderItemsFormState(Order $record): array
     {
         $items = $record->items()->orderBy('checkin_date')->get();
 
-        $slotGroups = [];
-        $result     = [];
+        if ($items->isEmpty()) {
+            return [];
+        }
 
-        foreach ($items as $item) {
+        $firstProductId = $items->first()->product_id;
+        $itemsForFirstProduct = $items->where('product_id', $firstProductId)->values();
+        $representativeItem = $itemsForFirstProduct->first();
+
+        $slots = [];
+        foreach ($itemsForFirstProduct as $item) {
             $slotId = self::findMatchingSlotId($item);
 
-            if ($slotId && $item->product_id && $item->checkin_date) {
-                $slotGroups[$item->product_id]['item'] ??= $item;
-                $slotGroups[$item->product_id]['slots'][] = [
+            if ($slotId && $item->checkin_date) {
+                $slots[] = [
                     'slot_id' => $slotId,
                     'date'    => $item->checkin_date->format('Y-m-d'),
                 ];
-                continue;
             }
-
-            $result[(string) \Illuminate\Support\Str::uuid()] = self::orderItemToFormRow($item, []);
         }
 
-        foreach ($slotGroups as $group) {
-            $result[(string) \Illuminate\Support\Str::uuid()] = self::orderItemToFormRow($group['item'], $group['slots']);
-        }
-
-        return $result;
+        return [
+            '0' => self::orderItemToFormRow($representativeItem, $slots),
+        ];
     }
 
     private static function orderItemToFormRow(OrderItem $item, array $selectedSlots): array
@@ -2541,73 +3508,225 @@ class OrderForm
         return $expanded;
     }
 
-    // Phụ thu khách tính 1 LẦN cho mỗi LƯỢT ĐẶT PHÒNG (1 dòng Repeater = 1 phòng), KHÔNG nhân theo
-    // số khung giờ đã chọn trong lượt đặt đó — nhiều khung giờ liên tiếp trong CÙNG 1 lượt đặt 1
-    // phòng chỉ phụ thu 1 lần duy nhất (không phải mỗi khung giờ trừ phụ thu 1 lần). Vì vậy phải
-    // tính trên $items GỐC (trước khi expandOrderItemsForPersistence() tách thành nhiều khung giờ).
-    //
-    // Style 2 ("đặt theo ngày") là NGOẠI LỆ — phòng ở NHIỀU ĐÊM thì phụ thu khách phải nhân theo
-    // SỐ ĐÊM (khớp ExtraChargeService::calcGuestSurcharge() — nights = itemCount cho phòng không
-    // phải slot vì mỗi đêm tách thành 1 order_item riêng — VÀ BookingController::buildGuestSurcharge()
-    // phía client, cũng nhân theo nights cho type=daily). Trước đây tính 1 lần duy nhất bất kể số
-    // đêm, khiến "Tổng thanh toán" ở OrderForm thấp hơn số client thấy khi tự đặt qua web.
-    private static function calculateGuestSurcharge(array $items): float
-    {
-        $total = 0;
-
-        foreach ($items as $item) {
-            $productId = $item['product_id'] ?? null;
-            if (! $productId) {
-                continue;
-            }
-
-            $product = \Modules\Product\App\Models\Product::find($productId);
-            $cfg     = $product ? ($product->room_config ?? []) : [];
-            $maxFree = (int) ($cfg['max_free_guests'] ?? 2);
-            $feeEach = (int) ($cfg['extra_guest_fee'] ?? 0);
-
-            $guestCount = (int) ($item['guest_count'] ?? 1);
-
-            if ($feeEach <= 0 || $guestCount <= $maxFree) {
-                continue;
-            }
-
-            $nights = 1;
-            $itemStyle = (int) ($item['product_style'] ?? ($product->styles ?? 1));
-
-            if ($itemStyle === 2) {
-                $checkin  = $item['checkin_day'] ?? $item['checkin_date'] ?? null;
-                $checkout = $item['checkout_day'] ?? $item['checkout_date'] ?? null;
-
-                if ($checkin && $checkout) {
-                    $nights = max(1, (int) \Carbon\Carbon::parse($checkin)->startOfDay()
-                        ->diffInDays(\Carbon\Carbon::parse($checkout)->startOfDay()));
-                }
-            }
-
-            $total += ($guestCount - $maxFree) * $feeEach * $nights;
-        }
-
-        return $total;
-    }
-
     // Logic tính tổng DUY NHẤT — dùng chung cho cả calculateTotal() (ghi vào field 'amount' thật
     // sự lưu vào đơn) LẪN Placeholder "Tổng thanh toán" hiển thị cho admin xem (trước đây 2 nơi
     // tính RIÊNG, "Tổng thanh toán" tự cộng price+extra_fee thô mà KHÔNG áp dụng giảm giá đặt
     // nhiều khung giờ/phụ thu khách — khiến số hiển thị sai khác với số thực sự lưu).
+    // Bản linh hoạt hơn findMatchingSlotId(OrderItem $item) — dùng được cho $item ở dạng mảng
+    // (form/computeOrderTotal()) LẪN OrderItem model thật (ExtraChargeService::calculateRealTotal(),
+    // Eloquent hỗ trợ ArrayAccess nên $item['checkin_date'] hoạt động ở cả 2 dạng) — KHÔNG khai
+    // báo type-hint `array` vì sẽ chặn OrderItem model dù nó truy cập y hệt cú pháp mảng. Cùng
+    // thuật toán: so đúng thời điểm bắt đầu (computeSlotDatetimes()) với checkin_date của item.
+    private static function findMatchingSlotForItem($item, string $productId): ?RoomTimeSlot
+    {
+        if (empty($item['checkin_date'])) {
+            return null;
+        }
+
+        $checkinDate = \Carbon\Carbon::parse($item['checkin_date']);
+        $dateStr = $checkinDate->format('Y-m-d');
+
+        foreach (self::getRoomTimeSlots($productId) as $slot) {
+            [$start, $end] = self::computeSlotDatetimes($slot, $dateStr);
+            if ($start->equalTo($checkinDate)) {
+                return $slot;
+            }
+        }
+
+        return null;
+    }
+
+    // Parse chuỗi giảm giá kiểu products.full_booking_discount ("10%" hoặc số tiền cố định kiểu
+    // "50.000") — Y HỆT BuildsRoomBooking::parseDiscountRule() (engine tính giá THẬT dùng chung
+    // cho mọi đơn tạo qua API — /api/admin/orders/preview) — KHÔNG round() ở đây, caller tự
+    // (int) cast (TRUNCATE, không làm tròn), y hệt applyFullBookingDiscount() phía backend thật.
+    private static function parseDiscountValue(?string $discountStr, float $baseAmount): float
+    {
+        $discountStr = trim((string) $discountStr);
+        if ($discountStr === '') {
+            return 0.0;
+        }
+
+        if (str_contains($discountStr, '%')) {
+            $percentage = (float) str_replace('%', '', $discountStr);
+
+            return $baseAmount * $percentage / 100;
+        }
+
+        return (float) preg_replace('/[.,]/', '', $discountStr);
+    }
+
+    // Tính giá ĐẦY ĐỦ (giá phòng gốc + khuyến mãi khung giờ + giảm giá hệ thống + phụ thu khách)
+    // cho 1 nhóm order_item CÙNG 1 phòng (product_id) — PORT CHÍNH XÁC thuật toán
+    // App\Http\Controllers\Api\Concerns\BuildsRoomBooking::computeBookingPreview(), engine tính
+    // giá DUY NHẤT dùng cho MỌI đơn tạo/sửa thật qua API (BookingController::store()/preview(),
+    // OrderController::update()/preview() — xem POST /api/admin/orders/preview). Trước đây hàm
+    // này TỰ SUY DIỄN công thức riêng và ra số SAI khác hẳn số khách/admin thấy ở API thật (đã
+    // xác nhận qua ví dụ thực tế: cùng 1 lượt full-booking, hàm cũ tính base_price+increase_amount
+    // rồi giảm giá RIÊNG cho từng ngày, trong khi engine thật luôn dùng giá GỐC (KHÔNG cộng
+    // increase, KHÔNG trừ promo) và áp % giảm giá lên TOÀN BỘ tổng của CẢ NHÓM, bất kể nhóm đó
+    // trải mấy ngày).
+    //
+    // Điểm khác biệt QUAN TRỌNG so với bản cũ:
+    //   - basePrice = giá GỐC thật của khung giờ ($slot->price, KHÔNG cộng increase_amount, KHÔNG
+    //     trừ promo_discount) — đọc qua item['discount'] (đã lưu sẵn = $slot->price lúc expand,
+    //     xem expandOrderItemsForPersistence()), fallback item['price'] cho đơn tạo qua API thật
+    //     (luồng đó không set cột 'discount', và 'price' của luồng đó CHÍNH LÀ giá gốc rồi — xem
+    //     BuildsRoomBooking::buildSlotItems()) — 1 công thức chạy đúng cho CẢ 2 nguồn dữ liệu.
+    //   - "Đặt full ngày" (full_booking_discount): hễ CÓ ít nhất 1 ngày trong nhóm đạt full-booking
+    //     (số khung giờ chọn đúng ngày đó = tổng khung giờ đã cấu hình cho phòng) thì áp % giảm giá
+    //     lên TOÀN BỘ basePrice của CẢ NHÓM (mọi ngày đã chọn trong lượt đặt/sửa này, KHÔNG CHỈ
+    //     riêng ngày đủ full) — y hệt applyFullBookingDiscount($basePrice, $room) — VÀ khuyến mãi
+    //     khung giờ (promo_discount) bị BỎ QUA HOÀN TOÀN, không chỉ tắt giảm giá theo số lượng.
+    //   - Không còn round() khi tính % — dùng (int) cast (TRUNCATE) y hệt
+    //     parseDiscountRule()/applyBulkDiscount() phía backend thật.
+    //   - Phụ thu khách tính LUÔN trong hàm này (không tách riêng calculateGuestSurcharge()/
+    //     calcGuestSurcharge() nữa) — nights = SỐ NGÀY DUY NHẤT trong nhóm (unique checkin dates),
+    //     đúng cho CẢ 2 kiểu đặt: y hệt buildGuestSurcharge() (nights = uniqueDates(slotSummary)
+    //     cho type=slot, = count(slotSummary) cho type=daily — 2 công thức đó THỰC RA quy về cùng
+    //     1 số "ngày duy nhất trong nhóm", vì đặt theo ngày thì mỗi đêm vốn đã là 1 order_item = 1
+    //     ngày duy nhất).
+    // Hệ thống hiện giới hạn 1 phòng/đơn nên không cần xử lý nhiều phòng cùng lúc trong 1 lần gọi.
+    // $groupItems: order_item ĐÃ expand (1 dòng = 1 khung giờ), CÙNG product_id — CHƯA cộng
+    // extra_fee, caller tự cộng riêng (giống $noProductItems ở computeOrderTotal()).
+    public static function resolveProductGroupPricing(array $groupItems, ?Product $product): array
+    {
+        $basePrice = collect($groupItems)->sum(fn ($item) => (float) ($item['discount'] ?? $item['price'] ?? 0));
+
+        $result = [
+            'total'                  => $basePrice,
+            'base_price'             => $basePrice,
+            'discount_type'          => null,
+            'promotion_discount'     => 0.0,
+            'system_discount'        => 0.0,
+            'discount_amount'        => 0.0,
+            'discount_pct'           => null,
+            'full_booking_dates'     => [],
+            'guest_surcharge'        => 0.0,
+            'guest_surcharge_detail' => null,
+        ];
+
+        if (! $product) {
+            return $result;
+        }
+
+        $itemsByDate = [];
+        foreach ($groupItems as $item) {
+            if (empty($item['checkin_date'])) {
+                continue;
+            }
+            $date = \Carbon\Carbon::parse($item['checkin_date'])->format('Y-m-d');
+            $itemsByDate[$date][] = $item;
+        }
+
+        // ── Phụ thu khách (guest surcharge) — y hệt BuildsRoomBooking::buildGuestSurcharge() ────
+        $cfg        = $product->room_config ?? [];
+        $maxFree    = (int) ($cfg['max_free_guests'] ?? 2);
+        $feeEach    = (int) ($cfg['extra_guest_fee'] ?? 0);
+        $guestCount = (int) ($groupItems[0]['guest_count'] ?? 1);
+        $nights     = count($itemsByDate);
+
+        if ($feeEach > 0 && $guestCount > $maxFree && $nights > 0) {
+            $extraGuests = $guestCount - $maxFree;
+            $surcharge   = $extraGuests * $feeEach * $nights;
+
+            $result['guest_surcharge']        = (float) $surcharge;
+            $result['guest_surcharge_detail'] = [
+                'extra_guests' => $extraGuests,
+                'max_free'     => $maxFree,
+                'fee_each'     => $feeEach,
+                'nights'       => $nights,
+                'total'        => $surcharge,
+            ];
+        }
+
+        // ── "Đặt full ngày" (full_booking_discount) — y hệt checkFullDayBooking() ───────────────
+        $hasFullBooking = false;
+        if (filled($product->full_booking_discount)) {
+            $totalSlotsInRoom = self::getRoomTimeSlots($product->id)->count();
+
+            if ($totalSlotsInRoom > 0) {
+                foreach ($itemsByDate as $date => $dateItems) {
+                    if (count($dateItems) === $totalSlotsInRoom) {
+                        $hasFullBooking = true;
+                        $result['full_booking_dates'][] = $date;
+                    }
+                }
+            }
+        }
+
+        if ($hasFullBooking) {
+            $discount = (int) self::parseDiscountValue($product->full_booking_discount, $basePrice);
+
+            $result['total']           = max(0, $basePrice - $discount);
+            $result['discount_type']   = 'full_booking';
+            $result['system_discount'] = $discount;
+            $result['discount_amount'] = $discount;
+
+            return $result;
+        }
+
+        // ── Khuyến mãi theo khung giờ (promo_discount CHỈ, KHÔNG cộng increase_amount) — y hệt
+        // applyPromotions() ────────────────────────────────────────────────────────────────────
+        $promotionCalculator = app(\App\Services\PromotionCalculator::class);
+        $promotionDiscount   = 0.0;
+
+        foreach ($groupItems as $item) {
+            if (empty($item['checkin_date'])) {
+                continue;
+            }
+            $date = \Carbon\Carbon::parse($item['checkin_date'])->format('Y-m-d');
+            $slot = self::findMatchingSlotForItem($item, $product->id);
+
+            if ($slot) {
+                $promo = $promotionCalculator->calculate($slot, $date);
+                $promotionDiscount += (float) $promo['promo_discount'];
+            }
+        }
+
+        // ── Giảm giá theo số lượng khung giờ (bulk_discount_rules) — y hệt applyBulkDiscount() ──
+        $rules = $product->bulk_discount_rules ?? [];
+        usort($rules, fn ($a, $b) => (int) ($b['slots'] ?? 0) - (int) ($a['slots'] ?? 0));
+
+        $slotCount      = count($groupItems);
+        $systemDiscount = 0.0;
+        $discountPct    = null;
+
+        foreach ($rules as $rule) {
+            if ($slotCount >= (int) ($rule['slots'] ?? 0)) {
+                $discountPct = (float) ($rule['discount'] ?? 0);
+                break;
+            }
+        }
+
+        if ($discountPct > 0) {
+            $systemDiscount = (int) (($basePrice - $promotionDiscount) * ($discountPct / 100));
+        }
+
+        $discountAmount = $promotionDiscount + $systemDiscount;
+
+        $result['total']              = max(0, $basePrice - $discountAmount);
+        $result['promotion_discount'] = $promotionDiscount;
+        $result['system_discount']    = $systemDiscount;
+        $result['discount_amount']    = $discountAmount;
+
+        if ($systemDiscount > 0) {
+            $result['discount_type'] = 'bulk';
+            $result['discount_pct']  = $discountPct;
+        }
+
+        return $result;
+    }
+
     public static function computeOrderTotal(array $items, array $services): float
     {
         // Loại dòng order_item "Phụ phí khách thêm" CŨ (extra_fee > 0, product_id = null — do
         // luồng đặt phòng cũ ProductDetail.php tự tạo riêng 1 dòng cho phụ thu khách). Phụ thu
-        // khách giờ LUÔN tính LIVE qua calculateGuestSurcharge() dựa trên guest_count của từng
-        // phòng — giữ lại dòng này sẽ cộng phụ thu 2 LẦN (1 lần từ chính dòng đó, 1 lần từ
-        // calculateGuestSurcharge()). Cùng quy ước với ExtraChargeService::calculateRealTotal()
-        // (->where('extra_fee', 0)) — 3 nơi tính tổng PHẢI cùng ra 1 số.
+        // khách giờ LUÔN tính LIVE trong resolveProductGroupPricing() (theo guest_count + số ngày
+        // duy nhất của từng nhóm phòng) — giữ lại dòng extra_fee cũ sẽ cộng phụ thu 2 LẦN. Cùng
+        // quy ước với ExtraChargeService::calculateRealTotal() (->where('extra_fee', 0)) — 3 nơi
+        // tính tổng PHẢI cùng ra 1 số.
         $items = array_filter($items, fn ($item) => (float) ($item['extra_fee'] ?? 0) <= 0);
-
-        // Phụ thu khách tính theo LƯỢT ĐẶT (dòng gốc), phải tính TRƯỚC khi expand thành nhiều
-        // khung giờ — nếu không, 1 phòng chọn 3 khung giờ liên tiếp sẽ bị tính phụ thu 3 lần.
-        $guestSurchargeTotal = self::calculateGuestSurcharge($items);
 
         $expandedItems = self::expandOrderItemsForPersistence($items);
 
@@ -2627,36 +3746,19 @@ class OrderForm
         foreach ($itemsByProduct as $productId => $productItems) {
             $product = \Modules\Product\App\Models\Product::find($productId);
 
-            // Mỗi khung giờ = 1 dòng order_item (giống đúng cách client/API tạo dữ liệu) — đếm
-            // theo SỐ DÒNG của cùng 1 phòng để tính bậc giảm giá "đặt nhiều khung giờ".
-            $slotCount = count($productItems);
-            $bulkDiscountPct = 0;
-
-            if ($product && $slotCount >= 2) {
-                $rules = $product->bulk_discount_rules ?? [];
-                usort($rules, fn ($a, $b) => (int) ($b['slots'] ?? 0) - (int) ($a['slots'] ?? 0));
-                foreach ($rules as $rule) {
-                    if ($slotCount >= (int) ($rule['slots'] ?? 0)) {
-                        $bulkDiscountPct = (float) ($rule['discount'] ?? 0);
-                        break;
-                    }
-                }
-            }
+            // Giá phòng (đã áp khuyến mãi/giảm giá hệ thống) + phụ thu khách — xem
+            // resolveProductGroupPricing() (port chính xác BuildsRoomBooking::computeBookingPreview()).
+            $pricing = self::resolveProductGroupPricing($productItems, $product);
+            $total += $pricing['total'] + $pricing['guest_surcharge'];
 
             foreach ($productItems as $item) {
-                $basePrice = (float) ($item['price'] ?? 0);
-                if ($bulkDiscountPct > 0) {
-                    $basePrice = round($basePrice * (1 - $bulkDiscountPct / 100));
-                }
-                $total += $basePrice + (float) ($item['extra_fee'] ?? 0);
+                $total += (float) ($item['extra_fee'] ?? 0);
             }
         }
 
         foreach ($noProductItems as $item) {
             $total += (float) ($item['price'] ?? 0) + (float) ($item['extra_fee'] ?? 0);
         }
-
-        $total += $guestSurchargeTotal;
 
         $total += collect($services)->sum(fn ($s) => (float) ($s['subtotal'] ?? 0));
 

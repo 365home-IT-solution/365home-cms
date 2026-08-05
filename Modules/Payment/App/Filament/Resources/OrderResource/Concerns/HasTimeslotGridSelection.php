@@ -46,12 +46,14 @@ trait HasTimeslotGridSelection
             unset($selectedSlots[$existingIndex]);
             $selectedSlots = array_values($selectedSlots);
 
-            app(TimeslotHoldService::class)->release($slotId, $date, auth()->user(), (string) $slot->room_id);
+            // $slot đã load sẵn ở đầu hàm — truyền thẳng timeslot_id để release() khỏi phải tự
+            // query lại RoomTimeSlot::find() (chỉ dùng để lấy đúng giá trị này cho việc broadcast).
+            app(TimeslotHoldService::class)->release($slotId, $date, auth()->user(), (string) $slot->room_id, $slot->timeslot_id);
         } else {
             // Bấm ô mới — giữ chỗ real-time TRƯỚC (chặn admin khác chọn trùng trong lúc đang xử lý
             // đơn này). Nếu ô đang bị admin khác giữ (chưa hết hạn) thì báo và dừng lại, KHÔNG thêm
             // vào selected_slots.
-            $heldByOther = app(TimeslotHoldService::class)->hold($slotId, $date, auth()->user(), (string) $slot->room_id);
+            $heldByOther = app(TimeslotHoldService::class)->hold($slotId, $date, auth()->user(), (string) $slot->room_id, $slot->timeslot_id);
 
             if ($heldByOther) {
                 \Filament\Notifications\Notification::make()
@@ -73,7 +75,11 @@ trait HasTimeslotGridSelection
         // tương thích các chỗ vẫn đọc trực tiếp field này, ví dụ hiển thị mặc định) — tổng tiền
         // và số order_item thật sự được tính/tạo dựa trên TOÀN BỘ selected_slots, xem
         // OrderForm::expandOrderItemsForPersistence() / computeOrderTotal().
-        $this->recalculateItemFromSelectedSlots($itemKey, $selectedSlots);
+        // $slot (đã load sẵn ở đầu hàm) thường CHÍNH LÀ khung giờ ĐẦU TIÊN trong selected_slots
+        // (trường hợp phổ biến nhất: chọn khung đầu tiên, hoặc chỉ đang chọn/bỏ đúng 1 khung) —
+        // truyền vào để recalculateItemFromSelectedSlots() tận dụng lại, khỏi query thêm 1 lần
+        // RoomTimeSlot::find() giống nhau ngay trong cùng request.
+        $this->recalculateItemFromSelectedSlots($itemKey, $selectedSlots, $slot);
 
         $this->data['amount'] = OrderForm::computeOrderTotal(
             $this->data['orderItems'] ?? [],
@@ -167,7 +173,12 @@ trait HasTimeslotGridSelection
     // Tính lại checkin_date/checkout_date/price của 1 dòng order item từ danh sách selected_slots
     // MỚI NHẤT — dùng chung cho cả lúc bấm chọn (selectTimeslot()) lẫn lúc phát hiện mất khung giờ
     // do hold hết hạn (renewTimeslotHolds()), tránh lặp lại cùng 1 logic ở 2 nơi.
-    private function recalculateItemFromSelectedSlots(string $itemKey, array $selectedSlots): void
+    //
+    // $preloadedFirstSlot (optional) — nếu caller ĐÃ CÓ SẴN đúng model của khung giờ ĐẦU TIÊN
+    // trong $selectedSlots (trường hợp phổ biến nhất ở selectTimeslot(): vừa bấm đúng khung đầu
+    // tiên, hoặc đang chọn/bỏ đúng 1 khung duy nhất) thì dùng lại luôn, khỏi query
+    // RoomTimeSlot::find() thêm 1 lần nữa cho CÙNG 1 bản ghi trong CÙNG 1 request.
+    private function recalculateItemFromSelectedSlots(string $itemKey, array $selectedSlots, ?RoomTimeSlot $preloadedFirstSlot = null): void
     {
         if (empty($selectedSlots)) {
             $this->data['orderItems'][$itemKey]['checkin_date']  = null;
@@ -179,8 +190,11 @@ trait HasTimeslotGridSelection
         }
 
         $firstSelected = $selectedSlots[0];
-        $firstSlot = RoomTimeSlot::with(['timeSlot', 'promotions' => fn ($q) => $q->where('is_active', true)])
-            ->find($firstSelected['slot_id']);
+
+        $firstSlot = ($preloadedFirstSlot && (int) $preloadedFirstSlot->id === (int) $firstSelected['slot_id'])
+            ? $preloadedFirstSlot
+            : RoomTimeSlot::with(['timeSlot', 'promotions' => fn ($q) => $q->where('is_active', true)])
+                ->find($firstSelected['slot_id']);
 
         if ($firstSlot && $firstSlot->timeSlot) {
             [$start, $end] = OrderForm::computeSlotDatetimes($firstSlot, $firstSelected['date']);

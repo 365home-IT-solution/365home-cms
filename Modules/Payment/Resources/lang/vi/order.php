@@ -18,7 +18,7 @@ return [
             'amount' => 'Tổng tiền',
             'buyer_name' => 'Tên người mua',
             'buyer_email' => 'Email người mua',
-            'buyer_phone' => 'Số điện thoại người mua',
+            'buyer_phone' => 'Số điện thoại',
             'buyer_address' => 'Địa chỉ người mua',
             'payment_method' => 'Phương thức thanh toán',
             'shipping_method' => 'Phương thức vận chuyển',

@@ -23,11 +23,16 @@ class TimeslotHoldService
 
     // Giữ chỗ 1 ô — trả về null nếu giữ thành công (hoặc chính user này đang giữ sẵn), trả về
     // TimeslotHold của người KHÁC nếu ô đang bị người đó giữ (chưa hết hạn).
-    public function hold(int $roomTimeSlotId, string $date, User $user, string $productId): ?TimeslotHold
+    //
+    // $timeslotId (optional) — CHỈ để tránh phải tự query lại RoomTimeSlot::find() bên dưới khi
+    // caller ĐÃ CÓ SẴN model này trong tay (vd HasTimeslotGridSelection::selectTimeslot() đã load
+    // ngay từ đầu hàm) — truyền vào để bớt 1 query mỗi lần bấm chọn khung giờ. Bỏ trống thì tự
+    // fetch như cũ, KHÔNG bắt buộc mọi caller phải đổi (vd app/Livewire/RoomLockGrid.php).
+    public function hold(int $roomTimeSlotId, string $date, User $user, string $productId, ?int $timeslotId = null): ?TimeslotHold
     {
         $this->purgeExpired();
 
-        return DB::transaction(function () use ($roomTimeSlotId, $date, $user, $productId) {
+        return DB::transaction(function () use ($roomTimeSlotId, $date, $user, $productId, $timeslotId) {
             $existing = TimeslotHold::where('room_time_slot_id', $roomTimeSlotId)
                 ->where('date', $date)
                 ->lockForUpdate()
@@ -42,7 +47,7 @@ class TimeslotHoldService
                 ['user_id' => $user->id, 'expires_at' => now()->addMinutes(self::TTL_MINUTES)]
             );
 
-            $timeslotId = \Modules\Product\App\Models\RoomTimeSlot::find($roomTimeSlotId)?->timeslot_id;
+            $timeslotId ??= \Modules\Product\App\Models\RoomTimeSlot::find($roomTimeSlotId)?->timeslot_id;
 
             if ($timeslotId) {
                 $this->safeBroadcast(new TimeslotHeld(
@@ -60,8 +65,8 @@ class TimeslotHoldService
     }
 
     // Bỏ giữ 1 ô — CHỈ khi đúng người đang giữ (bỏ chọn ô khác không được phép giải phóng hold của
-    // người khác).
-    public function release(int $roomTimeSlotId, string $date, User $user, string $productId): void
+    // người khác). $timeslotId (optional) — xem ghi chú ở hold() phía trên, cùng mục đích.
+    public function release(int $roomTimeSlotId, string $date, User $user, string $productId, ?int $timeslotId = null): void
     {
         $deleted = TimeslotHold::where('room_time_slot_id', $roomTimeSlotId)
             ->where('date', $date)
@@ -72,7 +77,7 @@ class TimeslotHoldService
             return;
         }
 
-        $timeslotId = \Modules\Product\App\Models\RoomTimeSlot::find($roomTimeSlotId)?->timeslot_id;
+        $timeslotId ??= \Modules\Product\App\Models\RoomTimeSlot::find($roomTimeSlotId)?->timeslot_id;
 
         if ($timeslotId) {
             $this->safeBroadcast(new TimeslotReleased($productId, $roomTimeSlotId, $timeslotId, $date));

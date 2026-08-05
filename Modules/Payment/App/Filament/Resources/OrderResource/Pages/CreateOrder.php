@@ -8,9 +8,10 @@ use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 use Modules\BladeThemeV1\Services\AccessCode\AccessCodeService;
 use Modules\Payment\App\Filament\Resources\OrderResource;
+use Modules\Payment\App\Filament\Resources\OrderResource\Concerns\HasMemberCompanionManagement;
+use Modules\Payment\App\Filament\Resources\OrderResource\Concerns\HasOrderServicesManagement;
 use Modules\Payment\App\Filament\Resources\OrderResource\Concerns\HasTimeslotGridSelection;
 use Modules\Payment\App\Filament\Resources\OrderResource\Forms\OrderForm;
 use Modules\Payment\App\Services\CccdScannerService;
@@ -21,6 +22,8 @@ use PayOS\PayOS;
 class CreateOrder extends CreateRecord
 {
     use HasTimeslotGridSelection;
+    use HasOrderServicesManagement;
+    use HasMemberCompanionManagement;
 
     protected static string $resource = OrderResource::class;
 
@@ -70,7 +73,11 @@ class CreateOrder extends CreateRecord
             }
         }
 
-        $itemKey = (string) Str::uuid();
+        // Trước đây dùng Str::uuid() (khớp key ngẫu nhiên mà Repeater tự sinh) — giờ OrderForm.php
+        // đã đổi 'orderItems' từ Repeater sang 2 Group::make()->statePath('orderItems.0') cố định
+        // (chỉ còn đúng 1 phòng/đơn), nên PHẢI dùng cố định '0' để khớp đúng ô dữ liệu đó, không
+        // còn là UUID ngẫu nhiên nữa.
+        $itemKey = '0';
 
         // Set 'product_id' qua form->fill() KHÔNG tự kích hoạt afterStateUpdated() của Select
         // 'product_id' trong OrderForm.php (chỉ chạy khi người dùng tự tay đổi giá trị trên
@@ -167,6 +174,12 @@ class CreateOrder extends CreateRecord
         $orderItems = $data['orderItems'] ?? [];
         unset($data['orderItems']);
 
+        // 'orderServices' giờ là Hidden field trần (không còn ->relationship('services') của
+        // Repeater cũ để Filament tự sync sau handleRecordCreation()) — phải tự tay tạo
+        // order_services bên dưới, giống hệt cách EditOrder::handleRecordUpdate() đang làm.
+        $orderServices = $data['orderServices'] ?? [];
+        unset($data['orderServices']);
+
         // guest_cccds (CCCD khách đi cùng) không phải cột thật trên orders — lưu riêng vào bảng
         // order_guest_cccds ở afterCreate() (xem bên dưới), không để Order::create() tự bỏ qua
         // trong im lặng rồi tưởng nhầm là đã lưu.
@@ -179,6 +192,33 @@ class CreateOrder extends CreateRecord
         foreach ($expandedItems as $item) {
             unset($item['id']);
             $record->items()->create($item);
+        }
+
+        if (is_array($orderServices)) {
+            foreach ($orderServices as $service) {
+                $serviceId = $service['service_id'] ?? null;
+                $serviceId = filled($serviceId) ? (int) $serviceId : null;
+                $price = (int) ($service['price'] ?? 0);
+                $quantity = max(1, (int) ($service['quantity'] ?? 1));
+                $subtotal = (int) ($service['subtotal'] ?? ($price * $quantity));
+                $name = $service['service_name'] ?? null;
+
+                if (! $serviceId && blank($name) && $subtotal <= 0) {
+                    continue;
+                }
+
+                if (blank($name) && $serviceId) {
+                    $name = \Modules\BladeThemeV1\App\Models\AdditionService::find($serviceId)?->name;
+                }
+
+                $record->services()->create([
+                    'service_id'   => $serviceId,
+                    'service_name' => $name ?: 'Dich vu',
+                    'price'        => $price,
+                    'quantity'     => $quantity,
+                    'subtotal'     => $subtotal,
+                ]);
+            }
         }
 
         return $record;
@@ -235,7 +275,7 @@ class CreateOrder extends CreateRecord
             } else {
                 Notification::make()
                     ->title('Đơn đã tạo — còn thiếu thông tin CCCD')
-                    ->body('Không tự động đọc được QR/OCR từ ảnh CCCD. Vào trang Sửa đơn này, bấm "Quét QR CCCD" để thử lại.')
+                    ->body('Không tự động đọc được QR/OCR từ ảnh CCCD. Vào trang Sửa đơn này, bạn có thể tải lại ảnh CCCD để hệ thống quét tự động.')
                     ->warning()
                     ->send();
             }
@@ -285,6 +325,16 @@ class CreateOrder extends CreateRecord
                 ->body('Không tự động đọc được QR/OCR từ ảnh CCCD của (các) khách đi cùng. Vào trang Sửa đơn này để thử lại.')
                 ->warning()
                 ->send();
+        }
+
+        // Người đi cùng của THÀNH VIÊN (customer_companions) đã chọn qua popup "CCCD thành viên"
+        // (OrderForm::buildMemberCccdAction()) LÚC ĐANG TẠO ĐƠN — khi đó CHƯA có order_id nên
+        // không gắn được ngay vào order_guest_cccds, chỉ ghi tạm companion_id vào
+        // $this->data['member_companion_ids'] (bảng Sửa/Xoá/Thêm trong popup duy trì mảng này suốt
+        // phiên, xem HasMemberCompanionManagement). Đơn vừa có ID thật ở đây — gắn ngay.
+        $memberCompanionIds = $this->data['member_companion_ids'] ?? [];
+        if (is_array($memberCompanionIds) && ! empty($memberCompanionIds)) {
+            OrderForm::persistMemberCompanionsToOrder($record, $memberCompanionIds);
         }
 
         // Đơn tạo qua CMS admin (vd nhân viên lên đơn hộ khách vãng lai) TRƯỚC ĐÂY không tự sinh
