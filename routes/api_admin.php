@@ -146,6 +146,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 |                          → giữ/bỏ giữ tạm 1 khoảng ngày cho phòng theo NGÀY — cùng nguyên tắc với
 |                            time-slot-hold ở trên (định danh admin:{user_id}, dùng chung kho dữ
 |                            liệu + kênh realtime với DailyRoomHoldController khách hàng).
+| PATCH /api/admin/rooms/{id}/status
+|                          → bật/tắt trạng thái hoạt động của phòng (body: status — boolean), map
+|                            xuống cột `is_activated` trong bảng products (xem docblock
+|                            App\Http\Controllers\Api\Admin\ProductController::updateStatus()).
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.admin.')->group(function () {
@@ -157,6 +161,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::get('rooms/{id}/dates', [AdminRoomController::class, 'dates'])->name('rooms.dates');
     Route::post('rooms/{id}/hold',   [AdminDailyRoomHoldController::class, 'hold'])->name('rooms.daily-hold');
     Route::delete('rooms/{id}/hold', [AdminDailyRoomHoldController::class, 'release'])->name('rooms.daily-hold.release');
+    Route::patch('rooms/{id}/status', [AdminProductController::class, 'updateStatus'])->name('rooms.status');
 });
 
 /*

@@ -246,6 +246,29 @@ class ProductController extends Controller
     }
 
     /**
+     * PATCH /api/admin/rooms/{id}/status
+     * Bật/tắt trạng thái hoạt động của phòng. Body dùng field "status" (khớp field cùng tên trả
+     * về ở toListItem()/toDetailItem()) — map xuống cột is_activated trong DB.
+     * Body: status (required|boolean).
+     */
+    public function updateStatus(Request $request, string $id): JsonResponse
+    {
+        $product = $this->visibleProductsQuery($request->user())->find($id);
+
+        if (! $product) {
+            return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
+        }
+
+        $data = $request->validate([
+            'status' => 'required|boolean',
+        ]);
+
+        $product->update(['is_activated' => $data['status']]);
+
+        return response()->json(['message' => 'Đã cập nhật trạng thái.']);
+    }
+
+    /**
      * DELETE /api/admin/products/{id}
      * Chặn xoá nếu phòng còn đơn đặt phòng gắn vào (order_items) — tránh mất dữ liệu lịch sử.
      */
