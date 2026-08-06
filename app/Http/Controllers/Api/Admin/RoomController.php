@@ -242,9 +242,12 @@ class RoomController extends Controller
         return response()->json([
             'room' => $roomInfo,
             'time_slots' => $timeSlots->map(fn ($rts) => [
-                'timeslot_id' => $rts->timeslot_id,
-                'time'        => substr($rts->timeSlot->start_time, 0, 5) . ' - ' . substr($rts->timeSlot->end_time, 0, 5),
-                'over_night'  => (bool) $rts->over_night,
+                // ID của bảng room_time_slots — dùng field NÀY (không phải timeslot_id, đó là
+                // time_slots.id) khi gọi POST/DELETE /api/admin/rooms/{id}/block (room_time_slot_ids[]).
+                'room_time_slot_id' => $rts->id,
+                'timeslot_id'       => $rts->timeslot_id,
+                'time'              => substr($rts->timeSlot->start_time, 0, 5) . ' - ' . substr($rts->timeSlot->end_time, 0, 5),
+                'over_night'        => (bool) $rts->over_night,
             ])->values(),
             'period' => ['start' => $startDate->toDateString(), 'end' => $endDate->toDateString(), 'days' => $days, 'offset_days' => $offsetDays],
             'days'   => $daysOut,
@@ -323,6 +326,9 @@ class RoomController extends Controller
         $heldByOrder = isset($currentOrderSlotKeys[$slotDate->toDateString() . '|' . $rts->timeslot_id]);
 
         $result = [
+            // room_time_slots.id — dùng để gọi POST/DELETE /api/admin/rooms/{id}/block
+            // (room_time_slot_ids[]). Cố định theo cột khung giờ, giống nhau ở mọi ngày trong "days".
+            'room_time_slot_id' => $rts->id,
             'timeslot_id'    => $rts->timeslot_id,
             'status'         => $status,
             'is_selectable'  => $isSelectable,
