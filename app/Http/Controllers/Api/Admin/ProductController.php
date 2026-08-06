@@ -74,7 +74,6 @@ class ProductController extends Controller
      *                       con). Dùng độc lập hoặc CÙNG lúc với category_id (kết hợp AND); slug
      *                       không khớp chi nhánh nào -> trả rỗng thay vì bỏ qua filter.
      *  - search           : lọc theo tên phòng HOẶC tên chi nhánh
-     *  - status           : lọc theo trạng thái hoạt động (is_activated) — 1/0/true/false
      *  - room_type_id     : lọc theo Danh mục phòng (products.room_type_id)
      *  - styles           : 1 = phòng theo khung giờ, 2 = phòng theo ngày
      *  - occupancy_status : lọc theo trạng thái sử dụng phòng tại ngày tham chiếu — 1 hoặc nhiều giá
@@ -125,9 +124,9 @@ class ProductController extends Controller
             });
         }
 
-        if ($request->has('status')) {
-            $query->where('is_activated', $request->boolean('status'));
-        }
+        // Phòng đã ẩn (is_activated=false, toggle "Ẩn" ở Filament/PATCH rooms/{id}/status) không bao
+        // giờ xuất hiện ở danh sách này — không có param nào bật lại việc hiển thị chúng ở đây.
+        $query->where('is_activated', true);
 
         if ($request->filled('room_type_id')) {
             $query->where('room_type_id', $request->integer('room_type_id'));
