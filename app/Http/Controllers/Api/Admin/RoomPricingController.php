@@ -152,40 +152,48 @@ class RoomPricingController extends Controller
 
     private function toItem(Product $room): array
     {
-        return [
+        $isDaily = (int) $room->styles === 2;
+
+        $item = [
             'room' => [
                 'id'     => $room->id,
                 'name'   => $room->name,
                 'styles' => (int) $room->styles,
             ],
+        ];
 
-            'time_slots' => $room->roomTimeSlots->map(fn (RoomTimeSlot $rts) => [
+        // time_slots (room_time_slots) CHỈ có ý nghĩa với phòng theo khung giờ (styles=1) — phòng
+        // theo ngày (styles=2) không có khái niệm "khung giờ", nên bỏ hẳn key này thay vì trả mảng
+        // rỗng (tránh FE hiểu nhầm là phòng chưa cấu hình khung giờ nào).
+        if (! $isDaily) {
+            $item['time_slots'] = $room->roomTimeSlots->map(fn (RoomTimeSlot $rts) => [
                 'room_time_slot_id' => $rts->id,
                 'timeslot_id'       => $rts->timeslot_id,
                 'price'             => $rts->price,
                 'over_night'        => (bool) $rts->over_night,
-            ])->values(),
+            ])->values();
+        }
 
-            // deposit_*/default_checkin/default_checkout CHỈ có ý nghĩa với phòng theo ngày (styles=2
-            // — xem docblock ProductController::updateBookingSettings()), nên phòng styles=1 (khung
-            // giờ) không trả các key này luôn (không phải trả null) để tránh gây hiểu nhầm là có tác
-            // dụng với phòng khung giờ.
-            'discount_settings' => (int) $room->styles === 2
-                ? [
-                    'full_booking_discount' => $room->full_booking_discount,
-                    'bulk_discount_rules'   => $room->bulk_discount_rules,
-                    'room_config'           => $room->room_config,
-                    'deposit_1_night'       => $room->deposit_1_night,
-                    'deposit_multi_night'   => $room->deposit_multi_night,
-                    'deposit_min_nights'    => $room->deposit_min_nights,
-                    'default_checkin'       => $room->default_checkin,
-                    'default_checkout'      => $room->default_checkout,
-                ]
-                : [
-                    'full_booking_discount' => $room->full_booking_discount,
-                    'bulk_discount_rules'   => $room->bulk_discount_rules,
-                    'room_config'           => $room->room_config,
-                ],
-        ];
+        // full_booking_discount/bulk_discount_rules CHỈ có ý nghĩa với styles=1 (tính theo SỐ KHUNG
+        // GIỜ — xem RoomDiscountCalculator); deposit_*/default_checkin/default_checkout CHỈ có ý
+        // nghĩa với styles=2 (theo ĐÊM — xem docblock ProductController::updateBookingSettings()).
+        // room_config dùng chung cả 2 style. Bỏ hẳn key không áp dụng thay vì trả null, tránh FE hiểu
+        // nhầm là có tác dụng với style không tương ứng.
+        $item['discount_settings'] = $isDaily
+            ? [
+                'room_config'         => $room->room_config,
+                'deposit_1_night'     => $room->deposit_1_night,
+                'deposit_multi_night' => $room->deposit_multi_night,
+                'deposit_min_nights'  => $room->deposit_min_nights,
+                'default_checkin'     => $room->default_checkin,
+                'default_checkout'    => $room->default_checkout,
+            ]
+            : [
+                'full_booking_discount' => $room->full_booking_discount,
+                'bulk_discount_rules'   => $room->bulk_discount_rules,
+                'room_config'           => $room->room_config,
+            ];
+
+        return $item;
     }
 }
