@@ -88,7 +88,7 @@ class ProductController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        $query = Product::query()->with(['categories:id,name,slug,parent_id']);
+        $query = Product::query()->with(['categories:id,name,slug,parent_id', 'roomType:id,name']);
 
         if (! $user->isSuperAdmin()) {
             $query->where('partner_id', $user->partner_id);
@@ -658,6 +658,7 @@ class ProductController extends Controller
                 'name' => $c->name,
                 'slug' => $c->slug,
             ])->values(),
+            'loai_phong'             => $product->roomType?->name,
             'status'                 => $product->is_activated,
             'occupancy_status'       => $occupancyStatus,
             'occupancy_status_label' => self::OCCUPANCY_STATUS_LABELS[$occupancyStatus],

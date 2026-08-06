@@ -166,16 +166,26 @@ class RoomPricingController extends Controller
                 'over_night'        => (bool) $rts->over_night,
             ])->values(),
 
-            'discount_settings' => [
-                'full_booking_discount' => $room->full_booking_discount,
-                'bulk_discount_rules'   => $room->bulk_discount_rules,
-                'room_config'           => $room->room_config,
-                'deposit_1_night'       => $room->deposit_1_night,
-                'deposit_multi_night'   => $room->deposit_multi_night,
-                'deposit_min_nights'    => $room->deposit_min_nights,
-                'default_checkin'       => $room->default_checkin,
-                'default_checkout'      => $room->default_checkout,
-            ],
+            // deposit_*/default_checkin/default_checkout CHỈ có ý nghĩa với phòng theo ngày (styles=2
+            // — xem docblock ProductController::updateBookingSettings()), nên phòng styles=1 (khung
+            // giờ) không trả các key này luôn (không phải trả null) để tránh gây hiểu nhầm là có tác
+            // dụng với phòng khung giờ.
+            'discount_settings' => (int) $room->styles === 2
+                ? [
+                    'full_booking_discount' => $room->full_booking_discount,
+                    'bulk_discount_rules'   => $room->bulk_discount_rules,
+                    'room_config'           => $room->room_config,
+                    'deposit_1_night'       => $room->deposit_1_night,
+                    'deposit_multi_night'   => $room->deposit_multi_night,
+                    'deposit_min_nights'    => $room->deposit_min_nights,
+                    'default_checkin'       => $room->default_checkin,
+                    'default_checkout'      => $room->default_checkout,
+                ]
+                : [
+                    'full_booking_discount' => $room->full_booking_discount,
+                    'bulk_discount_rules'   => $room->bulk_discount_rules,
+                    'room_config'           => $room->room_config,
+                ],
         ];
     }
 }
