@@ -56,12 +56,15 @@ class RoomPricingController extends Controller
 
     /**
      * PATCH /api/admin/rooms/{id}/pricing
-     * Cần ít nhất 'time_slots' HOẶC 1 field điều kiện giảm giá.
+     * Cần ít nhất 'time_slots', 'price' HOẶC 1 field điều kiện giảm giá.
      *
      * Body:
      *  - time_slots : mảng { timeslot_id (required), price, over_night, checkin, checkout } —
      *    updateOrCreate theo (room_id, timeslot_id, date=null) — tạo mới nếu phòng chưa có đúng
-     *    timeslot_id này.
+     *    timeslot_id này. Chỉ áp dụng phòng styles=1 (khung giờ).
+     *  - price : giá phòng cơ bản (cột products.price) — CHỈ có ý nghĩa với phòng styles=2 (theo
+     *    ngày/đêm, dùng làm giá gốc/đêm ở BuildsRoomBooking); phòng styles=1 định giá theo TỪNG
+     *    khung giờ (time_slots[].price ở trên) nên gửi 'price' không có tác dụng gì với phòng đó.
      *  - full_booking_discount, bulk_discount_rules, room_config, deposit_1_night,
      *    deposit_multi_night, deposit_min_nights, default_checkin, default_checkout : như
      *    ProductController::updateBookingSettings() — 'room_config' merge NÔNG với giá trị hiện có
@@ -83,6 +86,8 @@ class RoomPricingController extends Controller
             'time_slots.*.checkin'            => 'nullable|date_format:H:i',
             'time_slots.*.checkout'           => 'nullable|date_format:H:i',
 
+            'price'                           => 'nullable|numeric|min:0',
+
             'full_booking_discount'           => 'nullable|string|max:50',
             'bulk_discount_rules'             => 'nullable|array',
             'bulk_discount_rules.*.slots'     => 'required_with:bulk_discount_rules|integer|min:1',
@@ -98,13 +103,14 @@ class RoomPricingController extends Controller
         ]);
 
         $hasTimeSlots = ! empty($data['time_slots'] ?? []);
+        $hasPrice     = array_key_exists('price', $data);
         $hasDiscount  = ! empty(array_intersect(array_keys($data), self::DISCOUNT_FIELDS));
 
-        if (! $hasTimeSlots && ! $hasDiscount) {
-            return response()->json(['message' => 'Cần nhập ít nhất time_slots hoặc 1 field điều kiện giảm giá.'], 422);
+        if (! $hasTimeSlots && ! $hasPrice && ! $hasDiscount) {
+            return response()->json(['message' => 'Cần nhập ít nhất time_slots, price hoặc 1 field điều kiện giảm giá.'], 422);
         }
 
-        DB::transaction(function () use ($room, $data, $hasTimeSlots, $hasDiscount) {
+        DB::transaction(function () use ($room, $data, $hasTimeSlots, $hasPrice, $hasDiscount) {
             if ($hasTimeSlots) {
                 foreach ($data['time_slots'] as $row) {
                     RoomTimeSlot::updateOrCreate(
@@ -118,6 +124,10 @@ class RoomPricingController extends Controller
                         ]
                     );
                 }
+            }
+
+            if ($hasPrice) {
+                $room->update(['price' => $data['price']]);
             }
 
             if ($hasDiscount) {
@@ -159,6 +169,10 @@ class RoomPricingController extends Controller
                 'id'     => $room->id,
                 'name'   => $room->name,
                 'styles' => (int) $room->styles,
+                // products.price — giá gốc/đêm, chỉ có ý nghĩa với phòng theo ngày (styles=2). Phòng
+                // styles=1 định giá theo TỪNG khung giờ (xem 'time_slots' bên dưới) nên không trả field
+                // này để tránh nhầm giá.
+                ...($isDaily ? ['price' => (float) $room->price] : []),
             ],
         ];
 
