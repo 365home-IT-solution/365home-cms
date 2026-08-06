@@ -109,16 +109,36 @@ class RoomController extends Controller
      */
     public function timeSlots(Request $request, string $id): JsonResponse
     {
+        return $this->buildTimeSlotsResponse($request, $id, includePricing: true);
+    }
+
+    /**
+     * GET /api/admin/rooms/{id}/time-slots/overview
+     * Giống hệt timeSlots() ở trên (cùng lưới ngày x khung giờ, cùng is_selectable/is_blocked/held)
+     * nhưng KHÔNG trả price/final_price/has_promotion/is_increase/promotions — dùng cho màn hình
+     * chỉ cần xem trạng thái khung giờ (không cần lộ giá/khuyến mãi).
+     */
+    public function timeSlotsOverview(Request $request, string $id): JsonResponse
+    {
+        return $this->buildTimeSlotsResponse($request, $id, includePricing: false);
+    }
+
+    private function buildTimeSlotsResponse(Request $request, string $id, bool $includePricing): JsonResponse
+    {
         /** @var User $user */
         $user = $request->user();
 
+        $with = [
+            'roomTimeSlots' => fn ($q) => $q->whereNull('date'),
+            'roomTimeSlots.timeSlot',
+        ];
+        if ($includePricing) {
+            $with['roomTimeSlots.promotions'] = fn ($q) => $q->where('is_active', true);
+        }
+
         $room = Product::where('id', $id)
             ->where('is_activated', true)
-            ->with([
-                'roomTimeSlots' => fn ($q) => $q->whereNull('date'),
-                'roomTimeSlots.timeSlot',
-                'roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
-            ])
+            ->with($with)
             ->first();
 
         if (! $room || (! $user->isSuperAdmin() && $room->partner_id !== $user->partner_id)) {
@@ -213,7 +233,7 @@ class RoomController extends Controller
             ];
 
             $slots = $timeSlots
-                ->map(fn ($rts) => $this->buildSlotStatus($room, $rts, $dateArr, $book, $today, $holds, $sessionId, $currentOrderSlotKeys))
+                ->map(fn ($rts) => $this->buildSlotStatus($room, $rts, $dateArr, $book, $today, $holds, $sessionId, $currentOrderSlotKeys, $includePricing))
                 ->values();
 
             $daysOut[] = $dateArr + ['slots' => $slots];
@@ -237,7 +257,7 @@ class RoomController extends Controller
      * khớp nhau, chỉ khác nguồn dữ liệu đầu vào (1 phòng theo đối tác admin, không phải mọi phòng
      * trong 1 chi nhánh public).
      */
-    private function buildSlotStatus(Product $room, $rts, array $date, Book $book, Carbon $today, array $holds, ?string $sessionId, array $currentOrderSlotKeys = []): array
+    private function buildSlotStatus(Product $room, $rts, array $date, Book $book, Carbon $today, array $holds, ?string $sessionId, array $currentOrderSlotKeys = [], bool $includePricing = true): array
     {
         $currentDateTime = Carbon::createFromFormat('d-m-Y H:i:s', $date['date'] . ' ' . $rts->timeSlot->start_time);
 
@@ -302,7 +322,7 @@ class RoomController extends Controller
         // định cho chọn lại dựa vào held_by_order thay vì phải tự đối chiếu checkin_date.
         $heldByOrder = isset($currentOrderSlotKeys[$slotDate->toDateString() . '|' . $rts->timeslot_id]);
 
-        return [
+        $result = [
             'timeslot_id'    => $rts->timeslot_id,
             'status'         => $status,
             'is_selectable'  => $isSelectable,
@@ -310,6 +330,19 @@ class RoomController extends Controller
             'held'           => $held,
             'held_by_me'     => $heldByMe,
             'held_by_order'  => $heldByOrder,
+        ];
+
+        if (! $includePricing) {
+            return $result;
+        }
+
+        $slotStartTime = Carbon::parse($rts->timeSlot->start_time)->format('H:i:s');
+        $priceData     = $book->calculateSlotPrice($rts, $date['date'], $slotStartTime);
+
+        $finalPrice    = (int) $priceData['final_price'];
+        $originalPrice = (int) $priceData['original_price'];
+
+        return $result + [
             'price'         => $originalPrice,
             'final_price'   => $finalPrice !== $originalPrice ? $finalPrice : null,
             'has_promotion' => $priceData['has_promotion'],

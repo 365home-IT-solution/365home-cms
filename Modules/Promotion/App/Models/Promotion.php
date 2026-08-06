@@ -46,7 +46,7 @@ class Promotion extends Model
             'promotion_room_time_slot',
             'promotion_id',
             'room_time_slot_id'
-        );
+        )->withPivot(['min_quantity', 'custom_value'])->withTimestamps();
     }
 
 }

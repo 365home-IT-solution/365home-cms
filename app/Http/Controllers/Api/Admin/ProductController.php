@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Api\Admin\Concerns\GeneratesUniqueSlug;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -43,14 +44,41 @@ class ProductController extends Controller
     // cần 'mimes' (đã tự kiểm tra đúng là file ảnh qua mime type thật, không chỉ đọc phần đuôi file).
     private const IMAGE_RULE = 'file|mimes:jpg,jpeg,png,webp,avif|max:3072';
 
+    // Nhãn hiển thị cho occupancy_status — tính từ order_items/orders chồng lấn ngày tham chiếu
+    // (xem resolveOccupancyStatuses()), KHÔNG liên quan tới is_activated (param 'status' ở trên).
+    private const OCCUPANCY_STATUS_LABELS = [
+        'empty'    => 'Phòng trống',
+        'upcoming' => 'Sắp nhận',
+        'staying'  => 'Đang ở',
+        'overtime' => 'Hết giờ',
+        'deposit'  => 'Đã đặt cọc',
+    ];
+
+    // Độ ưu tiên khi 1 phòng có nhiều đơn chồng lấn cùng 1 ngày tham chiếu — số càng lớn càng ưu
+    // tiên. 'deposit' luôn thắng các trạng thái theo thời gian khác (yêu cầu nghiệp vụ: admin cần
+    // thấy ngay phòng nào đang chờ thu nốt tiền cọc, bất kể đã tới giờ nhận/đang ở/hết giờ hay chưa).
+    private const OCCUPANCY_STATUS_PRIORITY = [
+        'deposit'  => 4,
+        'overtime' => 3,
+        'staying'  => 2,
+        'upcoming' => 1,
+    ];
+
     /**
      * GET /api/admin/products
      * Danh sách phòng — ảnh chính, tên, chi nhánh (categories), trạng thái.
      * Query params:
-     *  - category_id : lọc theo 1 chi nhánh/khu vực (gồm cả khu vực con nếu truyền chi nhánh gốc)
-     *  - search      : lọc theo tên phòng HOẶC tên chi nhánh
-     *  - status      : lọc theo trạng thái hoạt động (is_activated) — 1/0/true/false
-     *  - per_page    : mặc định 20
+     *  - category_id      : lọc theo 1 chi nhánh/khu vực (gồm cả khu vực con nếu truyền chi nhánh gốc)
+     *  - search           : lọc theo tên phòng HOẶC tên chi nhánh
+     *  - status           : lọc theo trạng thái hoạt động (is_activated) — 1/0/true/false
+     *  - room_type_id     : lọc theo Danh mục phòng (products.room_type_id)
+     *  - styles           : 1 = phòng theo khung giờ, 2 = phòng theo ngày
+     *  - occupancy_status : lọc theo trạng thái sử dụng phòng tại ngày tham chiếu — 1 hoặc nhiều giá
+     *                       trị trong empty|upcoming|staying|overtime|deposit (mảng occupancy_status[]=
+     *                       hoặc chuỗi phân tách dấu phẩy). Xem resolveOccupancyStatuses() để biết logic.
+     *  - date             : ngày tham chiếu (Y-m-d) cho occupancy_status. Nếu vắng, ghép từ day/month/
+     *                       year (phần nào thiếu lấy theo hôm nay); nếu không truyền gì → mặc định hôm nay.
+     *  - per_page         : mặc định 20
      */
     public function index(Request $request): JsonResponse
     {
@@ -80,9 +108,68 @@ class ProductController extends Controller
             $query->where('is_activated', $request->boolean('status'));
         }
 
+        if ($request->filled('room_type_id')) {
+            $query->where('room_type_id', $request->integer('room_type_id'));
+        }
+
+        if ($request->filled('styles')) {
+            if (! in_array($request->input('styles'), ['1', '2', 1, 2], true)) {
+                return response()->json(['message' => 'styles chỉ nhận giá trị 1 (khung giờ) hoặc 2 (theo ngày).'], 422);
+            }
+            $query->where('styles', $request->integer('styles'));
+        }
+
+        $targetDate = $this->resolveOccupancyDate($request);
+
+        $occupancyFilter = null;
+        if ($request->filled('occupancy_status')) {
+            $raw    = $request->input('occupancy_status');
+            $values = array_values(array_unique(array_filter(array_map(
+                'trim',
+                is_array($raw) ? $raw : explode(',', (string) $raw)
+            ))));
+            $invalid = array_diff($values, array_keys(self::OCCUPANCY_STATUS_LABELS));
+            if (! empty($invalid)) {
+                return response()->json(['message' => 'occupancy_status không hợp lệ: ' . implode(', ', $invalid)], 422);
+            }
+            $occupancyFilter = $values;
+        }
+
+        // $statusMap được xây dần: nếu có filter occupancy_status, tính trước cho TOÀN BỘ id thoả các
+        // filter khác (chưa phân trang) để lọc đúng trước khi paginate(); phần id còn thiếu (trang
+        // hiện tại, khi không lọc theo occupancy_status) được bổ sung ngay sau paginate() bên dưới —
+        // tránh tính occupancy 2 lần cho cùng 1 id.
+        $statusMap = [];
+        if ($occupancyFilter !== null) {
+            $candidateIds = (clone $query)->pluck('id')->all();
+            $statusMap    = $this->resolveOccupancyStatuses($candidateIds, $targetDate);
+
+            $matchingIds = array_keys(array_filter(
+                $statusMap,
+                fn (string $status) => in_array($status, $occupancyFilter, true)
+            ));
+            // Phòng không có đơn nào chồng lấn ngày tham chiếu sẽ KHÔNG xuất hiện trong $statusMap
+            // (resolveOccupancyStatuses() chỉ trả về phòng có ít nhất 1 đơn liên quan) — coi là 'empty'.
+            if (in_array('empty', $occupancyFilter, true)) {
+                $matchingIds = array_unique(array_merge(
+                    $matchingIds,
+                    array_diff($candidateIds, array_keys($statusMap))
+                ));
+            }
+            $query->whereIn('id', $matchingIds);
+        }
+
         $products = $query->orderByDesc('created_at')->paginate($request->integer('per_page', 20));
 
-        $products->getCollection()->transform(fn (Product $p) => $this->toListItem($p));
+        $pageIds    = $products->getCollection()->pluck('id')->all();
+        $missingIds = array_diff($pageIds, array_keys($statusMap));
+        if (! empty($missingIds)) {
+            $statusMap += $this->resolveOccupancyStatuses($missingIds, $targetDate);
+        }
+
+        $products->getCollection()->transform(
+            fn (Product $p) => $this->toListItem($p, $statusMap[$p->id] ?? 'empty')
+        );
 
         return response()->json($products);
     }
@@ -348,6 +435,66 @@ class ProductController extends Controller
         ]);
     }
 
+    /**
+     * PATCH /api/admin/rooms/{id}/booking-settings
+     * Cấu hình đặt phòng cho 1 phòng — gồm điều kiện giảm giá (full_booking_discount/
+     * bulk_discount_rules/room_config, giống discountSettings() nhưng cho 1 phòng thay vì bulk
+     * room_ids[]) VÀ cọc/giờ nhận-trả mặc định (deposit_1_night/deposit_multi_night/
+     * deposit_min_nights/default_checkin/default_checkout) — các field này tồn tại sẵn trên bảng
+     * products nhưng trước nay chỉ sửa được qua Filament (SettingBook), chưa có API REST.
+     * Field nào không có mặt trong request giữ nguyên giá trị cũ. Chủ yếu có ý nghĩa với phòng
+     * styles=2 (theo ngày) nhưng không giới hạn cứng theo styles vì code tính giá hiện tại đọc các
+     * field này không phân biệt styles.
+     *
+     * Body (mỗi field đều optional, cần ít nhất 1):
+     *  - full_booking_discount, bulk_discount_rules, room_config{max_free_guests,extra_guest_fee}
+     *  - deposit_1_night, deposit_multi_night (0-100, % cọc), deposit_min_nights (>=1)
+     *  - default_checkin, default_checkout (H:i)
+     *
+     * Lưu ý: nếu request có 'room_config', field này được MERGE NÔNG với room_config hiện có (không
+     * ghi đè toàn bộ) — để không xoá mất key 'blocked_ranges' mà RoomBlockController ghi vào cùng
+     * cột này cho phòng styles=2. Khác với discountSettings() (bulk) vẫn ghi đè toàn bộ room_config.
+     */
+    public function updateBookingSettings(Request $request, string $id): JsonResponse
+    {
+        $product = $this->visibleProductsQuery($request->user())->find($id);
+
+        if (! $product) {
+            return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
+        }
+
+        $data = $request->validate([
+            'full_booking_discount'       => 'nullable|string|max:50',
+            'bulk_discount_rules'         => 'nullable|array',
+            'room_config'                 => 'nullable|array',
+            'room_config.max_free_guests' => 'nullable|integer|min:0',
+            'room_config.extra_guest_fee' => 'nullable|numeric|min:0',
+            'deposit_1_night'             => 'nullable|integer|min:0|max:100',
+            'deposit_multi_night'         => 'nullable|integer|min:0|max:100',
+            'deposit_min_nights'          => 'nullable|integer|min:1',
+            'default_checkin'             => 'nullable|date_format:H:i',
+            'default_checkout'            => 'nullable|date_format:H:i',
+        ]);
+
+        $allowedFields = [
+            'full_booking_discount', 'bulk_discount_rules', 'room_config',
+            'deposit_1_night', 'deposit_multi_night', 'deposit_min_nights',
+            'default_checkin', 'default_checkout',
+        ];
+        if (empty(array_intersect(array_keys($data), $allowedFields))) {
+            return response()->json(['message' => 'Cần nhập ít nhất 1 field cần cập nhật.'], 422);
+        }
+
+        if (array_key_exists('room_config', $data)) {
+            $existingRoomConfig = is_array($product->room_config) ? $product->room_config : [];
+            $data['room_config'] = array_merge($existingRoomConfig, $data['room_config']);
+        }
+
+        $product->update(collect($data)->only($allowedFields)->toArray());
+
+        return response()->json(['message' => 'Đã cập nhật cấu hình đặt phòng.']);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private function rules(bool $isUpdate = false, ?string $productId = null): array
@@ -471,7 +618,7 @@ class ProductController extends Controller
         return $allIds;
     }
 
-    private function toListItem(Product $product): array
+    private function toListItem(Product $product, string $occupancyStatus = 'empty'): array
     {
         return [
             'id'         => $product->id,
@@ -482,8 +629,112 @@ class ProductController extends Controller
                 'name' => $c->name,
                 'slug' => $c->slug,
             ])->values(),
-            'status'     => $product->is_activated,
+            'status'                 => $product->is_activated,
+            'occupancy_status'       => $occupancyStatus,
+            'occupancy_status_label' => self::OCCUPANCY_STATUS_LABELS[$occupancyStatus],
         ];
+    }
+
+    // Ghép ngày tham chiếu từ 'date' (Y-m-d) hoặc day/month/year (phần thiếu lấy theo hôm nay);
+    // không truyền gì -> hôm nay. Dùng cho occupancy_status ở index().
+    private function resolveOccupancyDate(Request $request): Carbon
+    {
+        if ($request->filled('date')) {
+            try {
+                return Carbon::createFromFormat('Y-m-d', (string) $request->string('date'))->startOfDay();
+            } catch (\Exception) {
+                return Carbon::now()->startOfDay();
+            }
+        }
+
+        if ($request->filled('day') || $request->filled('month') || $request->filled('year')) {
+            $today = Carbon::now();
+
+            return Carbon::create(
+                $request->integer('year', $today->year),
+                $request->integer('month', $today->month),
+                $request->integer('day', $today->day),
+            )->startOfDay();
+        }
+
+        return Carbon::now()->startOfDay();
+    }
+
+    // Tính occupancy_status cho từng phòng trong $productIds tại ngày $date, dựa trên order_items/
+    // orders CHỒNG LẤN ngày đó (span = MIN(checkin_date)..MAX(checkout_date) của CHÍNH các item thuộc
+    // phòng đó trong 1 đơn — 1 đơn có thể đặt nhiều phòng khác nhau, mỗi phòng tính span riêng).
+    // Bỏ qua đơn đã 'failed'/'cancelled_payment'/'refunded' (không chiếm chỗ) và đơn order_status đã
+    // 'checked_out' (đã trả phòng, không còn 'đang ở'/'hết giờ'). Trả về [product_id => status_slug];
+    // phòng KHÔNG có mặt trong kết quả nghĩa là không có đơn nào chồng lấn ngày đó (= 'empty').
+    private function resolveOccupancyStatuses(array $productIds, Carbon $date): array
+    {
+        $productIds = array_values(array_unique($productIds));
+        if (empty($productIds)) {
+            return [];
+        }
+
+        $dayStart = $date->copy()->startOfDay();
+        $dayEnd   = $date->copy()->endOfDay();
+        $now      = Carbon::now();
+
+        // Alias tường minh 'oi'/'o' — cần vì selectRaw()/havingRaw() bên dưới là chuỗi RAW, Laravel
+        // KHÔNG tự thêm table prefix vào bên trong raw string như nó làm với whereIn()/groupBy(). Ở
+        // môi trường này config('database...prefix') = 'cms_' và Laravel còn tự đổi CHÍNH alias
+        // 'oi'/'o' thành 'cms_oi'/'cms_o' khi build "from cms_order_items as cms_oi" — nên phải tự
+        // lấy prefix qua DB::getTablePrefix() rồi ghép vào alias dùng trong raw string cho khớp,
+        // không thể chỉ viết chay 'oi.product_id' (sẽ lỗi "Unknown column" nếu có prefix).
+        $prefix    = DB::getTablePrefix();
+        $oiAlias   = $prefix . 'oi';
+        $orderAlias = $prefix . 'o';
+
+        $spans = DB::table('order_items as oi')
+            ->join('orders as o', 'o.id', '=', 'oi.order_id')
+            ->whereIn('oi.product_id', $productIds)
+            ->whereNotNull('oi.checkin_date')
+            ->whereNotNull('oi.checkout_date')
+            ->whereNotIn('o.status', ['failed', 'cancelled_payment', 'refunded'])
+            ->where(function ($q) {
+                $q->whereNull('o.order_status')->orWhere('o.order_status', '!=', 'checked_out');
+            })
+            ->groupBy('oi.order_id', 'oi.product_id', 'o.status')
+            ->havingRaw("MIN({$oiAlias}.checkin_date) <= ?", [$dayEnd])
+            ->havingRaw("MAX({$oiAlias}.checkout_date) >= ?", [$dayStart])
+            ->selectRaw("{$oiAlias}.product_id as product_id, {$orderAlias}.status as payment_status, "
+                . "MIN({$oiAlias}.checkin_date) as span_start, MAX({$oiAlias}.checkout_date) as span_end")
+            ->get();
+
+        $result = [];
+        foreach ($spans as $row) {
+            $label = $this->classifyOccupancy(
+                (string) $row->payment_status,
+                Carbon::parse($row->span_start),
+                Carbon::parse($row->span_end),
+                $now,
+            );
+
+            $productId = (string) $row->product_id;
+            if (! isset($result[$productId])
+                || self::OCCUPANCY_STATUS_PRIORITY[$label] > self::OCCUPANCY_STATUS_PRIORITY[$result[$productId]]) {
+                $result[$productId] = $label;
+            }
+        }
+
+        return $result;
+    }
+
+    private function classifyOccupancy(string $paymentStatus, Carbon $spanStart, Carbon $spanEnd, Carbon $now): string
+    {
+        if ($paymentStatus === 'deposit') {
+            return 'deposit';
+        }
+        if ($now->gt($spanEnd)) {
+            return 'overtime';
+        }
+        if ($now->between($spanStart, $spanEnd)) {
+            return 'staying';
+        }
+
+        return 'upcoming';
     }
 
     private function toDetailItem(Product $product): array

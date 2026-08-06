@@ -38,7 +38,7 @@ class RoomTimeSlot extends Model
             'promotion_room_time_slot',
             'room_time_slot_id',
             'promotion_id'
-        );
+        )->withPivot(['min_quantity', 'custom_value'])->withTimestamps();
     }
 
     public function room()

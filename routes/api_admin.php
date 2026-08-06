@@ -17,8 +17,11 @@ use App\Http\Controllers\Api\Admin\OrderController;
 use App\Http\Controllers\Api\Admin\OrderPaymentController;
 use App\Http\Controllers\Api\Admin\PositionController;
 use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
+use App\Http\Controllers\Api\Admin\RoomBlockController as AdminRoomBlockController;
 use App\Http\Controllers\Api\Admin\RoomController as AdminRoomController;
+use App\Http\Controllers\Api\Admin\RoomPromotionController as AdminRoomPromotionController;
 use App\Http\Controllers\Api\Admin\RoomTimeSlotController as AdminRoomTimeSlotController;
+use App\Http\Controllers\Api\Admin\RoomTypeController as AdminRoomTypeController;
 use App\Http\Controllers\Api\Admin\SalaryTemplateController;
 use App\Http\Controllers\Api\Admin\SalaryTypeController;
 use App\Http\Controllers\Api\Admin\ServiceController as AdminServiceController;
@@ -150,18 +153,42 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 |                          → bật/tắt trạng thái hoạt động của phòng (body: status — boolean), map
 |                            xuống cột `is_activated` trong bảng products (xem docblock
 |                            App\Http\Controllers\Api\Admin\ProductController::updateStatus()).
+| GET /api/admin/rooms/{id}/time-slots/overview
+|                          → giống rooms/{id}/time-slots nhưng KHÔNG có price/final_price/
+|                            has_promotion/is_increase/promotions (xem RoomController::
+|                            timeSlotsOverview()).
+| POST/DELETE /api/admin/rooms/{id}/block
+|                          → khoá/mở khoá lịch phòng. styles=1: body room_time_slot_ids[]+date_from+
+|                            date_to (ghi room_time_slots.settings.blocked_dates). styles=2: body
+|                            date_from+date_to (ghi products.room_config.blocked_ranges) — xem
+|                            docblock App\Http\Controllers\Api\Admin\RoomBlockController.
+| PATCH /api/admin/rooms/{id}/booking-settings
+|                          → cấu hình đặt phòng: full_booking_discount/bulk_discount_rules/
+|                            room_config (như discount-settings nhưng cho 1 phòng) + deposit_1_night/
+|                            deposit_multi_night/deposit_min_nights/default_checkin/default_checkout
+|                            (xem docblock ProductController::updateBookingSettings()).
+| GET/POST/DELETE /api/admin/rooms/{id}/promotions
+|                          → gán/gỡ ưu đãi (Promotion) cho 1 khung giờ của phòng (bảng pivot
+|                            promotion_room_time_slot) — xem RoomPromotionController.
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.admin.')->group(function () {
     Route::get('branches', [AdminBranchController::class, 'index'])->name('branches.index');
     Route::get('rooms',    [AdminRoomController::class, 'index'])->name('rooms.index');
     Route::get('rooms/{id}/time-slots', [AdminRoomController::class, 'timeSlots'])->name('rooms.time-slots');
+    Route::get('rooms/{id}/time-slots/overview', [AdminRoomController::class, 'timeSlotsOverview'])->name('rooms.time-slots.overview');
     Route::post('rooms/{id}/time-slot-hold',   [AdminTimeSlotHoldController::class, 'hold'])->name('rooms.time-slot-hold');
     Route::delete('rooms/{id}/time-slot-hold', [AdminTimeSlotHoldController::class, 'release'])->name('rooms.time-slot-hold.release');
     Route::get('rooms/{id}/dates', [AdminRoomController::class, 'dates'])->name('rooms.dates');
     Route::post('rooms/{id}/hold',   [AdminDailyRoomHoldController::class, 'hold'])->name('rooms.daily-hold');
     Route::delete('rooms/{id}/hold', [AdminDailyRoomHoldController::class, 'release'])->name('rooms.daily-hold.release');
     Route::patch('rooms/{id}/status', [AdminProductController::class, 'updateStatus'])->name('rooms.status');
+    Route::post('rooms/{id}/block',   [AdminRoomBlockController::class, 'block'])->name('rooms.block');
+    Route::delete('rooms/{id}/block', [AdminRoomBlockController::class, 'unblock'])->name('rooms.block.release');
+    Route::patch('rooms/{id}/booking-settings', [AdminProductController::class, 'updateBookingSettings'])->name('rooms.booking-settings');
+    Route::get('rooms/{id}/promotions',    [AdminRoomPromotionController::class, 'index'])->name('rooms.promotions.index');
+    Route::post('rooms/{id}/promotions',   [AdminRoomPromotionController::class, 'store'])->name('rooms.promotions.store');
+    Route::delete('rooms/{id}/promotions/{promotionId}', [AdminRoomPromotionController::class, 'destroy'])->name('rooms.promotions.destroy');
 });
 
 /*
@@ -404,6 +431,18 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/tags')->name('ap
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/time-slots')->name('api.admin.time-slots.')->group(function () {
     Route::get('/', [AdminTimeSlotController::class, 'index'])->name('index');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Room Types — Danh mục PHÒNG dùng chung cho mọi đối tác (bảng `room_types`, vd "Theo giờ",
+| "Theo ngày"...), KHÔNG phải chi nhánh/khu vực (đó là `categories`, xem admin/branches). Dùng làm
+| dữ liệu nền cho dropdown room_type_id khi tạo/sửa phòng và lọc GET /api/admin/products.
+| GET /api/admin/room-types → ?is_active= (mặc định trả tất cả, kể cả đang tắt)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/room-types')->name('api.admin.room-types.')->group(function () {
+    Route::get('/', [AdminRoomTypeController::class, 'index'])->name('index');
 });
 
 /*
