@@ -462,12 +462,21 @@ class ProductController extends Controller
      * room_ids[]) VÀ cọc/giờ nhận-trả mặc định (deposit_1_night/deposit_multi_night/
      * deposit_min_nights/default_checkin/default_checkout) — các field này tồn tại sẵn trên bảng
      * products nhưng trước nay chỉ sửa được qua Filament (SettingBook), chưa có API REST.
-     * Field nào không có mặt trong request giữ nguyên giá trị cũ. Chủ yếu có ý nghĩa với phòng
-     * styles=2 (theo ngày) nhưng không giới hạn cứng theo styles vì code tính giá hiện tại đọc các
-     * field này không phân biệt styles.
+     * Field nào không có mặt trong request giữ nguyên giá trị cũ. KHÔNG giới hạn cứng field nào
+     * theo styles (API vẫn nhận và lưu mọi field bất kể styles) nhưng theo code tính giá thực tế
+     * (RoomDiscountCalculator, BuildsRoomBooking) từng field chỉ THỰC SỰ có tác dụng ở đúng 1 style:
+     *  - full_booking_discount, bulk_discount_rules : CHỈ styles=1 (khung giờ) — full_booking_discount
+     *    áp dụng khi đặt HẾT toàn bộ khung giờ trong ngày (checkFullDayBooking()); bulk_discount_rules
+     *    giảm theo SỐ KHUNG GIỜ đặt (applyBulkDiscount()). Cấu trúc mỗi rule: {"slots":3,"discount":10}
+     *    (khớp field name Filament SettingBook ghi — KHÔNG phải "min_slots"/"discount_percent").
+     *  - room_config{max_free_guests,extra_guest_fee} : CẢ 2 styles (buildGuestSurcharge() tính phụ
+     *    thu khách cho cả type=slot lẫn type=daily).
+     *  - deposit_1_night, deposit_multi_night, deposit_min_nights, default_checkin, default_checkout :
+     *    CHỈ styles=2 (theo ngày) — chỉ được đọc trong nhánh $type === 'daily' khi build đơn.
      *
      * Body (mỗi field đều optional, cần ít nhất 1):
-     *  - full_booking_discount, bulk_discount_rules, room_config{max_free_guests,extra_guest_fee}
+     *  - full_booking_discount (string, vd "10%"), bulk_discount_rules ([{"slots":N,"discount":pct}]),
+     *    room_config{max_free_guests,extra_guest_fee}
      *  - deposit_1_night, deposit_multi_night (0-100, % cọc), deposit_min_nights (>=1)
      *  - default_checkin, default_checkout (H:i)
      *
