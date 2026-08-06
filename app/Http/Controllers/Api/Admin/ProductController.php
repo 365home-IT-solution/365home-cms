@@ -69,6 +69,10 @@ class ProductController extends Controller
      * Danh sách phòng — ảnh chính, tên, chi nhánh (categories), trạng thái.
      * Query params:
      *  - category_id      : lọc theo 1 chi nhánh/khu vực (gồm cả khu vực con nếu truyền chi nhánh gốc)
+     *  - categories       : slug của 1 chi nhánh CHA (parent_id=null, category_type=product — giống
+     *                       GET /api/admin/rooms?categories=) — lọc theo chi nhánh đó (gồm khu vực
+     *                       con). Dùng độc lập hoặc CÙNG lúc với category_id (kết hợp AND); slug
+     *                       không khớp chi nhánh nào -> trả rỗng thay vì bỏ qua filter.
      *  - search           : lọc theo tên phòng HOẶC tên chi nhánh
      *  - status           : lọc theo trạng thái hoạt động (is_activated) — 1/0/true/false
      *  - room_type_id     : lọc theo Danh mục phòng (products.room_type_id)
@@ -94,6 +98,23 @@ class ProductController extends Controller
         if ($request->filled('category_id')) {
             $categoryIds = $this->expandCategoryIds((int) $request->integer('category_id'));
             $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $categoryIds));
+        }
+
+        if ($request->filled('categories')) {
+            $branch = Category::query()
+                ->whereNull('parent_id')
+                ->where('category_type', 'product')
+                ->where('slug', (string) $request->string('categories'))
+                ->first();
+
+            if (! $branch) {
+                // Slug không khớp chi nhánh nào -> ép query rỗng nhưng vẫn đi qua paginate() bên
+                // dưới để giữ nguyên shape phân trang (khác GET /api/admin/rooms trả thẳng {data:[]}).
+                $query->whereRaw('1 = 0');
+            } else {
+                $branchCategoryIds = $this->expandCategoryIds($branch->id);
+                $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $branchCategoryIds));
+            }
         }
 
         if ($request->filled('search')) {
