@@ -71,6 +71,87 @@ class TimeSlotController extends Controller
         return response()->json(['data' => $data]);
     }
 
+    /**
+     * POST /api/admin/time-slots
+     * Tạo 1 khung giờ dùng chung mới. Body:
+     *  - start_time, end_time (required, H:i)
+     *  - over_night (nullable|boolean) — không truyền thì tự suy ra: end_time < start_time = qua đêm.
+     *  - label (nullable|string|max:255) — không truyền thì tự sinh "H:i - H:i" (+ " (Qua đêm)" nếu
+     *    over_night), khớp định dạng dữ liệu hiện có.
+     *  - type (nullable|in:time,date) — mặc định 'time'. 'date' dành riêng cho mốc ngày của phòng
+     *    "theo ngày" (styles=2), thường không cần tạo thủ công qua đây.
+     */
+    public function store(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'start_time' => 'required|date_format:H:i',
+            'end_time'   => 'required|date_format:H:i',
+            'over_night' => 'nullable|boolean',
+            'label'      => 'nullable|string|max:255',
+            'type'       => 'nullable|in:time,date',
+        ]);
+
+        $overNight = array_key_exists('over_night', $data)
+            ? $data['over_night']
+            : $data['end_time'] < $data['start_time'];
+
+        $slot = TimeSlot::create([
+            'start_time' => $data['start_time'],
+            'end_time'   => $data['end_time'],
+            'over_night' => $overNight,
+            'label'      => $data['label'] ?? $this->buildLabel($data['start_time'], $data['end_time'], $overNight),
+            'type'       => $data['type'] ?? 'time',
+        ]);
+
+        return response()->json(['data' => $this->toItem($slot)], 201);
+    }
+
+    /**
+     * PUT/PATCH /api/admin/time-slots/{id}
+     * Sửa khung giờ dùng chung — LƯU Ý: khung giờ này có thể đang được nhiều phòng khác nhau dùng
+     * chung (qua room_time_slots.timeslot_id), sửa ở đây ảnh hưởng giờ/nhãn hiển thị ở TẤT CẢ phòng
+     * đó. Field nào không có mặt trong request giữ nguyên giá trị cũ.
+     */
+    public function update(Request $request, int $id): JsonResponse
+    {
+        $slot = TimeSlot::find($id);
+
+        if (! $slot) {
+            return response()->json(['message' => 'Không tìm thấy khung giờ.'], 404);
+        }
+
+        $data = $request->validate([
+            'start_time' => 'sometimes|required|date_format:H:i',
+            'end_time'   => 'sometimes|required|date_format:H:i',
+            'over_night' => 'nullable|boolean',
+            'label'      => 'nullable|string|max:255',
+            'type'       => 'nullable|in:time,date',
+        ]);
+
+        $slot->update($data);
+
+        return response()->json(['data' => $this->toItem($slot->fresh())]);
+    }
+
+    private function buildLabel(string $startTime, string $endTime, bool $overNight): string
+    {
+        $label = "{$startTime} - {$endTime}";
+
+        return $overNight ? "{$label} (Qua đêm)" : $label;
+    }
+
+    private function toItem(TimeSlot $slot): array
+    {
+        return [
+            'id'         => $slot->id,
+            'start_time' => $slot->start_time,
+            'end_time'   => $slot->end_time,
+            'label'      => $slot->label,
+            'over_night' => (bool) $slot->over_night,
+            'type'       => $slot->type,
+        ];
+    }
+
     private function classify(TimeSlot $slot): string
     {
         if ($slot->over_night) {

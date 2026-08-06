@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\Admin\PositionController;
 use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
 use App\Http\Controllers\Api\Admin\RoomBlockController as AdminRoomBlockController;
 use App\Http\Controllers\Api\Admin\RoomController as AdminRoomController;
+use App\Http\Controllers\Api\Admin\RoomPricingController as AdminRoomPricingController;
 use App\Http\Controllers\Api\Admin\RoomPromotionController as AdminRoomPromotionController;
 use App\Http\Controllers\Api\Admin\RoomTimeSlotController as AdminRoomTimeSlotController;
 use App\Http\Controllers\Api\Admin\RoomTypeController as AdminRoomTypeController;
@@ -170,11 +171,22 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 | GET/POST/DELETE /api/admin/rooms/{id}/promotions
 |                          → gán/gỡ ưu đãi (Promotion) cho 1 khung giờ của phòng (bảng pivot
 |                            promotion_room_time_slot) — xem RoomPromotionController.
+| GET/PATCH /api/admin/rooms/pricing
+|                          → gộp XEM + SỬA giá khung giờ (room_time_slots) VÀ điều kiện giảm giá
+|                            (full_booking_discount/bulk_discount_rules/room_config/deposit_1_night/
+|                            deposit_multi_night/deposit_min_nights/default_checkin/default_checkout)
+|                            cho 1 HOẶC NHIỀU phòng cùng lúc
+|                            (body/query room_ids[]) — xem RoomPricingController. Đăng ký TRƯỚC
+|                            'rooms/{id}/...' vì 'pricing' chỉ 1 segment, sẽ bị route GET/PATCH
+|                            'rooms/{id}' (nếu có) nuốt mất nếu đứng sau — hiện chưa có route đó
+|                            nhưng giữ nguyên tắc để an toàn về sau.
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.admin.')->group(function () {
     Route::get('branches', [AdminBranchController::class, 'index'])->name('branches.index');
     Route::get('rooms',    [AdminRoomController::class, 'index'])->name('rooms.index');
+    Route::get('rooms/pricing',   [AdminRoomPricingController::class, 'index'])->name('rooms.pricing.index');
+    Route::patch('rooms/pricing', [AdminRoomPricingController::class, 'update'])->name('rooms.pricing.update');
     Route::get('rooms/{id}/time-slots', [AdminRoomController::class, 'timeSlots'])->name('rooms.time-slots');
     Route::get('rooms/{id}/time-slots/overview', [AdminRoomController::class, 'timeSlotsOverview'])->name('rooms.time-slots.overview');
     Route::post('rooms/{id}/time-slot-hold',   [AdminTimeSlotHoldController::class, 'hold'])->name('rooms.time-slot-hold');
@@ -427,10 +439,15 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/tags')->name('ap
 | Ngày/Chiều/Đêm/Qua đêm — xem TimeSlotController. Dùng làm dữ liệu nền để gán khung giờ cho
 | từng phòng (POST /api/admin/products/{id}/time-slots).
 | GET /api/admin/time-slots → ?type=&include_date_type=
+| POST /api/admin/time-slots → tạo khung giờ mới (start_time/end_time/over_night/label/type)
+| PUT|PATCH /api/admin/time-slots/{id} → sửa — LƯU Ý dùng chung cho mọi phòng đang gán khung giờ này
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/time-slots')->name('api.admin.time-slots.')->group(function () {
     Route::get('/', [AdminTimeSlotController::class, 'index'])->name('index');
+    Route::post('/', [AdminTimeSlotController::class, 'store'])->name('store');
+    Route::put('/{id}', [AdminTimeSlotController::class, 'update'])->name('update');
+    Route::patch('/{id}', [AdminTimeSlotController::class, 'update'])->name('update.patch');
 });
 
 /*

@@ -13,7 +13,12 @@ class TimeSlot extends Model
         'start_time',
         'end_time',
         'label',
+        'over_night',
         'type', // 'time' | 'date'
+    ];
+
+    protected $casts = [
+        'over_night' => 'boolean',
     ];
 
     public function roomTimeSlots()
