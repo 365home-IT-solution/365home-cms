@@ -6,7 +6,6 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -14,17 +13,16 @@ use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
 
 /**
- * Gộp XEM + SỬA giá khung giờ (room_time_slots.price/over_night/checkin/checkout) VÀ điều kiện
- * giảm giá (full_booking_discount/bulk_discount_rules/room_config/deposit_1_night/deposit_multi_night/
- * deposit_min_nights/default_checkin/default_checkout) trong CÙNG 1 cặp API — cho 1 hoặc NHIỀU
- * phòng cùng lúc (room_ids[]).
+ * Gộp XEM + SỬA giá khung giờ (room_time_slots.price/over_night) VÀ điều kiện giảm giá
+ * (full_booking_discount/bulk_discount_rules/room_config/deposit_1_night/deposit_multi_night/
+ * deposit_min_nights/default_checkin/default_checkout) của 1 phòng trong CÙNG 1 cặp API.
  *
- * Khác với các API tách rời đã có trước đó:
- *  - GET/POST  /api/admin/products/{id}/time-slots      (RoomTimeSlotController — chỉ giá, 1 phòng)
- *  - PATCH     /api/admin/rooms/{id}/booking-settings    (ProductController — chỉ giảm giá, 1 phòng)
+ * Khác với các API tách rời đã có trước đó (vẫn giữ nguyên, không xoá):
+ *  - GET/POST  /api/admin/products/{id}/time-slots      (RoomTimeSlotController — chỉ giá)
+ *  - PATCH     /api/admin/rooms/{id}/booking-settings    (ProductController — chỉ giảm giá)
  *  - POST      /api/admin/products/discount-settings     (ProductController — chỉ giảm giá, nhiều phòng)
- * 2 API dưới đây vẫn dùng CHUNG logic ghi (updateOrCreate cho room_time_slots, merge nông cho
- * room_config) — không phải cài lại từ đầu, chỉ gộp lại cho tiện gọi 1 lần thay vì nhiều API.
+ * API dưới đây dùng CHUNG logic ghi (updateOrCreate cho room_time_slots, merge nông cho
+ * room_config) — không cài lại từ đầu, chỉ gộp lại cho tiện gọi 1 lần thay vì nhiều API.
  *
  * Field áp dụng theo styles (xem docblock ProductController::updateBookingSettings()):
  *  - full_booking_discount, bulk_discount_rules : styles=1 (khung giờ)
@@ -40,53 +38,44 @@ class RoomPricingController extends Controller
     ];
 
     /**
-     * GET /api/admin/rooms/pricing?room_ids[]=...&room_ids[]=...
-     * Trả giá khung giờ + điều kiện giảm giá hiện tại cho từng phòng trong room_ids[].
+     * GET /api/admin/rooms/{id}/pricing
+     * Trả giá khung giờ + điều kiện giảm giá hiện tại của 1 phòng.
      */
-    public function index(Request $request): JsonResponse
+    public function show(Request $request, string $id): JsonResponse
     {
-        $data = $request->validate([
-            'room_ids'   => 'required|array|min:1',
-            'room_ids.*' => 'string',
-        ]);
+        $room = $this->visibleRoom($request->user(), $id);
 
-        $rooms = $this->visibleRoomsQuery($request->user())
-            ->whereIn('id', $data['room_ids'])
-            ->with(['roomTimeSlots' => fn ($q) => $q->whereNull('date')->with('timeSlot')])
-            ->get();
+        if (! $room) {
+            return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
+        }
 
-        $foundIds = $rooms->pluck('id')->all();
-        $notFound = array_values(array_diff($data['room_ids'], $foundIds));
+        $room->load(['roomTimeSlots' => fn ($q) => $q->whereNull('date')]);
 
-        return response()->json([
-            'data'      => $rooms->map(fn (Product $room) => $this->toItem($room))->values(),
-            'not_found' => $notFound,
-        ]);
+        return response()->json($this->toItem($room));
     }
 
     /**
-     * PATCH /api/admin/rooms/pricing
-     * Áp CÙNG 1 bộ giá khung giờ / điều kiện giảm giá cho 1 hoặc nhiều phòng trong room_ids[].
-     * Cần ít nhất 'time_slots' HOẶC 1 field giảm giá. Phòng ngoài phạm vi đối tác (user thường) hoặc
-     * không tồn tại bị bỏ qua, trả về trong 'skipped' thay vì lỗi cả request.
+     * PATCH /api/admin/rooms/{id}/pricing
+     * Cần ít nhất 'time_slots' HOẶC 1 field điều kiện giảm giá.
      *
      * Body:
-     *  - room_ids (required)      : mảng id phòng cần áp dụng
-     *  - time_slots                : mảng { timeslot_id (required), price, over_night, checkin,
-     *                                checkout } — updateOrCreate theo (room_id, timeslot_id, date=null)
-     *                                cho TỪNG phòng trong room_ids (tạo mới nếu phòng đó chưa có
-     *                                đúng timeslot_id này).
+     *  - time_slots : mảng { timeslot_id (required), price, over_night, checkin, checkout } —
+     *    updateOrCreate theo (room_id, timeslot_id, date=null) — tạo mới nếu phòng chưa có đúng
+     *    timeslot_id này.
      *  - full_booking_discount, bulk_discount_rules, room_config, deposit_1_night,
      *    deposit_multi_night, deposit_min_nights, default_checkin, default_checkout : như
      *    ProductController::updateBookingSettings() — 'room_config' merge NÔNG với giá trị hiện có
-     *    của TỪNG phòng (không ghi đè toàn bộ), giữ nguyên 'blocked_ranges' nếu có.
+     *    (không ghi đè toàn bộ), giữ nguyên 'blocked_ranges' nếu có.
      */
-    public function update(Request $request): JsonResponse
+    public function update(Request $request, string $id): JsonResponse
     {
-        $data = $request->validate([
-            'room_ids'                       => 'required|array|min:1',
-            'room_ids.*'                      => 'string',
+        $room = $this->visibleRoom($request->user(), $id);
 
+        if (! $room) {
+            return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
+        }
+
+        $data = $request->validate([
             'time_slots'                      => 'nullable|array',
             'time_slots.*.timeslot_id'        => 'required_with:time_slots|integer|exists:time_slots,id',
             'time_slots.*.price'              => 'nullable|integer|min:0',
@@ -115,81 +104,66 @@ class RoomPricingController extends Controller
             return response()->json(['message' => 'Cần nhập ít nhất time_slots hoặc 1 field điều kiện giảm giá.'], 422);
         }
 
-        $rooms = $this->visibleRoomsQuery($request->user())->whereIn('id', $data['room_ids'])->get();
+        DB::transaction(function () use ($room, $data, $hasTimeSlots, $hasDiscount) {
+            if ($hasTimeSlots) {
+                foreach ($data['time_slots'] as $row) {
+                    RoomTimeSlot::updateOrCreate(
+                        ['room_id' => $room->id, 'timeslot_id' => $row['timeslot_id'], 'date' => null],
+                        [
+                            'price'      => $row['price'] ?? null,
+                            'over_night' => $row['over_night'] ?? false,
+                            'checkin'    => $row['checkin'] ?? null,
+                            'checkout'   => $row['checkout'] ?? null,
+                            'status'     => 'available',
+                        ]
+                    );
+                }
+            }
 
-        $foundIds = $rooms->pluck('id')->all();
-        $skipped  = array_values(array_diff($data['room_ids'], $foundIds));
+            if ($hasDiscount) {
+                $update = collect($data)->only(self::DISCOUNT_FIELDS)->toArray();
 
-        DB::transaction(function () use ($rooms, $data, $hasTimeSlots, $hasDiscount) {
-            foreach ($rooms as $room) {
-                if ($hasTimeSlots) {
-                    foreach ($data['time_slots'] as $row) {
-                        RoomTimeSlot::updateOrCreate(
-                            ['room_id' => $room->id, 'timeslot_id' => $row['timeslot_id'], 'date' => null],
-                            [
-                                'price'      => $row['price'] ?? null,
-                                'over_night' => $row['over_night'] ?? false,
-                                'checkin'    => $row['checkin'] ?? null,
-                                'checkout'   => $row['checkout'] ?? null,
-                                'status'     => 'available',
-                            ]
-                        );
-                    }
+                if (array_key_exists('room_config', $update)) {
+                    $existing              = is_array($room->room_config) ? $room->room_config : [];
+                    $update['room_config'] = array_merge($existing, $update['room_config']);
                 }
 
-                if ($hasDiscount) {
-                    $update = collect($data)->only(self::DISCOUNT_FIELDS)->toArray();
-
-                    if (array_key_exists('room_config', $update)) {
-                        $existing            = is_array($room->room_config) ? $room->room_config : [];
-                        $update['room_config'] = array_merge($existing, $update['room_config']);
-                    }
-
-                    $room->update($update);
-                }
+                $room->update($update);
             }
         });
 
-        return response()->json([
-            'message' => 'Đã cập nhật.',
-            'updated' => $foundIds,
-            'skipped' => $skipped,
-        ]);
+        $room->load(['roomTimeSlots' => fn ($q) => $q->whereNull('date')]);
+
+        return response()->json($this->toItem($room->fresh(['roomTimeSlots' => fn ($q) => $q->whereNull('date')])));
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    private function visibleRoomsQuery(User $user): Builder
+    private function visibleRoom(User $user, string $id): ?Product
     {
-        $query = Product::query();
+        $room = Product::find($id);
 
-        if (! $user->isSuperAdmin()) {
-            $query->where('partner_id', $user->partner_id);
+        if (! $room || (! $user->isSuperAdmin() && $room->partner_id !== $user->partner_id)) {
+            return null;
         }
 
-        return $query;
+        return $room;
     }
 
     private function toItem(Product $room): array
     {
         return [
-            'room_id' => $room->id,
-            'name'    => $room->name,
-            'styles'  => (int) $room->styles,
+            'room' => [
+                'id'     => $room->id,
+                'name'   => $room->name,
+                'styles' => (int) $room->styles,
+            ],
 
             'time_slots' => $room->roomTimeSlots->map(fn (RoomTimeSlot $rts) => [
                 'room_time_slot_id' => $rts->id,
                 'timeslot_id'       => $rts->timeslot_id,
                 'price'             => $rts->price,
                 'over_night'        => (bool) $rts->over_night,
-                'checkin'           => $rts->checkin,
-                'checkout'          => $rts->checkout,
-                'time_slot'         => $rts->timeSlot ? [
-                    'id'         => $rts->timeSlot->id,
-                    'start_time' => $rts->timeSlot->start_time,
-                    'end_time'   => $rts->timeSlot->end_time,
-                    'label'      => $rts->timeSlot->label,
-                ] : null,
             ])->values(),
 
             'discount_settings' => [

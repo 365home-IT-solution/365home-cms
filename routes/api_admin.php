@@ -171,22 +171,18 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 | GET/POST/DELETE /api/admin/rooms/{id}/promotions
 |                          → gán/gỡ ưu đãi (Promotion) cho 1 khung giờ của phòng (bảng pivot
 |                            promotion_room_time_slot) — xem RoomPromotionController.
-| GET/PATCH /api/admin/rooms/pricing
+| GET/PATCH /api/admin/rooms/{id}/pricing
 |                          → gộp XEM + SỬA giá khung giờ (room_time_slots) VÀ điều kiện giảm giá
 |                            (full_booking_discount/bulk_discount_rules/room_config/deposit_1_night/
 |                            deposit_multi_night/deposit_min_nights/default_checkin/default_checkout)
-|                            cho 1 HOẶC NHIỀU phòng cùng lúc
-|                            (body/query room_ids[]) — xem RoomPricingController. Đăng ký TRƯỚC
-|                            'rooms/{id}/...' vì 'pricing' chỉ 1 segment, sẽ bị route GET/PATCH
-|                            'rooms/{id}' (nếu có) nuốt mất nếu đứng sau — hiện chưa có route đó
-|                            nhưng giữ nguyên tắc để an toàn về sau.
+|                            cho 1 phòng — xem RoomPricingController.
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.admin.')->group(function () {
     Route::get('branches', [AdminBranchController::class, 'index'])->name('branches.index');
     Route::get('rooms',    [AdminRoomController::class, 'index'])->name('rooms.index');
-    Route::get('rooms/pricing',   [AdminRoomPricingController::class, 'index'])->name('rooms.pricing.index');
-    Route::patch('rooms/pricing', [AdminRoomPricingController::class, 'update'])->name('rooms.pricing.update');
+    Route::get('rooms/{id}/pricing',   [AdminRoomPricingController::class, 'show'])->name('rooms.pricing.show');
+    Route::patch('rooms/{id}/pricing', [AdminRoomPricingController::class, 'update'])->name('rooms.pricing.update');
     Route::get('rooms/{id}/time-slots', [AdminRoomController::class, 'timeSlots'])->name('rooms.time-slots');
     Route::get('rooms/{id}/time-slots/overview', [AdminRoomController::class, 'timeSlotsOverview'])->name('rooms.time-slots.overview');
     Route::post('rooms/{id}/time-slot-hold',   [AdminTimeSlotHoldController::class, 'hold'])->name('rooms.time-slot-hold');
