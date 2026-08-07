@@ -19,7 +19,8 @@
         @foreach ($services as $key => $service)
             @php
                 $serviceId = $service['service_id'] ?? null;
-                $image = $serviceId ? \Modules\BladeThemeV1\App\Models\AdditionService::find($serviceId)?->image : null;
+                $imagePath = $serviceId ? \Modules\BladeThemeV1\App\Models\AdditionService::find($serviceId)?->image : null;
+                $image = $imagePath ? \Illuminate\Support\Facades\Storage::disk('public')->url($imagePath) : null;
                 $name = $service['service_name'] ?: ($serviceId ? \Modules\BladeThemeV1\App\Models\AdditionService::find($serviceId)?->name : null);
                 $quantity = (int) ($service['quantity'] ?? 1);
                 $subtotal = (float) ($service['subtotal'] ?? 0);
