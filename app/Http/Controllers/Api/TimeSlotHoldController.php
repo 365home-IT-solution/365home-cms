@@ -10,7 +10,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 use Modules\Product\App\Models\Product;
+use Modules\Product\App\Models\RoomTimeSlot;
 
 /**
  * "Đang chọn" tạm thời cho phòng theo khung giờ (style 1) — khi khách bấm chọn 1 ô khung giờ x
@@ -39,6 +41,17 @@ class TimeSlotHoldController extends Controller
             return response()->json(['message' => 'Phòng không tồn tại.'], 404);
         }
 
+        // Chặn timeslot_id giả/không thuộc phòng này — trước đây không kiểm tra, 1 request thủ
+        // công có thể giữ chỗ timeslot_id bất kỳ (không tồn tại hoặc thuộc phòng khác), tạo rác
+        // dữ liệu hold vô nghĩa trong cache của phòng này.
+        $slotExists = RoomTimeSlot::where('room_id', $room->id)
+            ->where('timeslot_id', $data['timeslot_id'])
+            ->whereNull('date')
+            ->exists();
+        if (! $slotExists) {
+            return response()->json(['message' => 'Khung giờ không hợp lệ.'], 422);
+        }
+
         $expiresAt = now()->addSeconds(self::TTL)->toIso8601String();
         $holds     = $this->getActiveHolds($id);
 
@@ -48,17 +61,25 @@ class TimeSlotHoldController extends Controller
             && (int) $h['timeslot_id'] === (int) $data['timeslot_id']
             && $h['date'] === $data['date'])));
 
+        // Token ngẫu nhiên phía SERVER (KHÁC session_id do client tự chọn) — bắt buộc phải xuất
+        // trình đúng token này mới release() được hold vừa tạo, chặn 1 client đoán/biết session_id
+        // của người khác rồi tự ý release() giả mạo hộ (session_id do client chọn không đủ tin cậy
+        // để làm bằng chứng "chính chủ"). Token KHÔNG bao giờ lộ ra qua broadcastForDate() hay bất
+        // kỳ response nào của client KHÁC — chỉ trả về đúng 1 lần cho chính client vừa tạo hold.
+        $holdToken = Str::random(40);
+
         $holds[] = [
             'session_id'  => $data['session_id'],
             'timeslot_id' => (int) $data['timeslot_id'],
             'date'        => $data['date'],
             'expires_at'  => $expiresAt,
+            'hold_token'  => $holdToken,
         ];
 
         Cache::put("time_slot_holds:{$id}", $holds, self::TTL);
         $this->broadcastForDate($id, $data['date'], $holds);
 
-        return response()->json(['ok' => true, 'expires_at' => $expiresAt]);
+        return response()->json(['ok' => true, 'expires_at' => $expiresAt, 'hold_token' => $holdToken]);
     }
 
     // DELETE /api/rooms/{id}/time-slot-hold
@@ -68,9 +89,26 @@ class TimeSlotHoldController extends Controller
             'session_id'  => 'required|string|max:64',
             'timeslot_id' => 'required|integer',
             'date'        => 'required|string',
+            'hold_token'  => 'required|string|max:64',
         ]);
 
         $holds = $this->getActiveHolds($id);
+
+        // Xác thực "chính chủ" bằng hold_token (server-random) trước khi cho release — session_id/
+        // timeslot_id/date khớp thôi CHƯA đủ, xem giải thích ở hold(). Không tìm thấy hold khớp
+        // (đã hết hạn/đã release trước đó) thì coi là release thành công luôn (idempotent), không
+        // cần token đúng cho trường hợp này.
+        foreach ($holds as $h) {
+            if ($h['session_id'] === $data['session_id']
+                && (int) $h['timeslot_id'] === (int) $data['timeslot_id']
+                && $h['date'] === $data['date']) {
+                if (($h['hold_token'] ?? null) !== $data['hold_token']) {
+                    return response()->json(['message' => 'Không có quyền huỷ giữ chỗ này.'], 403);
+                }
+                break;
+            }
+        }
+
         $holds = array_values(array_filter($holds, fn ($h) => ! ($h['session_id'] === $data['session_id']
             && (int) $h['timeslot_id'] === (int) $data['timeslot_id']
             && $h['date'] === $data['date'])));
@@ -113,7 +151,15 @@ class TimeSlotHoldController extends Controller
             fn ($h) => $h['date'] === $date
         ));
 
-        app(SlotRealtimeService::class)->broadcastSlotHold($roomId, $date, array_map(
+        // Kênh Node socket.io "room:{room_id}:{date}" — client (resources/js/ws-client.js,
+        // subscribeRoomDate()) subscribe bằng data-iso-date (Y-m-d), trong khi $date ở đây đang là
+        // d-m-Y (khớp $date['date'] của GET .../time-slots — xem docblock class). Gửi thẳng d-m-Y
+        // vào broadcastSlotHold() sẽ join SAI kênh (không ai đang nghe), khiến broadcast không tới
+        // được client nào — phải đổi sang Y-m-d NGAY TRƯỚC khi gọi, không đổi ở nơi khác (cache
+        // lưu/BranchController đọc lại vẫn cần nguyên d-m-Y, chỉ riêng kênh realtime này cần ISO).
+        $isoDate = \Carbon\Carbon::createFromFormat('d-m-Y', $date)->toDateString();
+
+        app(SlotRealtimeService::class)->broadcastSlotHold($roomId, $isoDate, array_map(
             fn ($h) => ['timeslot_id' => $h['timeslot_id']],
             $holdsForDate
         ));

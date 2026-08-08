@@ -66,7 +66,7 @@ class SlotRealtimeService
                     'checkin'  => $checkin,
                     'checkout' => $checkout,
                     'status'   => $status,
-                ]);
+                ])->throw();
         } catch (\Throwable $e) {
             Log::warning('WS daily booked push failed', ['room_id' => $roomId, 'error' => $e->getMessage()]);
         }
@@ -95,7 +95,7 @@ class SlotRealtimeService
                     'dates'    => $dates,
                     'slot_ids' => $slotIds,
                     'status'   => $status,
-                ]);
+                ])->throw();
         } catch (\Throwable $e) {
             Log::warning('WS slot-blocked-range push failed', ['room_id' => $roomId, 'error' => $e->getMessage()]);
         }
@@ -121,7 +121,7 @@ class SlotRealtimeService
                 ->post("{$url}/internal/daily-blocked", [
                     'room_id'        => $roomId,
                     'blocked_ranges' => $blockedRanges,
-                ]);
+                ])->throw();
         } catch (\Throwable $e) {
             Log::warning('WS daily-blocked push failed', ['room_id' => $roomId, 'error' => $e->getMessage()]);
         }
@@ -142,7 +142,7 @@ class SlotRealtimeService
                 ->post("{$url}/internal/daily-hold-update", [
                     'room_id' => $roomId,
                     'holds'   => $holds,
-                ]);
+                ])->throw();
         } catch (\Throwable $e) {
             Log::warning('WS daily hold push failed', ['room_id' => $roomId, 'error' => $e->getMessage()]);
         }
@@ -170,7 +170,7 @@ class SlotRealtimeService
                     'room_id' => $roomId,
                     'date'    => $date,
                     'holds'   => $holds,
-                ]);
+                ])->throw();
         } catch (\Throwable $e) {
             Log::warning('WS slot hold push failed', ['room_id' => $roomId, 'error' => $e->getMessage()]);
         }
@@ -193,7 +193,7 @@ class SlotRealtimeService
                     'date'     => $date,
                     'slot_ids' => $slotIds,
                     'status'   => $status,
-                ]);
+                ])->throw();
         } catch (\Throwable $e) {
             Log::warning('WS slot push failed', ['room_id' => $roomId, 'error' => $e->getMessage()]);
         }

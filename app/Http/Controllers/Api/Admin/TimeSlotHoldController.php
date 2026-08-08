@@ -96,12 +96,19 @@ class TimeSlotHoldController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    /** Không phát holder ra ngoài — cùng lý do đã áp dụng cho phía khách hàng (xem GuestTimeSlotHoldController). */
+    /**
+     * Không phát holder ra ngoài — cùng lý do đã áp dụng cho phía khách hàng (xem
+     * GuestTimeSlotHoldController). Đổi $date (d-m-Y) sang Y-m-d TRƯỚC khi bắn — kênh Node
+     * "room:{room_id}:{date}" được client subscribe bằng data-iso-date (Y-m-d, xem
+     * resources/js/ws-client.js), gửi thẳng d-m-Y sẽ join sai kênh, không ai nghe được (cùng lỗi
+     * đã sửa ở GuestTimeSlotHoldController).
+     */
     private function broadcastForDate(string $roomId, string $date, array $allHolds): void
     {
         $holdsForDate = array_values(array_filter($allHolds, fn ($h) => $h['date'] === $date));
+        $isoDate      = \Carbon\Carbon::createFromFormat('d-m-Y', $date)->toDateString();
 
-        app(SlotRealtimeService::class)->broadcastSlotHold($roomId, $date, array_map(
+        app(SlotRealtimeService::class)->broadcastSlotHold($roomId, $isoDate, array_map(
             fn ($h) => ['timeslot_id' => $h['timeslot_id']],
             $holdsForDate
         ));

@@ -170,8 +170,64 @@ class Order extends Model implements Eventable
         // phải từ 1 bảng "slot" riêng), các order_item mồ côi này vẫn khiến phòng hiện "đã đặt",
         // không thể tạo lại đúng khung giờ đó dù đơn đã bị xoá. Phải tự tay dọn khi Order bị xoá.
         static::deleting(function (self $order): void {
+            // Chụp lại (ngày, timeslot_id)/khoảng ngày của items TRƯỚC khi xoá — dùng để bắn
+            // realtime "giải phóng" NGAY sau khi xoá xong, để khách đang mở book.blade.php/
+            // product-detail.blade.php của đúng phòng này thấy khung giờ trống lại tức thì thay
+            // vì phải đợi tải lại trang (trước đây xoá đơn không bắn gì cả — ĐÚNG cách
+            // App\Http\Controllers\Api\Admin\OrderController::updateOrder() đã làm cho luồng SỬA
+            // đơn, áp dụng lại cho luồng XOÁ ở đây).
+            $itemsByProduct = $order->items()->whereNotNull('product_id')->get()->groupBy('product_id');
+
             $order->items()->delete();
             $order->services()->delete();
+
+            if ($itemsByProduct->isEmpty()) {
+                return;
+            }
+
+            $realtimeService = app(\App\Services\SlotRealtimeService::class);
+
+            foreach ($itemsByProduct as $productId => $items) {
+                $product = \Modules\Product\App\Models\Product::find($productId);
+                if (! $product) {
+                    continue;
+                }
+
+                if ((int) $product->styles === 1) {
+                    // Phòng "khung giờ" — order_items không lưu timeslot_id trực tiếp nên suy
+                    // ngược qua giờ bắt đầu (checkin_date) khớp với RoomTimeSlot lặp lại (date IS
+                    // NULL) của phòng, best-effort cho mục đích hiển thị realtime.
+                    $recurringSlotsByStartTime = $product->roomTimeSlots()
+                        ->whereNull('date')
+                        ->with('timeSlot')
+                        ->get()
+                        ->filter(fn ($rts) => $rts->timeSlot)
+                        ->keyBy(fn ($rts) => $rts->timeSlot->start_time);
+
+                    $items
+                        ->filter(fn ($item) => $item->checkin_date)
+                        ->map(function ($item) use ($recurringSlotsByStartTime) {
+                            $rts = $recurringSlotsByStartTime->get($item->checkin_date->format('H:i:s'));
+
+                            return $rts ? ['date' => $item->checkin_date->toDateString(), 'timeslot_id' => $rts->timeslot_id] : null;
+                        })
+                        ->filter()
+                        ->groupBy('date')
+                        ->each(fn ($slots, $date) => $realtimeService->broadcastSlotsAvailable(
+                            (string) $productId,
+                            $date,
+                            collect($slots)->pluck('timeslot_id')->values()->toArray()
+                        ));
+                } else {
+                    // Phòng "theo ngày" — giải phóng khoảng ngày rộng nhất (min checkin - max
+                    // checkout) trong số các item vừa xoá của phòng này.
+                    $checkin  = $items->pluck('checkin_date')->filter()->min();
+                    $checkout = $items->pluck('checkout_date')->filter()->max();
+                    if ($checkin && $checkout) {
+                        $realtimeService->broadcastDailyReleased((string) $productId, $checkin->toDateString(), $checkout->toDateString());
+                    }
+                }
+            }
         });
     }
 

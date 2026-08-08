@@ -326,11 +326,16 @@ class OrderObserver
             label: "#{$order->order_code} — {$order->buyer_name}",
         );
 
-        // Realtime: app ẩn đơn ngay khi admin xóa
-        app(OrderRealtimeService::class)->broadcastOrderDeleted(
-            $order->order_code,
-            $order->customer_id ? (int) $order->customer_id : null,
-        );
+        // Realtime: app ẩn đơn ngay khi admin xóa — chỉ bắn khi có order_code (1 số đơn cũ/lỗi dữ
+        // liệu có order_code null; broadcastOrderDeleted() ép kiểu string không nullable nên gọi
+        // với null sẽ ném TypeError, làm toàn bộ luồng xoá đơn thất bại dù items/order đã xoá xong
+        // — phát hiện được khi test luồng xoá đơn, không liên quan broadcast khung giờ realtime).
+        if ($order->order_code) {
+            app(OrderRealtimeService::class)->broadcastOrderDeleted(
+                $order->order_code,
+                $order->customer_id ? (int) $order->customer_id : null,
+            );
+        }
 
         // Trừ lại chi tiêu khi xóa đơn đã thanh toán
         if ($order->status === 'paid' && $order->customer_id && ! $order->exclude_from_stats) {

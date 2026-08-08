@@ -746,6 +746,14 @@ window.rcCalRenderGrid = function() {
     var wrap = document.getElementById('ta-rc-cal-grid-wrap');
     if (!wrap) return;
 
+    // Giữ nguyên vị trí cuộn ngang của carousel phòng qua mỗi lần vẽ lại — hàm này bị gọi lại RẤT
+    // thường xuyên (mỗi lần bấm chọn/bỏ chọn 1 ô, khoá/mở khoá...) và luôn dựng lại TOÀN BỘ
+    // innerHTML từ đầu (kể cả .ta-rc-cal-rooms-track), nên track mới luôn bắt đầu ở scrollLeft=0
+    // nếu không tự lưu/khôi phục — khiến carousel bị "nhảy" về phòng đầu tiên ngay khi admin vừa
+    // bấm nút Sau rồi chọn 1 khung giờ, giống như trang bị tải lại.
+    var prevTrack = document.getElementById('ta-rc-cal-rooms-track');
+    var prevScrollLeft = prevTrack ? prevTrack.scrollLeft : 0;
+
     var branch = window._rcCalActiveBranch;
     var rooms  = (window.__rcRoomsData || []).filter(function(r) {
         return r.branch === branch && (r.styles || 1) === 1 && r.timeslot_grid
@@ -844,6 +852,13 @@ window.rcCalRenderGrid = function() {
                     return '<span class="ta-rc-cal-cell is-held" title="' + window._escAttr('Đang được ' + (cell.held_by || 'admin khác') + ' chọn') + '">Chờ...</span>';
                 }
 
+                // KHÁCH đang chọn ô này ở trang đặt phòng (TimeSlotHoldController, Cache riêng —
+                // KHÁC held_other là admin giữ qua TimeslotHoldService) — cùng lý do held_other,
+                // không cho admin bấm chọn trùng ô khách đang giữ để tránh 2 bên cùng đặt 1 ô.
+                if (cell.kind === 'held_customer') {
+                    return '<span class="ta-rc-cal-cell is-held-customer" title="Khách đang chọn ô này (chưa đặt)">Khách chọn</span>';
+                }
+
                 // free hoặc held_mine (CHÍNH admin này đang giữ — vd vừa F5 lại trang giữa lúc
                 // đang chọn dở) — cả 2 đều bấm chọn/bỏ chọn được, khác nhau ở chỗ đã tô sẵn
                 // is-selected hay chưa. rcCalToggleSlot() tự POST giữ/nhả chỗ real-time NGAY khi
@@ -908,6 +923,11 @@ window.rcCalRenderGrid = function() {
 
     wrap.innerHTML = datesColHtml
         + '<div class="ta-rc-cal-rooms-track" id="ta-rc-cal-rooms-track">' + roomsHtml + '</div>';
+
+    if (prevScrollLeft) {
+        var newTrack = document.getElementById('ta-rc-cal-rooms-track');
+        if (newTrack) newTrack.scrollLeft = prevScrollLeft;
+    }
 };
 
 // Cập nhật chữ "N phòng" giữa nút Trước/Sau (id cố định trong Blade, không bị JS dựng lại như

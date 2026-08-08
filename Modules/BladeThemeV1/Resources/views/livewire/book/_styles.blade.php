@@ -1554,6 +1554,21 @@
         transform: none !important;
     }
 
+    /* Ô vừa "đang chọn" (active, đen) vừa bị ADMIN giữ chỗ real-time (held, cam) — held PHẢI LUÔN
+       thắng, không được để lộ màu đen "đang chọn" của khách khi thực ra slot đó vừa bị người khác
+       giữ (echo-client.js cố tự click() bỏ chọn khi nhận sự kiện .held, nhưng vẫn có khe hở thời
+       điểm 2 class tồn tại cùng lúc). Set lại CẢ nền trực tiếp lẫn lớp phủ ::after (kỹ thuật
+       .held dùng) để chắc chắn thắng bất kể đường nào đang thua. */
+    .selectable.active.held {
+        background: #f59e0b !important;
+        border-color: #f59e0b !important;
+    }
+
+    .selectable.active.held::after {
+        background-color: #f59e0b !important;
+        z-index: 5 !important;
+    }
+
     /* ── Legend ── */
     .selectable-mini {
         background: #fff !important;
