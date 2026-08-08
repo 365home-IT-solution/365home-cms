@@ -170,6 +170,28 @@ trait HasTimeslotGridSelection
         }
     }
 
+    // Chặn lưu đơn nếu có dòng phòng nào rơi vào tình huống thiếu checkin_date/checkout_date sau
+    // khi đã expand — CÓ THỂ xảy ra với style 1 CÓ khung giờ khi admin không bấm chọn ô nào trên
+    // lưới VÀ cũng không dùng phần "Nhập tay" dự phòng mới (manual_checkin_date_override/
+    // manual_checkout_date_override, xem OrderForm.php) — 2 field đó CỐ Ý không required() (chỉ
+    // là fallback tùy chọn khi lưới không hiển thị được ô cần thiết), nên Filament không tự chặn
+    // được trường hợp bỏ trống cả 2 cách. Gọi TRƯỚC khi ghi bất kỳ thay đổi nào xuống DB (xem
+    // CreateOrder::mutateFormDataBeforeCreate()/EditOrder::handleRecordUpdate()).
+    protected function assertExpandedItemsHaveDates(array $expandedItems): void
+    {
+        foreach ($expandedItems as $item) {
+            if (empty($item['checkin_date']) || empty($item['checkout_date'])) {
+                \Filament\Notifications\Notification::make()
+                    ->title('Thiếu ngày & giờ nhận/trả phòng')
+                    ->body('Vui lòng chọn khung giờ trên lưới HOẶC nhập tay ngày & giờ nhận/trả phòng (mục "Nhập tay" bên dưới lưới) cho từng phòng theo khung giờ trước khi lưu đơn.')
+                    ->danger()
+                    ->send();
+
+                throw new \Filament\Support\Exceptions\Halt();
+            }
+        }
+    }
+
     // Tính lại checkin_date/checkout_date/price của 1 dòng order item từ danh sách selected_slots
     // MỚI NHẤT — dùng chung cho cả lúc bấm chọn (selectTimeslot()) lẫn lúc phát hiện mất khung giờ
     // do hold hết hạn (renewTimeslotHolds()), tránh lặp lại cùng 1 logic ở 2 nơi.

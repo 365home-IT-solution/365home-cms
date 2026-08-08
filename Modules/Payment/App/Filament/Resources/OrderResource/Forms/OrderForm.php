@@ -842,6 +842,48 @@ class OrderForm
                                                                         }),
                                                                 ]),
 
+                                                            // Nhập tay CHECKIN/CHECKOUT cho style 1 CÓ khung giờ — dự phòng cho
+                                                            // trường hợp lưới ở trên KHÔNG hiển thị được ô cần chọn (lưới chỉ vẽ
+                                                            // 14 ngày kể từ HÔM NAY trở đi — xem getTimeslotGridData(), $dates
+                                                            // luôn bắt đầu từ now()), ví dụ: khách đặt qua điện thoại cho khung
+                                                            // giờ tối HÔM QUA nhưng admin nhập đơn sau khi đã sang ngày mới thì
+                                                            // khung giờ đó không còn hàng nào trên lưới để bấm chọn nữa.
+                                                            //
+                                                            // CHỈ dùng khi KHÔNG bấm chọn ô nào trên lưới — expandOrderItemsForPersistence()
+                                                            // ưu tiên tuyệt đối 'selected_slots' nếu có (bỏ qua 2 field này), nên
+                                                            // đặt tên field RIÊNG (không trùng manual_checkin_date/manual_checkout_date
+                                                            // của Grid "chưa khai báo khung giờ" bên trên) để tránh 2 field khác
+                                                            // ngữ cảnh cùng chia sẻ 1 statePath.
+                                                            Grid::make(2)
+                                                                ->visible(fn (Get $get) => (int) ($get('product_style') ?? 1) !== 2
+                                                                    && self::getRoomTimeSlots((string) ($get('product_id') ?? ''))->isNotEmpty())
+                                                                ->schema([
+                                                                    Placeholder::make('manual_slot_hint')
+                                                                        ->label('')
+                                                                        ->columnSpan(2)
+                                                                        ->content('Không chọn được khung giờ cần thiết trên lưới ở trên (VD: khung giờ của ngày hôm qua)? Nhập trực tiếp ngày & giờ nhận/trả phòng bên dưới. Lưu ý: nếu đã bấm chọn ô nào trên lưới, hệ thống sẽ ưu tiên dùng ô đã chọn và bỏ qua phần nhập tay này.'),
+
+                                                                    DateTimePicker::make('manual_checkin_date_override')
+                                                                        ->label('Ngày & Giờ nhận phòng (nhập tay)')
+                                                                        ->placeholder('Chọn ngày & giờ nhận phòng')
+                                                                        ->displayFormat('d/m/Y H:i')
+                                                                        ->seconds(false)
+                                                                        ->native(false)
+                                                                        ->dehydrated(false)
+                                                                        ->afterStateUpdated(fn ($state, Set $set) => $set('checkin_date', $state))
+                                                                        ->live(),
+
+                                                                    DateTimePicker::make('manual_checkout_date_override')
+                                                                        ->label('Ngày & Giờ trả phòng (nhập tay)')
+                                                                        ->placeholder('Chọn ngày & giờ trả phòng')
+                                                                        ->displayFormat('d/m/Y H:i')
+                                                                        ->seconds(false)
+                                                                        ->native(false)
+                                                                        ->dehydrated(false)
+                                                                        ->afterStateUpdated(fn ($state, Set $set) => $set('checkout_date', $state))
+                                                                        ->live(),
+                                                                ]),
+
                                                             // checkin_date/checkout_date THẬT SỰ — nơi DUY NHẤT lưu 2 giá trị này
                                                             // cho MỌI style (khung giờ ghi qua selectTimeslot(), style 2 ghi qua
                                                             // checkin_day/checkout_day, style 1 không khung giờ ghi qua

@@ -146,6 +146,13 @@ class CreateOrder extends CreateRecord
     // đã chỉ thuộc đúng đối tác của họ nên không ảnh hưởng gì thêm).
     protected function mutateFormDataBeforeCreate(array $data): array
     {
+        // Chặn TRƯỚC khi tạo bất kỳ bản ghi nào nếu thiếu checkin_date/checkout_date (xem
+        // HasTimeslotGridSelection::assertExpandedItemsHaveDates()) — gọi ngay ở đây (sớm nhất có
+        // thể trong vòng đời Create) để không lỡ tạo dòng Order trống rồi mới phát hiện lỗi.
+        $this->assertExpandedItemsHaveDates(
+            OrderForm::expandOrderItemsForPersistence(is_array($data['orderItems'] ?? null) ? $data['orderItems'] : [])
+        );
+
         if (! empty($data['category_id'])) {
             $category = \Modules\Category\Entities\Category::find($data['category_id']);
 
