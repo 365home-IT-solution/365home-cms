@@ -1345,10 +1345,10 @@
                                         holdTokens: {},
 
                                         _getBookingSessionId() {
-                                            const KEY = \'365home_booking_session_id\';
+                                            const KEY = '365home_booking_session_id';
                                             let sid = localStorage.getItem(KEY);
                                             if (!sid) {
-                                                sid = \'c\' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+                                                sid = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
                                                 localStorage.setItem(KEY, sid);
                                             }
                                             return sid;
@@ -1358,33 +1358,33 @@
                                         // đây đang là Y-m-d ($date[carbon_date]->format(Y-m-d) truyền vào toggleSlot()),
                                         // phải đổi định dạng TRƯỚC khi gọi API để 2 trang dùng chung 1 định dạng cache.
                                         _toDmy(isoDate) {
-                                            const parts = String(isoDate).split(\'-\');
-                                            return parts.length === 3 ? (parts[2] + \'-\' + parts[1] + \'-\' + parts[0]) : isoDate;
+                                            const parts = String(isoDate).split('-');
+                                            return parts.length === 3 ? (parts[2] + '-' + parts[1] + '-' + parts[0]) : isoDate;
                                         },
 
                                         _holdSlotAsync(roomId, timeslotId, isoDate) {
-                                            fetch(\'/api/rooms/\' + roomId + \'/time-slot-hold\', {
-                                                method: \'POST\',
-                                                headers: { \'Content-Type\': \'application/json\', \'Accept\': \'application/json\' },
+                                            fetch('/api/rooms/' + roomId + '/time-slot-hold', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                                                 body: JSON.stringify({ session_id: this._getBookingSessionId(), timeslot_id: timeslotId, date: this._toDmy(isoDate) }),
                                             })
                                                 .then(r => r.json())
                                                 .then(d => {
                                                     if (d && d.ok && d.hold_token) {
-                                                        this.holdTokens[roomId + \'|\' + timeslotId + \'|\' + isoDate] = d.hold_token;
+                                                        this.holdTokens[roomId + '|' + timeslotId + '|' + isoDate] = d.hold_token;
                                                     }
                                                 })
                                                 .catch(() => {});
                                         },
 
                                         _releaseSlotHold(roomId, timeslotId, isoDate) {
-                                            const key = roomId + \'|\' + timeslotId + \'|\' + isoDate;
+                                            const key = roomId + '|' + timeslotId + '|' + isoDate;
                                             const token = this.holdTokens[key];
                                             if (!token) return;
                                             delete this.holdTokens[key];
-                                            fetch(\'/api/rooms/\' + roomId + \'/time-slot-hold\', {
-                                                method: \'DELETE\',
-                                                headers: { \'Content-Type\': \'application/json\', \'Accept\': \'application/json\' },
+                                            fetch('/api/rooms/' + roomId + '/time-slot-hold', {
+                                                method: 'DELETE',
+                                                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                                                 body: JSON.stringify({ session_id: this._getBookingSessionId(), timeslot_id: timeslotId, date: this._toDmy(isoDate), hold_token: token }),
                                             }).catch(() => {});
                                         },

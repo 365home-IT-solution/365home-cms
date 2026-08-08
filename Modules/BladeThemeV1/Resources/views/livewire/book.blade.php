@@ -12,7 +12,7 @@
         // Nhả hết hold real-time đang giữ (không đợi TTL 10p tự hết) — mỗi lượt chọn phòng khác/huỷ
         // chọn hết cả loạt đều đi qua đây, xem holdTokens ở trên.
         Object.keys(this.holdTokens).forEach(key => {
-            const [roomId, timeslotId, date] = key.split(\'|\');
+            const [roomId, timeslotId, date] = key.split('|');
             this._releaseSlotHold(roomId, timeslotId, date);
         });
         this.holdTokens = {};
@@ -30,10 +30,10 @@
     // lại (xem BranchController::buildSlotStatus()) — KHÔNG phải bằng chứng sở hữu để release(),
     // xem hold_token bên dưới.
     _getBookingSessionId() {
-        const KEY = \'365home_booking_session_id\';
+        const KEY = '365home_booking_session_id';
         let sid = localStorage.getItem(KEY);
         if (!sid) {
-            sid = \'c\' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+            sid = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
             localStorage.setItem(KEY, sid);
         }
         return sid;
@@ -46,28 +46,28 @@
     // real-time lúc đó (khoá DB thật sự lúc submit đơn mới là chốt chặn chính, đây chỉ để hiển thị
     // sớm — xem TimeSlotHoldController).
     _holdSlotAsync(roomId, timeslotId, date) {
-        fetch(\'/api/rooms/\' + roomId + \'/time-slot-hold\', {
-            method: \'POST\',
-            headers: { \'Content-Type\': \'application/json\', \'Accept\': \'application/json\' },
+        fetch('/api/rooms/' + roomId + '/time-slot-hold', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify({ session_id: this._getBookingSessionId(), timeslot_id: timeslotId, date: date }),
         })
             .then(r => r.json())
             .then(d => {
                 if (d && d.ok && d.hold_token) {
-                    this.holdTokens[roomId + \'|\' + timeslotId + \'|\' + date] = d.hold_token;
+                    this.holdTokens[roomId + '|' + timeslotId + '|' + date] = d.hold_token;
                 }
             })
             .catch(() => {});
     },
 
     _releaseSlotHold(roomId, timeslotId, date) {
-        const key = roomId + \'|\' + timeslotId + \'|\' + date;
+        const key = roomId + '|' + timeslotId + '|' + date;
         const token = this.holdTokens[key];
         if (!token) return;
         delete this.holdTokens[key];
-        fetch(\'/api/rooms/\' + roomId + \'/time-slot-hold\', {
-            method: \'DELETE\',
-            headers: { \'Content-Type\': \'application/json\', \'Accept\': \'application/json\' },
+        fetch('/api/rooms/' + roomId + '/time-slot-hold', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify({ session_id: this._getBookingSessionId(), timeslot_id: timeslotId, date: date, hold_token: token }),
         }).catch(() => {});
     },
