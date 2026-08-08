@@ -21,6 +21,11 @@
         --ta-ink-mute: #737373;
         --ta-ink-faint: #A3A3A3;
         --ta-accent: #059669;
+        /* Primary color THẬT của hệ thống (khớp .tsgrid-cell.selected trong
+           timeslot-grid-table.blade.php/OrderForm) — dùng riêng cho view "Lịch" + popup thông
+           tin đơn (carousel/ô đã đặt/nút lưu ghi chú), KHÔNG đổi --ta-accent chung (đang dùng ở
+           rất nhiều chỗ khác của Dashboard, đổi sẽ ảnh hưởng ngoài phạm vi được yêu cầu). */
+        --ta-cal-primary: #2B5257;
         --ta-green: #10B981;
         --ta-red: #EF4444;
         --ta-blue: #3B82F6;
@@ -699,6 +704,695 @@
         box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.08), 0 4px 12px rgba(0, 0, 0, 0.04);
     }
 
+    /* ===== Chế độ xem "Lịch" — carousel chi nhánh + lưới ngày×khung giờ nhiều phòng cạnh nhau,
+       cùng ngôn ngữ thị giác với lịch đặt phòng phía khách (book/_desktop-grid.blade.php) nhưng
+       chỉ xem, không chọn ô. Toàn bộ nội dung do JS dựng — xem rcCalInit()/rcCalRenderGrid()
+       trong _scripts.blade.php. ===== */
+    .ta-rc-cal-nav-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        flex-shrink: 0;
+        font-size: 12px;
+        font-weight: 600;
+        font-family: 'Inter', ui-sans-serif, sans-serif;
+        color: var(--ta-ink-mute);
+        background: var(--ta-panel);
+        border: 1px solid var(--ta-line);
+        border-radius: 999px;
+        padding: 6px 12px;
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+
+    .ta-rc-cal-nav-btn:hover:not(:disabled) {
+        color: var(--ta-ink-title);
+        border-color: var(--ta-cal-primary);
+    }
+
+    .ta-rc-cal-nav-btn:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+    }
+
+    /* Trước/Sau chi nhánh — hàng RIÊNG phía TRÊN danh sách chi nhánh (không chung hàng với track),
+       2 nút nằm SÁT NHAU, có chữ "Trước"/"Sau" — CÙNG kiểu với .ta-rc-cal-rooms-nav (carousel
+       phòng) để nhất quán trong toàn view "Lịch". */
+    .ta-rc-cal-branches-nav {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+
+    .ta-rc-cal-branches {
+        margin-bottom: 14px;
+    }
+
+    /* Danh sách chi nhánh — nút gọn, KHÔNG bo tròn hẳn (pill) như trước, cuộn ngang 1 hàng bằng
+       Trước/Sau thay vì tự xuống hàng — không giới hạn số chi nhánh vì luôn cuộn được. */
+    .ta-rc-cal-branch-track {
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding-bottom: 2px;
+    }
+
+    .ta-rc-cal-branch-track::-webkit-scrollbar {
+        display: none;
+    }
+
+    .ta-rc-cal-branch-card {
+        flex: 0 0 auto;
+        scroll-snap-align: start;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 14px;
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: 600;
+        font-family: 'Inter', ui-sans-serif, sans-serif;
+        color: var(--ta-ink-mute);
+        background: var(--ta-panel);
+        border: 1px solid var(--ta-line);
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+
+    .ta-rc-cal-branch-card:hover {
+        color: var(--ta-ink);
+        border-color: var(--ta-cal-primary);
+    }
+
+    .ta-rc-cal-branch-card.active {
+        background: var(--ta-ink-title);
+        color: #fff;
+        border-color: var(--ta-ink-title);
+    }
+
+    /* Chi nhánh CÓ đơn — viền màu primary để báo hiệu, không dùng hiệu ứng lan toả nữa.
+       .has-orders.active gộp 2 class để thắng specificity của riêng .active (giữ viền primary
+       kể cả khi đang được chọn). */
+    .ta-rc-cal-branch-card.has-orders,
+    .ta-rc-cal-branch-card.has-orders.active {
+        border-color: var(--ta-cal-primary);
+    }
+
+    .ta-rc-cal-branch-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 16px;
+        height: 16px;
+        padding: 0 5px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 700;
+        background: rgba(0, 0, 0, 0.07);
+        color: inherit;
+        line-height: 1;
+    }
+
+    .ta-rc-cal-branch-card.active .ta-rc-cal-branch-badge {
+        background: rgba(255, 255, 255, 0.2);
+        color: #fff;
+    }
+
+    .ta-rc-cal-legend-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
+    .ta-rc-cal-rooms-nav {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    /* "N phòng" — hiện giữa 2 nút Trước/Sau của carousel phòng, nowrap để gọn 1 hàng. */
+    .ta-rc-cal-rooms-page-info {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--ta-ink-mute);
+        font-family: 'Inter', ui-sans-serif, sans-serif;
+        white-space: nowrap;
+        text-align: center;
+    }
+
+    .ta-rc-cal-days-control {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: 'Inter', ui-sans-serif, sans-serif;
+    }
+
+    .ta-rc-cal-days-control label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--ta-ink-mute);
+        white-space: nowrap;
+    }
+
+    .ta-rc-cal-days-input {
+        -webkit-appearance: none;
+        appearance: none;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--ta-ink-title);
+        background: var(--ta-panel) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23667085' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 8px center / 12px 12px;
+        border: 1px solid var(--ta-line);
+        border-radius: 8px;
+        padding: 5px 24px 5px 10px;
+        cursor: pointer;
+    }
+
+    .ta-rc-cal-days-input:focus {
+        outline: none;
+        border-color: var(--ta-cal-primary);
+    }
+
+    .ta-rc-cal-legend {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+    }
+
+    .ta-rc-cal-legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--ta-ink-mute);
+        font-family: 'Inter', ui-sans-serif, sans-serif;
+    }
+
+    .ta-rc-cal-dot {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+    }
+
+    .ta-rc-cal-dot.booked {
+        background: var(--ta-cal-primary);
+    }
+
+    .ta-rc-cal-dot.pending {
+        background: #f59e0b;
+    }
+
+    .ta-rc-cal-dot.overdue {
+        background: #DC2626;
+    }
+
+    .ta-rc-cal-dot.free {
+        background: var(--ta-line-soft);
+        border: 1px solid var(--ta-line);
+    }
+
+    /* Chú thích ô "Có giảm giá" — cùng hiệu ứng viền cầu vồng chạy với .ta-rc-cal-cell.is-discounted
+       bên dưới, thu nhỏ lại cho vừa ô chấm 10x10. */
+    .ta-rc-cal-dot.discounted {
+        position: relative;
+        z-index: 1;
+        background: #fff;
+        border: 1px solid #fff;
+    }
+
+    .ta-rc-cal-dot.discounted::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: linear-gradient(270deg, #ff0000, #ff9900, #33ff00, #00ffff, #3300ff, #ff00cc, #ff0000);
+        background-size: 300% 300%;
+        animation: ta-rc-cal-borderflow 10s linear infinite;
+        z-index: -10;
+        filter: blur(1px);
+    }
+
+    .ta-rc-cal-dot.discounted::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: #fff;
+    }
+
+    /* Icon chuông trong chú thích — giải thích badge chuông trắng nổi giữa ô đã đặt có ghi chú
+       (xem .ta-rc-cal-cell-note-badge, rcCalRenderGrid()) — màu trung tính (không phải trắng)
+       vì ở đây icon đứng trên nền panel sáng, không phải trên ô màu. */
+    .ta-rc-cal-legend-note-icon {
+        width: 13px;
+        height: 13px;
+        color: #b45309;
+    }
+
+    /* Khung ngoài — cột "Thời gian" (cố định trái) + carousel phòng cuộn NGANG cạnh nhau, cùng cuộn
+       DỌC như 1 khối khi tăng số ngày hiển thị (5/10/15) thay vì đẩy cả trang cao dần — tham khảo
+       .book-dt-dates-card/.book-dt-slots-scroll (book/_desktop-grid.blade.php, cuộn dọc trong
+       khung chiều cao cố định). Nhãn "Thời gian" đứng yên (position:sticky) khi cuộn dọc — xem
+       .ta-rc-cal-dates-spacer. */
+    .ta-rc-cal-grid-wrap {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        max-height: 520px;
+        overflow-y: auto;
+        border: 1px solid var(--ta-line);
+        border-radius: 12px;
+        padding: 10px;
+        background: var(--ta-panel);
+        /* Ẩn thanh cuộn (vẫn cuộn được bằng lăn chuột/kéo/chạm) — ĐÚNG kiểu
+           .book-dt-dates-scroll/.book-dt-slots-scroll bên book.blade.php. */
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    .ta-rc-cal-grid-wrap::-webkit-scrollbar {
+        display: none;
+        width: 0;
+        height: 0;
+    }
+
+    .ta-rc-cal-empty {
+        padding: 40px 16px;
+        text-align: center;
+        color: var(--ta-ink-mute);
+        font-size: 13px;
+    }
+
+    /* Cột "Thời gian" — đứng cố định bên trái, KHÔNG trượt theo carousel phòng bên phải (khác
+       carousel chi nhánh ở trên, không cuộn được). Spacer bù đúng chiều cao 3 khối tiêu đề (tên
+       phòng 30px + lưới 2x2 nút thao tác 54px + hàng khung giờ 46px = 130px) bên phía mỗi phòng
+       để hàng ngày khớp hàng khung giờ — cùng ý tưởng book-dt-room-name ẩn ở
+       book/_desktop-grid.blade.php, nhưng dùng chiều cao cố định bằng CSS thay vì đo động vì số
+       hàng tiêu đề ở đây luôn cố định. */
+    .ta-rc-cal-dates-col {
+        flex: 0 0 62px;
+    }
+
+    .ta-rc-cal-dates-spacer {
+        height: 130px;
+        display: flex;
+        align-items: flex-end;
+        padding-bottom: 6px;
+        font-size: 10.5px;
+        font-weight: 700;
+        color: var(--ta-ink-mute);
+        text-transform: uppercase;
+        /* Đứng yên khi .ta-rc-cal-grid-wrap cuộn dọc — nhãn "Thời gian" luôn thấy được dù đang
+           cuộn xem ngày xa hơn. */
+        position: sticky;
+        top: 0;
+        z-index: 3;
+        background: var(--ta-panel);
+    }
+
+    .ta-rc-cal-date-row {
+        height: 46px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        justify-content: center;
+        gap: 1px;
+        border-top: 1px solid var(--ta-line-soft);
+        padding-right: 6px;
+    }
+
+    .ta-rc-cal-dow {
+        font-size: 10px;
+        font-weight: 700;
+        color: var(--ta-ink-mute);
+    }
+
+    .ta-rc-cal-dnum {
+        font-size: 10.5px;
+        color: var(--ta-ink-faint);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .ta-rc-cal-date-row.is-today .ta-rc-cal-dow,
+    .ta-rc-cal-date-row.is-today .ta-rc-cal-dnum {
+        color: var(--ta-ink-title);
+        font-weight: 800;
+    }
+
+    /* Carousel PHÒNG — vài phòng/lần (~3 trên desktop), trượt MƯỢT bằng rcCalScrollRooms()
+       (scrollBy() smooth) trong _scripts.blade.php — trước đây tính toán lại "trang"/"cửa sổ
+       trượt" bằng tay rồi vẽ lại TOÀN BỘ lưới mỗi lần chuyển, nặng và giật; giờ dựng lưới 1 LẦN
+       DUY NHẤT, chỉ cuộn ngang thuần CSS — trình duyệt tự kẹp vị trí cuộn ở 2 đầu nên kéo tới cuối
+       vẫn luôn thấy đủ phòng cuối cùng (không có "trang" lẻ loi thiếu phòng), CÙNG kỹ thuật với
+       carousel chi nhánh ở trên. Tự dựng bằng scroll-snap thuần (KHÔNG dùng Swiper.js như bên
+       khách, tránh thêm thư viện ngoài vào Filament admin). */
+    .ta-rc-cal-rooms-track {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        gap: 16px;
+        overflow-x: auto;
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+
+    .ta-rc-cal-rooms-track::-webkit-scrollbar {
+        display: none;
+    }
+
+    .ta-rc-cal-room-block {
+        /* 3 phòng/lần theo mặc định (track gap 16px, 2 khoảng gap cho 3 khối) — bấm Trước/Sau
+           (rcCalScrollRooms()) trượt sang bộ 3 phòng kế tiếp. */
+        flex: 0 0 calc((100% - 32px) / 3);
+        min-width: 260px;
+        scroll-snap-align: start;
+    }
+
+    .ta-rc-cal-room-name {
+        height: 24px;
+        margin: 0 0 6px;
+        font-size: 14px;
+        font-weight: 800;
+        font-style: italic;
+        text-align: center;
+        color: var(--ta-ink-title);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* Hàng thao tác nhanh dưới tên phòng — Xem phòng/Giá phòng/Khoá phòng/Đặt phòng, icon-only
+       (tooltip qua title) để vừa gọn trong 1 khối phòng hẹp (~260px, xem .ta-rc-cal-room-block). */
+    /* 2 hàng (thay vì 1 hàng ngang) — nút dạng CHỮ cần nhiều chỗ hơn icon, ép 1 hàng sẽ vỡ trong
+       khối phòng hẹp (~260px, xem .ta-rc-cal-room-block). Hàng 1: Xem phòng/Giá phòng/Thống kê (3
+       cột). Hàng 2: Khoá phòng/Đặt phòng (2 cột). Chiều cao cố định 2 hàng để
+       .ta-rc-cal-dates-spacer bù đúng (xem ghi chú ở đó) — vẫn 48px vì luôn đúng 2 hàng dù số cột
+       mỗi hàng khác nhau. */
+    .ta-rc-cal-room-actions {
+        height: 48px;
+        margin: 0 0 6px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .ta-rc-cal-room-actions-row {
+        display: grid;
+        gap: 4px;
+        flex: 1;
+        min-height: 0;
+    }
+
+    .ta-rc-cal-room-actions-row.cols-3 {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
+    .ta-rc-cal-room-actions-row.cols-2 {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .ta-rc-cal-room-action-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 22px;
+        padding: 0 4px;
+        border-radius: 6px;
+        border: 1px solid var(--ta-line);
+        background: var(--ta-panel);
+        color: var(--ta-ink-mute);
+        font-size: 10px;
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: none;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        transition: all 0.15s;
+    }
+
+    .ta-rc-cal-room-action-btn:hover {
+        color: var(--ta-ink-title);
+        border-color: var(--ta-cal-primary);
+    }
+
+    .ta-rc-cal-room-action-btn.is-primary {
+        background: var(--ta-cal-primary);
+        border-color: var(--ta-cal-primary);
+        color: #fff;
+    }
+
+    .ta-rc-cal-room-action-btn.is-primary:hover {
+        opacity: 0.88;
+    }
+
+    /* "Mở khoá (N)" — "Khoá phòng" tự đổi thành nút này khi có ≥1 ô đã khoá đang được chọn để mở
+       hàng loạt (xem rcCalConfirmUnblockSlots()) — màu đỏ cảnh báo, khác hẳn "Khoá phòng"/"Đặt
+       phòng" để admin không bấm nhầm. */
+    .ta-rc-cal-room-action-btn.is-unlock {
+        background: #fef2f2;
+        border-color: #fecaca;
+        color: #dc2626;
+    }
+
+    .ta-rc-cal-room-action-btn.is-unlock:hover {
+        background: #dc2626;
+        border-color: #dc2626;
+        color: #fff;
+    }
+
+    /* "Khoá phòng"/"Đặt phòng" mặc định khoá (disabled) — chỉ bật khi đang chọn ít nhất 1 khung
+       giờ trên lưới bên dưới (xem rcCalUpdateRoomActionState() trong _scripts.blade.php). */
+    .ta-rc-cal-room-action-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        border-color: var(--ta-line);
+        background: var(--ta-panel);
+        color: var(--ta-ink-faint);
+    }
+
+    .ta-rc-cal-room-action-btn:disabled:hover {
+        color: var(--ta-ink-faint);
+        border-color: var(--ta-line);
+    }
+
+    .ta-rc-cal-slot-head-row {
+        height: 46px;
+        display: flex;
+        gap: 6px;
+    }
+
+    .ta-rc-cal-slot-head {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        font-size: 10.5px;
+        font-weight: 700;
+        color: var(--ta-ink-mute);
+        text-align: center;
+        line-height: 1.3;
+    }
+
+    .ta-rc-cal-slots-row {
+        height: 46px;
+        display: flex;
+        gap: 6px;
+        border-top: 1px solid var(--ta-line-soft);
+    }
+
+    .ta-rc-cal-cell {
+        position: relative;
+        flex: 1;
+        min-width: 0;
+        align-self: center;
+        height: 34px;
+        border-radius: 9px;
+        border: 1px solid var(--ta-line);
+        box-shadow: inset 0 1px 3px 0 rgb(0 0 0 / .1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        font-weight: 600;
+        text-align: center;
+        text-decoration: none;
+        padding: 0 3px;
+        overflow: visible;
+    }
+
+    /* Badge chuông (đơn có ghi chú — Order.description, xem RoomCardsService::buildTimeslotGrid()
+       'has_note') — nằm GIỮA ô, màu trắng nổi trực tiếp trên nền màu ô (primary/vàng), không cần
+       khoanh nền tròn riêng nữa. pointer-events:none để click vẫn rơi xuống <button> bên dưới (mở
+       popup) chứ không bị chặn bởi icon. */
+    .ta-rc-cal-cell-note-badge {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 15px;
+        height: 15px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .35));
+        pointer-events: none;
+    }
+
+    .ta-rc-cal-cell-note-badge svg {
+        width: 15px;
+        height: 15px;
+    }
+
+    .ta-rc-cal-cell.is-free {
+        /* Ô trống là <button> (bấm chọn — rcCalToggleSlot()), reset style mặc định của trình
+           duyệt giống hệt .is-booked bên dưới. */
+        background: var(--ta-panel);
+        color: var(--ta-ink-faint);
+        font-family: inherit;
+        cursor: pointer;
+        -webkit-appearance: none;
+        appearance: none;
+    }
+
+    .ta-rc-cal-cell.is-free:hover:not(:disabled) {
+        border-color: var(--ta-cal-primary);
+    }
+
+    /* Khung giờ ĐANG có khuyến mãi hiệu lực (RoomCardsService::buildTimeslotGrid() has_discount) —
+       CÙNG kỹ thuật viền cầu vồng chạy với .tsgrid-cell.has-promo của OrderForm (xem
+       Modules/Payment/Resources/views/components/timeslot-grid-table.blade.php): ::before là
+       gradient cầu vồng full ô, filter:blur(1px) + z-index rất âm để viền mờ loang ra ngoài
+       border-radius; ::after phủ lại trắng ĐẶC (không blur) ở giữa nên chỉ viền ngoài còn màu. */
+    .ta-rc-cal-cell.is-free.is-discounted {
+        position: relative;
+        z-index: 1;
+        background: #fff;
+        border-color: #fff;
+        box-shadow: inset 0 1px 3px 0 rgb(0 0 0 / .12);
+    }
+
+    .ta-rc-cal-cell.is-free.is-discounted::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: linear-gradient(270deg, #ff0000, #ff9900, #33ff00, #00ffff, #3300ff, #ff00cc, #ff0000);
+        background-size: 300% 300%;
+        animation: ta-rc-cal-borderflow 10s linear infinite;
+        z-index: -10;
+        filter: blur(1px);
+    }
+
+    .ta-rc-cal-cell.is-free.is-discounted::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: #fff;
+    }
+
+    /* Nâng chữ "Trống"/"Đã chọn" lên trên ::after (phủ trắng đặc của .is-discounted) — thiếu
+       z-index riêng, ::after paint SAU chữ trong stacking context nên sẽ che mất chữ. */
+    .ta-rc-cal-cell-label {
+        position: relative;
+        z-index: 1;
+    }
+
+    @keyframes ta-rc-cal-borderflow {
+        0%   { background-position: 0% 50%; }
+        100% { background-position: 300% 50%; }
+    }
+
+    /* Đang được CHÍNH admin này chọn (chưa Khoá/Đặt phòng) — tô ĐẶC màu primary, CÙNG kiểu với ô
+       đã đặt (.is-booked) theo đúng yêu cầu, thay vì viền phân biệt như trước. */
+    .ta-rc-cal-cell.is-selected {
+        background: var(--ta-cal-primary);
+        border-color: transparent;
+        color: #fff;
+    }
+
+    /* Đã khoá dài hạn (settings['blocked_dates'] — BlockTimeslotModal/rcCalConfirmBlockSlots()) —
+       kẻ sọc chéo, không bấm chọn được. */
+    .ta-rc-cal-cell.is-blocked {
+        /* Bấm lại để MỞ khoá (rcCalUnblockSlot()) — vẫn là <button>, reset appearance giống
+           .is-free/.is-booked. */
+        background: repeating-linear-gradient(135deg, var(--ta-line-soft) 0 4px, var(--ta-panel) 4px 8px);
+        border-color: var(--ta-line);
+        color: var(--ta-ink-faint);
+        font-family: inherit;
+        cursor: pointer;
+        -webkit-appearance: none;
+        appearance: none;
+    }
+
+    .ta-rc-cal-cell.is-blocked:hover:not(:disabled) {
+        border-color: #dc2626;
+        color: #dc2626;
+    }
+
+    .ta-rc-cal-cell.is-blocked svg {
+        width: 13px;
+        height: 13px;
+    }
+
+    /* Ô đã khoá ĐANG ĐƯỢC CHỌN để mở khoá hàng loạt (rcCalToggleBlockedSlot()) — đè màu đỏ cảnh
+       báo lên trên nền sọc chéo, khác dấu ✓ với icon khoá bình thường. */
+    .ta-rc-cal-cell.is-blocked.is-unblock-selected {
+        background: #fef2f2;
+        border-color: #dc2626;
+        color: #dc2626;
+    }
+
+    /* Admin KHÁC đang chọn dở (TimeslotHold real-time) — viền đứt màu vàng, không bấm chọn được. */
+    .ta-rc-cal-cell.is-held {
+        background: var(--ta-panel);
+        border: 1px dashed #f59e0b;
+        color: #b45309;
+        cursor: not-allowed;
+    }
+
+    .ta-rc-cal-cell.is-booked {
+        /* Ô đã đặt là <button> (bấm mở popup — rcCalOpenOrderPopup()), reset style mặc định
+           của trình duyệt để trông giống hệt ô trống (<span>) bên cạnh, chỉ khác màu nền. Mặc
+           định dùng --ta-cal-primary (#2B5257 — ĐÚNG primary color hệ thống, khớp
+           .tsgrid-cell.selected của OrderForm) — riêng 'pending' (chờ xác nhận) đè vàng bằng
+           .is-pending bên dưới (cần nổi bật để admin xử lý sớm), các trạng thái đã đặt khác
+           (paid/deposit/...) gộp chung màu primary, không còn tô theo cell.color như trước —
+           popup chi tiết (rcCalOpenOrderPopup()) mới là nơi phân biệt đủ mọi trạng thái. */
+        background: var(--ta-cal-primary);
+        color: #fff;
+        border-color: transparent;
+        font-family: inherit;
+        cursor: pointer;
+        -webkit-appearance: none;
+        appearance: none;
+    }
+
+    .ta-rc-cal-cell.is-booked.is-pending {
+        background: #f59e0b;
+    }
+
+    /* Quá giờ checkout (RoomCardsService::buildTimeslotGrid() 'is_overdue') — đè đỏ #DC2626, ĐÚNG
+       màu "Quá hạn" đã dùng xuyên suốt Dashboard (.ta-rct-dot.overdue-dot, .seg-overdue...), kể cả
+       khi đơn đang 'pending' (is-overdue viết SAU is-pending trong CSS nên thắng, quá giờ là tín
+       hiệu cấp bách hơn trạng thái thanh toán). */
+    .ta-rc-cal-cell.is-booked.is-overdue {
+        background: #DC2626;
+    }
+
     .ta-rc-head {
         display: flex;
         align-items: center;
@@ -1299,133 +1993,17 @@
         color: #fff;
     }
 
-    /* ===== View "Dải giờ" — thanh 24h + danh sách ngày khác ===== */
-    .ta-rc-timeline {
-        display: none;
-        padding: 2px 2px 0;
-    }
-
     /* ===== View "Chi tiết (cũ)" — giao diện đầy đủ trước khi tối giản, để so sánh ===== */
     .ta-rc-orders-detail {
         display: none;
     }
 
-    #ta-room-grid.rc-view-timeline .ta-rc-orders,
     #ta-room-grid.rc-view-detail .ta-rc-orders {
         display: none;
     }
 
-    #ta-room-grid.rc-view-timeline .ta-rc-timeline {
-        display: block;
-    }
-
     #ta-room-grid.rc-view-detail .ta-rc-orders-detail {
         display: block;
-    }
-
-    .ta-rc-tl-empty {
-        font-size: 11px;
-        color: var(--ta-ink-faint);
-        text-align: center;
-        padding: 4px 0 2px;
-    }
-
-    /* ===== Lưới Ngày × Khung giờ (view "Dải giờ") — ĐẢO TRỤC so với trang đặt phòng của khách
-       (book.blade.php/_desktop-grid.blade.php: hàng = khung giờ, cột = ngày, cuộn NGANG). Ở đây mỗi
-       phòng thường chỉ có vài khung giờ (ít) nhưng luôn có 7 ngày cố định (nhiều hơn) — đặt khung
-       giờ LÀM CỘT/đứng yên trên đầu (thead sticky), ngày LÀM HÀNG để cuộn DỌC xem tiếp thay vì cuộn
-       NGANG, hợp với bề ngang hẹp sẵn của thẻ phòng. ===== */
-    .ta-rc-grid-wrap {
-        max-height: 190px;
-        overflow-y: auto;
-        overflow-x: hidden;
-    }
-
-    .ta-rc-grid {
-        /* KHÔNG width:100% — bảng giờ chỉ có vài cột khung giờ (ít) nên nếu ép full chiều
-           rộng thẻ, trình duyệt tự giãn các ô vượt xa kích thước 26x20px đã định (ô chọn/đã
-           đặt hiện to bất thường, không còn "nhỏ gọn" như thiết kế ban đầu). Để bảng tự co
-           theo đúng nội dung, phần dư bên phải để trống là bình thường. */
-        border-collapse: separate;
-        border-spacing: 3px;
-        width: auto;
-    }
-
-    .ta-rc-grid-corner {
-        min-width: 46px;
-    }
-
-    .ta-rc-grid thead th {
-        position: sticky;
-        top: 0;
-        z-index: 1;
-        background: var(--ta-panel);
-    }
-
-    .ta-rc-grid-rowhead-top {
-        min-width: 30px;
-        font-size: 10px;
-        font-weight: 500;
-        color: var(--ta-ink-mute);
-        text-align: center;
-        padding-bottom: 2px;
-        white-space: nowrap;
-    }
-
-    .ta-rc-grid-datehead-left {
-        font-weight: 500;
-        text-align: left;
-        padding-right: 4px;
-    }
-
-    .ta-rc-grid-datehead-left.is-today .ta-rc-grid-dow,
-    .ta-rc-grid-datehead-left.is-today .ta-rc-grid-dnum {
-        color: var(--ta-ink-title);
-        font-weight: 700;
-    }
-
-    .ta-rc-grid-dow {
-        display: inline-block;
-        font-size: 9px;
-        color: var(--ta-ink-faint);
-        text-transform: uppercase;
-        margin-right: 3px;
-    }
-
-    .ta-rc-grid-dnum {
-        display: inline-block;
-        font-size: 10.5px;
-        color: var(--ta-ink-mute);
-        font-variant-numeric: tabular-nums;
-    }
-
-    .ta-rc-grid-cell {
-        width: 26px;
-        height: 20px;
-        padding: 0;
-        border-radius: 5px;
-        background: var(--ta-line-soft);
-    }
-
-    .ta-rc-grid-cell.is-free {
-        opacity: 0.55;
-    }
-
-    .ta-rc-grid-cell.is-booked {
-        background: none;
-    }
-
-    .ta-rc-grid-cell.is-booked a {
-        display: block;
-        width: 100%;
-        height: 100%;
-        border-radius: 5px;
-    }
-
-    .ta-rc-grid-cell.is-booked a:hover,
-    .ta-rc-grid-cell.is-booked a:focus-visible {
-        outline: 2px solid var(--ta-ink-title);
-        outline-offset: 1px;
     }
 
     /* ===== Tooltip dùng chung (view Danh sách + Dải giờ) =====
@@ -2633,6 +3211,787 @@
 
     .ta-rc-popup-body .ta-pop-room-orders {
         flex: 1;
+    }
+
+    /* Đồng bộ màu chủ đạo với view "Lịch" (--ta-cal-primary #2B5257) CHỈ trong phạm vi popup này
+       — icon nhà/badge "N đơn"/nút "+ Ghi chú"+"Lưu" ở đây trước nay dùng chung --ta-accent (xanh
+       lá) với view "Danh sách", giờ tách riêng để không đụng --ta-accent đang dùng ở nhiều nơi
+       khác (KPI, checkbox chọn đơn...). CHỈ đổi màu "trung tính/thương hiệu" — giữ nguyên màu
+       trạng thái có ý nghĩa riêng (.ta-seg-badge.active/today/overdue...) vì đó là mã màu phân
+       biệt trạng thái, không phải màu trang trí. */
+    .ta-rc-popup-body .ta-rc-icon.active {
+        background: rgba(43, 82, 87, .1);
+        border-color: rgba(43, 82, 87, .35);
+        color: var(--ta-cal-primary);
+        animation: rcActivePulseTeal 2.5s ease-in-out infinite;
+    }
+
+    @keyframes rcActivePulseTeal {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(43, 82, 87, .3); }
+        50% { box-shadow: 0 0 0 5px rgba(43, 82, 87, 0); }
+    }
+
+    .ta-rc-popup-body .ta-rc-count:not(.empty) {
+        background: rgba(43, 82, 87, .1);
+        color: var(--ta-cal-primary);
+        border-color: rgba(43, 82, 87, .35);
+    }
+
+    .ta-rc-popup-body .ta-pop-deposit-btn {
+        color: var(--ta-cal-primary);
+    }
+
+    .ta-rc-popup-body .ta-pop-deposit-save {
+        background: var(--ta-cal-primary);
+    }
+
+    .ta-rc-popup-body .ta-pop-deposit-save:hover:not(:disabled) {
+        opacity: .88;
+        background: var(--ta-cal-primary);
+    }
+
+    /* ===== Popup thông tin nhanh 1 đơn (bấm ô đã đặt ở view "Lịch") — tái dùng
+       .ta-rc-popup-overlay/.ta-rc-popup-close-btn (đã định nghĩa ở trên) cho phần khung/nút đóng
+       chung, chỉ định nghĩa riêng modal (nhỏ gọn, không phải grid nhiều thẻ) + nội dung. ===== */
+    .ta-rc-order-popup-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        backdrop-filter: blur(2px);
+        animation: rcPopFadeIn 0.18s ease;
+    }
+
+    .ta-rc-order-popup-modal {
+        background: #fff;
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+        width: 100%;
+        max-width: 760px;
+        max-height: calc(100vh - 40px);
+        overflow-y: auto;
+        animation: rcPopSlideUp 0.2s ease;
+    }
+
+    /* 2 cột: trái = thông tin khách + ghi chú (sửa được) + nút điều hướng, phải = khối "Tổng
+       thanh toán" (payment::components.total-amount-card render sẵn). Dồn về 1 cột khi modal hẹp
+       hơn 2 cột thật sự cần (mobile, hoặc màn hình thấp co lại) — .amount-wrap tự cuộn dọc riêng
+       nếu nội dung "Xem chi tiết từng khung giờ" dài hơn cột trái. */
+    .ta-rc-order-popup-columns {
+        display: grid;
+        grid-template-columns: 230px 1fr;
+        gap: 20px;
+        align-items: start;
+    }
+
+    @media (max-width: 620px) {
+        .ta-rc-order-popup-columns {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .ta-rc-order-popup-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--ta-line);
+        position: sticky;
+        top: 0;
+        background: #fff;
+        z-index: 1;
+        border-radius: 16px 16px 0 0;
+    }
+
+    /* Tên popup + badge trạng thái/ghi chú cùng 1 hàng (title trước, badge nối ngay sau, cuối
+       hàng tiêu đề) — nút đóng (X) luôn đứng riêng, đẩy hẳn về cuối nhờ justify-content:
+       space-between của .ta-rc-order-popup-head. */
+    .ta-rc-order-popup-head-left {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        min-width: 0;
+    }
+
+    .ta-rc-order-popup-title {
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--ta-ink-title);
+        white-space: nowrap;
+    }
+
+    .ta-rc-order-popup-head-badges {
+        display: inline-flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .ta-rc-order-popup-body {
+        padding: 14px 16px 16px;
+    }
+
+    .ta-rc-order-popup-loading,
+    .ta-rc-order-popup-error {
+        padding: 30px 10px;
+        text-align: center;
+        color: var(--ta-ink-mute);
+        font-size: 12.5px;
+    }
+
+    .ta-rc-order-popup-status {
+        display: inline-flex;
+        align-items: center;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 3px 10px;
+        border-radius: 999px;
+        white-space: nowrap;
+    }
+
+    /* Badge "Có ghi chú" cạnh trạng thái đơn — cùng ý nghĩa với badge chuông trên ô khung giờ
+       (rcCalRenderGrid()), tự ẩn/hiện theo cờ has_note khi lưu ghi chú (rcCalSaveOrderNote()). */
+    .ta-rc-order-popup-note-flag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 3px 10px;
+        border-radius: 999px;
+        white-space: nowrap;
+        background: #fef3c7;
+        color: #b45309;
+    }
+
+    .ta-rc-order-popup-note-flag svg {
+        width: 12px;
+        height: 12px;
+    }
+
+    .ta-rc-order-popup-field {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 7px 0;
+        border-bottom: 1px solid var(--ta-line-soft);
+        font-size: 12.5px;
+    }
+
+    .ta-rc-order-popup-field:last-of-type {
+        border-bottom: none;
+    }
+
+    .ta-rc-order-popup-field-label {
+        flex: 0 0 84px;
+        color: var(--ta-ink-mute);
+    }
+
+    .ta-rc-order-popup-field-value {
+        flex: 1;
+        min-width: 0;
+        color: var(--ta-ink-title);
+        font-weight: 600;
+        word-break: break-word;
+    }
+
+    /* Khối "Tổng thanh toán" (cột phải) — render bằng component thật
+       payment::components.total-amount-card (server-side, xem routes/web.php
+       orders/{id}/quick-info) nên tự mang đủ style inline riêng (var(--boulder-XX, #hex), luôn
+       có fallback hex), không cần định nghĩa lại màu/layout bên trong. */
+    .ta-rc-order-popup-amount-wrap {
+        min-width: 0;
+    }
+
+    /* Mã cổng — bản GỌN riêng cho popup (window._rcBuildAccessCodeHtml() trong _scripts.blade.php),
+       KHÔNG tái dùng access-code-info.blade.php/manual-lock-info.blade.php nguyên bản (thiết kế
+       cho khung rộng của orderform, vỡ layout khi nhồi vào cột trái hẹp ~230px ở đây). Đặt đầu
+       cột trái, trước cả "Khách hàng". */
+    .ta-rc-order-popup-access {
+        background: var(--ta-bg);
+        border: 1px solid var(--ta-line);
+        border-radius: 10px;
+        padding: 9px 11px;
+        margin-bottom: 10px;
+    }
+
+    .ta-rc-order-popup-access-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 6px;
+    }
+
+    /* Trạng thái mã cổng — chỉ 1 chấm tròn màu (không còn badge chữ), hover đọc nhãn đầy đủ qua
+       title. */
+    .ta-rc-order-popup-access-dot {
+        flex: 0 0 auto;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+    }
+
+    .ta-rc-order-popup-access-code-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 3px 0;
+    }
+
+    .ta-rc-order-popup-access-code-tag {
+        flex: 0 0 auto;
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--ta-ink-mute);
+        background: var(--ta-line-soft);
+        border-radius: 5px;
+        padding: 1px 6px;
+    }
+
+    .ta-rc-order-popup-access-code {
+        flex: 1;
+        min-width: 0;
+        font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        color: var(--ta-cal-primary);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .ta-rc-order-popup-access-copy-btn {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        border: none;
+        background: var(--ta-ink-title);
+        color: #fff;
+        cursor: pointer;
+        transition: opacity 0.15s;
+    }
+
+    .ta-rc-order-popup-access-copy-btn:hover {
+        opacity: 0.85;
+    }
+
+    .ta-rc-order-popup-access-meta {
+        font-size: 10.5px;
+        color: var(--ta-ink-mute);
+        margin-top: 2px;
+    }
+
+    .ta-rc-order-popup-access-empty {
+        font-size: 12px;
+        color: var(--ta-ink-faint);
+        font-style: italic;
+    }
+
+    /* Ghi chú đơn — sửa được tại chỗ (rcCalToggleNoteEdit()/rcCalSaveOrderNote()), không cần mở
+       orderform. Lưu xong tự cập nhật badge chuông trên ô khung giờ (xem rcCalRenderGrid()). */
+    .ta-rc-order-popup-note-block {
+        padding: 7px 0;
+        border-bottom: 1px solid var(--ta-line-soft);
+        font-size: 12.5px;
+    }
+
+    .ta-rc-order-popup-note-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 4px;
+    }
+
+    .ta-rc-order-popup-note-edit-btn {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--ta-ink-mute);
+        background: var(--ta-line-soft);
+        border: 1px solid var(--ta-line);
+        border-radius: 999px;
+        padding: 2px 9px;
+        cursor: pointer;
+        font-family: inherit;
+        transition: all 0.15s;
+    }
+
+    .ta-rc-order-popup-note-edit-btn:hover {
+        background: var(--ta-line);
+        color: var(--ta-ink);
+    }
+
+    .ta-rc-order-popup-note-display {
+        color: var(--ta-ink-title);
+        font-weight: 600;
+        word-break: break-word;
+        white-space: pre-wrap;
+    }
+
+    .ta-rc-order-popup-note-input {
+        width: 100%;
+        resize: vertical;
+        min-height: 60px;
+        border: 1px solid var(--ta-line);
+        border-radius: 8px;
+        padding: 7px 9px;
+        font-size: 12.5px;
+        font-family: inherit;
+        color: var(--ta-ink-title);
+    }
+
+    .ta-rc-order-popup-note-input:focus {
+        outline: none;
+        border-color: var(--ta-cal-primary);
+    }
+
+    .ta-rc-order-popup-note-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 6px;
+        margin-top: 6px;
+    }
+
+    .ta-rc-order-popup-note-cancel-btn,
+    .ta-rc-order-popup-note-save-btn {
+        font-size: 11.5px;
+        font-weight: 700;
+        border-radius: 8px;
+        padding: 5px 12px;
+        cursor: pointer;
+        font-family: inherit;
+        border: 1px solid var(--ta-line);
+        transition: opacity 0.15s;
+    }
+
+    .ta-rc-order-popup-note-cancel-btn {
+        background: #fff;
+        color: var(--ta-ink-mute);
+    }
+
+    .ta-rc-order-popup-note-save-btn {
+        background: var(--ta-cal-primary);
+        border-color: var(--ta-cal-primary);
+        color: #fff;
+    }
+
+    .ta-rc-order-popup-note-save-btn:hover {
+        opacity: 0.88;
+    }
+
+    .ta-rc-order-popup-note-save-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    .ta-rc-order-popup-goto-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        width: 100%;
+        margin-top: 14px;
+        padding: 10px;
+        border-radius: 10px;
+        border: none;
+        background: var(--ta-ink-title);
+        color: #fff;
+        font-size: 13px;
+        font-weight: 700;
+        font-family: inherit;
+        text-decoration: none;
+        cursor: pointer;
+        transition: opacity 0.15s;
+    }
+
+    .ta-rc-order-popup-goto-btn:hover {
+        opacity: 0.88;
+    }
+
+    /* Popup "Giá phòng" (rcCalOpenPricePopup() trong _scripts.blade.php) — 2 cột: trái = điều
+       kiện giá (nhãn dài, KHÔNG được xuống dòng), phải = khung giờ/giá/khuyến mãi. */
+    .ta-rc-price-columns {
+        display: grid;
+        grid-template-columns: 190px 1fr;
+        gap: 20px;
+        align-items: start;
+    }
+
+    @media (max-width: 560px) {
+        .ta-rc-price-columns {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .ta-rc-price-field {
+        padding: 8px 0;
+        border-bottom: 1px solid var(--ta-line-soft);
+    }
+
+    .ta-rc-price-field:last-child {
+        border-bottom: none;
+    }
+
+    /* Nhãn LUÔN 1 hàng, không wrap — đây chính là lý do tách riêng khỏi
+       .ta-rc-order-popup-field-label (dùng flex:0 0 84px cố định, nhãn dài kiểu "Giảm giá full
+       phòng"/"Giảm theo khung" sẽ vỡ dòng nếu dùng chung class đó). */
+    .ta-rc-price-field-label {
+        display: block;
+        font-size: 11px;
+        color: var(--ta-ink-mute);
+        white-space: nowrap;
+        margin-bottom: 3px;
+    }
+
+    .ta-rc-price-field-value {
+        display: block;
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--ta-ink-title);
+        line-height: 1.4;
+    }
+
+    /* "Giảm theo khung" — sửa được: mỗi mức 1 hàng (số khung + % + nút xoá riêng), "+ Thêm mức"
+       (rcCalAddBulkRow()) thêm hàng trống. */
+    .ta-rc-price-bulk-editor {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        margin-bottom: 6px;
+    }
+
+    .ta-rc-price-bulk-row {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .ta-rc-price-bulk-slots,
+    .ta-rc-price-bulk-discount {
+        width: 52px;
+        flex: 0 0 auto;
+        border: 1px solid var(--ta-line);
+        border-radius: 6px;
+        padding: 4px 6px;
+        font-size: 11.5px;
+        font-weight: 700;
+        font-family: inherit;
+        color: var(--ta-ink-title);
+    }
+
+    .ta-rc-price-bulk-slots:focus,
+    .ta-rc-price-bulk-discount:focus {
+        outline: none;
+        border-color: var(--ta-cal-primary);
+    }
+
+    .ta-rc-price-bulk-arrow,
+    .ta-rc-price-bulk-pct {
+        font-size: 11px;
+        color: var(--ta-ink-mute);
+        white-space: nowrap;
+    }
+
+    .ta-rc-price-bulk-remove-btn {
+        flex: 0 0 auto;
+        width: 20px;
+        height: 20px;
+        border: none;
+        border-radius: 5px;
+        background: var(--ta-line-soft);
+        color: var(--ta-ink-mute);
+        cursor: pointer;
+        font-size: 13px;
+        line-height: 1;
+    }
+
+    .ta-rc-price-bulk-remove-btn:hover {
+        background: #fee2e2;
+        color: #dc2626;
+    }
+
+    .ta-rc-price-bulk-add-btn {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--ta-ink-mute);
+        background: var(--ta-line-soft);
+        border: 1px solid var(--ta-line);
+        border-radius: 999px;
+        padding: 3px 10px;
+        cursor: pointer;
+        font-family: inherit;
+    }
+
+    .ta-rc-price-bulk-add-btn:hover {
+        background: var(--ta-line);
+        color: var(--ta-ink);
+    }
+
+    .ta-rc-price-slots-head {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--ta-ink-mute);
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        margin: 0 0 6px;
+    }
+
+    .ta-rc-price-slots {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .ta-rc-price-slot-row {
+        background: var(--ta-bg);
+        border: 1px solid var(--ta-line);
+        border-radius: 8px;
+        padding: 7px 10px;
+    }
+
+    .ta-rc-price-slot-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .ta-rc-price-slot-label {
+        font-size: 12.5px;
+        font-weight: 700;
+        color: var(--ta-ink-title);
+    }
+
+    /* Khuyến mãi gắn theo khung giờ — tag gắn sẵn (bấm × gỡ) + <select> thêm khuyến mãi có sẵn
+       (rcCalAddPromoTag()/rcCalSavePricing()). */
+    .ta-rc-price-promo-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 6px;
+    }
+
+    .ta-rc-price-promo-tags:empty {
+        margin-top: 0;
+    }
+
+    .ta-rc-price-promo-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 10.5px;
+        font-weight: 600;
+        color: #b45309;
+        background: #fef3c7;
+        border-radius: 999px;
+        padding: 2px 4px 2px 8px;
+    }
+
+    .ta-rc-price-promo-tag.is-inactive {
+        color: var(--ta-ink-faint);
+        background: var(--ta-line-soft);
+        text-decoration: line-through;
+    }
+
+    .ta-rc-price-promo-tag button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 14px;
+        height: 14px;
+        border: none;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.12);
+        color: inherit;
+        cursor: pointer;
+        font-size: 11px;
+        line-height: 1;
+        text-decoration: none;
+        padding: 0;
+    }
+
+    .ta-rc-price-promo-select {
+        /* -webkit-appearance/appearance PHẢI reset về none — thiếu bước này 1 số trình duyệt
+           (Chrome Android/webview) vẽ chồng mũi tên gốc của <select> lên custom border/padding,
+           lặp lại thành nhiều mũi tên dọc theo bề ngang ô (đúng lỗi đã gặp). Tự vẽ lại ĐÚNG 1 mũi
+           tên bằng background-image thay cho mũi tên gốc đã tắt. */
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        margin-top: 5px;
+        border: 1px dashed var(--ta-line);
+        border-radius: 6px;
+        padding: 4px 22px 4px 6px;
+        font-size: 11px;
+        font-family: inherit;
+        color: var(--ta-ink-mute);
+        background: #fff url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 6px center / 12px 12px;
+    }
+
+    .ta-rc-price-promo-select:focus {
+        outline: none;
+        border-color: var(--ta-cal-primary);
+    }
+
+    /* Input sửa giá tại chỗ (rcCalSavePricing()) — dùng cho cả 3 field cột trái lẫn giá từng
+       khung giờ cột phải. */
+    .ta-rc-price-input {
+        width: 100%;
+        min-width: 0;
+        border: 1px solid var(--ta-line);
+        border-radius: 7px;
+        padding: 5px 8px;
+        font-size: 12.5px;
+        font-weight: 700;
+        font-family: inherit;
+        color: var(--ta-ink-title);
+        background: #fff;
+    }
+
+    .ta-rc-price-input:focus {
+        outline: none;
+        border-color: var(--ta-cal-primary);
+    }
+
+    /* number input + đơn vị (khách/đ) đứng cạnh nhau trên 1 hàng. */
+    .ta-rc-price-input-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .ta-rc-price-input-row .ta-rc-price-input {
+        width: 84px;
+        flex: 0 0 auto;
+    }
+
+    .ta-rc-price-input-suffix {
+        font-size: 11px;
+        color: var(--ta-ink-mute);
+        white-space: nowrap;
+    }
+
+    .ta-rc-price-slot-top .ta-rc-price-input-row {
+        flex: 0 0 auto;
+    }
+
+    .ta-rc-price-slot-top .ta-rc-price-input {
+        width: 92px;
+    }
+
+    /* Chân popup: link "Mở SettingBook" (giảm theo khung/khuyến mãi — không sửa trực tiếp được ở
+       đây) bên trái, trạng thái lưu + nút "Lưu thay đổi" bên phải. */
+    .ta-rc-price-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px solid var(--ta-line-soft);
+    }
+
+    .ta-rc-price-settingbook-link {
+        font-size: 11.5px;
+        color: var(--ta-ink-mute);
+        text-decoration: underline;
+    }
+
+    .ta-rc-price-settingbook-link:hover {
+        color: var(--ta-ink-title);
+    }
+
+    .ta-rc-price-save-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .ta-rc-price-save-status {
+        font-size: 11.5px;
+        font-weight: 600;
+        color: var(--ta-accent);
+    }
+
+    .ta-rc-price-save-status.is-error {
+        color: #dc2626;
+    }
+
+    .ta-rc-price-footer .ta-rc-order-popup-goto-btn {
+        width: auto;
+        margin-top: 0;
+        padding: 8px 16px;
+    }
+
+    /* ===== Popup "Xem phòng" — 2 thẻ thống kê (doanh thu/đơn thành công) + biểu đồ cột thuần CSS
+       so sánh doanh thu 6 tháng gần nhất, xem rcCalOpenViewPopup() trong _scripts.blade.php. ===== */
+    .ta-rc-view-stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+
+    .ta-rc-view-stat-card {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 12px 14px;
+        border: 1px solid var(--ta-line);
+        border-radius: 10px;
+        background: var(--ta-line-soft);
+    }
+
+    .ta-rc-view-stat-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--ta-ink-mute);
+    }
+
+    .ta-rc-view-stat-value {
+        font-size: 17px;
+        font-weight: 800;
+        color: var(--ta-ink-title);
+    }
+
+    .ta-rc-view-chart-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--ta-ink-title);
+        margin-bottom: 10px;
+    }
+
+    /* Hàng tiêu đề "Doanh thu theo tháng" + ta-yr-picker (năm) — chỉ biểu đồ cột tháng mới có bộ
+       lọc năm, biểu đồ tần suất khung giờ (Nightingale) không cần vì group theo TOÀN BỘ lịch sử. */
+    .ta-rc-view-chart-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 10px;
+    }
+
+    .ta-rc-view-chart-head .ta-rc-view-chart-title {
+        margin-bottom: 0;
+    }
+
+    /* Container biểu đồ (ECharts, rcCalInitViewMonthlyChart() trong _scripts.blade.php) — ECharts
+       cần kích thước CỐ ĐỊNH đo được ngay lúc init(), không tự co theo nội dung. */
+    .ta-rc-view-chart-el {
+        width: 100%;
+        height: 280px;
     }
 
     /* Room card — dark header + row-based order list */

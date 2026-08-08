@@ -288,9 +288,9 @@ class Dashboard extends FilamentDashboard
      *  url menu thao tác nhanh ở đây để CẢ 2 nơi (Blade render lần đầu + JS tự làm mới định kỳ,
      *  xem pollRoomCards()/renderRoomCards() trong _scripts.blade.php) dùng chung 1 nguồn, tránh
      *  lặp lại logic build URL 2 nơi rồi lệch nhau. */
-    public static function getRoomCardsData($user = null): array
+    public static function getRoomCardsData($user = null, int $days = 10): array
     {
-        $data = RoomCardsService::getData($user);
+        $data = RoomCardsService::getData($user, $days);
 
         $data['rooms'] = array_map(function (array $room) {
             $room['edit_url']     = \Modules\Product\App\Filament\Resources\ProductResource::getUrl('edit', ['record' => $room['product_id']]);

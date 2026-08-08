@@ -1520,7 +1520,7 @@ public function confirmBooking()
                 // Đơn cọc (style=2 + deposit_percent < 100) → khởi đầu với status 'deposit'
                 'status'         => ($depositPercent < 100) ? 'deposit' : 'pending',
                 'payment_method' => $this->paymentMethod ?? 'payos',
-                'description'    => !empty($this->note) ? $this->note : 'Đặt phòng - ' . $this->product->name,
+                'description'    => $this->note ?: null,
                 'cccd_front'     => $frontPath,
                 'cccd_back'      => $backPath,
                 'cccd_data'      => $cccdData,

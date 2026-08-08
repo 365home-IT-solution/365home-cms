@@ -1,4 +1,11 @@
 @php
+    // Bật lên (Dashboard popup "Thông tin đơn" — xem routes/web.php orders/{id}/quick-info) để ẩn
+    // 2 khối "Chi phí phát sinh"/nút "Phát sinh thêm.../Hoàn lại..." bên dưới — cả 2 chỉ hợp lý
+    // trong NGỮ CẢNH ĐANG SỬA ĐƠN thật (nút "Hoàn lại..." gọi wire:click="save", KHÔNG hoạt động
+    // khi card này bị render tĩnh ra popup xem nhanh, không có Livewire component thật đứng sau).
+    // Mặc định false — KHÔNG đổi hành vi orderform hiện có (OrderForm.php không truyền biến này).
+    $hideAdjustments = $hideAdjustments ?? false;
+
     // Loại dòng order_item "Phụ phí khách thêm" CŨ (extra_fee > 0, product_id = null — do luồng
     // đặt phòng cũ ProductDetail.php tự tạo riêng 1 dòng cho phụ thu khách). Phụ thu khách ở card
     // này LUÔN tính LIVE ở $guestSurchargeDetails/$totalGuestSurcharge bên dưới (dựa trên
@@ -631,7 +638,7 @@
         @endif
 
         {{-- ===== CHI PHÍ PHÁT SINH (đơn đã paid, đã có khoản phát sinh từ trước) ===== --}}
-        @if($isPaidWithExtra)
+        @if($isPaidWithExtra && !$hideAdjustments)
         @php
             $extraIsPaid = !is_null($record->extra_charge_paid_at);
             $extraMethod = $record->extra_charge_payment_method ?? null;
@@ -695,7 +702,7 @@
             </div>
         </div>
 
-        @if($liveDiff !== null)
+        @if($liveDiff !== null && !$hideAdjustments)
         {{-- Bấm THẲNG vào dòng chênh lệch này để Lưu đơn ngay — trước đây admin phải tự tìm nút
              "Lưu" ở nơi khác trên trang rồi mới thấy panel "Phát sinh thêm/Hoàn tiền chưa xử lý"
              hiện ra ở tab Thông tin thanh toán, cảm giác dư thừa 1 bước. Bấm ở đây gọi thẳng

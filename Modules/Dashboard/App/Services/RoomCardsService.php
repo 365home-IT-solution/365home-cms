@@ -11,11 +11,17 @@ use Modules\Product\App\Models\RoomTimeSlot;
 
 class RoomCardsService
 {
-    public static function getData($user = null): array
+    // $days — số ngày hiển thị của lưới ngày×khung giờ (view "Lịch" ở Dashboard, ô nhập cạnh
+    // carousel chi nhánh — xem routes/web.php admin.room-cards) — clamp lại 1 LẦN NỮA ở đây
+    // (không chỉ ở route) vì getData() còn được gọi trực tiếp từ Dashboard::getViewData() (lần
+    // render Blade đầu tiên, không qua route đó).
+    public static function getData($user = null, int $days = 10): array
     {
         if ($user === null) {
             $user = auth()->user();
         }
+
+        $days = max(1, min(15, $days));
 
         $today        = Carbon::today();
         $now          = Carbon::now();
@@ -108,12 +114,23 @@ class RoomCardsService
         $slotStyleProductIds = $products->filter(fn ($p) => (int) $p->styles === 1)->pluck('id')->toArray();
         $allRoomTimeSlots = RoomTimeSlot::whereIn('room_id', $slotStyleProductIds)
             ->whereNull('date')
-            ->with('timeSlot')
+            ->with(['timeSlot', 'promotions'])
             ->get()
             ->filter(fn (RoomTimeSlot $slot) => $slot->timeSlot !== null)
             ->groupBy('room_id');
 
-        $rooms = $products->map(function ($product) use ($allItems, $pendingRefundsByProduct, $statusLabels, $statusColors, $newThreshold, $today, $now, $allRoomTimeSlots) {
+        // Giữ chỗ real-time (TimeslotHoldService) — nạp 1 LẦN cho TOÀN BỘ room_time_slot_id liên
+        // quan (mọi phòng), giống hệt cách allRoomTimeSlots ở trên tránh N+1 — view "Lịch"
+        // (Dashboard::rcCalRenderGrid()) cần biết ô nào đang bị giữ để không cho 2 admin chọn
+        // trùng, và ô "held_mine" (chính mình đang giữ, vd mới F5 lại trang) vẫn hiện lại đúng
+        // trạng thái đã chọn dở.
+        $allSlotIds = $allRoomTimeSlots->flatten()->pluck('id')->all();
+        $holdsMap   = empty($allSlotIds)
+            ? []
+            : app(\App\Services\TimeslotHoldService::class)->getActiveHoldsMap($allSlotIds);
+        $currentUserId = $user?->id;
+
+        $rooms = $products->map(function ($product) use ($allItems, $pendingRefundsByProduct, $statusLabels, $statusColors, $newThreshold, $today, $now, $allRoomTimeSlots, $holdsMap, $currentUserId, $days) {
             $category   = $product->categories->first();
             $parent     = $category ? $category->parent : null;
             $branchName = $parent ? $parent->name : ($category ? $category->name : 'Chưa phân loại');
@@ -184,6 +201,11 @@ class RoomCardsService
                     'slot_labels'  => $slotLabels,
                     'slot_ranges'  => [],
                     'deposit_room' => $order->deposit_room ?? '',
+                    // Đơn có ghi chú (Order.description) — chỉ cờ boolean, KHÔNG trả nguyên nội
+                    // dung ghi chú trong payload đổ hết mọi phòng/ngày này (poll định kỳ, có thể
+                    // dài) — view "Lịch" (Dashboard::rcCalRenderGrid()) dùng cờ này để hiện badge
+                    // tròn trên ô, nội dung thật lấy riêng qua GET .../quick-info khi bấm vào ô.
+                    'has_note'     => filled($order->description),
                 ];
             };
 
@@ -307,7 +329,10 @@ class RoomCardsService
                 $product,
                 $orders,
                 $today,
-                $allRoomTimeSlots->get($product->id, collect())
+                $allRoomTimeSlots->get($product->id, collect()),
+                $holdsMap,
+                $currentUserId,
+                $days
             );
 
             return [
@@ -396,9 +421,11 @@ class RoomCardsService
     // $days: số cột ngày hiển thị — 7 ngày (tuần hiện tại) đủ để thấy tình trạng gần mà vẫn gọn
     // trong 1 thẻ phòng, không tính lại nếu admin muốn xem xa hơn (đã có view "Danh sách" liệt kê
     // đủ mọi đơn upcoming cho việc đó rồi).
-    private static function buildTimeslotGrid(Product $product, array $orders, Carbon $today, $roomTimeSlots, int $days = 7): array
+    // $currentUserId: kiểu string, KHÔNG phải int — User.id trong app này là UUID.
+    private static function buildTimeslotGrid(Product $product, array $orders, Carbon $today, $roomTimeSlots, array $holdsMap = [], ?string $currentUserId = null, int $days = 10): array
     {
         $isSlotStyle = (int) $product->styles === 1;
+        $now         = Carbon::now();
 
         $dates = [];
         for ($i = 0; $i < $days; $i++) {
@@ -422,15 +449,33 @@ class RoomCardsService
                     'start_time' => $slot->timeSlot->start_time,
                     'end_time'   => $slot->timeSlot->end_time,
                     'over_night' => (bool) ($slot->timeSlot->over_night ?? false),
+                    // Khoá dài hạn (BlockTimeslotModal::saveBlock() style=1 — ĐÚNG field
+                    // book/_slot-cell.blade.php phía khách đang đọc) — mảng ngày Y-m-d bị khoá
+                    // của riêng khung giờ (room_time_slot) này, đọc thẳng settings JSON, không
+                    // cần query/join thêm.
+                    'blocked_dates' => $slot->settings['blocked_dates'] ?? [],
+                    // Khung giờ ĐANG có khuyến mãi hiệu lực (gắn qua popup "Giá phòng" —
+                    // rcCalSavePricing()/routes/web.php admin.rooms.pricing-info) — dùng để tô
+                    // hiệu ứng viền neon các ô trống thuộc khung giờ này (view "Lịch"). Chỉ tính
+                    // khuyến mãi is_active=true VÀ hôm nay nằm trong [start_at, end_at] (null =
+                    // không giới hạn phía đó), giống đúng luật lọc 'available_promotions' ở route
+                    // pricing-info.
+                    'has_discount' => $slot->promotions->contains(function ($p) use ($today) {
+                        if (! $p->is_active) return false;
+                        if ($p->start_at && $today->lt($p->start_at)) return false;
+                        if ($p->end_at && $today->gt($p->end_at)) return false;
+                        return true;
+                    }),
                 ])
                 ->toArray();
         } else {
             $rows = [[
-                'id'         => 'day',
-                'label'      => 'Cả ngày',
-                'start_time' => null,
-                'end_time'   => null,
-                'over_night' => false,
+                'id'            => 'day',
+                'label'         => 'Cả ngày',
+                'start_time'    => null,
+                'end_time'      => null,
+                'over_night'    => false,
+                'blocked_dates' => [],
             ]];
         }
 
@@ -462,26 +507,67 @@ class RoomCardsService
                     $end   = Carbon::parse($date['iso'])->endOfDay();
                 }
 
-                $match = null;
+                $match    = null;
+                $matchEnd = null;
                 foreach ($ranges as $r) {
                     if ($start->timestamp < $r['end'] && $end->timestamp > $r['start']) {
-                        $match = $r['order'];
+                        $match    = $r['order'];
+                        // 'end' — checkout_ts THẬT của order_item khớp (từ slot_ranges nếu có, xem
+                        // vòng lặp build $ranges bên dưới), KHÔNG phải giờ kết thúc lý thuyết của
+                        // khung giờ ($end biến ngoài) — để so "quá giờ" đúng theo dữ liệu đơn thật.
+                        $matchEnd = $r['end'];
                         break;
                     }
                 }
 
-                $cells[$row['id'] . '|' . $date['iso']] = $match ? [
-                    'status'       => $match['status'],
-                    'status_label' => $match['status_label'],
-                    'color'        => $match['status_color'],
-                    'order_id'     => $match['order_id'],
-                    'order_code'   => $match['order_code'],
-                    'buyer_name'   => $match['buyer_name'],
-                    'buyer_phone'  => $match['buyer_phone'],
-                    'checkin'      => $match['checkin'],
-                    'checkout'     => $match['checkout'],
-                    'amount'       => $match['amount'],
-                ] : null;
+                // 'kind' PHÂN BIỆT rõ 5 trạng thái ô — 'status' (nếu có) chỉ mang nghĩa trạng thái
+                // ĐƠN HÀNG (paid/pending/...) khi kind='booked', KHÔNG dùng lẫn cho blocked/held/
+                // free (view "Lịch" — Dashboard::rcCalRenderGrid() — cần phân biệt để biết ô nào
+                // bấm chọn được). Ô đã đặt LUÔN ưu tiên trên hết, sau đó tới khoá dài hạn
+                // (blocked_dates — BlockTimeslotModal), rồi tới giữ chỗ real-time (TimeslotHold —
+                // CHỈ áp dụng cho phòng theo khung giờ, phòng đặt-theo-ngày không có khái niệm
+                // giữ-từng-ô này), còn lại là free (bấm chọn được).
+                if ($match) {
+                    // Quá giờ (checkout_date của order_item đã trôi qua so với hiện tại) — ô hiện
+                    // "Hết giờ" thay vì "Đã đặt" (rcCalRenderGrid() trong _scripts.blade.php), báo
+                    // hiệu khách đã hết thời gian thuê nhưng đơn có thể chưa được cập nhật trạng
+                    // thái — CHỈ có ý nghĩa với ngày hôm nay/quá khứ trong phạm vi hiển thị.
+                    $isOverdue = $matchEnd !== null && $now->timestamp > $matchEnd;
+
+                    $cells[$row['id'] . '|' . $date['iso']] = [
+                        'kind'         => 'booked',
+                        'status'       => $match['status'],
+                        'status_label' => $match['status_label'],
+                        'color'        => $match['status_color'],
+                        'order_id'     => $match['order_id'],
+                        'order_code'   => $match['order_code'],
+                        'buyer_name'   => $match['buyer_name'],
+                        'buyer_phone'  => $match['buyer_phone'],
+                        'checkin'      => $match['checkin'],
+                        'checkout'     => $match['checkout'],
+                        'amount'       => $match['amount'],
+                        'has_note'     => $match['has_note'] ?? false,
+                        'is_overdue'   => $isOverdue,
+                    ];
+                    continue;
+                }
+
+                if ($isSlotStyle && in_array($date['iso'], $row['blocked_dates'], true)) {
+                    $cells[$row['id'] . '|' . $date['iso']] = ['kind' => 'blocked'];
+                    continue;
+                }
+
+                $hold = $isSlotStyle ? ($holdsMap[$row['id'] . '|' . $date['iso']] ?? null) : null;
+                if ($hold) {
+                    $isMine = $currentUserId && (string) $hold->user_id === $currentUserId;
+                    $cells[$row['id'] . '|' . $date['iso']] = [
+                        'kind'     => $isMine ? 'held_mine' : 'held_other',
+                        'held_by'  => $hold->user->fullname ?? $hold->user->email ?? 'Admin khác',
+                    ];
+                    continue;
+                }
+
+                $cells[$row['id'] . '|' . $date['iso']] = ['kind' => 'free'];
             }
         }
 

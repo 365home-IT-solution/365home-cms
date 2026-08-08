@@ -33,14 +33,19 @@
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
                     Danh sách
                 </button>
-                <button class="ta-rc-view-toggle-btn" data-view="timeline" onclick="rcSetView('timeline')" title="Dải giờ trong ngày">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3.5 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-                    Dải giờ
-                </button>
                 {{-- <button class="ta-rc-view-toggle-btn" data-view="detail" onclick="rcSetView('detail')" title="Giao diện cũ, đầy đủ chi tiết — để so sánh">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="2" stroke="currentColor" stroke-width="2"/><path d="M4 10h16M9 10v10" stroke="currentColor" stroke-width="2"/></svg>
                     Chi tiết (cũ)
                 </button> --}}
+                {{-- Chế độ "Lịch" — carousel chọn chi nhánh + lưới ngày×khung giờ nhiều phòng cạnh
+                     nhau CÙNG NGÔN NGỮ THỊ GIÁC với lịch đặt phòng phía khách (xem
+                     home-booking-board.blade.php/book/_desktop-grid.blade.php), nhưng chỉ XEM
+                     (bấm ô đã đặt mở thẳng đơn tương ứng — xem rcCalRenderGrid() trong
+                     _scripts.blade.php), không cho chọn ô để đặt như bên khách. --}}
+                <button class="ta-rc-view-toggle-btn" data-view="calendar" onclick="rcSetView('calendar')" title="Lịch nhiều phòng theo chi nhánh">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="17" rx="2" stroke="currentColor" stroke-width="2"/><path d="M3 9h18M8 3v3M16 3v3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                    Lịch
+                </button>
             </div>
         </div>
     </div>
@@ -170,56 +175,6 @@
                 <div class="ta-rc-no-match" style="display:none;">Không có đơn ở chế độ xem này</div>
             </div>
 
-            {{-- View "Dải giờ" — lưới Ngày × Khung giờ giống hệt trang đặt phòng của khách
-                 (book.blade.php/_desktop-grid.blade.php: hàng = khung giờ cố định, cột = ngày),
-                 chỉ khác là xem TÌNH TRẠNG (đã đặt/còn trống), không phải màn hình chọn khung giờ
-                 để đặt — xem RoomCardsService::buildTimeslotGrid(). --}}
-            @php $grid = $room['timeslot_grid'] ?? null; @endphp
-            <div class="ta-rc-timeline">
-                @if($grid && !empty($grid['rows']) && !empty($grid['dates']))
-                {{-- Đảo trục so với lưới ở OrderForm/trang đặt phòng khách (ở đó hàng=khung giờ,
-                     cột=ngày, cuộn NGANG) — ở đây khung giờ mỗi phòng thường chỉ 2-4 khung (ít) còn
-                     ngày thì cố định 7 ngày (nhiều hơn), nên đặt khung giờ LÀM CỘT (nằm trên, đứng
-                     yên nhờ thead sticky) và ngày LÀM HÀNG để cuộn DỌC xem tiếp các ngày sau thay vì
-                     phải cuộn NGANG — hợp lý hơn khi thẻ phòng đã hẹp sẵn theo chiều ngang. --}}
-                <div class="ta-rc-grid-wrap">
-                    <table class="ta-rc-grid">
-                        <thead>
-                            <tr>
-                                <th class="ta-rc-grid-corner"></th>
-                                @foreach($grid['rows'] as $row)
-                                <th class="ta-rc-grid-rowhead-top">{{ $row['label'] }}</th>
-                                @endforeach
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach($grid['dates'] as $date)
-                            <tr>
-                                <th class="ta-rc-grid-datehead-left {{ $date['is_today'] ? 'is-today' : '' }}">
-                                    <span class="ta-rc-grid-dow">{{ $date['dow'] }}</span>
-                                    <span class="ta-rc-grid-dnum">{{ $date['label'] }}</span>
-                                </th>
-                                @foreach($grid['rows'] as $row)
-                                    @php $cell = $grid['cells'][$row['id'].'|'.$date['iso']] ?? null; @endphp
-                                    @if($cell)
-                                    <td class="ta-rc-grid-cell is-booked"
-                                        data-order="{{ json_encode(['order_id'=>$cell['order_id'],'order_code'=>$cell['order_code'],'buyer_name'=>$cell['buyer_name'],'buyer_phone'=>$cell['buyer_phone'],'checkin'=>$cell['checkin'],'checkout'=>$cell['checkout'],'status_label'=>$cell['status_label'],'status_color'=>$cell['color'],'amount'=>$cell['amount']]) }}">
-                                        <a href="/admin/orders/{{ $cell['order_id'] }}/edit" style="background:{{ $cell['color'] }};" title="{{ $cell['buyer_name'] }} — {{ $cell['status_label'] }}"></a>
-                                    </td>
-                                    @else
-                                    <td class="ta-rc-grid-cell is-free" title="Còn trống"></td>
-                                    @endif
-                                @endforeach
-                            </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                </div>
-                @else
-                <div class="ta-rc-tl-empty">Chưa khai báo khung giờ cho phòng này</div>
-                @endif
-            </div>
-
             {{-- View "Chi tiết (cũ)" — giữ nguyên giao diện đầy đủ trước khi tối giản, để so sánh --}}
             <div class="ta-rc-orders-detail">
                 @forelse($room['orders'] as $order)
@@ -295,6 +250,79 @@
         </div>
         @endforeach
     </div>
+
+
+    {{-- Chế độ "Lịch" — toàn bộ nội dung do JS dựng (rcCalRenderBranches()/rcCalRenderGrid()
+         trong _scripts.blade.php) từ ĐÚNG dữ liệu phòng đã có (window.__rcRoomsData, bootstrap từ
+         $roomCards ở đây + tự cập nhật mỗi khi renderRoomCards() làm mới định kỳ) — không lặp lại
+         vòng lặp Blade riêng để tránh 2 nơi build HTML lệch nhau. --}}
+    <div class="ta-rc-cal-view" id="ta-rc-cal-view" style="display:none;">
+        {{-- Trước/Sau chi nhánh — hàng RIÊNG phía trên danh sách chi nhánh, 2 nút sát nhau, có chữ
+             — CÙNG kiểu với Trước/Sau của carousel phòng (.ta-rc-cal-rooms-nav) bên dưới. --}}
+        <div class="ta-rc-cal-branches-nav">
+            <button type="button" class="ta-rc-cal-nav-btn" id="ta-rc-cal-prev" onclick="rcCalScrollBranches(-1)" title="Trước">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 19l-7-7 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                Trước
+            </button>
+            <button type="button" class="ta-rc-cal-nav-btn" id="ta-rc-cal-next" onclick="rcCalScrollBranches(1)" title="Sau">
+                Sau
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+        </div>
+        {{-- Danh sách chi nhánh — nút gọn (không bo tròn hẳn như pill), cuộn ngang bằng Trước/Sau
+             ở trên — không giới hạn số chi nhánh vì luôn cuộn được. --}}
+        <div class="ta-rc-cal-branches">
+            <div class="ta-rc-cal-branch-track" id="ta-rc-cal-branch-track"></div>
+        </div>
+
+        <div class="ta-rc-cal-legend-row">
+            <div class="ta-rc-cal-legend">
+                <span class="ta-rc-cal-legend-item"><i class="ta-rc-cal-dot booked"></i> Đã đặt</span>
+                <span class="ta-rc-cal-legend-item"><i class="ta-rc-cal-dot pending"></i> Chờ xác nhận</span>
+                <span class="ta-rc-cal-legend-item"><i class="ta-rc-cal-dot overdue"></i> Hết giờ</span>
+                <span class="ta-rc-cal-legend-item"><i class="ta-rc-cal-dot free"></i> Còn trống</span>
+                <span class="ta-rc-cal-legend-item">
+                    <svg class="ta-rc-cal-legend-note-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0M3.124 7.5A8.969 8.969 0 0 1 5.292 3m13.416 0a8.969 8.969 0 0 1 2.168 4.5" />
+                    </svg>
+                    Có ghi chú
+                </span>
+                <span class="ta-rc-cal-legend-item">
+                    <i class="ta-rc-cal-dot discounted"></i>
+                    Có giảm giá
+                </span>
+            </div>
+            {{-- Số ngày hiển thị — DÙNG CHUNG cho toàn bộ chi nhánh đang xem (mọi phòng trong
+                 carousel đều dùng chung 1 cột "Thời gian"), không phải mỗi phòng 1 giá trị riêng —
+                 chỉ 3 mốc 5/10/15 ngày, chọn là áp dụng luôn (không cần bấm thêm nút) — xem
+                 rcCalApplyDaysRange()/window._rcCalDays trong _scripts.blade.php. --}}
+            <div class="ta-rc-cal-days-control">
+                <label for="ta-rc-cal-days-input">Số ngày hiển thị</label>
+                <select id="ta-rc-cal-days-input" class="ta-rc-cal-days-input" onchange="rcCalApplyDaysRange()">
+                    <option value="5">5 ngày</option>
+                    <option value="10" selected>10 ngày</option>
+                    <option value="15">15 ngày</option>
+                </select>
+            </div>
+            {{-- Carousel PHÒNG (khác carousel chi nhánh ở trên) — vài phòng/lần, trượt MƯỢT bằng
+                 rcCalScrollRooms() (scrollBy() smooth, không còn tính "trang" bằng tay rồi vẽ lại
+                 toàn bộ lưới như trước — nặng/giật), tự dựng bằng scroll-snap thuần, cùng kỹ thuật
+                 với carousel chi nhánh ở trên. --}}
+            <div class="ta-rc-cal-rooms-nav">
+                <button type="button" class="ta-rc-cal-nav-btn" id="ta-rc-cal-rooms-prev" onclick="rcCalScrollRooms(-1)" title="Phòng trước">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M15 19l-7-7 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    Trước
+                </button>
+                <span class="ta-rc-cal-rooms-page-info" id="ta-rc-cal-rooms-page-info"></span>
+                <button type="button" class="ta-rc-cal-nav-btn" id="ta-rc-cal-rooms-next" onclick="rcCalScrollRooms(1)" title="Phòng sau">
+                    Sau
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 5l7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+            </div>
+        </div>
+
+        <div class="ta-rc-cal-grid-wrap" id="ta-rc-cal-grid-wrap"></div>
+    </div>
 </div>
 
 {{-- Tooltip dùng chung cho mọi đơn (view Danh sách + Dải giờ) — 1 phần tử duy nhất, JS tự định vị
@@ -328,3 +356,64 @@
      (rcOpenRoomMenu, xem _scripts.blade.php) render từ data-room-menu của nút vừa bấm. --}}
 <div class="ta-rc-menu-catcher" id="ta-rc-menu-catcher" style="display:none;" onclick="rcCloseRoomMenu()"></div>
 <div class="ta-rc-menu-panel" id="ta-rc-menu-panel" style="display:none;"></div>
+
+{{-- Popup thông tin nhanh — bấm 1 ô đã đặt trong view "Lịch" (rcCalOpenOrderPopup() trong
+     _scripts.blade.php) mở popup này thay vì điều hướng thẳng sang orderform, gọi
+     GET /admin/api/orders/{id}/quick-info để lấy tên khách/SĐT/ghi chú/tổng thanh toán — nút
+     "Xem chi tiết đơn" bên trong mới thật sự điều hướng sang orderform. --}}
+<div class="ta-rc-order-popup-overlay" id="ta-rc-order-popup" style="display:none;" onclick="if(event.target===this) rcCalCloseOrderPopup()">
+    <div class="ta-rc-order-popup-modal">
+        <div class="ta-rc-order-popup-head">
+            <div class="ta-rc-order-popup-head-left">
+                <span class="ta-rc-order-popup-title">Thông tin đơn</span>
+                {{-- Badge trạng thái thanh toán + "Có ghi chú" — JS (rcCalOpenOrderPopup()/
+                     rcCalSaveOrderNote() trong _scripts.blade.php) tự đổ vào đây, cuối hàng tiêu
+                     đề, thay vì nằm trong phần thân popup như trước. --}}
+                <span class="ta-rc-order-popup-head-badges" id="ta-rc-order-popup-head-badges"></span>
+            </div>
+            <button type="button" class="ta-rc-popup-close-btn" onclick="rcCalCloseOrderPopup()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path d="M6 18L18 6M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </button>
+        </div>
+        <div class="ta-rc-order-popup-body" id="ta-rc-order-popup-body"></div>
+    </div>
+</div>
+
+{{-- Popup "Giá phòng" — bấm nút cùng tên dưới tên phòng ở view "Lịch" (rcCalOpenPricePopup()
+     trong _scripts.blade.php), gọi GET /admin/api/rooms/{id}/pricing-info để xem nhanh giảm giá
+     full phòng/số khách miễn phí/phụ thu/giảm giá theo số khung giờ + từng khung giờ, giá,
+     khuyến mãi đang gắn — CHỈ XEM, sửa vẫn phải qua SettingBook (link cuối popup). --}}
+<div class="ta-rc-order-popup-overlay" id="ta-rc-price-popup" style="display:none;" onclick="if(event.target===this) rcCalClosePricePopup()">
+    <div class="ta-rc-order-popup-modal" style="max-width:760px;">
+        <div class="ta-rc-order-popup-head">
+            <span class="ta-rc-order-popup-title" id="ta-rc-price-popup-title">Giá phòng</span>
+            <button type="button" class="ta-rc-popup-close-btn" onclick="rcCalClosePricePopup()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path d="M6 18L18 6M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </button>
+        </div>
+        <div class="ta-rc-order-popup-body" id="ta-rc-price-popup-body"></div>
+    </div>
+</div>
+
+{{-- Popup "Xem phòng" — bấm nút cùng tên dưới tên phòng ở view "Lịch" (rcCalOpenViewPopup() trong
+     _scripts.blade.php), gọi GET /admin/api/rooms/{id}/stats-popup lấy tổng doanh thu + số đơn
+     thành công (ALL-TIME) + doanh thu 6 tháng gần nhất để so sánh — nút "Xem chi tiết phòng" bên
+     trong mới thật sự điều hướng sang trang sửa phòng (dùng lại r.edit_url có sẵn, không gọi API
+     riêng cho URL này). --}}
+<div class="ta-rc-order-popup-overlay" id="ta-rc-view-popup" style="display:none;" onclick="if(event.target===this) rcCalCloseViewPopup()">
+    <div class="ta-rc-order-popup-modal" style="max-width:860px;">
+        <div class="ta-rc-order-popup-head">
+            <span class="ta-rc-order-popup-title" id="ta-rc-view-popup-title">Thống kê</span>
+            <button type="button" class="ta-rc-popup-close-btn" onclick="rcCalCloseViewPopup()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path d="M6 18L18 6M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </button>
+        </div>
+        <div class="ta-rc-order-popup-body" id="ta-rc-view-popup-body"></div>
+    </div>
+</div>

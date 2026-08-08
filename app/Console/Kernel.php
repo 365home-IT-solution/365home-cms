@@ -64,6 +64,13 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping();
 
+        // Khung giờ khoá dài hạn (BlockTimeslotModal/Dashboard "Lịch" — settings['blocked_dates'])
+        // đã qua giờ kết thúc thì tự gỡ khoá — không cần admin tự tay dọn ngày đã qua.
+        $schedule->command('timeslot-blocks:prune-expired')
+            ->everyFiveMinutes()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping();
+
         // Safety-net: tự trả phòng khi khách quá giờ checkout mà không tự mở khoá lần 2.
         $schedule->command('orders:sync-lifecycle')
             ->everyMinute()
