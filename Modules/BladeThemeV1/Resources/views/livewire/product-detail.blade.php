@@ -1342,66 +1342,14 @@
                                         slotPage: 0,
                                         slotsPerPage: {{ $pdSlotsPerPage }},
                                         totalSlotPages: {{ $pdTotalSlotPages }},
-                                        holdTokens: {},
 
-                                        _getBookingSessionId() {
-                                            const KEY = '365home_booking_session_id';
-                                            let sid = localStorage.getItem(KEY);
-                                            if (!sid) {
-                                                sid = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
-                                                localStorage.setItem(KEY, sid);
-                                            }
-                                            return sid;
-                                        },
-
-                                        // TimeSlotHoldController quy ước ngày dạng d-m-Y (khớp book.blade.php) — date ở
-                                        // đây đang là Y-m-d ($date[carbon_date]->format(Y-m-d) truyền vào toggleSlot()),
-                                        // phải đổi định dạng TRƯỚC khi gọi API để 2 trang dùng chung 1 định dạng cache.
-                                        _toDmy(isoDate) {
-                                            const parts = String(isoDate).split('-');
-                                            return parts.length === 3 ? (parts[2] + '-' + parts[1] + '-' + parts[0]) : isoDate;
-                                        },
-
-                                        _holdSlotAsync(roomId, timeslotId, isoDate) {
-                                            fetch('/api/rooms/' + roomId + '/time-slot-hold', {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                                                body: JSON.stringify({ session_id: this._getBookingSessionId(), timeslot_id: timeslotId, date: this._toDmy(isoDate) }),
-                                            })
-                                                .then(r => r.json())
-                                                .then(d => {
-                                                    if (d && d.ok && d.hold_token) {
-                                                        this.holdTokens[roomId + '|' + timeslotId + '|' + isoDate] = d.hold_token;
-                                                    }
-                                                })
-                                                .catch(() => {});
-                                        },
-
-                                        _releaseSlotHold(roomId, timeslotId, isoDate) {
-                                            const key = roomId + '|' + timeslotId + '|' + isoDate;
-                                            const token = this.holdTokens[key];
-                                            if (!token) return;
-                                            delete this.holdTokens[key];
-                                            fetch('/api/rooms/' + roomId + '/time-slot-hold', {
-                                                method: 'DELETE',
-                                                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                                                body: JSON.stringify({ session_id: this._getBookingSessionId(), timeslot_id: timeslotId, date: this._toDmy(isoDate), hold_token: token }),
-                                            }).catch(() => {});
-                                        },
-
-                                        // Giữ chỗ real-time NGAY khi khách bấm chọn 1 ô — admin (view Lịch) và khách
-                                        // khác đang xem cùng phòng thấy ngay, tránh 2 người chọn trùng — xem cùng cơ
-                                        // chế ở book.blade.php::toggleSlot()/TimeSlotHoldController. Chạy nền, không
-                                        // chặn UI.
                                         toggleSlot(date, timeslotId, price, originalPrice, basePrice, increaseAmount, promoDiscount, startTime, endTime, status, roomId, roomName, timeslotLabel, overNight) {
                                             const key = `${date}-${timeslotId}`;
                                             const index = this.selectedSlots.findIndex(slot => slot.key === key);
                                             if (index > -1) {
                                                 this.selectedSlots.splice(index, 1);
-                                                this._releaseSlotHold(roomId, timeslotId, date);
                                             } else {
                                                 this.selectedSlots.push({ key, date, startTime, endTime, price, originalPrice, basePrice, increaseAmount, promoDiscount, timeslotId, roomId, roomName, timeslotLabel, overNight });
-                                                this._holdSlotAsync(roomId, timeslotId, date);
                                             }
                                             @this.set('selectedSlots', this.selectedSlots);
                                         }

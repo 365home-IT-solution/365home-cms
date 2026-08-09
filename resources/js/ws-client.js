@@ -9,89 +9,11 @@
 // component thật (Livewire.dispatch('roomAvailabilityChanged') — xem onRoomAvailabilityChanged()
 // trong ProductDetail.php/Book.php) để lấy đúng giá/khuyến mãi mới từ DB, thay vì tự vá DOM (sẽ
 // phải chép lại logic format giá/km sang JS, dễ lệch với PHP).
-//
-// CÙNG file này còn nghe thêm event "slot.hold.updated" (bắn bởi TimeSlotHoldController — KHÁCH
-// tự chọn khung giờ, khác hẳn TimeslotHoldService/echo-client.js dành cho ADMIN) — event này tần
-// suất CAO (mỗi lần khách bấm chọn/bỏ chọn 1 ô), nên xử lý bằng vá DOM trực tiếp (applySlotHoldUpdate())
-// giống kỹ thuật echo-client.js, KHÔNG dùng scheduleDispatch()/Livewire re-render như slot.updated.
 (function () {
     const WS_URL = window.__WS_PUBLIC_URL;
 
     if (!WS_URL) {
         return;
-    }
-
-    const LOCK_ICON_HTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
-        + 'stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="9" rx="2"></rect>'
-        + '<path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>';
-
-    const OTHER_BLOCKING_CLASSES = ['booked', 'pending', 'blocked', 'past-time', 'past-date'];
-
-    function heldCellsFor(roomId, date) {
-        return document.querySelectorAll(`[data-room-id="${roomId}"][data-iso-date="${date}"]`);
-    }
-
-    function applyCustomerHeldStyle(cell) {
-        if (cell.classList.contains('held')) {
-            return;
-        }
-        cell.classList.add('held');
-        cell.style.pointerEvents = 'none';
-        cell.style.opacity = '0.6';
-        if (!cell.querySelector('.lock-icon')) {
-            const icon = document.createElement('div');
-            icon.className = 'lock-icon';
-            icon.title = 'Khung giờ đang được khách khác chọn';
-            icon.innerHTML = LOCK_ICON_HTML;
-            cell.appendChild(icon);
-        }
-    }
-
-    function removeCustomerHeldStyle(cell) {
-        if (!cell.classList.contains('held')) {
-            return;
-        }
-        cell.classList.remove('held');
-        cell.querySelector('.lock-icon')?.remove();
-        const stillBlocked = OTHER_BLOCKING_CLASSES.some((c) => cell.classList.contains(c));
-        if (!stillBlocked) {
-            cell.style.pointerEvents = '';
-            cell.style.opacity = '';
-        }
-    }
-
-    // Payload là SNAPSHOT toàn bộ hold còn hiệu lực của (room, date) đó tại thời điểm bắn (không
-    // phải 1 sự kiện add/remove đơn lẻ — xem TimeSlotHoldController::broadcastForDate()), nên phải
-    // DIFF với DOM hiện tại: bật "held" cho timeslot có trong danh sách, tắt cho timeslot KHÔNG còn
-    // trong danh sách (nhưng đang hiện "held" trên màn hình).
-    function applySlotHoldUpdate(payload) {
-        if (!payload || !payload.room_id || !payload.date) {
-            return;
-        }
-
-        const heldTimeslotIds = new Set((payload.holds || []).map((h) => String(h.timeslot_id)));
-        const cells = heldCellsFor(payload.room_id, payload.date);
-
-        cells.forEach((cell) => {
-            const timeslotId = cell.dataset.timeslotId;
-            const shouldBeHeld = heldTimeslotIds.has(String(timeslotId));
-
-            // Ô đang là lựa chọn CỦA CHÍNH khách này (class "active", nền đen — xem toggleSlot()
-            // trong book.blade.php/product-detail.blade.php) — bỏ qua, không tự vá thành "held".
-            // Payload này không phân biệt "giữ bởi ai" (xem lý do bảo mật ở
-            // TimeSlotHoldController::broadcastForDate()), nên hold của CHÍNH khách vừa tạo cũng
-            // vọng ngược lại qua kênh này — nếu không loại trừ .active, khách sẽ thấy NGAY ô mình
-            // vừa chọn tự đổi màu cam như bị người khác giành mất.
-            if (cell.classList.contains('active')) {
-                return;
-            }
-
-            if (shouldBeHeld) {
-                applyCustomerHeldStyle(cell);
-            } else {
-                removeCustomerHeldStyle(cell);
-            }
-        });
     }
 
     // Socket.IO client hiểu phần path của URI đầu tiên là NAMESPACE, không phải tiền tố đường dẫn
@@ -132,7 +54,6 @@
         socket.on('slot.updated', scheduleDispatch);
         socket.on('daily.booked', scheduleDispatch);
         socket.on('daily.blocked', scheduleDispatch);
-        socket.on('slot.hold.updated', applySlotHoldUpdate);
 
         return socket;
     }

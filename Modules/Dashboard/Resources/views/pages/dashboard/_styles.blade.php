@@ -1364,15 +1364,6 @@
         cursor: not-allowed;
     }
 
-    /* KHÁCH đang chọn dở ở trang đặt phòng (TimeSlotHoldController, chưa xác nhận đặt) — viền
-       đứt màu xanh dương, phân biệt trực quan với is-held (vàng, admin khác đang giữ). */
-    .ta-rc-cal-cell.is-held-customer {
-        background: var(--ta-panel);
-        border: 1px dashed #3b82f6;
-        color: #1d4ed8;
-        cursor: not-allowed;
-    }
-
     .ta-rc-cal-cell.is-booked {
         /* Ô đã đặt là <button> (bấm mở popup — rcCalOpenOrderPopup()), reset style mặc định
            của trình duyệt để trông giống hệt ô trống (<span>) bên cạnh, chỉ khác màu nền. Mặc

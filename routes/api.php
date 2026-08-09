@@ -21,7 +21,6 @@ use App\Http\Controllers\Api\LockRecordCallbackController;
 use App\Http\Controllers\Api\UnlockController;
 use App\Http\Controllers\Api\DailyRoomController;
 use App\Http\Controllers\Api\DailyRoomHoldController;
-use App\Http\Controllers\Api\TimeSlotHoldController;
 use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\RoomTypeController;
 use App\Http\Controllers\Api\DeviceTokenController;
@@ -192,15 +191,24 @@ Route::delete('rooms/{id}/hold',       [DailyRoomHoldController::class, 'release
 
 /*
 |--------------------------------------------------------------------------
-| Time-slot Hold — "đang chọn" tạm thời cho phòng theo khung giờ (style 1)
-| POST   /api/rooms/{id}/time-slot-hold → Giữ 1 ô khung giờ x ngày (TTL 10 phút)
-| DELETE /api/rooms/{id}/time-slot-hold → Bỏ giữ 1 ô
-| Dùng cùng với GET /api/v1/branches/{slug}/time-slots?session_id=... để biết ô nào
-| đang bị người khác giữ (held=true, is_selectable=false).
+| Time-slot Hold (KHÁCH VÃNG LAI) — ĐÃ GỠ 2 route POST/DELETE public bên dưới.
+|
+| Trước đây cho phép bất kỳ ai (không cần đăng nhập) gọi thẳng 2 route này để "giữ chỗ" 1 ô
+| khung giờ, phát real-time cho admin/khách khác thấy ngay. Rủi ro bảo mật thật sự: throttle
+| 30 request/phút/IP KHÔNG đủ chặn kẻ tấn công cố ý spam giữ hết mọi ô khung giờ còn trống của
+| 1 phòng (đổi IP/dùng nhiều IP), khiến khách thật không đặt được phòng dù còn trống — đây là
+| lỗ hổng DoS/phá đơn, không phải lỗi hiệu năng thông thường. ĐÃ BỎ theo yêu cầu, chỉ còn giữ
+| lại chiều NGƯỢC LẠI (admin giữ chỗ → khách thấy ngay, xem TimeslotHoldService +
+| admin.rooms.timeslot-hold ở routes/web.php) — chiều đó an toàn vì chỉ admin đã đăng nhập mới
+| gọi được.
+|
+| TimeSlotHoldController::hold()/release() vẫn còn trong code (không xoá file) vì
+| App\Http\Controllers\Api\Admin\TimeSlotHoldController (route admin đã xác thực, KHÔNG bị gỡ)
+| đang gọi thẳng TimeSlotHoldController::getActiveHolds() (static, cùng class) để đọc chung 1
+| kho Cache — chỉ 2 route public hold()/release() bên dưới bị gỡ, phần đọc vẫn hoạt động bình
+| thường.
 |--------------------------------------------------------------------------
 */
-Route::post('rooms/{id}/time-slot-hold',   [TimeSlotHoldController::class, 'hold'])->name('api.rooms.time-slot.hold')->middleware('throttle:hold-slot');
-Route::delete('rooms/{id}/time-slot-hold', [TimeSlotHoldController::class, 'release'])->name('api.rooms.time-slot.hold.release')->middleware('throttle:hold-slot');
 
 /*
 |--------------------------------------------------------------------------

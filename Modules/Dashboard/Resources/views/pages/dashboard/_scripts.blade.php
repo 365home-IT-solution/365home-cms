@@ -16,13 +16,6 @@ window.__rcRoomsData    = @json($roomCards['rooms'] ?? []);
 window.__rcBranchesData = @json($roomCards['branches'] ?? []);
 window._rcCalActiveBranch = null;
 
-// URL public của Node WS service (websocket/server.js) — CÙNG service khách hàng dùng
-// (resources/js/ws-client.js), để nghe kênh 'room:{room_id}:{date}' event 'slot.hold.updated'
-// (TimeSlotHoldController::broadcastForDate()) ngay trong trang Dashboard này, xem
-// rcCalSubscribeCustomerHolds() bên dưới. Để trống (chưa cấu hình route
-// "services.websocket.public_url") thì tự bỏ qua, không lỗi gì — giống ws-client.js phía khách.
-window.__WS_PUBLIC_URL = @js(config('services.websocket.public_url'));
-
 // Số ngày hiển thị ở view "Lịch" — 1 select DÙNG CHUNG cho mọi phòng đang xem (không phải riêng
 // từng phòng, giữ nguyên cột "Thời gian" dùng chung cho cả carousel phòng), chỉ 3 mốc 5/10/15 —
 // xem rcCalApplyDaysRange(). Mặc định 10 (khớp RoomCardsService::buildTimeslotGrid() mặc định),
@@ -859,13 +852,6 @@ window.rcCalRenderGrid = function() {
                     return '<span class="ta-rc-cal-cell is-held" title="' + window._escAttr('Đang được ' + (cell.held_by || 'admin khác') + ' chọn') + '">Chờ...</span>';
                 }
 
-                // KHÁCH đang chọn ô này ở trang đặt phòng (TimeSlotHoldController, Cache riêng —
-                // KHÁC held_other là admin giữ qua TimeslotHoldService) — cùng lý do held_other,
-                // không cho admin bấm chọn trùng ô khách đang giữ để tránh 2 bên cùng đặt 1 ô.
-                if (cell.kind === 'held_customer') {
-                    return '<span class="ta-rc-cal-cell is-held-customer" title="Khách đang chọn ô này (chưa đặt)">Khách chọn</span>';
-                }
-
                 // free hoặc held_mine (CHÍNH admin này đang giữ — vd vừa F5 lại trang giữa lúc
                 // đang chọn dở) — cả 2 đều bấm chọn/bỏ chọn được, khác nhau ở chỗ đã tô sẵn
                 // is-selected hay chưa. rcCalToggleSlot() tự POST giữ/nhả chỗ real-time NGAY khi
@@ -936,104 +922,6 @@ window.rcCalRenderGrid = function() {
         if (newTrack) newTrack.scrollLeft = prevScrollLeft;
     }
 };
-
-// Real-time ô 'held_customer' — nghe ĐÚNG kênh Node socket.io "room:{room_id}:{date}" mà khách
-// hàng đang dùng (event 'slot.hold.updated', bắn bởi TimeSlotHoldController::broadcastForDate()
-// mỗi khi khách chọn/bỏ chọn 1 khung giờ), để Dashboard cập nhật NGAY thay vì phải đợi vòng poll
-// 2 phút (pollRoomCards()) mới thấy khách vừa bỏ chọn — đúng bug đã gặp: ô hiện "Khách chọn" bị
-// dính lại dù khách đã bỏ chọn từ lâu. Payload là SNAPSHOT toàn bộ hold còn hiệu lực của
-// (room, date) đó (không phải add/remove đơn lẻ — cùng lý do đã áp dụng ở ws-client.js phía
-// khách), nên phải DIFF với dữ liệu hiện có rồi vẽ lại đúng những ô thật sự đổi.
-(function () {
-    var WS_URL = window.__WS_PUBLIC_URL;
-    if (!WS_URL) return;
-
-    var wsOrigin = WS_URL;
-    var wsPath   = '/socket.io/';
-    try {
-        var parsed = new URL(WS_URL);
-        wsOrigin = parsed.origin;
-        wsPath   = (parsed.pathname.replace(/\/$/, '') || '') + '/socket.io/';
-    } catch (e) {}
-
-    var socket      = null;
-    var subscribed  = {};
-
-    function loadSocketIoScript(cb) {
-        if (window.io) { cb(); return; }
-        var s = document.createElement('script');
-        s.src = WS_URL + '/socket.io/socket.io.js';
-        s.onload = cb;
-        s.onerror = function() {};
-        document.head.appendChild(s);
-    }
-
-    function applyCustomerHoldUpdate(payload) {
-        if (!payload || !payload.room_id || !payload.date) return;
-
-        var heldTimeslotIds = {};
-        (payload.holds || []).forEach(function(h) { heldTimeslotIds[String(h.timeslot_id)] = true; });
-
-        var changed = false;
-        (window.__rcRoomsData || []).forEach(function(room) {
-            if (String(room.product_id) !== String(payload.room_id) || !room.timeslot_grid) return;
-
-            (room.timeslot_grid.rows || []).forEach(function(row) {
-                var key  = row.id + '|' + payload.date;
-                var cell = room.timeslot_grid.cells[key];
-
-                // CHỈ đụng tới ô đang 'free' hoặc 'held_customer' — không ghi đè ô đã đặt/khoá
-                // dài hạn/admin đang giữ (booked/blocked/held_mine/held_other), giữ ĐÚNG thứ tự
-                // ưu tiên đã định ở RoomCardsService::buildTimeslotGrid() (free/held_customer
-                // luôn xét SAU CÙNG, sau khi đã loại các trạng thái trên).
-                if (!cell || (cell.kind !== 'free' && cell.kind !== 'held_customer')) return;
-
-                var shouldHold = !!heldTimeslotIds[String(row.timeslot_id)];
-                if (shouldHold && cell.kind !== 'held_customer') {
-                    room.timeslot_grid.cells[key] = { kind: 'held_customer' };
-                    changed = true;
-                } else if (!shouldHold && cell.kind === 'held_customer') {
-                    room.timeslot_grid.cells[key] = { kind: 'free' };
-                    changed = true;
-                }
-            });
-        });
-
-        // rcCalRenderGrid() giờ tự giữ nguyên vị trí cuộn ngang carousel qua mỗi lần vẽ lại (xem
-        // sửa lỗi "nhảy về trang đầu" ở trên) nên gọi lại toàn bộ ở đây an toàn.
-        if (changed && window.rcCalRenderGrid) window.rcCalRenderGrid();
-    }
-
-    function initSocket() {
-        if (socket) return socket;
-        socket = window.io(wsOrigin, { path: wsPath, transports: ['websocket', 'polling'] });
-        socket.on('slot.hold.updated', applyCustomerHoldUpdate);
-        return socket;
-    }
-
-    function subscribeRoomDate(roomId, date) {
-        var key = roomId + ':' + date;
-        if (!roomId || !date || subscribed[key]) return;
-        subscribed[key] = true;
-        initSocket().emit('subscribe:room', { room_id: roomId, date: date });
-    }
-
-    // Gọi lại được từ renderRoomCards() (poll 2 phút/lần, xem _kpi/_scripts.blade.php) mỗi khi
-    // window.__rcRoomsData đổi, để đăng ký thêm phòng/ngày mới xuất hiện — subscribeRoomDate() tự
-    // bỏ qua cặp (room, date) đã đăng ký nên gọi lại nhiều lần không tốn kém.
-    window.rcCalSubscribeCustomerHolds = function() {
-        (window.__rcRoomsData || []).forEach(function(room) {
-            if ((room.styles || 1) !== 1 || !room.timeslot_grid) return;
-            (room.timeslot_grid.dates || []).forEach(function(date) {
-                subscribeRoomDate(room.product_id, date.iso);
-            });
-        });
-    };
-
-    loadSocketIoScript(function() {
-        window.rcCalSubscribeCustomerHolds();
-    });
-})();
 
 // Cập nhật chữ "N phòng" giữa nút Trước/Sau (id cố định trong Blade, không bị JS dựng lại như
 // phần lưới) — không còn khái niệm "trang" nữa (rcCalScrollRooms() giờ chỉ scrollBy() mượt như
@@ -2183,9 +2071,6 @@ window.rcCalSaveOrderNote = function(btn) {
         // người dùng tự bấm lại tab "Lịch".
         window.__rcRoomsData    = data.rooms || [];
         window.__rcBranchesData = data.branches || [];
-        // Đăng ký thêm kênh WS cho phòng/ngày MỚI vừa xuất hiện sau lần poll này (đổi chi nhánh/
-        // phòng mới thêm...) — xem rcCalSubscribeCustomerHolds() ở trên, tự bỏ qua cặp đã đăng ký.
-        if (window.rcCalSubscribeCustomerHolds) window.rcCalSubscribeCustomerHolds();
         var calView = document.getElementById('ta-rc-cal-view');
         if (calView && calView.style.display !== 'none') {
             window.rcCalRenderBranches();

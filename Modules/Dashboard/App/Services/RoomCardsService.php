@@ -325,23 +325,6 @@ class RoomCardsService
             $upcomingCount = count(array_filter($orders, fn ($o) => $o['segment'] === 'upcoming'));
             $overdueCount  = count(array_filter($orders, fn ($o) => $o['segment'] === 'overdue'));
 
-            // Hold của KHÁCH (khác hẳn $holdsMap ở trên — đó là hold của ADMIN, bảng DB
-            // timeslot_holds). Khách lưu ở Cache riêng theo từng phòng (TimeSlotHoldController,
-            // không FK được tới users vì khách vãng lai không có tài khoản) nên phải gọi 1 lần/
-            // phòng — không batch được như $holdsMap, nhưng đây chỉ là Cache::get (rẻ) và chỉ gọi
-            // cho phòng kiểu khung giờ (style 1) đang hiển thị trên Dashboard, không phải mọi
-            // phòng trong hệ thống.
-            $customerHoldsMap = [];
-            if ($isSlotStyle) {
-                foreach (\App\Http\Controllers\Api\TimeSlotHoldController::getActiveHolds((string) $product->id) as $h) {
-                    // Cache lưu 'date' dạng d-m-Y (khớp GET .../time-slots — xem docblock
-                    // TimeSlotHoldController), trong khi $dates['iso'] của lưới này là Y-m-d —
-                    // phải đổi định dạng NGAY ĐÂY để khớp key 'timeslot_id|Y-m-d' dùng bên dưới.
-                    $isoDate = Carbon::createFromFormat('d-m-Y', $h['date'])->toDateString();
-                    $customerHoldsMap[$h['timeslot_id'] . '|' . $isoDate] = true;
-                }
-            }
-
             $timeslotGrid = self::buildTimeslotGrid(
                 $product,
                 $orders,
@@ -349,8 +332,7 @@ class RoomCardsService
                 $allRoomTimeSlots->get($product->id, collect()),
                 $holdsMap,
                 $currentUserId,
-                $days,
-                $customerHoldsMap
+                $days
             );
 
             return [
@@ -440,7 +422,7 @@ class RoomCardsService
     // trong 1 thẻ phòng, không tính lại nếu admin muốn xem xa hơn (đã có view "Danh sách" liệt kê
     // đủ mọi đơn upcoming cho việc đó rồi).
     // $currentUserId: kiểu string, KHÔNG phải int — User.id trong app này là UUID.
-    private static function buildTimeslotGrid(Product $product, array $orders, Carbon $today, $roomTimeSlots, array $holdsMap = [], ?string $currentUserId = null, int $days = 10, array $customerHoldsMap = []): array
+    private static function buildTimeslotGrid(Product $product, array $orders, Carbon $today, $roomTimeSlots, array $holdsMap = [], ?string $currentUserId = null, int $days = 10): array
     {
         $isSlotStyle = (int) $product->styles === 1;
         $now         = Carbon::now();
@@ -461,12 +443,7 @@ class RoomCardsService
                 ->sortBy(fn (RoomTimeSlot $slot) => $slot->timeSlot->start_time)
                 ->values()
                 ->map(fn (RoomTimeSlot $slot) => [
-                    'id'          => (string) $slot->id,
-                    // ID của TimeSlot dùng chung (KHÁC 'id' ở trên — id của RoomTimeSlot riêng
-                    // phòng này) — cần để khớp với khách hàng holds phía Cache (xem
-                    // TimeSlotHoldController, key theo timeslot_id chứ không phải room_time_slot
-                    // id) khi tính 'held_customer' bên dưới.
-                    'timeslot_id' => $slot->timeslot_id,
+                    'id'         => (string) $slot->id,
                     'label'      => $slot->timeSlot->label
                         ?: (substr($slot->timeSlot->start_time, 0, 5) . '-' . substr($slot->timeSlot->end_time, 0, 5)),
                     'start_time' => $slot->timeSlot->start_time,
@@ -587,15 +564,6 @@ class RoomCardsService
                         'kind'     => $isMine ? 'held_mine' : 'held_other',
                         'held_by'  => $hold->user->fullname ?? $hold->user->email ?? 'Admin khác',
                     ];
-                    continue;
-                }
-
-                // Khách đang chọn ô này ở trang đặt phòng (chưa xác nhận đặt) — khớp theo
-                // 'timeslot_id' (ID TimeSlot dùng chung), KHÔNG phải $row['id'] (ID RoomTimeSlot
-                // riêng phòng này, khác bảng). Đặt SAU held_mine/held_other (admin) vì nếu admin
-                // đang giữ ô này thì ưu tiên hiện trạng thái admin, không hiện đè trạng thái khách.
-                if ($isSlotStyle && isset($customerHoldsMap[$row['timeslot_id'] . '|' . $date['iso']])) {
-                    $cells[$row['id'] . '|' . $date['iso']] = ['kind' => 'held_customer'];
                     continue;
                 }
 

@@ -5,71 +5,15 @@
     fullBookingDiscount: 0,
     hasFullDayBooking: false,
     fullDayDates: [], // Thêm để track ngày nào full booking
-    holdTokens: {}, // key: roomId|timeslotId|date -> hold_token trả về từ POST time-slot-hold
 
     resetSelection() {
         document.querySelectorAll('.selectable.active').forEach(el => el.classList.remove('active'));
-        // Nhả hết hold real-time đang giữ (không đợi TTL 10p tự hết) — mỗi lượt chọn phòng khác/huỷ
-        // chọn hết cả loạt đều đi qua đây, xem holdTokens ở trên.
-        Object.keys(this.holdTokens).forEach(key => {
-            const [roomId, timeslotId, date] = key.split('|');
-            this._releaseSlotHold(roomId, timeslotId, date);
-        });
-        this.holdTokens = {};
         this.selectedSlots = [];
         this.selectedRoomId = null;
         this.selectedRoomIsActive = null;
         this.fullBookingDiscount = 0;
         this.hasFullDayBooking = false;
         this.fullDayDates = [];
-    },
-
-    // ID trình duyệt của khách — sinh 1 LẦN, lưu localStorage để giữ nguyên suốt phiên (nhiều tab
-    // cùng khách vẫn cùng session_id, đúng ý khách ở thiết bị khác thấy luôn — mỗi TRÌNH DUYỆT
-    // là 1 khách khác nhau, không phải mỗi tab). CHỈ dùng để hiển thị held_by_me phía server đọc
-    // lại (xem BranchController::buildSlotStatus()) — KHÔNG phải bằng chứng sở hữu để release(),
-    // xem hold_token bên dưới.
-    _getBookingSessionId() {
-        const KEY = '365home_booking_session_id';
-        let sid = localStorage.getItem(KEY);
-        if (!sid) {
-            sid = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
-            localStorage.setItem(KEY, sid);
-        }
-        return sid;
-    },
-
-    // Bắn giữ chỗ real-time NGAY khi khách bấm chọn 1 ô — để admin (view Lịch) và khách khác
-    // đang xem CÙNG phòng thấy ngay ô này đang có người chọn (không cần đợi khách bấm xác nhận/
-    // thanh toán), tránh 2 người chọn trùng. Chạy nền (không chặn UI, click vẫn tô đen ngay lập
-    // tức) — lỗi mạng/API không làm hỏng trải nghiệm chọn phòng, chỉ đơn giản là không có hiệu ứng
-    // real-time lúc đó (khoá DB thật sự lúc submit đơn mới là chốt chặn chính, đây chỉ để hiển thị
-    // sớm — xem TimeSlotHoldController).
-    _holdSlotAsync(roomId, timeslotId, date) {
-        fetch('/api/rooms/' + roomId + '/time-slot-hold', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ session_id: this._getBookingSessionId(), timeslot_id: timeslotId, date: date }),
-        })
-            .then(r => r.json())
-            .then(d => {
-                if (d && d.ok && d.hold_token) {
-                    this.holdTokens[roomId + '|' + timeslotId + '|' + date] = d.hold_token;
-                }
-            })
-            .catch(() => {});
-    },
-
-    _releaseSlotHold(roomId, timeslotId, date) {
-        const key = roomId + '|' + timeslotId + '|' + date;
-        const token = this.holdTokens[key];
-        if (!token) return;
-        delete this.holdTokens[key];
-        fetch('/api/rooms/' + roomId + '/time-slot-hold', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ session_id: this._getBookingSessionId(), timeslot_id: timeslotId, date: date, hold_token: token }),
-        }).catch(() => {});
     },
 
     toggleSlot(el, slot) {
@@ -106,7 +50,6 @@
             this.selectedSlots = this.selectedSlots.filter(
                 s => !(s.timeslotId === slot.timeslotId && s.date === slot.date)
             );
-            this._releaseSlotHold(slot.roomId, slot.timeslotId, slot.date);
 
             if (this.selectedSlots.length === 0) {
                 this.selectedRoomId = null;
@@ -118,7 +61,6 @@
         } else {
             twins.forEach(twin => twin.classList.add('active'));
             this.selectedSlots.push(slot);
-            this._holdSlotAsync(slot.roomId, slot.timeslotId, slot.date);
         }
 
         this.checkFullBooking();
