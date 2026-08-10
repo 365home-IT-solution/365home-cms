@@ -185,7 +185,6 @@ class TimeSlotController extends Controller
             'start_time' => $slot->start_time,
             'end_time'   => $slot->end_time,
             'label'      => $slot->label,
-            'over_night' => (bool) $slot->over_night,
             'type'       => $slot->type,
         ];
     }
