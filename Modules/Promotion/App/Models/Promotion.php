@@ -6,11 +6,12 @@ use App\Models\Concerns\BelongsToPartner;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Modules\Category\Traits\Categorizable;
 use Modules\Product\App\Models\RoomTimeSlot;
 
 class Promotion extends Model
 {
-    use HasFactory, BelongsToPartner;
+    use HasFactory, BelongsToPartner, Categorizable;
 
     protected $fillable = [
         'partner_id',

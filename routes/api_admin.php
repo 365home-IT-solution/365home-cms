@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\Admin\OrderController;
 use App\Http\Controllers\Api\Admin\OrderPaymentController;
 use App\Http\Controllers\Api\Admin\PositionController;
 use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
+use App\Http\Controllers\Api\Admin\PromotionController as AdminPromotionController;
 use App\Http\Controllers\Api\Admin\RoomBlockController as AdminRoomBlockController;
 use App\Http\Controllers\Api\Admin\RoomController as AdminRoomController;
 use App\Http\Controllers\Api\Admin\RoomPricingController as AdminRoomPricingController;
@@ -434,9 +435,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/tags')->name('ap
 | Time Slots — Danh sách khung giờ dùng chung (bảng `time_slots`), đã chia sẵn 4 nhóm
 | Ngày/Chiều/Đêm/Qua đêm — xem TimeSlotController. Dùng làm dữ liệu nền để gán khung giờ cho
 | từng phòng (POST /api/admin/products/{id}/time-slots).
-| GET /api/admin/time-slots → ?type=&include_date_type=
+| GET /api/admin/time-slots → ?type=&include_date_type=&key=&label=
 | POST /api/admin/time-slots → tạo khung giờ mới (start_time/end_time/over_night/label/type)
 | PUT|PATCH /api/admin/time-slots/{id} → sửa — LƯU Ý dùng chung cho mọi phòng đang gán khung giờ này
+| DELETE /api/admin/time-slots/{id} → xoá — chặn nếu còn phòng nào đang gán khung giờ này
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/time-slots')->name('api.admin.time-slots.')->group(function () {
@@ -444,6 +446,29 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/time-slots')->na
     Route::post('/', [AdminTimeSlotController::class, 'store'])->name('store');
     Route::put('/{id}', [AdminTimeSlotController::class, 'update'])->name('update');
     Route::patch('/{id}', [AdminTimeSlotController::class, 'update'])->name('update.patch');
+    Route::delete('/{id}', [AdminTimeSlotController::class, 'destroy'])->name('destroy');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Promotions — Quản lý ƯU ĐÃI (bảng `promotions`, module Promotion), CRUD đầy đủ — xem docblock
+| App\Http\Controllers\Api\Admin\PromotionController. Khác với GET/POST/DELETE
+| /api/admin/rooms/{id}/promotions (RoomPromotionController — chỉ gán/gỡ ưu đãi CÓ SẴN cho khung
+| giờ của 1 phòng, không tạo/sửa/xoá bản ghi Promotion).
+| GET    /api/admin/promotions      → ?search=&type=&is_active=&category_id=&categories[]=&per_page=
+| GET    /api/admin/promotions/{id} → chi tiết
+| POST   /api/admin/promotions      → tạo (categories[] bắt buộc, kèm ảnh thì multipart/form-data)
+| PUT|POST /api/admin/promotions/{id} → sửa (POST khi cần gửi kèm ảnh)
+| DELETE /api/admin/promotions/{id} → xoá — chặn nếu còn gán cho khung giờ phòng nào
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/promotions')->name('api.admin.promotions.')->group(function () {
+    Route::get('/', [AdminPromotionController::class, 'index'])->name('index');
+    Route::get('/{id}', [AdminPromotionController::class, 'show'])->name('show');
+    Route::post('/', [AdminPromotionController::class, 'store'])->name('store');
+    Route::put('/{id}', [AdminPromotionController::class, 'update'])->name('update');
+    Route::post('/{id}', [AdminPromotionController::class, 'update'])->name('update.post');
+    Route::delete('/{id}', [AdminPromotionController::class, 'destroy'])->name('destroy');
 });
 
 /*

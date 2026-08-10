@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Modules\Product\App\Models\RoomTimeSlot;
 use Modules\Product\App\Models\TimeSlot;
 
 /**
@@ -35,6 +36,9 @@ class TimeSlotController extends Controller
      *  - type            : lọc theo type ('time'/'date'...) — mặc định BỎ QUA type='date' (những
      *                       dòng đó là mốc ngày cho phòng kiểu "theo ngày", không phải khung giờ thật).
      *  - include_date_type: truyền 1 để lấy luôn cả loại 'date'.
+     *  - key             : lọc theo nhóm (ngay|chieu|dem|qua_dem) — chỉ trả về nhóm đó, vd
+     *                      ?key=ngay. Phân loại dựa trên cùng quy tắc classify() ở dưới.
+     *  - label           : lọc gần đúng (LIKE) theo label, vd ?label=18:00.
      */
     public function index(Request $request): JsonResponse
     {
@@ -48,21 +52,33 @@ class TimeSlotController extends Controller
             });
         }
 
-        $slots = $query->orderBy('start_time')->get(['id', 'start_time', 'end_time', 'label', 'over_night', 'type']);
-
-        $grouped = collect(self::GROUPS)->mapWithKeys(fn ($label, $key) => [$key => []])->toArray();
-
-        foreach ($slots as $slot) {
-            $grouped[$this->classify($slot)][] = [
-                'id'         => $slot->id,
-                'start_time' => $slot->start_time,
-                'end_time'   => $slot->end_time,
-                'label'      => $slot->label,
-                'over_night' => (bool) $slot->over_night,
-            ];
+        if ($request->filled('label')) {
+            $query->where('label', 'like', '%'.$request->string('label').'%');
         }
 
-        $data = collect(self::GROUPS)->map(fn ($label, $key) => [
+        $slots = $query->orderBy('start_time')->get(['id', 'start_time', 'end_time', 'label', 'over_night', 'type']);
+
+        $groups = self::GROUPS;
+        if ($request->filled('key')) {
+            $groups = array_intersect_key($groups, array_flip([$request->string('key')->toString()]));
+        }
+
+        $grouped = collect($groups)->mapWithKeys(fn ($label, $key) => [$key => []])->toArray();
+
+        foreach ($slots as $slot) {
+            $groupKey = $this->classify($slot);
+            if (array_key_exists($groupKey, $grouped)) {
+                $grouped[$groupKey][] = [
+                    'id'         => $slot->id,
+                    'start_time' => $slot->start_time,
+                    'end_time'   => $slot->end_time,
+                    'label'      => $slot->label,
+                    'over_night' => (bool) $slot->over_night,
+                ];
+            }
+        }
+
+        $data = collect($groups)->map(fn ($label, $key) => [
             'key'   => $key,
             'label' => $label,
             'slots' => $grouped[$key],
@@ -131,6 +147,28 @@ class TimeSlotController extends Controller
         $slot->update($data);
 
         return response()->json(['data' => $this->toItem($slot->fresh())]);
+    }
+
+    /**
+     * DELETE /api/admin/time-slots/{id}
+     * Chặn xoá nếu còn phòng nào đang gán khung giờ này (room_time_slots.timeslot_id) — xoá sẽ làm
+     * mất giá/lịch sử đặt phòng đang tham chiếu tới.
+     */
+    public function destroy(int $id): JsonResponse
+    {
+        $slot = TimeSlot::find($id);
+
+        if (! $slot) {
+            return response()->json(['message' => 'Không tìm thấy khung giờ.'], 404);
+        }
+
+        if (RoomTimeSlot::where('timeslot_id', $id)->exists()) {
+            return response()->json(['message' => 'Không thể xoá — đang có phòng gán khung giờ này.'], 422);
+        }
+
+        $slot->delete();
+
+        return response()->json(['message' => 'Đã xoá khung giờ.']);
     }
 
     private function buildLabel(string $startTime, string $endTime, bool $overNight): string
