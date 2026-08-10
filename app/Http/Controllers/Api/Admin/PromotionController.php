@@ -157,7 +157,7 @@ class PromotionController extends Controller
             $promotion->update(['image' => $request->file('image')->store('promotions', 'public')]);
         }
 
-        return response()->json(['data' => $this->toDetailItem($promotion->fresh(['categories:id,name,slug,parent_id']))], 201);
+        return response()->json(['data' => $this->toWriteItem($promotion->fresh(['categories:id,name,slug,parent_id']))], 201);
     }
 
     /**
@@ -205,7 +205,7 @@ class PromotionController extends Controller
             $promotion->update(['image' => $request->file('image')->store('promotions', 'public')]);
         }
 
-        return response()->json(['data' => $this->toDetailItem($promotion->fresh(['categories:id,name,slug,parent_id']))]);
+        return response()->json(['data' => $this->toWriteItem($promotion->fresh(['categories:id,name,slug,parent_id']))]);
     }
 
     /**
@@ -347,5 +347,12 @@ class PromotionController extends Controller
             'created_at'    => optional($promotion->created_at)->toISOString(),
             'updated_at'    => optional($promotion->updated_at)->toISOString(),
         ]);
+    }
+
+    // Response cho store()/update() — bỏ 'tuimu_rewards' và 'categories' so với toDetailItem() (dùng
+    // ở show()/index()) theo yêu cầu rút gọn kết quả trả về của tạo/sửa.
+    private function toWriteItem(Promotion $promotion): array
+    {
+        return collect($this->toDetailItem($promotion))->except(['tuimu_rewards', 'categories'])->all();
     }
 }
