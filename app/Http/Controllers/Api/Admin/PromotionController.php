@@ -119,9 +119,11 @@ class PromotionController extends Controller
             return response()->json(['message' => $valueError], 422);
         }
 
-        $categoryError = $this->validateCategoryIds($user, $data['categories']);
-        if ($categoryError) {
-            return response()->json(['message' => $categoryError], 422);
+        if (! empty($data['categories'])) {
+            $categoryError = $this->validateCategoryIds($user, $data['categories']);
+            if ($categoryError) {
+                return response()->json(['message' => $categoryError], 422);
+            }
         }
 
         $partnerId = $user->isSuperAdmin() ? ($data['partner_id'] ?? null) : $user->partner_id;
@@ -144,7 +146,9 @@ class PromotionController extends Controller
                 'created_by'    => $user->id,
             ]);
 
-            $promotion->categories()->sync($data['categories']);
+            if (! empty($data['categories'])) {
+                $promotion->categories()->sync($data['categories']);
+            }
 
             return $promotion;
         });
@@ -245,7 +249,7 @@ class PromotionController extends Controller
             'tuimu_rewards' => 'nullable|string',
             'image'         => self::IMAGE_RULE,
 
-            'categories'    => "{$required}|array|min:1",
+            'categories'    => 'nullable|array',
             'categories.*'  => 'integer|exists:categories,id',
 
             'partner_id'    => 'nullable|uuid|exists:partners,id',
@@ -324,6 +328,7 @@ class PromotionController extends Controller
             'is_active'    => (bool) $promotion->is_active,
             'start_at'     => optional($promotion->start_at)->format('Y-m-d H:i:s'),
             'end_at'       => optional($promotion->end_at)->format('Y-m-d H:i:s'),
+            'created_by'   => $promotion->created_by,
             'categories'   => $promotion->categories->map(fn ($c) => [
                 'id'   => $c->id,
                 'name' => $c->name,
@@ -338,7 +343,6 @@ class PromotionController extends Controller
             'description'   => $promotion->description,
             'tuimu_rewards' => $promotion->tuimu_rewards,
             'image_url'     => $promotion->image ? Storage::disk('public')->url($promotion->image) : null,
-            'created_by'    => $promotion->created_by,
             'partner_id'    => $promotion->partner_id,
             'created_at'    => optional($promotion->created_at)->toISOString(),
             'updated_at'    => optional($promotion->updated_at)->toISOString(),
