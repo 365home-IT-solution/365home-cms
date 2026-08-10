@@ -172,7 +172,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 | GET/POST/DELETE /api/admin/rooms/{id}/promotions
 |                          → gán/gỡ ưu đãi (Promotion) cho 1 khung giờ của phòng (bảng pivot
 |                            promotion_room_time_slot) — xem RoomPromotionController.
-| GET/PATCH /api/admin/rooms/{id}/pricing
+| GET/POST /api/admin/rooms/{id}/pricing
 |                          → gộp XEM + SỬA giá khung giờ (room_time_slots) VÀ điều kiện giảm giá
 |                            (full_booking_discount/bulk_discount_rules/room_config/deposit_1_night/
 |                            deposit_multi_night/deposit_min_nights/default_checkin/default_checkout)
@@ -183,7 +183,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::get('branches', [AdminBranchController::class, 'index'])->name('branches.index');
     Route::get('rooms',    [AdminRoomController::class, 'index'])->name('rooms.index');
     Route::get('rooms/{id}/pricing',   [AdminRoomPricingController::class, 'show'])->name('rooms.pricing.show');
-    Route::patch('rooms/{id}/pricing', [AdminRoomPricingController::class, 'update'])->name('rooms.pricing.update');
+    Route::post('rooms/{id}/pricing',  [AdminRoomPricingController::class, 'update'])->name('rooms.pricing.update');
     Route::get('rooms/{id}/time-slots', [AdminRoomController::class, 'timeSlots'])->name('rooms.time-slots');
     Route::get('rooms/{id}/time-slots/overview', [AdminRoomController::class, 'timeSlotsOverview'])->name('rooms.time-slots.overview');
     Route::post('rooms/{id}/time-slot-hold',   [AdminTimeSlotHoldController::class, 'hold'])->name('rooms.time-slot-hold');

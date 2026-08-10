@@ -55,7 +55,7 @@ class RoomPricingController extends Controller
     }
 
     /**
-     * PATCH /api/admin/rooms/{id}/pricing
+     * POST /api/admin/rooms/{id}/pricing
      * Cần ít nhất 'time_slots', 'price' HOẶC 1 field điều kiện giảm giá.
      *
      * Body:
