@@ -159,6 +159,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 |                          → gán/đổi Danh mục phòng cho 1 phòng (body: room_type_id, nullable để gỡ),
 |                            map xuống cột `room_type_id` trong bảng products — xem docblock
 |                            App\Http\Controllers\Api\Admin\ProductController::updateRoomType().
+| DELETE /api/admin/rooms/{id}/room-type/{roomTypeId}
+|                          → gỡ danh mục phòng khỏi 1 phòng — YÊU CẦU đúng roomTypeId đang gán, xem
+|                            docblock App\Http\Controllers\Api\Admin\ProductController::destroyRoomType().
 | GET /api/admin/rooms/{id}/time-slots/overview
 |                          → giống rooms/{id}/time-slots nhưng KHÔNG có price/final_price/
 |                            has_promotion/is_increase/promotions (xem RoomController::
@@ -207,6 +210,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::delete('rooms/{id}/hold', [AdminDailyRoomHoldController::class, 'release'])->name('rooms.daily-hold.release');
     Route::patch('rooms/{id}/status', [AdminProductController::class, 'updateStatus'])->name('rooms.status');
     Route::patch('rooms/{id}/room-type', [AdminProductController::class, 'updateRoomType'])->name('rooms.room-type');
+    Route::delete('rooms/{id}/room-type/{roomTypeId}', [AdminProductController::class, 'destroyRoomType'])->name('rooms.room-type.destroy');
     Route::post('rooms/{id}/block',   [AdminRoomBlockController::class, 'block'])->name('rooms.block');
     Route::delete('rooms/{id}/block', [AdminRoomBlockController::class, 'unblock'])->name('rooms.block.release');
     Route::patch('rooms/{id}/booking-settings', [AdminProductController::class, 'updateBookingSettings'])->name('rooms.booking-settings');

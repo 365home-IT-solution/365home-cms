@@ -406,6 +406,31 @@ class ProductController extends Controller
     }
 
     /**
+     * DELETE /api/admin/rooms/{id}/room-type/{roomTypeId}
+     * Gỡ danh mục phòng khỏi 1 phòng — YÊU CẦU đúng roomTypeId đang gán (khác PATCH .../room-type
+     * với room_type_id=null là gỡ VÔ ĐIỀU KIỆN), tránh gỡ nhầm nếu client đang cầm state cũ (vd đã
+     * bị đổi sang danh mục khác ở nơi khác trước khi client kịp gọi xoá). products.room_type_id là
+     * cột đơn (belongsTo), 1 phòng CHỈ thuộc đúng 1 danh mục — không có khái niệm "gỡ 1 trong nhiều
+     * danh mục đang gán" như promotions (RoomPromotionController).
+     */
+    public function destroyRoomType(Request $request, string $id, int $roomTypeId): JsonResponse
+    {
+        $product = $this->visibleProductsQuery($request->user())->find($id);
+
+        if (! $product) {
+            return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
+        }
+
+        if ((int) $product->room_type_id !== $roomTypeId) {
+            return response()->json(['message' => 'Phòng hiện không gán danh mục này.'], 404);
+        }
+
+        $product->update(['room_type_id' => null]);
+
+        return response()->json(['message' => 'Đã gỡ danh mục phòng.']);
+    }
+
+    /**
      * DELETE /api/admin/products/{id}
      * Chặn xoá nếu phòng còn đơn đặt phòng gắn vào (order_items) — tránh mất dữ liệu lịch sử.
      */
