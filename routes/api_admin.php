@@ -155,6 +155,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 |                          → bật/tắt trạng thái hoạt động của phòng (body: status — boolean), map
 |                            xuống cột `is_activated` trong bảng products (xem docblock
 |                            App\Http\Controllers\Api\Admin\ProductController::updateStatus()).
+| PATCH /api/admin/rooms/{id}/room-type
+|                          → gán/đổi Danh mục phòng cho 1 phòng (body: room_type_id, nullable để gỡ),
+|                            map xuống cột `room_type_id` trong bảng products — xem docblock
+|                            App\Http\Controllers\Api\Admin\ProductController::updateRoomType().
 | GET /api/admin/rooms/{id}/time-slots/overview
 |                          → giống rooms/{id}/time-slots nhưng KHÔNG có price/final_price/
 |                            has_promotion/is_increase/promotions (xem RoomController::
@@ -202,6 +206,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::post('rooms/{id}/hold',   [AdminDailyRoomHoldController::class, 'hold'])->name('rooms.daily-hold');
     Route::delete('rooms/{id}/hold', [AdminDailyRoomHoldController::class, 'release'])->name('rooms.daily-hold.release');
     Route::patch('rooms/{id}/status', [AdminProductController::class, 'updateStatus'])->name('rooms.status');
+    Route::patch('rooms/{id}/room-type', [AdminProductController::class, 'updateRoomType'])->name('rooms.room-type');
     Route::post('rooms/{id}/block',   [AdminRoomBlockController::class, 'block'])->name('rooms.block');
     Route::delete('rooms/{id}/block', [AdminRoomBlockController::class, 'unblock'])->name('rooms.block.release');
     Route::patch('rooms/{id}/booking-settings', [AdminProductController::class, 'updateBookingSettings'])->name('rooms.booking-settings');
@@ -486,11 +491,20 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/promotions')->na
 | Room Types — Danh mục PHÒNG dùng chung cho mọi đối tác (bảng `room_types`, vd "Theo giờ",
 | "Theo ngày"...), KHÔNG phải chi nhánh/khu vực (đó là `categories`, xem admin/branches). Dùng làm
 | dữ liệu nền cho dropdown room_type_id khi tạo/sửa phòng và lọc GET /api/admin/products.
-| GET /api/admin/room-types → ?is_active= (mặc định trả tất cả, kể cả đang tắt)
+| GET    /api/admin/room-types      → ?is_active= (mặc định trả tất cả, kể cả đang tắt)
+| GET    /api/admin/room-types/{id} → chi tiết
+| POST   /api/admin/room-types      → tạo (slug bắt buộc, duy nhất)
+| PUT|PATCH /api/admin/room-types/{id} → sửa
+| DELETE /api/admin/room-types/{id} → xoá — chặn nếu còn phòng nào gán danh mục này (products.room_type_id)
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/room-types')->name('api.admin.room-types.')->group(function () {
     Route::get('/', [AdminRoomTypeController::class, 'index'])->name('index');
+    Route::get('/{id}', [AdminRoomTypeController::class, 'show'])->name('show');
+    Route::post('/', [AdminRoomTypeController::class, 'store'])->name('store');
+    Route::put('/{id}', [AdminRoomTypeController::class, 'update'])->name('update');
+    Route::patch('/{id}', [AdminRoomTypeController::class, 'update'])->name('update.patch');
+    Route::delete('/{id}', [AdminRoomTypeController::class, 'destroy'])->name('destroy');
 });
 
 /*

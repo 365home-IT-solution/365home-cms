@@ -28,8 +28,9 @@ use Spatie\Tags\Tag;
  * Field trong request khớp với Modules\Product\App\Filament\Resources\ProductResource\Forms\ProductForm:
  *  - categories (chi nhánh/khu vực áp dụng), tags (tiện ích — Spatie Tag, KHÔNG phải RoomAmenity),
  *    additional_services (dịch vụ bổ sung), name/slug/wifi/home_code/address/latitude/longitude/
- *    hotline/styles, short_description/description, setting_video_room{url,ratio,title},
- *    image_main (collection "Ảnh bìa"), gallery[] (collection "Thư viện").
+ *    hotline/styles/room_type_id (Danh mục phòng — xem RoomTypeController, nullable), short_description/
+ *    description, setting_video_room{url,ratio,title}, image_main (collection "Ảnh bìa"),
+ *    gallery[] (collection "Thư viện").
  *
  * Phạm vi hiển thị/sửa: super_admin xem & sửa mọi phòng; user thường chỉ xem/sửa phòng thuộc đúng
  * đối tác mình (products.partner_id) — global scope BelongsToPartner KHÔNG áp dụng ngoài Filament
@@ -66,7 +67,9 @@ class ProductController extends Controller
 
     /**
      * GET /api/admin/products
-     * Danh sách phòng — ảnh chính, tên, chi nhánh (categories), trạng thái.
+     * Danh sách phòng — ảnh chính, tên, chi nhánh (categories), giá, trạng thái. Field 'price' xem
+     * docblock toListItem()/firstSlotPriceMap() — styles=1 lấy giá khung giờ đầu tiên trong ngày,
+     * styles=2 lấy thẳng products.price.
      * Query params:
      *  - category_id      : lọc theo 1 chi nhánh/khu vực (gồm cả khu vực con nếu truyền chi nhánh gốc)
      *  - categories       : slug của 1 chi nhánh CHA (parent_id=null, category_type=product — giống
@@ -187,8 +190,11 @@ class ProductController extends Controller
             $statusMap += $this->resolveOccupancyStatuses($missingIds, $targetDate);
         }
 
+        $slotStyleIds      = $products->getCollection()->filter(fn (Product $p) => (int) $p->styles === 1)->pluck('id')->all();
+        $firstSlotPriceMap = $this->firstSlotPriceMap($slotStyleIds);
+
         $products->getCollection()->transform(
-            fn (Product $p) => $this->toListItem($p, $statusMap[$p->id] ?? 'empty')
+            fn (Product $p) => $this->toListItem($p, $statusMap[$p->id] ?? 'empty', $firstSlotPriceMap[$p->id] ?? null)
         );
 
         return response()->json($products);
@@ -202,7 +208,7 @@ class ProductController extends Controller
     public function show(Request $request, string $id): JsonResponse
     {
         $product = $this->visibleProductsQuery($request->user())
-            ->with(['categories:id,name,slug,parent_id', 'tags', 'additionalServices:id,name,price,image'])
+            ->with(['categories:id,name,slug,parent_id', 'tags', 'additionalServices:id,name,price,image', 'roomType:id,name,slug'])
             ->find($id);
 
         if (! $product) {
@@ -255,6 +261,7 @@ class ProductController extends Controller
                 'longitude'           => $data['longitude'] ?? null,
                 'hotline'             => $data['hotline'] ?? null,
                 'styles'              => $data['styles'],
+                'room_type_id'        => $data['room_type_id'] ?? null,
                 'short_description'   => $data['short_description'] ?? null,
                 'description'         => $data['description'] ?? null,
                 'setting_video_room'  => $data['setting_video_room'] ?? null,
@@ -273,7 +280,7 @@ class ProductController extends Controller
         // cache stale relation 'media' trên $product (đã từng xảy ra khi handleImages() lỡ gọi
         // getMedia() giữa chừng, khiến toDetailItem() đọc phải snapshot media CŨ dù DB đã có ảnh mới —
         // xem lịch sử fix). fresh() đảm bảo mọi getMedia()/getFirstMediaUrl() bên dưới luôn đọc thẳng DB.
-        $product = $product->fresh(['categories:id,name,slug,parent_id', 'tags', 'additionalServices:id,name,price,image']);
+        $product = $product->fresh(['categories:id,name,slug,parent_id', 'tags', 'additionalServices:id,name,price,image', 'roomType:id,name,slug']);
 
         return response()->json(['data' => $this->toDetailItem($product)], 201);
     }
@@ -329,7 +336,7 @@ class ProductController extends Controller
         DB::transaction(function () use ($product, $data) {
             $product->update(collect($data)->only([
                 'name', 'slug', 'wifi', 'home_code', 'address', 'latitude', 'longitude', 'hotline',
-                'styles', 'short_description', 'description', 'setting_video_room',
+                'styles', 'room_type_id', 'short_description', 'description', 'setting_video_room',
             ])->toArray());
 
             if (array_key_exists('categories', $data)) {
@@ -345,10 +352,10 @@ class ProductController extends Controller
 
         $this->handleImages($request, $product);
 
-        $product->load(['categories:id,name,slug,parent_id', 'tags', 'additionalServices:id,name,price,image']);
+        $product->load(['categories:id,name,slug,parent_id', 'tags', 'additionalServices:id,name,price,image', 'roomType:id,name,slug']);
 
         return response()->json(['data' => $this->toDetailItem($product->fresh([
-            'categories:id,name,slug,parent_id', 'tags', 'additionalServices:id,name,price,image',
+            'categories:id,name,slug,parent_id', 'tags', 'additionalServices:id,name,price,image', 'roomType:id,name,slug',
         ]))]);
     }
 
@@ -373,6 +380,29 @@ class ProductController extends Controller
         $product->update(['is_activated' => $data['status']]);
 
         return response()->json(['message' => 'Đã cập nhật trạng thái.']);
+    }
+
+    /**
+     * PATCH /api/admin/rooms/{id}/room-type
+     * Gán/đổi Danh mục phòng (bảng room_types, xem RoomTypeController) cho 1 phòng — map xuống cột
+     * products.room_type_id (nullable, nullOnDelete khi danh mục bị xoá). Body: room_type_id
+     * (present|nullable|integer|exists:room_types,id) — truyền null để gỡ danh mục khỏi phòng.
+     */
+    public function updateRoomType(Request $request, string $id): JsonResponse
+    {
+        $product = $this->visibleProductsQuery($request->user())->find($id);
+
+        if (! $product) {
+            return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
+        }
+
+        $data = $request->validate([
+            'room_type_id' => 'present|nullable|integer|exists:room_types,id',
+        ]);
+
+        $product->update(['room_type_id' => $data['room_type_id']]);
+
+        return response()->json(['message' => 'Đã gán danh mục phòng.']);
     }
 
     /**
@@ -540,6 +570,7 @@ class ProductController extends Controller
             'longitude'           => 'nullable|numeric|between:-180,180',
             'hotline'             => 'nullable|string|max:255',
             'styles'              => "{$required}|integer|in:1,2",
+            'room_type_id'        => 'nullable|integer|exists:room_types,id',
             'short_description'   => 'nullable|string',
             'description'         => 'nullable|string',
 
@@ -647,7 +678,9 @@ class ProductController extends Controller
         return $allIds;
     }
 
-    private function toListItem(Product $product, string $occupancyStatus = 'empty'): array
+    // $firstSlotPrice: giá khung giờ ĐẦU TIÊN trong ngày (start_time nhỏ nhất) — CHỈ có ý nghĩa với
+    // phòng styles=1, lấy sẵn từ firstSlotPriceMap() (1 query gộp cho cả trang ở index(), tránh N+1).
+    private function toListItem(Product $product, string $occupancyStatus = 'empty', ?float $firstSlotPrice = null): array
     {
         return [
             'id'         => $product->id,
@@ -659,10 +692,36 @@ class ProductController extends Controller
                 'slug' => $c->slug,
             ])->values(),
             'loai_phong'             => $product->roomType?->name,
+            // styles=1 (khung giờ): giá khung giờ đầu tiên trong ngày (room_time_slots, xem
+            // firstSlotPriceMap()); styles=2 (theo ngày): thẳng cột products.price.
+            'price'                  => (int) $product->styles === 2
+                ? ($product->price !== null ? (float) $product->price : null)
+                : $firstSlotPrice,
             'status'                 => $product->is_activated,
             'occupancy_status'       => $occupancyStatus,
             'occupancy_status_label' => self::OCCUPANCY_STATUS_LABELS[$occupancyStatus],
         ];
+    }
+
+    // Giá của khung giờ ĐẦU TIÊN trong ngày (start_time nhỏ nhất) cho từng phòng styles=1 trong
+    // $productIds — 1 query DUY NHẤT cho toàn bộ danh sách thay vì lặp N+1 theo từng phòng. Giống
+    // hệt RoomTypeController::firstSlotPriceMap() (không tách trait dùng chung vì chỉ 2 nơi dùng).
+    private function firstSlotPriceMap(array $productIds): array
+    {
+        if (empty($productIds)) {
+            return [];
+        }
+
+        return \Modules\Product\App\Models\RoomTimeSlot::whereIn('room_time_slots.room_id', $productIds)
+            ->whereNull('room_time_slots.date')
+            ->whereNotNull('room_time_slots.price')
+            ->join('time_slots', 'time_slots.id', '=', 'room_time_slots.timeslot_id')
+            ->orderBy('time_slots.start_time')
+            ->orderBy('room_time_slots.id')
+            ->get(['room_time_slots.room_id as room_id', 'room_time_slots.price as price'])
+            ->groupBy('room_id')
+            ->map(fn ($rows) => (float) $rows->first()->price)
+            ->all();
     }
 
     // Ghép ngày tham chiếu từ 'date' (Y-m-d) hoặc day/month/year (phần thiếu lấy theo hôm nay);
@@ -776,7 +835,6 @@ class ProductController extends Controller
             'name'                => $product->name,
             'slug'                => $product->slug,
             'wifi'                => $product->wifi,
-            'home_code'           => $product->home_code,
             'address'             => $product->address,
             'latitude'            => $product->latitude,
             'longitude'           => $product->longitude,
@@ -787,12 +845,15 @@ class ProductController extends Controller
                 : null,
             'hotline'             => $product->hotline,
             'styles'              => (int) $product->styles,
+            'room_type'           => $product->roomType ? [
+                'id'   => $product->roomType->id,
+                'name' => $product->roomType->name,
+                'slug' => $product->roomType->slug,
+            ] : null,
             'short_description'   => $product->short_description,
             'description'         => $product->description,
             'video'               => [
-                'url'   => $video['url'] ?? null,
-                'ratio' => $video['ratio'] ?? null,
-                'title' => $video['title'] ?? null,
+                'url' => $video['url'] ?? null,
             ],
             'image_main'          => $product->getFirstMediaUrl('Ảnh bìa') ?: null,
             'gallery'             => $product->getMedia('Thư viện')->map(fn ($media) => [
