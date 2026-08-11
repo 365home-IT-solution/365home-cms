@@ -180,8 +180,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 | DELETE /api/admin/rooms/{id}/pricing/bulk-discount-rules → xoá TOÀN BỘ bulk_discount_rules (styles=1)
 | DELETE /api/admin/rooms/{id}/pricing/bulk-discount-rules/{ruleId} → xoá 1 rule (ruleId = 'id' trả
 |                          về ở discount_settings.bulk_discount_rules, xem mapBulkDiscountRules())
-| DELETE /api/admin/rooms/{id}/pricing/time-slots/{timeslotId} → gỡ hẳn 1 khung giờ khỏi phòng
-|                          (xoá bản ghi room_time_slots, styles=1)
+| DELETE /api/admin/rooms/{id}/pricing/room-time-slots/{roomTimeSlotId} → gỡ hẳn 1 khung giờ khỏi
+|                          phòng (xoá bản ghi room_time_slots theo ĐÚNG id của nó — chính là
+|                          'room_time_slot_id' trả về ở GET .../pricing, KHÔNG PHẢI timeslot_id —
+|                          styles=1)
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.admin.')->group(function () {
@@ -191,7 +193,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::post('rooms/{id}/pricing',  [AdminRoomPricingController::class, 'update'])->name('rooms.pricing.update');
     Route::delete('rooms/{id}/pricing/bulk-discount-rules', [AdminRoomPricingController::class, 'deleteBulkDiscountRules'])->name('rooms.pricing.bulk-discount-rules.destroy');
     Route::delete('rooms/{id}/pricing/bulk-discount-rules/{ruleId}', [AdminRoomPricingController::class, 'deleteBulkDiscountRule'])->name('rooms.pricing.bulk-discount-rules.destroy-one');
-    Route::delete('rooms/{id}/pricing/time-slots/{timeslotId}', [AdminRoomPricingController::class, 'deleteTimeSlot'])->name('rooms.pricing.time-slots.destroy');
+    Route::delete('rooms/{id}/pricing/room-time-slots/{roomTimeSlotId}', [AdminRoomPricingController::class, 'deleteTimeSlot'])->name('rooms.pricing.room-time-slots.destroy');
     Route::get('rooms/{id}/time-slots', [AdminRoomController::class, 'timeSlots'])->name('rooms.time-slots');
     Route::get('rooms/{id}/time-slots/overview', [AdminRoomController::class, 'timeSlotsOverview'])->name('rooms.time-slots.overview');
     Route::post('rooms/{id}/time-slot-hold',   [AdminTimeSlotHoldController::class, 'hold'])->name('rooms.time-slot-hold');

@@ -167,9 +167,7 @@ class RoomPricingController extends Controller
 
         $room->update(['bulk_discount_rules' => null]);
 
-        $room->load(['roomTimeSlots' => fn ($q) => $q->whereNull('date')]);
-
-        return response()->json($this->toItem($room));
+        return response()->json(['message' => 'Đã xoá giảm giá theo số khung giờ.']);
     }
 
     /**
@@ -201,20 +199,19 @@ class RoomPricingController extends Controller
 
         $room->update(['bulk_discount_rules' => empty($rules) ? null : $rules]);
 
-        $room->load(['roomTimeSlots' => fn ($q) => $q->whereNull('date')]);
-
-        return response()->json($this->toItem($room));
+        return response()->json(['message' => 'Đã xoá giảm giá theo số khung giờ.']);
     }
 
     /**
-     * DELETE /api/admin/rooms/{id}/pricing/time-slots/{timeslotId}
-     * Gỡ HẲN 1 khung giờ ra khỏi phòng — xoá bản ghi room_time_slots (room_id, timeslot_id,
-     * date=null), KHÁC với việc sửa giá (giữ nguyên bản ghi, chỉ đổi price/over_night — xem
-     * update() ở trên). Chỉ áp dụng phòng styles=1. Gỡ luôn ưu đãi/coupon đang gán cho khung giờ
-     * này của phòng (promotion_room_time_slot, coupon_room_time_slot) — tránh mồ côi dữ liệu vì 2
-     * bảng đó không có ràng buộc FK cascade.
+     * DELETE /api/admin/rooms/{id}/pricing/room-time-slots/{roomTimeSlotId}
+     * Gỡ HẲN 1 khung giờ ra khỏi phòng — xoá bản ghi room_time_slots theo ĐÚNG khoá chính của nó
+     * (cột 'id' trong bảng room_time_slots — CHÍNH LÀ 'room_time_slot_id' trả về ở
+     * GET/POST .../pricing, KHÔNG PHẢI 'timeslot_id'), KHÁC với việc sửa giá (giữ nguyên bản ghi,
+     * chỉ đổi price/over_night — xem update() ở trên). Chỉ áp dụng phòng styles=1. Gỡ luôn ưu
+     * đãi/coupon đang gán cho khung giờ này của phòng (promotion_room_time_slot,
+     * coupon_room_time_slot) — tránh mồ côi dữ liệu vì 2 bảng đó không có ràng buộc FK cascade.
      */
-    public function deleteTimeSlot(Request $request, string $id, int $timeslotId): JsonResponse
+    public function deleteTimeSlot(Request $request, string $id, int $roomTimeSlotId): JsonResponse
     {
         $room = $this->visibleRoom($request->user(), $id);
 
@@ -226,8 +223,8 @@ class RoomPricingController extends Controller
             return response()->json(['message' => 'time_slots chỉ áp dụng cho phòng theo khung giờ (styles=1).'], 422);
         }
 
-        $roomTimeSlot = RoomTimeSlot::where('room_id', $room->id)
-            ->where('timeslot_id', $timeslotId)
+        $roomTimeSlot = RoomTimeSlot::where('id', $roomTimeSlotId)
+            ->where('room_id', $room->id)
             ->whereNull('date')
             ->first();
 
@@ -241,9 +238,7 @@ class RoomPricingController extends Controller
             $roomTimeSlot->delete();
         });
 
-        $room->load(['roomTimeSlots' => fn ($q) => $q->whereNull('date')]);
-
-        return response()->json($this->toItem($room));
+        return response()->json(['message' => 'Đã xoá khung giờ, giá và ưu đãi gán cho khung giờ này.']);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
