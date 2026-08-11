@@ -147,6 +147,71 @@ class RoomPricingController extends Controller
         return response()->json($this->toItem($room->fresh(['roomTimeSlots' => fn ($q) => $q->whereNull('date')])));
     }
 
+    /**
+     * DELETE /api/admin/rooms/{id}/pricing/bulk-discount-rules
+     * Xoá điều kiện giảm giá theo SỐ KHUNG GIỜ (products.bulk_discount_rules → null) — chỉ áp dụng
+     * phòng styles=1. Không đụng tới full_booking_discount/room_config (xoá riêng nếu cần bằng
+     * POST .../pricing với field đó = null).
+     */
+    public function deleteBulkDiscountRules(Request $request, string $id): JsonResponse
+    {
+        $room = $this->visibleRoom($request->user(), $id);
+
+        if (! $room) {
+            return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
+        }
+
+        if ((int) $room->styles !== 1) {
+            return response()->json(['message' => 'bulk_discount_rules chỉ áp dụng cho phòng theo khung giờ (styles=1).'], 422);
+        }
+
+        $room->update(['bulk_discount_rules' => null]);
+
+        $room->load(['roomTimeSlots' => fn ($q) => $q->whereNull('date')]);
+
+        return response()->json($this->toItem($room));
+    }
+
+    /**
+     * DELETE /api/admin/rooms/{id}/pricing/time-slots/{timeslotId}
+     * Gỡ HẲN 1 khung giờ ra khỏi phòng — xoá bản ghi room_time_slots (room_id, timeslot_id,
+     * date=null), KHÁC với việc sửa giá (giữ nguyên bản ghi, chỉ đổi price/over_night — xem
+     * update() ở trên). Chỉ áp dụng phòng styles=1. Gỡ luôn ưu đãi/coupon đang gán cho khung giờ
+     * này của phòng (promotion_room_time_slot, coupon_room_time_slot) — tránh mồ côi dữ liệu vì 2
+     * bảng đó không có ràng buộc FK cascade.
+     */
+    public function deleteTimeSlot(Request $request, string $id, int $timeslotId): JsonResponse
+    {
+        $room = $this->visibleRoom($request->user(), $id);
+
+        if (! $room) {
+            return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
+        }
+
+        if ((int) $room->styles !== 1) {
+            return response()->json(['message' => 'time_slots chỉ áp dụng cho phòng theo khung giờ (styles=1).'], 422);
+        }
+
+        $roomTimeSlot = RoomTimeSlot::where('room_id', $room->id)
+            ->where('timeslot_id', $timeslotId)
+            ->whereNull('date')
+            ->first();
+
+        if (! $roomTimeSlot) {
+            return response()->json(['message' => 'Phòng chưa gán khung giờ này.'], 404);
+        }
+
+        DB::transaction(function () use ($roomTimeSlot) {
+            $roomTimeSlot->promotions()->detach();
+            $roomTimeSlot->coupons()->detach();
+            $roomTimeSlot->delete();
+        });
+
+        $room->load(['roomTimeSlots' => fn ($q) => $q->whereNull('date')]);
+
+        return response()->json($this->toItem($room));
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private function visibleRoom(User $user, string $id): ?Product
