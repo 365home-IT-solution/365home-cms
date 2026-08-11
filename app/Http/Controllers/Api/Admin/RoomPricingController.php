@@ -173,6 +173,40 @@ class RoomPricingController extends Controller
     }
 
     /**
+     * DELETE /api/admin/rooms/{id}/pricing/bulk-discount-rules/{ruleId}
+     * Xoá 1 rule trong bulk_discount_rules — ruleId LÀ 'id' trả về ở discount_settings.bulk_discount_rules
+     * (xem mapBulkDiscountRules(), vị trí 1-based tại lần GET/POST gần nhất — gọi lại GET trước nếu
+     * đã lâu chưa xem, tránh xoá nhầm rule khác do mảng đã bị ghi đè ở nơi khác).
+     */
+    public function deleteBulkDiscountRule(Request $request, string $id, int $ruleId): JsonResponse
+    {
+        $room = $this->visibleRoom($request->user(), $id);
+
+        if (! $room) {
+            return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
+        }
+
+        if ((int) $room->styles !== 1) {
+            return response()->json(['message' => 'bulk_discount_rules chỉ áp dụng cho phòng theo khung giờ (styles=1).'], 422);
+        }
+
+        $rules = $room->bulk_discount_rules ?? [];
+
+        if ($ruleId < 1 || $ruleId > count($rules)) {
+            return response()->json(['message' => 'Không tìm thấy rule giảm giá này.'], 404);
+        }
+
+        unset($rules[$ruleId - 1]);
+        $rules = array_values($rules);
+
+        $room->update(['bulk_discount_rules' => empty($rules) ? null : $rules]);
+
+        $room->load(['roomTimeSlots' => fn ($q) => $q->whereNull('date')]);
+
+        return response()->json($this->toItem($room));
+    }
+
+    /**
      * DELETE /api/admin/rooms/{id}/pricing/time-slots/{timeslotId}
      * Gỡ HẲN 1 khung giờ ra khỏi phòng — xoá bản ghi room_time_slots (room_id, timeslot_id,
      * date=null), KHÁC với việc sửa giá (giữ nguyên bản ghi, chỉ đổi price/over_night — xem
@@ -269,10 +303,28 @@ class RoomPricingController extends Controller
             ]
             : [
                 'full_booking_discount' => $room->full_booking_discount,
-                'bulk_discount_rules'   => $room->bulk_discount_rules,
+                'bulk_discount_rules'   => $this->mapBulkDiscountRules($room->bulk_discount_rules),
                 'room_config'           => $room->room_config,
             ];
 
         return $item;
+    }
+
+    // bulk_discount_rules KHÔNG có cột id riêng trong DB (chỉ là mảng JSON {slots,discount}) — gán
+    // 'id' = vị trí (1-based) trong mảng TẠI THỜI ĐIỂM trả response, để FE có cái để gọi DELETE
+    // .../bulk-discount-rules/{ruleId} xoá đúng 1 rule thay vì xoá sạch. LƯU Ý: id này chỉ đúng cho
+    // tới lần ghi tiếp theo làm đổi thứ tự mảng (vd POST .../pricing gửi lại toàn bộ danh sách) — nên
+    // luôn gọi lại GET để lấy id mới nhất trước khi xoá, đừng cache id từ lâu.
+    private function mapBulkDiscountRules(?array $rules): array
+    {
+        if (empty($rules)) {
+            return [];
+        }
+
+        return collect($rules)->values()->map(fn ($rule, $index) => [
+            'id'       => $index + 1,
+            'slots'    => $rule['slots'] ?? null,
+            'discount' => $rule['discount'] ?? null,
+        ])->all();
     }
 }

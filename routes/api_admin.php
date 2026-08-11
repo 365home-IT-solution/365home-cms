@@ -177,7 +177,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 |                            (full_booking_discount/bulk_discount_rules/room_config/deposit_1_night/
 |                            deposit_multi_night/deposit_min_nights/default_checkin/default_checkout)
 |                            cho 1 phòng — xem RoomPricingController.
-| DELETE /api/admin/rooms/{id}/pricing/bulk-discount-rules → xoá bulk_discount_rules (styles=1)
+| DELETE /api/admin/rooms/{id}/pricing/bulk-discount-rules → xoá TOÀN BỘ bulk_discount_rules (styles=1)
+| DELETE /api/admin/rooms/{id}/pricing/bulk-discount-rules/{ruleId} → xoá 1 rule (ruleId = 'id' trả
+|                          về ở discount_settings.bulk_discount_rules, xem mapBulkDiscountRules())
 | DELETE /api/admin/rooms/{id}/pricing/time-slots/{timeslotId} → gỡ hẳn 1 khung giờ khỏi phòng
 |                          (xoá bản ghi room_time_slots, styles=1)
 |--------------------------------------------------------------------------
@@ -188,6 +190,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::get('rooms/{id}/pricing',   [AdminRoomPricingController::class, 'show'])->name('rooms.pricing.show');
     Route::post('rooms/{id}/pricing',  [AdminRoomPricingController::class, 'update'])->name('rooms.pricing.update');
     Route::delete('rooms/{id}/pricing/bulk-discount-rules', [AdminRoomPricingController::class, 'deleteBulkDiscountRules'])->name('rooms.pricing.bulk-discount-rules.destroy');
+    Route::delete('rooms/{id}/pricing/bulk-discount-rules/{ruleId}', [AdminRoomPricingController::class, 'deleteBulkDiscountRule'])->name('rooms.pricing.bulk-discount-rules.destroy-one');
     Route::delete('rooms/{id}/pricing/time-slots/{timeslotId}', [AdminRoomPricingController::class, 'deleteTimeSlot'])->name('rooms.pricing.time-slots.destroy');
     Route::get('rooms/{id}/time-slots', [AdminRoomController::class, 'timeSlots'])->name('rooms.time-slots');
     Route::get('rooms/{id}/time-slots/overview', [AdminRoomController::class, 'timeSlotsOverview'])->name('rooms.time-slots.overview');
