@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Modules\BladeThemeV1\App\Models\AdditionService;
 use Modules\Category\Entities\Category;
+use Modules\Product\App\Filament\Resources\ProductResource\Tables\Actions\RoomCleaningAction;
 use Modules\Product\App\Models\Product;
 use Spatie\Tags\Tag;
 
@@ -65,6 +66,10 @@ class ProductController extends Controller
         'upcoming' => 1,
     ];
 
+    // Giá trị hợp lệ cho filter front_desk_status — khớp 4 chỉ số ở widget "LỄ TÂN" trên dashboard
+    // (xem docblock DashboardController::frontDesk()/OverviewService::frontDesk()).
+    private const FRONT_DESK_STATUSES = ['checked_in', 'checked_out', 'has_guest', 'needs_cleaning'];
+
     /**
      * GET /api/admin/products
      * Danh sách phòng — ảnh chính, tên, chi nhánh (categories), giá, trạng thái. Field 'price' xem
@@ -82,6 +87,15 @@ class ProductController extends Controller
      *  - occupancy_status : lọc theo trạng thái sử dụng phòng tại ngày tham chiếu — 1 hoặc nhiều giá
      *                       trị trong empty|upcoming|staying|overtime|deposit (mảng occupancy_status[]=
      *                       hoặc chuỗi phân tách dấu phẩy). Xem resolveOccupancyStatuses() để biết logic.
+     *                       ĐỘC LẬP với 'room_clean' bên dưới — phòng 'overtime' (hết giờ) vẫn giữ
+     *                       nguyên occupancy_status='overtime' dù housekeeping_status đã chuyển
+     *                       'cleaning' (không gộp 2 khái niệm này làm 1).
+     *  - front_desk_status : lọc theo 1 trong 4 chỉ số widget "LỄ TÂN" — checked_in (đã nhận trong
+     *                       ngày tham chiếu) | checked_out (đã trả trong ngày tham chiếu) | has_guest
+     *                       (đang có khách — ảnh chụp tức thời, KHÔNG theo ngày tham chiếu) |
+     *                       needs_cleaning (housekeeping_status='cleaning', đang cần dọn). Dùng CÙNG
+     *                       'date' bên dưới cho checked_in/checked_out; kết hợp AND với occupancy_status
+     *                       nếu truyền cả 2 (2 filter độc lập, không loại trừ nhau).
      *  - date             : ngày tham chiếu (Y-m-d) cho occupancy_status. Nếu vắng, ghép từ day/month/
      *                       year (phần nào thiếu lấy theo hôm nay); nếu không truyền gì → mặc định hôm nay.
      *  - per_page         : mặc định 20
@@ -143,6 +157,38 @@ class ProductController extends Controller
         }
 
         $targetDate = $this->resolveOccupancyDate($request);
+
+        if ($request->filled('front_desk_status')) {
+            $frontDeskStatus = $request->string('front_desk_status')->toString();
+            if (! in_array($frontDeskStatus, self::FRONT_DESK_STATUSES, true)) {
+                return response()->json(['message' => 'front_desk_status không hợp lệ: '.$frontDeskStatus.'. Chỉ nhận: '.implode(', ', self::FRONT_DESK_STATUSES)], 422);
+            }
+
+            $dayStart = $targetDate->copy()->startOfDay();
+            $dayEnd   = $targetDate->copy()->endOfDay();
+            $now      = Carbon::now();
+
+            match ($frontDeskStatus) {
+                // "Đã nhận" — đơn có phòng này được check-in trong ngày tham chiếu (mặc định hôm nay).
+                'checked_in' => $query->whereHas('orderItems.order', fn ($q) => $q
+                    ->where('exclude_from_stats', false)
+                    ->whereBetween('checked_in_at', [$dayStart, $dayEnd])),
+                // "Đã trả" — lịch trả phòng (order_items.checkout_date) rơi vào ngày tham chiếu, cùng
+                // cách tính với OverviewService::frontDesk()::checked_out_count.
+                'checked_out' => $query->whereHas('orderItems', fn ($q) => $q
+                    ->whereBetween('checkout_date', [$dayStart, $dayEnd])
+                    ->whereHas('order', fn ($o) => $o->where('exclude_from_stats', false))),
+                // "Có khách" — đang trong khoảng lưu trú TẠI THỜI ĐIỂM GỌI API (ảnh chụp tức thời,
+                // không theo ngày tham chiếu) — cùng công thức OverviewService::frontDesk()::occupied_rooms.
+                'has_guest' => $query->whereHas('orderItems', fn ($q) => $q
+                    ->where('checkin_date', '<=', $now)
+                    ->where('checkout_date', '>=', $now)
+                    ->whereHas('order', fn ($o) => $o->where('exclude_from_stats', false))),
+                // "Cần dọn" — đọc thẳng housekeeping_status='cleaning' (tự động bật bởi lệnh
+                // housekeeping:mark-cleaning khi hết giờ đơn, xem MarkRoomsForCleaningCommand).
+                'needs_cleaning' => $query->where('housekeeping_status', 'cleaning'),
+            };
+        }
 
         $occupancyFilter = null;
         if ($request->filled('occupancy_status')) {
@@ -428,6 +474,45 @@ class ProductController extends Controller
         $product->update(['room_type_id' => null]);
 
         return response()->json(['message' => 'Đã gỡ danh mục phòng.']);
+    }
+
+    /**
+     * PATCH /api/admin/rooms/{id}/confirm-cleaning
+     * Nhân viên xác nhận đã dọn xong — chuyển housekeeping_status 'cleaning' → 'available', ghi
+     * nhận vào room_cleaning_logs (employee_id/cleaned_at/note). Tái dùng ĐÚNG logic + phân quyền
+     * đang chạy ở Filament (Product::confirmCleaned(), RoomCleaningAction::canManageCleaning()) —
+     * không cài lại. Quyền: super_admin/chủ đối tác, hoặc nhân viên trực ĐÚNG chi nhánh của phòng
+     * này (works_all_branches hoặc workBranches() giao đúng chi nhánh phòng thuộc về).
+     * Body: note (nullable|string).
+     */
+    public function confirmCleaning(Request $request, string $id): JsonResponse
+    {
+        /** @var User $user */
+        $user    = $request->user();
+        $product = $this->visibleProductsQuery($user)->find($id);
+
+        if (! $product) {
+            return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
+        }
+
+        if ($product->housekeeping_status !== 'cleaning') {
+            return response()->json(['message' => 'Phòng hiện không ở trạng thái cần dọn.'], 422);
+        }
+
+        if (! RoomCleaningAction::canManageCleaning($product)) {
+            return response()->json(['message' => 'Không có quyền xác nhận dọn phòng này.'], 403);
+        }
+
+        $employee = $user->employee;
+        if (! $employee) {
+            return response()->json(['message' => 'Tài khoản này chưa có hồ sơ nhân viên liên kết — không thể xác nhận.'], 422);
+        }
+
+        $data = $request->validate(['note' => 'nullable|string|max:1000']);
+
+        $product->confirmCleaned($employee, $data['note'] ?? null);
+
+        return response()->json(['message' => 'Đã xác nhận dọn xong — phòng sẵn sàng nhận đặt mới.']);
     }
 
     /**
@@ -725,6 +810,10 @@ class ProductController extends Controller
             'status'                 => $product->is_activated,
             'occupancy_status'       => $occupancyStatus,
             'occupancy_status_label' => self::OCCUPANCY_STATUS_LABELS[$occupancyStatus],
+            // room_clean: available (sạch, sẵn sàng đón khách) | cleaning (cần dọn) | maintenance
+            // (đang bảo trì) — ĐỘC LẬP với occupancy_status ở trên (xem docblock index()), đọc thẳng
+            // products.housekeeping_status, KHÔNG tính lại/gộp vào occupancy_status.
+            'room_clean'             => $product->housekeeping_status,
         ];
     }
 

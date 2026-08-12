@@ -95,15 +95,22 @@ class OverviewService
     }
 
     /**
-     * LỄ TÂN: đã nhận / đã trả trong kỳ đã chọn; "có khách"/"ở quá giờ" luôn là
-     * ảnh chụp TỨC THỜI tại thời điểm gọi API — chọn kỳ khác "hôm nay" không đổi 2 số này,
+     * LỄ TÂN: đã nhận / đã trả trong kỳ đã chọn; "có khách"/"ở quá giờ"/"cần dọn" luôn là
+     * ảnh chụp TỨC THỜI tại thời điểm gọi API — chọn kỳ khác "hôm nay" không đổi các số này,
      * vì bản chất chúng là trạng thái đang diễn ra, không phải số liệu lịch sử.
+     * "cần dọn" đọc thẳng products.housekeeping_status='cleaning' — cột này được
+     * housekeeping:mark-cleaning (chạy mỗi 5 phút, xem app/Console/Kernel.php) tự động bật khi 1
+     * order_item hết giờ (đã xử lý đúng case nhiều order_items/khung giờ nối tiếp cùng 1 đơn — chỉ
+     * bật ở lượt checkout TRỄ NHẤT của đơn đó, xem MarkRoomsForCleaningCommand::handle()), và tắt
+     * lại khi nhân viên xác nhận đã dọn xong (ProductAction::confirmCleaning()) — KHÔNG tính lại từ
+     * đầu ở đây, chỉ đọc cột đã có sẵn.
+     * Public — tái dùng bởi DashboardController::frontDesk() (GET /api/admin/dashboard/front-desk).
      */
-    private static function frontDesk(array $productIds, Carbon $start, Carbon $end): array
+    public static function frontDesk(array $productIds, Carbon $start, Carbon $end): array
     {
         $totalRooms = count($productIds);
         if ($totalRooms === 0) {
-            return ['period' => static::periodMeta($start, $end), 'checked_in_count' => 0, 'checked_out_count' => 0, 'occupied_rooms' => 0, 'total_rooms' => 0, 'overstay_rooms' => 0];
+            return ['period' => static::periodMeta($start, $end), 'checked_in_count' => 0, 'checked_out_count' => 0, 'occupied_rooms' => 0, 'total_rooms' => 0, 'overstay_rooms' => 0, 'needs_cleaning_rooms' => 0];
         }
 
         $today = Carbon::today();
@@ -142,13 +149,18 @@ class OverviewService
             ->distinct('product_id')
             ->count('product_id');
 
+        $needsCleaningRooms = Product::whereIn('id', $productIds)
+            ->where('housekeeping_status', 'cleaning')
+            ->count();
+
         return [
-            'period'            => static::periodMeta($start, $end),
-            'checked_in_count'  => $checkedInCount,
-            'checked_out_count' => $checkedOutCount,
-            'occupied_rooms'    => $occupiedRooms,
-            'total_rooms'       => $totalRooms,
-            'overstay_rooms'    => $overstayRooms,
+            'period'               => static::periodMeta($start, $end),
+            'checked_in_count'     => $checkedInCount,
+            'checked_out_count'    => $checkedOutCount,
+            'occupied_rooms'       => $occupiedRooms,
+            'total_rooms'          => $totalRooms,
+            'overstay_rooms'       => $overstayRooms,
+            'needs_cleaning_rooms' => $needsCleaningRooms,
         ];
     }
 

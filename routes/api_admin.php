@@ -162,6 +162,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 | DELETE /api/admin/rooms/{id}/room-type/{roomTypeId}
 |                          → gỡ danh mục phòng khỏi 1 phòng — YÊU CẦU đúng roomTypeId đang gán, xem
 |                            docblock App\Http\Controllers\Api\Admin\ProductController::destroyRoomType().
+| PATCH /api/admin/rooms/{id}/confirm-cleaning
+|                          → nhân viên xác nhận đã dọn xong (housekeeping_status: cleaning→available),
+|                            xem docblock App\Http\Controllers\Api\Admin\ProductController::confirmCleaning().
 | GET /api/admin/rooms/{id}/time-slots/overview
 |                          → giống rooms/{id}/time-slots nhưng KHÔNG có price/final_price/
 |                            has_promotion/is_increase/promotions (xem RoomController::
@@ -211,6 +214,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::patch('rooms/{id}/status', [AdminProductController::class, 'updateStatus'])->name('rooms.status');
     Route::patch('rooms/{id}/room-type', [AdminProductController::class, 'updateRoomType'])->name('rooms.room-type');
     Route::delete('rooms/{id}/room-type/{roomTypeId}', [AdminProductController::class, 'destroyRoomType'])->name('rooms.room-type.destroy');
+    Route::patch('rooms/{id}/confirm-cleaning', [AdminProductController::class, 'confirmCleaning'])->name('rooms.confirm-cleaning');
     Route::post('rooms/{id}/block',   [AdminRoomBlockController::class, 'block'])->name('rooms.block');
     Route::delete('rooms/{id}/block', [AdminRoomBlockController::class, 'unblock'])->name('rooms.block.release');
     Route::patch('rooms/{id}/booking-settings', [AdminProductController::class, 'updateBookingSettings'])->name('rooms.booking-settings');

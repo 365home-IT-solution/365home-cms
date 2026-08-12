@@ -110,6 +110,37 @@ class DashboardController extends Controller
     }
 
     /**
+     * GET /api/admin/dashboard/front-desk
+     * LỄ TÂN: Đã nhận / Đã trả (trong kỳ) + Có khách/Tổng số phòng + Cần dọn/Tổng số phòng (2 số
+     * sau luôn là ảnh chụp tức thời, không đổi theo kỳ — xem docblock OverviewService::frontDesk()).
+     *
+     * Query params:
+     *  - filter: today | yesterday | 7d | 30d | 90d | this_month | last_month | this_year |
+     *            last_year | custom (mặc định: today)
+     *  - start_date, end_date: bắt buộc khi filter=custom, định dạng yyyy-mm-dd
+     *  - categories: danh sách slug chi nhánh cách nhau bởi dấu phẩy — bỏ trống = tất cả chi
+     *                nhánh user được phép xem
+     *  - branch_id: id chi nhánh (category gốc); chỉ dùng khi KHÔNG truyền 'categories'
+     */
+    public function frontDesk(Request $request): JsonResponse
+    {
+        $filter = in_array($request->query('filter'), self::KPI_FILTERS, true)
+            ? $request->query('filter')
+            : 'today';
+
+        [$start, $end] = OverviewService::resolveRange(
+            $filter,
+            $filter === 'custom' ? $request->query('start_date') : null,
+            $filter === 'custom' ? $request->query('end_date') : null,
+        );
+
+        $productIds = OverviewService::scopedProductIds($request->user(), $this->resolveBranchCategoryIds($request));
+        $data       = OverviewService::frontDesk($productIds, $start, $end);
+
+        return response()->json(['data' => $data]);
+    }
+
+    /**
      * GET /api/admin/dashboard/occupancy-top
      * TOP 5 công suất (tỉ lệ lấp đầy) theo Hạng phòng (room_type) VÀ theo Khu vực — cùng dữ liệu,
      * trả cả 2 để FE tự chuyển tab (xem OverviewService::occupancyTop()).
