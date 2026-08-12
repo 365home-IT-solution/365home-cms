@@ -516,11 +516,14 @@ class OverviewService
             // có bản ghi branchPermissions riêng (chủ đối tác thường không có bản ghi này, chỉ
             // nhân viên được giao hạn chế mới có). allowedCategoryIds() rỗng KHÔNG có nghĩa là
             // "không được xem gì" — trước đây return [] ở đây khiến chủ đối tác luôn thấy 0 phòng.
-            $partnerCategoryIds = Category::where('partner_id', $user->partner_id)->pluck('id')->toArray();
-            if (empty($partnerCategoryIds)) {
-                return [];
-            }
-            $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $partnerCategoryIds));
+            //
+            // Lọc thẳng theo products.partner_id (KHÔNG qua Category.partner_id như trước đây) —
+            // BelongsToPartner global scope của Product không tự áp dụng ở đây (context API, không
+            // phải admin panel Filament) nên vẫn cần lọc thủ công, nhưng category con (khu vực/tầng
+            // bên trong 1 chi nhánh) trong thực tế có thể bị gán sai partner_id (đã phát hiện dữ
+            // liệu thật có category con partner_id khác với category cha), khiến lọc qua Category
+            // làm mất hẳn phòng thuộc các category con đó dù Product.partner_id vẫn đúng.
+            $query->where('partner_id', $user->partner_id);
 
             $allowedCategoryIds = $user->allowedCategoryIds() ?? [];
             if (! empty($allowedCategoryIds)) {
