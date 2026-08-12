@@ -1,7 +1,7 @@
 <?php
+
 namespace Modules\Payment\App\Exports;
 
-use Maatwebsite\Excel\Concerns\WithMultipleSheets;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
@@ -9,85 +9,34 @@ use Maatwebsite\Excel\Concerns\WithEvents;
 use Maatwebsite\Excel\Concerns\WithTitle;
 use Maatwebsite\Excel\Events\AfterSheet;
 use Modules\Payment\Entities\Order;
+use Modules\Category\Entities\Category;
 use Carbon\Carbon;
 
-class CustomerOrderCountExport implements WithMultipleSheets
+class CustomerOrderCountExport implements FromCollection, WithHeadings, WithMapping, WithEvents, WithTitle
 {
     protected $filters;
-
-    public function __construct($filters = [])
-    {
-        $this->filters = $filters ?? [];
-    }
-
-    public function sheets(): array
-    {
-        // Lấy các năm có dữ liệu trong DB
-        $query = Order::query()
-            ->selectRaw('YEAR(created_at) as year')
-            ->whereNotNull('buyer_phone')
-            ->where('buyer_phone', '!=', '');
-
-        if (!empty($this->filters['date_from'])) {
-            $query->where('created_at', '>=', Carbon::parse($this->filters['date_from']));
-        }
-        if (!empty($this->filters['date_to'])) {
-            $query->where('created_at', '<=', Carbon::parse($this->filters['date_to']));
-        }
-        if (!empty($this->filters['category_id'])) {
-            $query->where('category_id', $this->filters['category_id']);
-        }
-
-        $years = $query
-            ->groupBy('year')
-            ->orderBy('year', 'asc')
-            ->pluck('year')
-            ->toArray();
-
-        $sheets = [];
-
-        // Sheet từng năm
-        foreach ($years as $year) {
-            $sheets[] = new CustomerOrderCountSheet($this->filters, (int) $year);
-        }
-
-        // Sheet tổng hợp tất cả năm
-        $sheets[] = new CustomerOrderCountSheet($this->filters, null);
-
-        return $sheets;
-    }
-}
-
-class CustomerOrderCountSheet implements FromCollection, WithHeadings, WithMapping, WithEvents, WithTitle
-{
-    protected $filters;
-    protected $year;
+    protected $allowedBranchIds;
     protected $rowNumber = 0;
+    protected $totalCustomers = 0;
 
-    public function __construct($filters = [], ?int $year = null)
+    public function __construct($filters = [], ?array $allowedBranchIds = null)
     {
-        $this->filters = $filters ?? [];
-        $this->year    = $year;
+        $this->filters          = $filters ?? [];
+        $this->allowedBranchIds = $allowedBranchIds;
     }
 
     public function title(): string
     {
-        return $this->year ? 'Năm ' . $this->year : 'Tất cả';
+        return 'Khách hàng';
     }
 
     public function collection()
     {
         $query = Order::query()
-            ->selectRaw('
-                buyer_phone,
-                buyer_name,
-                COUNT(*) as total_orders,
-                SUM(CASE WHEN status IN ("paid","completed") THEN 1 ELSE 0 END) as paid_orders,
-                MIN(created_at) as first_order_at,
-                MAX(created_at) as last_order_at
-            ')
+            ->where('exclude_from_stats', false)
             ->whereNotNull('buyer_phone')
-            ->where('buyer_phone', '!=', '');
+            ->where('buyer_phone', '!=', '')
+            ->select('id', 'buyer_phone', 'buyer_name', 'created_at', 'status', 'amount');
 
         if (!empty($this->filters['date_from'])) {
             $query->where('created_at', '>=', Carbon::parse($this->filters['date_from']));
@@ -98,68 +47,91 @@ class CustomerOrderCountSheet implements FromCollection, WithHeadings, WithMappi
         if (!empty($this->filters['status'])) {
             $query->where('status', $this->filters['status']);
         }
-        if (!empty($this->filters['category_id'])) {
-            $query->where('category_id', $this->filters['category_id']);
+
+        if ($this->allowedBranchIds !== null) {
+            $allowedCategoryIds = Category::with('children')
+                ->whereIn('id', $this->allowedBranchIds)
+                ->get()
+                ->flatMap(fn ($cat) => $cat->children->pluck('id')->push($cat->id))
+                ->unique()
+                ->values()
+                ->toArray();
+
+            $query->whereHas('items.product.categories', function ($q) use ($allowedCategoryIds) {
+                $q->whereIn('categories.id', $allowedCategoryIds);
+            });
         }
 
-        // Lọc theo năm nếu có
-        if ($this->year) {
-            $query->whereYear('created_at', $this->year);
-        }
+        $orders = $query->orderBy('created_at')->get();
 
-        $rows = $query
-            ->groupBy('buyer_phone', 'buyer_name')
-            ->orderBy('buyer_phone')
-            ->orderByDesc('total_orders')
-            ->get();
-
-        // Gộp theo phone
+        // Gộp theo số điện thoại: cộng dồn số đơn, gom ngày đặt, lấy tên của đơn gần nhất
         $grouped = [];
-        foreach ($rows as $row) {
-            $phone = $row->buyer_phone;
+        foreach ($orders as $order) {
+            $phone = $this->normalizePhone((string) $order->buyer_phone);
+            if ($phone === '') {
+                continue;
+            }
 
             if (!isset($grouped[$phone])) {
                 $grouped[$phone] = [
-                    'buyer_phone'    => $phone,
-                    'names'          => [],
-                    'total_orders'   => 0,
-                    'paid_orders'    => 0,
-                    'first_order_at' => $row->first_order_at,
-                    'last_order_at'  => $row->last_order_at,
+                    'buyer_phone'   => $phone,
+                    'buyer_name'    => '',
+                    'dates'         => [],
+                    'paid_amounts'  => [],
+                    'total_orders'  => 0,
+                    'total_revenue' => 0,
                 ];
             }
 
-            $name = trim($row->buyer_name ?? '');
-            if ($name !== '' && !in_array($name, $grouped[$phone]['names'])) {
-                $grouped[$phone]['names'][] = $name;
+            $name = trim((string) $order->buyer_name);
+            if ($name !== '') {
+                // $orders được sắp xếp tăng dần theo created_at nên tên của lần lặp cuối
+                // (đơn gần nhất) sẽ là giá trị được giữ lại.
+                $grouped[$phone]['buyer_name'] = $name;
             }
 
-            $grouped[$phone]['total_orders'] += $row->total_orders;
-            $grouped[$phone]['paid_orders']  += $row->paid_orders;
+            $isPaid = $order->status === 'paid';
 
-            if ($row->first_order_at < $grouped[$phone]['first_order_at']) {
-                $grouped[$phone]['first_order_at'] = $row->first_order_at;
-            }
-            if ($row->last_order_at > $grouped[$phone]['last_order_at']) {
-                $grouped[$phone]['last_order_at'] = $row->last_order_at;
+            $grouped[$phone]['dates'][]        = $order->created_at;
+            $grouped[$phone]['paid_amounts'][] = $isPaid ? (float) $order->amount : null;
+            $grouped[$phone]['total_orders']++;
+
+            if ($isPaid) {
+                $grouped[$phone]['total_revenue'] += (float) $order->amount;
             }
         }
 
-        usort($grouped, fn($a, $b) => $a['first_order_at'] <=> $b['first_order_at']);
+        $this->totalCustomers = count($grouped);
 
-        return collect($grouped);
+        return collect(array_values($grouped))->sortByDesc('total_orders')->values();
+    }
+
+    /**
+     * Chuẩn hóa số điện thoại về dạng nội địa 0xxxxxxxxx để gộp đúng khách hàng,
+     * vì cùng 1 khách có thể lưu số theo 2 kiểu khác nhau tùy nguồn đặt:
+     * - Thành viên: 84898995317 (mã quốc gia, không có số 0 đầu)
+     * - Khách vãng lai: 0898995317
+     */
+    protected function normalizePhone(string $phone): string
+    {
+        $digits = preg_replace('/\D+/', '', $phone) ?? '';
+
+        if (strlen($digits) === 11 && str_starts_with($digits, '84')) {
+            $digits = '0' . substr($digits, 2);
+        }
+
+        return $digits;
     }
 
     public function headings(): array
     {
         return [
             'STT',
-            'Họ và tên khách hàng',
+            'Tên khách hàng',
             'Số điện thoại',
-            'Tổng số lần đặt',
-            'Số lần thanh toán thành công',
-            'Lần đặt đầu tiên',
-            'Lần đặt gần nhất',
+            'Số đơn đã đặt',
+            'Thời gian đặt - Số tiền đã thanh toán (từng đơn)',
+            'Tổng doanh thu',
         ];
     }
 
@@ -167,79 +139,77 @@ class CustomerOrderCountSheet implements FromCollection, WithHeadings, WithMappi
     {
         $this->rowNumber++;
 
+        $dates       = $row['dates'];
+        $paidAmounts = $row['paid_amounts'];
+
+        $orderLines = collect($dates)
+            ->map(function ($d, $i) use ($paidAmounts) {
+                $date   = $d ? Carbon::parse($d)->format('d/m/Y H:i') : '';
+                $amount = $paidAmounts[$i] !== null ? number_format($paidAmounts[$i], 0, ',', '.') . 'đ' : '-';
+
+                return $date . ' - ' . $amount;
+            })
+            ->implode("\n");
+
         return [
             $this->rowNumber,
-            implode("\n", $row['names']),
+            $row['buyer_name'],
             $row['buyer_phone'],
             $row['total_orders'],
-            $row['paid_orders'],
-            $row['first_order_at'] ? Carbon::parse($row['first_order_at'])->format('d/m/Y H:i') : '',
-            $row['last_order_at']  ? Carbon::parse($row['last_order_at'])->format('d/m/Y H:i')  : '',
+            $orderLines,
+            $row['total_revenue'],
         ];
     }
 
     public function registerEvents(): array
     {
-        // Màu tab header theo năm
-        $tabColors = [
-            2024 => '1565C0',
-            2025 => '2E7D32',
-            2026 => '6A1B9A',
-        ];
-        $tabColor = $tabColors[$this->year] ?? '37474F'; // Tổng hợp = xám đậm
-
         return [
-            AfterSheet::class => function (AfterSheet $event) use ($tabColor) {
-                $sheet      = $event->sheet->getDelegate();
+            AfterSheet::class => function (AfterSheet $event) {
+                $sheet = $event->sheet->getDelegate();
+
+                // Chèn dòng tổng số khách hàng lên đầu sheet
+                $sheet->insertNewRowBefore(1, 1);
+                $sheet->mergeCells('A1:F1');
+                $sheet->setCellValue('A1', 'Tổng số khách hàng: ' . $this->totalCustomers);
+                $sheet->getStyle('A1')->applyFromArray([
+                    'font'      => ['bold' => true, 'size' => 13],
+                    'alignment' => ['horizontal' => 'left', 'vertical' => 'center'],
+                ]);
+
                 $highestRow = $sheet->getHighestRow();
 
-                // Màu tab sheet
-                $sheet->getTabColor()->setRGB($tabColor);
-
-                // Header
-                $sheet->getStyle('A1:G1')->applyFromArray([
+                // Header (đã bị đẩy xuống dòng 2 sau khi chèn dòng tổng)
+                $sheet->getStyle('A2:F2')->applyFromArray([
                     'font'      => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
-                    'fill'      => ['fillType' => 'solid', 'startColor' => ['rgb' => $tabColor]],
+                    'fill'      => ['fillType' => 'solid', 'startColor' => ['rgb' => '00B050']],
                     'alignment' => ['horizontal' => 'center', 'vertical' => 'center', 'wrapText' => true],
                 ]);
 
-                if ($highestRow >= 2) {
-                    // Cột D, E căn giữa + bold
-                    $sheet->getStyle('D2:E' . $highestRow)->applyFromArray([
+                if ($highestRow >= 3) {
+                    $sheet->getStyle('D3:D' . $highestRow)->applyFromArray([
                         'font'      => ['bold' => true],
                         'alignment' => ['horizontal' => 'center', 'vertical' => 'center'],
                     ]);
 
-                    // WrapText cột tên
-                    $sheet->getStyle('B2:B' . $highestRow)
-                          ->getAlignment()
-                          ->setWrapText(true);
+                    $sheet->getStyle('F3:F' . $highestRow)->applyFromArray([
+                        'font'      => ['bold' => true],
+                        'alignment' => ['horizontal' => 'right', 'vertical' => 'center'],
+                    ]);
+                    $sheet->getStyle('F3:F' . $highestRow)->getNumberFormat()->setFormatCode('#,##0"đ"');
 
-                    // Highlight + zebra
-                    for ($row = 2; $row <= $highestRow; $row++) {
-                        $totalOrders = $sheet->getCell('D' . $row)->getValue();
-                        if ($totalOrders >= 5) {
-                            $sheet->getStyle('A' . $row . ':G' . $row)->applyFromArray([
-                                'fill' => ['fillType' => 'solid', 'startColor' => ['rgb' => 'E3F2FD']],
-                            ]);
-                        } elseif ($row % 2 === 0) {
-                            $sheet->getStyle('A' . $row . ':G' . $row)->applyFromArray([
-                                'fill' => ['fillType' => 'solid', 'startColor' => ['rgb' => 'F5F5F5']],
-                            ]);
-                        }
-                    }
+                    $sheet->getStyle('E3:E' . $highestRow)
+                          ->getAlignment()->setWrapText(true);
 
-                    // Border + căn giữa dọc
-                    $sheet->getStyle('A1:G' . $highestRow)->applyFromArray([
+                    $sheet->getStyle('A2:F' . $highestRow)->applyFromArray([
                         'borders'   => ['allBorders' => ['borderStyle' => 'thin']],
                         'alignment' => ['vertical' => 'center'],
                     ]);
                 }
 
-                foreach (range('A', 'G') as $col) {
+                foreach (['A', 'B', 'C', 'D', 'F'] as $col) {
                     $sheet->getColumnDimension($col)->setAutoSize(true);
                 }
-                $sheet->getColumnDimension('B')->setWidth(30);
+                $sheet->getColumnDimension('E')->setWidth(35);
             },
         ];
     }

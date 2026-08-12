@@ -8,6 +8,7 @@ use Filament\Forms\Components\Select;
 use Filament\Resources\Pages\ListRecords;
 use Maatwebsite\Excel\Facades\Excel;
 use Modules\Payment\App\Exports\OrdersExport;
+use Modules\Payment\App\Exports\CustomerOrderCountExport;
 use Modules\Payment\App\Filament\Resources\OrderResource;
 
 class ListOrder extends ListRecords
@@ -48,6 +49,33 @@ class ListOrder extends ListRecords
 
                     $fileName = 'orders_' . now()->format('Y-m-d_His') . '.xlsx';
                     return Excel::download(new OrdersExport($data, null, $allowedBranchIds), $fileName);
+                }),
+
+            // ACTION: XUẤT DANH SÁCH KHÁCH HÀNG (GỘP THEO SỐ ĐIỆN THOẠI) - CHỈ SUPER ADMIN
+            Actions\Action::make('export_customers')
+                ->label('Xuất khách hàng')
+                ->icon('heroicon-o-users')
+                ->requiresConfirmation()
+                ->color('info')
+                ->visible(fn () => auth()->user()?->isSuperAdmin() ?? false)
+                ->form([
+                    DateTimePicker::make('date_from')
+                        ->label('Từ ngày')
+                        ->native(false)
+                        ->seconds(false)
+                        ->timezone('Asia/Ho_Chi_Minh')
+                        ->displayFormat('d/m/Y H:i'),
+                    DateTimePicker::make('date_to')
+                        ->label('Đến ngày')
+                        ->native(false)
+                        ->seconds(false)
+                        ->timezone('Asia/Ho_Chi_Minh')
+                        ->displayFormat('d/m/Y H:i'),
+                    Select::make('status')->label('Trạng thái')->options(['pending' => 'Đang chờ','paid' => 'Đã thanh toán','deposit' => 'Đã đặt cọc','failed' => 'Thất bại','cancelled_payment' => 'Hủy QR','refunded' => 'Hoàn tiền']),
+                ])
+                ->action(function (array $data) {
+                    $fileName = 'khach_hang_' . now()->format('Y-m-d_His') . '.xlsx';
+                    return Excel::download(new CustomerOrderCountExport($data), $fileName);
                 }),
         ];
     }
