@@ -259,15 +259,27 @@ class OverviewService
         foreach ($productMeta as $productId => $product) {
             $occupiedDayCount = count($occupiedDays[$productId] ?? []);
 
-            $roomTypeName = $product->roomType->name ?? 'Khác';
-            $roomTypeAgg[$roomTypeName]['occupied'] = ($roomTypeAgg[$roomTypeName]['occupied'] ?? 0) + $occupiedDayCount;
-            $roomTypeAgg[$roomTypeName]['rooms']     = ($roomTypeAgg[$roomTypeName]['rooms'] ?? 0) + 1;
+            // Phòng CHƯA gán hạng phòng (room_type_id=null) — bỏ hẳn khỏi top_by_room_type thay vì
+            // gộp vào nhóm "Khác", khớp ảnh mẫu chỉ hiển thị đúng 5 hạng phòng thật (Homestay/Khách
+            // sạn/Chung cư/Nhà nghỉ/Mini House), không có mục gộp chung.
+            if ($product->roomType) {
+                $roomTypeName = $product->roomType->name;
+                $roomTypeAgg[$roomTypeName]['occupied'] = ($roomTypeAgg[$roomTypeName]['occupied'] ?? 0) + $occupiedDayCount;
+                $roomTypeAgg[$roomTypeName]['rooms']     = ($roomTypeAgg[$roomTypeName]['rooms'] ?? 0) + 1;
+            }
 
-            $category   = $product->categories->first();
-            $parent     = $category?->parent;
-            $areaName   = $parent->name ?? $category->name ?? 'Chưa phân loại';
-            $areaAgg[$areaName]['occupied'] = ($areaAgg[$areaName]['occupied'] ?? 0) + $occupiedDayCount;
-            $areaAgg[$areaName]['rooms']    = ($areaAgg[$areaName]['rooms'] ?? 0) + 1;
+            // Khu vực = category CHA (chi nhánh gốc) của phòng, hoặc chính category đó nếu đã là gốc
+            // (parent_id=null) — key theo id (không phải tên) để lọc theo status CHÍNH XÁC đúng chi
+            // nhánh đó (2 chi nhánh trùng tên vẫn tách riêng), 'none' cho phòng chưa gán chi nhánh nào.
+            $category     = $product->categories->first();
+            $areaCategory = $category?->parent ?? $category;
+            $areaKey      = $areaCategory?->id ?? 'none';
+            $areaAgg[$areaKey]['name']     = $areaCategory->name ?? 'Chưa phân loại';
+            // Chi nhánh KHÔNG xác định được (phòng chưa gán category) không có cột status để đọc —
+            // coi như active để không bị lọc nhầm bởi rule status=false bên dưới.
+            $areaAgg[$areaKey]['status']   = $areaCategory ? (bool) $areaCategory->status : true;
+            $areaAgg[$areaKey]['occupied'] = ($areaAgg[$areaKey]['occupied'] ?? 0) + $occupiedDayCount;
+            $areaAgg[$areaKey]['rooms']    = ($areaAgg[$areaKey]['rooms'] ?? 0) + 1;
         }
 
         $buildTop = function (array $agg) use ($totalDays, $descending) {
@@ -279,10 +291,24 @@ class OverviewService
             return ($descending ? $rows->sortByDesc('pct') : $rows->sortBy('pct'))->take(5)->values()->toArray();
         };
 
+        // Khu vực (chi nhánh) có phòng nhưng KHÔNG có đơn nào trong kỳ (occupied=0) HOẶC chi nhánh
+        // đang tắt (status=false) → không hiển thị trong Top 5 (khác top_by_room_type: hạng phòng
+        // 0% VẪN hiển thị, xem ảnh mẫu "Mini House 0%" — chỉ chi nhánh mới áp rule ẩn này).
+        $buildTopArea = function (array $agg) use ($totalDays, $descending) {
+            $rows = collect($agg)
+                ->filter(fn ($v) => $v['status'] && $v['occupied'] > 0)
+                ->map(fn ($v) => [
+                    'name' => $v['name'],
+                    'pct'  => $v['rooms'] > 0 ? round(($v['occupied'] / ($v['rooms'] * $totalDays)) * 100, 2) : 0,
+                ])->values();
+
+            return ($descending ? $rows->sortByDesc('pct') : $rows->sortBy('pct'))->take(5)->values()->toArray();
+        };
+
         return [
             'period'           => static::periodMeta($start, $end),
             'top_by_room_type' => $buildTop($roomTypeAgg),
-            'top_by_area'      => $buildTop($areaAgg),
+            'top_by_area'      => $buildTopArea($areaAgg),
         ];
     }
 
