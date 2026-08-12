@@ -26,7 +26,7 @@ class RoomHousekeepingResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-sparkles';
 
-    protected static ?string $navigationGroup = 'Quản lý API';
+    protected static ?string $navigationGroup = 'Quản lý';
 
     protected static ?string $navigationLabel = 'Kiểm tra dọn phòng';
 

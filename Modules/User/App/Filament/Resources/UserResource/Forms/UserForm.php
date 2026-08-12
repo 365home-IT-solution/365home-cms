@@ -262,22 +262,20 @@ class UserForm
                         ]),
 
                         Forms\Components\Select::make('work_branch_ids')
-                            ->label('Chi nhánh làm việc')
+                            ->label('Chi nhánh trực')
                             ->options(fn (Get $get) => self::branchOptions($get))
                             ->multiple()
                             ->searchable()
                             ->preload()
                             ->disabled(fn (Get $get) => (bool) $get('works_all_branches'))
-                            ->helperText('Bật "Làm việc tất cả chi nhánh" bên dưới nếu không giới hạn theo chi nhánh cụ thể.')
-                            ->columnSpanFull()
-                            ->hidden(),
+                            ->helperText('Chọn 1 hoặc nhiều chi nhánh nhân viên này được xác nhận dọn phòng. Bật "Làm việc tất cả chi nhánh" bên dưới nếu không giới hạn theo chi nhánh cụ thể.')
+                            ->columnSpanFull(),
 
                         Forms\Components\Toggle::make('works_all_branches')
                             ->label('Làm việc tất cả chi nhánh')
                             ->live()
                             ->default(false)
-                            ->columnSpanFull()
-                            ->hidden(),
+                            ->columnSpanFull(),
                     ])
                     ->visible(fn (Get $get): bool => $get('account_type') !== 'partner'),
 
