@@ -184,9 +184,18 @@ class ProductController extends Controller
                     ->where('checkin_date', '<=', $now)
                     ->where('checkout_date', '>=', $now)
                     ->whereHas('order', fn ($o) => $o->where('exclude_from_stats', false))),
-                // "Cần dọn" — đọc thẳng housekeeping_status='cleaning' (tự động bật bởi lệnh
-                // housekeeping:mark-cleaning khi hết giờ đơn, xem MarkRoomsForCleaningCommand).
-                'needs_cleaning' => $query->where('housekeeping_status', 'cleaning'),
+                // "Cần dọn" — housekeeping_status='cleaning' (tự động bật bởi lệnh
+                // housekeeping:mark-cleaning khi hết giờ đơn, xem MarkRoomsForCleaningCommand) VÀ
+                // occupancy_status hiện đang là 'overtime' (hết giờ) — theo yêu cầu chỉ hiển thị
+                // "cần dọn" khi phòng thực sự đã hết giờ, không hiển thị khi phòng đã có khách mới
+                // (staying) hoặc đã trống hẳn (empty) dù housekeeping_status trong DB vẫn là
+                // 'cleaning' chờ nhân viên xác nhận (xem cùng điều kiện ở toListItem() bên dưới).
+                'needs_cleaning' => (function () use ($query, $targetDate) {
+                    $cleaningIds = (clone $query)->where('housekeeping_status', 'cleaning')->pluck('id')->all();
+                    $statuses    = $this->resolveOccupancyStatuses($cleaningIds, $targetDate);
+                    $overtimeIds = array_keys(array_filter($statuses, fn (string $s) => $s === 'overtime'));
+                    $query->whereIn('id', $overtimeIds);
+                })(),
             };
         }
 
@@ -815,9 +824,15 @@ class ProductController extends Controller
             'occupancy_status'       => $occupancyStatus,
             'occupancy_status_label' => self::OCCUPANCY_STATUS_LABELS[$occupancyStatus],
             // room_clean: available (sạch, sẵn sàng đón khách) | cleaning (cần dọn) | maintenance
-            // (đang bảo trì) — ĐỘC LẬP với occupancy_status ở trên (xem docblock index()), đọc thẳng
-            // products.housekeeping_status, KHÔNG tính lại/gộp vào occupancy_status.
-            'room_clean'             => $product->housekeeping_status,
+            // (đang bảo trì) — đọc từ products.housekeeping_status, nhưng chỉ HIỂN THỊ "cleaning"
+            // khi occupancy_status hiện đang là 'overtime' (hết giờ); các occupancy_status khác
+            // (staying/upcoming/empty/deposit) hiển thị "available" dù DB vẫn ghi 'cleaning' chờ
+            // nhân viên xác nhận — dữ liệu thật (housekeeping_status/room_cleaning_logs) KHÔNG đổi,
+            // nhân viên vẫn xác nhận dọn xong qua PATCH rooms/{id}/confirm-cleaning như cũ, chỉ ẩn
+            // bớt tín hiệu "cần dọn" ở màn danh sách khi phòng chưa/không còn ở trạng thái hết giờ.
+            'room_clean' => $product->housekeeping_status === 'cleaning' && $occupancyStatus !== 'overtime'
+                ? 'available'
+                : $product->housekeeping_status,
         ];
     }
 
