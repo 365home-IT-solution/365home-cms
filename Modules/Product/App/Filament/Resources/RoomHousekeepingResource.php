@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Modules\Product\App\Filament\Resources;
 
 use Filament\Resources\Resource;
+use Illuminate\Database\Eloquent\Builder;
 use Modules\Product\App\Filament\Resources\RoomHousekeepingResource\Pages;
 use Modules\Product\App\Models\Product;
 
@@ -12,10 +13,13 @@ use Modules\Product\App\Models\Product;
 // ("Thiết lập Phòng", nhiều field không liên quan) để không phải đào bới. Chỉ xem + 2 action dọn
 // phòng (đã có sẵn từ ProductAction/RoomCleaningAction).
 //
-// CHỈ super_admin được xem trang này — canViewAny() hard-code isSuperAdmin(), KHÔNG dựa vào
-// permission Shield (*_room::housekeeping), nên tick/bỏ tick quyền này ở Roles & Permissions cho
-// role khác không có tác dụng (giống quy ước ở RoomImageResource cho room::image). Trước đây cấp
-// quyền này cho role 'partner'/'employee' qua PartnerRolePermissionsSeeder — đã gỡ khỏi seeder đó.
+// canViewAny() dựa theo permission Shield (view_any_room::housekeeping) — model dùng chung Product
+// với ProductResource nên default Filament::canViewAny() (Gate qua ProductPolicy) sẽ luôn resolve
+// nhầm về permission 'view_any_product', vì vậy vẫn phải override thủ công, nhưng bằng permission
+// check thay vì hard-code isSuperAdmin() như trước. super_admin luôn qua (không được seed permission
+// này — bypass thẳng bằng isSuperAdmin(), theo đúng quy ước isSuperAdmin() dùng khắp codebase).
+// Role 'partner'/'employee' được seed quyền này qua PartnerRolePermissionsSeeder; đối tác có thể tự
+// bật/tắt cho role phụ tự tạo của mình ở trang Roles & Permissions.
 class RoomHousekeepingResource extends Resource
 {
     protected static ?string $model = Product::class;
@@ -57,7 +61,35 @@ class RoomHousekeepingResource extends Resource
 
     public static function canViewAny(): bool
     {
-        return auth()->user()?->isSuperAdmin() ?? false;
+        $user = auth()->user();
+
+        return (bool) ($user?->isSuperAdmin() || $user?->can('view_any_room::housekeeping'));
+    }
+
+    // Thu hẹp danh sách phòng hiển thị theo chi nhánh được phép xem — giống hệt cách
+    // ProductResource::getEloquentQuery() làm (allowedCategoryIds()), để nhất quán với các resource
+    // khác trong hệ thống. Product đã tự lọc theo partner_id qua BelongsToPartner nên chỉ cần thu
+    // hẹp thêm theo chi nhánh nếu user bị giới hạn cụ thể. Nút thao tác dọn phòng trên từng dòng vẫn
+    // được RoomCleaningAction::canManageCleaning() gác thêm 1 lớp riêng (theo chi nhánh TRỰC của
+    // nhân viên qua Employee::work_branch_ids — có thể hẹp hơn allowedCategoryIds()).
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+        $user  = auth()->user();
+
+        if (! $user || $user->isSuperAdmin()) {
+            return $query;
+        }
+
+        $allCategoryIds = $user->allowedCategoryIds();
+
+        if (empty($allCategoryIds)) {
+            return $query;
+        }
+
+        return $query->whereHas('categories', function (Builder $q) use ($allCategoryIds) {
+            $q->whereIn('categories.id', $allCategoryIds);
+        });
     }
 
     public static function canCreate(): bool
