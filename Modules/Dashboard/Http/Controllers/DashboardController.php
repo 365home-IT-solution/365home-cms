@@ -110,6 +110,40 @@ class DashboardController extends Controller
     }
 
     /**
+     * GET /api/admin/dashboard/occupancy-top
+     * TOP 5 công suất (tỉ lệ lấp đầy) theo Hạng phòng (room_type) VÀ theo Khu vực — cùng dữ liệu,
+     * trả cả 2 để FE tự chuyển tab (xem OverviewService::occupancyTop()).
+     *
+     * Query params:
+     *  - filter: today | yesterday | 7d | 30d | 90d | this_month | last_month | this_year |
+     *            last_year | custom (mặc định: this_month)
+     *  - start_date, end_date: bắt buộc khi filter=custom, định dạng yyyy-mm-dd
+     *  - categories: danh sách slug chi nhánh cách nhau bởi dấu phẩy — bỏ trống = tất cả chi
+     *                nhánh user được phép xem
+     *  - branch_id: id chi nhánh (category gốc); chỉ dùng khi KHÔNG truyền 'categories'
+     *  - sort: desc (cao → thấp, mặc định) | asc (thấp → cao)
+     */
+    public function occupancyTop(Request $request): JsonResponse
+    {
+        $filter = in_array($request->query('filter'), self::KPI_FILTERS, true)
+            ? $request->query('filter')
+            : 'this_month';
+
+        [$start, $end] = OverviewService::resolveRange(
+            $filter,
+            $filter === 'custom' ? $request->query('start_date') : null,
+            $filter === 'custom' ? $request->query('end_date') : null,
+        );
+
+        $productIds = OverviewService::scopedProductIds($request->user(), $this->resolveBranchCategoryIds($request));
+
+        $sort       = $request->query('sort') === 'asc' ? 'asc' : 'desc';
+        $data       = OverviewService::occupancyTop($productIds, $start, $end, $sort === 'desc');
+
+        return response()->json(['data' => $data]);
+    }
+
+    /**
      * GET /api/admin/dashboard/overview
      * Trả về toàn bộ số liệu tổng quan admin — 7 block, MỖI block lọc kỳ ĐỘC LẬP với nhau:
      *   Kinh doanh, Lễ tân, Đặt phòng, Công suất phòng, Top 5 công suất, Doanh thu, Top 5 doanh thu.

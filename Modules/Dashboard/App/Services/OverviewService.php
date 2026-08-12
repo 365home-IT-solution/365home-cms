@@ -232,8 +232,13 @@ class OverviewService
         ];
     }
 
-    /** TOP 5 CÔNG SUẤT: tỉ lệ lấp đầy theo hạng phòng / khu vực trong kỳ (lọc kỳ riêng với occupancyTrend) */
-    private static function occupancyTop(array $productIds, Carbon $start, Carbon $end): array
+    /**
+     * TOP 5 CÔNG SUẤT: tỉ lệ lấp đầy theo hạng phòng (room_type) / khu vực trong kỳ (lọc kỳ riêng
+     * với occupancyTrend). Public — tái dùng bởi DashboardController::occupancyTop()
+     * (GET /api/admin/dashboard/occupancy-top) để có endpoint riêng kèm categories/sort, không
+     * phải gọi cả getOverview() (tính thêm 6 block khác không cần).
+     */
+    public static function occupancyTop(array $productIds, Carbon $start, Carbon $end, bool $descending = true): array
     {
         $totalRooms = count($productIds);
         $rangeEnd   = Carbon::now()->lt($end) ? Carbon::now()->endOfDay() : $end;
@@ -265,11 +270,13 @@ class OverviewService
             $areaAgg[$areaName]['rooms']    = ($areaAgg[$areaName]['rooms'] ?? 0) + 1;
         }
 
-        $buildTop = function (array $agg) use ($totalDays) {
-            return collect($agg)->map(fn ($v, $name) => [
+        $buildTop = function (array $agg) use ($totalDays, $descending) {
+            $rows = collect($agg)->map(fn ($v, $name) => [
                 'name' => $name,
                 'pct'  => $v['rooms'] > 0 ? round(($v['occupied'] / ($v['rooms'] * $totalDays)) * 100, 2) : 0,
-            ])->values()->sortByDesc('pct')->take(5)->values()->toArray();
+            ])->values();
+
+            return ($descending ? $rows->sortByDesc('pct') : $rows->sortBy('pct'))->take(5)->values()->toArray();
         };
 
         return [

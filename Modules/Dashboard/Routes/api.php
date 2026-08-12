@@ -10,4 +10,5 @@ Route::middleware(['auth:sanctum', 'admin.api'])
         Route::get('/kpi-stats', [DashboardController::class, 'kpiStats']);
         Route::get('/rankings', [DashboardController::class, 'rankings']);
         Route::get('/occupancy', [DashboardController::class, 'occupancy']);
+        Route::get('/occupancy-top', [DashboardController::class, 'occupancyTop']);
     });
