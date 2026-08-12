@@ -504,7 +504,11 @@ class ProductController extends Controller
         }
 
         $employee = $user->employee;
-        if (! $employee) {
+
+        // super_admin/chủ đối tác không bắt buộc có hồ sơ Employee (2 vai trò này thường không gắn
+        // với đối tác cụ thể nào) — vẫn xác nhận được, log chỉ không ghi được employee_id. Nhân viên
+        // thường (không phải 2 vai trò trên) vẫn buộc phải có hồ sơ Employee mới xác nhận được.
+        if (! $employee && ! $user->isSuperAdmin() && ! $user->isPartnerOwner()) {
             return response()->json(['message' => 'Tài khoản này chưa có hồ sơ nhân viên liên kết — không thể xác nhận.'], 422);
         }
 

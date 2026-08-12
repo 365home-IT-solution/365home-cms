@@ -197,7 +197,10 @@ class Product extends Model implements HasMedia, Resourceable
         ]);
     }
 
-    public function confirmCleaned(Employee $employee, ?string $note = null): void
+    // $employee null khi super_admin/chủ đối tác tự xác nhận — 2 vai trò này không có hồ sơ Employee
+    // gắn với đối tác nào (xem ProductController::confirmCleaning()/RoomCleaningAction — chỉ cho phép
+    // null khi user isSuperAdmin()/isPartnerOwner(), nhân viên thường vẫn bắt buộc phải có Employee).
+    public function confirmCleaned(?Employee $employee, ?string $note = null): void
     {
         $this->update(['housekeeping_status' => 'available']);
 
@@ -205,7 +208,7 @@ class Product extends Model implements HasMedia, Resourceable
 
         if ($log) {
             $log->update([
-                'employee_id' => $employee->id,
+                'employee_id' => $employee?->id,
                 'cleaned_at'  => now(),
                 'note'        => $note,
             ]);
@@ -216,7 +219,7 @@ class Product extends Model implements HasMedia, Resourceable
         // Không có log tự động (vd super_admin/nhân viên tự bấm dọn thủ công trước đó) — vẫn ghi
         // lại 1 dòng để có audit trail đầy đủ.
         $this->cleaningLogs()->create([
-            'employee_id'            => $employee->id,
+            'employee_id'            => $employee?->id,
             'marked_for_cleaning_at' => now(),
             'cleaned_at'             => now(),
             'note'                   => $note,

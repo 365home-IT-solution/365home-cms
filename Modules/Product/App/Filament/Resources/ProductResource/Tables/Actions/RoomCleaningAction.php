@@ -52,9 +52,12 @@ class RoomCleaningAction
             ])
             ->visible(fn (Product $record) => $record->housekeeping_status === 'cleaning' && self::canManageCleaning($record))
             ->action(function (Product $record, array $data): void {
-                $employee = auth()->user()?->employee;
+                $user     = auth()->user();
+                $employee = $user?->employee;
 
-                if (! $employee) {
+                // super_admin/chủ đối tác không bắt buộc có hồ sơ Employee (xem ghi chú tương tự ở
+                // ProductController::confirmCleaning()) — vẫn xác nhận được, chỉ không ghi employee_id.
+                if (! $employee && ! ($user?->isSuperAdmin() || $user?->isPartnerOwner())) {
                     Notification::make()
                         ->title('Tài khoản này chưa có hồ sơ nhân viên liên kết — không thể xác nhận')
                         ->danger()
