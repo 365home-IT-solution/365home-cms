@@ -92,35 +92,32 @@ class CouponForm
                                 ->label('Áp dụng cho')
                                 ->required()
                                 ->options([
-                                    'all_rooms'     => 'Tất cả khung giờ của tất cả phòng',
-                                    'specific_room' => 'Tất cả khung giờ của 1 phòng cụ thể',
-                                    'specific_slot' => 'Các khung giờ cụ thể',
+                                    'all_rooms'      => 'Tất cả khung giờ của tất cả phòng',
+                                    'specific_room'  => 'Tất cả khung giờ của 1 phòng cụ thể',
+                                    'specific_rooms' => 'Tất cả khung giờ của NHIỀU phòng cụ thể',
+                                    'specific_slot'  => 'Các khung giờ cụ thể',
                                 ])
                                 ->default('all_rooms')
                                 ->live(),
 
                             Select::make('room_id')
                                 ->label('Chọn phòng')
-                                ->options(function () {
-                                    $user  = auth()->user();
-                                    $query = Product::where('is_activated', true)->orderBy('name');
-
-                                    if ($user && ! $user->isSuperAdmin()) {
-                                        $allowedIds = $user->allowedCategoryIds();
-                                        if (! empty($allowedIds)) {
-                                            $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedIds));
-                                        }
-                                        // Chưa gán quyền chi nhánh cụ thể thì không thu hẹp thêm —
-                                        // Product đã tự lọc theo partner_id (BelongsToPartner).
-                                    }
-
-                                    return $query->pluck('name', 'id');
-                                })
+                                ->options(fn () => self::roomOptions())
                                 ->searchable()
                                 ->preload()
                                 ->required()
                                 ->visible(fn (Get $get) => in_array($get('apply_type'), ['specific_room', 'specific_slot']))
                                 ->live(),
+
+                            Select::make('room_ids')
+                                ->label('Chọn phòng (nhiều)')
+                                ->multiple()
+                                ->options(fn () => self::roomOptions())
+                                ->searchable()
+                                ->preload()
+                                ->required()
+                                ->relationship(name: 'rooms', titleAttribute: 'name')
+                                ->visible(fn (Get $get) => $get('apply_type') === 'specific_rooms'),
 
                             Select::make('room_time_slot_ids')
                                 ->label('Chọn khung giờ')
@@ -194,5 +191,23 @@ class CouponForm
                         ]),
 
             ]);
+    }
+
+    // Dùng chung cho cả room_id (số ít) và room_ids (số nhiều) — cùng phạm vi phòng được phép chọn.
+    private static function roomOptions()
+    {
+        $user  = auth()->user();
+        $query = Product::where('is_activated', true)->orderBy('name');
+
+        if ($user && ! $user->isSuperAdmin()) {
+            $allowedIds = $user->allowedCategoryIds();
+            if (! empty($allowedIds)) {
+                $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedIds));
+            }
+            // Chưa gán quyền chi nhánh cụ thể thì không thu hẹp thêm — Product đã tự lọc theo
+            // partner_id (BelongsToPartner).
+        }
+
+        return $query->pluck('name', 'id');
     }
 }

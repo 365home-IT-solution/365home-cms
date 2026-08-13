@@ -128,12 +128,8 @@ class CouponController extends Controller
             ], 422);
         }
 
-        $applicable = match ($coupon->apply_type) {
-            'all_rooms'     => true,
-            'specific_room' => $coupon->room_id === $room->id,
-            'specific_slot' => false, // Slot-specific coupons chỉ validate được khi tạo đơn
-            default         => false,
-        };
+        // 'specific_slot' luôn false ở đây — chỉ validate được khi tạo đơn (có đúng RoomTimeSlot).
+        $applicable = $coupon->apply_type !== 'specific_slot' && $coupon->appliesToRoom($room->id);
 
         if (! $applicable) {
             return response()->json(['message' => 'Mã giảm giá không áp dụng cho phòng này.'], 422);

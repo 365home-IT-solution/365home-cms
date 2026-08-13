@@ -111,11 +111,14 @@ class RoomController extends Controller
      *    false như slot bị đơn khác giữ — FE tự quyết định cho chọn lại dựa vào held_by_order thay
      *    vì phải tự đối chiếu checkin_date của item với time_slots[].time).
      *
-     * Query params (dạng lưới nhiều phòng — ?view=grid, không có {id}):
-     *  - categories : slug chi nhánh gốc — lấy tất cả phòng theo khung giờ (styles=1) thuộc chi
-     *                 nhánh đó. Bắt buộc truyền 1 trong 2: categories/room_ids.
+     * Query params (dạng lưới nhiều phòng — không có {id}):
+     *  - categories  : slug chi nhánh gốc — lấy tất cả phòng theo khung giờ (styles=1) thuộc chi
+     *                  nhánh đó. Bắt buộc truyền 1 trong 2: categories/room_ids.
      *  - room_ids[]  : (tuỳ chọn) lọc thẳng 1 số phòng cụ thể, dùng độc lập nếu không có categories.
-     *  - date        : ngày xem (Y-m-d), mặc định hôm nay.
+     *  - date        : ngày xem (Y-m-d) — ưu tiên nếu có.
+     *  - offset_days : (tuỳ chọn, bỏ qua nếu đã có date) số ngày lệch so với hôm nay, mặc định 0
+     *                  (hôm nay), có thể âm để xem ngày trước — chỉ dịch ra ĐÚNG 1 ngày (khác
+     *                  offset_days ở dạng 1-phòng, dịch cả CỤM ngày).
      *
      * "held_by_me" tự suy từ chính admin đang gọi API (Admin\TimeSlotHoldController dùng định danh
      * "admin:{user_id}", KHÔNG phải session_id tự khai như phía khách) — không cần client tự truyền
@@ -286,9 +289,12 @@ class RoomController extends Controller
             return response()->json(['message' => 'Dạng lưới nhiều phòng (view=grid) bắt buộc truyền categories (slug chi nhánh) hoặc room_ids[].'], 422);
         }
 
+        // date (tuyệt đối) ưu tiên nếu có; không thì tính theo offset_days kể từ hôm nay (giống
+        // offset_days ở dạng 1-phòng, nhưng chỉ dịch ra ĐÚNG 1 ngày thay vì cả cụm ngày) — không
+        // truyền gì thì mặc định hôm nay (offset_days=0), không đổi hành vi cũ.
         $date = $request->filled('date')
             ? Carbon::createFromFormat('Y-m-d', $request->query('date'))->startOfDay()
-            : Carbon::today();
+            : Carbon::today()->addDays((int) $request->query('offset_days', 0));
 
         $query = Product::query()
             ->where('is_activated', true)

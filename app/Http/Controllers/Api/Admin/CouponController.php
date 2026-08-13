@@ -28,19 +28,19 @@ use Modules\Promotion\App\Models\Coupon;
  */
 class CouponController extends Controller
 {
-    public const APPLY_TYPES = ['all_rooms', 'specific_room', 'specific_slot'];
+    public const APPLY_TYPES = ['all_rooms', 'specific_room', 'specific_rooms', 'specific_slot'];
 
     /**
      * GET /api/admin/coupons
      * Query params:
      *  - search      : lọc theo code/name
      *  - type        : percentage|fixed
-     *  - apply_type  : all_rooms|specific_room|specific_slot
+     *  - apply_type  : all_rooms|specific_room|specific_rooms|specific_slot
      *  - is_active   : 1/0
      *  - customer_id : lọc coupon cá nhân của 1 khách hàng (personal — customer_id trực tiếp)
      *  - categories  : slug chi nhánh gốc, cách nhau dấu phẩy — trả về coupon 'all_rooms' (áp dụng
-     *                  mọi chi nhánh) HOẶC coupon specific_room/specific_slot mà phòng gắn thuộc
-     *                  chi nhánh đó
+     *                  mọi chi nhánh) HOẶC coupon specific_room/specific_rooms/specific_slot mà
+     *                  (1 trong các) phòng gắn thuộc chi nhánh đó
      *  - per_page    : mặc định 20
      */
     public function index(Request $request): JsonResponse
@@ -48,7 +48,7 @@ class CouponController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        $query = $this->visibleCouponsQuery($user)->with(['room:id,name', 'customer:id,fullname,phone']);
+        $query = $this->visibleCouponsQuery($user)->with(['room:id,name', 'rooms:id,name', 'customer:id,fullname,phone']);
 
         if ($request->filled('search')) {
             $search = $request->string('search');
@@ -75,7 +75,8 @@ class CouponController extends Controller
             $branchIds = $this->resolveRootCategoryIds((string) $request->string('categories'));
             $query->where(function (Builder $q) use ($branchIds) {
                 $q->where('apply_type', 'all_rooms')
-                    ->orWhereHas('room.categories', fn ($q2) => $q2->whereIn('categories.id', $branchIds ?: [-1]));
+                    ->orWhereHas('room.categories', fn ($q2) => $q2->whereIn('categories.id', $branchIds ?: [-1]))
+                    ->orWhereHas('rooms.categories', fn ($q2) => $q2->whereIn('categories.id', $branchIds ?: [-1]));
             });
         }
 
@@ -91,7 +92,7 @@ class CouponController extends Controller
     public function show(Request $request, int $id): JsonResponse
     {
         $coupon = $this->visibleCouponsQuery($request->user())
-            ->with(['room:id,name', 'customer:id,fullname,phone', 'roomTimeSlots.timeSlot'])
+            ->with(['room:id,name', 'rooms:id,name', 'customer:id,fullname,phone', 'roomTimeSlots.timeSlot'])
             ->find($id);
 
         if (! $coupon) {
@@ -136,7 +137,7 @@ class CouponController extends Controller
                 'type'            => $data['type'],
                 'value'           => $data['value'],
                 'apply_type'      => $data['apply_type'],
-                'room_id'         => $data['apply_type'] !== 'all_rooms' ? $data['room_id'] : null,
+                'room_id'         => in_array($data['apply_type'], ['specific_room', 'specific_slot'], true) ? $data['room_id'] : null,
                 'min_order_value' => $data['min_order_value'] ?? null,
                 'max_discount'    => $data['max_discount'] ?? null,
                 'usage_limit'     => $data['usage_limit'] ?? null,
@@ -154,10 +155,14 @@ class CouponController extends Controller
                 $coupon->roomTimeSlots()->sync($data['room_time_slot_ids']);
             }
 
+            if ($data['apply_type'] === 'specific_rooms' && ! empty($data['room_ids'])) {
+                $coupon->rooms()->sync($data['room_ids']);
+            }
+
             return $coupon;
         });
 
-        return response()->json(['data' => $this->toDetailItem($coupon->fresh(['room:id,name', 'customer:id,fullname,phone']))], 201);
+        return response()->json(['data' => $this->toDetailItem($coupon->fresh(['room:id,name', 'rooms:id,name', 'customer:id,fullname,phone']))], 201);
     }
 
     /**
@@ -186,6 +191,7 @@ class CouponController extends Controller
         $roomError = $this->validateRoomOwnership($user, [
             'apply_type' => $applyType,
             'room_id'    => $data['room_id'] ?? $coupon->room_id,
+            'room_ids'   => $data['room_ids'] ?? $coupon->rooms()->pluck('products.id')->all(),
         ]);
         if ($roomError) {
             return response()->json(['message' => $roomError], 422);
@@ -203,7 +209,9 @@ class CouponController extends Controller
             }
 
             if (array_key_exists('apply_type', $data) || array_key_exists('room_id', $data)) {
-                $fields['room_id'] = $applyType !== 'all_rooms' ? ($data['room_id'] ?? $coupon->room_id) : null;
+                $fields['room_id'] = in_array($applyType, ['specific_room', 'specific_slot'], true)
+                    ? ($data['room_id'] ?? $coupon->room_id)
+                    : null;
             }
 
             $coupon->update($fields);
@@ -213,9 +221,15 @@ class CouponController extends Controller
             } elseif ($applyType !== 'specific_slot') {
                 $coupon->roomTimeSlots()->sync([]);
             }
+
+            if ($applyType === 'specific_rooms' && array_key_exists('room_ids', $data)) {
+                $coupon->rooms()->sync($data['room_ids']);
+            } elseif ($applyType !== 'specific_rooms') {
+                $coupon->rooms()->sync([]);
+            }
         });
 
-        return response()->json(['data' => $this->toDetailItem($coupon->fresh(['room:id,name', 'customer:id,fullname,phone']))]);
+        return response()->json(['data' => $this->toDetailItem($coupon->fresh(['room:id,name', 'rooms:id,name', 'customer:id,fullname,phone']))]);
     }
 
     /**
@@ -241,6 +255,7 @@ class CouponController extends Controller
 
         $coupon->customers()->detach();
         $coupon->roomTimeSlots()->detach();
+        $coupon->rooms()->detach();
         $coupon->delete();
 
         return response()->json(['message' => 'Đã xoá mã khuyến mãi.']);
@@ -261,7 +276,11 @@ class CouponController extends Controller
             'value'       => "{$required}|numeric|min:0",
 
             'apply_type'         => "{$required}|in:".implode(',', self::APPLY_TYPES),
+            // Số ít — dùng khi apply_type=specific_room (đúng 1 phòng).
             'room_id'            => 'nullable|string|exists:products,id',
+            // Số nhiều — dùng khi apply_type=specific_rooms (nhiều phòng cùng lúc).
+            'room_ids'           => 'nullable|array',
+            'room_ids.*'         => 'string|exists:products,id',
             'room_time_slot_ids' => 'nullable|array',
             'room_time_slot_ids.*' => 'integer|exists:room_time_slots,id',
 
@@ -294,13 +313,39 @@ class CouponController extends Controller
         return null;
     }
 
-    // apply_type != all_rooms bắt buộc chọn phòng, và phòng đó phải nằm trong phạm vi user được xem.
+    // apply_type != all_rooms bắt buộc chọn phòng (room_id — số ít, dùng chung cho specific_room
+    // VÀ specific_slot; hoặc room_ids[] — số nhiều, chỉ dùng cho specific_rooms), và (các) phòng đó
+    // phải nằm trong phạm vi user được xem.
     private function validateRoomOwnership(User $user, array $data): ?string
     {
-        if (($data['apply_type'] ?? 'all_rooms') === 'all_rooms') {
+        $applyType = $data['apply_type'] ?? 'all_rooms';
+
+        if ($applyType === 'all_rooms') {
             return null;
         }
 
+        if ($applyType === 'specific_rooms') {
+            if (empty($data['room_ids'])) {
+                return 'Bắt buộc chọn ít nhất 1 phòng (room_ids) khi áp dụng cho nhiều phòng cụ thể.';
+            }
+
+            if ($user->isSuperAdmin()) {
+                return null;
+            }
+
+            $ownedCount = Product::withoutGlobalScopes()
+                ->whereIn('id', $data['room_ids'])
+                ->where('partner_id', $user->partner_id)
+                ->count();
+
+            if ($ownedCount !== count(array_unique($data['room_ids']))) {
+                return 'Không có quyền gán mã khuyến mãi vào 1 hoặc nhiều phòng đã chọn.';
+            }
+
+            return null;
+        }
+
+        // specific_room / specific_slot — 1 phòng duy nhất.
         if (empty($data['room_id'])) {
             return 'Bắt buộc chọn phòng khi áp dụng cho 1 phòng/khung giờ cụ thể.';
         }
@@ -353,7 +398,12 @@ class CouponController extends Controller
             'type'            => $coupon->type,
             'value'           => $coupon->value,
             'apply_type'      => $coupon->apply_type,
+            // 'room' (số ít) — apply_type=specific_room|specific_slot. 'rooms' (số nhiều) —
+            // apply_type=specific_rooms.
             'room'            => $coupon->room ? ['id' => $coupon->room->id, 'name' => $coupon->room->name] : null,
+            'rooms'           => $coupon->relationLoaded('rooms')
+                ? $coupon->rooms->map(fn ($r) => ['id' => $r->id, 'name' => $r->name])->values()
+                : [],
             'min_order_value' => $coupon->min_order_value,
             'usage_limit'     => $coupon->usage_limit,
             'used_count'      => $coupon->used_count,

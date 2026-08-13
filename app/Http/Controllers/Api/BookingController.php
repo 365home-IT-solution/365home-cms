@@ -1064,8 +1064,7 @@ class BookingController extends Controller
         }
 
         $applicable = match ($coupon->apply_type) {
-            'all_rooms'     => true,
-            'specific_room' => $coupon->room_id === $room->id,
+            'all_rooms', 'specific_room', 'specific_rooms' => $coupon->appliesToRoom($room->id),
             'specific_slot' => $rtsCollection->some(fn (RoomTimeSlot $rts) => $coupon->isApplicableToSlot($rts)),
             default         => false,
         };

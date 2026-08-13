@@ -1470,9 +1470,8 @@ class OrderController extends Controller
 
             if ($product) {
                 $applicable = match ($coupon->apply_type) {
-                    'all_rooms'     => true,
-                    'specific_room' => $coupon->room_id === $product->id,
-                    default         => true, // specific_slot: cho qua khi update
+                    'all_rooms', 'specific_room', 'specific_rooms' => $coupon->appliesToRoom($product->id),
+                    default => true, // specific_slot: cho qua khi update
                 };
 
                 if (! $applicable) {

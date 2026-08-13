@@ -115,11 +115,37 @@ class Coupon extends Model
 
     /**
      * Quan hệ với Room (Product)
-     * Dùng khi apply_type = 'specific_room'
+     * Dùng khi apply_type = 'specific_room' (SỐ ÍT — đúng 1 phòng)
      */
     public function room()
     {
         return $this->belongsTo(Product::class, 'room_id');
+    }
+
+    /**
+     * Nhiều phòng cụ thể — dùng khi apply_type = 'specific_rooms' (SỐ NHIỀU, khác 'specific_room'
+     * số ít ở trên chỉ 1 phòng qua cột room_id). Xem migration coupon_products.
+     */
+    public function rooms(): BelongsToMany
+    {
+        return $this->belongsToMany(Product::class, 'coupon_products', 'coupon_id', 'product_id')
+            ->withTimestamps();
+    }
+
+    /**
+     * Coupon có áp dụng được cho 1 phòng cụ thể không (theo apply_type) — KHÔNG kiểm tra
+     * active/thời gian/usage_limit (xem isApplicableToSlot() nếu cần đủ cả các điều kiện đó cho 1
+     * room_time_slot). 'specific_slot' luôn false ở đây vì cần đúng RoomTimeSlot mới xác định
+     * được, không chỉ room_id — dùng isApplicableToSlot() cho trường hợp đó.
+     */
+    public function appliesToRoom(string $roomId): bool
+    {
+        return match ($this->apply_type) {
+            'all_rooms'      => true,
+            'specific_room'  => $this->room_id === $roomId,
+            'specific_rooms' => $this->rooms()->where('products.id', $roomId)->exists(),
+            default          => false,
+        };
     }
 
     /**
@@ -148,10 +174,9 @@ class Coupon extends Model
         // Kiểm tra apply_type
         switch ($this->apply_type) {
             case 'all_rooms':
-                return true;
-
             case 'specific_room':
-                return $slot->room_id === $this->room_id;
+            case 'specific_rooms':
+                return $this->appliesToRoom((string) $slot->room_id);
 
             case 'specific_slot':
                 return $this->roomTimeSlots()->where('room_time_slot_id', $slot->id)->exists();
