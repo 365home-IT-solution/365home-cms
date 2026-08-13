@@ -212,10 +212,17 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::delete('rooms/{id}/pricing/bulk-discount-rules', [AdminRoomPricingController::class, 'deleteBulkDiscountRules'])->name('rooms.pricing.bulk-discount-rules.destroy');
     Route::delete('rooms/{id}/pricing/bulk-discount-rules/{ruleId}', [AdminRoomPricingController::class, 'deleteBulkDiscountRule'])->name('rooms.pricing.bulk-discount-rules.destroy-one');
     Route::delete('rooms/{id}/pricing/room-time-slots/{roomTimeSlotId}', [AdminRoomPricingController::class, 'deleteTimeSlot'])->name('rooms.pricing.room-time-slots.destroy');
-    // {id?} nullable — bỏ id khỏi URL (.../rooms/time-slots) chuyển sang dạng LƯỚI NHIỀU PHÒNG x 1
-    // NGÀY (bắt buộc categories/room_ids[]), xem docblock RoomController::timeSlots().
-    Route::get('rooms/{id?}/time-slots', [AdminRoomController::class, 'timeSlots'])->name('rooms.time-slots');
-    Route::get('rooms/{id?}/time-slots/overview', [AdminRoomController::class, 'timeSlotsOverview'])->name('rooms.time-slots.overview');
+    // Laravel/Symfony KHÔNG hỗ trợ {id?} optional khi còn segment TĨNH phía sau nó trong cùng URI
+    // (vd rooms/{id?}/time-slots) — optional param chỉ thực sự optional khi nó là segment CUỐI
+    // CÙNG của route, nếu không .../rooms/time-slots (bỏ id) vẫn bị 404 ở tầng router dù controller
+    // đã nhận $id nullable. Phải đăng ký 2 route TĨNH riêng biệt trỏ cùng 1 action — route không có
+    // {id} sẽ tự gọi action với $id=null (đúng default của tham số) vì URI đó không có phần tử nào
+    // để bind vào $id cả. Route KHÔNG có {id} chuyển sang dạng LƯỚI NHIỀU PHÒNG x 1 NGÀY (bắt buộc
+    // categories/room_ids[]) — xem docblock RoomController::timeSlots().
+    Route::get('rooms/time-slots', [AdminRoomController::class, 'timeSlots'])->name('rooms.time-slots.grid');
+    Route::get('rooms/{id}/time-slots', [AdminRoomController::class, 'timeSlots'])->name('rooms.time-slots');
+    Route::get('rooms/time-slots/overview', [AdminRoomController::class, 'timeSlotsOverview'])->name('rooms.time-slots.overview.grid');
+    Route::get('rooms/{id}/time-slots/overview', [AdminRoomController::class, 'timeSlotsOverview'])->name('rooms.time-slots.overview');
     Route::post('rooms/{id}/time-slot-hold',   [AdminTimeSlotHoldController::class, 'hold'])->name('rooms.time-slot-hold');
     Route::delete('rooms/{id}/time-slot-hold', [AdminTimeSlotHoldController::class, 'release'])->name('rooms.time-slot-hold.release');
     Route::get('rooms/{id}/dates', [AdminRoomController::class, 'dates'])->name('rooms.dates');
