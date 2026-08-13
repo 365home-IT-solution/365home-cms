@@ -261,7 +261,7 @@ class CouponController extends Controller
             'value'       => "{$required}|numeric|min:0",
 
             'apply_type'         => "{$required}|in:".implode(',', self::APPLY_TYPES),
-            'room_id'            => 'nullable|integer|exists:products,id',
+            'room_id'            => 'nullable|string|exists:products,id',
             'room_time_slot_ids' => 'nullable|array',
             'room_time_slot_ids.*' => 'integer|exists:room_time_slots,id',
 

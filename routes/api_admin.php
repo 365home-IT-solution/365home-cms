@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\Admin\CategoryController as AdminCategoryController
 use App\Http\Controllers\Api\Admin\CccdController as AdminCccdController;
 use App\Http\Controllers\Api\Admin\ChatController as AdminChatController;
 use App\Http\Controllers\Api\Admin\AllowanceTypeController;
+use App\Http\Controllers\Api\Admin\CccdDeclarationController as AdminCccdDeclarationController;
 use App\Http\Controllers\Api\Admin\CouponController as AdminCouponController;
 use App\Http\Controllers\Api\Admin\CustomerCompanionController as AdminCustomerCompanionController;
 use App\Http\Controllers\Api\Admin\CustomerController as AdminCustomerController;
@@ -404,6 +405,23 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/customers')->nam
     Route::delete('/{id}', [AdminCustomerController::class, 'destroy'])->name('destroy');
     Route::post('/{id}/assign-coupon', [AdminCustomerController::class, 'assignCoupon'])->name('assign-coupon');
     Route::post('/{id}/assign-tier',   [AdminCustomerController::class, 'assignTier'])->name('assign-tier');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Cccd Declarations — Danh sách KHAI BÁO LƯU TRÚ (bảng cccd_declarations), tương ứng
+| App\Filament\Resources\CccdDeclarationResource ở CMS — xem docblock
+| App\Http\Controllers\Api\Admin\CccdDeclarationController. CHỈ đọc (list/detail); hệ thống KHÔNG
+| tự gửi khai báo cho ASM/dịch vụ công, nhân viên vẫn khai báo thủ công bên ngoài.
+| GET /api/admin/cccd-declarations      → ?tab=today|upcoming|declared|all (mặc định today)
+|                                          &search=&from=&until=&per_page= — kèm tab_counts (badge
+|                                          số lượng từng tab, giống CMS)
+| GET /api/admin/cccd-declarations/{id} → chi tiết đầy đủ
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/cccd-declarations')->name('api.admin.cccd-declarations.')->group(function () {
+    Route::get('/', [AdminCccdDeclarationController::class, 'index'])->name('index');
+    Route::get('/{id}', [AdminCccdDeclarationController::class, 'show'])->name('show');
 });
 
 /*
