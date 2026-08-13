@@ -7,12 +7,14 @@ use App\Http\Controllers\Api\Admin\CategoryController as AdminCategoryController
 use App\Http\Controllers\Api\Admin\CccdController as AdminCccdController;
 use App\Http\Controllers\Api\Admin\ChatController as AdminChatController;
 use App\Http\Controllers\Api\Admin\AllowanceTypeController;
+use App\Http\Controllers\Api\Admin\CouponController as AdminCouponController;
 use App\Http\Controllers\Api\Admin\CustomerCompanionController as AdminCustomerCompanionController;
 use App\Http\Controllers\Api\Admin\CustomerController as AdminCustomerController;
 use App\Http\Controllers\Api\Admin\DailyRoomHoldController as AdminDailyRoomHoldController;
 use App\Http\Controllers\Api\Admin\DeductionTypeController;
 use App\Http\Controllers\Api\Admin\DepartmentController;
 use App\Http\Controllers\Api\Admin\EmployeeController;
+use App\Http\Controllers\Api\Admin\MembershipTierController as AdminMembershipTierController;
 use App\Http\Controllers\Api\Admin\OrderController;
 use App\Http\Controllers\Api\Admin\OrderPaymentController;
 use App\Http\Controllers\Api\Admin\PositionController;
@@ -386,6 +388,12 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/employees')->nam
 |                                     Filament — xem CustomerController::handleCccd())
 | POST   /api/admin/customers/{id} → Cập nhật (multipart/form-data — dùng POST thay PUT vì PHP
 |                                     không parse được multipart cho method PUT/PATCH thật)
+| DELETE /api/admin/customers/{id} → Xoá (soft delete — giữ lại lịch sử đơn/coupon)
+| POST   /api/admin/customers/{id}/assign-coupon → Gán 1 coupon có sẵn cho khách hàng
+|                                     (body: coupon_id)
+| POST   /api/admin/customers/{id}/assign-tier   → Gán hạng thành viên thủ công (body:
+|                                     membership_tier_id) — tái dùng MembershipService::assignManually(),
+|                                     ghi log đổi hạng + tự phát coupon mẫu của hạng
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/customers')->name('api.admin.customers.')->group(function () {
@@ -393,6 +401,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/customers')->nam
     Route::get('/{id}',  [AdminCustomerController::class, 'show'])->name('show');
     Route::post('/',     [AdminCustomerController::class, 'store'])->name('store');
     Route::post('/{id}', [AdminCustomerController::class, 'update'])->name('update');
+    Route::delete('/{id}', [AdminCustomerController::class, 'destroy'])->name('destroy');
+    Route::post('/{id}/assign-coupon', [AdminCustomerController::class, 'assignCoupon'])->name('assign-coupon');
+    Route::post('/{id}/assign-tier',   [AdminCustomerController::class, 'assignTier'])->name('assign-tier');
 });
 
 /*
@@ -492,6 +503,51 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/promotions')->na
     Route::put('/{id}', [AdminPromotionController::class, 'update'])->name('update');
     Route::post('/{id}', [AdminPromotionController::class, 'update'])->name('update.post');
     Route::delete('/{id}', [AdminPromotionController::class, 'destroy'])->name('destroy');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Coupons — Quản lý MÃ KHUYẾN MÃI (bảng `coupons`, model Modules\Promotion\App\Models\Coupon), CRUD
+| đầy đủ — xem docblock App\Http\Controllers\Api\Admin\CouponController. 'validity_days' chỉ có tác
+| dụng khi coupon này được gắn làm MẪU cho 1 hạng thành viên (xem admin/membership-tiers bên dưới).
+| GET    /api/admin/coupons      → ?search=&type=&apply_type=&is_active=&customer_id=&categories=&per_page=
+| GET    /api/admin/coupons/{id} → chi tiết
+| POST   /api/admin/coupons      → tạo
+| PUT|POST /api/admin/coupons/{id} → sửa
+| DELETE /api/admin/coupons/{id} → xoá — chặn nếu đang là mẫu của hạng thành viên hoặc đã có bản
+|                                   sao cá nhân được cấp ra
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/coupons')->name('api.admin.coupons.')->group(function () {
+    Route::get('/', [AdminCouponController::class, 'index'])->name('index');
+    Route::get('/{id}', [AdminCouponController::class, 'show'])->name('show');
+    Route::post('/', [AdminCouponController::class, 'store'])->name('store');
+    Route::put('/{id}', [AdminCouponController::class, 'update'])->name('update');
+    Route::post('/{id}', [AdminCouponController::class, 'update'])->name('update.post');
+    Route::delete('/{id}', [AdminCouponController::class, 'destroy'])->name('destroy');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Membership Tiers — Quản lý HẠNG THÀNH VIÊN (bảng `membership_tiers`) — xem docblock
+| App\Http\Controllers\Api\Admin\MembershipTierController. Dùng chung toàn hệ thống, không thuộc
+| riêng đối tác nào.
+| GET    /api/admin/membership-tiers      → ?search=&is_active=&per_page= (per_page=0: lấy hết,
+|                                            không phân trang, dùng cho dropdown)
+| GET    /api/admin/membership-tiers/{id} → chi tiết, kèm danh sách coupon mẫu đã gắn
+| POST   /api/admin/membership-tiers      → tạo (coupon_ids[] tuỳ chọn — gắn coupon mẫu ngay lúc tạo)
+| PUT|POST /api/admin/membership-tiers/{id} → sửa (coupon_ids[] nếu truyền sẽ THAY THẾ toàn bộ danh
+|                                            sách coupon mẫu cũ — không truyền = giữ nguyên)
+| DELETE /api/admin/membership-tiers/{id} → xoá — chặn nếu còn khách hàng đang giữ hạng này
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/membership-tiers')->name('api.admin.membership-tiers.')->group(function () {
+    Route::get('/', [AdminMembershipTierController::class, 'index'])->name('index');
+    Route::get('/{id}', [AdminMembershipTierController::class, 'show'])->name('show');
+    Route::post('/', [AdminMembershipTierController::class, 'store'])->name('store');
+    Route::put('/{id}', [AdminMembershipTierController::class, 'update'])->name('update');
+    Route::post('/{id}', [AdminMembershipTierController::class, 'update'])->name('update.post');
+    Route::delete('/{id}', [AdminMembershipTierController::class, 'destroy'])->name('destroy');
 });
 
 /*

@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\User;
+use App\Services\MembershipService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Modules\Category\Entities\Category;
 use Modules\Payment\App\Services\CccdScannerService;
+use Modules\Promotion\App\Models\Coupon;
 
 class CustomerController extends Controller
 {
@@ -114,6 +116,77 @@ class CustomerController extends Controller
         $this->handleCccd($request, $customer);
 
         return response()->json(['customer' => $this->formatCustomer($customer->fresh(self::LIST_RELATIONS))]);
+    }
+
+    // POST /api/admin/customers/{id}/assign-coupon
+    // Body: coupon_id (bắt buộc) — gán 1 coupon CÓ SẴN (tạo ở /api/admin/coupons) cho khách hàng
+    // này qua bảng coupon_customers (giống hệt AssignedCouponsRelationManager ở Filament, chỉ khác
+    // là API này còn cho GÁN THÊM — Filament chỉ xem + gỡ). Coupon đã gán trước đó gọi lại không
+    // lỗi (idempotent — syncWithoutDetaching).
+    public function assignCoupon(Request $request, string $id): JsonResponse
+    {
+        /** @var User $user */
+        $user     = $request->user();
+        $customer = $this->visibleCustomersQuery($user)->find($id);
+
+        if (! $customer) {
+            return response()->json(['message' => 'Không tìm thấy khách hàng.'], 404);
+        }
+
+        $data = $request->validate([
+            'coupon_id' => 'required|integer|exists:coupons,id',
+        ]);
+
+        $coupon = Coupon::find($data['coupon_id']);
+
+        if (! $user->isSuperAdmin() && $coupon->partner_id !== $user->partner_id) {
+            return response()->json(['message' => 'Không có quyền gán mã khuyến mãi này.'], 403);
+        }
+
+        $customer->coupons()->syncWithoutDetaching([$coupon->id]);
+
+        return response()->json(['message' => 'Đã gán mã khuyến mãi cho khách hàng.']);
+    }
+
+    // POST /api/admin/customers/{id}/assign-tier
+    // Body: membership_tier_id (bắt buộc) — gán hạng thủ công, tái sử dụng ĐÚNG luồng
+    // MembershipService::assignManually() (giống hệt nút "Gán hạng" ở Filament): ghi log đổi hạng
+    // + tự phát coupon chào mừng/coupon mẫu đã gắn cho hạng đó.
+    public function assignTier(Request $request, string $id): JsonResponse
+    {
+        $customer = $this->visibleCustomersQuery($request->user())->find($id);
+
+        if (! $customer) {
+            return response()->json(['message' => 'Không tìm thấy khách hàng.'], 404);
+        }
+
+        $data = $request->validate([
+            'membership_tier_id' => 'required|integer|exists:membership_tiers,id',
+        ]);
+
+        $fromTierId = $customer->membership_tier_id;
+
+        app(MembershipService::class)->assignManually($customer, $data['membership_tier_id'], $fromTierId);
+
+        return response()->json([
+            'message'  => 'Đã gán hạng thành viên cho khách hàng.',
+            'customer' => $this->formatCustomer($customer->fresh(self::LIST_RELATIONS)),
+        ]);
+    }
+
+    // DELETE /api/admin/customers/{id}
+    // Soft delete (Customer dùng SoftDeletes) — không xoá vĩnh viễn, giữ lại lịch sử đơn/coupon.
+    public function destroy(Request $request, string $id): JsonResponse
+    {
+        $customer = $this->visibleCustomersQuery($request->user())->find($id);
+
+        if (! $customer) {
+            return response()->json(['message' => 'Không tìm thấy khách hàng.'], 404);
+        }
+
+        $customer->delete();
+
+        return response()->json(['message' => 'Đã xoá khách hàng.']);
     }
 
     /**

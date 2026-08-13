@@ -121,15 +121,19 @@ class MembershipService
      */
     public function distributeTierCoupons(MembershipTier $tier): void
     {
-        $couponIds = $tier->coupons()->pluck('coupons.id')->all();
+        $templates = $tier->coupons()->get();
 
-        if (empty($couponIds)) {
+        if ($templates->isEmpty()) {
             return;
         }
 
         Customer::where('membership_tier_id', $tier->id)
             ->get()
-            ->each(fn (Customer $customer) => $customer->coupons()->syncWithoutDetaching($couponIds));
+            ->each(function (Customer $customer) use ($templates) {
+                foreach ($templates as $template) {
+                    $this->grantTemplateCoupon($customer, $template);
+                }
+            });
     }
 
     /**
@@ -137,11 +141,59 @@ class MembershipService
      */
     private function assignTierCoupons(Customer $customer, MembershipTier $tier): void
     {
-        $couponIds = $tier->coupons()->pluck('coupons.id')->all();
-
-        if (! empty($couponIds)) {
-            $customer->coupons()->syncWithoutDetaching($couponIds);
+        foreach ($tier->coupons()->get() as $template) {
+            $this->grantTemplateCoupon($customer, $template);
         }
+    }
+
+    /**
+     * Cấp 1 coupon MẪU của hạng cho 1 customer.
+     * - Coupon mẫu KHÔNG có validity_days: giữ hành vi cũ — gắn thẳng coupon DÙNG CHUNG (hạn cố
+     *   định theo start_at/end_at của chính coupon mẫu) qua bảng coupon_customers.
+     * - Coupon mẫu CÓ validity_days: nhân bản 1 coupon RIÊNG cho customer này (customer_id + hạn =
+     *   thời điểm cấp + validity_days), hỗ trợ nhiều voucher/hạng mà mỗi voucher hạn tính theo
+     *   ngày từng khách lên hạng thay vì 1 ngày cố định dùng chung. Kiểm tra template_coupon_id
+     *   trước khi tạo để tránh cấp trùng nếu hàm này được gọi lại nhiều lần cho cùng 1 lượt lên hạng
+     *   (vd distributeTierCoupons() chạy lại khi admin sửa hạng).
+     */
+    private function grantTemplateCoupon(Customer $customer, Coupon $template): void
+    {
+        if (! $template->validity_days) {
+            $customer->coupons()->syncWithoutDetaching([$template->id]);
+
+            return;
+        }
+
+        $alreadyIssued = Coupon::where('customer_id', $customer->id)
+            ->where('template_coupon_id', $template->id)
+            ->exists();
+
+        if ($alreadyIssued) {
+            return;
+        }
+
+        $prefix = strtoupper(Str::slug($template->code, ''));
+
+        Coupon::create([
+            'partner_id'          => $template->partner_id,
+            'code'                => Str::limit($prefix, 10, '') . strtoupper(Str::random(6)),
+            'name'                => $template->name,
+            'description'         => $template->description,
+            'type'                => $template->type,
+            'value'               => $template->value,
+            'apply_type'          => $template->apply_type,
+            'room_id'             => $template->room_id,
+            'min_order_value'     => $template->min_order_value,
+            'max_discount'        => $template->max_discount,
+            'usage_limit'         => $template->usage_limit,
+            'used_count'          => 0,
+            'start_at'            => now(),
+            'end_at'              => now()->addDays($template->validity_days),
+            'is_active'           => true,
+            'customer_id'         => $customer->id,
+            'template_coupon_id'  => $template->id,
+            'created_by'          => $this->superAdminId(),
+        ]);
     }
 
     /**

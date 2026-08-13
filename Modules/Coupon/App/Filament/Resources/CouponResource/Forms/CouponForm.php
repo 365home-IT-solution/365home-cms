@@ -155,6 +155,14 @@ class CouponForm
                                         ->dehydrated(false),
                                 ]),
 
+                            TextInput::make('validity_days')
+                                ->label('Hiệu lực khi làm mẫu voucher hạng thành viên (ngày)')
+                                ->numeric()
+                                ->minValue(1)
+                                ->maxValue(365)
+                                ->suffix('ngày')
+                                ->helperText('CHỈ có tác dụng khi mã này được gắn làm mẫu cho 1 Hạng thành viên (mục "Mã giảm giá gắn thêm cho hạng"). Khi đó mỗi khách lên hạng sẽ được cấp 1 bản sao riêng, hạn dùng = ngày lên hạng + số ngày này (thay vì mọi khách dùng chung hạn cố định ở trên).'),
+
                             Grid::make(2)
                                 ->schema([
                                     DateTimePicker::make('start_at')

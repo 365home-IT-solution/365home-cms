@@ -164,6 +164,8 @@ class OrderObserver
             );
         }
 
+        $this->maybeAssignCustomerBranch($order);
+
         if ($order->status !== 'pending') {
             return;
         }
@@ -189,6 +191,14 @@ class OrderObserver
      */
     public function updated(Order $order): void
     {
+        // Luồng khách tự đặt qua app (BuildsRoomBooking) KHÔNG set category_id ngay lúc tạo đơn —
+        // chỉ được PaymentController::handleSuccessfulPayment() backfill sau khi thanh toán thành
+        // công, nên phải bắt cả ở đây (created() chỉ đủ cho đơn admin tạo trực tiếp, đã có
+        // category_id ngay từ đầu — xem CreateOrder.php).
+        if ($order->wasChanged('category_id')) {
+            $this->maybeAssignCustomerBranch($order);
+        }
+
         $changed = array_keys($order->getChanges());
         $tracked = array_intersect($changed, self::TRACKED_FIELDS);
 
@@ -373,6 +383,29 @@ class OrderObserver
         }
 
         return implode(' ', $parts);
+    }
+
+    /**
+     * Khách vãng lai tự đăng ký thành viên qua app (ZaloOtpController::register()) không được gán
+     * customer_categories nào lúc tạo tài khoản — chỉ CustomerController::store() (admin/nhân viên
+     * tạo hộ) mới tự gán chi nhánh gốc của người tạo. Bù lại: đơn ĐẦU TIÊN của khách hàng có
+     * category_id (chi nhánh gốc, xem CreateOrder.php) sẽ tự động gán làm customer_categories, để
+     * khách tự đăng ký cũng thuộc về đúng chi nhánh họ đặt phòng đầu tiên — chỉ áp dụng khi khách
+     * CHƯA có chi nhánh nào (tránh ghi đè chi nhánh đã gán trước đó, kể cả trường hợp không phải
+     * đơn đầu tiên thực sự nhưng category_id của các đơn trước null).
+     */
+    private function maybeAssignCustomerBranch(Order $order): void
+    {
+        if (! $order->customer_id || ! $order->category_id) {
+            return;
+        }
+
+        $customer = Customer::find($order->customer_id);
+        if (! $customer || $customer->categories()->exists()) {
+            return;
+        }
+
+        $customer->categories()->sync([$order->category_id]);
     }
 
     private function accumulateMembershipSpending(Order $order): void

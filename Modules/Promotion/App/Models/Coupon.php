@@ -34,6 +34,8 @@ class Coupon extends Model
         'is_active',
         'created_by',
         'customer_id',
+        'validity_days',
+        'template_coupon_id',
     ];
 
     protected $casts = [
@@ -43,6 +45,7 @@ class Coupon extends Model
         'value' => 'decimal:2',
         'min_order_value' => 'decimal:2',
         'max_discount' => 'decimal:2',
+        'validity_days' => 'integer',
     ];
 
     /**
@@ -79,6 +82,24 @@ class Coupon extends Model
     public function isPersonal(): bool
     {
         return $this->customer_id !== null;
+    }
+
+    /**
+     * Coupon MẪU (gắn vào 1 hạng thành viên qua membership_tier_coupon, validity_days đã set) mà
+     * bản sao cá nhân này được nhân bản từ đó — null nếu coupon không phải bản sao tự động cấp
+     * theo hạng. Xem MembershipService::grantTemplateCoupon().
+     */
+    public function templateCoupon()
+    {
+        return $this->belongsTo(self::class, 'template_coupon_id');
+    }
+
+    /**
+     * Các bản sao cá nhân đã được cấp cho từng khách từ coupon MẪU này.
+     */
+    public function personalClones(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(self::class, 'template_coupon_id');
     }
 
     /**
