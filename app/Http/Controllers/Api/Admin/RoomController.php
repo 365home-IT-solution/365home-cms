@@ -95,7 +95,15 @@ class RoomController extends Controller
      * → hôm nay-10 .. hôm nay-1). Các ngày quá khứ luôn trả is_selectable=false (không thể đặt),
      * chỉ dùng để xem lại lịch sử khung giờ.
      *
-     * Query params:
+     * ── Dạng LƯỚI NHIỀU PHÒNG (tab "Lưới ngày" — nhiều phòng x 1 ngày, thay vì 1 phòng x nhiều
+     * ngày như mặc định ở trên): BỎ {id} khỏi URL (gọi .../rooms/time-slots, không có id) và
+     * truyền categories/room_ids[] (bắt buộc 1 trong 2 — đây chính là param quyết định chuyển
+     * sang dạng lưới) thay vì chọn 1 phòng cụ thể qua {id}, chỉ lấy đúng 1 NGÀY (bỏ qua days/
+     * offset_days, dùng ?date= — mặc định hôm nay). Cùng field trạng thái mỗi ô (status/
+     * is_selectable/is_blocked/held) với dạng 1-phòng ở trên, dùng chung buildSlotStatus() nên
+     * luôn khớp nhau — xem buildGridResponse().
+     *
+     * Query params (dạng 1 phòng — mặc định):
      *  - days        : số ngày muốn lấy mỗi lần gọi (mặc định 10, tối đa 60)
      *  - offset_days : số ngày lệch so với hôm nay (mặc định 0, có thể âm để xem ngày trước)
      *  - order_code  : (tuỳ chọn) đơn đang sửa ở FE — khung giờ nào đơn NÀY đang giữ sẽ có thêm cờ
@@ -103,30 +111,43 @@ class RoomController extends Controller
      *    false như slot bị đơn khác giữ — FE tự quyết định cho chọn lại dựa vào held_by_order thay
      *    vì phải tự đối chiếu checkin_date của item với time_slots[].time).
      *
+     * Query params (dạng lưới nhiều phòng — ?view=grid, không có {id}):
+     *  - categories : slug chi nhánh gốc — lấy tất cả phòng theo khung giờ (styles=1) thuộc chi
+     *                 nhánh đó. Bắt buộc truyền 1 trong 2: categories/room_ids.
+     *  - room_ids[]  : (tuỳ chọn) lọc thẳng 1 số phòng cụ thể, dùng độc lập nếu không có categories.
+     *  - date        : ngày xem (Y-m-d), mặc định hôm nay.
+     *
      * "held_by_me" tự suy từ chính admin đang gọi API (Admin\TimeSlotHoldController dùng định danh
      * "admin:{user_id}", KHÔNG phải session_id tự khai như phía khách) — không cần client tự truyền
      * gì thêm.
      */
-    public function timeSlots(Request $request, string $id): JsonResponse
+    public function timeSlots(Request $request, ?string $id = null): JsonResponse
     {
         return $this->buildTimeSlotsResponse($request, $id, includePricing: true);
     }
 
     /**
      * GET /api/admin/rooms/{id}/time-slots/overview
-     * Giống hệt timeSlots() ở trên (cùng lưới ngày x khung giờ, cùng is_selectable/is_blocked/held)
-     * nhưng KHÔNG trả price/final_price/has_promotion/is_increase/promotions — dùng cho màn hình
-     * chỉ cần xem trạng thái khung giờ (không cần lộ giá/khuyến mãi).
+     * Giống hệt timeSlots() ở trên (cùng lưới ngày x khung giờ, cùng is_selectable/is_blocked/held,
+     * cùng hỗ trợ dạng lưới nhiều phòng qua ?view=grid) nhưng KHÔNG trả price/final_price/
+     * has_promotion/is_increase/promotions — dùng cho màn hình chỉ cần xem trạng thái khung giờ
+     * (không cần lộ giá/khuyến mãi).
      */
-    public function timeSlotsOverview(Request $request, string $id): JsonResponse
+    public function timeSlotsOverview(Request $request, ?string $id = null): JsonResponse
     {
         return $this->buildTimeSlotsResponse($request, $id, includePricing: false);
     }
 
-    private function buildTimeSlotsResponse(Request $request, string $id, bool $includePricing): JsonResponse
+    private function buildTimeSlotsResponse(Request $request, ?string $id, bool $includePricing): JsonResponse
     {
         /** @var User $user */
         $user = $request->user();
+
+        // Dạng lưới nhiều phòng x 1 ngày — không có {id} trong URL, chuyển hẳn sang nhánh riêng
+        // (khác cấu trúc dữ liệu: nhiều phòng thay vì nhiều ngày) — xem docblock timeSlots().
+        if ($id === null) {
+            return $this->buildGridResponse($request, $user, $includePricing);
+        }
 
         $with = [
             'roomTimeSlots' => fn ($q) => $q->whereNull('date'),
@@ -252,6 +273,105 @@ class RoomController extends Controller
             'period' => ['start' => $startDate->toDateString(), 'end' => $endDate->toDateString(), 'days' => $days, 'offset_days' => $offsetDays],
             'days'   => $daysOut,
         ]);
+    }
+
+    /**
+     * Dạng LƯỚI NHIỀU PHÒNG x 1 NGÀY (tab "Lưới ngày") — nhánh của buildTimeSlotsResponse() khi
+     * gọi KHÔNG kèm {id} (xem docblock timeSlots()). Dùng CHUNG buildSlotStatus() với dạng 1-phòng
+     * nên trạng thái mỗi ô luôn khớp nhau giữa 2 dạng, không phải 2 công thức tính lệch nhau.
+     */
+    private function buildGridResponse(Request $request, User $user, bool $includePricing): JsonResponse
+    {
+        if (! $request->filled('categories') && ! $request->filled('room_ids')) {
+            return response()->json(['message' => 'Dạng lưới nhiều phòng (view=grid) bắt buộc truyền categories (slug chi nhánh) hoặc room_ids[].'], 422);
+        }
+
+        $date = $request->filled('date')
+            ? Carbon::createFromFormat('Y-m-d', $request->query('date'))->startOfDay()
+            : Carbon::today();
+
+        $query = Product::query()
+            ->where('is_activated', true)
+            ->where('styles', 1);
+
+        if (! $user->isSuperAdmin()) {
+            $query->where('partner_id', $user->partner_id);
+        }
+
+        if ($request->filled('categories')) {
+            $branch = Category::query()
+                ->whereNull('parent_id')
+                ->where('category_type', 'product')
+                ->where('slug', $request->string('categories'))
+                ->first();
+
+            if (! $branch) {
+                return response()->json(['message' => 'Không tìm thấy chi nhánh.'], 404);
+            }
+
+            $categoryIds = $this->expandBranchIds($branch->id);
+            $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $categoryIds));
+        }
+
+        if ($request->filled('room_ids')) {
+            $query->whereIn('id', (array) $request->input('room_ids'));
+        }
+
+        $with = [
+            'roomTimeSlots' => fn ($q) => $q->whereNull('date'),
+            'roomTimeSlots.timeSlot',
+        ];
+        if ($includePricing) {
+            $with['roomTimeSlots.promotions'] = fn ($q) => $q->where('is_active', true);
+        }
+
+        $rooms = $query->with($with)->orderBy('name')->get();
+
+        $dateArr = ['date' => $date->format('d-m-Y'), 'day' => self::DAY_ABBREVIATIONS[$date->dayOfWeek] ?? '', 'is_today' => $date->isToday()];
+
+        if ($rooms->isEmpty()) {
+            return response()->json(['date' => $date->toDateString(), 'day' => $dateArr['day'], 'rooms' => []]);
+        }
+
+        // Order_items chồng lấn đúng NGÀY đang xem cho TẤT CẢ phòng trong 1 query (tránh N+1 theo
+        // từng phòng) — cùng điều kiện status (pending/paid) với dạng 1-phòng ở buildTimeSlotsResponse().
+        $orderItemsByRoom = OrderItem::whereIn('product_id', $rooms->pluck('id'))
+            ->where('checkout_date', '>', $date)
+            ->where('checkin_date', '<=', $date->copy()->endOfDay())
+            ->whereHas('order', fn ($o) => $o->whereIn('status', ['pending', 'paid']))
+            ->with('order')
+            ->get()
+            ->groupBy('product_id');
+
+        $book      = new Book();
+        $today     = Carbon::today();
+        $sessionId = 'admin:' . $user->id;
+
+        $roomsOut = $rooms->map(function (Product $room) use ($orderItemsByRoom, $book, $today, $dateArr, $sessionId, $includePricing) {
+            // buildSlotStatus() đọc order_items qua $room->orderItems — gán RELATION đã preload sẵn
+            // thay vì để nó tự lazy-load lại theo từng phòng.
+            $room->setRelation('orderItems', $orderItemsByRoom->get($room->id, collect()));
+
+            $holds = TimeSlotHoldController::getActiveHolds((string) $room->id);
+
+            $timeSlots = $room->roomTimeSlots
+                ->filter(fn ($rts) => $rts->timeSlot)
+                ->sortBy(fn ($rts) => $rts->timeSlot->start_time)
+                ->values();
+
+            $slots = $timeSlots->map(function ($rts) use ($room, $dateArr, $book, $today, $holds, $sessionId, $includePricing) {
+                $status = $this->buildSlotStatus($room, $rts, $dateArr, $book, $today, $holds, $sessionId, [], $includePricing);
+
+                return $status + [
+                    'time'       => substr($rts->timeSlot->start_time, 0, 5) . ' - ' . substr($rts->timeSlot->end_time, 0, 5),
+                    'over_night' => (bool) $rts->over_night,
+                ];
+            })->values();
+
+            return ['id' => $room->id, 'name' => $room->name, 'slug' => $room->slug, 'slots' => $slots];
+        })->values();
+
+        return response()->json(['date' => $date->toDateString(), 'day' => $dateArr['day'], 'rooms' => $roomsOut]);
     }
 
     /**

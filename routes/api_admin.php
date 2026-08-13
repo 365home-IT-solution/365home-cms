@@ -142,6 +142,11 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 |                          → khung giờ x ngày của 1 phòng, mặc định 10 ngày — dùng ?offset_days= để
 |                            xem thêm 10 ngày tiếp theo, hoặc ?offset_days=-10 để xem 10 ngày TRƯỚC
 |                            hôm nay (xem docblock RoomController::timeSlots()).
+| GET /api/admin/rooms/time-slots (KHÔNG có {id})
+|                          → dạng LƯỚI NHIỀU PHÒNG x 1 NGÀY (tab "Lưới ngày") — bắt buộc ?categories=
+|                            (slug chi nhánh) hoặc ?room_ids[]=, kèm ?date= (mặc định hôm nay). Cùng
+|                            công thức trạng thái với dạng 1-phòng ở trên nên luôn khớp nhau — xem
+|                            docblock RoomController::timeSlots().
 | POST/DELETE /api/admin/rooms/{id}/time-slot-hold
 |                          → giữ/bỏ giữ tạm 1 ô khung giờ x ngày khi admin đang chọn (chưa bấm tạo
 |                            đơn) — dùng CHUNG kho dữ liệu + kênh realtime với khách hàng
@@ -207,8 +212,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::delete('rooms/{id}/pricing/bulk-discount-rules', [AdminRoomPricingController::class, 'deleteBulkDiscountRules'])->name('rooms.pricing.bulk-discount-rules.destroy');
     Route::delete('rooms/{id}/pricing/bulk-discount-rules/{ruleId}', [AdminRoomPricingController::class, 'deleteBulkDiscountRule'])->name('rooms.pricing.bulk-discount-rules.destroy-one');
     Route::delete('rooms/{id}/pricing/room-time-slots/{roomTimeSlotId}', [AdminRoomPricingController::class, 'deleteTimeSlot'])->name('rooms.pricing.room-time-slots.destroy');
-    Route::get('rooms/{id}/time-slots', [AdminRoomController::class, 'timeSlots'])->name('rooms.time-slots');
-    Route::get('rooms/{id}/time-slots/overview', [AdminRoomController::class, 'timeSlotsOverview'])->name('rooms.time-slots.overview');
+    // {id?} nullable — bỏ id khỏi URL (.../rooms/time-slots) chuyển sang dạng LƯỚI NHIỀU PHÒNG x 1
+    // NGÀY (bắt buộc categories/room_ids[]), xem docblock RoomController::timeSlots().
+    Route::get('rooms/{id?}/time-slots', [AdminRoomController::class, 'timeSlots'])->name('rooms.time-slots');
+    Route::get('rooms/{id?}/time-slots/overview', [AdminRoomController::class, 'timeSlotsOverview'])->name('rooms.time-slots.overview');
     Route::post('rooms/{id}/time-slot-hold',   [AdminTimeSlotHoldController::class, 'hold'])->name('rooms.time-slot-hold');
     Route::delete('rooms/{id}/time-slot-hold', [AdminTimeSlotHoldController::class, 'release'])->name('rooms.time-slot-hold.release');
     Route::get('rooms/{id}/dates', [AdminRoomController::class, 'dates'])->name('rooms.dates');
