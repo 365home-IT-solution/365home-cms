@@ -73,6 +73,8 @@ class BookingController extends Controller
         }
         $couponCodes = array_values(array_unique(array_map('strtoupper', array_filter((array) ($couponInput ?? [])))));
 
+        $this->guardExclusiveCoupons($couponCodes);
+
 
         // ── 2. Khách hàng từ token ───────────────────────────────────────────
         /** @var \App\Models\Customer $customer */
@@ -939,6 +941,27 @@ class BookingController extends Controller
      * Trả về [totalDiscount, appliedList]
      * appliedList: mỗi phần tử có _model để gọi incrementUsage() trong transaction.
      */
+    /**
+     * Cho phép áp NHIỀU mã/đơn như bình thường, TRỪ mã nào được đánh dấu is_exclusive=true — mã đó
+     * không được dùng chung với BẤT KỲ mã nào khác trong cùng 1 lần gửi (không phân biệt mã còn
+     * lại có exclusive hay không). Dùng chung bởi BookingController/GuestBookingController/
+     * OrderController — cùng 1 quy tắc cho cả tạo đơn mới lẫn sửa coupon của đơn đang pending.
+     */
+    private function guardExclusiveCoupons(array $codes): void
+    {
+        if (count($codes) < 2) {
+            return;
+        }
+
+        $exclusiveCodes = Coupon::whereIn('code', $codes)->where('is_exclusive', true)->pluck('code');
+
+        if ($exclusiveCodes->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'coupon_codes' => ['Mã "' . $exclusiveCodes->implode('", "') . '" không thể dùng chung với mã giảm giá khác.'],
+            ]);
+        }
+    }
+
     private function applyMultipleCoupons(
         array $codes,
         float $orderAmount,

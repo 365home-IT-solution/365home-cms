@@ -344,6 +344,16 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             return;
         }
 
+        // Mã is_exclusive=true không được dùng chung với BẤT KỲ mã nào khác — cùng quy tắc
+        // BookingController::guardExclusiveCoupons() (API). Chặn theo 2 chiều: đã có mã exclusive
+        // đang áp dụng thì không cho thêm mã mới nào nữa; hoặc mã mới đang định thêm là exclusive
+        // thì không cho thêm khi đã có sẵn mã khác.
+        $hasExclusiveApplied = collect($this->appliedCoupons)->contains(fn ($c) => (bool) $c->is_exclusive);
+        if ($hasExclusiveApplied) {
+            $this->couponErrorMessage = 'Đã áp dụng mã độc quyền, không thể áp thêm mã khác. Vui lòng gỡ mã hiện tại trước.';
+            return;
+        }
+
         // Tìm coupon
         $coupon = Coupon::where('code', $code)
             ->where('is_active', true)
@@ -351,6 +361,12 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
 
         if (!$coupon) {
             $this->couponErrorMessage = 'Mã giảm giá không tồn tại hoặc đã hết hạn';
+            return;
+        }
+
+        // Chiều còn lại: mã MỚI này là exclusive nhưng đã có sẵn mã khác đang áp dụng.
+        if ($coupon->is_exclusive && ! empty($this->appliedCoupons)) {
+            $this->couponErrorMessage = sprintf('Mã "%s" không thể dùng chung với mã giảm giá khác. Vui lòng gỡ mã hiện tại trước.', $code);
             return;
         }
 

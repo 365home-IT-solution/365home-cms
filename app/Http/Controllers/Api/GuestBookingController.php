@@ -82,6 +82,8 @@ class GuestBookingController extends Controller
         }
         $couponCodes = array_values(array_unique(array_map('strtoupper', array_filter((array) ($couponInput ?? [])))));
 
+        $this->guardExclusiveCoupons($couponCodes);
+
         $buyerName = trim($request->input('buyer_name'));
         $buyerPhone = trim($request->input('buyer_phone'));
 
@@ -1497,6 +1499,24 @@ class GuestBookingController extends Controller
         }
 
         return (float) str_replace(['.', ','], '', $rule);
+    }
+
+    /**
+     * Cho phép áp nhiều mã/đơn, TRỪ mã is_exclusive=true — cùng quy tắc BookingController::guardExclusiveCoupons().
+     */
+    private function guardExclusiveCoupons(array $codes): void
+    {
+        if (count($codes) < 2) {
+            return;
+        }
+
+        $exclusiveCodes = Coupon::whereIn('code', $codes)->where('is_exclusive', true)->pluck('code');
+
+        if ($exclusiveCodes->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'coupon_codes' => ['Mã "' . $exclusiveCodes->implode('", "') . '" không thể dùng chung với mã giảm giá khác.'],
+            ]);
+        }
     }
 
     /**

@@ -249,6 +249,8 @@ class OrderController extends Controller
                 array_filter((array) ($couponInput ?? []))
             )));
 
+            $this->guardExclusiveCoupons($newCodes);
+
             // Giải phóng lượt dùng của coupon cũ
             $this->releaseCouponUsage($order);
 
@@ -1394,6 +1396,24 @@ class OrderController extends Controller
         Coupon::whereIn('code', $codes)
             ->where('used_count', '>', 0)
             ->decrement('used_count');
+    }
+
+    /**
+     * Cho phép áp nhiều mã/đơn, TRỪ mã is_exclusive=true — cùng quy tắc BookingController::guardExclusiveCoupons().
+     */
+    private function guardExclusiveCoupons(array $codes): void
+    {
+        if (count($codes) < 2) {
+            return;
+        }
+
+        $exclusiveCodes = Coupon::whereIn('code', $codes)->where('is_exclusive', true)->pluck('code');
+
+        if ($exclusiveCodes->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'coupon_codes' => ['Mã "' . $exclusiveCodes->implode('", "') . '" không thể dùng chung với mã giảm giá khác.'],
+            ]);
+        }
     }
 
     /**

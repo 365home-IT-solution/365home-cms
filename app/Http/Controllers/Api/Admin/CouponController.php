@@ -145,6 +145,7 @@ class CouponController extends Controller
                 'end_at'          => $data['end_at'] ?? null,
                 'validity_days'   => $data['validity_days'] ?? null,
                 'is_active'       => $data['is_active'] ?? true,
+                'is_exclusive'    => $data['is_exclusive'] ?? false,
                 'customer_id'     => $data['customer_id'] ?? null,
                 'created_by'      => $user->id,
             ]);
@@ -194,6 +195,7 @@ class CouponController extends Controller
             $fields = collect($data)->only([
                 'name', 'description', 'type', 'value', 'apply_type', 'min_order_value',
                 'max_discount', 'usage_limit', 'start_at', 'end_at', 'validity_days', 'is_active',
+                'is_exclusive',
             ])->toArray();
 
             if (array_key_exists('code', $data)) {
@@ -272,6 +274,9 @@ class CouponController extends Controller
             // docblock class. Không bắt buộc cho coupon dùng bình thường.
             'validity_days'   => 'nullable|integer|min:1|max:365',
             'is_active'       => 'nullable|boolean',
+            // Mã độc quyền — không được dùng chung với BẤT KỲ mã nào khác trong cùng 1 đơn (xem
+            // BookingController::guardExclusiveCoupons() và các nơi tương tự).
+            'is_exclusive'    => 'nullable|boolean',
 
             // Tạo thẳng 1 coupon CÁ NHÂN cho 1 khách (tương đương coupon tự động do hệ thống cấp) —
             // KHÁC với API gán mã có sẵn cho khách (POST .../customers/{id}/assign-coupon).
@@ -356,6 +361,7 @@ class CouponController extends Controller
             'end_at'          => optional($coupon->end_at)->format('Y-m-d H:i:s'),
             'validity_days'   => $coupon->validity_days,
             'is_active'       => (bool) $coupon->is_active,
+            'is_exclusive'    => (bool) $coupon->is_exclusive,
             'is_personal'     => $coupon->isPersonal(),
             'customer'        => $coupon->customer ? [
                 'id' => $coupon->customer->id, 'fullname' => $coupon->customer->fullname, 'phone' => $coupon->customer->phone,

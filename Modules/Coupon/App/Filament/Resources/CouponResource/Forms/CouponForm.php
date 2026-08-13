@@ -8,7 +8,6 @@ use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
-use Filament\Forms\Components\Split;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -21,11 +20,12 @@ class CouponForm
     public static function form(Form $form): Form
     {
         return $form
+            ->columns(2)
             ->schema([
-                Split::make([
 
                     // ── CỘT 1: Thông tin cơ bản + Giá trị giảm giá ──────────
                     Section::make('Thông tin mã giảm giá')
+                        ->columnSpan(1)
                         ->schema([
                             Grid::make(2)
                                 ->schema([
@@ -82,11 +82,11 @@ class CouponForm
                                         ->minValue(0)
                                         ->suffix('VNĐ'),
                                 ]),
-                        ])
-                        ->grow(true),
+                        ]),
 
                     // ── CỘT 2: Phạm vi áp dụng + Giới hạn & Thời gian ───────
                     Section::make('Phạm vi áp dụng & Thời gian')
+                        ->columnSpan(1)
                         ->schema([
                             Select::make('apply_type')
                                 ->label('Áp dụng cho')
@@ -186,12 +186,13 @@ class CouponForm
                             Toggle::make('is_active')
                                 ->label('Kích hoạt')
                                 ->default(true),
-                        ])
-                        ->grow(false),
 
-                ])
-                ->from('lg')
-                ->columnSpanFull(),
+                            Toggle::make('is_exclusive')
+                                ->label('Mã độc quyền')
+                                ->default(false)
+                                ->helperText('Bật lên: khách KHÔNG được dùng mã này chung với bất kỳ mã giảm giá nào khác trong cùng 1 đơn.'),
+                        ]),
+
             ]);
     }
 }
