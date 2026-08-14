@@ -430,12 +430,23 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/customers')->nam
 | GET /api/admin/cccd-declarations      → ?tab=today|upcoming|declared|all (mặc định today)
 |                                          &search=&from=&until=&per_page= — kèm tab_counts (badge
 |                                          số lượng từng tab, giống CMS)
+| GET /api/admin/cccd-declarations/export → xuất Excel đúng mẫu Bộ Công an, CHỈ nhóm "cần khai báo
+|                                          hôm nay", đúng phạm vi đối tác đang gọi — tải file trực
+|                                          tiếp (Content-Type xlsx), không phải JSON.
 | GET /api/admin/cccd-declarations/{id} → chi tiết đầy đủ
+| PUT|POST /api/admin/cccd-declarations/{id} → sửa thông tin (KHÔNG gồm declared_at/declared_by —
+|                                          đánh dấu "đã khai báo" là hành động riêng, chưa có API).
+| DELETE /api/admin/cccd-declarations/{id} → xoá vĩnh viễn — LƯU Ý mất audit trail khai báo lưu trú,
+|                                          Filament CMS không có nút này, cân nhắc kỹ trước khi dùng.
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/cccd-declarations')->name('api.admin.cccd-declarations.')->group(function () {
     Route::get('/', [AdminCccdDeclarationController::class, 'index'])->name('index');
-    Route::get('/{id}', [AdminCccdDeclarationController::class, 'show'])->name('show');
+    Route::get('/export', [AdminCccdDeclarationController::class, 'export'])->name('export');
+    Route::get('/{id}', [AdminCccdDeclarationController::class, 'show'])->name('show')->whereNumber('id');
+    Route::put('/{id}', [AdminCccdDeclarationController::class, 'update'])->name('update')->whereNumber('id');
+    Route::post('/{id}', [AdminCccdDeclarationController::class, 'update'])->name('update.post')->whereNumber('id');
+    Route::delete('/{id}', [AdminCccdDeclarationController::class, 'destroy'])->name('destroy')->whereNumber('id');
 });
 
 /*

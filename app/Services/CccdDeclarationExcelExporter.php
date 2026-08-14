@@ -22,7 +22,10 @@ class CccdDeclarationExcelExporter
     private const SHEET_NAME     = 'DS_KHACH_VIET_NAM_LUU_TRU';
     private const FIRST_DATA_ROW = 5;
 
-    public function build(): Spreadsheet
+    // $ids: truyền vào để giới hạn phạm vi xuất (vd API admin lọc theo đúng đối tác đang gọi) —
+    // để trống (mặc định, Filament đang dùng) = lấy nguyên nhóm "cần khai báo hôm nay" TOÀN HỆ
+    // THỐNG như hành vi gốc.
+    public function build(?array $ids = null): Spreadsheet
     {
         $templatePath = base_path('tblt_vn_import.xlsx');
 
@@ -33,7 +36,7 @@ class CccdDeclarationExcelExporter
         $sheet = $spreadsheet->getSheetByName(self::SHEET_NAME);
 
         $declarations = CccdDeclaration::query()
-            ->whereIn('id', CccdDeclaration::idsNeedingDeclarationToday())
+            ->whereIn('id', $ids ?? CccdDeclaration::idsNeedingDeclarationToday())
             ->orderBy('checked_in_at')
             ->get();
 
@@ -80,9 +83,9 @@ class CccdDeclarationExcelExporter
         return $spreadsheet;
     }
 
-    public function stream(string $filename): \Symfony\Component\HttpFoundation\StreamedResponse
+    public function stream(string $filename, ?array $ids = null): \Symfony\Component\HttpFoundation\StreamedResponse
     {
-        $spreadsheet = $this->build();
+        $spreadsheet = $this->build($ids);
 
         return response()->streamDownload(function () use ($spreadsheet) {
             $writer = new Xlsx($spreadsheet);

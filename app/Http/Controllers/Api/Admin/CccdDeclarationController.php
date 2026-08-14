@@ -7,9 +7,12 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\CccdDeclaration;
 use App\Models\User;
+use App\Services\CccdDeclarationExcelExporter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Danh sách KHAI BÁO LƯU TRÚ (bảng cccd_declarations) — tương ứng
@@ -95,6 +98,79 @@ class CccdDeclarationController extends Controller
         return response()->json(['data' => $this->toDetailItem($declaration)]);
     }
 
+    /**
+     * PUT|POST /api/admin/cccd-declarations/{id}
+     * Sửa thông tin khai báo lưu trú — khớp các field sửa được trên form CMS
+     * (CccdDeclarationResource::form()), KHÔNG gồm declared_at/declared_by (đánh dấu "đã khai
+     * báo" là 1 hành động riêng, không phải sửa thông tin — tương tự confirm-cleaning của phòng).
+     */
+    public function update(Request $request, int $id): JsonResponse
+    {
+        $declaration = $this->visibleDeclarationsQuery($request->user())->find($id);
+
+        if (! $declaration) {
+            return response()->json(['message' => 'Không tìm thấy bản ghi khai báo lưu trú.'], 404);
+        }
+
+        $data = $request->validate($this->rules());
+
+        // Kiểm tra trên TRẠNG THÁI CUỐI CÙNG sau khi merge với dữ liệu đang lưu (không chỉ dữ liệu
+        // gửi lên trong request này) — vd client chỉ sửa full_name, không đụng reason_for_stay lẫn
+        // custom_reason, trong khi bản ghi ĐANG lưu reason_for_stay="Mục đích khác" thì vẫn phải
+        // còn custom_reason hợp lệ, không thể chỉ dựa vào Rule::requiredIf() (chỉ thấy được dữ liệu
+        // của riêng request này, không biết được giá trị đã lưu trước đó của field còn lại).
+        $finalReasonForStay = $data['reason_for_stay'] ?? $declaration->reason_for_stay;
+        $finalCustomReason  = array_key_exists('custom_reason', $data) ? $data['custom_reason'] : $declaration->custom_reason;
+        if ($finalReasonForStay === '20 - Mục đích khác' && blank($finalCustomReason)) {
+            return response()->json(['message' => 'Trường "Nhập lý do" (custom_reason) là bắt buộc khi lý do lưu trú là "Mục đích khác".'], 422);
+        }
+
+        $declaration->update($data);
+
+        return response()->json(['data' => $this->toDetailItem($declaration->fresh(['order:id,order_code', 'declaredBy:id,fullname']))]);
+    }
+
+    /**
+     * DELETE /api/admin/cccd-declarations/{id}
+     * Xoá vĩnh viễn (bảng không dùng soft delete) — LƯU Ý: đây là hồ sơ phục vụ khai báo lưu trú
+     * theo Luật Cư trú, xoá đi sẽ mất dấu vết đã từng khai báo/chưa khai báo cho lượt khách đó.
+     * Filament CMS KHÔNG có nút xoá cho resource này (chỉ Sửa + đánh dấu đã khai báo) — cân nhắc kỹ
+     * trước khi gọi trên dữ liệu thật.
+     */
+    public function destroy(Request $request, int $id): JsonResponse
+    {
+        $declaration = $this->visibleDeclarationsQuery($request->user())->find($id);
+
+        if (! $declaration) {
+            return response()->json(['message' => 'Không tìm thấy bản ghi khai báo lưu trú.'], 404);
+        }
+
+        $declaration->delete();
+
+        return response()->json(['message' => 'Đã xoá bản ghi khai báo lưu trú.']);
+    }
+
+    /**
+     * GET /api/admin/cccd-declarations/export
+     * Xuất Excel đúng mẫu chính thức "Thông báo lưu trú" của Bộ Công an — CHỈ nhóm "cần khai báo
+     * hôm nay" (chưa khai báo + đã/đang tới hạn trong ngày), giới hạn đúng phạm vi đối tác đang
+     * gọi (super_admin xuất hết) — cùng nội dung với nút "Xuất Excel" ở CMS
+     * (ListCccdDeclarations::exportExcel()), chỉ khác là API này lọc thêm theo đối tác.
+     */
+    public function export(Request $request): StreamedResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $ids = $this->visibleDeclarationsQuery($user)
+            ->whereIn('id', CccdDeclaration::idsNeedingDeclarationToday())
+            ->pluck('id')
+            ->all();
+
+        return app(CccdDeclarationExcelExporter::class)
+            ->stream('ThongBaoLuuTru_' . now()->format('Ymd_His') . '.xlsx', $ids);
+    }
+
     // Chỉ khách của đơn ĐÃ XÁC NHẬN (paid/deposit/shipped — CONFIRMED_ORDER_STATUSES) mới tính, và
     // chỉ thuộc đơn của đúng đối tác user đang quản lý (super_admin xem hết) — cùng phạm vi với
     // CccdDeclarationResource::table()->modifyQueryUsing() ở Filament.
@@ -107,6 +183,40 @@ class CccdDeclarationController extends Controller
                 $q->where('partner_id', $user->partner_id);
             }
         });
+    }
+
+    // Khớp CHÍNH XÁC các option chuẩn của model (trích từ mẫu Bộ Công an) — sai giá trị sẽ hỏng khi
+    // xuất Excel (CccdDeclarationExcelExporter) nên validate chặt bằng Rule::in() thay vì string tự do.
+    // custom_reason bắt buộc khi reason_for_stay="Mục đích khác" — kiểm tra riêng ở update() (trên
+    // TRẠNG THÁI CUỐI CÙNG sau khi merge với dữ liệu đang lưu), không đặt Rule::requiredIf() ở đây
+    // vì nó chỉ thấy được dữ liệu của riêng request này, không biết giá trị đã lưu của field kia.
+    private function rules(): array
+    {
+        return [
+            'full_name'          => 'sometimes|nullable|string|max:255',
+            // Lưu dạng chuỗi "DD/MM/YYYY" (không cast date) — khớp placeholder trên form CMS.
+            'date_of_birth'      => 'sometimes|nullable|string|max:20',
+            'gender'             => ['sometimes', 'nullable', Rule::in(array_keys(CccdDeclaration::GENDER_OPTIONS))],
+            'nationality'        => ['sometimes', 'nullable', Rule::in(array_keys(CccdDeclaration::NATIONALITY_OPTIONS))],
+            'document_type'      => ['sometimes', 'nullable', Rule::in(array_keys(CccdDeclaration::DOCUMENT_TYPE_OPTIONS))],
+            'cccd_number'        => 'sometimes|nullable|string|max:20',
+            'phone_number'       => 'sometimes|nullable|string|max:20',
+            'info'               => 'sometimes|nullable|string|max:255',
+
+            'room_number'        => 'sometimes|nullable|string|max:255',
+            'stay_address'       => 'sometimes|nullable|string|max:255',
+            'reason_for_stay'    => ['sometimes', 'nullable', Rule::in(array_keys(CccdDeclaration::REASON_FOR_STAY_OPTIONS))],
+            'custom_reason'      => 'sometimes|nullable|string|max:255',
+            'checked_in_at'      => 'sometimes|nullable|date',
+            'checked_out_at'     => 'sometimes|nullable|date',
+
+            'current_residence'  => 'sometimes|nullable|string|max:255',
+            'residence_type'     => ['sometimes', 'nullable', Rule::in(array_keys(CccdDeclaration::RESIDENCE_TYPE_OPTIONS))],
+            'province'           => 'sometimes|nullable|string|max:255',
+            'ward'               => 'sometimes|nullable|string|max:255',
+            'address_detail'     => 'sometimes|nullable|string',
+            'notes'              => 'sometimes|nullable|string',
+        ];
     }
 
     private function statusOf(CccdDeclaration $d): string
