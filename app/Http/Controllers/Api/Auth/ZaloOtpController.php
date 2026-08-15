@@ -461,7 +461,7 @@ class ZaloOtpController extends Controller
             ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', now()))
             ->where(fn ($q) => $q->whereNull('usage_limit')->orWhereColumn('used_count', '<', 'usage_limit'))
             ->orderByDesc('created_at')
-            ->get(['id', 'code', 'name', 'type', 'value', 'max_discount', 'min_order_value', 'end_at']);
+            ->get(['id', 'code', 'name', 'type', 'value', 'max_discount', 'min_order_value', 'end_at', 'is_exclusive']);
 
         return [
             'id'                => $customer->id,
@@ -506,6 +506,9 @@ class ZaloOtpController extends Controller
                     'max_discount'    => $c->max_discount ? (float) $c->max_discount : null,
                     'min_order_value' => $c->min_order_value ? (float) $c->min_order_value : null,
                     'expires_at'      => $c->end_at?->toDateString(),
+                    // FE dùng field này làm điều kiện: nếu true, mã không được áp chung với bất
+                    // kỳ mã nào khác (backend enforce ở BookingController::guardExclusiveCoupons()).
+                    'is_exclusive'    => (bool) $c->is_exclusive,
                 ]),
             ],
         ];
