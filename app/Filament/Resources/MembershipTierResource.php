@@ -8,6 +8,8 @@ use App\Filament\Resources\MembershipTierResource\Pages;
 use App\Models\MembershipTier;
 use Filament\Forms\Components\ColorPicker;
 use Filament\Forms\Components\Grid;
+use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -95,58 +97,99 @@ class MembershipTierResource extends Resource
             ])->columnSpan(1),
 
             Section::make('Coupon tự động cấp')->schema([
-                TextInput::make('welcome_coupon_prefix')
-                    ->label('Tiền tố mã coupon')
-                    ->maxLength(20)
-                    ->placeholder('VD: SILVER, GOLD')
-                    ->helperText('Coupon sẽ được tạo: SILVER + 6 ký tự ngẫu nhiên'),
+                Repeater::make('voucher_templates')
+                    ->label('')
+                    ->addActionLabel('+ Thêm voucher')
+                    ->helperText('Voucher chính thức phát cho MỌI khách khi lên hạng này. Mỗi dòng = 1 voucher riêng biệt — cần 2 voucher 20K thì thêm 2 dòng giá trị 20.000. Toàn bộ khách đang giữ hạng này — kể cả khách đã lên hạng từ trước — sẽ được phát ngay các voucher vừa thêm khi lưu.')
+                    ->schema([
+                        Hidden::make('template_id'),
 
-                Grid::make(2)->schema([
-                    Select::make('welcome_coupon_type')
-                        ->label('Loại giảm giá')
-                        ->options([
-                            'percentage' => 'Phần trăm (%)',
-                            'fixed'      => 'Số tiền cố định (VNĐ)',
-                        ])
-                        ->default('percentage')
-                        ->live(),
+                        Grid::make(3)->schema([
+                            TextInput::make('prefix')
+                                ->label('Tiền tố mã coupon')
+                                ->required()
+                                ->maxLength(20)
+                                ->placeholder('VD: BAC20, VANG10')
+                                ->helperText('Coupon cấp cho khách sẽ là: TIỀN TỐ + 6 ký tự ngẫu nhiên.'),
 
-                    TextInput::make('welcome_coupon_value')
-                        ->label(fn (Get $get) => $get('welcome_coupon_type') === 'percentage' ? 'Giá trị (%)' : 'Giá trị (VNĐ)')
-                        ->numeric()
-                        ->default(0)
-                        ->minValue(0)
-                        ->maxValue(fn (Get $get) => $get('welcome_coupon_type') === 'percentage' ? 100 : null)
-                        ->suffix(fn (Get $get) => $get('welcome_coupon_type') === 'percentage' ? '%' : 'VNĐ'),
-                ]),
+                            Select::make('type')
+                                ->label('Loại giảm giá')
+                                ->options([
+                                    'percentage' => 'Phần trăm (%)',
+                                    'fixed'      => 'Số tiền cố định (VNĐ)',
+                                ])
+                                ->default('fixed')
+                                ->required()
+                                ->live(),
 
-                Grid::make(2)->schema([
-                    TextInput::make('welcome_coupon_days')
-                        ->label('Hiệu lực coupon (ngày)')
-                        ->numeric()
-                        ->default(30)
-                        ->suffix('ngày')
-                        ->helperText('Tính từ thời điểm cấp. Đặt 0 để không hết hạn.'),
+                            TextInput::make('value')
+                                ->label(fn (Get $get) => $get('type') === 'percentage' ? 'Giá trị (%)' : 'Giá trị (VNĐ)')
+                                ->required()
+                                ->numeric()
+                                ->minValue(0)
+                                ->maxValue(fn (Get $get) => $get('type') === 'percentage' ? 100 : null)
+                                ->suffix(fn (Get $get) => $get('type') === 'percentage' ? '%' : 'VNĐ'),
+                        ]),
 
-                    TextInput::make('welcome_coupon_usage_limit')
-                        ->label('Số lần sử dụng')
-                        ->numeric()
-                        ->minValue(1)
-                        ->default(1)
-                        ->placeholder('Không giới hạn')
-                        ->helperText('Số lần coupon được dùng. Để trống = không giới hạn.'),
-                ]),
+                        Grid::make(3)->schema([
+                            TextInput::make('min_order_value')
+                                ->label('Đơn hàng tối thiểu (VNĐ)')
+                                ->numeric()
+                                ->minValue(0)
+                                ->suffix('VNĐ')
+                                ->helperText('Để trống = không giới hạn.'),
+
+                            TextInput::make('validity_days')
+                                ->label('Hiệu lực coupon (ngày)')
+                                ->numeric()
+                                ->minValue(1)
+                                ->default(30)
+                                ->required()
+                                ->suffix('ngày')
+                                ->helperText('Tính từ thời điểm cấp cho từng khách.'),
+
+                            TextInput::make('usage_limit')
+                                ->label('Số lần sử dụng')
+                                ->numeric()
+                                ->minValue(1)
+                                ->placeholder('Không giới hạn')
+                                ->helperText('Để trống = không giới hạn.'),
+                        ]),
+
+                        Toggle::make('is_exclusive')
+                            ->label('Mã độc quyền (không dùng chung đơn với mã khác)')
+                            ->default(true)
+                            ->helperText('Đúng quy định "1 đơn chỉ áp dụng 1 voucher" — nên để bật.'),
+                    ])
+                    ->itemLabel(fn (array $state): ?string => trim(
+                        ($state['prefix'] ?? '') . ' — ' .
+                        number_format((float) ($state['value'] ?? 0), 0, ',', '.') .
+                        ($state['type'] === 'percentage' ? '%' : 'đ')
+                    ))
+                    ->collapsible()
+                    ->reorderable(false)
+                    ->defaultItems(0),
             ])->columnSpan(1),
 
             Section::make('Mã giảm giá gắn thêm cho hạng')->schema([
-                Select::make('coupons')
+                Select::make('manual_coupon_ids')
                     ->label('Mã giảm giá')
-                    ->relationship('coupons', 'name')
-                    ->getOptionLabelFromRecordUsing(fn (Coupon $record) => $record->code . ' — ' . $record->name)
+                    ->options(fn () => Coupon::query()
+                        ->orderByDesc('created_at')
+                        ->limit(200)
+                        ->get()
+                        ->mapWithKeys(fn (Coupon $c) => [$c->id => $c->code . ' — ' . $c->name]))
+                    ->getSearchResultsUsing(fn (string $search) => Coupon::query()
+                        ->where(fn ($q) => $q->where('code', 'like', "%{$search}%")->orWhere('name', 'like', "%{$search}%"))
+                        ->limit(50)
+                        ->get()
+                        ->mapWithKeys(fn (Coupon $c) => [$c->id => $c->code . ' — ' . $c->name]))
+                    ->getOptionLabelsUsing(fn (array $values) => Coupon::whereIn('id', $values)
+                        ->get()
+                        ->mapWithKeys(fn (Coupon $c) => [$c->id => $c->code . ' — ' . $c->name]))
                     ->multiple()
                     ->searchable()
-                    ->preload()
-                    ->helperText('Chọn 1 hoặc nhiều mã giảm giá có sẵn (tạo ở mục "Mã giảm giá"). Toàn bộ khách hàng đang giữ hạng này — kể cả khách đã tạo trước đó — sẽ được phát các mã đã chọn.'),
+                    ->helperText('Gắn tay 1 hoặc nhiều mã có sẵn (tạo ở mục "Mã giảm giá") cho TRƯỜNG HỢP NGOẠI LỆ/cứu cháy — KHÔNG dùng cho voucher chính thức của hạng (đã cấu hình ở "Coupon tự động cấp" phía trên). Toàn bộ khách đang giữ hạng này sẽ được phát các mã đã chọn.'),
             ])->columnSpanFull(),
         ])->columns(2);
     }
@@ -154,6 +197,7 @@ class MembershipTierResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(fn ($query) => $query->with('coupons'))
             ->columns([
                 ColorColumn::make('color')
                     ->label('Màu')
@@ -169,24 +213,21 @@ class MembershipTierResource extends Resource
                     ->money('VND')
                     ->sortable(),
 
-                TextColumn::make('welcome_coupon_value')
-                    ->label('Coupon tặng')
-                    ->formatStateUsing(function ($state, MembershipTier $record): string {
-                        if (! $state || $state <= 0) {
-                            return '—';
-                        }
-                        return $record->welcome_coupon_type === 'percentage'
-                            ? $state . '%'
-                            : number_format((float) $state, 0, ',', '.') . ' VNĐ';
+                TextColumn::make('auto_voucher_count')
+                    ->label('Coupon tự động cấp')
+                    ->state(function (MembershipTier $record): string {
+                        $count = $record->coupons->where('pivot.source', 'auto')->count();
+
+                        return $count > 0 ? "{$count} voucher" : '—';
                     }),
 
-                TextColumn::make('welcome_coupon_days')
-                    ->label('Hiệu lực')
-                    ->formatStateUsing(fn ($state) => $state ? $state . ' ngày' : 'Không giới hạn'),
+                TextColumn::make('manual_coupon_count')
+                    ->label('Gắn tay (cứu cháy)')
+                    ->state(function (MembershipTier $record): string {
+                        $count = $record->coupons->where('pivot.source', 'manual')->count();
 
-                TextColumn::make('welcome_coupon_usage_limit')
-                    ->label('Số lần dùng')
-                    ->formatStateUsing(fn ($state) => $state ?: 'Không giới hạn')
+                        return $count > 0 ? "{$count} mã" : '—';
+                    })
                     ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('customers_count')
@@ -218,4 +259,12 @@ class MembershipTierResource extends Resource
             'edit'   => Pages\EditMembershipTier::route('/{record}/edit'),
         ];
     }
+
+    /**
+     * Logic đọc/ghi voucher mẫu ('auto') và mã gắn tay ('manual') giờ dùng chung ở
+     * App\Services\MembershipService (voucherTemplatesToFormState / syncVoucherTemplates /
+     * manualCouponIdsToFormState / syncManualCoupons) — để REST API admin (Api\Admin\
+     * MembershipTierController) dùng lại được, không lặp code riêng cho Filament. Xem
+     * MembershipTierResource\Pages\CreateMembershipTier / EditMembershipTier.
+     */
 }

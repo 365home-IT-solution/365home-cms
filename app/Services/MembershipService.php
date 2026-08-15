@@ -116,8 +116,8 @@ class MembershipService
     }
 
     /**
-     * Phát coupon có sẵn đã gắn vào hạng cho toàn bộ customer đang giữ hạng đó.
-     * Gọi khi admin gắn/gỡ coupon khỏi hạng trong Filament.
+     * Phát coupon có sẵn đã gắn vào hạng (cả 'auto' lẫn 'manual') cho toàn bộ customer đang giữ
+     * hạng đó. Gọi khi admin gắn/gỡ coupon khỏi hạng trong Filament (afterCreate/afterSave).
      */
     public function distributeTierCoupons(MembershipTier $tier): void
     {
@@ -137,6 +137,163 @@ class MembershipService
     }
 
     /**
+     * Nút "Đồng bộ" ở trang Sửa hạng thành viên: rà lại từng khách ĐANG giữ hạng này, so với cấu
+     * hình HIỆN TẠI ở "Coupon tự động cấp" (chỉ voucher mẫu nguồn 'auto' — KHÔNG tính mã gắn tay ở
+     * "Mã giảm giá gắn thêm cho hạng") — khách nào thiếu voucher nào (vd dữ liệu cũ trước khi hạng
+     * có đủ N voucher, khách chỉ mới được cấp 1) thì cấp bù đúng phần còn thiếu, không đụng tới
+     * voucher khách đã có. Trả về số liệu để hiển thị lên Notification cho admin biết kết quả.
+     *
+     * @return array{customers_checked: int, customers_updated: int, vouchers_granted: int}
+     */
+    public function syncAutoVouchersForTierMembers(MembershipTier $tier): array
+    {
+        $templates = $tier->coupons()->wherePivot('source', 'auto')->get();
+
+        $result = ['customers_checked' => 0, 'customers_updated' => 0, 'vouchers_granted' => 0];
+
+        if ($templates->isEmpty()) {
+            return $result;
+        }
+
+        Customer::where('membership_tier_id', $tier->id)
+            ->get()
+            ->each(function (Customer $customer) use ($templates, &$result) {
+                $result['customers_checked']++;
+                $grantedForThisCustomer = 0;
+
+                foreach ($templates as $template) {
+                    if ($this->grantTemplateCoupon($customer, $template)) {
+                        $grantedForThisCustomer++;
+                    }
+                }
+
+                if ($grantedForThisCustomer > 0) {
+                    $result['customers_updated']++;
+                    $result['vouchers_granted'] += $grantedForThisCustomer;
+                }
+            });
+
+        return $result;
+    }
+
+    /**
+     * Đọc voucher mẫu NGUỒN 'auto' (sinh ra từ "Coupon tự động cấp", phân biệt với coupon gắn tay
+     * ở "Mã giảm giá gắn thêm cho hạng" qua cột pivot membership_tier_coupon.source) hiện đang gắn
+     * vào $tier — dùng để hiển thị lại cho form sửa hạng (Filament Repeater / REST API).
+     */
+    public function voucherTemplatesToFormState(MembershipTier $tier): array
+    {
+        return $tier->coupons->where('pivot.source', 'auto')->map(fn (Coupon $c) => [
+            'template_id'     => $c->id,
+            'prefix'          => $c->code,
+            'type'            => $c->type,
+            'value'           => (float) $c->value,
+            'min_order_value' => $c->min_order_value !== null ? (float) $c->min_order_value : null,
+            'validity_days'   => $c->validity_days,
+            'usage_limit'     => $c->usage_limit,
+            'is_exclusive'    => (bool) $c->is_exclusive,
+        ])->values()->toArray();
+    }
+
+    /**
+     * Đồng bộ voucher mẫu NGUỒN 'auto' của $tier theo danh sách dòng vừa submit (mỗi dòng: 'prefix',
+     * 'type', 'value', 'min_order_value'?, 'validity_days', 'usage_limit'?, 'is_exclusive'?, và
+     * 'template_id' nếu là sửa dòng đã có): dòng có 'template_id' → update coupon mẫu đã có; dòng
+     * mới → tạo coupon mẫu mới; coupon mẫu cũ (source='auto') không còn trong danh sách → gỡ khỏi
+     * hạng (KHÔNG xoá — có thể đã phát bản sao cho khách). CHỈ động vào pivot rows source='auto' —
+     * không đụng tới các mã gắn tay (source='manual', xem syncManualCoupons()), tránh 2 khu vực cấu
+     * hình ghi đè lẫn nhau khi lưu. Gọi xong nhớ gọi thêm distributeTierCoupons($tier) để phát ngay
+     * cho khách đang giữ hạng.
+     */
+    public function syncVoucherTemplates(MembershipTier $tier, array $rows): void
+    {
+        $keepIds = [];
+
+        foreach ($rows as $row) {
+            $fields = [
+                'type'            => $row['type'] ?? 'fixed',
+                'value'           => $row['value'] ?? 0,
+                'min_order_value' => $row['min_order_value'] ?? null,
+                'validity_days'   => $row['validity_days'] ?? 30,
+                'usage_limit'     => $row['usage_limit'] ?? null,
+                'is_exclusive'    => (bool) ($row['is_exclusive'] ?? true),
+                'apply_type'      => 'all_rooms',
+                'is_active'       => true,
+            ];
+
+            $templateId = $row['template_id'] ?? null;
+            $template   = $templateId ? Coupon::find($templateId) : null;
+
+            if ($template) {
+                $template->update($fields);
+                $keepIds[] = $template->id;
+                continue;
+            }
+
+            $prefix = strtoupper(Str::slug($row['prefix'] ?? 'VC', ''));
+            $name   = 'Voucher ' . $tier->name . ' — ' . ($row['prefix'] ?? '');
+
+            $template = Coupon::create($fields + [
+                'code'       => $this->generateUniqueTemplateCode($prefix),
+                'name'       => $name,
+                'used_count' => 0,
+                'start_at'   => now(),
+                'created_by' => $this->superAdminId(),
+            ]);
+
+            $keepIds[] = $template->id;
+        }
+
+        $currentAutoIds = $tier->coupons()->wherePivot('source', 'auto')->pluck('coupons.id')->all();
+
+        $toDetach = array_diff($currentAutoIds, $keepIds);
+        if (! empty($toDetach)) {
+            $tier->coupons()->detach($toDetach);
+        }
+
+        foreach ($keepIds as $id) {
+            $tier->coupons()->syncWithoutDetaching([$id => ['source' => 'auto']]);
+        }
+    }
+
+    /**
+     * Đọc id mã giảm giá NGUỒN 'manual' hiện đang gắn vào $tier — dùng để hiển thị lại cho form sửa
+     * hạng (Filament Select / REST API).
+     */
+    public function manualCouponIdsToFormState(MembershipTier $tier): array
+    {
+        return $tier->coupons()->wherePivot('source', 'manual')->pluck('coupons.id')->all();
+    }
+
+    /**
+     * Đồng bộ danh sách mã gắn tay (nguồn 'manual') theo danh sách id vừa submit — CHỈ động vào
+     * pivot rows source='manual', không đụng tới voucher tự động (source='auto', xem
+     * syncVoucherTemplates()).
+     */
+    public function syncManualCoupons(MembershipTier $tier, array $couponIds): void
+    {
+        $currentManualIds = $tier->coupons()->wherePivot('source', 'manual')->pluck('coupons.id')->all();
+
+        $toDetach = array_diff($currentManualIds, $couponIds);
+        if (! empty($toDetach)) {
+            $tier->coupons()->detach($toDetach);
+        }
+
+        foreach ($couponIds as $id) {
+            $tier->coupons()->syncWithoutDetaching([$id => ['source' => 'manual']]);
+        }
+    }
+
+    private function generateUniqueTemplateCode(string $prefix): string
+    {
+        do {
+            $code = Str::limit($prefix, 10, '') . strtoupper(Str::random(6));
+        } while (Coupon::where('code', $code)->exists());
+
+        return $code;
+    }
+
+    /**
      * Gán các coupon có sẵn của hạng cho một customer (khi vừa lên/đổi hạng).
      */
     private function assignTierCoupons(Customer $customer, MembershipTier $tier): void
@@ -147,21 +304,22 @@ class MembershipService
     }
 
     /**
-     * Cấp 1 coupon MẪU của hạng cho 1 customer.
+     * Cấp 1 coupon MẪU của hạng cho 1 customer, trả về true nếu vừa cấp mới (false nếu khách đã có
+     * sẵn từ trước — không cấp trùng).
      * - Coupon mẫu KHÔNG có validity_days: giữ hành vi cũ — gắn thẳng coupon DÙNG CHUNG (hạn cố
      *   định theo start_at/end_at của chính coupon mẫu) qua bảng coupon_customers.
      * - Coupon mẫu CÓ validity_days: nhân bản 1 coupon RIÊNG cho customer này (customer_id + hạn =
      *   thời điểm cấp + validity_days), hỗ trợ nhiều voucher/hạng mà mỗi voucher hạn tính theo
      *   ngày từng khách lên hạng thay vì 1 ngày cố định dùng chung. Kiểm tra template_coupon_id
      *   trước khi tạo để tránh cấp trùng nếu hàm này được gọi lại nhiều lần cho cùng 1 lượt lên hạng
-     *   (vd distributeTierCoupons() chạy lại khi admin sửa hạng).
+     *   (vd distributeTierCoupons() chạy lại khi admin sửa hạng, hoặc nút "Đồng bộ").
      */
-    private function grantTemplateCoupon(Customer $customer, Coupon $template): void
+    private function grantTemplateCoupon(Customer $customer, Coupon $template): bool
     {
         if (! $template->validity_days) {
-            $customer->coupons()->syncWithoutDetaching([$template->id]);
+            $changes = $customer->coupons()->syncWithoutDetaching([$template->id]);
 
-            return;
+            return ! empty($changes['attached']);
         }
 
         $alreadyIssued = Coupon::where('customer_id', $customer->id)
@@ -169,7 +327,7 @@ class MembershipService
             ->exists();
 
         if ($alreadyIssued) {
-            return;
+            return false;
         }
 
         $prefix = strtoupper(Str::slug($template->code, ''));
@@ -190,10 +348,13 @@ class MembershipService
             'start_at'            => now(),
             'end_at'              => now()->addDays($template->validity_days),
             'is_active'           => true,
+            'is_exclusive'        => $template->is_exclusive,
             'customer_id'         => $customer->id,
             'template_coupon_id'  => $template->id,
             'created_by'          => $this->superAdminId(),
         ]);
+
+        return true;
     }
 
     /**
@@ -220,6 +381,9 @@ class MembershipService
             'start_at'      => now(),
             'end_at'        => $tier->welcome_coupon_days ? now()->addDays($tier->welcome_coupon_days) : null,
             'is_active'     => true,
+            // Voucher chào mừng hạng luôn độc quyền — quy định "1 đơn chỉ áp dụng 1 voucher"
+            // áp dụng cho mọi voucher cấp theo hạng, kể cả voucher chào mừng.
+            'is_exclusive'  => true,
             'customer_id'   => $customer->id,
             'created_by'    => $this->superAdminId(),
         ]);

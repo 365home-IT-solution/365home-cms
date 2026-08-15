@@ -577,10 +577,17 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/coupons')->name(
 | riêng đối tác nào.
 | GET    /api/admin/membership-tiers      → ?search=&is_active=&per_page= (per_page=0: lấy hết,
 |                                            không phân trang, dùng cho dropdown)
-| GET    /api/admin/membership-tiers/{id} → chi tiết, kèm danh sách coupon mẫu đã gắn
-| POST   /api/admin/membership-tiers      → tạo (coupon_ids[] tuỳ chọn — gắn coupon mẫu ngay lúc tạo)
-| PUT|POST /api/admin/membership-tiers/{id} → sửa (coupon_ids[] nếu truyền sẽ THAY THẾ toàn bộ danh
-|                                            sách coupon mẫu cũ — không truyền = giữ nguyên)
+| GET    /api/admin/membership-tiers/{id} → chi tiết, kèm voucher_templates[] (nguồn 'auto') +
+|                                            manual_coupon_ids[]/manual_coupons[] (nguồn 'manual')
+| POST   /api/admin/membership-tiers      → tạo (voucher_templates[]/coupon_ids[] tuỳ chọn — cấu
+|                                            hình voucher ngay lúc tạo)
+| PUT|POST /api/admin/membership-tiers/{id} → sửa. Truyền voucher_templates[] sẽ THAY THẾ toàn bộ
+|                                            danh sách voucher CHÍNH THỨC cũ (nguồn 'auto'); truyền
+|                                            coupon_ids[] sẽ THAY THẾ toàn bộ danh sách mã gắn tay cũ
+|                                            (nguồn 'manual') — 2 danh sách ĐỘC LẬP, không đè lẫn
+|                                            nhau. Không truyền field nào = giữ nguyên khu vực đó.
+| POST   /api/admin/membership-tiers/{id}/sync-vouchers → cấp bù voucher (nguồn 'auto') cho khách
+|                                            đang giữ hạng nhưng thiếu so với cấu hình hiện tại
 | DELETE /api/admin/membership-tiers/{id} → xoá — chặn nếu còn khách hàng đang giữ hạng này
 |--------------------------------------------------------------------------
 */
@@ -590,6 +597,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/membership-tiers
     Route::post('/', [AdminMembershipTierController::class, 'store'])->name('store');
     Route::put('/{id}', [AdminMembershipTierController::class, 'update'])->name('update');
     Route::post('/{id}', [AdminMembershipTierController::class, 'update'])->name('update.post');
+    Route::post('/{id}/sync-vouchers', [AdminMembershipTierController::class, 'syncVouchers'])->name('sync-vouchers');
     Route::delete('/{id}', [AdminMembershipTierController::class, 'destroy'])->name('destroy');
 });
 

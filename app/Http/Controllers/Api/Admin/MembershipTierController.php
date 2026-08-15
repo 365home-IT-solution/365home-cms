@@ -11,20 +11,36 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * Quản lý HẠNG THÀNH VIÊN (bảng `membership_tiers`) — CRUD đầy đủ, cộng thêm endpoint gắn/gỡ mã
- * khuyến mãi MẪU cho hạng (POST .../coupons) để cấu hình "khách vào hạng X tự động nhận voucher Y".
- * Field khớp App\Filament\Resources\MembershipTierResource.
+ * Quản lý HẠNG THÀNH VIÊN (bảng `membership_tiers`) — CRUD đầy đủ, cộng thêm 2 khu vực cấu hình
+ * voucher/hạng + endpoint đồng bộ. Field khớp App\Filament\Resources\MembershipTierResource — 2 nơi
+ * này dùng CHUNG logic ở App\Services\MembershipService (voucherTemplatesToFormState/
+ * syncVoucherTemplates/manualCouponIdsToFormState/syncManualCoupons/syncAutoVouchersForTierMembers)
+ * để tránh lặp code và đảm bảo hành vi giống hệt nhau dù thao tác từ Filament hay từ API.
  *
  * Hạng KHÔNG thuộc riêng đối tác nào (dùng chung toàn hệ thống, giống Customer) — không lọc theo
  * partner_id.
  *
  * Luồng cấp voucher tự động khi khách đạt hạng (xem App\Services\MembershipService):
- *  - welcome_coupon_* : cấu hình 1 voucher DUY NHẤT, tự tạo coupon CÁ NHÂN cho khách khi vừa đạt
- *    hạng, hạn dùng = lúc cấp + welcome_coupon_days.
- *  - coupons (POST .../coupons) : gắn thêm N coupon CÓ SẴN (tạo trước ở /api/admin/coupons) làm
- *    "mẫu" cho hạng — hỗ trợ NHIỀU voucher/hạng. Coupon mẫu có 'validity_days' sẽ được nhân bản
- *    thành 1 bản sao RIÊNG cho từng khách (hạn = lúc lên hạng + validity_days); coupon mẫu KHÔNG có
- *    validity_days thì mọi khách trong hạng dùng CHUNG 1 coupon với hạn cố định (start_at/end_at).
+ *  - welcome_coupon_* : cơ chế CŨ, cấu hình 1 voucher DUY NHẤT/hạng — ĐÃ NGƯNG DÙNG (field vẫn còn
+ *    trong DB/API để không phá API cũ, nhưng KHÔNG dùng cho hạng nào nữa — mọi hạng hiện tại đã
+ *    reset welcome_coupon_value=0 để tránh cấp trùng với voucher_templates bên dưới). Đừng set lại
+ *    field này khi tạo/sửa hạng.
+ *  - voucher_templates[] (POST .../voucher-templates hoặc gửi kèm trong store/update) : cấu hình
+ *    N voucher CHÍNH THỨC của hạng (mỗi phần tử = 1 voucher: prefix, type, value, min_order_value?,
+ *    validity_days, usage_limit?, is_exclusive?) — hệ thống TỰ TẠO coupon mẫu (nguồn pivot 'auto'),
+ *    không cần tạo coupon trước ở /api/admin/coupons. Đây là luồng CHÍNH THỨC — dùng cho toàn bộ
+ *    voucher hạng cấp cho MỌI khách khi lên hạng.
+ *  - coupon_ids[] (gửi kèm trong store/update) : gắn TAY N coupon CÓ SẴN (tạo trước ở
+ *    /api/admin/coupons) làm mẫu cho hạng (nguồn pivot 'manual') — dùng cho trường hợp NGOẠI
+ *    LỆ/cứu cháy, KHÔNG dùng cho voucher chính thức (đã có voucher_templates ở trên). 2 danh sách
+ *    này lưu tách biệt (cột pivot membership_tier_coupon.source) — sửa danh sách này không ảnh
+ *    hưởng danh sách kia.
+ *  - Coupon mẫu (dù từ voucher_templates hay coupon_ids) có 'validity_days' sẽ được nhân bản thành
+ *    1 bản sao RIÊNG cho từng khách (hạn = lúc lên hạng + validity_days); mẫu KHÔNG có validity_days
+ *    thì mọi khách trong hạng dùng CHUNG 1 coupon với hạn cố định (start_at/end_at).
+ *  - POST .../{id}/sync-vouchers : rà lại khách ĐANG giữ hạng, cấp bù voucher_templates (nguồn
+ *    'auto') nào khách đang thiếu so với cấu hình hiện tại — dùng khi cấu hình hạng thay đổi SAU
+ *    khi khách đã lên hạng từ trước (dữ liệu cũ), hoặc muốn backfill mà không cần sửa lại hạng.
  */
 class MembershipTierController extends Controller
 {
@@ -95,10 +111,7 @@ class MembershipTierController extends Controller
             'is_active'                  => $data['is_active'] ?? true,
         ]);
 
-        if (! empty($data['coupon_ids'])) {
-            $tier->coupons()->sync($data['coupon_ids']);
-            app(MembershipService::class)->distributeTierCoupons($tier);
-        }
+        $this->syncVoucherFields($tier, $data);
 
         return response()->json(['data' => $this->toDetailItem($tier->fresh(['coupons']))], 201);
     }
@@ -122,12 +135,29 @@ class MembershipTierController extends Controller
             'welcome_coupon_days', 'welcome_coupon_usage_limit', 'is_active',
         ])->toArray());
 
-        if (array_key_exists('coupon_ids', $data)) {
-            $tier->coupons()->sync($data['coupon_ids'] ?? []);
-            app(MembershipService::class)->distributeTierCoupons($tier);
-        }
+        $this->syncVoucherFields($tier, $data);
 
         return response()->json(['data' => $this->toDetailItem($tier->fresh(['coupons']))]);
+    }
+
+    /**
+     * POST /api/admin/membership-tiers/{id}/sync-vouchers
+     * Nút "Đồng bộ" (giống hệt Filament EditMembershipTier) — rà lại khách ĐANG giữ hạng này, cấp
+     * bù voucher nào (nguồn 'auto' — theo đúng cấu hình 'voucher_templates' hiện tại) khách đang
+     * thiếu. Không đụng tới mã gắn tay ('coupon_ids'/nguồn 'manual'). An toàn gọi lại nhiều lần —
+     * không cấp trùng cho khách đã có sẵn.
+     */
+    public function syncVouchers(int $id): JsonResponse
+    {
+        $tier = MembershipTier::find($id);
+
+        if (! $tier) {
+            return response()->json(['message' => 'Không tìm thấy hạng thành viên.'], 404);
+        }
+
+        $result = app(MembershipService::class)->syncAutoVouchersForTierMembers($tier);
+
+        return response()->json(['data' => $result]);
     }
 
     /**
@@ -155,6 +185,32 @@ class MembershipTierController extends Controller
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
+    /**
+     * Đồng bộ 'voucher_templates' (nguồn 'auto') + 'coupon_ids' (nguồn 'manual') nếu có mặt trong
+     * $data — dùng chung cho store()/update(). Không truyền field nào = giữ nguyên cấu hình hiện
+     * tại của khu vực đó; truyền [] = gỡ hết. 2 khu vực lưu tách biệt, không ghi đè lẫn nhau (xem
+     * docblock class).
+     */
+    private function syncVoucherFields(MembershipTier $tier, array $data): void
+    {
+        $service = app(MembershipService::class);
+        $touched = false;
+
+        if (array_key_exists('voucher_templates', $data)) {
+            $service->syncVoucherTemplates($tier, $data['voucher_templates'] ?? []);
+            $touched = true;
+        }
+
+        if (array_key_exists('coupon_ids', $data)) {
+            $service->syncManualCoupons($tier, $data['coupon_ids'] ?? []);
+            $touched = true;
+        }
+
+        if ($touched) {
+            $service->distributeTierCoupons($tier);
+        }
+    }
+
     private function rules(bool $isUpdate = false, ?int $id = null): array
     {
         $required = $isUpdate ? 'sometimes|required' : 'required';
@@ -170,14 +226,32 @@ class MembershipTierController extends Controller
             'min_spending' => 'nullable|numeric|min:0',
             'is_active'    => 'nullable|boolean',
 
+            // Cơ chế CŨ, đã ngưng dùng (xem docblock class) — giữ lại field để không phá API cũ
+            // nhưng KHÔNG nên gửi welcome_coupon_value > 0 nữa, sẽ cấp trùng với voucher_templates.
             'welcome_coupon_prefix'      => 'nullable|string|max:20',
             'welcome_coupon_type'        => 'nullable|in:percentage,fixed',
             'welcome_coupon_value'       => 'nullable|numeric|min:0',
             'welcome_coupon_days'        => 'nullable|integer|min:0',
             'welcome_coupon_usage_limit' => 'nullable|integer|min:1',
 
-            // Danh sách id coupon có sẵn (tạo ở /api/admin/coupons) gắn làm mẫu cho hạng — thay thế
-            // TOÀN BỘ danh sách cũ (sync). Không truyền field này = giữ nguyên; truyền [] = gỡ hết.
+            // Voucher CHÍNH THỨC của hạng (nguồn pivot 'auto') — mỗi phần tử = 1 voucher, hệ thống
+            // tự tạo coupon mẫu, không cần tạo trước ở /api/admin/coupons. 'template_id' chỉ cần
+            // truyền khi SỬA 1 voucher đã có (lấy từ GET .../{id} → voucher_templates[].template_id)
+            // — bỏ trống = tạo voucher mới. Không truyền field 'voucher_templates' = giữ nguyên toàn
+            // bộ danh sách hiện tại; truyền [] = gỡ hết voucher chính thức của hạng.
+            'voucher_templates'                    => 'sometimes|array',
+            'voucher_templates.*.template_id'      => 'nullable|integer|exists:coupons,id',
+            'voucher_templates.*.prefix'           => 'required_with:voucher_templates|string|max:20',
+            'voucher_templates.*.type'             => 'required_with:voucher_templates|in:percentage,fixed',
+            'voucher_templates.*.value'            => 'required_with:voucher_templates|numeric|min:0',
+            'voucher_templates.*.min_order_value'  => 'nullable|numeric|min:0',
+            'voucher_templates.*.validity_days'    => 'required_with:voucher_templates|integer|min:1|max:365',
+            'voucher_templates.*.usage_limit'      => 'nullable|integer|min:1',
+            'voucher_templates.*.is_exclusive'     => 'nullable|boolean',
+
+            // Danh sách id coupon có sẵn (tạo ở /api/admin/coupons) gắn TAY vào hạng (nguồn pivot
+            // 'manual') — dùng cho trường hợp ngoại lệ/cứu cháy, KHÔNG dùng cho voucher chính thức
+            // (xem voucher_templates ở trên). Không truyền field này = giữ nguyên; truyền [] = gỡ hết.
             'coupon_ids'   => 'sometimes|array',
             'coupon_ids.*' => 'integer|exists:coupons,id',
         ];
@@ -200,6 +274,9 @@ class MembershipTierController extends Controller
 
     private function toDetailItem(MembershipTier $tier): array
     {
+        $tier->loadMissing('coupons');
+        $service = app(MembershipService::class);
+
         return array_merge($this->toListItem($tier), [
             'description'                => $tier->description,
             'welcome_coupon_prefix'      => $tier->welcome_coupon_prefix,
@@ -207,13 +284,16 @@ class MembershipTierController extends Controller
             'welcome_coupon_value'       => $tier->welcome_coupon_value,
             'welcome_coupon_days'        => $tier->welcome_coupon_days,
             'welcome_coupon_usage_limit' => $tier->welcome_coupon_usage_limit,
-            'coupons'                    => $tier->relationLoaded('coupons')
-                ? $tier->coupons->map(fn ($c) => [
-                    'id' => $c->id, 'code' => $c->code, 'name' => $c->name,
-                    'type' => $c->type, 'value' => $c->value,
-                    'min_order_value' => $c->min_order_value, 'validity_days' => $c->validity_days,
-                ])->values()
-                : [],
+            // Voucher CHÍNH THỨC của hạng (nguồn 'auto') — shape khớp với body 'voucher_templates'
+            // nhận ở store()/update(), sửa 1 voucher thì gửi lại đúng 'template_id' của nó.
+            'voucher_templates'          => $service->voucherTemplatesToFormState($tier),
+            // Mã gắn tay (nguồn 'manual', xem docblock class) — chỉ id, khớp body 'coupon_ids'.
+            'manual_coupon_ids'          => $service->manualCouponIdsToFormState($tier),
+            'manual_coupons'             => $tier->coupons->where('pivot.source', 'manual')->map(fn ($c) => [
+                'id' => $c->id, 'code' => $c->code, 'name' => $c->name,
+                'type' => $c->type, 'value' => $c->value,
+                'min_order_value' => $c->min_order_value, 'validity_days' => $c->validity_days,
+            ])->values(),
             'created_at' => optional($tier->created_at)->toISOString(),
             'updated_at' => optional($tier->updated_at)->toISOString(),
         ]);

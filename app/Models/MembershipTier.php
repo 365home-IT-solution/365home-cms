@@ -54,6 +54,7 @@ class MembershipTier extends Model
     public function coupons(): BelongsToMany
     {
         return $this->belongsToMany(Coupon::class, 'membership_tier_coupon', 'membership_tier_id', 'coupon_id')
+            ->withPivot('source')
             ->withTimestamps();
     }
 
