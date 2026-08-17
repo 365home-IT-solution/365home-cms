@@ -64,9 +64,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 |                                    Mặc định chỉ lấy hội thoại có đơn thuộc chi nhánh admin được
 |                                    phép xem (chi nhánh cha đã gán + toàn bộ chi nhánh con — xem
 |                                    User::allowedCategoryIds()); super_admin/admin không giới hạn
-|                                    chi nhánh thì thấy hết. ?category_slugs=89-xuan-thuy,an-binh
-|                                    lọc thêm về đúng 1 vài chi nhánh cụ thể theo SLUG (categories.
-|                                    slug), phải nằm trong phạm vi quyền ở trên.
+|                                    chi nhánh thì thấy hết. ?categories=slug1,slug2 lọc thêm về
+|                                    đúng 1 hoặc NHIỀU chi nhánh cụ thể theo SLUG (categories.slug,
+|                                    chọn nhiều cách nhau bằng dấu phẩy), phải nằm trong phạm vi
+|                                    quyền ở trên.
 | GET  /api/admin/chat/{id}       → chi tiết + tin nhắn. ?order_code=xxx lọc đúng khung chat của 1
 |                                    đơn (mỗi đơn 1 khung riêng); không truyền = lấy tất cả (mọi đơn
 |                                    trộn chung, hành vi cũ). Mỗi tin nhắn trả về kèm sẵn

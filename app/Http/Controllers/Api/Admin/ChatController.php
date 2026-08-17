@@ -28,11 +28,12 @@ class ChatController extends Controller
      * nhánh CHA user được gán + toàn bộ chi nhánh CON, đệ quy). Super_admin hoặc admin không bị
      * gán quyền chi nhánh cụ thể (allowedCategoryIds() rỗng) thì thấy TẤT CẢ, không giới hạn.
      *
-     * Query param tuỳ chọn 'category_slugs': danh sách SLUG chi nhánh (bảng categories.slug) cách
-     * nhau bởi dấu phẩy (vd "89-xuan-thuy,an-binh") để LỌC THÊM về đúng 1 hoặc vài chi nhánh cụ
-     * thể — vẫn phải nằm trong phạm vi quyền ở trên (nếu admin bị giới hạn quyền, gửi slug ngoài
-     * phạm vi sẽ bị bỏ qua, không lộ dữ liệu chi nhánh khác). Slug không khớp category nào thì bị
-     * bỏ qua luôn (không báo lỗi — coi như không lọc theo slug đó).
+     * Query param tuỳ chọn 'categories': danh sách SLUG chi nhánh (bảng categories.slug), CHỌN
+     * NHIỀU bằng dấu phẩy (vd "89-xuan-thuy-an-binh-can-tho,254-xuan-thuy-an-binh-can-tho") để LỌC
+     * THÊM về đúng 1 hoặc nhiều chi nhánh cụ thể — vẫn phải nằm trong phạm vi quyền ở trên (nếu
+     * admin bị giới hạn quyền, gửi slug ngoài phạm vi sẽ bị bỏ qua, không lộ dữ liệu chi nhánh
+     * khác). Slug không khớp category nào thì bị bỏ qua luôn (không báo lỗi — coi như không lọc
+     * theo slug đó).
      */
     public function index(Request $request): JsonResponse
     {
@@ -43,7 +44,7 @@ class ChatController extends Controller
 
         if ($categoryIds !== null) {
             if (empty($categoryIds)) {
-                // Phạm vi quyền/lọc thu hẹp về rỗng (vd category_ids gửi lên không nằm trong quyền
+                // Phạm vi quyền/lọc thu hẹp về rỗng (vd categories gửi lên không nằm trong quyền
                 // admin) → không thấy hội thoại nào, KHÁC với null (không giới hạn gì).
                 $query->whereRaw('1 = 0');
             } else {
@@ -82,7 +83,7 @@ class ChatController extends Controller
 
     /**
      * Tính danh sách category_id cuối cùng dùng để lọc index() — null nghĩa là "không lọc gì cả"
-     * (khác [] = "lọc về không có gì"). Xem docblock index() để biết ngữ nghĩa 'category_slugs' và
+     * (khác [] = "lọc về không có gì"). Xem docblock index() để biết ngữ nghĩa 'categories' và
      * phạm vi quyền theo chi nhánh.
      *
      * @return array<int>|null
@@ -91,8 +92,8 @@ class ChatController extends Controller
     {
         $requested = null;
 
-        if ($request->filled('category_slugs')) {
-            $slugs = collect(explode(',', (string) $request->query('category_slugs')))
+        if ($request->filled('categories')) {
+            $slugs = collect(explode(',', (string) $request->query('categories')))
                 ->map(fn ($v) => trim($v))
                 ->filter()
                 ->unique()
