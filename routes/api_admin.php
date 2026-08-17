@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\Admin\OrderPaymentController;
 use App\Http\Controllers\Api\Admin\PositionController;
 use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
 use App\Http\Controllers\Api\Admin\PromotionController as AdminPromotionController;
+use App\Http\Controllers\Api\Admin\RatingController as AdminRatingController;
 use App\Http\Controllers\Api\Admin\RoomBlockController as AdminRoomBlockController;
 use App\Http\Controllers\Api\Admin\RoomController as AdminRoomController;
 use App\Http\Controllers\Api\Admin\RoomPricingController as AdminRoomPricingController;
@@ -55,9 +56,25 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::get('me',      [AdminAuthController::class, 'me'])->name('me');
 });
 
+/*
+|--------------------------------------------------------------------------
+| Admin Chat — Nhắn tin hỗ trợ khách hàng (bảng chat_conversations/chat_messages, dùng chung
+| với client — xem docblock App\Http\Controllers\Api\Admin\ChatController).
+| GET  /api/admin/chat            → danh sách hội thoại (1 khách = 1 hội thoại), sắp theo tin mới nhất
+| GET  /api/admin/chat/{id}       → chi tiết + tin nhắn. ?order_code=xxx lọc đúng khung chat của 1
+|                                    đơn (mỗi đơn 1 khung riêng); không truyền = lấy tất cả (mọi đơn
+|                                    trộn chung, hành vi cũ). Mỗi tin nhắn trả về kèm sẵn
+|                                    order_code/room_name để biết đang nói về đơn nào.
+| GET  /api/admin/chat/{id}/orders → danh sách các đơn khách đã nhắn hỗ trợ trong hội thoại này
+| POST /api/admin/chat/{id}/messages → admin gửi tin. Body: body (required), order_code (tuỳ chọn —
+|                                    trả lời đúng khung chat của 1 đơn cụ thể)
+| POST /api/admin/chat/{id}/read  → đánh dấu admin đã đọc hết tin từ khách
+|--------------------------------------------------------------------------
+*/
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/chat')->name('api.admin.chat.')->group(function () {
     Route::get('/',                       [AdminChatController::class, 'index'])->name('index');
     Route::get('/{id}',                   [AdminChatController::class, 'show'])->name('show');
+    Route::get('/{id}/orders',            [AdminChatController::class, 'orders'])->name('orders');
     Route::post('/{id}/messages',         [AdminChatController::class, 'send'])->name('send');
     Route::post('/{id}/read',             [AdminChatController::class, 'read'])->name('read');
 });
@@ -568,6 +585,24 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/coupons')->name(
     Route::put('/{id}', [AdminCouponController::class, 'update'])->name('update');
     Route::post('/{id}', [AdminCouponController::class, 'update'])->name('update.post');
     Route::delete('/{id}', [AdminCouponController::class, 'destroy'])->name('destroy');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Ratings — Xem/PHẢN HỒI đánh giá phòng của khách (bảng `room_ratings`, model App\Models\RoomRating).
+| Không phải CRUD đầy đủ: admin không tạo/sửa/xoá đánh giá của khách, chỉ xem + trả lời. Khách xem
+| được phản hồi qua GET /api/rooms/{id}/ratings (field 'admin_reply'/'replied_at').
+| GET    /api/admin/ratings            → ?room_id=&star=1-5&has_reply=0|1&search=&per_page=
+| GET    /api/admin/ratings/{id}       → chi tiết 1 đánh giá
+| POST   /api/admin/ratings/{id}/reply → phản hồi (body: reply) — gọi lại = sửa phản hồi cũ
+| DELETE /api/admin/ratings/{id}/reply → gỡ phản hồi (không xoá đánh giá của khách)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/ratings')->name('api.admin.ratings.')->group(function () {
+    Route::get('/', [AdminRatingController::class, 'index'])->name('index');
+    Route::get('/{id}', [AdminRatingController::class, 'show'])->name('show');
+    Route::post('/{id}/reply', [AdminRatingController::class, 'reply'])->name('reply');
+    Route::delete('/{id}/reply', [AdminRatingController::class, 'deleteReply'])->name('reply.destroy');
 });
 
 /*

@@ -55,11 +55,13 @@ class RatingController extends Controller
                 'comment' => $myRating->comment,
             ] : null,
             'data'    => $ratings->getCollection()->map(fn ($r) => [
-                'id'         => $r->id,
-                'user_name'  => $r->customer?->fullname ?? 'Ẩn danh',
-                'star'       => $r->star,
-                'comment'    => $r->comment,
-                'created_at' => $r->created_at?->toISOString(),
+                'id'          => $r->id,
+                'user_name'   => $r->customer?->fullname ?? 'Ẩn danh',
+                'star'        => $r->star,
+                'comment'     => $r->comment,
+                'admin_reply' => $r->admin_reply,
+                'replied_at'  => $r->replied_at?->toISOString(),
+                'created_at'  => $r->created_at?->toISOString(),
             ]),
             'meta' => [
                 'current_page' => $ratings->currentPage(),
