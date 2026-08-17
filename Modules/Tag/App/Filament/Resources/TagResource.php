@@ -15,7 +15,7 @@ use Modules\Tag\App\Filament\Resources\TagResource\Pages;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables\Table;
-use Spatie\Tags\Tag;
+use App\Models\Tag;
 
 class TagResource extends Resource
 {
