@@ -13,6 +13,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
+use Modules\Category\Entities\Category;
 use Modules\Payment\Entities\Order;
 
 class ChatController extends Controller
@@ -21,13 +22,39 @@ class ChatController extends Controller
 
     /**
      * GET /api/admin/chat
-     * Danh sách tất cả conversation, sắp theo tin mới nhất.
+     * Danh sách conversation, sắp theo tin mới nhất — mặc định CHỈ lấy hội thoại có ít nhất 1 đơn
+     * (bất kỳ order thread nào trong hội thoại, xem quan hệ ChatConversation::messages()→order())
+     * thuộc chi nhánh mà admin đang đăng nhập được phép xem (User::allowedCategoryIds() — chi
+     * nhánh CHA user được gán + toàn bộ chi nhánh CON, đệ quy). Super_admin hoặc admin không bị
+     * gán quyền chi nhánh cụ thể (allowedCategoryIds() rỗng) thì thấy TẤT CẢ, không giới hạn.
+     *
+     * Query param tuỳ chọn 'category_slugs': danh sách SLUG chi nhánh (bảng categories.slug) cách
+     * nhau bởi dấu phẩy (vd "89-xuan-thuy,an-binh") để LỌC THÊM về đúng 1 hoặc vài chi nhánh cụ
+     * thể — vẫn phải nằm trong phạm vi quyền ở trên (nếu admin bị giới hạn quyền, gửi slug ngoài
+     * phạm vi sẽ bị bỏ qua, không lộ dữ liệu chi nhánh khác). Slug không khớp category nào thì bị
+     * bỏ qua luôn (không báo lỗi — coi như không lọc theo slug đó).
      */
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $conversations = ChatConversation::with('customer:id,fullname,phone')
-            ->orderByDesc('last_message_at')
-            ->paginate(20);
+        $categoryIds = $this->resolveCategoryFilter($request);
+
+        $query = ChatConversation::with('customer:id,fullname,phone')
+            ->orderByDesc('last_message_at');
+
+        if ($categoryIds !== null) {
+            if (empty($categoryIds)) {
+                // Phạm vi quyền/lọc thu hẹp về rỗng (vd category_ids gửi lên không nằm trong quyền
+                // admin) → không thấy hội thoại nào, KHÁC với null (không giới hạn gì).
+                $query->whereRaw('1 = 0');
+            } else {
+                $query->whereHas(
+                    'messages',
+                    fn ($q) => $q->whereHas('order', fn ($oq) => $oq->whereIn('category_id', $categoryIds))
+                );
+            }
+        }
+
+        $conversations = $query->paginate(20);
 
         $items = collect($conversations->items())->map(fn ($conv) => [
             'id'                   => $conv->id,
@@ -51,6 +78,45 @@ class ChatController extends Controller
                 'per_page'     => $conversations->perPage(),
             ],
         ]);
+    }
+
+    /**
+     * Tính danh sách category_id cuối cùng dùng để lọc index() — null nghĩa là "không lọc gì cả"
+     * (khác [] = "lọc về không có gì"). Xem docblock index() để biết ngữ nghĩa 'category_slugs' và
+     * phạm vi quyền theo chi nhánh.
+     *
+     * @return array<int>|null
+     */
+    private function resolveCategoryFilter(Request $request): ?array
+    {
+        $requested = null;
+
+        if ($request->filled('category_slugs')) {
+            $slugs = collect(explode(',', (string) $request->query('category_slugs')))
+                ->map(fn ($v) => trim($v))
+                ->filter()
+                ->unique()
+                ->values();
+
+            $requested = Category::whereIn('slug', $slugs)->pluck('id')->all();
+        }
+
+        /** @var \App\Models\User $user */
+        $user = $request->user();
+
+        if ($user->isSuperAdmin()) {
+            return $requested;
+        }
+
+        // [] = admin không bị gán quyền chi nhánh cụ thể → không giới hạn (giống quy ước dùng ở
+        // CouponResource::getEloquentQuery()/MembershipTierResource...).
+        $allowed = $user->allowedCategoryIds();
+
+        if ($requested !== null) {
+            return empty($allowed) ? $requested : array_values(array_intersect($requested, $allowed));
+        }
+
+        return empty($allowed) ? null : $allowed;
     }
 
     /**

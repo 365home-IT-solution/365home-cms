@@ -60,7 +60,13 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 |--------------------------------------------------------------------------
 | Admin Chat — Nhắn tin hỗ trợ khách hàng (bảng chat_conversations/chat_messages, dùng chung
 | với client — xem docblock App\Http\Controllers\Api\Admin\ChatController).
-| GET  /api/admin/chat            → danh sách hội thoại (1 khách = 1 hội thoại), sắp theo tin mới nhất
+| GET  /api/admin/chat            → danh sách hội thoại (1 khách = 1 hội thoại), sắp theo tin mới nhất.
+|                                    Mặc định chỉ lấy hội thoại có đơn thuộc chi nhánh admin được
+|                                    phép xem (chi nhánh cha đã gán + toàn bộ chi nhánh con — xem
+|                                    User::allowedCategoryIds()); super_admin/admin không giới hạn
+|                                    chi nhánh thì thấy hết. ?category_slugs=89-xuan-thuy,an-binh
+|                                    lọc thêm về đúng 1 vài chi nhánh cụ thể theo SLUG (categories.
+|                                    slug), phải nằm trong phạm vi quyền ở trên.
 | GET  /api/admin/chat/{id}       → chi tiết + tin nhắn. ?order_code=xxx lọc đúng khung chat của 1
 |                                    đơn (mỗi đơn 1 khung riêng); không truyền = lấy tất cả (mọi đơn
 |                                    trộn chung, hành vi cũ). Mỗi tin nhắn trả về kèm sẵn
