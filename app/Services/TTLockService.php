@@ -538,6 +538,36 @@ class TTLockService
         }
     }
 
+    /**
+     * Mở CẢ 2 ổ khóa của 1 cửa vật lý (Product::unlock_both_locks = true) — dùng khi 1 cửa gắn 2
+     * ổ TTLock cần nhả CÙNG LÚC mới thật sự mở được, khác với remoteUnlock() thường (mở 1 ổ theo
+     * đúng phase check-in/check-out). CHỈ coi là thành công khi CẢ 2 ổ đều mở được — 1 ổ lỗi thì
+     * dù ổ kia đã nhả, cửa vẫn coi như CHƯA mở (đúng yêu cầu nghiệp vụ), để caller báo lỗi rõ ràng
+     * thay vì báo "đã mở" trong khi cửa thực tế vẫn khóa.
+     *
+     * @return array{success: bool, checkin_success: bool, checkout_success: bool}
+     */
+    public function remoteUnlockBoth(int $checkinLockId, int $checkoutLockId): array
+    {
+        $checkinSuccess  = $this->remoteUnlock($checkinLockId);
+        $checkoutSuccess = $this->remoteUnlock($checkoutLockId);
+
+        if (! $checkinSuccess || ! $checkoutSuccess) {
+            Log::error('TTLock remoteUnlockBoth: mở thiếu ổ — cửa coi như chưa mở', [
+                'checkin_lock_id'  => $checkinLockId,
+                'checkout_lock_id' => $checkoutLockId,
+                'checkin_success'  => $checkinSuccess,
+                'checkout_success' => $checkoutSuccess,
+            ]);
+        }
+
+        return [
+            'success'          => $checkinSuccess && $checkoutSuccess,
+            'checkin_success'  => $checkinSuccess,
+            'checkout_success' => $checkoutSuccess,
+        ];
+    }
+
     // =========================================================
     // Xóa mã passcode khỏi khóa
     // POST /v3/keyboardPwd/delete

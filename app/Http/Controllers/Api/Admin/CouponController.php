@@ -162,7 +162,7 @@ class CouponController extends Controller
             return $coupon;
         });
 
-        return response()->json(['data' => $this->toDetailItem($coupon->fresh(['room:id,name', 'rooms:id,name', 'customer:id,fullname,phone']))], 201);
+        return response()->json(['data' => $this->toDetailItem($coupon->fresh(['room:id,name', 'rooms:id,name', 'customer:id,fullname,phone', 'roomTimeSlots.timeSlot']))], 201);
     }
 
     /**
@@ -229,7 +229,7 @@ class CouponController extends Controller
             }
         });
 
-        return response()->json(['data' => $this->toDetailItem($coupon->fresh(['room:id,name', 'rooms:id,name', 'customer:id,fullname,phone']))]);
+        return response()->json(['data' => $this->toDetailItem($coupon->fresh(['room:id,name', 'rooms:id,name', 'customer:id,fullname,phone', 'roomTimeSlots.timeSlot']))]);
     }
 
     /**

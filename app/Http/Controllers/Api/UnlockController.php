@@ -184,14 +184,22 @@ class UnlockController extends Controller
             ]);
         }
 
-        $opened = $ttlock->remoteUnlock($lockId);
+        // Cửa gắn 2 ổ cần nhả CÙNG LÚC (Product::unlock_both_locks) — mở cả lock_id lẫn
+        // lock_id_checkout bất kể đang là phase check-in hay check-out, và chỉ coi là mở được khi
+        // CẢ 2 ổ đều thành công (xem TTLockService::remoteUnlockBoth()).
+        $bothLocksRequired = $product->unlock_both_locks && $product->lock_id && $product->lock_id_checkout;
+
+        $opened = $bothLocksRequired
+            ? $ttlock->remoteUnlockBoth((int) $product->lock_id, (int) $product->lock_id_checkout)['success']
+            : $ttlock->remoteUnlock($lockId);
 
         Log::info('Remote unlock attempt', [
-            'order_id'   => $order->id,
-            'order_code' => $order->order_code,
-            'lock_id'    => $lockId,
-            'is_checkin' => $isCheckin,
-            'success'    => $opened,
+            'order_id'    => $order->id,
+            'order_code'  => $order->order_code,
+            'lock_id'     => $lockId,
+            'both_locks'  => $bothLocksRequired,
+            'is_checkin'  => $isCheckin,
+            'success'     => $opened,
         ]);
 
         if ($opened) {

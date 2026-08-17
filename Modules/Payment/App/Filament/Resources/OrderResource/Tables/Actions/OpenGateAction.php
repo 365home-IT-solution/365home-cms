@@ -56,14 +56,21 @@ class OpenGateAction
                     return;
                 }
 
-                $success = $ttlock->remoteUnlock((int) $product->lock_id);
+                // Cửa gắn 2 ổ cần nhả CÙNG LÚC (Product::unlock_both_locks) — mở cả 2 ổ, chỉ báo
+                // thành công khi cả 2 đều mở được (xem TTLockService::remoteUnlockBoth()).
+                $bothLocksRequired = $product->unlock_both_locks && $product->lock_id && $product->lock_id_checkout;
+
+                $success = $bothLocksRequired
+                    ? $ttlock->remoteUnlockBoth((int) $product->lock_id, (int) $product->lock_id_checkout)['success']
+                    : $ttlock->remoteUnlock((int) $product->lock_id);
 
                 Log::info('OpenGateAction', [
-                    'order_id'   => $record->id,
-                    'order_code' => $record->order_code,
-                    'lock_id'    => $product->lock_id,
-                    'success'    => $success,
-                    'admin'      => auth()->user()?->email,
+                    'order_id'    => $record->id,
+                    'order_code'  => $record->order_code,
+                    'lock_id'     => $product->lock_id,
+                    'both_locks'  => $bothLocksRequired,
+                    'success'     => $success,
+                    'admin'       => auth()->user()?->email,
                 ]);
 
                 if ($success) {
