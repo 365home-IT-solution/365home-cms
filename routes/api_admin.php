@@ -31,6 +31,12 @@ use App\Http\Controllers\Api\Admin\TagController as AdminTagController;
 use App\Http\Controllers\Api\Admin\TimeSlotController as AdminTimeSlotController;
 use App\Http\Controllers\Api\Admin\TimeSlotHoldController as AdminTimeSlotHoldController;
 use App\Http\Controllers\Api\Admin\UnlockController as AdminUnlockController;
+use App\Http\Controllers\Api\Admin\WarehouseCategoryController;
+use App\Http\Controllers\Api\Admin\WarehouseItemController;
+use App\Http\Controllers\Api\Admin\WarehouseStockCheckController;
+use App\Http\Controllers\Api\Admin\WarehouseStockInController;
+use App\Http\Controllers\Api\Admin\WarehouseStockOutController;
+use App\Http\Controllers\Api\Admin\WarehouseUnitController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -560,4 +566,67 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/products')->name
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/cccd')->name('api.admin.cccd.')->group(function () {
     Route::post('/scan', [AdminCccdController::class, 'scan'])->name('scan');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Warehouse — Quản lý kho (Modules/Warehouse) — CRUD đầy đủ cho danh mục vật tư/NCC/nhóm/đvt và
+| phiếu nhập/xuất/kiểm kê. Xem docblock từng Controller để biết chi tiết field & quy tắc nghiệp vụ
+| (chặn xuất vượt tồn, tồn kho tự cộng/trừ theo phiếu...).
+|
+| GET    /api/admin/warehouse/categories       → ?all=1  |  POST/PUT/DELETE
+| GET    /api/admin/warehouse/units             → ?all=1  |  POST/PUT/DELETE
+| GET    /api/admin/warehouse/items             → ?search=&category_id=&unit_id=&low_stock=1&all=&per_page=
+|                                                   GET/{id}  |  POST/PUT/DELETE
+| GET    /api/admin/warehouse/stock-ins         → ?search=&per_page=  |  GET/{id}  |  POST/PUT/DELETE
+| GET    /api/admin/warehouse/stock-outs        → ?search=&reason=&room_id=&per_page=  |  GET/{id}  |  POST/PUT/DELETE
+| GET    /api/admin/warehouse/stock-checks      → ?search=&per_page=  |  GET/{id}  |  POST/PUT/DELETE
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/warehouse')->name('api.admin.warehouse.')->group(function () {
+    Route::prefix('categories')->name('categories.')->group(function () {
+        Route::get('/', [WarehouseCategoryController::class, 'index'])->name('index');
+        Route::post('/', [WarehouseCategoryController::class, 'store'])->name('store');
+        Route::put('/{id}', [WarehouseCategoryController::class, 'update'])->name('update')->whereNumber('id');
+        Route::delete('/{id}', [WarehouseCategoryController::class, 'destroy'])->name('destroy')->whereNumber('id');
+    });
+
+    Route::prefix('units')->name('units.')->group(function () {
+        Route::get('/', [WarehouseUnitController::class, 'index'])->name('index');
+        Route::post('/', [WarehouseUnitController::class, 'store'])->name('store');
+        Route::put('/{id}', [WarehouseUnitController::class, 'update'])->name('update')->whereNumber('id');
+        Route::delete('/{id}', [WarehouseUnitController::class, 'destroy'])->name('destroy')->whereNumber('id');
+    });
+
+    Route::prefix('items')->name('items.')->group(function () {
+        Route::get('/', [WarehouseItemController::class, 'index'])->name('index');
+        Route::get('/{id}', [WarehouseItemController::class, 'show'])->name('show')->whereNumber('id');
+        Route::post('/', [WarehouseItemController::class, 'store'])->name('store');
+        Route::put('/{id}', [WarehouseItemController::class, 'update'])->name('update')->whereNumber('id');
+        Route::delete('/{id}', [WarehouseItemController::class, 'destroy'])->name('destroy')->whereNumber('id');
+    });
+
+    Route::prefix('stock-ins')->name('stock-ins.')->group(function () {
+        Route::get('/', [WarehouseStockInController::class, 'index'])->name('index');
+        Route::get('/{id}', [WarehouseStockInController::class, 'show'])->name('show')->whereNumber('id');
+        Route::post('/', [WarehouseStockInController::class, 'store'])->name('store');
+        Route::put('/{id}', [WarehouseStockInController::class, 'update'])->name('update')->whereNumber('id');
+        Route::delete('/{id}', [WarehouseStockInController::class, 'destroy'])->name('destroy')->whereNumber('id');
+    });
+
+    Route::prefix('stock-outs')->name('stock-outs.')->group(function () {
+        Route::get('/', [WarehouseStockOutController::class, 'index'])->name('index');
+        Route::get('/{id}', [WarehouseStockOutController::class, 'show'])->name('show')->whereNumber('id');
+        Route::post('/', [WarehouseStockOutController::class, 'store'])->name('store');
+        Route::put('/{id}', [WarehouseStockOutController::class, 'update'])->name('update')->whereNumber('id');
+        Route::delete('/{id}', [WarehouseStockOutController::class, 'destroy'])->name('destroy')->whereNumber('id');
+    });
+
+    Route::prefix('stock-checks')->name('stock-checks.')->group(function () {
+        Route::get('/', [WarehouseStockCheckController::class, 'index'])->name('index');
+        Route::get('/{id}', [WarehouseStockCheckController::class, 'show'])->name('show')->whereNumber('id');
+        Route::post('/', [WarehouseStockCheckController::class, 'store'])->name('store');
+        Route::put('/{id}', [WarehouseStockCheckController::class, 'update'])->name('update')->whereNumber('id');
+        Route::delete('/{id}', [WarehouseStockCheckController::class, 'destroy'])->name('destroy')->whereNumber('id');
+    });
 });

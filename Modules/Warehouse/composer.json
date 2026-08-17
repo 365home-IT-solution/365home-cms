@@ -1,0 +1,26 @@
+{
+    "name": "nwidart/warehouse",
+    "type": "laravel-module",
+    "description": "",
+    "version": "1.0.0",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Golden BEE",
+            "email": ""
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [],
+            "aliases": {
+
+            }
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\Warehouse\\": ""
+        }
+    }
+}
