@@ -4,6 +4,7 @@ namespace App\Observers;
 
 use App\Models\Customer;
 use App\Models\User;
+use App\Services\AdminNotificationRealtimeService;
 use App\Services\FcmService;
 use App\Services\MembershipService;
 use App\Services\NotificationFcmService;
@@ -79,6 +80,15 @@ class OrderObserver
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('FCM push failed: ' . $e->getMessage());
         }
+
+        // Báo realtime cho admin đang mở app/SPA riêng (ngoài Filament) để tự làm mới danh sách
+        // thông báo qua GET /api/admin/notifications — xem AdminNotificationRealtimeService.
+        app(AdminNotificationRealtimeService::class)->broadcastNew([
+            'title' => $title,
+            'body'  => $body,
+            'icon'  => $icon,
+            'color' => $color,
+        ]);
     }
 
     private function sendToCustomer(Order $order, string $title, string $body): void

@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\Admin\DeductionTypeController;
 use App\Http\Controllers\Api\Admin\DepartmentController;
 use App\Http\Controllers\Api\Admin\EmployeeController;
 use App\Http\Controllers\Api\Admin\MembershipTierController as AdminMembershipTierController;
+use App\Http\Controllers\Api\Admin\NotificationController as AdminNotificationController;
 use App\Http\Controllers\Api\Admin\OrderController;
 use App\Http\Controllers\Api\Admin\OrderPaymentController;
 use App\Http\Controllers\Api\Admin\PositionController;
@@ -84,6 +85,26 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/chat')->name('ap
     Route::get('/{id}/orders',            [AdminChatController::class, 'orders'])->name('orders');
     Route::post('/{id}/messages',         [AdminChatController::class, 'send'])->name('send');
     Route::post('/{id}/read',             [AdminChatController::class, 'read'])->name('read');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Admin Notifications — Thông báo cho admin (bảng `notifications` chuẩn Laravel qua Notifiable trên
+| App\Models\User — xem docblock Api\Admin\NotificationController). Nguồn duy nhất hiện tại:
+| App\Observers\OrderObserver (đơn mới/đổi trạng thái). Cùng dữ liệu với chuông thông báo Filament
+| (route web /admin/notifications/unread-count), chỉ là cách đọc khác.
+| GET /api/admin/notifications      → ?unread=1&per_page= — kèm unread_count
+| GET /api/admin/notifications/{id} → chi tiết, tự đánh dấu đã đọc
+|
+| Realtime: có thông báo mới → App\Services\AdminNotificationRealtimeService bắn tín hiệu
+| 'admin_notification.new' vào phòng Socket.IO 'admin:notifications' (client subscribe qua sự kiện
+| 'subscribe:admin-notifications', xem websocket/server.js) — nhận tín hiệu thì tự gọi lại GET
+| /api/admin/notifications để làm mới danh sách (không đẩy sẵn nội dung qua socket).
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/notifications')->name('api.admin.notifications.')->group(function () {
+    Route::get('/', [AdminNotificationController::class, 'index'])->name('index');
+    Route::get('/{id}', [AdminNotificationController::class, 'show'])->name('show');
 });
 
 /*

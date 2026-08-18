@@ -6,11 +6,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Models\ChatConversation;
 use App\Models\ChatMessage;
+use App\Models\User;
 use App\Services\ChatRealtimeService;
+use App\Services\FcmService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Log;
 use Modules\Payment\Entities\Order;
 
 class ChatController extends Controller
@@ -236,6 +239,24 @@ class ChatController extends Controller
             $newAdminUnread,
             ['id' => $customer->id, 'fullname' => $customer->fullname, 'phone' => $customer->phone]
         );
+
+        // Push thông báo lên điện thoại admin (kể cả khi app đóng/không mở màn chat) — Socket.IO ở
+        // trên chỉ tới nơi khi app admin đang thực sự mở kết nối. Gửi cho super_admin — giống fallback
+        // của OrderObserver::adminUsers() khi không xác định được đúng chi nhánh của cuộc trò chuyện.
+        try {
+            $admins = User::role(config('filament-shield.super_admin.name'))->get();
+            app(FcmService::class)->sendToUsers(
+                $admins,
+                'Tin nhắn từ ' . $customer->fullname,
+                $preview,
+                ['type' => 'chat', 'conversation_id' => $conv->id]
+            );
+        } catch (\Throwable $e) {
+            Log::warning('Chat FCM push to admin failed', [
+                'conversation_id' => $conv->id,
+                'error'           => $e->getMessage(),
+            ]);
+        }
 
         return response()->json(['message' => $payload], 201);
     }

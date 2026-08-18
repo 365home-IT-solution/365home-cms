@@ -97,6 +97,17 @@ io.on('connection', (socket) => {
         socket.leave('chat:admin');
     });
 
+    // Subscribe to admin notification bell (đơn hàng mới/đổi trạng thái...) — phòng CHUNG cho mọi
+    // admin đang mở app/SPA riêng, không phân biệt ai xem được thông báo nào (REST API tự lọc đúng
+    // theo user khi client gọi lại GET /api/admin/notifications sau khi nhận event này).
+    socket.on('subscribe:admin-notifications', () => {
+        socket.join('admin:notifications');
+    });
+
+    socket.on('unsubscribe:admin-notifications', () => {
+        socket.leave('admin:notifications');
+    });
+
     socket.on('disconnect', () => {
         if (customerId) {
             const sockets = connections.get(customerId);
@@ -329,6 +340,24 @@ app.post('/internal/chat-read', (req, res) => {
     const channel = `chat:${conversation_id}`;
     io.to(channel).emit('chat.read', { conversation_id, read_by });
     console.log(`[WS] Chat read: conv=${conversation_id} read_by=${read_by}`);
+
+    return res.json({ ok: true });
+});
+
+// ── Admin notification — báo "có thông báo mới", client tự gọi lại REST API để lấy nội dung ──
+app.post('/internal/admin-notify', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { notification } = req.body;
+    if (!notification) {
+        return res.status(422).json({ error: 'Missing notification' });
+    }
+
+    io.to('admin:notifications').emit('admin_notification.new', notification);
+    console.log('[WS] Admin notification pushed to admin:notifications');
 
     return res.json({ ok: true });
 });
