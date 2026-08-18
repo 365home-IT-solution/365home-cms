@@ -8,7 +8,7 @@ Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group
     Route::get('notifications/unread-count', function () {
         $user = auth()->user();
         if (! $user) {
-            return response()->json(['count' => 0]);
+            return response()->json(['count' => 0, 'latest_type' => null]);
         }
 
         $count = \Illuminate\Support\Facades\Cache::remember(
@@ -17,7 +17,21 @@ Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group
             fn () => $user->unreadNotifications()->count()
         );
 
-        return response()->json(['count' => $count]);
+        // 'type' của thông báo CHƯA ĐỌC mới nhất — vd 'order'|'chat'|'checkin'|'checkout' (xem
+        // App\Services\AdminNotificationService, field lưu trong viewData) — dùng để JS polling ở
+        // AdminPanelProvider chọn ĐÚNG file âm thanh (tin nhắn khách phát âm thanh khác với đơn
+        // hàng), không cần gọi thêm API nào khác.
+        $latestType = \Illuminate\Support\Facades\Cache::remember(
+            'admin_unread_notif_type_' . $user->id,
+            2,
+            function () use ($user) {
+                $latest = $user->unreadNotifications()->latest()->first();
+
+                return $latest?->data['viewData']['type'] ?? null;
+            }
+        );
+
+        return response()->json(['count' => $count, 'latest_type' => $latestType]);
     })->name('admin.notifications.unread-count');
 
     // Room cards polling — trả về JSON để JS cập nhật section phòng không reload trang.
