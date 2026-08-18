@@ -76,6 +76,39 @@ class NotificationController extends Controller
         return response()->json(['data' => $this->toItem($notification)]);
     }
 
+    /**
+     * DELETE /api/admin/notifications/{id}
+     * Xóa 1 thông báo.
+     */
+    public function destroy(Request $request, string $id): JsonResponse
+    {
+        $deleted = $request->user()->notifications()->where('id', $id)->delete();
+
+        if (! $deleted) {
+            return response()->json(['message' => 'Không tìm thấy thông báo.'], 404);
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * DELETE /api/admin/notifications
+     * Xóa nhiều thông báo. Body: { "ids": ["...", "..."] }
+     */
+    public function destroyMany(Request $request): JsonResponse
+    {
+        $request->validate([
+            'ids'   => 'required|array|min:1',
+            'ids.*' => 'string',
+        ]);
+
+        $deleted = $request->user()->notifications()
+            ->whereIn('id', $request->input('ids'))
+            ->delete();
+
+        return response()->json(['ok' => true, 'deleted' => $deleted]);
+    }
+
     private function toItem(DatabaseNotification $n): array
     {
         $data = $n->data;
@@ -84,10 +117,8 @@ class NotificationController extends Controller
             'id'         => $n->id,
             'title'      => $data['title'] ?? null,
             'body'       => $data['body'] ?? null,
-            'icon'       => $data['icon'] ?? null,
-            'color'      => $data['color'] ?? null,
-            // URL hành động đính kèm (vd "Xem đơn") — Filament lưu trong actions[0].url.
-            'url'        => $data['actions'][0]['url'] ?? null,
+            // id đơn hàng liên quan (nếu có) — lưu trong viewData khi tạo, xem OrderObserver::send().
+            'order_id'   => $data['viewData']['order_id'] ?? null,
             'is_read'    => $n->read_at !== null,
             'read_at'    => optional($n->read_at)->toIso8601String(),
             'created_at' => $n->created_at->toIso8601String(),

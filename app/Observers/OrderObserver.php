@@ -66,6 +66,7 @@ class OrderObserver
             ->body($body)
             ->icon($icon)
             ->color($color)
+            ->viewData(['order_id' => $order->id])
             ->actions([
                 Action::make('view')
                     ->label('Xem đơn')
@@ -76,7 +77,7 @@ class OrderObserver
 
         // Push notification đến thiết bị di động admin (kể cả khi đóng trình duyệt)
         try {
-            app(FcmService::class)->sendToUsers($users, $title, $body);
+            app(FcmService::class)->sendToUsers($users, $title, $body, ['type' => 'order', 'order_id' => $order->id]);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('FCM push failed: ' . $e->getMessage());
         }
@@ -180,7 +181,7 @@ class OrderObserver
             return;
         }
 
-        $this->send($order, 'Đơn đặt phòng mới', 'heroicon-o-shopping-bag', 'info');
+        $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'info');
 
         $this->sendToCustomer(
             $order,
@@ -237,7 +238,7 @@ class OrderObserver
             return;
         }
 
-        // pending → paid: đã có thông báo "Đơn đặt phòng mới", không gửi thêm
+        // pending → paid: đã có thông báo "Đơn mới", không gửi thêm
         if ($newStatus === 'paid' && $oldStatus === 'pending') {
             $this->accumulateMembershipSpending($order);
             $this->sendToCustomer(

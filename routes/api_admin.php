@@ -93,8 +93,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/chat')->name('ap
 | App\Models\User — xem docblock Api\Admin\NotificationController). Nguồn duy nhất hiện tại:
 | App\Observers\OrderObserver (đơn mới/đổi trạng thái). Cùng dữ liệu với chuông thông báo Filament
 | (route web /admin/notifications/unread-count), chỉ là cách đọc khác.
-| GET /api/admin/notifications      → ?unread=1&per_page= — kèm unread_count
-| GET /api/admin/notifications/{id} → chi tiết, tự đánh dấu đã đọc
+| GET    /api/admin/notifications      → ?unread=1&per_page= — kèm unread_count
+| GET    /api/admin/notifications/{id} → chi tiết, tự đánh dấu đã đọc
+| DELETE /api/admin/notifications/{id} → xóa 1 thông báo
+| DELETE /api/admin/notifications      → xóa nhiều, body { "ids": ["...", "..."] }
 |
 | Realtime: có thông báo mới → App\Services\AdminNotificationRealtimeService bắn tín hiệu
 | 'admin_notification.new' vào phòng Socket.IO 'admin:notifications' (client subscribe qua sự kiện
@@ -104,7 +106,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/chat')->name('ap
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/notifications')->name('api.admin.notifications.')->group(function () {
     Route::get('/', [AdminNotificationController::class, 'index'])->name('index');
+    Route::delete('/', [AdminNotificationController::class, 'destroyMany'])->name('destroyMany');
     Route::get('/{id}', [AdminNotificationController::class, 'show'])->name('show');
+    Route::delete('/{id}', [AdminNotificationController::class, 'destroy'])->name('destroy');
 });
 
 /*
