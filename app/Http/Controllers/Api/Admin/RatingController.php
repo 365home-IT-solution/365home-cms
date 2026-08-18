@@ -8,18 +8,24 @@ use App\Models\RoomRating;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Modules\Category\Entities\Category;
+use Modules\Product\App\Models\Product;
 
 /**
- * Quản lý ĐÁNH GIÁ PHÒNG (bảng `room_ratings`, model App\Models\RoomRating) — xem danh sách và
- * phản hồi đánh giá của khách. Không phải CRUD đầy đủ: admin không tạo/sửa/xoá đánh giá của khách,
- * chỉ xem và trả lời (admin_reply). Khách xem được phản hồi qua GET /api/rooms/{id}/ratings
+ * Quản lý ĐÁNH GIÁ PHÒNG (bảng `room_ratings`, model App\Models\RoomRating) — xem, phản hồi VÀ xoá
+ * đánh giá của khách (vd spam, ngôn từ không phù hợp). Admin không TẠO/SỬA nội dung đánh giá của
+ * khách — chỉ xem/xoá/trả lời (admin_reply). Khách xem được phản hồi qua GET /api/rooms/{id}/ratings
  * (Api\RatingController::index(), field 'admin_reply'/'replied_at').
  */
 class RatingController extends Controller
 {
     /**
      * GET /api/admin/ratings
-     * Query params: ?room_id=&star=1-5&has_reply=0|1&search=&per_page=
+     * Query params: ?room_id=&room_slug=&categories=slug1,slug2&star=1-5&has_reply=0|1&search=&per_page=
+     * - room_slug: slug của phòng (products.slug) — lọc đúng 1 phòng, thay cho phải biết room_id.
+     * - categories: SLUG chi nhánh (categories.slug), chọn nhiều cách nhau bằng dấu phẩy — lọc
+     *   đánh giá của mọi phòng thuộc (các) chi nhánh đó (qua quan hệ Product::categories(),
+     *   category_type='product'). Slug không khớp category nào thì bị bỏ qua (không báo lỗi).
      */
     public function index(Request $request): JsonResponse
     {
@@ -28,6 +34,22 @@ class RatingController extends Controller
 
         if ($request->filled('room_id')) {
             $query->where('room_id', $request->input('room_id'));
+        }
+
+        if ($request->filled('room_slug')) {
+            $query->whereHas('room', fn ($q) => $q->where('slug', $request->string('room_slug')));
+        }
+
+        if ($request->filled('categories')) {
+            $slugs = collect(explode(',', (string) $request->query('categories')))
+                ->map(fn ($v) => trim($v))
+                ->filter()
+                ->unique()
+                ->values();
+
+            $categoryIds = Category::whereIn('slug', $slugs)->pluck('id');
+
+            $query->whereHas('room.categories', fn ($q) => $q->whereIn('categories.id', $categoryIds));
         }
 
         if ($request->filled('star')) {
@@ -109,6 +131,37 @@ class RatingController extends Controller
         $rating->update(['admin_reply' => null, 'replied_by' => null, 'replied_at' => null]);
 
         return response()->json(['message' => 'Đã gỡ phản hồi.']);
+    }
+
+    /**
+     * DELETE /api/admin/ratings/{id}
+     * Xoá hẳn đánh giá của khách (vd spam, ngôn từ không phù hợp) — tính lại rating_score của
+     * phòng sau khi xoá, khớp Api\RatingController::destroy() (luồng khách tự xoá đánh giá của
+     * chính mình).
+     */
+    public function destroy(int $id): JsonResponse
+    {
+        $rating = RoomRating::find($id);
+
+        if (! $rating) {
+            return response()->json(['message' => 'Không tìm thấy đánh giá.'], 404);
+        }
+
+        $roomId = $rating->room_id;
+        $rating->delete();
+
+        $this->recalcRatingScore($roomId);
+
+        return response()->json(['message' => 'Đã xoá đánh giá.']);
+    }
+
+    private function recalcRatingScore(string $roomId): void
+    {
+        $avg = RoomRating::where('room_id', $roomId)->avg('star');
+
+        Product::where('id', $roomId)->update([
+            'rating_score' => $avg !== null ? round((float) $avg, 1) : null,
+        ]);
     }
 
     private function toItem(RoomRating $r): array

@@ -596,13 +596,18 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/coupons')->name(
 
 /*
 |--------------------------------------------------------------------------
-| Ratings — Xem/PHẢN HỒI đánh giá phòng của khách (bảng `room_ratings`, model App\Models\RoomRating).
-| Không phải CRUD đầy đủ: admin không tạo/sửa/xoá đánh giá của khách, chỉ xem + trả lời. Khách xem
-| được phản hồi qua GET /api/rooms/{id}/ratings (field 'admin_reply'/'replied_at').
-| GET    /api/admin/ratings            → ?room_id=&star=1-5&has_reply=0|1&search=&per_page=
+| Ratings — Xem/PHẢN HỒI/XOÁ đánh giá phòng của khách (bảng `room_ratings`, model
+| App\Models\RoomRating). Admin không TẠO/SỬA nội dung đánh giá của khách, chỉ xem + trả lời + xoá
+| (vd spam, ngôn từ không phù hợp). Khách xem được phản hồi qua GET /api/rooms/{id}/ratings (field
+| 'admin_reply'/'replied_at').
+| GET    /api/admin/ratings            → ?room_id=&room_slug=&categories=slug1,slug2&star=1-5&
+|                                          has_reply=0|1&search=&per_page= (room_slug lọc theo slug
+|                                          phòng; categories lọc theo slug chi nhánh, chọn nhiều
+|                                          bằng dấu phẩy)
 | GET    /api/admin/ratings/{id}       → chi tiết 1 đánh giá
 | POST   /api/admin/ratings/{id}/reply → phản hồi (body: reply) — gọi lại = sửa phản hồi cũ
 | DELETE /api/admin/ratings/{id}/reply → gỡ phản hồi (không xoá đánh giá của khách)
+| DELETE /api/admin/ratings/{id}       → xoá hẳn đánh giá — tự tính lại rating_score của phòng
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/ratings')->name('api.admin.ratings.')->group(function () {
@@ -610,6 +615,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/ratings')->name(
     Route::get('/{id}', [AdminRatingController::class, 'show'])->name('show');
     Route::post('/{id}/reply', [AdminRatingController::class, 'reply'])->name('reply');
     Route::delete('/{id}/reply', [AdminRatingController::class, 'deleteReply'])->name('reply.destroy');
+    Route::delete('/{id}', [AdminRatingController::class, 'destroy'])->name('destroy');
 });
 
 /*
