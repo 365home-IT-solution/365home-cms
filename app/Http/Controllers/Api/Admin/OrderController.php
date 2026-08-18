@@ -77,6 +77,15 @@ class OrderController extends Controller
             }
 
             $query->where('partner_id', $user->partner_id);
+
+            // Thu hẹp thêm về đúng chi nhánh admin được gán (rỗng = không bị giới hạn chi nhánh cụ
+            // thể trong đối tác, vd chủ đối tác — thấy hết đối tác mình) — trước đây chỉ lọc chi
+            // nhánh khi FE tự truyền filter[branch_id]/filter[categories], không thì admin bị giới
+            // hạn chi nhánh vẫn thấy đơn của MỌI chi nhánh khác trong cùng đối tác.
+            $allowedCategoryIds = $user->allowedCategoryIds();
+            if (! empty($allowedCategoryIds)) {
+                $query->whereIn('category_id', $allowedCategoryIds);
+            }
         }
 
         $f = fn (string $key) => $request->input("filter.{$key}", $request->input($key));

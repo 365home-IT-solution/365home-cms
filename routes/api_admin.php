@@ -90,9 +90,14 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/chat')->name('ap
 /*
 |--------------------------------------------------------------------------
 | Admin Notifications — Thông báo cho admin (bảng `notifications` chuẩn Laravel qua Notifiable trên
-| App\Models\User — xem docblock Api\Admin\NotificationController). Nguồn duy nhất hiện tại:
-| App\Observers\OrderObserver (đơn mới/đổi trạng thái). Cùng dữ liệu với chuông thông báo Filament
-| (route web /admin/notifications/unread-count), chỉ là cách đọc khác.
+| App\Models\User — xem docblock Api\Admin\NotificationController). Gửi qua
+| App\Services\AdminNotificationService::notify(), 4 loại (field 'type' trong response):
+|   - order    → đơn mới (CHỈ sau khi thanh toán thành công, đủ hoặc cọc) / đổi trạng thái đơn
+|   - chat     → khách gửi tin nhắn (gắn đơn hoặc hỗ trợ chung), kèm conversation_id
+|   - checkin  → khách mở cổng TTLock lần đầu (chỉ chi nhánh có đăng ký TTLock)
+|   - checkout → khách mở cổng TTLock lần 2 trở đi
+| Cùng dữ liệu với chuông thông báo Filament (route web /admin/notifications/unread-count), chỉ là
+| cách đọc khác.
 | GET    /api/admin/notifications      → ?unread=1&per_page= — kèm unread_count
 | GET    /api/admin/notifications/{id} → chi tiết, tự đánh dấu đã đọc
 | DELETE /api/admin/notifications/{id} → xóa 1 thông báo

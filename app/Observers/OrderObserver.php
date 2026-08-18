@@ -3,17 +3,12 @@
 namespace App\Observers;
 
 use App\Models\Customer;
-use App\Models\User;
-use App\Services\AdminNotificationRealtimeService;
-use App\Services\FcmService;
+use App\Services\AdminNotificationService;
 use App\Services\MembershipService;
 use App\Services\NotificationFcmService;
 use App\Services\OrderRealtimeService;
 use App\Services\SlotRealtimeService;
-use Filament\Notifications\Notification;
-use Filament\Notifications\Actions\Action;
 use Modules\AuditLog\Services\AuditLogger;
-use Modules\Category\Entities\Category;
 use Modules\Payment\App\Filament\Resources\OrderResource;
 use Modules\Payment\Entities\Order;
 
@@ -25,71 +20,21 @@ class OrderObserver
         'payment_method', 'note_for_admin', 'guest_count',
         'checkin_date', 'checkout_date',
     ];
-    /**
-     * Trả về danh sách user nhận thông báo cho một đơn hàng cụ thể:
-     *  - super_admin → luôn nhận tất cả
-     *  - user thường → chỉ nhận nếu có quyền xem category của đơn
-     */
-    private function adminUsers(Order $order): \Illuminate\Support\Collection
-    {
-        $superAdminRole = config('filament-shield.super_admin.name');
-        $superAdmins    = User::role($superAdminRole)->get();
-
-        if ($order->category_id === null) {
-            return $superAdmins->isNotEmpty() ? $superAdmins : User::all();
-        }
-
-        // Tìm parent_id của category đơn hàng để khớp với cả branch-level permission
-        $matchIds = [$order->category_id];
-        $cat = Category::select('id', 'parent_id')->find($order->category_id);
-        if ($cat && $cat->parent_id) {
-            $matchIds[] = $cat->parent_id;
-        }
-
-        // User không phải super_admin nhưng có phân quyền chi nhánh bao gồm category này
-        $regionalUsers = User::whereDoesntHave('roles', fn ($q) => $q->where('name', $superAdminRole))
-            ->whereHas('branchPermissions', fn ($q) => $q->whereIn('category_id', $matchIds))
-            ->get();
-
-        $all = $superAdmins->merge($regionalUsers)->unique('id');
-
-        return $all->isNotEmpty() ? $all : User::all();
-    }
 
     private function send(Order $order, string $title, string $icon, string $color): void
     {
-        $body  = "#{$order->order_code} · {$order->buyer_name} · " . number_format($order->full_amount) . ' VNĐ';
-        $users = $this->adminUsers($order);
+        $body    = "#{$order->order_code} · {$order->buyer_name} · " . number_format($order->full_amount) . ' VNĐ';
+        $service = app(AdminNotificationService::class);
 
-        Notification::make()
-            ->title($title)
-            ->body($body)
-            ->icon($icon)
-            ->color($color)
-            ->viewData(['order_id' => $order->id])
-            ->actions([
-                Action::make('view')
-                    ->label('Xem đơn')
-                    ->url(OrderResource::getUrl('edit', ['record' => $order->id]))
-                    ->button(),
-            ])
-            ->sendToDatabase($users);
-
-        // Push notification đến thiết bị di động admin (kể cả khi đóng trình duyệt)
-        try {
-            app(FcmService::class)->sendToUsers($users, $title, $body, ['type' => 'order', 'order_id' => $order->id]);
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('FCM push failed: ' . $e->getMessage());
-        }
-
-        // Báo realtime cho admin đang mở app/SPA riêng (ngoài Filament) để tự làm mới danh sách
-        // thông báo qua GET /api/admin/notifications — xem AdminNotificationRealtimeService.
-        app(AdminNotificationRealtimeService::class)->broadcastNew([
-            'title' => $title,
-            'body'  => $body,
-            'icon'  => $icon,
-            'color' => $color,
-        ]);
+        $service->notify(
+            $service->recipientsForOrder($order),
+            $title,
+            $body,
+            ['type' => 'order', 'order_id' => $order->id],
+            $icon,
+            $color,
+            OrderResource::getUrl('edit', ['record' => $order->id]),
+        );
     }
 
     private function sendToCustomer(Order $order, string $title, string $body): void
@@ -152,8 +97,11 @@ class OrderObserver
     }
 
     /**
-     * Chỉ notify khi đơn mới tạo ở trạng thái pending
-     * (status='deposit' bỏ qua — sẽ được notify bởi updated() sau khi PayOS xác nhận)
+     * Thông báo admin "Đơn mới" CHỈ hiện sau khi khách đã thanh toán (đủ hoặc cọc) thành công —
+     * KHÔNG báo ngay lúc tạo đơn khi còn 'pending' (chưa chắc khách sẽ thanh toán). Đơn tạo ở trạng
+     * thái pending sẽ được báo sau, ở updated() khi chuyển sang paid/deposit. Trường hợp đơn được
+     * tạo THẲNG ở trạng thái paid/deposit (vd webhook tạo đơn kèm xác nhận thanh toán luôn, bỏ qua
+     * pending) thì báo ngay tại đây vì điều kiện "đã thanh toán" đã thỏa từ lúc tạo.
      */
     public function created(Order $order): void
     {
@@ -177,11 +125,13 @@ class OrderObserver
 
         $this->maybeAssignCustomerBranch($order);
 
+        if (in_array($order->status, ['paid', 'deposit'], true)) {
+            $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'success');
+        }
+
         if ($order->status !== 'pending') {
             return;
         }
-
-        $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'info');
 
         $this->sendToCustomer(
             $order,
@@ -238,9 +188,11 @@ class OrderObserver
             return;
         }
 
-        // pending → paid: đã có thông báo "Đơn mới", không gửi thêm
+        // pending → paid: lần thanh toán đầu tiên (đủ ngay) — đây mới là thời điểm "Đơn mới" thực sự
+        // báo cho admin (xem created()).
         if ($newStatus === 'paid' && $oldStatus === 'pending') {
             $this->accumulateMembershipSpending($order);
+            $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'success');
             $this->sendToCustomer(
                 $order,
                 'Thanh toán thành công',
@@ -250,6 +202,23 @@ class OrderObserver
                 $order,
                 'Thanh toán thành công',
                 $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã xác nhận.")
+            );
+            return;
+        }
+
+        // pending → deposit: lần thanh toán đầu tiên (cọc) — cũng tính là "Đơn mới" (đã thanh toán
+        // một phần, khác với đơn pending chưa ai trả tiền).
+        if ($newStatus === 'deposit' && $oldStatus === 'pending') {
+            $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'success');
+            $this->sendToCustomer(
+                $order,
+                'Đặt cọc thành công',
+                "Đơn #{$order->order_code} đã nhận cọc. Vui lòng thanh toán phần còn lại khi check-in."
+            );
+            $this->sendToGuest(
+                $order,
+                'Đặt cọc thành công',
+                $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã nhận cọc.")
             );
             return;
         }

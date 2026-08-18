@@ -368,6 +368,20 @@ class CouponController extends Controller
 
         if (! $user->isSuperAdmin()) {
             $query->where('partner_id', $user->partner_id);
+
+            $allowedCategoryIds = $user->allowedCategoryIds();
+            if (! empty($allowedCategoryIds)) {
+                // Coupon áp dụng TOÀN đối tác (apply_type='all_rooms', không gắn phòng cụ thể) vẫn
+                // hiển thị cho mọi admin trong đối tác — không có "chi nhánh" nào để so. Chỉ coupon
+                // gắn rõ phòng (specific_room/specific_rooms/specific_slot) mới lọc theo đúng chi
+                // nhánh admin được gán.
+                $query->where(function ($q) use ($allowedCategoryIds) {
+                    $q->where('apply_type', 'all_rooms')
+                        ->orWhereHas('room.categories', fn ($q2) => $q2->whereIn('categories.id', $allowedCategoryIds))
+                        ->orWhereHas('rooms.categories', fn ($q2) => $q2->whereIn('categories.id', $allowedCategoryIds))
+                        ->orWhereHas('roomTimeSlots.room.categories', fn ($q2) => $q2->whereIn('categories.id', $allowedCategoryIds));
+                });
+            }
         }
 
         return $query;

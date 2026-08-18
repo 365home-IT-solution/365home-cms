@@ -292,6 +292,11 @@ class PromotionController extends Controller
 
         if (! $user->isSuperAdmin()) {
             $query->where('partner_id', $user->partner_id);
+
+            $allowedCategoryIds = $user->allowedCategoryIds();
+            if (! empty($allowedCategoryIds)) {
+                $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedCategoryIds));
+            }
         }
 
         return $query;

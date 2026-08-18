@@ -109,6 +109,13 @@ class ProductController extends Controller
 
         if (! $user->isSuperAdmin()) {
             $query->where('partner_id', $user->partner_id);
+
+            // Thu hẹp thêm về đúng chi nhánh admin được gán (allowedCategoryIds() rỗng = chủ đối
+            // tác/không bị giới hạn chi nhánh cụ thể → không thêm điều kiện, thấy hết đối tác mình).
+            $allowedCategoryIds = $user->allowedCategoryIds();
+            if (! empty($allowedCategoryIds)) {
+                $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedCategoryIds));
+            }
         }
 
         if ($request->filled('category_id')) {
@@ -777,6 +784,11 @@ class ProductController extends Controller
 
         if (! $user->isSuperAdmin()) {
             $query->where('partner_id', $user->partner_id);
+
+            $allowedCategoryIds = $user->allowedCategoryIds();
+            if (! empty($allowedCategoryIds)) {
+                $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedCategoryIds));
+            }
         }
 
         return $query;

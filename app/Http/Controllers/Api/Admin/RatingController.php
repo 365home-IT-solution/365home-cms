@@ -23,9 +23,14 @@ class RatingController extends Controller
      * GET /api/admin/ratings
      * Query params: ?room_id=&room_slug=&categories=slug1,slug2&star=1-5&has_reply=0|1&search=&per_page=
      * - room_slug: slug của phòng (products.slug) — lọc đúng 1 phòng, thay cho phải biết room_id.
-     * - categories: SLUG chi nhánh (categories.slug), chọn nhiều cách nhau bằng dấu phẩy — lọc
-     *   đánh giá của mọi phòng thuộc (các) chi nhánh đó (qua quan hệ Product::categories(),
-     *   category_type='product'). Slug không khớp category nào thì bị bỏ qua (không báo lỗi).
+     * - categories: SLUG chi nhánh (categories.slug), chọn nhiều cách nhau bằng dấu phẩy — lọc THÊM
+     *   về đúng 1/nhiều chi nhánh cụ thể, vẫn phải nằm trong phạm vi quyền của admin. Slug không
+     *   khớp category nào thì bị bỏ qua (không báo lỗi).
+     *
+     * KHÔNG truyền 'categories': mặc định vẫn tự giới hạn theo phạm vi chi nhánh admin đang đăng
+     * nhập được phép xem (User::allowedCategoryIds() — chi nhánh CHA được gán + toàn bộ chi nhánh
+     * CON). Super_admin hoặc admin không bị gán quyền chi nhánh cụ thể (allowedCategoryIds() rỗng)
+     * thì thấy TẤT CẢ — cùng quy ước với Api\Admin\ChatController::resolveCategoryFilter().
      */
     public function index(Request $request): JsonResponse
     {
@@ -40,16 +45,15 @@ class RatingController extends Controller
             $query->whereHas('room', fn ($q) => $q->where('slug', $request->string('room_slug')));
         }
 
-        if ($request->filled('categories')) {
-            $slugs = collect(explode(',', (string) $request->query('categories')))
-                ->map(fn ($v) => trim($v))
-                ->filter()
-                ->unique()
-                ->values();
-
-            $categoryIds = Category::whereIn('slug', $slugs)->pluck('id');
-
-            $query->whereHas('room.categories', fn ($q) => $q->whereIn('categories.id', $categoryIds));
+        $categoryIds = $this->resolveCategoryFilter($request);
+        if ($categoryIds !== null) {
+            if (empty($categoryIds)) {
+                // Phạm vi quyền/lọc thu hẹp về rỗng → không thấy đánh giá nào, KHÁC với null
+                // (không giới hạn gì).
+                $query->whereRaw('1 = 0');
+            } else {
+                $query->whereHas('room.categories', fn ($q) => $q->whereIn('categories.id', $categoryIds));
+            }
         }
 
         if ($request->filled('star')) {
@@ -78,11 +82,11 @@ class RatingController extends Controller
     /**
      * GET /api/admin/ratings/{id}
      */
-    public function show(int $id): JsonResponse
+    public function show(Request $request, int $id): JsonResponse
     {
         $rating = RoomRating::with(['customer:id,fullname,phone', 'room:id,name', 'repliedBy:id,fullname'])->find($id);
 
-        if (! $rating) {
+        if (! $rating || ! $this->userCanAccess($request, $rating)) {
             return response()->json(['message' => 'Không tìm thấy đánh giá.'], 404);
         }
 
@@ -101,7 +105,7 @@ class RatingController extends Controller
 
         $rating = RoomRating::find($id);
 
-        if (! $rating) {
+        if (! $rating || ! $this->userCanAccess($request, $rating)) {
             return response()->json(['message' => 'Không tìm thấy đánh giá.'], 404);
         }
 
@@ -120,11 +124,11 @@ class RatingController extends Controller
      * DELETE /api/admin/ratings/{id}/reply
      * Gỡ phản hồi đã trả lời — không xoá đánh giá của khách, chỉ xoá phần trả lời của admin.
      */
-    public function deleteReply(int $id): JsonResponse
+    public function deleteReply(Request $request, int $id): JsonResponse
     {
         $rating = RoomRating::find($id);
 
-        if (! $rating) {
+        if (! $rating || ! $this->userCanAccess($request, $rating)) {
             return response()->json(['message' => 'Không tìm thấy đánh giá.'], 404);
         }
 
@@ -139,11 +143,11 @@ class RatingController extends Controller
      * phòng sau khi xoá, khớp Api\RatingController::destroy() (luồng khách tự xoá đánh giá của
      * chính mình).
      */
-    public function destroy(int $id): JsonResponse
+    public function destroy(Request $request, int $id): JsonResponse
     {
         $rating = RoomRating::find($id);
 
-        if (! $rating) {
+        if (! $rating || ! $this->userCanAccess($request, $rating)) {
             return response()->json(['message' => 'Không tìm thấy đánh giá.'], 404);
         }
 
@@ -153,6 +157,67 @@ class RatingController extends Controller
         $this->recalcRatingScore($roomId);
 
         return response()->json(['message' => 'Đã xoá đánh giá.']);
+    }
+
+    /**
+     * Tính danh sách category_id cuối cùng dùng để lọc index() — null nghĩa là "không lọc gì cả"
+     * (khác [] = "lọc về không có gì"). Cùng quy ước với Api\Admin\ChatController::resolveCategoryFilter().
+     *
+     * @return array<int>|null
+     */
+    private function resolveCategoryFilter(Request $request): ?array
+    {
+        $requested = null;
+
+        if ($request->filled('categories')) {
+            $slugs = collect(explode(',', (string) $request->query('categories')))
+                ->map(fn ($v) => trim($v))
+                ->filter()
+                ->unique()
+                ->values();
+
+            $requested = Category::whereIn('slug', $slugs)->pluck('id')->all();
+        }
+
+        /** @var \App\Models\User $user */
+        $user = $request->user();
+
+        if ($user->isSuperAdmin()) {
+            return $requested;
+        }
+
+        $allowed = $user->allowedCategoryIds();
+
+        if ($requested !== null) {
+            return empty($allowed) ? $requested : array_values(array_intersect($requested, $allowed));
+        }
+
+        return empty($allowed) ? null : $allowed;
+    }
+
+    /**
+     * Kiểm tra admin có được phép xem/thao tác 1 đánh giá cụ thể không — dựa trên chi nhánh của
+     * phòng được đánh giá. Super_admin hoặc admin không bị gán quyền chi nhánh cụ thể
+     * (allowedCategoryIds() rỗng) luôn được phép.
+     */
+    private function userCanAccess(Request $request, RoomRating $rating): bool
+    {
+        /** @var \App\Models\User $user */
+        $user = $request->user();
+
+        if ($user->isSuperAdmin()) {
+            return true;
+        }
+
+        $allowed = $user->allowedCategoryIds();
+        if (empty($allowed)) {
+            return true;
+        }
+
+        $rating->loadMissing('room.categories');
+        $roomCategoryIds = $rating->room?->categories->pluck('id')->all() ?? [];
+
+        return (bool) array_intersect($roomCategoryIds, $allowed);
     }
 
     private function recalcRatingScore(string $roomId): void

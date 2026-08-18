@@ -30,7 +30,7 @@ class CustomerCompanionController extends Controller
     // GET /api/admin/customers/{customer_id}/companions
     public function index(Request $request, string $customerId): JsonResponse
     {
-        $customer = Customer::find($customerId);
+        $customer = $this->resolveCustomer($request, $customerId);
 
         if (! $customer) {
             return response()->json(['message' => 'Không tìm thấy khách hàng.'], 404);
@@ -58,7 +58,7 @@ class CustomerCompanionController extends Controller
     // bộ batch và xoá lại các ảnh đã upload trong request, tránh tạo dở dang nửa danh sách.
     public function store(Request $request, string $customerId): JsonResponse
     {
-        $customer = Customer::find($customerId);
+        $customer = $this->resolveCustomer($request, $customerId);
 
         if (! $customer) {
             return response()->json(['message' => 'Không tìm thấy khách hàng.'], 404);
@@ -182,7 +182,7 @@ class CustomerCompanionController extends Controller
     // giữ nguyên (tránh trường hợp chỉ đổi mặt trước làm mất luôn liên kết QR hợp lệ của mặt sau cũ).
     public function update(Request $request, string $customerId, int $id): JsonResponse
     {
-        $customer = Customer::find($customerId);
+        $customer = $this->resolveCustomer($request, $customerId);
 
         if (! $customer) {
             return response()->json(['message' => 'Không tìm thấy khách hàng.'], 404);
@@ -237,7 +237,7 @@ class CustomerCompanionController extends Controller
     // DELETE /api/admin/customers/{customer_id}/companions/{id}
     public function destroy(Request $request, string $customerId, int $id): JsonResponse
     {
-        $customer = Customer::find($customerId);
+        $customer = $this->resolveCustomer($request, $customerId);
 
         if (! $customer) {
             return response()->json(['message' => 'Không tìm thấy khách hàng.'], 404);
@@ -252,6 +252,28 @@ class CustomerCompanionController extends Controller
         $companion->delete();
 
         return response()->json(['message' => 'Đã xoá.']);
+    }
+
+    // Giới hạn khách hàng admin được phép thao tác companion — CÙNG quy ước với
+    // CustomerController::visibleCustomersQuery() (chi nhánh gốc customer thuộc về phải nằm trong
+    // User::rootProductCategoryIds() của admin; khách chưa gán chi nhánh nào thì ai cũng thấy được).
+    // Trước đây Customer::find() KHÔNG có bước này — admin đối tác A vẫn tra được customer_id thuộc
+    // đối tác B, xem/sửa/xoá luôn companion (CCCD) của khách đối tác khác.
+    private function resolveCustomer(Request $request, string $customerId): ?Customer
+    {
+        /** @var \App\Models\User $user */
+        $user = $request->user();
+        $query = Customer::query();
+
+        if (! $user->isSuperAdmin()) {
+            $rootIds = $user->rootProductCategoryIds();
+            $query->where(function ($q) use ($rootIds) {
+                $q->doesntHave('categories')
+                    ->orWhereHas('categories', fn ($q2) => $q2->whereIn('categories.id', $rootIds ?: [-1]));
+            });
+        }
+
+        return $query->find($customerId);
     }
 
     // Quét ĐỘC LẬP từng mặt (khác scanPaths() ở trên coi 2 ảnh là 1 "pool") để phát hiện trường

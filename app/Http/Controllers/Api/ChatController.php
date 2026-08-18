@@ -7,8 +7,8 @@ namespace App\Http\Controllers\Api;
 use App\Models\ChatConversation;
 use App\Models\ChatMessage;
 use App\Models\User;
+use App\Services\AdminNotificationService;
 use App\Services\ChatRealtimeService;
-use App\Services\FcmService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -197,14 +197,15 @@ class ChatController extends Controller
 
         // Gắn đơn hàng vào conversation và tag tin nhắn nếu có order_code
         $messageOrderId = null;
+        $matchedOrder   = null;
         if ($orderCode = $request->input('order_code')) {
-            $order = Order::where('order_code', $orderCode)
+            $matchedOrder = Order::where('order_code', $orderCode)
                 ->where('customer_id', $customer->id)
                 ->first();
-            if ($order) {
-                $messageOrderId = $order->id;
-                if ((int) $conv->order_id !== $order->id) {
-                    $conv->order_id = $order->id;
+            if ($matchedOrder) {
+                $messageOrderId = $matchedOrder->id;
+                if ((int) $conv->order_id !== $matchedOrder->id) {
+                    $conv->order_id = $matchedOrder->id;
                 }
             }
         }
@@ -240,19 +241,26 @@ class ChatController extends Controller
             ['id' => $customer->id, 'fullname' => $customer->fullname, 'phone' => $customer->phone]
         );
 
-        // Push thông báo lên điện thoại admin (kể cả khi app đóng/không mở màn chat) — Socket.IO ở
-        // trên chỉ tới nơi khi app admin đang thực sự mở kết nối. Gửi cho super_admin — giống fallback
-        // của OrderObserver::adminUsers() khi không xác định được đúng chi nhánh của cuộc trò chuyện.
+        // Thông báo cho admin — ghi vào danh sách thông báo (GET /api/admin/notifications) + push FCM
+        // + tín hiệu socket làm mới, xem AdminNotificationService. Tin gắn với đơn thì lọc đúng admin
+        // được phép xem chi nhánh của đơn đó; tin hỗ trợ chung (không có order_code) thì báo hết
+        // super_admin vì không có chi nhánh nào để xác định phạm vi.
         try {
-            $admins = User::role(config('filament-shield.super_admin.name'))->get();
-            app(FcmService::class)->sendToUsers(
+            $notifier = app(AdminNotificationService::class);
+            $admins   = $matchedOrder
+                ? $notifier->recipientsForOrder($matchedOrder)
+                : User::role(config('filament-shield.super_admin.name'))->get();
+
+            $notifier->notify(
                 $admins,
-                'Tin nhắn từ ' . $customer->fullname,
-                $preview,
-                ['type' => 'chat', 'conversation_id' => $conv->id]
+                $matchedOrder ? "Tin nhắn đơn #{$matchedOrder->order_code}" : 'Tin nhắn hỗ trợ',
+                $customer->fullname . ': ' . $preview,
+                ['type' => 'chat', 'conversation_id' => $conv->id, 'order_id' => $messageOrderId],
+                'heroicon-o-chat-bubble-left-right',
+                'primary',
             );
         } catch (\Throwable $e) {
-            Log::warning('Chat FCM push to admin failed', [
+            Log::warning('Chat: notify admin failed', [
                 'conversation_id' => $conv->id,
                 'error'           => $e->getMessage(),
             ]);

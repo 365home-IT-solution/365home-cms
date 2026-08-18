@@ -202,11 +202,27 @@ class RoomBlockController extends Controller
     private function visibleRoom(User $user, string $id): ?Product
     {
         $room = Product::find($id);
-        if (! $room || (! $user->isSuperAdmin() && $room->partner_id !== $user->partner_id)) {
+        if (! $room || (! $user->isSuperAdmin() && ! $this->userCanAccessRoom($user, $room))) {
             return null;
         }
 
         return $room;
+    }
+
+    // allowedCategoryIds() rỗng = admin không bị giới hạn chi nhánh cụ thể trong đối tác (vd chủ
+    // đối tác) → chỉ cần đúng partner_id là đủ.
+    private function userCanAccessRoom(User $user, Product $room): bool
+    {
+        if ($room->partner_id !== $user->partner_id) {
+            return false;
+        }
+
+        $allowedCategoryIds = $user->allowedCategoryIds();
+        if (empty($allowedCategoryIds)) {
+            return true;
+        }
+
+        return $room->categories()->whereIn('categories.id', $allowedCategoryIds)->exists();
     }
 
     /** @return array<int>|JsonResponse */

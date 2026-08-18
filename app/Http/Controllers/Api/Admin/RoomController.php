@@ -49,6 +49,13 @@ class RoomController extends Controller
 
         if (! $user->isSuperAdmin()) {
             $query->where('partner_id', $user->partner_id);
+
+            // Thu hẹp thêm về đúng chi nhánh admin được gán (rỗng = không bị giới hạn chi nhánh cụ
+            // thể trong đối tác, vd chủ đối tác — thấy hết đối tác mình).
+            $allowedCategoryIds = $user->allowedCategoryIds();
+            if (! empty($allowedCategoryIds)) {
+                $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedCategoryIds));
+            }
         }
 
         if ($request->filled('categories')) {
@@ -165,7 +172,7 @@ class RoomController extends Controller
             ->with($with)
             ->first();
 
-        if (! $room || (! $user->isSuperAdmin() && $room->partner_id !== $user->partner_id)) {
+        if (! $room || (! $user->isSuperAdmin() && ! $this->userCanAccessRoom($user, $room))) {
             return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
         }
 
@@ -302,6 +309,11 @@ class RoomController extends Controller
 
         if (! $user->isSuperAdmin()) {
             $query->where('partner_id', $user->partner_id);
+
+            $allowedCategoryIds = $user->allowedCategoryIds();
+            if (! empty($allowedCategoryIds)) {
+                $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedCategoryIds));
+            }
         }
 
         if ($request->filled('categories')) {
@@ -514,7 +526,7 @@ class RoomController extends Controller
             ])
             ->first();
 
-        if (! $room || (! $user->isSuperAdmin() && $room->partner_id !== $user->partner_id)) {
+        if (! $room || (! $user->isSuperAdmin() && ! $this->userCanAccessRoom($user, $room))) {
             return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
         }
 
@@ -661,6 +673,23 @@ class RoomController extends Controller
     }
 
     /** Mở rộng 1 chi nhánh (branch category) ra chính nó + toàn bộ danh mục con (khu vực/tầng...). */
+    // Kiểm tra 1 phòng cụ thể có nằm trong phạm vi chi nhánh admin được phép xem không (partner_id
+    // đã được caller kiểm tra trước bằng !== so sánh trực tiếp — hàm này chỉ còn lo tầng chi nhánh
+    // BÊN TRONG đối tác). allowedCategoryIds() rỗng = không bị giới hạn chi nhánh cụ thể → cho qua.
+    private function userCanAccessRoom(User $user, Product $room): bool
+    {
+        if ($room->partner_id !== $user->partner_id) {
+            return false;
+        }
+
+        $allowedCategoryIds = $user->allowedCategoryIds();
+        if (empty($allowedCategoryIds)) {
+            return true;
+        }
+
+        return $room->categories()->whereIn('categories.id', $allowedCategoryIds)->exists();
+    }
+
     private function expandBranchIds(int $branchId): array
     {
         $allIds       = [$branchId];

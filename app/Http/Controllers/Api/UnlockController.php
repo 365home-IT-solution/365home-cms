@@ -226,6 +226,7 @@ class UnlockController extends Controller
             );
 
             $this->notifyUnlock($order, $product, $item, $accessCode, $isCheckin);
+            $this->notifyAdminCheckinOrCheckout($order, $isCheckin);
 
             $msg = $isCheckin
                 ? 'Cổng đã được mở. Chào mừng bạn!'
@@ -254,6 +255,28 @@ class UnlockController extends Controller
             'type'    => 'ttlock_error',
             'message' => 'Không thể mở cổng tự động và chưa có mã dự phòng. Vui lòng liên hệ nhân viên để được hỗ trợ.',
         ], 503);
+    }
+
+    /**
+     * Báo cho admin khi khách thực sự mở cổng check-in/check-out qua TTLock — CHỈ chi nhánh có đăng
+     * ký TTLock mới đi qua handleTTLockUnlock() (chi nhánh cấp mã thủ công không gọi hàm này), nên
+     * không cần kiểm tra thêm điều kiện "có TTLock" ở đây.
+     */
+    private function notifyAdminCheckinOrCheckout(Order $order, bool $isCheckin): void
+    {
+        $service = app(\App\Services\AdminNotificationService::class);
+        $title   = $isCheckin ? 'Khách đã check-in' : 'Khách đã check-out';
+        $body    = "#{$order->order_code} · {$order->buyer_name} · " . now()->format('H:i d/m');
+
+        $service->notify(
+            $service->recipientsForOrder($order),
+            $title,
+            $body,
+            ['type' => $isCheckin ? 'checkin' : 'checkout', 'order_id' => $order->id],
+            $isCheckin ? 'heroicon-o-arrow-right-on-rectangle' : 'heroicon-o-arrow-left-on-rectangle',
+            $isCheckin ? 'success' : 'info',
+            \Modules\Payment\App\Filament\Resources\OrderResource::getUrl('edit', ['record' => $order->id]),
+        );
     }
 
     // =========================================================
