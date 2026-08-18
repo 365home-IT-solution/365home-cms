@@ -79,7 +79,14 @@ class AdminNotificationService
     /**
      * Danh sách user nên nhận thông báo về một đơn hàng cụ thể:
      *  - super_admin → luôn nhận tất cả
-     *  - user thường → chỉ nhận nếu có quyền xem chi nhánh (category) của đơn
+     *  - user có branchPermissions khớp chi nhánh đơn → nhận
+     *  - user KHÔNG bị gán quyền chi nhánh cụ thể (branchPermissions rỗng, vd chủ đối tác/nhân
+     *    viên chưa được giới hạn chi nhánh) → nhận hết đơn của ĐÚNG đối tác mình — CÙNG quy ước
+     *    User::allowedCategoryIds()/rootProductCategoryIds() rỗng = "không giới hạn" dùng ở mọi API
+     *    admin khác (Product/Room/Order/Rating...), KHÔNG phải "không nhận gì". Trước đây hàm này
+     *    hiểu sai: branchPermissions rỗng = bị LOẠI khỏi danh sách nhận, khiến chủ đối tác/nhân
+     *    viên chưa cấu hình phân quyền chi nhánh không nhận được bất kỳ thông báo nào cho đơn của
+     *    chính đối tác mình.
      *
      * Dùng chung cho mọi sự kiện gắn với đơn hàng (đơn mới/đổi trạng thái, check-in/check-out...) để
      * không lệch logic phân quyền theo chi nhánh giữa các nơi gọi.
@@ -105,7 +112,15 @@ class AdminNotificationService
             ->whereHas('branchPermissions', fn ($q) => $q->whereIn('category_id', $matchIds))
             ->get();
 
-        $all = $superAdmins->merge($regionalUsers)->unique('id');
+        // User cùng đối tác với đơn nhưng KHÔNG có bất kỳ branchPermissions nào (chưa bị giới hạn
+        // chi nhánh cụ thể) — vẫn nhận, vì "chưa gán quyền" nghĩa là "không giới hạn", không phải
+        // "không được xem gì".
+        $unrestrictedPartnerUsers = User::whereDoesntHave('roles', fn ($q) => $q->where('name', $superAdminRole))
+            ->doesntHave('branchPermissions')
+            ->where('partner_id', $order->partner_id)
+            ->get();
+
+        $all = $superAdmins->merge($regionalUsers)->merge($unrestrictedPartnerUsers)->unique('id');
 
         return $all->isNotEmpty() ? $all : User::all();
     }
