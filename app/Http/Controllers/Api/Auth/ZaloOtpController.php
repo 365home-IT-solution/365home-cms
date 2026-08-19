@@ -225,7 +225,17 @@ class ZaloOtpController extends Controller
      */
     public function me(Request $request): JsonResponse
     {
-        return response()->json($this->customerResource($request->user()));
+        // Route này KHÔNG có middleware customer.active (cố ý — khách bị vô hiệu hóa vẫn phải xem
+        // được chính hồ sơ mình để biết trạng thái), nên tự kiểm tra type ở đây thay vì middleware —
+        // token của App\Models\User (admin) lỡ gọi nhầm route customer sẽ bị chặn rõ ràng bằng 401
+        // thay vì crash TypeError ở customerResource() (đòi Customer, nhận User).
+        $user = $request->user();
+
+        if (! $user instanceof Customer) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        return response()->json($this->customerResource($user));
     }
 
     /**

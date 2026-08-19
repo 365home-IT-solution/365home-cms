@@ -108,6 +108,18 @@ io.on('connection', (socket) => {
         socket.leave('admin:notifications');
     });
 
+    // Subscribe to admin order list/dashboard refresh signal (đơn mới/đổi trạng thái/xoá) — phòng
+    // CHUNG, chỉ báo hiệu "có gì đổi", không kèm dữ liệu — client tự gọi lại REST API tương ứng
+    // (GET /api/admin/orders, dashboard/kpi-stats...) để lấy đúng dữ liệu theo phạm vi quyền của
+    // chính admin đó, cùng nguyên tắc admin:notifications ở trên.
+    socket.on('subscribe:admin-orders', () => {
+        socket.join('admin:orders');
+    });
+
+    socket.on('unsubscribe:admin-orders', () => {
+        socket.leave('admin:orders');
+    });
+
     socket.on('disconnect', () => {
         if (customerId) {
             const sockets = connections.get(customerId);
@@ -358,6 +370,24 @@ app.post('/internal/admin-notify', (req, res) => {
 
     io.to('admin:notifications').emit('admin_notification.new', notification);
     console.log('[WS] Admin notification pushed to admin:notifications');
+
+    return res.json({ ok: true });
+});
+
+// ── Admin order list/dashboard refresh signal — Laravel gọi khi đơn tạo/đổi trạng thái/xoá ──
+app.post('/internal/admin-order-changed', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { order_code, event } = req.body;
+    if (!order_code || !event) {
+        return res.status(422).json({ error: 'Missing order_code or event' });
+    }
+
+    io.to('admin:orders').emit('admin_order.changed', { order_code, event });
+    console.log(`[WS] Admin order changed (${event}) pushed to admin:orders — order_code=${order_code}`);
 
     return res.json({ ok: true });
 });

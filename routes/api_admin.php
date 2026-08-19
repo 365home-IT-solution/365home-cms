@@ -333,6 +333,16 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/categories')->na
 |                               search|from|to|checkin_date|checkout_date]=... (hoặc param phẳng
 |                               tương đương, vd ?branch_id=.../?categories=... — xem docblock
 |                               OrderController::index()) + per_page
+|
+| Realtime — Socket.IO 'admin:orders' (subscribe qua 'subscribe:admin-orders', xem
+| websocket/server.js): mỗi khi có đơn tạo/đổi trạng thái/xoá (bất kể qua API này, Filament, webhook
+| PayOS, hay cron hết hạn đơn — nguồn DUY NHẤT là App\Observers\OrderObserver, không sót nơi nào),
+| server bắn tín hiệu 'admin_order.changed' { order_code, event: 'created'|'status_changed'|'deleted' }
+| vào phòng này — KHÔNG kèm dữ liệu đơn, client nhận tín hiệu thì tự gọi lại GET /api/admin/orders
+| (danh sách) và/hoặc dashboard/kpi-stats để làm mới, luôn đúng phạm vi quyền của chính admin đó.
+| Dùng CHUNG 1 tín hiệu cho cả màn danh sách đơn lẫn dashboard/KPI — cả 2 chỉ cần tự refetch API
+| của riêng mình khi nhận được, không cần tín hiệu riêng cho từng màn.
+|
 | POST /api/admin/orders                    → tạo đơn hộ khách (vãng lai hoặc đã là thành viên)
 | POST /api/admin/orders/preview            → tính giá đơn MỚI, KHÔNG tạo/giữ chỗ (dry-run) — body
 |                                              giống hệt POST /api/admin/orders, trả về đúng khối

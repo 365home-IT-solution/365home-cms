@@ -125,6 +125,11 @@ class OrderObserver
 
         $this->maybeAssignCustomerBranch($order);
 
+        // Tín hiệu cho admin đang xem danh sách đơn/dashboard tự làm mới — riêng biệt với thông báo
+        // "Đơn mới" bên dưới (thông báo CHỈ báo sau khi thanh toán, còn đây là DỮ LIỆU list nên hiện
+        // ngay cả đơn pending, admin cần thấy để theo dõi).
+        app(OrderRealtimeService::class)->broadcastAdminListChanged($order->order_code, 'created');
+
         if (in_array($order->status, ['paid', 'deposit'], true)) {
             $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'success');
         }
@@ -187,6 +192,21 @@ class OrderObserver
         if ($newStatus === $oldStatus) {
             return;
         }
+
+        // Đồng bộ realtime cho MỌI lần đổi trạng thái, bất kể đến từ đâu (API admin, Filament,
+        // webhook PayOS, cron hết hạn đơn...) — vì observer này chạy tự động theo Eloquent
+        // update()/save(), không phụ thuộc code gọi có tự nhớ bắn realtime hay không (trước đây MỖI
+        // nơi đổi status phải tự gọi OrderRealtimeService, dễ sót — đây là nguồn duy nhất, không sót).
+        // 2 việc tách biệt: broadcastOrderUpdate() đồng bộ DỮ LIỆU cho khách đang xem đúng đơn này
+        // (subscribe:order); broadcastAdminListChanged() chỉ là TÍN HIỆU làm mới cho admin đang xem
+        // danh sách đơn/dashboard (không kèm dữ liệu, FE tự gọi lại REST — cùng nguyên tắc
+        // admin_notification.new).
+        app(OrderRealtimeService::class)->broadcastOrderUpdate(
+            $order->order_code,
+            ['status' => $newStatus, 'order_status' => $order->order_status],
+            $order->customer_id ? (int) $order->customer_id : null,
+        );
+        app(OrderRealtimeService::class)->broadcastAdminListChanged($order->order_code, 'status_changed');
 
         // pending → paid: lần thanh toán đầu tiên (đủ ngay) — đây mới là thời điểm "Đơn mới" thực sự
         // báo cho admin (xem created()).
@@ -264,8 +284,11 @@ class OrderObserver
             $this->broadcastSlotRelease($order);
         }
 
-        // Guest: thông báo khi huỷ thanh toán hoặc hết hạn QR
+        // Thông báo khi huỷ thanh toán hoặc hết hạn QR (kể cả cron ExpirePaymentOrders tự huỷ đơn
+        // pending quá 15 phút) — trước đây CHỈ báo guest (device_token), khách đã đăng nhập
+        // (customer_id) không nhận được gì khi đơn tự hết hạn.
         if ($newStatus === 'failed' || $newStatus === 'cancelled_payment') {
+            $this->sendToCustomer($order, 'Thanh toán không thành công', "Đơn #{$order->order_code} đã bị huỷ. Vui lòng đặt lại nếu cần.");
             $this->sendToGuest($order, 'Thanh toán không thành công', "Đơn #{$order->order_code} đã bị huỷ. Vui lòng đặt lại nếu cần.");
         }
 
@@ -325,6 +348,7 @@ class OrderObserver
                 $order->order_code,
                 $order->customer_id ? (int) $order->customer_id : null,
             );
+            app(OrderRealtimeService::class)->broadcastAdminListChanged($order->order_code, 'deleted');
         }
 
         // Trừ lại chi tiêu khi xóa đơn đã thanh toán
