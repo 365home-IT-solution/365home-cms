@@ -18,13 +18,16 @@ use Illuminate\Notifications\DatabaseNotification;
  *                  thành công (đủ hoặc cọc), không báo lúc vừa tạo đơn còn 'pending'; các lần đổi
  *                  trạng thái sau đó (đặt cọc xong trả nốt, hủy, hoàn tiền...) cũng thuộc loại này.
  *   - 'chat'     → App\Http\Controllers\Api\ChatController::send() — khách gửi tin nhắn (gắn đơn
- *                  hoặc hỗ trợ chung), kèm 'conversation_id' và 'order_id' (null nếu tin hỗ trợ
+ *                  hoặc hỗ trợ chung), kèm 'conversation_id' và 'order_code' (null nếu tin hỗ trợ
  *                  chung, không gắn đơn nào).
  *   - 'checkin'  → App\Http\Controllers\Api\UnlockController — khách mở cổng TTLock lần đầu (CHỈ
  *                  chi nhánh có đăng ký TTLock mới có loại này, chi nhánh cấp mã thủ công không tạo).
  *   - 'checkout' → cùng nơi trên, lần mở cổng thứ 2 trở đi.
- * 'order_id' xuất hiện ở cả 4 loại (null với 'chat' không gắn đơn); 'type' đọc thông báo cũ tạo
- * trước khi có field này (chỉ có 'order') sẽ mặc định fallback về 'order'.
+ * 'order_code' xuất hiện ở cả 4 loại (null với 'chat' không gắn đơn) — dùng order_code (không phải
+ * order_id nội bộ) vì đây là định danh FE/API bên ngoài đã dùng xuyên suốt (GET
+ * /api/admin/orders/{order_code}, chat, v.v...), khỏi phải tra thêm 1 lần từ id sang code.
+ * 'type' đọc thông báo cũ tạo trước khi có field này (chỉ có 'order') sẽ mặc định fallback về
+ * 'order'.
  *
  * Cùng nguồn dữ liệu với chuông thông báo trên Filament panel (route web
  * GET /admin/notifications/unread-count) — 2 nơi không xung đột, chỉ là 2 cách đọc khác nhau của
@@ -35,7 +38,7 @@ use Illuminate\Notifications\DatabaseNotification;
  * Socket.IO 'admin:notifications' (subscribe qua sự kiện 'subscribe:admin-notifications'); client
  * nhận tín hiệu đó thì tự gọi lại GET /api/admin/notifications để làm mới danh sách. Cùng lúc đó,
  * mỗi thông báo cũng gửi kèm push FCM tới thiết bị admin (kể cả app đóng) — payload push có 'data'
- * trùng với 'type'/'order_id'/'conversation_id' ở trên để FE điều hướng khi bấm vào push.
+ * trùng với 'type'/'order_code'/'conversation_id' ở trên để FE điều hướng khi bấm vào push.
  */
 class NotificationController extends Controller
 {
@@ -132,7 +135,7 @@ class NotificationController extends Controller
             'type'            => $viewData['type'] ?? 'order',
             'title'           => $data['title'] ?? null,
             'body'            => $data['body'] ?? null,
-            'order_id'        => $viewData['order_id'] ?? null,
+            'order_code'      => $viewData['order_code'] ?? null,
             'conversation_id' => $viewData['conversation_id'] ?? null,
             'is_read'         => $n->read_at !== null,
             'read_at'         => optional($n->read_at)->toIso8601String(),

@@ -272,7 +272,7 @@ class UnlockController extends Controller
             $service->recipientsForOrder($order),
             $title,
             $body,
-            ['type' => $isCheckin ? 'checkin' : 'checkout', 'order_id' => $order->id],
+            ['type' => $isCheckin ? 'checkin' : 'checkout', 'order_code' => $order->order_code],
             $isCheckin ? 'heroicon-o-arrow-right-on-rectangle' : 'heroicon-o-arrow-left-on-rectangle',
             $isCheckin ? 'success' : 'info',
             \Modules\Payment\App\Filament\Resources\OrderResource::getUrl('edit', ['record' => $order->id]),

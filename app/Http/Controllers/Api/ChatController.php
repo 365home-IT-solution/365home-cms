@@ -255,7 +255,7 @@ class ChatController extends Controller
                 $admins,
                 $matchedOrder ? "Tin nhắn đơn #{$matchedOrder->order_code}" : 'Tin nhắn hỗ trợ',
                 $customer->fullname . ': ' . $preview,
-                ['type' => 'chat', 'conversation_id' => $conv->id, 'order_id' => $messageOrderId],
+                ['type' => 'chat', 'conversation_id' => $conv->id, 'order_code' => $matchedOrder?->order_code],
                 'heroicon-o-chat-bubble-left-right',
                 'primary',
             );

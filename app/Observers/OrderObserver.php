@@ -30,7 +30,7 @@ class OrderObserver
             $service->recipientsForOrder($order),
             $title,
             $body,
-            ['type' => 'order', 'order_id' => $order->id],
+            ['type' => 'order', 'order_code' => $order->order_code],
             $icon,
             $color,
             OrderResource::getUrl('edit', ['record' => $order->id]),
@@ -278,8 +278,8 @@ class OrderObserver
             'refunded'  => ['title' => 'Đơn đã hoàn tiền',      'icon' => 'heroicon-o-arrow-uturn-left', 'color' => 'info'],
         ];
 
-        // Slot giải phóng khi đơn bị hủy/hết hạn → broadcast để FE re-fetch
-        $releasedStatuses = ['cancelled_payment', 'failed', 'cancelled'];
+        // Slot giải phóng khi đơn bị hủy/hết hạn/hoàn tiền → broadcast để FE re-fetch
+        $releasedStatuses = ['cancelled_payment', 'failed', 'cancelled', 'refunded'];
         if (in_array($newStatus, $releasedStatuses) && ! in_array($oldStatus, $releasedStatuses)) {
             $this->broadcastSlotRelease($order);
         }
