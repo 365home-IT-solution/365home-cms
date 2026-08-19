@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\Admin\DailyRoomHoldController as AdminDailyRoomHold
 use App\Http\Controllers\Api\Admin\DeductionTypeController;
 use App\Http\Controllers\Api\Admin\DepartmentController;
 use App\Http\Controllers\Api\Admin\EmployeeController;
+use App\Http\Controllers\Api\Admin\FcmTokenController as AdminFcmTokenController;
 use App\Http\Controllers\Api\Admin\MembershipTierController as AdminMembershipTierController;
 use App\Http\Controllers\Api\Admin\NotificationController as AdminNotificationController;
 use App\Http\Controllers\Api\Admin\OrderController;
@@ -55,6 +56,10 @@ Route::post('admin/login', [AdminAuthController::class, 'login'])->name('api.adm
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.admin.')->group(function () {
     Route::post('logout', [AdminAuthController::class, 'logout'])->name('logout');
     Route::get('me',      [AdminAuthController::class, 'me'])->name('me');
+
+    // Đăng ký FCM/Expo push token cho app admin (Bearer) — KHÁC route web /admin/api/fcm-token
+    // (session + CSRF, dành cho trình duyệt), xem docblock FcmTokenController.
+    Route::post('fcm-token', [AdminFcmTokenController::class, 'store'])->name('fcm-token');
 });
 
 /*

@@ -32,7 +32,13 @@ class FcmService
     }
 
     /**
-     * Gửi push notification đến tất cả thiết bị của một danh sách user.
+     * Gửi push notification đến tất cả thiết bị của một danh sách user (admin/nhân viên) — tự detect
+     * Expo token (app admin React Native, format "ExponentPushToken[...]") hay FCM token thật (web
+     * push trình duyệt, xem FcmTokenController vs route web admin.fcm-token) để gửi đúng API, CÙNG
+     * cách sendToCustomer()/sendToToken() đã làm cho khách hàng. TRƯỚC ĐÂY hàm này luôn gọi thẳng
+     * send() (FCM) bất kể loại token — Expo token bị Google trả INVALID_ARGUMENT, và send() tự xoá
+     * token đó khỏi DB ngay sau lần gửi đầu tiên (xem nhánh UNREGISTERED/INVALID_ARGUMENT bên dưới),
+     * nghĩa là app admin đăng ký token xong bị server âm thầm xoá ngay khi có thông báo đầu tiên.
      */
     public function sendToUsers(\Illuminate\Support\Collection $users, string $title, string $body, array $data = []): void
     {
@@ -44,9 +50,20 @@ class FcmService
             return;
         }
 
+        $expoTokens = array_values(array_filter($tokens, fn ($token) => $this->isExpoToken($token)));
+        $fcmTokens  = array_values(array_diff($tokens, $expoTokens));
+
+        foreach ($expoTokens as $token) {
+            $this->sendViaExpo($token, $title, $body, $data);
+        }
+
+        if (empty($fcmTokens)) {
+            return;
+        }
+
         $accessToken = $this->getAccessToken();
 
-        foreach ($tokens as $token) {
+        foreach ($fcmTokens as $token) {
             $this->send($accessToken, $token, $title, $body, $data);
         }
     }
