@@ -130,6 +130,13 @@ class OrderObserver
         // ngay cả đơn pending, admin cần thấy để theo dõi).
         app(OrderRealtimeService::class)->broadcastAdminListChanged($order->order_code, 'created');
 
+        // Phòng trường hợp đơn được tạo THẲNG ở trạng thái paid/deposit (bỏ qua pending — vd webhook
+        // tạo đơn kèm xác nhận thanh toán luôn trong 1 lần insert, không qua updated() riêng) — vẫn
+        // cần lưới lịch phòng phản ánh đúng ngay từ lúc tạo, không đợi lần đổi trạng thái kế tiếp.
+        // Trùng với broadcastBooked() gọi trực tiếp ở luồng tạo đơn (status='pending') thì chỉ là 1
+        // event thừa vô hại (cùng giá trị status), không gây sai lệch.
+        $this->broadcastSlotStatusChanged($order);
+
         if (in_array($order->status, ['paid', 'deposit'], true)) {
             $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'success');
         }
@@ -207,6 +214,13 @@ class OrderObserver
             $order->customer_id ? (int) $order->customer_id : null,
         );
         app(OrderRealtimeService::class)->broadcastAdminListChanged($order->order_code, 'status_changed');
+
+        // Đồng bộ field `status` trên lưới lịch phòng theo KHUNG GIỜ (GET .../rooms/{id}/time-slots,
+        // xem RoomController::buildSlotStatus()) cho MỌI lần đổi trạng thái đơn — trước đây chỉ bắn
+        // lúc đơn bị huỷ/hết hạn (xem broadcastSlotRelease() bên dưới), bỏ sót pending→paid,
+        // pending→deposit, deposit→paid... khiến admin/khách phải tải lại trang mới thấy đúng trạng
+        // thái mới nhất của từng ô ngày.
+        $this->broadcastSlotStatusChanged($order);
 
         // pending → paid: lần thanh toán đầu tiên (đủ ngay) — đây mới là thời điểm "Đơn mới" thực sự
         // báo cho admin (xem created()).
@@ -313,13 +327,21 @@ class OrderObserver
         }
     }
 
+    /**
+     * CHỈ còn xử lý phòng theo NGÀY (styles=2, kênh 'daily.*' riêng) — phòng theo KHUNG GIỜ
+     * (styles=1) đã được broadcastSlotStatusChanged() xử lý cho MỌI transition (gồm cả huỷ/hết
+     * hạn), gọi thêm ở đây sẽ bắn trùng 2 event cho cùng 1 ô.
+     */
     private function broadcastSlotRelease(Order $order): void
     {
-        $order->loadMissing('items');
+        $order->loadMissing('items.product');
         $service = app(SlotRealtimeService::class);
 
         foreach ($order->items as $item) {
             if (! $item->checkin_date || ! $item->product_id) {
+                continue;
+            }
+            if ((int) ($item->product->styles ?? 1) !== 2) {
                 continue;
             }
             $service->broadcastReleased(
@@ -327,6 +349,60 @@ class OrderObserver
                 $item->checkin_date->format('Y-m-d'),
             );
         }
+    }
+
+    /**
+     * Phản ánh đúng field `status` mà GET /api/admin/rooms/{id}/time-slots trả cho mỗi ô khung giờ
+     * x ngày (xem RoomController::buildSlotStatus()) — CHỈ pending/paid coi là chiếm chỗ, mọi trạng
+     * thái khác (kể cả deposit, theo đúng quyết định nghiệp vụ ở đó — đặt cọc KHÔNG hiện là đã đặt)
+     * hiển thị 'available'. Bắn cho MỌI lần đổi trạng thái đơn (gọi từ updated(), đã đảm bảo status
+     * thực sự thay đổi). CHỈ áp dụng phòng theo KHUNG GIỜ (styles=1 hoặc null) — phòng theo NGÀY
+     * (styles=2) dùng kênh 'daily.*' riêng, xem broadcastSlotRelease().
+     */
+    private function broadcastSlotStatusChanged(Order $order): void
+    {
+        $order->loadMissing([
+            'items.product.roomTimeSlots' => fn ($q) => $q->whereNull('date'),
+            'items.product.roomTimeSlots.timeSlot',
+        ]);
+
+        $service = app(SlotRealtimeService::class);
+        $status  = in_array($order->status, ['pending', 'paid'], true) ? $order->status : 'available';
+
+        $order->items
+            ->filter(fn ($item) => $item->checkin_date && $item->product && (int) ($item->product->styles ?? 1) !== 2)
+            ->groupBy(fn ($item) => $item->product_id . '|' . $item->checkin_date->format('Y-m-d'))
+            ->each(function ($items) use ($service, $status) {
+                $first   = $items->first();
+                $slotIds = $items
+                    ->map(fn ($item) => $this->resolveItemTimeslotId($item))
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->toArray();
+
+                $service->broadcastStatusChanged(
+                    (string) $first->product_id,
+                    $first->checkin_date->format('Y-m-d'),
+                    $slotIds,
+                    $status,
+                );
+            });
+    }
+
+    /**
+     * Suy timeslot_id của 1 order_item (đơn theo giờ) — order_items không lưu timeslot_id trực
+     * tiếp, khớp ngược qua giờ bắt đầu (checkin_date, HH:mm:ss) với RoomTimeSlot lặp lại (date IS
+     * NULL) của phòng — CÙNG cách làm với Api\Admin\OrderController::resolveItemTimeslotId() (tách
+     * riêng bản sao ở đây vì đó là method private của Controller, Observer không gọi được).
+     */
+    private function resolveItemTimeslotId($item): ?int
+    {
+        $startTime = \Carbon\Carbon::parse($item->checkin_date)->format('H:i:s');
+        $rts = $item->product->roomTimeSlots
+            ->first(fn ($rts) => $rts->timeSlot && $rts->timeSlot->start_time === $startTime);
+
+        return $rts?->timeslot_id;
     }
 
     public function deleted(Order $order): void

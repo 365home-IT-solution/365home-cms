@@ -14,6 +14,17 @@ class SlotRealtimeService
         $this->push($roomId, $date, $slotIds, 'pending');
     }
 
+    /**
+     * Broadcast ĐÚNG trạng thái đơn hiện tại (không chỉ nhị phân booked/available) cho 1 nhóm khung
+     * giờ x ngày — dùng khi đơn đổi trạng thái (paid/deposit/cancelled/...) để lưới lịch phòng
+     * (GET .../rooms/{id}/time-slots, field `status` mỗi ô) luôn khớp đúng với những gì API đó sẽ
+     * trả nếu gọi lại, không cần đợi F5. Xem OrderObserver::broadcastSlotStatusChanged().
+     */
+    public function broadcastStatusChanged(string $roomId, string $date, array $slotIds, string $status): void
+    {
+        $this->push($roomId, $date, $slotIds, $status);
+    }
+
     public function broadcastReleased(string $roomId, string $date): void
     {
         $this->push($roomId, $date, [], 'available');
