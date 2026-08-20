@@ -1106,15 +1106,15 @@ class GuestBookingController extends Controller
         $itemsData     = [];
         $slotSummary   = [];
         $rtsCollection = collect();
+        $errors        = [];
 
         foreach ($slots as $index => $slot) {
             $timeslotId = (int) $slot['timeslot_id'];
             $dateStr    = $slot['date'] ?? $defaultDate;
 
             if (! $dateStr) {
-                throw ValidationException::withMessages([
-                    "slots.{$index}.date" => ['Vui lòng cung cấp ngày đặt phòng.'],
-                ]);
+                $errors["slots.{$index}.date"] = ['Vui lòng cung cấp ngày đặt phòng.'];
+                continue;
             }
 
             $rts = $room->roomTimeSlots
@@ -1123,15 +1123,13 @@ class GuestBookingController extends Controller
                 ->first();
 
             if (! $rts || ! $rts->timeSlot) {
-                throw ValidationException::withMessages([
-                    "slots.{$index}.timeslot_id" => ['Khung giờ không tồn tại cho phòng này.'],
-                ]);
+                $errors["slots.{$index}.timeslot_id"] = ['Khung giờ không tồn tại cho phòng này.'];
+                continue;
             }
 
             if ($rts->isBlockedOn($dateStr)) {
-                throw ValidationException::withMessages([
-                    "slots.{$index}.date" => ['Khung giờ này đã bị chặn vào ngày bạn chọn.'],
-                ]);
+                $errors["slots.{$index}.date"] = ['Khung giờ này đã bị chặn vào ngày bạn chọn.'];
+                continue;
             }
 
             $timeSlot = $rts->timeSlot;
@@ -1150,9 +1148,8 @@ class GuestBookingController extends Controller
                 ->exists();
 
             if ($conflict) {
-                throw ValidationException::withMessages([
-                    "slots.{$index}.timeslot_id" => ['Khung giờ này đã được đặt rồi.'],
-                ]);
+                $errors["slots.{$index}.timeslot_id"] = ['Khung giờ này đã được đặt rồi.'];
+                continue;
             }
 
             $startLabel  = substr($timeSlot->start_time, 0, 5);
@@ -1183,6 +1180,12 @@ class GuestBookingController extends Controller
             ];
 
             $rtsCollection->push($rts);
+        }
+
+        // Gom lỗi của TẤT CẢ khung giờ bị trùng/không hợp lệ trong 1 lần request — xem cùng comment
+        // ở BookingController::buildSlotItems() (bản khách đã đăng nhập, cùng logic).
+        if (! empty($errors)) {
+            throw ValidationException::withMessages($errors);
         }
 
         $slotCount   = count($slots);

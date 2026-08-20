@@ -522,15 +522,15 @@ class BookingController extends Controller
         $itemsData     = [];
         $slotSummary   = [];
         $rtsCollection = collect();
+        $errors        = [];
 
         foreach ($slots as $index => $slot) {
             $timeslotId = (int) $slot['timeslot_id'];
             $dateStr    = $slot['date'] ?? $defaultDate;
 
             if (! $dateStr) {
-                throw ValidationException::withMessages([
-                    "slots.{$index}.date" => ['Vui lòng cung cấp ngày đặt phòng.'],
-                ]);
+                $errors["slots.{$index}.date"] = ['Vui lòng cung cấp ngày đặt phòng.'];
+                continue;
             }
 
             $rts = $room->roomTimeSlots
@@ -539,15 +539,13 @@ class BookingController extends Controller
                 ->first();
 
             if (! $rts || ! $rts->timeSlot) {
-                throw ValidationException::withMessages([
-                    "slots.{$index}.timeslot_id" => ['Khung giờ không tồn tại cho phòng này.'],
-                ]);
+                $errors["slots.{$index}.timeslot_id"] = ['Khung giờ không tồn tại cho phòng này.'];
+                continue;
             }
 
             if ($rts->isBlockedOn($dateStr)) {
-                throw ValidationException::withMessages([
-                    "slots.{$index}.date" => ['Khung giờ này đã bị chặn vào ngày bạn chọn.'],
-                ]);
+                $errors["slots.{$index}.date"] = ['Khung giờ này đã bị chặn vào ngày bạn chọn.'];
+                continue;
             }
 
             $timeSlot = $rts->timeSlot;
@@ -566,9 +564,8 @@ class BookingController extends Controller
                 ->exists();
 
             if ($conflict) {
-                throw ValidationException::withMessages([
-                    "slots.{$index}.timeslot_id" => ['Khung giờ này đã được đặt rồi.'],
-                ]);
+                $errors["slots.{$index}.timeslot_id"] = ['Khung giờ này đã được đặt rồi.'];
+                continue;
             }
 
             $startLabel  = substr($timeSlot->start_time, 0, 5);
@@ -599,6 +596,14 @@ class BookingController extends Controller
             ];
 
             $rtsCollection->push($rts);
+        }
+
+        // Gom lỗi của TẤT CẢ khung giờ bị trùng/không hợp lệ trong 1 lần request, thay vì chỉ báo
+        // đúng cái đầu tiên gặp phải rồi bắt khách sửa-gửi lại nhiều lần mới biết hết — mỗi lỗi vẫn
+        // gắn đúng "slots.{index}.field" để FE biết chính xác ô nào trong mảng slots[] đã gửi lên bị
+        // lỗi gì, tự đối chiếu ngược lại request của chính mình để bỏ tick đúng ô.
+        if (! empty($errors)) {
+            throw ValidationException::withMessages($errors);
         }
 
         $slotCount   = count($slots);

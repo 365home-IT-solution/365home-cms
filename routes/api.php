@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\DailyRoomController;
 use App\Http\Controllers\Api\DailyRoomHoldController;
 use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\RoomTypeController;
+use App\Http\Controllers\Api\TimeSlotHoldController;
 use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\RatingController;
@@ -191,24 +192,25 @@ Route::delete('rooms/{id}/hold',       [DailyRoomHoldController::class, 'release
 
 /*
 |--------------------------------------------------------------------------
-| Time-slot Hold (KHÁCH VÃNG LAI) — ĐÃ GỠ 2 route POST/DELETE public bên dưới.
+| Time-slot Hold (KHÁCH VÃNG LAI) — MỞ LẠI với 2 lớp chặn DoS mới.
+| POST   /api/rooms/{id}/time-slot-hold
+| DELETE /api/rooms/{id}/time-slot-hold
 |
-| Trước đây cho phép bất kỳ ai (không cần đăng nhập) gọi thẳng 2 route này để "giữ chỗ" 1 ô
-| khung giờ, phát real-time cho admin/khách khác thấy ngay. Rủi ro bảo mật thật sự: throttle
-| 30 request/phút/IP KHÔNG đủ chặn kẻ tấn công cố ý spam giữ hết mọi ô khung giờ còn trống của
-| 1 phòng (đổi IP/dùng nhiều IP), khiến khách thật không đặt được phòng dù còn trống — đây là
-| lỗ hổng DoS/phá đơn, không phải lỗi hiệu năng thông thường. ĐÃ BỎ theo yêu cầu, chỉ còn giữ
-| lại chiều NGƯỢC LẠI (admin giữ chỗ → khách thấy ngay, xem TimeslotHoldService +
-| admin.rooms.timeslot-hold ở routes/web.php) — chiều đó an toàn vì chỉ admin đã đăng nhập mới
-| gọi được.
+| Trước đây 2 route này từng bị GỠ vì lỗ hổng DoS thật sự: throttle request/phút/IP KHÔNG đủ chặn
+| kẻ cố ý đổi/rotate nhiều IP để spam giữ HẾT mọi ô khung giờ còn trống của 1 phòng, khiến khách
+| thật không đặt được dù phòng còn trống.
 |
-| TimeSlotHoldController::hold()/release() vẫn còn trong code (không xoá file) vì
-| App\Http\Controllers\Api\Admin\TimeSlotHoldController (route admin đã xác thực, KHÔNG bị gỡ)
-| đang gọi thẳng TimeSlotHoldController::getActiveHolds() (static, cùng class) để đọc chung 1
-| kho Cache — chỉ 2 route public hold()/release() bên dưới bị gỡ, phần đọc vẫn hoạt động bình
-| thường.
+| Mở lại với 2 trần MỚI, độc lập với IP (đổi bao nhiêu IP/session cũng không né được) — xem chi
+| tiết + con số cụ thể trong docblock TimeSlotHoldController::hold():
+|   1. MAX_HOLDS_PER_ROOM (40)    — 1 phòng không bao giờ bị giữ hết sạch dù bị spam.
+|   2. MAX_HOLDS_PER_SESSION (8)  — 1 session không tự chiếm gần hết ngân sách của phòng.
+| Throttle IP (hold-slot, 15/phút) vẫn giữ làm lớp phòng thủ PHỤ, không phải chốt chặn chính.
 |--------------------------------------------------------------------------
 */
+Route::middleware('throttle:hold-slot')->group(function () {
+    Route::post('rooms/{id}/time-slot-hold',   [TimeSlotHoldController::class, 'hold'])->name('api.rooms.time-slot-hold');
+    Route::delete('rooms/{id}/time-slot-hold', [TimeSlotHoldController::class, 'release'])->name('api.rooms.time-slot-hold.release');
+});
 
 /*
 |--------------------------------------------------------------------------

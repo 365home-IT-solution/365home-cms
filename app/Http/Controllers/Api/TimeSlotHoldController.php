@@ -22,10 +22,25 @@ use Modules\Product\App\Models\RoomTimeSlot;
  * lúc thanh toán. Cùng pattern TTL/Cache với DailyRoomHoldController (phòng theo ngày) nhưng
  * TOGGLE TỪNG Ô riêng lẻ thay vì thay thế cả danh sách — phòng theo khung giờ cho chọn nhiều ô
  * rời rạc (không liền kề) nên không thể gộp thành 1 khoảng checkin/checkout như phòng theo ngày.
+ *
+ * hold()/release() TỪNG BỊ GỠ KHỎI ROUTE PUBLIC (routes/api.php) vì lỗ hổng DoS: throttle
+ * request/phút/IP không chặn được kẻ cố ý đổi/rotate nhiều IP để spam giữ HẾT mọi ô còn trống của
+ * 1 phòng, khiến khách thật không đặt được dù phòng còn trống. Mở lại route với 2 lớp chặn MỚI,
+ * không phụ thuộc IP (attacker đổi IP/session vô hạn cũng không vượt qua được):
+ *  1. MAX_HOLDS_PER_ROOM — trần tổng số hold đang hoạt động của 1 phòng (mọi session cộng lại) —
+ *     dù attacker dùng bao nhiêu session/IP khác nhau, 1 phòng KHÔNG BAO GIỜ bị giữ hết sạch, luôn
+ *     còn slot thật sự trống hiển thị cho khách khác.
+ *  2. MAX_HOLDS_PER_SESSION — trần số hold đồng thời của ĐÚNG 1 session — chặn 1 session giả tự
+ *     mình chiếm gần hết ngân sách của MAX_HOLDS_PER_ROOM, buộc attacker phải tạo NHIỀU session
+ *     (chi phí cao hơn hẳn spam từ 1 session) mới có thể tiệm cận trần phòng, lúc đó lớp (1) đã
+ *     chặn rồi. TTL 10 phút (không đổi) tự dọn rác nếu attacker vẫn cố vượt qua cả 2 lớp.
  */
 class TimeSlotHoldController extends Controller
 {
     private const TTL = 600; // 10 phút — hết hạn tự động nếu khách rời trang không release
+
+    private const MAX_HOLDS_PER_ROOM    = 40; // đủ rộng cho lưu lượng thật (nhiều khách xem cùng lúc), vẫn luôn còn slot trống thật hiển thị dù bị spam
+    private const MAX_HOLDS_PER_SESSION = 8;  // 1 khách thật hiếm khi cần giữ hơn 8 ô cùng lúc (nhiều khung giờ x nhiều ngày trong 1 lần đặt)
 
     // POST /api/rooms/{id}/time-slot-hold
     public function hold(Request $request, string $id): JsonResponse
@@ -57,9 +72,24 @@ class TimeSlotHoldController extends Controller
 
         // Bỏ hold cũ CÙNG session cho đúng ô này (nếu có) trước khi thêm lại — tránh trùng lặp khi
         // khách gọi hold() nhiều lần liên tiếp cho cùng 1 ô (VD: giữ TTL bằng cách gọi lại định kỳ).
+        // Làm TRƯỚC 2 bước kiểm tra trần bên dưới — "làm mới" hold đã có của chính mình không được
+        // tính là tạo mới, không được phép vô tình đẩy khách đó vượt trần chỉ vì gọi lại refresh.
         $holds = array_values(array_filter($holds, fn ($h) => ! ($h['session_id'] === $data['session_id']
             && (int) $h['timeslot_id'] === (int) $data['timeslot_id']
             && $h['date'] === $data['date'])));
+
+        // Trần (2) — session này đã giữ đủ 8 ô khác rồi, không cho giữ thêm ô mới (vẫn cho refresh
+        // ô cũ, xem điều kiện lọc ở trên).
+        $sessionHoldCount = count(array_filter($holds, fn ($h) => $h['session_id'] === $data['session_id']));
+        if ($sessionHoldCount >= self::MAX_HOLDS_PER_SESSION) {
+            return response()->json(['message' => 'Bạn đang giữ tạm quá nhiều khung giờ cùng lúc, vui lòng hoàn tất hoặc huỷ bớt trước khi chọn thêm.'], 429);
+        }
+
+        // Trần (1) — phòng này đã đủ 40 hold đang hoạt động (không phân biệt của ai), từ chối thêm
+        // để luôn còn slot thật trống cho khách khác, bất kể attacker có bao nhiêu session/IP.
+        if (count($holds) >= self::MAX_HOLDS_PER_ROOM) {
+            return response()->json(['message' => 'Phòng đang có quá nhiều lượt giữ chỗ tạm thời, vui lòng thử lại sau ít phút.'], 429);
+        }
 
         // Token ngẫu nhiên phía SERVER (KHÁC session_id do client tự chọn) — bắt buộc phải xuất
         // trình đúng token này mới release() được hold vừa tạo, chặn 1 client đoán/biết session_id

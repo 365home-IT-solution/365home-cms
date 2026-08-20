@@ -73,10 +73,12 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(40)->by($request->user()?->id ?: $request->ip());
         });
 
-        // hold-slot: 30/phút/IP — time-slot-hold không yêu cầu đăng nhập (khách vãng lai cũng gọi
-        // được), chặn script giữ hết khung giờ 1 phòng để làm phòng hiện "hết chỗ" giả.
+        // hold-slot: 15/phút/IP — time-slot-hold không yêu cầu đăng nhập (khách vãng lai cũng gọi
+        // được). CHỈ là lớp phòng thủ PHỤ (rotate IP vẫn né được) — chặn DoS THẬT SỰ nằm ở trần
+        // MAX_HOLDS_PER_ROOM/MAX_HOLDS_PER_SESSION trong TimeSlotHoldController::hold(), độc lập
+        // với IP nên không né được bằng cách đổi IP.
         RateLimiter::for('hold-slot', function (Request $request) {
-            return Limit::perMinute(30)->by($request->ip());
+            return Limit::perMinute(15)->by($request->ip());
         });
 
         $this->routes(function () {

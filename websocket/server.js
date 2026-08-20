@@ -49,6 +49,24 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Subscribe PHỦ MỌI NGÀY của 1 phòng theo khung giờ — thay thế cho việc phải tự liệt kê/
+    // subscribe:room theo từng ngày riêng (VD khách đang chọn khung giờ rải nhiều ngày cùng lúc
+    // trên form đặt phòng, đổi ngày xem liên tục). Mọi event slot.updated/slot.hold.updated của
+    // phòng này (bất kể ngày nào) đều bắn thêm vào đây — xem các endpoint /internal/slot-update,
+    // /internal/slot-hold-update, /internal/slot-blocked-range bên dưới (dùng chung 1 emit tới cả 2
+    // room cùng lúc để KHÔNG bắn trùng 2 lần cho client đã subscribe cả 2 kiểu).
+    socket.on('subscribe:room-slots', ({ room_id }) => {
+        if (room_id) {
+            socket.join(`room-all:${room_id}`);
+        }
+    });
+
+    socket.on('unsubscribe:room-slots', ({ room_id }) => {
+        if (room_id) {
+            socket.leave(`room-all:${room_id}`);
+        }
+    });
+
     // Subscribe to daily room hold events (no auth required)
     socket.on('subscribe:daily-room', ({ room_id }) => {
         if (room_id) {
@@ -170,7 +188,7 @@ app.post('/internal/slot-update', (req, res) => {
     }
 
     const channel = `room:${room_id}:${date}`;
-    io.to(channel).emit('slot.updated', { room_id, date, slot_ids, status: status || 'pending' });
+    io.to(channel).to(`room-all:${room_id}`).emit('slot.updated', { room_id, date, slot_ids, status: status || 'pending' });
     console.log(`[WS] Slot update: room=${room_id} date=${date} slots=[${slot_ids}] → ${channel}`);
 
     return res.json({ ok: true });
@@ -212,7 +230,7 @@ app.post('/internal/slot-hold-update', (req, res) => {
         return res.status(422).json({ error: 'Missing room_id or date' });
     }
 
-    io.to(`room:${room_id}:${date}`).emit('slot.hold.updated', { room_id, date, holds: holds || [] });
+    io.to(`room:${room_id}:${date}`).to(`room-all:${room_id}`).emit('slot.hold.updated', { room_id, date, holds: holds || [] });
     console.log(`[WS] Slot hold update: room=${room_id} date=${date} holds=${(holds || []).length}`);
 
     return res.json({ ok: true });
@@ -405,7 +423,7 @@ app.post('/internal/slot-blocked-range', (req, res) => {
     }
 
     for (const date of dates) {
-        io.to(`room:${room_id}:${date}`).emit('slot.updated', {
+        io.to(`room:${room_id}:${date}`).to(`room-all:${room_id}`).emit('slot.updated', {
             room_id,
             date,
             slot_ids: slot_ids || [],
