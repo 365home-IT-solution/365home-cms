@@ -39,8 +39,8 @@ class TimeSlotHoldController extends Controller
 {
     private const TTL = 600; // 10 phút — hết hạn tự động nếu khách rời trang không release
 
-    private const MAX_HOLDS_PER_ROOM    = 40; // đủ rộng cho lưu lượng thật (nhiều khách xem cùng lúc), vẫn luôn còn slot trống thật hiển thị dù bị spam
-    private const MAX_HOLDS_PER_SESSION = 8;  // 1 khách thật hiếm khi cần giữ hơn 8 ô cùng lúc (nhiều khung giờ x nhiều ngày trong 1 lần đặt)
+    private const MAX_HOLDS_PER_ROOM    = 60; // đủ rộng cho vài khách đặt đơn lớn cùng lúc, vẫn luôn còn slot trống thật hiển thị dù bị spam
+    private const MAX_HOLDS_PER_SESSION = 20; // đơn lớn (nhiều khung giờ x nhiều ngày, VD 10 ngày x 2 khung/ngày) vẫn giữ đủ — trần này chỉ để chặn 1 session TỰ CHIẾM gần hết ngân sách MAX_HOLDS_PER_ROOM, không nhằm giới hạn nhu cầu đặt thật
 
     // POST /api/rooms/{id}/time-slot-hold
     public function hold(Request $request, string $id): JsonResponse
