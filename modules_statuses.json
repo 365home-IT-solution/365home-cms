@@ -25,5 +25,6 @@
     "DataPermission": true,
     "AppPage": true,
     "TTLock": true,
-    "Employee": true
+    "Employee": true,
+    "Warehouse": true
 }

@@ -52,6 +52,7 @@ use App\Filament\Pages\Auth\Login;
 use App\Filament\Pages\Auth\RequestPasswordReset;
 use Modules\AccessCode\App\Filament\AccessCodePlugin;
 use Modules\TTLock\App\Filament\TTLockPlugin;
+use Modules\Warehouse\App\Filament\WarehousePlugin;
 use Modules\Zns\App\Filament\ZnsPlugin;
 use Modules\Payment\App\Filament\Resources\OrderResource\Widgets\OrderCalendarWidget;
 
@@ -166,6 +167,7 @@ class AdminPanelProvider extends PanelProvider
                 AppPagePlugin::make(),
                 AuditLogPlugin::make(),
                 TTLockPlugin::make(),
+                WarehousePlugin::make(),
             ])
             // ->spa()
             ->maxContentWidth('full')
