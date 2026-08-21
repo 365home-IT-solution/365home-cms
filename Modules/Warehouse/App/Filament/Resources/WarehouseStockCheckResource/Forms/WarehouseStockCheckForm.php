@@ -18,6 +18,7 @@ use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
 use Illuminate\Support\Number;
+use Illuminate\Support\Str;
 use Modules\Category\Entities\Category;
 use Modules\Warehouse\App\Filament\Support\CurrentUserDisplay;
 use Modules\Warehouse\App\Filament\Support\WarehouseCardStyle;
@@ -250,6 +251,13 @@ class WarehouseStockCheckForm
             ->preload()
             ->required()
             ->live()
+            // Đổi đối tác thì danh sách chi nhánh (branchInput) đổi theo — chi nhánh đã chọn trước
+            // đó (nếu có) không còn hợp lệ nữa, và danh sách "TOÀN BỘ vật tư" đang liệt kê sẵn cũng
+            // thuộc đối tác CŨ — phải xoá hết, chờ chọn lại chi nhánh mới rồi mới nạp lại đúng.
+            ->afterStateUpdated(function (Set $set) {
+                $set('branch_id', null);
+                $set('items', []);
+            })
             ->visible(fn () => auth()->user()?->isSuperAdmin() ?? false)
             ->helperText('Bắt buộc chọn — nếu không, phiếu sẽ không hiện với bất kỳ tài khoản đối tác nào.');
     }
@@ -292,6 +300,20 @@ class WarehouseStockCheckForm
             ->searchable()
             ->preload()
             ->required()
+            ->live()
+            // Đúng yêu cầu: đổi chi nhánh PHẢI nạp lại danh sách vật tư theo chi nhánh MỚI ngay lập
+            // tức, không đợi tải lại trang — trước đây chỉ đọc branch_id đúng 1 LẦN lúc mở trang
+            // (afterFill()), đổi chi nhánh sau đó không cập nhật lại, dẫn tới hiện lẫn vật tư của
+            // NHIỀU chi nhánh khác nhau cùng lúc (đã xác nhận qua ảnh chụp thực tế).
+            ->afterStateUpdated(function (Set $set, Get $get, $state) {
+                $partnerId = auth()->user()?->isSuperAdmin() ? $get('partner_id') : null;
+
+                $items = [];
+                foreach (WarehouseStockCheckForm::allActiveItemsAsRows($partnerId, $state) as $row) {
+                    $items[(string) Str::uuid()] = $row;
+                }
+                $set('items', $items);
+            })
             ->disabled(fn (Get $get) => (auth()->user()?->isSuperAdmin() ?? false) && blank($get('partner_id')))
             ->visible(fn () => (auth()->user()?->isSuperAdmin() ?? false) || count(auth()->user()?->rootProductCategoryIds() ?? []) > 1)
             ->helperText('Bắt buộc chọn — nếu không, phiếu sẽ không hiện với bất kỳ tài khoản đối tác nào.');
