@@ -53,6 +53,7 @@ class WarehouseCategoryController extends Controller
 
         // super_admin PHẢI tự chọn "partner_id" — thiếu bước này thì nhóm lưu với partner_id
         // RỖNG, không đối tác nào thấy được (cùng lỗi vừa xác nhận & sửa ở các API kho khác).
+        // Nhóm vật tư DÙNG CHUNG cho mọi chi nhánh của đối tác — không có branch_id.
         $data = $request->validate([
             'partner_id' => [$user->isSuperAdmin() ? 'required' : 'sometimes', 'uuid', 'exists:partners,id'],
             'name'       => 'required|string|max:150',

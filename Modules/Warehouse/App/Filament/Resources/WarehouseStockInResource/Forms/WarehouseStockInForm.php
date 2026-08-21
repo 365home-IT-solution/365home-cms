@@ -17,6 +17,7 @@ use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
+use Modules\Category\Entities\Category;
 use Modules\Warehouse\App\Filament\Support\CurrentUserDisplay;
 use Modules\Warehouse\App\Filament\Support\WarehouseCardStyle;
 use Modules\Warehouse\App\Filament\Support\WarehouseItemOptions;
@@ -39,6 +40,7 @@ class WarehouseStockInForm
             Section::make('Thông tin phiếu')
                 ->schema([
                     self::partnerInput(),
+                    self::branchInput(),
 
                     // 1 dòng gọn duy nhất thay vì 3 ô/khung tách rời — cả 3 đều CHỈ ĐỂ ĐỌC (không
                     // field nào chỉnh được), tách thành 3 Placeholder riêng chiếm quá nhiều khoảng
@@ -58,7 +60,9 @@ class WarehouseStockInForm
                         ->visibleOn('edit'),
                 ])
                 ->compact()
-                ->visible(fn (string $operation) => $operation === 'edit' || (auth()->user()?->isSuperAdmin() ?? false)),
+                ->visible(fn (string $operation) => $operation === 'edit'
+                    || (auth()->user()?->isSuperAdmin() ?? false)
+                    || count(auth()->user()?->rootProductCategoryIds() ?? []) > 1),
 
             Section::make('Chi tiết hàng nhập')
                 ->compact()
@@ -223,7 +227,51 @@ class WarehouseStockInForm
             ->searchable()
             ->preload()
             ->required()
+            ->live()
             ->visible(fn () => auth()->user()?->isSuperAdmin() ?? false)
+            ->helperText('Bắt buộc chọn — nếu không, phiếu sẽ không hiện với bất kỳ tài khoản đối tác nào.');
+    }
+
+    // Chỉ super_admin thấy — nhân viên đối tác tạo phiếu thì branch_id tự động lấy theo tài khoản
+    // đang đăng nhập (users.branch_id, qua BelongsToBranch::creating()). Danh sách chi nhánh phụ
+    // thuộc đối tác đã chọn ở partnerInput().
+    private static function branchInput(): Select
+    {
+        return Select::make('branch_id')
+            ->label('Chi nhánh')
+            ->options(function (Get $get) {
+                $user = auth()->user();
+
+                if ($user?->isSuperAdmin()) {
+                    return Category::query()
+                        ->where('category_type', 'product')
+                        ->whereNull('parent_id')
+                        ->where('partner_id', $get('partner_id'))
+                        ->orderBy('name')
+                        ->pluck('name', 'id')
+                        ->all();
+                }
+
+                return Category::query()
+                    ->whereIn('id', $user?->rootProductCategoryIds() ?? [])
+                    ->orderBy('name')
+                    ->pluck('name', 'id')
+                    ->all();
+            })
+            ->default(function () {
+                $user = auth()->user();
+                if ($user?->isSuperAdmin()) {
+                    return null;
+                }
+                $branchIds = $user?->rootProductCategoryIds() ?? [];
+
+                return count($branchIds) === 1 ? $branchIds[0] : null;
+            })
+            ->searchable()
+            ->preload()
+            ->required()
+            ->disabled(fn (Get $get) => (auth()->user()?->isSuperAdmin() ?? false) && blank($get('partner_id')))
+            ->visible(fn () => (auth()->user()?->isSuperAdmin() ?? false) || count(auth()->user()?->rootProductCategoryIds() ?? []) > 1)
             ->helperText('Bắt buộc chọn — nếu không, phiếu sẽ không hiện với bất kỳ tài khoản đối tác nào.');
     }
 }

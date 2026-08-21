@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Warehouse\App\Models;
 
+use App\Models\Concerns\BelongsToBranch;
 use App\Models\Concerns\BelongsToPartner;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -15,6 +16,7 @@ use Modules\Product\App\Models\Product;
 class WarehouseStockOut extends Model
 {
     use BelongsToPartner;
+    use BelongsToBranch;
 
     public const REASONS = [
         'housekeeping' => 'Buồng phòng / Dọn phòng',
@@ -25,6 +27,7 @@ class WarehouseStockOut extends Model
 
     protected $fillable = [
         'partner_id',
+        'branch_id',
         'code',
         'employee_id',
         'product_id',

@@ -152,6 +152,7 @@ public function getFilamentAvatarUrl(): ?string
         return $this->belongsTo(\App\Models\Partner::class);
     }
 
+
     // Hồ sơ nhân viên liên kết (lương, chi nhánh làm việc, phòng ban...). Trang tạo/sửa tài
     // khoản (UserResource) tạo/đồng bộ đồng thời bản ghi này — null với super_admin/chủ đối tác
     // (những tài khoản chỉ cần đăng nhập, không cần hồ sơ nhân viên).
