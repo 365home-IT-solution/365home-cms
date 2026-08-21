@@ -2,8 +2,10 @@
 
 namespace App\Providers;
 
+use App\Listeners\ResizeOversizedMedia;
 use App\Models\Customer;
 use App\Models\User;
+use App\Observers\BannerObserver;
 use App\Observers\BranchObserver;
 use App\Observers\CategoryObserver;
 use App\Observers\CouponObserver;
@@ -26,7 +28,9 @@ use Modules\Product\App\Models\Product;
 use Modules\Promotion\App\Models\Coupon;
 use Modules\Promotion\App\Models\Promotion;
 use Modules\SettingCompany\Entities\Branch;
+use Modules\AppPage\App\Models\Banner;
 use App\Models\Role;
+use Spatie\MediaLibrary\MediaCollections\Events\MediaHasBeenAddedEvent;
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -38,6 +42,9 @@ class EventServiceProvider extends ServiceProvider
     protected $listen = [
         Registered::class => [
             SendEmailVerificationNotification::class,
+        ],
+        MediaHasBeenAddedEvent::class => [
+            ResizeOversizedMedia::class,
         ],
     ];
 
@@ -57,6 +64,7 @@ class EventServiceProvider extends ServiceProvider
         Coupon::observe(CouponObserver::class);
         Promotion::observe(PromotionObserver::class);
         Category::observe(CategoryObserver::class);
+        Banner::observe(BannerObserver::class);
     }
 
     /**

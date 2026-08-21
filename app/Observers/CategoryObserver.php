@@ -2,6 +2,8 @@
 
 namespace App\Observers;
 
+use App\Support\ResizesOversizedImage;
+use Illuminate\Support\Facades\Storage;
 use Modules\AccessCode\Entities\AccessCode;
 use Modules\Category\Entities\Category;
 use Modules\DataPermission\Entities\UserBranchPermission;
@@ -26,6 +28,10 @@ class CategoryObserver
     // "có chi nhánh nhưng không có gì bên trong" thay vì phải "có TOÀN BỘ hoặc không có gì".
     public function saved(Category $category): void
     {
+        if (filled($category->image) && ($category->wasRecentlyCreated || $category->wasChanged('image'))) {
+            ResizesOversizedImage::apply(Storage::disk('public')->path($category->image));
+        }
+
         if ($category->category_type !== 'product' || blank($category->partner_id)) {
             return;
         }
