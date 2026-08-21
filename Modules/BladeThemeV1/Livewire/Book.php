@@ -230,7 +230,7 @@ class Book extends Component
                     $query->where('checkout_date', '>', $startDate)
                         ->where('checkin_date', '<=', $endDate);
                     $query->whereHas('order', function ($subQuery) {
-                        $subQuery->whereIn('status', ['pending', 'paid', 'shipped', 'confirmed']);
+                        $subQuery->whereIn('status', ['pending', 'paid', 'confirmed']);
                     });
                 },
                 'orderItems.order'

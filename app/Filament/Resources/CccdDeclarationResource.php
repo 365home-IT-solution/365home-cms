@@ -245,7 +245,7 @@ class CccdDeclarationResource extends Resource
             // KHÔNG lọc mặc định theo "ngày đặt đơn" nữa — đơn có thể đặt trước nhiều ngày, phòng
             // để tab (xem ListCccdDeclarations::getTabs()) tự quyết định phạm vi hiển thị theo
             // đúng HẠN KHAI BÁO (tính từ checked_in_at), là mốc thời gian có ý nghĩa thật sự ở đây.
-            // Chỉ hiện khách của đơn ĐÃ XÁC NHẬN (paid/deposit/shipped) — bản ghi lưu trú được tạo
+            // Chỉ hiện khách của đơn ĐÃ XÁC NHẬN (paid/deposit) — bản ghi lưu trú được tạo
             // ngay từ lúc đặt phòng (kể cả pending) để không mất dữ liệu CCCD, nhưng đơn pending có
             // thể tự huỷ sau 15 phút nếu khách không thanh toán nên KHÔNG được tính là khách thật.
             ->modifyQueryUsing(fn (Builder $query) => $query

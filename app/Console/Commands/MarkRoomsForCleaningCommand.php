@@ -24,7 +24,7 @@ class MarkRoomsForCleaningCommand extends Command
             ->where('housekeeping_triggered', false)
             ->whereNotNull('checkout_date')
             ->where('checkout_date', '<=', $now)
-            ->whereHas('order', fn ($q) => $q->whereIn('status', ['paid', 'deposit', 'shipped']))
+            ->whereHas('order', fn ($q) => $q->whereIn('status', ['paid', 'deposit']))
             ->with('product')
             ->get();
 

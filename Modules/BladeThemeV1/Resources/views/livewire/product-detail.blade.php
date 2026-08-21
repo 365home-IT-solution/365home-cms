@@ -1453,7 +1453,7 @@
                                                                                 $mClasses .= ' pending';
                                                                                 $mIsSelectable = false;
                                                                             } elseif (
-                                                                                in_array($mStatus, ['paid', 'shipped'])
+                                                                                in_array($mStatus, ['paid'])
                                                                             ) {
                                                                                 $mClasses .= ' booked';
                                                                                 $mIsSelectable = false;
@@ -1463,7 +1463,6 @@
                                                                                 if (
                                                                                     in_array($mStatus, [
                                                                                         'paid',
-                                                                                        'shipped',
                                                                                         'confirmed',
                                                                                     ])
                                                                                 ) {
@@ -1757,8 +1756,7 @@
                                                                                 $classes .= ' pending';
                                                                                 $isSelectable = false;
                                                                             } elseif (
-                                                                                $status === 'paid' ||
-                                                                                $status === 'shipped'
+                                                                                $status === 'paid'
                                                                             ) {
                                                                                 $classes .= ' booked';
                                                                                 $isSelectable = false;
@@ -1769,7 +1767,6 @@
                                                                                 if (
                                                                                     in_array($status, [
                                                                                         'paid',
-                                                                                        'shipped',
                                                                                         'confirmed',
                                                                                     ])
                                                                                 ) {

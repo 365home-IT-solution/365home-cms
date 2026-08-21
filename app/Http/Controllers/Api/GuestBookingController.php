@@ -305,7 +305,7 @@ class GuestBookingController extends Controller
                     ->whereNotNull('checkout_date')
                     ->where('checkin_date', '<', $itemData['checkout_date'])
                     ->where('checkout_date', '>', $itemData['checkin_date'])
-                    ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped']))
+                    ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
                     ->exists();
 
                 if ($conflict) {
@@ -1144,7 +1144,7 @@ class GuestBookingController extends Controller
                 ->whereNotNull('checkout_date')
                 ->where('checkin_date', '<', $checkout)
                 ->where('checkout_date', '>', $checkin)
-                ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped']))
+                ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
                 ->exists();
 
             if ($conflict) {
@@ -1213,7 +1213,7 @@ class GuestBookingController extends Controller
             ->whereNotNull('checkout_date')
             ->where('checkin_date', '<', $checkout)
             ->where('checkout_date', '>', $checkin)
-            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped', 'confirmed']))
+            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'confirmed']))
             ->exists();
 
         if ($conflict) {

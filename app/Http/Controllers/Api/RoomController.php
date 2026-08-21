@@ -212,7 +212,7 @@ class RoomController extends Controller
             ->whereNotNull('checkout_date')
             ->where('checkout_date', '>', $date)
             ->where('checkin_date', '<', $date->copy()->addDay())
-            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped', 'confirmed']))
+            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'confirmed']))
             ->with('order:id,status')
             ->get(['id', 'order_id', 'checkin_date', 'checkout_date']);
 

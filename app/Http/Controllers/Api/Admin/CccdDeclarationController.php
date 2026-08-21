@@ -17,7 +17,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 /**
  * Danh sách KHAI BÁO LƯU TRÚ (bảng cccd_declarations) — tương ứng
  * App\Filament\Resources\CccdDeclarationResource ở CMS, cùng 4 tab (today/upcoming/declared/all),
- * cùng phạm vi lọc (chỉ khách của đơn ĐÃ XÁC NHẬN — paid/deposit/shipped, đơn pending có thể tự
+ * cùng phạm vi lọc (chỉ khách của đơn ĐÃ XÁC NHẬN — paid/deposit, đơn pending có thể tự
  * huỷ nên không tính). CHỈ đọc — API xác nhận "đã khai báo" (mark-declared) làm riêng khi cần, xem
  * ghi chú ở CccdDeclaration model: hệ thống KHÔNG tự gửi khai báo cho ASM/dịch vụ công, nhân viên
  * vẫn phải tự nộp thủ công bên ngoài, đây chỉ là nơi tra cứu ai cần khai báo.
@@ -171,7 +171,7 @@ class CccdDeclarationController extends Controller
             ->stream('ThongBaoLuuTru_' . now()->format('Ymd_His') . '.xlsx', $ids);
     }
 
-    // Chỉ khách của đơn ĐÃ XÁC NHẬN (paid/deposit/shipped — CONFIRMED_ORDER_STATUSES) mới tính, và
+    // Chỉ khách của đơn ĐÃ XÁC NHẬN (paid/deposit — CONFIRMED_ORDER_STATUSES) mới tính, và
     // chỉ thuộc đơn của đúng đối tác user đang quản lý (super_admin xem hết) — cùng phạm vi với
     // CccdDeclarationResource::table()->modifyQueryUsing() ở Filament.
     private function visibleDeclarationsQuery(User $user): Builder

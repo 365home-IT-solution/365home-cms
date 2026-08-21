@@ -65,7 +65,7 @@ class RoomItemBuilder
                 ->whereNotNull('checkout_date')
                 ->where('checkin_date', '<', $checkout)
                 ->where('checkout_date', '>', $checkin)
-                ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped']))
+                ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
                 ->exists();
 
             if ($conflict) {
@@ -137,7 +137,7 @@ class RoomItemBuilder
             ->whereNotNull('checkout_date')
             ->where('checkin_date', '<', $checkout)
             ->where('checkout_date', '>', $checkin)
-            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped', 'confirmed']))
+            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'confirmed']))
             ->exists();
 
         if ($conflict) {

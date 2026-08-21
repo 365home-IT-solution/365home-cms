@@ -79,7 +79,7 @@ class BranchController extends Controller
                 'orderItems' => function ($query) use ($endDate, $startDate) {
                     $query->where('checkout_date', '>', $startDate)
                         ->where('checkin_date', '<=', $endDate)
-                        ->whereHas('order', fn ($sub) => $sub->whereIn('status', ['pending', 'paid', 'shipped', 'confirmed']));
+                        ->whereHas('order', fn ($sub) => $sub->whereIn('status', ['pending', 'paid', 'confirmed']));
                 },
                 'orderItems.order',
             ])
@@ -180,7 +180,7 @@ class BranchController extends Controller
             }
         }
 
-        $isSelectable = ! in_array($status, ['pending', 'paid', 'shipped', 'confirmed']);
+        $isSelectable = ! in_array($status, ['pending', 'paid', 'confirmed']);
 
         $slotDate   = Carbon::createFromFormat('d-m-Y', $date['date'])->startOfDay();
         $yesterday  = now()->subDay()->startOfDay();

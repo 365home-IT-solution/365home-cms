@@ -1203,7 +1203,6 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
                 $statusLabel = match($conflict['order_status']) {
                     'paid'      => 'đã thanh toán',
                     'confirmed' => 'đã xác nhận',
-                    'shipped'   => 'đang xử lý',
                     default     => 'đang chờ thanh toán',
                 };
                 $this->dispatch('notify', [
@@ -1699,7 +1698,6 @@ public function confirmBooking()
             $statusLabel = match($conflict['order_status'] ?? '') {
                 'paid'      => 'đã thanh toán',
                 'confirmed' => 'đã xác nhận',
-                'shipped'   => 'đang xử lý',
                 default     => 'đang chờ thanh toán',
             };
             $this->dispatch('close-booking-modal');
@@ -1857,7 +1855,7 @@ public function confirmBooking()
                 ->whereHas('order', function ($q) {
                     $q->where(function ($inner) {
                         // Đơn đã thanh toán / xác nhận → luôn block
-                        $inner->whereIn('status', ['paid', 'shipped', 'confirmed'])
+                        $inner->whereIn('status', ['paid', 'confirmed'])
                               // Đơn pending → chỉ block nếu chưa hết hạn 15p
                               ->orWhere(function ($pendingQ) {
                                   $pendingQ->where('status', 'pending')
@@ -1968,7 +1966,7 @@ public function confirmBooking()
                         ->where('checkin_date', '<=', $endDate)
                         ->whereHas('order', function ($subQuery) {
                             $subQuery->where(function ($inner) {
-                                $inner->whereIn('status', ['paid', 'shipped'])
+                                $inner->whereIn('status', ['paid'])
                                       ->orWhere(function ($pendingQ) {
                                           $pendingQ->where('status', 'pending')
                                                    ->where(function ($expQ) {
@@ -2428,7 +2426,7 @@ public function confirmBooking()
                         ->where('checkin_date', '<=', $endDate)
                         ->whereHas('order', function ($subQuery) {
                             $subQuery->where(function ($inner) {
-                                $inner->whereIn('status', ['paid', 'shipped'])
+                                $inner->whereIn('status', ['paid'])
                                       ->orWhere(function ($pendingQ) {
                                           $pendingQ->where('status', 'pending')
                                                    ->where(function ($expQ) {

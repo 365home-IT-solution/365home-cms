@@ -595,7 +595,7 @@ class RoomSearchService
             return [];
         }
 
-        return OrderItem::whereHas('order', fn ($q) => $q->whereIn('status', ['paid', 'deposit', 'shipped', 'confirmed']))
+        return OrderItem::whereHas('order', fn ($q) => $q->whereIn('status', ['paid', 'deposit', 'confirmed']))
             ->whereNotNull('product_id')
             ->whereNotNull('checkin_date')
             ->whereNotNull('checkout_date')

@@ -78,7 +78,7 @@ trait BuildsRoomBooking
                 ->where('checkin_date', '<', $checkout)
                 ->where('checkout_date', '>', $checkin)
                 ->when($excludeOrderId, fn ($q) => $q->where('order_id', '!=', $excludeOrderId))
-                ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped']))
+                ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
                 ->exists();
 
             if ($conflict) {
@@ -150,7 +150,7 @@ trait BuildsRoomBooking
             ->where('checkin_date', '<', $checkout)
             ->where('checkout_date', '>', $checkin)
             ->when($excludeOrderId, fn ($q) => $q->where('order_id', '!=', $excludeOrderId))
-            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped', 'confirmed']))
+            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'confirmed']))
             ->exists();
 
         if ($conflict) {
@@ -226,7 +226,7 @@ trait BuildsRoomBooking
             ->where('checkin_date', '<', $checkout)
             ->where('checkout_date', '>', $checkin)
             ->when($excludeOrderId, fn ($q) => $q->where('order_id', '!=', $excludeOrderId))
-            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped']))
+            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
             ->exists();
 
         if ($conflict) {

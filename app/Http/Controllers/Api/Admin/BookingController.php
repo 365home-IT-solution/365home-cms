@@ -338,7 +338,7 @@ class BookingController extends Controller
                     ->whereNotNull('checkout_date')
                     ->where('checkin_date', '<', $itemData['checkout_date'])
                     ->where('checkout_date', '>', $itemData['checkin_date'])
-                    ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped']))
+                    ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
                     ->exists();
 
                 if ($conflict) {

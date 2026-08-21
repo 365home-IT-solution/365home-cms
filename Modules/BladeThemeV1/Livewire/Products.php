@@ -190,7 +190,7 @@ class Products extends Component
                       ->where('checkin_date', '<', $searchCheckOut)
                       ->where('checkout_date', '>', $searchCheckIn)
                       ->whereHas('order', function ($oq) {
-                          $oq->whereIn('status', ['pending', 'paid', 'shipped', 'deposit', 'confirmed']);
+                          $oq->whereIn('status', ['pending', 'paid', 'deposit', 'confirmed']);
                       });
                 });
             }
@@ -279,7 +279,7 @@ public function getRooms($productIds)
         'roomTimeSlots.timeSlot',
         'orderItems' => function ($query) {
             $query->where('checkout_date', '>', now())
-                ->whereHas('order', fn($q) => $q->whereIn('status', ['pending', 'paid', 'shipped', 'confirmed']));
+                ->whereHas('order', fn($q) => $q->whereIn('status', ['pending', 'paid', 'confirmed']));
         },
         'orderItems.order',
     ])

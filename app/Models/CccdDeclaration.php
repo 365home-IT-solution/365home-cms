@@ -68,7 +68,7 @@ class CccdDeclaration extends Model
     // 'pending' có thể tự huỷ sau 15 phút nếu khách không thanh toán (xem ExpirePaymentOrders),
     // nên KHÔNG tính vào danh sách/xuất Excel dù bản ghi lưu trú đã được tạo sẵn ngay từ lúc đặt
     // phòng (tạo sớm để không mất dữ liệu CCCD nếu khách quay lại thanh toán sau).
-    public const CONFIRMED_ORDER_STATUSES = ['paid', 'deposit', 'shipped'];
+    public const CONFIRMED_ORDER_STATUSES = ['paid', 'deposit'];
 
     public function hasConfirmedOrder(): bool
     {

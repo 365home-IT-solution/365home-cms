@@ -46,7 +46,7 @@ class OrderController extends Controller
      *                             nó. Có cả 2 (branch_id lẫn categories) thì categories thắng. Slug
      *                             không khớp chi nhánh nào → trả rỗng thay vì bỏ qua filter.
      *  - filter[room_id]        : lọc đơn có ít nhất 1 item thuộc phòng này (order_items.product_id)
-     *  - filter[status]         : pending|paid|deposit|cancelled|failed|refunded|shipped...
+     *  - filter[status]         : pending|paid|deposit|cancelled|failed|refunded...
      *  - filter[payment_method] : PayOS|cod
      *  - filter[search]         : order_code / buyer_name / buyer_phone
      *  - filter[from], filter[to]       : lọc theo ngày TẠO đơn — created_at (yyyy-mm-dd)

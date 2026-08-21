@@ -125,7 +125,7 @@
                                 if ($status === 'pending') {
                                 $classes .= ' pending';
                                 $isSelectable = false;
-                                } elseif (in_array($status, ['paid', 'shipped', 'confirmed'])) {
+                                } elseif (in_array($status, ['paid', 'confirmed'])) {
                                 $classes .= ' booked';
                                 $isSelectable = false;
                                 }
@@ -133,7 +133,7 @@
                                 
                                 $orderColor = null;
                                 if ($matchedItem) {
-                                    if (in_array($status, ['paid', 'shipped', 'confirmed'])) {
+                                    if (in_array($status, ['paid', 'confirmed'])) {
                                     $orderColor = '#4e6b4c';
                                     } elseif ($status === 'deposit') {
                                     $orderColor = '#3b82f6';

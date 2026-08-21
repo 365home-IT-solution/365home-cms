@@ -50,7 +50,6 @@ return [
                 'paid'              => 'Đã thanh toán',
                 'deposit'           => 'Đã đặt cọc',
                 'failed'            => 'Thất bại',
-                'shipped'           => 'Đã đăng đơn',
                 'cancelled_payment' => 'Hủy thanh toán',
                 'refunded'          => 'Hoàn tiền'
             ]
@@ -84,7 +83,6 @@ return [
             'paid'              => 'Đã thanh toán',
             'deposit'           => 'Đã đặt cọc',
             'failed'            => 'Hủy thanh toán',
-            'shipped'           => 'Đã đăng đơn',
             'cancelled_payment' => 'Hủy QR',
             'refunded'          => 'Hoàn tiền'
         ],

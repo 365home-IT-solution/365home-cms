@@ -267,7 +267,7 @@ class BranchDetailForm
         $hasActiveBooking = OrderItem::where('product_id', $room->id)
             ->where('checkin_date', '<=', now())
             ->where('checkout_date', '>=', now())
-            ->whereHas('order', fn ($q) => $q->whereIn('status', ['paid', 'deposit', 'shipped']))
+            ->whereHas('order', fn ($q) => $q->whereIn('status', ['paid', 'deposit']))
             ->exists();
 
         if ($hasActiveBooking) {

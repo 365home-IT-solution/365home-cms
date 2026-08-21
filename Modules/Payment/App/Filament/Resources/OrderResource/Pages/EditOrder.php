@@ -758,7 +758,6 @@ class EditOrder extends EditRecord
             'cancelled'          => ['Đơn đã bị hủy',              "Đơn #{$order->order_code} đã bị hủy. Liên hệ chúng tôi nếu có thắc mắc."],
             'cancelled_payment'  => ['Thanh toán hết hạn',         "Đơn #{$order->order_code} đã hết hạn thanh toán."],
             'failed'             => ['Thanh toán thất bại',        "Đơn #{$order->order_code} thanh toán không thành công."],
-            'shipped'            => ['Đơn đang được xử lý',        "Đơn #{$order->order_code} đang được xử lý."],
         ];
 
         [$title, $body] = $messages[$order->status] ?? [null, null];

@@ -298,7 +298,6 @@ class OrderForm
                                                                         'paid'              => '' . __('payment::order.form.options.status.paid'),
                                                                         'deposit'           => 'Đã đặt cọc',
                                                                         'failed'            => '' . __('payment::order.form.options.status.failed'),
-                                                                        'cancelled_payment' => 'Hủy QR',
                                                                         'refunded'          => 'Hoàn tiền',
                                                                     ])
                                                                     ->default('pending')
