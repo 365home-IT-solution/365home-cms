@@ -417,7 +417,7 @@ app.post('/internal/slot-blocked-range', (req, res) => {
         return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const { room_id, dates, slot_ids, status } = req.body;
+    const { room_id, dates, slot_ids, status, source } = req.body;
     if (!room_id || !Array.isArray(dates) || dates.length === 0) {
         return res.status(422).json({ error: 'Missing room_id or dates' });
     }
@@ -428,6 +428,11 @@ app.post('/internal/slot-blocked-range', (req, res) => {
             date,
             slot_ids: slot_ids || [],
             status: status || 'blocked',
+            // Truyền lại nguyên trạng cho client web (resources/js/ws-client.js) — phía đó dựa vào
+            // field này để bỏ qua việc ép Livewire re-render toàn bộ khi Reverb đã vá trực tiếp rồi
+            // (xem SlotRealtimeService::broadcastBlockedRange()). Field phụ, không phá hợp đồng cũ
+            // với app RN/Filament (chỉ đọc thêm nếu có, bỏ qua nếu không).
+            ...(source ? { source } : {}),
         });
     }
 

@@ -107,6 +107,49 @@ if (import.meta.env.VITE_REVERB_APP_KEY) {
         }
     }
 
+    // Khoá/mở khoá (RoomBlockController, BlockTimeslotModal, SettingBook — xem
+    // App\Events\RoomSlotsBlocked) — CSS ".selectable.blocked" (book/_styles.blade.php) tự lo toàn
+    // bộ giao diện (cursor/pointer-events/hoạ tiết ::after) chỉ từ 1 class, không cần thêm icon như
+    // held ở trên, nên chỉ cần toggle đúng class là đủ, không phải set style tay.
+    function applyBlocked(cells) {
+        const activeCell = Array.from(cells).find((c) => c.classList.contains('active'));
+
+        if (activeCell) {
+            activeCell.click();
+
+            window.dispatchEvent(new CustomEvent('notify', {
+                detail: {
+                    message: 'Khung giờ bạn vừa chọn vừa bị khoá — vui lòng chọn khung giờ khác.',
+                    type: 'error',
+                },
+            }));
+        }
+
+        cells.forEach((cell) => cell.classList.add('blocked'));
+    }
+
+    function removeBlocked(cell) {
+        cell.classList.remove('blocked');
+    }
+
+    // Phòng theo NGÀY (styles=2, product-detail.blade.php) — date-range-picker nằm trong
+    // `wire:ignore` (#pd-timeslots-section, xem ProductDetail.php) nên Livewire re-render KHÔNG tự
+    // patch được khu vực này; phải ghi thẳng vào mảng Alpine `adminBlockedRanges` — component tự
+    // vẽ lại lịch nhờ reactivity sẵn có (isAdminBlockedFor()...), không cần thêm code vẽ UI riêng.
+    function applyDailyBlockedRanges(blockedRanges) {
+        const root = document.querySelector('#pd-timeslots-section [x-data]');
+
+        if (!root || !window.Alpine) {
+            return;
+        }
+
+        const data = window.Alpine.$data(root);
+
+        if (data) {
+            data.adminBlockedRanges = blockedRanges || [];
+        }
+    }
+
     const subscribedRoomIds = new Set();
 
     function subscribeToRoom(roomId) {
@@ -122,6 +165,25 @@ if (import.meta.env.VITE_REVERB_APP_KEY) {
             })
             .listen('.released', (e) => {
                 findCells(e.product_id, e.timeslot_id, e.date).forEach((cell) => removeHeld(cell));
+            })
+            .listen('.slot-blocked-range', (e) => {
+                const dates = e.dates || [];
+                const timeslotIds = e.timeslot_ids || [];
+
+                dates.forEach((date) => {
+                    timeslotIds.forEach((timeslotId) => {
+                        const cells = findCells(e.product_id, timeslotId, date);
+
+                        if (e.status === 'blocked') {
+                            applyBlocked(cells);
+                        } else {
+                            cells.forEach(removeBlocked);
+                        }
+                    });
+                });
+            })
+            .listen('.daily-blocked-ranges-changed', (e) => {
+                applyDailyBlockedRanges(e.blocked_ranges);
             });
     }
 

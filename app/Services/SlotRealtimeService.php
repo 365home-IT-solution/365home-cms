@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Events\RoomDailyBlockedRangesChanged;
+use App\Events\RoomSlotsBlocked;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Modules\Product\App\Models\RoomTimeSlot;
 
 class SlotRealtimeService
 {
@@ -91,24 +94,66 @@ class SlotRealtimeService
      */
     public function broadcastBlockedRange(string $roomId, array $dates, array $slotIds = [], string $status = 'blocked'): void
     {
+        if (empty($dates)) {
+            return;
+        }
+
         $url = rtrim(config('services.websocket.url', 'http://localhost:3001'), '/');
         $key = config('services.websocket.internal_key', '');
 
-        if (empty($url) || empty($dates)) {
+        if (! empty($url)) {
+            try {
+                Http::withHeaders(['x-internal-key' => $key])
+                    ->timeout(3)
+                    ->post("{$url}/internal/slot-blocked-range", [
+                        'room_id'  => $roomId,
+                        'dates'    => $dates,
+                        'slot_ids' => $slotIds,
+                        'status'   => $status,
+                        // Đánh dấu để Node WS truyền lại cho ws-client.js — phía đó dựa vào field
+                        // này để BỎ QUA việc ép Livewire re-render toàn bộ (đã có Reverb vá trực
+                        // tiếp đúng ô bị ảnh hưởng bên dưới, xem broadcastSlotsBlockedReverb()).
+                        'source'   => 'admin-block',
+                    ])->throw();
+            } catch (\Throwable $e) {
+                Log::warning('WS slot-blocked-range push failed', ['room_id' => $roomId, 'error' => $e->getMessage()]);
+            }
+        }
+
+        $this->broadcastSlotsBlockedReverb($roomId, $dates, $slotIds, $status);
+    }
+
+    /**
+     * Vá TRỰC TIẾP các ô "khung giờ x ngày" bị khoá/mở khoá qua Reverb, KHÔNG chờ Node WS ép
+     * Livewire re-render toàn bộ bảng (cách đó chỉ hợp lý cho thay đổi giá/km hiếm gặp — khoá phòng
+     * có thể xảy ra thường xuyên hơn nhiều và khiến MỌI khách đang xem trang bị skeleton-loading
+     * giữa chừng, xem resources/js/echo-client.js).
+     *
+     * $slotIds là RoomTimeSlot IDs (khớp docblock broadcastBlockedRange() — rỗng = toàn bộ slot của
+     * phòng). DOM cell dùng data-timeslot-id=TimeSlot.id (dùng CHUNG giữa các bản ghi RoomTimeSlot
+     * theo ngày khác nhau của cùng 1 khung giờ, xem book/_slot-cell.blade.php), nên phải quy đổi
+     * sang timeslot_id trước khi phát — KHÁC với slot_ids gửi cho Node WS/app RN ở trên (giữ nguyên
+     * RoomTimeSlot ID để không phá hợp đồng đang có với phía đó).
+     */
+    private function broadcastSlotsBlockedReverb(string $roomId, array $dates, array $slotIds, string $status): void
+    {
+        $timeslotIds = empty($slotIds)
+            ? RoomTimeSlot::where('room_id', $roomId)->whereNull('date')->pluck('timeslot_id')
+            : RoomTimeSlot::whereIn('id', $slotIds)->pluck('timeslot_id');
+
+        $timeslotIds = $timeslotIds->filter()->unique()->values()->all();
+
+        if (empty($timeslotIds)) {
             return;
         }
 
         try {
-            Http::withHeaders(['x-internal-key' => $key])
-                ->timeout(3)
-                ->post("{$url}/internal/slot-blocked-range", [
-                    'room_id'  => $roomId,
-                    'dates'    => $dates,
-                    'slot_ids' => $slotIds,
-                    'status'   => $status,
-                ])->throw();
+            broadcast(new RoomSlotsBlocked($roomId, $dates, $timeslotIds, $status));
         } catch (\Throwable $e) {
-            Log::warning('WS slot-blocked-range push failed', ['room_id' => $roomId, 'error' => $e->getMessage()]);
+            Log::warning('Reverb slot-blocked broadcast thất bại (Reverb server có thể chưa chạy)', [
+                'room_id' => $roomId,
+                'error'   => $e->getMessage(),
+            ]);
         }
     }
 
@@ -122,19 +167,31 @@ class SlotRealtimeService
         $url = rtrim(config('services.websocket.url', 'http://localhost:3001'), '/');
         $key = config('services.websocket.internal_key', '');
 
-        if (empty($url)) {
-            return;
+        if (! empty($url)) {
+            try {
+                Http::withHeaders(['x-internal-key' => $key])
+                    ->timeout(2)
+                    ->post("{$url}/internal/daily-blocked", [
+                        'room_id'        => $roomId,
+                        'blocked_ranges' => $blockedRanges,
+                    ])->throw();
+            } catch (\Throwable $e) {
+                Log::warning('WS daily-blocked push failed', ['room_id' => $roomId, 'error' => $e->getMessage()]);
+            }
         }
 
+        // Vá TRỰC TIẾP qua Reverb — xem RoomDailyBlockedRangesChanged::class và ghi chú ở
+        // broadcastSlotsBlockedReverb() phía trên (cùng lý do, style 2 thay vì style 1). Node WS
+        // vẫn giữ nguyên phía trên cho app RN/Filament — KHÔNG bỏ, chỉ ngưng dùng nó để ép reload
+        // trang khách hàng (xem resources/js/ws-client.js đã bỏ `daily.blocked` khỏi danh sách bắn
+        // scheduleDispatch()).
         try {
-            Http::withHeaders(['x-internal-key' => $key])
-                ->timeout(2)
-                ->post("{$url}/internal/daily-blocked", [
-                    'room_id'        => $roomId,
-                    'blocked_ranges' => $blockedRanges,
-                ])->throw();
+            broadcast(new RoomDailyBlockedRangesChanged($roomId, $blockedRanges));
         } catch (\Throwable $e) {
-            Log::warning('WS daily-blocked push failed', ['room_id' => $roomId, 'error' => $e->getMessage()]);
+            Log::warning('Reverb daily-blocked broadcast thất bại (Reverb server có thể chưa chạy)', [
+                'room_id' => $roomId,
+                'error'   => $e->getMessage(),
+            ]);
         }
     }
 

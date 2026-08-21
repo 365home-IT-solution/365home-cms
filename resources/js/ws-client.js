@@ -1,14 +1,17 @@
-// Realtime "khung giờ vừa đổi giá/khuyến mãi/mã giảm giá" cho khách hàng — nghe Node WS service
-// (websocket/server.js, KHÁC với Reverb dùng cho hold-chỗ ADMIN ở echo-client.js) kênh
-// "room:{roomId}:{date}", event "slot.updated" (bắn bởi SlotRealtimeService::broadcastBlockedRange
-// khi admin lưu ở SettingBook — xem Modules/Book/App/Filament/Resources/BookResource/Pages/
-// SettingBook.php::broadcastDatesChanged()).
+// Realtime "khung giờ vừa đổi giá/khuyến mãi/mã giảm giá HOẶC vừa có đơn mới" cho khách hàng —
+// nghe Node WS service (websocket/server.js, KHÁC với Reverb dùng cho hold-chỗ/khoá phòng ở
+// echo-client.js) kênh "room:{roomId}:{date}", event "slot.updated" (bắn khi admin lưu ở
+// SettingBook — xem Modules/Book/App/Filament/Resources/BookResource/Pages/
+// SettingBook.php::broadcastDatesChanged() — hoặc khi có đơn mới/đổi trạng thái) và "daily.booked".
 //
-// KHÁC với echo-client.js (vá trực tiếp DOM cho hold — tần suất rất cao, hàng nghìn khách cùng
-// lúc): ở đây admin đổi giá là thao tác HIẾM (vài lần/ngày), nên chấp nhận ép Livewire re-render
-// component thật (Livewire.dispatch('roomAvailabilityChanged') — xem onRoomAvailabilityChanged()
-// trong ProductDetail.php/Book.php) để lấy đúng giá/khuyến mãi mới từ DB, thay vì tự vá DOM (sẽ
-// phải chép lại logic format giá/km sang JS, dễ lệch với PHP).
+// KHÁC với echo-client.js (vá trực tiếp DOM cho hold/khoá phòng — tần suất cao, hàng nghìn khách
+// cùng lúc): ở đây admin đổi giá là thao tác HIẾM (vài lần/ngày), nên chấp nhận ép Livewire
+// re-render component thật (Livewire.dispatch('roomAvailabilityChanged') — xem
+// onRoomAvailabilityChanged() trong ProductDetail.php/Book.php) để lấy đúng giá/khuyến mãi mới từ
+// DB, thay vì tự vá DOM (sẽ phải chép lại logic format giá/km sang JS, dễ lệch với PHP). Riêng
+// khoá/mở khoá (status='blocked'/'available' kèm field `source`='admin-block') đã tách hẳn sang
+// Reverb (App\Events\RoomSlotsBlocked/RoomDailyBlockedRangesChanged) — KHÔNG còn ép reload ở đây
+// nữa, xem nhánh `if (e.source === 'admin-block')` bên dưới.
 (function () {
     const WS_URL = window.__WS_PUBLIC_URL;
 
@@ -51,9 +54,19 @@
         }
 
         socket = window.io(wsOrigin, { path: wsPath, transports: ['websocket', 'polling'] });
-        socket.on('slot.updated', scheduleDispatch);
+        // Khoá/mở khoá (source === 'admin-block') đã được Reverb vá TRỰC TIẾP đúng ô bị ảnh hưởng
+        // (xem resources/js/echo-client.js + App\Events\RoomSlotsBlocked) — KHÔNG ép reload lần
+        // nữa ở đây, chỉ còn giữ full reload cho thay đổi giá/khuyến mãi thật (SettingBook) hoặc
+        // đặt phòng thật (không có field `source`). `daily.blocked` (style 2) giờ CHỈ còn ý nghĩa
+        // khoá/mở khoá — đã bỏ hẳn khỏi đây, xử lý toàn bộ qua Reverb
+        // (App\Events\RoomDailyBlockedRangesChanged).
+        socket.on('slot.updated', (e) => {
+            if (e && e.source === 'admin-block') {
+                return;
+            }
+            scheduleDispatch();
+        });
         socket.on('daily.booked', scheduleDispatch);
-        socket.on('daily.blocked', scheduleDispatch);
 
         return socket;
     }
