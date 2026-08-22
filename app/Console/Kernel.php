@@ -37,13 +37,6 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping(2)
             ->appendOutputTo(storage_path('logs/scheduled-notifications.log'));
 
-        // Tự động tạo mã khuyến mãi định kỳ theo lịch riêng của từng hạng thành viên (auto_issue_*)
-        $schedule->command('membership:auto-issue-tier-coupons')
-            ->everyMinute()
-            ->timezone('Asia/Ho_Chi_Minh')
-            ->withoutOverlapping(2)
-            ->appendOutputTo(storage_path('logs/auto-issue-tier-coupons.log'));
-
         $schedule->command('notifications:checkin-reminder')
             ->everyFiveMinutes()
             ->timezone('Asia/Ho_Chi_Minh')

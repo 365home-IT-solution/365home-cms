@@ -37,6 +37,7 @@ class Coupon extends Model
         'customer_id',
         'validity_days',
         'template_coupon_id',
+        'auto_issue_tier_id',
     ];
 
     protected $casts = [
@@ -48,6 +49,7 @@ class Coupon extends Model
         'min_order_value' => 'decimal:2',
         'max_discount' => 'decimal:2',
         'validity_days' => 'integer',
+        'auto_issue_tier_id' => 'integer',
     ];
 
     /**
@@ -111,6 +113,16 @@ class Coupon extends Model
     {
         return $this->belongsToMany(MembershipTier::class, 'membership_tier_coupon', 'coupon_id', 'membership_tier_id')
             ->withTimestamps();
+    }
+
+    /**
+     * Hạng thành viên mà coupon NÀY được cấp tự động khi khách đăng nhập (thưởng đăng nhập định kỳ)
+     * — null nếu coupon không phải loại này. Dùng để tra lịch sử cấp gần nhất cho 1 khách khi xét
+     * điều kiện đủ chu kỳ. Xem MembershipService::grantLoginReward().
+     */
+    public function autoIssueTier()
+    {
+        return $this->belongsTo(MembershipTier::class, 'auto_issue_tier_id');
     }
 
     /**

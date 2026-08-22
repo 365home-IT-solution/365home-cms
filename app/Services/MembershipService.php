@@ -390,48 +390,82 @@ class MembershipService
     }
 
     /**
-     * Chạy 1 lượt phát coupon định kỳ theo lịch riêng của hạng (auto_issue_*): tạo 1 coupon CÁ NHÂN
-     * (không dùng chung, không dedup theo template) cho từng customer ĐANG giữ hạng này, dùng cấu
-     * hình auto_issue_coupon_* của tier. Gọi bởi AutoIssueTierCouponsCommand khi tới đúng lịch.
-     * Tách riêng khỏi issueTierCoupon()/grantTemplateCoupon() vì 2 hàm đó chỉ cấp 1 LẦN cho mỗi
-     * khách (lúc đăng ký/lên hạng) — còn đây cần cấp LẶP LẠI mỗi kỳ (mỗi tuần) cho cùng 1 khách.
-     *
-     * @return array{coupon_count: int, customer_ids: string[]}
+     * Cấp thưởng đăng nhập định kỳ cho 1 khách, nếu hạng hiện tại của khách bật auto_issue_enabled
+     * VÀ đã đủ auto_issue_interval_weeks tuần kể từ lần được cấp gần nhất (tra theo lịch sử coupon
+     * có auto_issue_tier_id = hạng này, KHÔNG phải theo giờ/lịch cố định — kích hoạt bởi hành động
+     * đăng nhập của khách). Gọi ngay khi khách đăng nhập thành công (xem
+     * ZaloOtpController::verifyOtp()/login()) — nơi gọi PHẢI bọc try/catch vì lỗi ở đây không được
+     * làm hỏng luồng đăng nhập.
      */
-    public function runAutoIssueForTier(MembershipTier $tier): array
+    public function grantLoginReward(Customer $customer): void
     {
-        if (! $tier->auto_issue_coupon_value || $tier->auto_issue_coupon_value <= 0) {
-            return ['coupon_count' => 0, 'customer_ids' => []];
+        if (! $customer->membership_tier_id) {
+            return;
         }
 
-        $customerIds = [];
-        $prefix      = strtoupper(Str::slug($tier->name, ''));
-        $createdBy   = $this->superAdminId();
+        $tier = MembershipTier::where('id', $customer->membership_tier_id)
+            ->where('is_active', true)
+            ->where('auto_issue_enabled', true)
+            ->first();
 
-        Customer::where('membership_tier_id', $tier->id)
-            ->get()
-            ->each(function (Customer $customer) use ($tier, $prefix, $createdBy, &$customerIds) {
-                Coupon::create([
-                    'code'          => Str::limit($prefix, 10, '') . strtoupper(Str::random(6)),
-                    'name'          => 'Ưu đãi định kỳ hạng ' . $tier->name . ' — ' . $customer->fullname,
-                    'description'   => 'Coupon tự động cấp định kỳ cho hạng ' . $tier->name,
-                    'type'          => $tier->auto_issue_coupon_type ?: 'fixed',
-                    'value'         => $tier->auto_issue_coupon_value,
-                    'apply_type'    => 'all_rooms',
-                    'usage_limit'   => $tier->auto_issue_coupon_usage_limit,
-                    'used_count'    => 0,
-                    'start_at'      => now(),
-                    'end_at'        => $tier->auto_issue_coupon_days ? now()->addDays($tier->auto_issue_coupon_days) : null,
-                    'is_active'     => true,
-                    'is_exclusive'  => true,
-                    'customer_id'   => $customer->id,
-                    'created_by'    => $createdBy,
-                ]);
+        if (! $tier || ! $tier->auto_issue_coupon_value || $tier->auto_issue_coupon_value <= 0) {
+            return;
+        }
 
-                $customerIds[] = $customer->id;
-            });
+        $intervalWeeks = max(1, (int) $tier->auto_issue_interval_weeks);
 
-        return ['coupon_count' => count($customerIds), 'customer_ids' => $customerIds];
+        $lastGranted = Coupon::where('customer_id', $customer->id)
+            ->where('auto_issue_tier_id', $tier->id)
+            ->latest('created_at')
+            ->first();
+
+        if ($lastGranted && $lastGranted->created_at->gt(now()->subWeeks($intervalWeeks))) {
+            return;
+        }
+
+        $prefix = strtoupper(Str::slug($tier->name, ''));
+
+        Coupon::create([
+            'code'               => Str::limit($prefix, 10, '') . strtoupper(Str::random(6)),
+            'name'               => 'Ưu đãi định kỳ hạng ' . $tier->name . ' — ' . $customer->fullname,
+            'description'        => 'Coupon tự động cấp định kỳ cho hạng ' . $tier->name,
+            'type'               => $tier->auto_issue_coupon_type ?: 'fixed',
+            'value'              => $this->rollAutoIssueCouponValue($tier),
+            'apply_type'         => 'all_rooms',
+            'usage_limit'        => $tier->auto_issue_coupon_usage_limit,
+            'used_count'         => 0,
+            'start_at'           => now(),
+            'end_at'             => $tier->auto_issue_coupon_days ? now()->addDays($tier->auto_issue_coupon_days) : null,
+            'is_active'          => true,
+            'is_exclusive'       => true,
+            'customer_id'        => $customer->id,
+            'auto_issue_tier_id' => $tier->id,
+            'created_by'         => $this->superAdminId(),
+        ]);
+
+        app(NotificationFcmService::class)->sendToCustomer(
+            $customer,
+            $tier->auto_issue_notify_title ?: 'Ưu đãi dành cho hạng ' . $tier->name,
+            $tier->auto_issue_notify_body ?: 'Bạn vừa nhận được một mã khuyến mãi mới dành riêng cho hạng thành viên của bạn. Kiểm tra ngay!',
+            'membership_auto_coupon',
+        );
+    }
+
+    /**
+     * Random giá trị mã trong khoảng [auto_issue_coupon_value, auto_issue_coupon_value_max], làm
+     * tròn về bội số 1.000đ. Nếu value_max trống hoặc <= value thì luôn trả về đúng value (không
+     * random) — giữ đúng hành vi cố định 1 mức giá như trước khi có value_max.
+     */
+    private function rollAutoIssueCouponValue(MembershipTier $tier): float
+    {
+        $min = (float) $tier->auto_issue_coupon_value;
+        $max = (float) $tier->auto_issue_coupon_value_max;
+
+        if ($max <= $min) {
+            return $min;
+        }
+
+        return random_int((int) round($min / 1000), (int) round($max / 1000)) * 1000;
     }
 
     /**

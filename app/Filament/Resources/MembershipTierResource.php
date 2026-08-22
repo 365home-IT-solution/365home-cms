@@ -15,7 +15,6 @@ use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\TimePicker;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
@@ -122,60 +121,46 @@ class MembershipTierResource extends Resource
 
             Section::make('Tự động tạo mã khuyến mãi định kỳ')->schema([
                 Toggle::make('auto_issue_enabled')
-                    ->label('Bật tự động tạo mã định kỳ')
-                    ->helperText('Đến đúng lịch bên dưới, hệ thống tự tạo 1 mã khuyến mãi riêng cho MỖI khách đang giữ hạng này và gửi thông báo. Lặp lại theo chu kỳ tuần đã chọn.')
+                    ->label('Bật thưởng đăng nhập định kỳ')
+                    ->helperText('Mỗi khi khách đăng nhập vào app, nếu đã đủ chu kỳ (xem "Lặp lại mỗi") kể từ lần được tặng gần nhất, hệ thống tự tạo 1 mã khuyến mãi riêng cho khách đó và gửi thông báo ngay lúc đăng nhập — không chạy theo giờ cố định, không cấp hàng loạt cho cả hạng cùng lúc.')
                     ->live()
                     ->default(false),
 
-                Grid::make(3)->schema([
-                    TextInput::make('auto_issue_interval_weeks')
-                        ->label('Lặp lại mỗi (tuần)')
-                        ->numeric()
-                        ->minValue(1)
-                        ->default(1)
-                        ->suffix('tuần')
-                        ->helperText('VD: 1 = mỗi tuần, 2 = 2 tuần/lần.')
-                        ->required(fn (Get $get) => $get('auto_issue_enabled'))
-                        ->visible(fn (Get $get) => $get('auto_issue_enabled')),
+                TextInput::make('auto_issue_interval_weeks')
+                    ->label('Lặp lại mỗi (tuần)')
+                    ->numeric()
+                    ->minValue(1)
+                    ->default(1)
+                    ->suffix('tuần')
+                    ->helperText('Khách chỉ được tặng lại sau đúng N tuần kể từ lần được tặng gần nhất (tính từ lúc đăng nhập, không phải theo lịch cố định). VD: 1 = mỗi tuần, 2 = 2 tuần/lần.')
+                    ->required(fn (Get $get) => $get('auto_issue_enabled'))
+                    ->visible(fn (Get $get) => $get('auto_issue_enabled')),
 
-                    Select::make('auto_issue_day_of_week')
-                        ->label('Vào thứ')
-                        ->options([
-                            1 => 'Thứ 2',
-                            2 => 'Thứ 3',
-                            3 => 'Thứ 4',
-                            4 => 'Thứ 5',
-                            5 => 'Thứ 6',
-                            6 => 'Thứ 7',
-                            0 => 'Chủ nhật',
-                        ])
-                        ->required(fn (Get $get) => $get('auto_issue_enabled'))
-                        ->visible(fn (Get $get) => $get('auto_issue_enabled')),
-
-                    TimePicker::make('auto_issue_time')
-                        ->label('Lúc')
-                        ->seconds(false)
-                        ->required(fn (Get $get) => $get('auto_issue_enabled'))
-                        ->visible(fn (Get $get) => $get('auto_issue_enabled')),
-                ]),
+                Select::make('auto_issue_coupon_type')
+                    ->label('Loại giảm giá')
+                    ->options([
+                        'percentage' => 'Phần trăm (%)',
+                        'fixed'      => 'Số tiền cố định (VNĐ)',
+                    ])
+                    ->default('fixed')
+                    ->live()
+                    ->visible(fn (Get $get) => $get('auto_issue_enabled')),
 
                 Grid::make(3)->schema([
-                    Select::make('auto_issue_coupon_type')
-                        ->label('Loại giảm giá')
-                        ->options([
-                            'percentage' => 'Phần trăm (%)',
-                            'fixed'      => 'Số tiền cố định (VNĐ)',
-                        ])
-                        ->default('fixed')
-                        ->live()
-                        ->visible(fn (Get $get) => $get('auto_issue_enabled')),
-
                     TextInput::make('auto_issue_coupon_value')
-                        ->label(fn (Get $get) => $get('auto_issue_coupon_type') === 'percentage' ? 'Giá trị (%)' : 'Giá trị (VNĐ)')
+                        ->label(fn (Get $get) => $get('auto_issue_coupon_type') === 'percentage' ? 'Giá trị tối thiểu / mặc định (%)' : 'Giá trị tối thiểu / mặc định (VNĐ)')
                         ->numeric()
                         ->minValue(0)
                         ->maxValue(fn (Get $get) => $get('auto_issue_coupon_type') === 'percentage' ? 100 : null)
                         ->required(fn (Get $get) => $get('auto_issue_enabled'))
+                        ->visible(fn (Get $get) => $get('auto_issue_enabled')),
+
+                    TextInput::make('auto_issue_coupon_value_max')
+                        ->label(fn (Get $get) => $get('auto_issue_coupon_type') === 'percentage' ? 'Giá trị tối đa (%)' : 'Giá trị tối đa (VNĐ)')
+                        ->numeric()
+                        ->minValue(0)
+                        ->maxValue(fn (Get $get) => $get('auto_issue_coupon_type') === 'percentage' ? 100 : null)
+                        ->helperText('Để trống = luôn cấp đúng giá trị tối thiểu. Có nhập thì mỗi lần cấp sẽ random 1 giá trị trong khoảng.')
                         ->visible(fn (Get $get) => $get('auto_issue_enabled')),
 
                     TextInput::make('auto_issue_coupon_days')
@@ -310,16 +295,19 @@ class MembershipTierResource extends Resource
                     ->sortable(),
 
                 TextColumn::make('auto_issue_schedule')
-                    ->label('Lịch tự động cấp mã')
+                    ->label('Thưởng đăng nhập định kỳ')
                     ->state(function (MembershipTier $record): string {
-                        if (! $record->auto_issue_enabled || $record->auto_issue_day_of_week === null || ! $record->auto_issue_time) {
+                        if (! $record->auto_issue_enabled || ! $record->auto_issue_coupon_value || $record->auto_issue_coupon_value <= 0) {
                             return '—';
                         }
 
-                        $days = [0 => 'CN', 1 => 'T2', 2 => 'T3', 3 => 'T4', 4 => 'T5', 5 => 'T6', 6 => 'T7'];
-                        $time = \Illuminate\Support\Str::of((string) $record->auto_issue_time)->limit(5, '');
+                        $unit  = $record->auto_issue_coupon_type === 'percentage' ? '%' : 'đ';
+                        $min   = number_format((float) $record->auto_issue_coupon_value, 0, ',', '.');
+                        $value = $record->auto_issue_coupon_value_max && $record->auto_issue_coupon_value_max > $record->auto_issue_coupon_value
+                            ? $min . '–' . number_format((float) $record->auto_issue_coupon_value_max, 0, ',', '.')
+                            : $min;
 
-                        return "{$days[$record->auto_issue_day_of_week]} {$time}";
+                        return "Mỗi {$record->auto_issue_interval_weeks} tuần ({$value}{$unit})";
                     })
                     ->toggleable(isToggledHiddenByDefault: true),
 
