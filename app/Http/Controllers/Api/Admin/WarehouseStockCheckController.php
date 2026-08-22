@@ -39,6 +39,11 @@ class WarehouseStockCheckController extends Controller
 
         if (! $user->isSuperAdmin()) {
             $query->where('partner_id', $user->partner_id);
+
+            $branchIds = $user->rootProductCategoryIds();
+            if (! empty($branchIds)) {
+                $query->whereIn('branch_id', $branchIds);
+            }
         }
 
         if ($request->filled('search')) {
@@ -83,16 +88,25 @@ class WarehouseStockCheckController extends Controller
         // gán. Thiếu bước này thì phiếu lưu với partner_id RỖNG, không đối tác nào thấy được (đã
         // xác nhận thực tế qua panel Filament — cùng lý do vừa sửa ở
         // WarehouseStockCheckForm::partnerInput()).
+        $branchIds       = $user->isSuperAdmin() ? [] : $user->rootProductCategoryIds();
+        $requireBranchId = $user->isSuperAdmin() || count($branchIds) > 1;
+
         $data = $request->validate($this->rules(
             requirePartnerId: $user->isSuperAdmin(),
             partnerId: $user->isSuperAdmin() ? null : $user->partner_id,
+            requireBranchId: $requireBranchId,
+            branchIds: $branchIds,
         ));
 
         $partnerId = $user->isSuperAdmin() ? $data['partner_id'] : $user->partner_id;
+        $branchId  = $user->isSuperAdmin()
+            ? $data['branch_id']
+            : ($data['branch_id'] ?? ($branchIds[0] ?? null));
 
-        $stockCheck = DB::transaction(function () use ($data, $partnerId, $user) {
+        $stockCheck = DB::transaction(function () use ($data, $partnerId, $branchId, $user) {
             $stockCheck = WarehouseStockCheck::create([
                 'partner_id' => $partnerId,
+                'branch_id'  => $branchId,
                 'checked_at' => $data['checked_at'],
                 'note'       => $data['note'] ?? null,
                 'created_by' => $user->id,
@@ -168,12 +182,18 @@ class WarehouseStockCheckController extends Controller
         return response()->json(['message' => 'Đã xoá.']);
     }
 
-    private function rules(bool $requirePartnerId, ?string $partnerId, bool $isUpdate = false): array
+    private function rules(bool $requirePartnerId, ?string $partnerId, bool $requireBranchId = false, array $branchIds = [], bool $isUpdate = false): array
     {
         $scopePartner = fn (Exists $rule) => $partnerId ? $rule->where('partner_id', $partnerId) : $rule;
 
+        $branchRule = Rule::exists('categories', 'id')->where('category_type', 'product')->whereNull('parent_id');
+        if (! empty($branchIds)) {
+            $branchRule->whereIn('id', $branchIds);
+        }
+
         return [
             'partner_id'                    => [$requirePartnerId ? 'required' : 'sometimes', 'uuid', Rule::exists('partners', 'id')],
+            'branch_id'                     => [$requireBranchId ? 'required' : 'sometimes', 'integer', $branchRule],
             'checked_at'                    => ($isUpdate ? 'sometimes|' : '') . 'required|date',
             'note'                          => 'nullable|string',
             'items'                         => ($isUpdate ? 'sometimes|' : '') . 'required|array|min:1',
@@ -196,6 +216,13 @@ class WarehouseStockCheckController extends Controller
 
         if (! $user->isSuperAdmin() && $stockCheck->partner_id !== $user->partner_id) {
             return response()->json(['message' => 'Không tìm thấy.'], 404);
+        }
+
+        if (! $user->isSuperAdmin()) {
+            $branchIds = $user->rootProductCategoryIds();
+            if (! empty($branchIds) && ! in_array((int) $stockCheck->branch_id, array_map('intval', $branchIds), true)) {
+                return response()->json(['message' => 'Không tìm thấy.'], 404);
+            }
         }
 
         return $stockCheck;

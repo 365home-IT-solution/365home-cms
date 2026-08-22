@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Warehouse\App\Models;
 
+use App\Models\Concerns\BelongsToBranch;
 use App\Models\Concerns\BelongsToPartner;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class WarehouseItem extends Model
 {
     use BelongsToPartner;
+    use BelongsToBranch;
 
     protected static function boot()
     {
@@ -43,11 +45,13 @@ class WarehouseItem extends Model
 
     protected $fillable = [
         'partner_id',
+        'branch_id',
         'sku',
         'name',
         'warehouse_category_id',
         'warehouse_unit_id',
         'quantity',
+        'quantity_in_use',
         'min_quantity',
         'unit_price',
         'description',
@@ -56,11 +60,23 @@ class WarehouseItem extends Model
 
     protected $casts = [
         // 'float' thay vì 'decimal:2' — xem giải thích ở WarehouseStockIn::$casts.
-        'quantity'     => 'float',
-        'min_quantity' => 'float',
-        'unit_price'   => 'float',
-        'status'       => 'boolean',
+        'quantity'        => 'float',
+        'quantity_in_use' => 'float',
+        'min_quantity'    => 'float',
+        'unit_price'      => 'float',
+        'status'          => 'boolean',
     ];
+
+    // "Dự phòng" KHÔNG lưu cột riêng — luôn tính = tổng tồn - phần đang dùng, để không bao giờ
+    // lệch với quantity thật (được cập nhật tự động qua phiếu nhập/xuất/kiểm kê). $appends để API
+    // (toArray()/toJson()) tự trả về field này, không chỉ hiện trên Filament (vốn gọi thẳng qua
+    // accessor trong Blade/Placeholder nên không cần $appends).
+    protected $appends = ['quantity_reserve'];
+
+    public function getQuantityReserveAttribute(): float
+    {
+        return round($this->quantity - $this->quantity_in_use, 2);
+    }
 
     public function category(): BelongsTo
     {

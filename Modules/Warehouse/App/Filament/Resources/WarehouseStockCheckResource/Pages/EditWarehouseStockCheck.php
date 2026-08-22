@@ -58,7 +58,12 @@ class EditWarehouseStockCheck extends EditRecord
             ->filter()
             ->all();
 
-        foreach (WarehouseStockCheckForm::allActiveItemsAsRows() as $row) {
+        $rows = WarehouseStockCheckForm::allActiveItemsAsRows(
+            partnerId: $this->data['partner_id'] ?? null,
+            branchId: $this->data['branch_id'] ?? null,
+        );
+
+        foreach ($rows as $row) {
             if (! in_array($row['warehouse_item_id'], $existingItemIds, true)) {
                 $this->data['items'][(string) Str::uuid()] = $row;
             }

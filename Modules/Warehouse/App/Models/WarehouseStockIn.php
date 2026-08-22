@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Warehouse\App\Models;
 
+use App\Models\Concerns\BelongsToBranch;
 use App\Models\Concerns\BelongsToPartner;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -13,9 +14,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class WarehouseStockIn extends Model
 {
     use BelongsToPartner;
+    use BelongsToBranch;
 
     protected $fillable = [
         'partner_id',
+        'branch_id',
         'code',
         'received_at',
         'total_amount',

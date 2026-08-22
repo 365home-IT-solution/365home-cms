@@ -8,6 +8,7 @@ use App\Models\Partner;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Repeater;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Str;
 use Modules\Warehouse\App\Models\WarehouseItem;
 
@@ -21,9 +22,9 @@ class WarehouseItemOptions
     // pickerSelectedIds() để lọc đúng các field này ra khỏi $data khi submit modal "Thêm vật tư".
     private const PICKER_FIELD_PREFIX = 'warehouse_item_ids__';
 
-    public static function grouped(): array
+    public static function grouped(?string $partnerId = null, int|string|null $branchId = null): array
     {
-        return static::baseQuery()
+        return static::baseQuery($partnerId, $branchId)
             ->get()
             ->groupBy(fn (WarehouseItem $item) => $item->category?->name ?: 'Chưa phân nhóm')
             ->sortKeys()
@@ -38,6 +39,13 @@ class WarehouseItemOptions
     // Filament nên không còn bug lệch/che vị trí như bản dropdown tự tính toán trước đó. Vật tư ĐÃ
     // CÓ SẴN trong Repeater (truyền qua $component) bị loại khỏi danh sách chọn — tự nhiên tránh
     // chọn trùng, không cần tự vẽ trạng thái "disabled".
+    //
+    // QUAN TRỌNG: Get/Set bên trong ->form() của addAction() resolve theo schema RIÊNG của modal,
+    // KHÔNG thấy được field 'partner_id'/'branch_id' ở form NGOÀI (Repeater cha) — đã xác nhận thực
+    // tế. Phải đọc thẳng $component->getLivewire()->data (mảng Filament đang bind form NGOÀI vào,
+    // cùng kỹ thuật đã dùng ở HasRoomBranchPicker::selectStockOutRoom()) để biết ĐÚNG đối
+    // tác/chi nhánh đang chọn trên phiếu, nếu không vật tư của MỌI chi nhánh (cùng đối tác) sẽ trộn
+    // lẫn vào chung 1 danh sách — đã xảy ra thực tế khi nhiều chi nhánh copy chung 1 bộ tên vật tư.
     public static function pickerFormSchema(Repeater $component): array
     {
         $existingIds = collect($component->getState() ?? [])
@@ -46,7 +54,9 @@ class WarehouseItemOptions
             ->map(fn ($id) => (string) $id)
             ->all();
 
-        $columns = collect(static::grouped())
+        [$partnerId, $branchId] = static::resolveOuterFormScope($component);
+
+        $columns = collect(static::grouped($partnerId, $branchId))
             ->map(fn (array $options) => collect($options)
                 ->reject(fn ($label, $id) => in_array((string) $id, $existingIds, true))
                 ->all())
@@ -79,34 +89,51 @@ class WarehouseItemOptions
             ->all();
     }
 
-    private static function baseQuery(): \Illuminate\Database\Eloquent\Builder
+    private static function baseQuery(?string $partnerId, int|string|null $branchId): Builder
     {
+        // Bỏ qua global scope "branch" (BelongsToBranch) — scope đó lọc theo MỌI chi nhánh tài
+        // khoản được PHÉP xem (rootProductCategoryIds()), không phải chi nhánh CỤ THỂ đang chọn
+        // trên phiếu. Ở đây cần ghim đúng 1 chi nhánh (branch_id truyền vào), nếu không tài khoản
+        // quản lý nhiều chi nhánh vẫn sẽ thấy lẫn vật tư của các chi nhánh khác trong cùng menu.
+        // Global scope "partner" (BelongsToPartner) vẫn giữ nguyên — luôn đúng đối tác đang đăng
+        // nhập, không cần ghi đè cho tài khoản thường.
         return WarehouseItem::query()
+            ->withoutGlobalScope('branch')
             ->with(['category:id,name', 'unit:id,name'])
             ->where('status', true)
-            ->when(static::resolvePartnerId(), fn ($query, $partnerId) => $query->where('partner_id', $partnerId))
+            ->when($partnerId, fn (Builder $query, string $pid) => $query->where('partner_id', $pid))
+            ->when($branchId, fn (Builder $query, $bid) => $query->where('branch_id', $bid))
             ->orderBy('name');
     }
 
-    // BelongsToPartner (global scope trên WarehouseItem) không lọc gì cho super_admin — nhìn thấy
-    // TOÀN BỘ vật tư của MỌI đối tác cùng lúc. Vì các đối tác hiện seed cùng 1 bộ tên vật tư
-    // (WarehouseItemSeeder), super_admin sẽ thấy mỗi vật tư lặp lại 1 lần/đối tác trong menu chọn —
-    // rất khó hiểu (không phải trùng dữ liệu, mà là 2 bản ghi khác đối tác cùng tên). Để menu chọn
-    // vật tư luôn ra đúng 1 danh sách rõ ràng, super_admin mặc định chỉ xem vật tư của đối tác
-    // "365Home" — nhân viên/đối tác thường vẫn thấy đúng vật tư của MÌNH như bình thường (đã lọc
-    // sẵn qua global scope, không cần can thiệp gì thêm ở đây).
-    private static function resolvePartnerId(): ?string
+    // Đọc đúng partner_id/branch_id ĐANG CHỌN trên phiếu (form ngoài), không phải mặc định đoán mò.
+    private static function resolveOuterFormScope(Repeater $component): array
     {
         $user = auth()->user();
 
         if (! $user) {
-            return null;
+            return [null, null];
         }
 
-        if (! $user->isSuperAdmin()) {
-            return null;
+        $outerData = $component->getLivewire()->data ?? [];
+
+        if ($user->isSuperAdmin()) {
+            // super_admin tự chọn Đối tác + Chi nhánh trên phiếu — đọc đúng giá trị đó. Trước khi
+            // chọn đối tác, tạm mặc định về đối tác "365Home" để menu không rỗng trơn (giữ đúng
+            // hành vi cũ), nhưng KHÔNG còn tự ý bỏ qua chi nhánh đã chọn như trước nữa.
+            $partnerId = $outerData['partner_id'] ?? Partner::where('name', '365Home')->value('id');
+            $branchId  = $outerData['branch_id'] ?? null;
+
+            return [$partnerId, $branchId];
         }
 
-        return Partner::where('name', '365Home')->value('id');
+        // Tài khoản thường: partner_id đã tự lọc qua global scope "partner", không cần truyền tay.
+        // branch_id: nếu tài khoản quản lý > 1 chi nhánh thì phải lấy ĐÚNG chi nhánh đã chọn trên
+        // phiếu (field 'branch_id' hiện ra trên form); nếu chỉ quản lý đúng 1 chi nhánh (field ẩn,
+        // không có trong $outerData) thì dùng thẳng chi nhánh duy nhất đó.
+        $branchIds = $user->rootProductCategoryIds();
+        $branchId  = $outerData['branch_id'] ?? (count($branchIds) === 1 ? $branchIds[0] : null);
+
+        return [null, $branchId];
     }
 }

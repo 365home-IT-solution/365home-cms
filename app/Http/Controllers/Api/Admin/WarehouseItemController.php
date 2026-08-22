@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Exists;
+use Illuminate\Validation\ValidationException;
 use Modules\Warehouse\App\Models\WarehouseItem;
 
 // Danh mục vật tư (WarehouseItemResource ở Filament). Phạm vi: super_admin thấy & sửa mọi vật tư;
@@ -36,6 +37,15 @@ class WarehouseItemController extends Controller
 
         if (! $user->isSuperAdmin()) {
             $query->where('partner_id', $user->partner_id);
+
+            // Thu hẹp thêm theo chi nhánh được gán (User::rootProductCategoryIds() —
+            // UserBranchPermission) — cùng nguồn xác thực đang dùng ở store()/BelongsToBranch,
+            // để API không thấy RỘNG HƠN so với panel Filament (global scope BelongsToBranch chỉ
+            // tự áp dụng bên trong Filament, API phải lọc thủ công). Rỗng = không giới hạn thêm.
+            $branchIds = $user->rootProductCategoryIds();
+            if (! empty($branchIds)) {
+                $query->whereIn('branch_id', $branchIds);
+            }
         }
 
         if (! $request->boolean('all')) {
@@ -97,17 +107,42 @@ class WarehouseItemController extends Controller
         // super_admin PHẢI tự chọn "partner_id" — không thuộc đối tác nào nên không có gì để tự
         // gán. Thiếu bước này thì vật tư lưu với partner_id RỖNG, không đối tác nào thấy được
         // (cùng lỗi vừa xác nhận & sửa ở 3 phiếu nhập/xuất/kiểm kê).
+        // "branch_id": tài khoản không phải super_admin dùng chung 1 nguồn xác thực chi nhánh duy
+        // nhất — User::rootProductCategoryIds() (chủ đối tác không giới hạn trong PHẠM VI ĐỐI TÁC
+        // của họ; nhân viên bị thu hẹp thêm theo UserBranchPermission nếu có gán cụ thể). Chỉ BẮT
+        // BUỘC truyền khi tài khoản đó quản lý NHIỀU HƠN 1 chi nhánh — quản lý đúng 1 thì tự gán,
+        // không cần truyền.
+        $branchIds       = $user->isSuperAdmin() ? [] : $user->rootProductCategoryIds();
+        $requireBranchId = $user->isSuperAdmin() || count($branchIds) > 1;
+
         $data = $request->validate($this->rules(
             requirePartnerId: $user->isSuperAdmin(),
             partnerId: $user->isSuperAdmin() ? null : $user->partner_id,
+            requireBranchId: $requireBranchId,
+            branchIds: $branchIds,
         ));
 
         $partnerId = $user->isSuperAdmin() ? $data['partner_id'] : $user->partner_id;
+        $branchId  = $user->isSuperAdmin()
+            ? $data['branch_id']
+            : ($data['branch_id'] ?? ($branchIds[0] ?? null));
+
+        $quantity = $data['quantity'] ?? 0;
+
+        // "quantity_in_use" (phần đang sử dụng) không được vượt tổng tồn kho đang khởi tạo — "Dự
+        // phòng" (quantity_reserve) tự tính = quantity - quantity_in_use, không có cột riêng.
+        if (isset($data['quantity_in_use']) && $data['quantity_in_use'] > $quantity) {
+            throw ValidationException::withMessages([
+                'quantity_in_use' => 'Không được lớn hơn Tồn kho hiện tại (quantity).',
+            ]);
+        }
 
         $item = WarehouseItem::create(array_merge($data, [
-            'partner_id' => $partnerId,
-            'quantity'   => $data['quantity'] ?? 0,
-            'status'     => $data['status'] ?? true,
+            'partner_id'      => $partnerId,
+            'branch_id'       => $branchId,
+            'quantity'        => $quantity,
+            'quantity_in_use' => $data['quantity_in_use'] ?? 0,
+            'status'          => $data['status'] ?? true,
         ]));
 
         return response()->json(['data' => $item->load(['category:id,name', 'unit:id,name'])], 201);
@@ -126,6 +161,14 @@ class WarehouseItemController extends Controller
         $data = $request->validate($this->rules(requirePartnerId: false, partnerId: $item->partner_id, isUpdate: true));
         // Xem docblock đầu file — không cho sửa tồn kho trực tiếp qua API này.
         unset($data['quantity']);
+
+        // "quantity_in_use" ĐƯỢC sửa qua API (khác với "quantity" ở trên) — so với tồn kho THỰC TẾ
+        // hiện tại của vật tư (item->quantity), không phải giá trị client gửi lên (đã bị loại bỏ).
+        if (isset($data['quantity_in_use']) && $data['quantity_in_use'] > $item->quantity) {
+            throw ValidationException::withMessages([
+                'quantity_in_use' => 'Không được lớn hơn Tồn kho hiện tại (quantity).',
+            ]);
+        }
 
         $item->update($data);
 
@@ -155,7 +198,7 @@ class WarehouseItemController extends Controller
         return response()->json(['message' => 'Đã xoá.']);
     }
 
-    private function rules(bool $requirePartnerId, ?string $partnerId, bool $isUpdate = false): array
+    private function rules(bool $requirePartnerId, ?string $partnerId, bool $requireBranchId = false, array $branchIds = [], bool $isUpdate = false): array
     {
         $prefix = $isUpdate ? 'sometimes|required|' : 'required|';
 
@@ -163,14 +206,24 @@ class WarehouseItemController extends Controller
         // không bị giới hạn (được chọn nhóm/đvt của bất kỳ đối tác nào, kể cả dữ liệu dùng chung).
         $scopePartner = fn (Exists $rule) => $partnerId ? $rule->where('partner_id', $partnerId) : $rule;
 
+        // "branch_id": super_admin không giới hạn (chọn bất kỳ chi nhánh nào); tài khoản khác chỉ
+        // được chọn trong đúng tập chi nhánh User::rootProductCategoryIds() của họ (đã truyền vào
+        // $branchIds từ store()/update()).
+        $branchRule = Rule::exists('categories', 'id')->where('category_type', 'product')->whereNull('parent_id');
+        if (! empty($branchIds)) {
+            $branchRule->whereIn('id', $branchIds);
+        }
+
         return [
             'partner_id'            => [$requirePartnerId ? 'required' : 'sometimes', 'uuid', Rule::exists('partners', 'id')],
+            'branch_id'             => [$requireBranchId ? 'required' : 'sometimes', 'integer', $branchRule],
             'name'                  => $prefix . 'string|max:255',
             'sku'                   => 'nullable|string|max:100',
             'warehouse_category_id' => ['nullable', 'integer', $scopePartner(Rule::exists('warehouse_categories', 'id'))],
             'warehouse_unit_id'     => [$isUpdate ? 'sometimes' : 'required', 'integer', $scopePartner(Rule::exists('warehouse_units', 'id'))],
             'unit_price'            => 'nullable|numeric|min:0',
             'quantity'              => 'sometimes|numeric|min:0',
+            'quantity_in_use'       => 'sometimes|numeric|min:0',
             'min_quantity'          => 'sometimes|numeric|min:0',
             'description'           => 'nullable|string',
             'status'                => 'sometimes|in:0,1,true,false',
@@ -190,6 +243,13 @@ class WarehouseItemController extends Controller
 
         if (! $user->isSuperAdmin() && $item->partner_id !== $user->partner_id) {
             return response()->json(['message' => 'Không tìm thấy.'], 404);
+        }
+
+        if (! $user->isSuperAdmin()) {
+            $branchIds = $user->rootProductCategoryIds();
+            if (! empty($branchIds) && ! in_array((int) $item->branch_id, array_map('intval', $branchIds), true)) {
+                return response()->json(['message' => 'Không tìm thấy.'], 404);
+            }
         }
 
         return $item;

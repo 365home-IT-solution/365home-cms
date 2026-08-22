@@ -14,6 +14,7 @@ use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
+use Modules\Category\Entities\Category;
 use Modules\Warehouse\App\Models\WarehouseCategory;
 use Modules\Warehouse\App\Models\WarehouseItem;
 
@@ -51,6 +52,16 @@ class WarehouseItemTable
                     ->badge()
                     ->color(fn (WarehouseItem $record) => $record->isLowStock() ? 'danger' : 'success'),
 
+                TextColumn::make('quantity_in_use')
+                    ->label('Đang dùng')
+                    ->numeric(maxDecimalPlaces: 2)
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                TextColumn::make('quantity_reserve')
+                    ->label('Dự phòng')
+                    ->numeric(maxDecimalPlaces: 2)
+                    ->toggleable(isToggledHiddenByDefault: true),
+
                 TextColumn::make('min_quantity')
                     ->label('Ngưỡng tối thiểu')
                     ->numeric(maxDecimalPlaces: 2)
@@ -64,6 +75,16 @@ class WarehouseItemTable
                 ToggleColumn::make('status')
                     ->label('Đang dùng'),
 
+                // Nơi lưu trạng thái Tồn kho/Đang sử dụng/Dự phòng (dữ liệu nhập từ báo cáo cũ) —
+                // hiện sẵn ngay trong bảng để kiểm tra nhanh hàng loạt, không cần mở Sửa từng dòng.
+                TextColumn::make('description')
+                    ->label('Ghi chú')
+                    ->wrap()
+                    ->limit(60)
+                    ->tooltip(fn ($record) => $record->description)
+                    ->toggleable()
+                    ->searchable(),
+
                 TextColumn::make('created_at')
                     ->label('Ngày tạo')
                     ->dateTime('d/m/Y')
@@ -73,6 +94,14 @@ class WarehouseItemTable
                 // Mặc định ẨN — cột này chủ yếu để super_admin đối chiếu khi cần, nhân viên đối
                 // tác thường không cần thấy hàng ngày, để mặc định hiện sẽ chiếm chỗ vô ích.
                 PartnerTableHelpers::column()->toggledHiddenByDefault(),
+
+                TextColumn::make('branch.name')
+                    ->label('Chi nhánh')
+                    ->badge()
+                    ->color('gray')
+                    ->placeholder('— Chưa gán chi nhánh —')
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->searchable(),
             ])
             ->filters([
                 SelectFilter::make('warehouse_category_id')
@@ -88,6 +117,32 @@ class WarehouseItemTable
                     ),
 
                 PartnerTableHelpers::filter(),
+
+                // Cùng nguồn xác thực chi nhánh với branchInput() ở form — chỉ hiện bộ lọc này khi
+                // tài khoản đang xem thực sự có DỮ LIỆU CỦA NHIỀU HƠN 1 chi nhánh để lọc (super_admin
+                // luôn thấy; tài khoản khác chỉ thấy khi quản lý > 1 chi nhánh — quản lý đúng 1 thì
+                // toàn bộ danh sách vốn đã chỉ thuộc chi nhánh đó, không có gì để lọc thêm).
+                SelectFilter::make('branch_id')
+                    ->label('Chi nhánh')
+                    ->options(function () {
+                        $user = auth()->user();
+
+                        if ($user?->isSuperAdmin()) {
+                            return Category::query()
+                                ->where('category_type', 'product')
+                                ->whereNull('parent_id')
+                                ->orderBy('name')
+                                ->pluck('name', 'id');
+                        }
+
+                        return Category::query()
+                            ->whereIn('id', $user?->rootProductCategoryIds() ?? [])
+                            ->orderBy('name')
+                            ->pluck('name', 'id');
+                    })
+                    ->searchable()
+                    ->preload()
+                    ->visible(fn () => (auth()->user()?->isSuperAdmin() ?? false) || count(auth()->user()?->rootProductCategoryIds() ?? []) > 1),
             ])
             ->defaultSort('name')
             ->actions([

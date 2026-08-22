@@ -18,7 +18,12 @@ class CreateWarehouseStockCheck extends CreateRecord
     // WarehouseStockCheckForm (không dùng Repeater::default() vì bị relationship() ghi đè mất).
     protected function afterFill(): void
     {
-        foreach (WarehouseStockCheckForm::allActiveItemsAsRows() as $row) {
+        $rows = WarehouseStockCheckForm::allActiveItemsAsRows(
+            partnerId: $this->data['partner_id'] ?? null,
+            branchId: $this->data['branch_id'] ?? null,
+        );
+
+        foreach ($rows as $row) {
             $this->data['items'][(string) Str::uuid()] = $row;
         }
     }

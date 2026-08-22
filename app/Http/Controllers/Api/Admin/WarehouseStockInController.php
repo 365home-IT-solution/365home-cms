@@ -33,6 +33,11 @@ class WarehouseStockInController extends Controller
 
         if (! $user->isSuperAdmin()) {
             $query->where('partner_id', $user->partner_id);
+
+            $branchIds = $user->rootProductCategoryIds();
+            if (! empty($branchIds)) {
+                $query->whereIn('branch_id', $branchIds);
+            }
         }
 
         if ($request->filled('search')) {
@@ -79,16 +84,28 @@ class WarehouseStockInController extends Controller
         // partner_id RỖNG, không đối tác nào thấy được (đã xác nhận thực tế qua panel Filament —
         // cùng lý do vừa sửa ở WarehouseStockInForm::partnerInput()) — validate() ngay dưới đây
         // đảm bảo API không lặp lại đúng lỗi đó.
+        // "branch_id": tài khoản không phải super_admin dùng chung 1 nguồn xác thực chi nhánh duy
+        // nhất — User::rootProductCategoryIds(). Chỉ BẮT BUỘC truyền khi tài khoản đó quản lý
+        // NHIỀU HƠN 1 chi nhánh — quản lý đúng 1 thì tự gán, không cần truyền.
+        $branchIds       = $user->isSuperAdmin() ? [] : $user->rootProductCategoryIds();
+        $requireBranchId = $user->isSuperAdmin() || count($branchIds) > 1;
+
         $data = $request->validate($this->rules(
             requirePartnerId: $user->isSuperAdmin(),
             partnerId: $user->isSuperAdmin() ? null : $user->partner_id,
+            requireBranchId: $requireBranchId,
+            branchIds: $branchIds,
         ));
 
         $partnerId = $user->isSuperAdmin() ? $data['partner_id'] : $user->partner_id;
+        $branchId  = $user->isSuperAdmin()
+            ? $data['branch_id']
+            : ($data['branch_id'] ?? ($branchIds[0] ?? null));
 
-        $stockIn = DB::transaction(function () use ($data, $partnerId, $user) {
+        $stockIn = DB::transaction(function () use ($data, $partnerId, $branchId, $user) {
             $stockIn = WarehouseStockIn::create([
                 'partner_id'             => $partnerId,
+                'branch_id'              => $branchId,
                 'note'                   => $data['note'] ?? null,
                 'created_by'             => $user->id,
             ]);
@@ -159,12 +176,18 @@ class WarehouseStockInController extends Controller
         return response()->json(['message' => 'Đã xoá.']);
     }
 
-    private function rules(bool $requirePartnerId, ?string $partnerId, bool $isUpdate = false): array
+    private function rules(bool $requirePartnerId, ?string $partnerId, bool $requireBranchId = false, array $branchIds = [], bool $isUpdate = false): array
     {
         $scopePartner = fn (Exists $rule) => $partnerId ? $rule->where('partner_id', $partnerId) : $rule;
 
+        $branchRule = Rule::exists('categories', 'id')->where('category_type', 'product')->whereNull('parent_id');
+        if (! empty($branchIds)) {
+            $branchRule->whereIn('id', $branchIds);
+        }
+
         return [
             'partner_id'                    => [$requirePartnerId ? 'required' : 'sometimes', 'uuid', Rule::exists('partners', 'id')],
+            'branch_id'                     => [$requireBranchId ? 'required' : 'sometimes', 'integer', $branchRule],
             'note'                          => 'nullable|string',
             'items'                         => ($isUpdate ? 'sometimes|' : '') . 'required|array|min:1',
             'items.*.warehouse_item_id'     => ['required', 'integer', $scopePartner(Rule::exists('warehouse_items', 'id'))],
@@ -187,6 +210,13 @@ class WarehouseStockInController extends Controller
 
         if (! $user->isSuperAdmin() && $stockIn->partner_id !== $user->partner_id) {
             return response()->json(['message' => 'Không tìm thấy.'], 404);
+        }
+
+        if (! $user->isSuperAdmin()) {
+            $branchIds = $user->rootProductCategoryIds();
+            if (! empty($branchIds) && ! in_array((int) $stockIn->branch_id, array_map('intval', $branchIds), true)) {
+                return response()->json(['message' => 'Không tìm thấy.'], 404);
+            }
         }
 
         return $stockIn;
