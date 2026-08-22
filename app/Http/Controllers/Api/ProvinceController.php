@@ -181,6 +181,7 @@ class ProvinceController extends Controller
                 'image_url' => $nearest->image
                     ? Storage::disk('public')->url($nearest->image)
                     : null,
+                'thumbnail' => $nearest->thumbnail,
             ],
         ]);
     }

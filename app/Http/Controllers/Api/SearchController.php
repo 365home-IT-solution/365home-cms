@@ -147,6 +147,7 @@ class SearchController extends Controller
                 'image_url'     => $branch->category->image
                     ? Storage::disk('public')->url($branch->category->image)
                     : null,
+                'thumbnail'     => $branch->category->thumbnail,
                 'room_count'    => $roomCountByBranch[$branch->category->id] ?? 0,
                 'has_promotion' => $branchHasPromoByBranch[$branch->category->id] ?? false,
                 'latitude'      => $coordsByBranch[$branch->category->id]['latitude'] ?? null,

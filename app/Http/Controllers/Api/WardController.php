@@ -105,6 +105,7 @@ class WardController extends Controller
                     'image_url'   => $category->image
                         ? Storage::disk('public')->url($category->image)
                         : null,
+                    'thumbnail'   => $category->thumbnail,
                     'items'       => $rooms,
                 ];
             })

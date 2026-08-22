@@ -389,6 +389,7 @@ class BranchController extends Controller
             'slug'        => $branch->slug,
             'description' => $branch->description,
             'image_url'   => $branch->image ? Storage::disk('public')->url($branch->image) : null,
+            'thumbnail'   => $branch->thumbnail,
             'total_rooms' => $this->countRooms($branch->id),
         ];
     }

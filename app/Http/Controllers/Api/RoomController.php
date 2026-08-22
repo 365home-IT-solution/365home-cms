@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Concerns\BuildsRoomCard;
+use App\Support\MediaThumbnailUrls;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -420,7 +421,9 @@ class RoomController extends Controller
             'latitude'          => $room->latitude,
             'longitude'         => $room->longitude,
             'main'              => $this->buildMainImages($room),
+            'main_thumbnails'   => $this->buildMainImageThumbnails($room),
             'gallery'           => $this->buildGallery($room),
+            'gallery_thumbnails' => $this->buildGalleryThumbnails($room),
             'wishlist_status'   => $wishlistStatus,
             'is_available'      => $room->is_in_stock,
             'room_type'         => $room->roomType?->slug,
@@ -465,6 +468,15 @@ class RoomController extends Controller
             ->toArray();
     }
 
+    // Index-matched với buildMainImages() — cùng thứ tự collection 'Ảnh bìa'.
+    private function buildMainImageThumbnails(Product $room): array
+    {
+        return $room->getMedia('Ảnh bìa')
+            ->map(fn ($m) => MediaThumbnailUrls::build($m))
+            ->values()
+            ->toArray();
+    }
+
     // ─────────────────────────────────────────────
     // GALLERY — sections: [{title, description, images:[url,...]}]
     // ─────────────────────────────────────────────
@@ -473,6 +485,15 @@ class RoomController extends Controller
     {
         return $room->getMedia('Thư viện')
             ->map(fn ($m) => $m->getUrl())
+            ->values()
+            ->toArray();
+    }
+
+    // Index-matched với buildGallery() — cùng thứ tự collection 'Thư viện'.
+    private function buildGalleryThumbnails(Product $room): array
+    {
+        return $room->getMedia('Thư viện')
+            ->map(fn ($m) => MediaThumbnailUrls::build($m))
             ->values()
             ->toArray();
     }

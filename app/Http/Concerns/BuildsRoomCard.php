@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace App\Http\Concerns;
 
 use App\Models\ProvinceBranch;
+use App\Support\MediaThumbnailUrls;
 use Carbon\Carbon;
 use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\TimeSlot;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 trait BuildsRoomCard
 {
@@ -69,11 +71,14 @@ trait BuildsRoomCard
             ];
         }
 
+        $mainImage = $this->getMainImage($room);
+
         return [
             'id'              => $room->id,
             'slug'            => $room->slug,
             'name'            => $room->name,
-            'thumbnail_url'   => $this->getMainImageUrl($room),
+            'thumbnail_url'   => $mainImage?->getUrl(),
+            'thumbnail'       => MediaThumbnailUrls::build($mainImage),
             'room_style'      => match ((int) $room->styles) {
                 1       => 'theo_gio',
                 2       => 'theo_ngay',
@@ -94,13 +99,11 @@ trait BuildsRoomCard
         ];
     }
 
-    private function getMainImageUrl(Product $room): ?string
+    private function getMainImage(Product $room): ?Media
     {
-        $media = $room->getFirstMedia('Ảnh bìa')
-              ?? $room->getFirstMedia('Ảnh chính')
-              ?? $room->getFirstMedia();
-
-        return $media?->getUrl();
+        return $room->getFirstMedia('Ảnh bìa')
+            ?? $room->getFirstMedia('Ảnh chính')
+            ?? $room->getFirstMedia();
     }
 
     private function buildTimeSlots(Product $room, ?string $timeFrom = null, ?string $timeTo = null): array

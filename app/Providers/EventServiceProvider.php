@@ -3,7 +3,9 @@
 namespace App\Providers;
 
 use App\Listeners\ResizeOversizedMedia;
+use App\Listeners\StoreOriginalImageDimensions;
 use App\Models\Customer;
+use App\Models\Province;
 use App\Models\User;
 use App\Observers\BannerObserver;
 use App\Observers\BranchObserver;
@@ -13,6 +15,7 @@ use App\Observers\CustomerObserver;
 use App\Observers\OrderObserver;
 use App\Observers\PostObserver;
 use App\Observers\ProductObserver;
+use App\Observers\ProvinceObserver;
 use App\Observers\PromotionObserver;
 use App\Observers\RoleObserver;
 use App\Observers\UserBranchPermissionObserver;
@@ -43,8 +46,11 @@ class EventServiceProvider extends ServiceProvider
         Registered::class => [
             SendEmailVerificationNotification::class,
         ],
+        // Thứ tự QUAN TRỌNG: StoreOriginalImageDimensions phải chạy SAU ResizeOversizedMedia để
+        // lưu đúng kích thước đã hạ (xem ghi chú trong listener).
         MediaHasBeenAddedEvent::class => [
             ResizeOversizedMedia::class,
+            StoreOriginalImageDimensions::class,
         ],
     ];
 
@@ -65,6 +71,7 @@ class EventServiceProvider extends ServiceProvider
         Promotion::observe(PromotionObserver::class);
         Category::observe(CategoryObserver::class);
         Banner::observe(BannerObserver::class);
+        Province::observe(ProvinceObserver::class);
     }
 
     /**

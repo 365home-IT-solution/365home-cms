@@ -10,8 +10,10 @@ use Modules\Category\Entities\Category;
 use Modules\Category\Traits\Categorizable;
 use Modules\Comment\Entities\Comment;
 use Modules\Employee\Entities\Employee;
+use Spatie\Image\Enums\Fit;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Spatie\Tags\HasTags;
 use Guava\Calendar\Contracts\Resourceable;
 use Guava\Calendar\ValueObjects\CalendarResource;
@@ -268,6 +270,22 @@ class Product extends Model implements HasMedia, Resourceable
     public function getBranchCategoryIdAttribute()
     {
         return $this->categories()->where('category_type', 'product')->value('categories.id');
+    }
+
+    // 4 preset kích thước cho ảnh phòng (thumbnail card, chi tiết phòng...) — xem
+    // docs/be-image-thumbnails.md. Áp dụng cho mọi collection ảnh (Ảnh bìa, Ảnh chính, Thư viện).
+    // Bản gốc đã bị ResizeOversizedMedia hạ xuống ≤1440px trước khi conversion này chạy (cùng
+    // event MediaHasBeenAddedEvent, xem EventServiceProvider), nên preset "full" thực chất chỉ là
+    // đổi định dạng/nén lại bản gốc, không cắt thêm kích thước.
+    public function registerMediaConversions(?Media $media = null): void
+    {
+        foreach (['thumb' => 240, 'card' => 480, 'wide' => 1080, 'full' => 1440] as $name => $size) {
+            $this->addMediaConversion($name)
+                ->fit(Fit::Max, $size, $size)
+                ->format('avif')
+                ->quality(72)
+                ->nonQueued();
+        }
     }
 
     public function toCalendarResource(): CalendarResource

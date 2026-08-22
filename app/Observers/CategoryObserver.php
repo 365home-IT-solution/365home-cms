@@ -2,6 +2,7 @@
 
 namespace App\Observers;
 
+use App\Support\GeneratesImagePresets;
 use App\Support\ResizesOversizedImage;
 use Illuminate\Support\Facades\Storage;
 use Modules\AccessCode\Entities\AccessCode;
@@ -29,7 +30,14 @@ class CategoryObserver
     public function saved(Category $category): void
     {
         if (filled($category->image) && ($category->wasRecentlyCreated || $category->wasChanged('image'))) {
-            ResizesOversizedImage::apply(Storage::disk('public')->path($category->image));
+            $path = Storage::disk('public')->path($category->image);
+            ResizesOversizedImage::apply($path);
+            GeneratesImagePresets::apply($path);
+
+            $dimensions = @getimagesize($path);
+            if ($dimensions) {
+                $category->updateQuietly(['image_width' => $dimensions[0], 'image_height' => $dimensions[1]]);
+            }
         }
 
         if ($category->category_type !== 'product' || blank($category->partner_id)) {

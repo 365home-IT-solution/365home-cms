@@ -98,6 +98,7 @@ class RoomTypeController extends Controller
                     'image_url'   => $category->image
                         ? Storage::disk('public')->url($category->image)
                         : null,
+                    'thumbnail'   => $category->thumbnail,
                     'items'       => $rooms,
                 ];
             })
@@ -144,6 +145,7 @@ class RoomTypeController extends Controller
                     'image_url'   => $category?->image
                         ? Storage::disk('public')->url($category->image)
                         : null,
+                    'thumbnail'   => $category?->thumbnail,
                     'items'       => $rooms->map(function ($room) use ($wishlistedIds) {
                         $status = $wishlistedIds === null ? null : in_array($room->id, $wishlistedIds);
                         return $this->mapRoom($room, $status);

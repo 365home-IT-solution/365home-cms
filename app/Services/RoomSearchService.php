@@ -203,7 +203,7 @@ class RoomSearchService
         }
 
         $branchCats = ! empty($branchCatIds)
-            ? Category::whereIn('id', $branchCatIds)->where('status', true)->get(['id', 'name', 'slug', 'image'])->keyBy('id')
+            ? Category::whereIn('id', $branchCatIds)->where('status', true)->get(['id', 'name', 'slug', 'image', 'image_width', 'image_height'])->keyBy('id')
             : collect();
 
         if ($branchCats->isEmpty()) {
@@ -283,6 +283,7 @@ class RoomSearchService
                     'name'          => $cat->name,
                     'slug'          => $cat->slug,
                     'image_url'     => $cat->image ? Storage::disk('public')->url($cat->image) : null,
+                    'thumbnail'     => $cat->thumbnail,
                     'room_count'    => $roomCountByBranch[$catId] ?? 0,
                     'has_promotion' => $hasPromoByBranch[$catId] ?? false,
                     'latitude'      => $coordsByBranch[$catId]['latitude'] ?? null,

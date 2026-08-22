@@ -126,6 +126,7 @@ class HomeController extends Controller
                 'image_url'   => $banner->image
                     ? Storage::disk($banner->disk ?? 'public')->url($banner->image)
                     : null,
+                'thumbnail'   => $banner->thumbnail,
                 'url'         => $banner->url,
             ])
             ->values()
@@ -199,6 +200,7 @@ class HomeController extends Controller
                 'image_url' => $branch->category->image
                     ? Storage::disk('public')->url($branch->category->image)
                     : null,
+                'thumbnail' => $branch->category->thumbnail,
             ])
             ->values()
             ->toArray();
@@ -418,6 +420,7 @@ class HomeController extends Controller
                 'image_url' => $branch->category->image
                     ? Storage::disk('public')->url($branch->category->image)
                     : null,
+                'thumbnail' => $branch->category->thumbnail,
             ])
             ->values()
             ->toArray();

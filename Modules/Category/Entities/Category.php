@@ -2,6 +2,7 @@
 
 namespace Modules\Category\Entities;
 
+use App\Support\ImagePresetUrls;
 use Illuminate\Database\Eloquent\Model;
 use Modules\AccessCode\Entities\AccessCode;
 use Modules\DataPermission\Entities\UserBranchPermission;
@@ -20,6 +21,8 @@ class Category extends Model
         'category_type',
         'status',
         'image',
+        'image_width',
+        'image_height',
         'partner_id',
         // Chi tiết vận hành (chỉ có ý nghĩa với category_type = product, xem
         // Modules/Category/App/Filament/Resources/CategoryResource/Pages/BranchDetail.php)
@@ -34,10 +37,17 @@ class Category extends Model
     ];
 
     protected $casts = [
-        'status'     => 'boolean',
-        'area_sqm'   => 'decimal:2',
-        'sort_order' => 'integer',
+        'status'       => 'boolean',
+        'area_sqm'     => 'decimal:2',
+        'sort_order'   => 'integer',
+        'image_width'  => 'integer',
+        'image_height' => 'integer',
     ];
+
+    public function getThumbnailAttribute(): ?array
+    {
+        return ImagePresetUrls::build($this->image, 'public', $this->image_width, $this->image_height);
+    }
 
     public function parent()
     {
