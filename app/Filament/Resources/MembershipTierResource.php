@@ -8,12 +8,14 @@ use App\Filament\Resources\MembershipTierResource\Pages;
 use App\Models\MembershipTier;
 use Filament\Forms\Components\ColorPicker;
 use Filament\Forms\Components\Grid;
+use Filament\Forms\Components\Group;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\TimePicker;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
@@ -47,6 +49,7 @@ class MembershipTierResource extends Resource
     public static function form(Form $form): Form
     {
         return $form->schema([
+            Group::make([
             Section::make('Thông tin hạng')->schema([
                 Grid::make(2)->schema([
                     TextInput::make('name')
@@ -94,8 +97,121 @@ class MembershipTierResource extends Resource
                 Toggle::make('is_active')
                     ->label('Kích hoạt')
                     ->default(true),
+            ])->columnSpanFull(),
+
+            Section::make('Mã giảm giá gắn thêm cho hạng')->schema([
+                Select::make('manual_coupon_ids')
+                    ->label('Mã giảm giá')
+                    ->options(fn () => Coupon::query()
+                        ->orderByDesc('created_at')
+                        ->limit(200)
+                        ->get()
+                        ->mapWithKeys(fn (Coupon $c) => [$c->id => $c->code . ' — ' . $c->name]))
+                    ->getSearchResultsUsing(fn (string $search) => Coupon::query()
+                        ->where(fn ($q) => $q->where('code', 'like', "%{$search}%")->orWhere('name', 'like', "%{$search}%"))
+                        ->limit(50)
+                        ->get()
+                        ->mapWithKeys(fn (Coupon $c) => [$c->id => $c->code . ' — ' . $c->name]))
+                    ->getOptionLabelsUsing(fn (array $values) => Coupon::whereIn('id', $values)
+                        ->get()
+                        ->mapWithKeys(fn (Coupon $c) => [$c->id => $c->code . ' — ' . $c->name]))
+                    ->multiple()
+                    ->searchable()
+                    ->helperText('Gắn tay 1 hoặc nhiều mã có sẵn (tạo ở mục "Mã giảm giá") cho TRƯỜNG HỢP NGOẠI LỆ/cứu cháy — KHÔNG dùng cho voucher chính thức của hạng (đã cấu hình ở "Coupon tự động cấp" phía dưới). Toàn bộ khách đang giữ hạng này sẽ được phát các mã đã chọn.'),
+            ])->columnSpanFull(),
+
+            Section::make('Tự động tạo mã khuyến mãi định kỳ')->schema([
+                Toggle::make('auto_issue_enabled')
+                    ->label('Bật tự động tạo mã định kỳ')
+                    ->helperText('Đến đúng lịch bên dưới, hệ thống tự tạo 1 mã khuyến mãi riêng cho MỖI khách đang giữ hạng này và gửi thông báo. Lặp lại theo chu kỳ tuần đã chọn.')
+                    ->live()
+                    ->default(false),
+
+                Grid::make(3)->schema([
+                    TextInput::make('auto_issue_interval_weeks')
+                        ->label('Lặp lại mỗi (tuần)')
+                        ->numeric()
+                        ->minValue(1)
+                        ->default(1)
+                        ->suffix('tuần')
+                        ->helperText('VD: 1 = mỗi tuần, 2 = 2 tuần/lần.')
+                        ->required(fn (Get $get) => $get('auto_issue_enabled'))
+                        ->visible(fn (Get $get) => $get('auto_issue_enabled')),
+
+                    Select::make('auto_issue_day_of_week')
+                        ->label('Vào thứ')
+                        ->options([
+                            1 => 'Thứ 2',
+                            2 => 'Thứ 3',
+                            3 => 'Thứ 4',
+                            4 => 'Thứ 5',
+                            5 => 'Thứ 6',
+                            6 => 'Thứ 7',
+                            0 => 'Chủ nhật',
+                        ])
+                        ->required(fn (Get $get) => $get('auto_issue_enabled'))
+                        ->visible(fn (Get $get) => $get('auto_issue_enabled')),
+
+                    TimePicker::make('auto_issue_time')
+                        ->label('Lúc')
+                        ->seconds(false)
+                        ->required(fn (Get $get) => $get('auto_issue_enabled'))
+                        ->visible(fn (Get $get) => $get('auto_issue_enabled')),
+                ]),
+
+                Grid::make(3)->schema([
+                    Select::make('auto_issue_coupon_type')
+                        ->label('Loại giảm giá')
+                        ->options([
+                            'percentage' => 'Phần trăm (%)',
+                            'fixed'      => 'Số tiền cố định (VNĐ)',
+                        ])
+                        ->default('fixed')
+                        ->live()
+                        ->visible(fn (Get $get) => $get('auto_issue_enabled')),
+
+                    TextInput::make('auto_issue_coupon_value')
+                        ->label(fn (Get $get) => $get('auto_issue_coupon_type') === 'percentage' ? 'Giá trị (%)' : 'Giá trị (VNĐ)')
+                        ->numeric()
+                        ->minValue(0)
+                        ->maxValue(fn (Get $get) => $get('auto_issue_coupon_type') === 'percentage' ? 100 : null)
+                        ->required(fn (Get $get) => $get('auto_issue_enabled'))
+                        ->visible(fn (Get $get) => $get('auto_issue_enabled')),
+
+                    TextInput::make('auto_issue_coupon_days')
+                        ->label('Hiệu lực mã (ngày)')
+                        ->numeric()
+                        ->minValue(1)
+                        ->default(7)
+                        ->suffix('ngày')
+                        ->helperText('Tính từ lúc cấp.')
+                        ->visible(fn (Get $get) => $get('auto_issue_enabled')),
+                ]),
+
+                TextInput::make('auto_issue_coupon_usage_limit')
+                    ->label('Số lần sử dụng')
+                    ->numeric()
+                    ->minValue(1)
+                    ->placeholder('Không giới hạn')
+                    ->visible(fn (Get $get) => $get('auto_issue_enabled')),
+
+                TextInput::make('auto_issue_notify_title')
+                    ->label('Tiêu đề thông báo')
+                    ->maxLength(255)
+                    ->placeholder('Ưu đãi dành cho hạng ' . '{tên hạng}')
+                    ->helperText('Để trống sẽ dùng tiêu đề mặc định.')
+                    ->visible(fn (Get $get) => $get('auto_issue_enabled')),
+
+                Textarea::make('auto_issue_notify_body')
+                    ->label('Nội dung thông báo')
+                    ->rows(2)
+                    ->maxLength(500)
+                    ->helperText('Để trống sẽ dùng nội dung mặc định.')
+                    ->visible(fn (Get $get) => $get('auto_issue_enabled')),
+            ])->columnSpanFull(),
             ])->columnSpan(1),
 
+            Group::make([
             Section::make('Coupon tự động cấp')->schema([
                 Repeater::make('voucher_templates')
                     ->label('')
@@ -169,28 +285,8 @@ class MembershipTierResource extends Resource
                     ->collapsible()
                     ->reorderable(false)
                     ->defaultItems(0),
-            ])->columnSpan(1),
-
-            Section::make('Mã giảm giá gắn thêm cho hạng')->schema([
-                Select::make('manual_coupon_ids')
-                    ->label('Mã giảm giá')
-                    ->options(fn () => Coupon::query()
-                        ->orderByDesc('created_at')
-                        ->limit(200)
-                        ->get()
-                        ->mapWithKeys(fn (Coupon $c) => [$c->id => $c->code . ' — ' . $c->name]))
-                    ->getSearchResultsUsing(fn (string $search) => Coupon::query()
-                        ->where(fn ($q) => $q->where('code', 'like', "%{$search}%")->orWhere('name', 'like', "%{$search}%"))
-                        ->limit(50)
-                        ->get()
-                        ->mapWithKeys(fn (Coupon $c) => [$c->id => $c->code . ' — ' . $c->name]))
-                    ->getOptionLabelsUsing(fn (array $values) => Coupon::whereIn('id', $values)
-                        ->get()
-                        ->mapWithKeys(fn (Coupon $c) => [$c->id => $c->code . ' — ' . $c->name]))
-                    ->multiple()
-                    ->searchable()
-                    ->helperText('Gắn tay 1 hoặc nhiều mã có sẵn (tạo ở mục "Mã giảm giá") cho TRƯỜNG HỢP NGOẠI LỆ/cứu cháy — KHÔNG dùng cho voucher chính thức của hạng (đã cấu hình ở "Coupon tự động cấp" phía trên). Toàn bộ khách đang giữ hạng này sẽ được phát các mã đã chọn.'),
             ])->columnSpanFull(),
+            ])->columnSpan(1),
         ])->columns(2);
     }
 
@@ -212,6 +308,20 @@ class MembershipTierResource extends Resource
                     ->label('Chi tiêu tối thiểu')
                     ->money('VND')
                     ->sortable(),
+
+                TextColumn::make('auto_issue_schedule')
+                    ->label('Lịch tự động cấp mã')
+                    ->state(function (MembershipTier $record): string {
+                        if (! $record->auto_issue_enabled || $record->auto_issue_day_of_week === null || ! $record->auto_issue_time) {
+                            return '—';
+                        }
+
+                        $days = [0 => 'CN', 1 => 'T2', 2 => 'T3', 3 => 'T4', 4 => 'T5', 5 => 'T6', 6 => 'T7'];
+                        $time = \Illuminate\Support\Str::of((string) $record->auto_issue_time)->limit(5, '');
+
+                        return "{$days[$record->auto_issue_day_of_week]} {$time}";
+                    })
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 TextColumn::make('auto_voucher_count')
                     ->label('Coupon tự động cấp')

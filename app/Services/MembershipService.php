@@ -390,6 +390,51 @@ class MembershipService
     }
 
     /**
+     * Chạy 1 lượt phát coupon định kỳ theo lịch riêng của hạng (auto_issue_*): tạo 1 coupon CÁ NHÂN
+     * (không dùng chung, không dedup theo template) cho từng customer ĐANG giữ hạng này, dùng cấu
+     * hình auto_issue_coupon_* của tier. Gọi bởi AutoIssueTierCouponsCommand khi tới đúng lịch.
+     * Tách riêng khỏi issueTierCoupon()/grantTemplateCoupon() vì 2 hàm đó chỉ cấp 1 LẦN cho mỗi
+     * khách (lúc đăng ký/lên hạng) — còn đây cần cấp LẶP LẠI mỗi kỳ (mỗi tuần) cho cùng 1 khách.
+     *
+     * @return array{coupon_count: int, customer_ids: string[]}
+     */
+    public function runAutoIssueForTier(MembershipTier $tier): array
+    {
+        if (! $tier->auto_issue_coupon_value || $tier->auto_issue_coupon_value <= 0) {
+            return ['coupon_count' => 0, 'customer_ids' => []];
+        }
+
+        $customerIds = [];
+        $prefix      = strtoupper(Str::slug($tier->name, ''));
+        $createdBy   = $this->superAdminId();
+
+        Customer::where('membership_tier_id', $tier->id)
+            ->get()
+            ->each(function (Customer $customer) use ($tier, $prefix, $createdBy, &$customerIds) {
+                Coupon::create([
+                    'code'          => Str::limit($prefix, 10, '') . strtoupper(Str::random(6)),
+                    'name'          => 'Ưu đãi định kỳ hạng ' . $tier->name . ' — ' . $customer->fullname,
+                    'description'   => 'Coupon tự động cấp định kỳ cho hạng ' . $tier->name,
+                    'type'          => $tier->auto_issue_coupon_type ?: 'fixed',
+                    'value'         => $tier->auto_issue_coupon_value,
+                    'apply_type'    => 'all_rooms',
+                    'usage_limit'   => $tier->auto_issue_coupon_usage_limit,
+                    'used_count'    => 0,
+                    'start_at'      => now(),
+                    'end_at'        => $tier->auto_issue_coupon_days ? now()->addDays($tier->auto_issue_coupon_days) : null,
+                    'is_active'     => true,
+                    'is_exclusive'  => true,
+                    'customer_id'   => $customer->id,
+                    'created_by'    => $createdBy,
+                ]);
+
+                $customerIds[] = $customer->id;
+            });
+
+        return ['coupon_count' => count($customerIds), 'customer_ids' => $customerIds];
+    }
+
+    /**
      * ID của super_admin dùng làm created_by cho coupon tự động cấp,
      * tránh created_by = null khiến coupon hiển thị ở mọi role (xem CouponResource::getEloquentQuery).
      */

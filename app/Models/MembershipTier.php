@@ -28,6 +28,17 @@ class MembershipTier extends Model
         'welcome_coupon_days',
         'welcome_coupon_usage_limit',
         'is_active',
+        'auto_issue_enabled',
+        'auto_issue_interval_weeks',
+        'auto_issue_day_of_week',
+        'auto_issue_time',
+        'auto_issue_coupon_type',
+        'auto_issue_coupon_value',
+        'auto_issue_coupon_days',
+        'auto_issue_coupon_usage_limit',
+        'auto_issue_notify_title',
+        'auto_issue_notify_body',
+        'auto_issue_last_run_at',
     ];
 
     protected $casts = [
@@ -36,6 +47,13 @@ class MembershipTier extends Model
         'welcome_coupon_days'         => 'integer',
         'welcome_coupon_usage_limit'  => 'integer',
         'is_active'                   => 'boolean',
+        'auto_issue_enabled'          => 'boolean',
+        'auto_issue_interval_weeks'   => 'integer',
+        'auto_issue_day_of_week'      => 'integer',
+        'auto_issue_coupon_value'     => 'decimal:2',
+        'auto_issue_coupon_days'      => 'integer',
+        'auto_issue_coupon_usage_limit' => 'integer',
+        'auto_issue_last_run_at'      => 'datetime',
     ];
 
     public function customers(): HasMany
