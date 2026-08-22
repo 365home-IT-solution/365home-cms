@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Support;
 
+use Illuminate\Support\Facades\Log;
 use Spatie\Image\Enums\Fit;
 use Spatie\Image\Image;
 
@@ -24,11 +25,22 @@ class GeneratesImagePresets
         }
 
         foreach (self::PRESETS as $preset => $maxLongEdge) {
-            Image::load($absolutePath)
-                ->fit(Fit::Max, $maxLongEdge, $maxLongEdge)
-                ->format('avif')
-                ->quality(72)
-                ->save(self::presetPath($absolutePath, $preset));
+            try {
+                Image::load($absolutePath)
+                    ->fit(Fit::Max, $maxLongEdge, $maxLongEdge)
+                    ->format('avif')
+                    ->quality(72)
+                    ->save(self::presetPath($absolutePath, $preset));
+            } catch (\Throwable $e) {
+                // Nguồn hỏng thì đọc lần nào cũng lỗi giống nhau — dừng luôn, không thử tiếp 2
+                // preset còn lại. Không được để 1 ảnh hỏng làm crash cả lệnh backfill hàng trăm ảnh.
+                Log::warning('GeneratesImagePresets: không đọc được ảnh, bỏ qua', [
+                    'path'  => $absolutePath,
+                    'error' => $e->getMessage(),
+                ]);
+
+                return;
+            }
         }
     }
 
