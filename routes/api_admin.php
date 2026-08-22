@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\Admin\OrderPaymentController;
 use App\Http\Controllers\Api\Admin\PositionController;
 use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
 use App\Http\Controllers\Api\Admin\PromotionController as AdminPromotionController;
+use App\Http\Controllers\Api\Admin\PushNotificationController as AdminPushNotificationController;
 use App\Http\Controllers\Api\Admin\RatingController as AdminRatingController;
 use App\Http\Controllers\Api\Admin\RoomBlockController as AdminRoomBlockController;
 use App\Http\Controllers\Api\Admin\RoomController as AdminRoomController;
@@ -125,6 +126,25 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/notifications')-
     Route::delete('/', [AdminNotificationController::class, 'destroyMany'])->name('destroyMany');
     Route::get('/{id}', [AdminNotificationController::class, 'show'])->name('show');
     Route::delete('/{id}', [AdminNotificationController::class, 'destroy'])->name('destroy');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Push Notification — Gửi thông báo đẩy (FCM) thủ công đến khách hàng (bảng notification_fcm/
+| notification_fcm_recipients) — tương đương form "Push Notification" ở Filament CMS
+| (App\Filament\Resources\NotificationFcmResource), dùng cho admin app riêng (Bearer token) — xem
+| docblock App\Http\Controllers\Api\Admin\PushNotificationController.
+| POST /api/admin/push-notification → body:
+|   - title (bắt buộc), body (bắt buộc)
+|   - sent_for: 'all' (mọi khách hàng đang có token thiết bị) | 'users' (chọn danh sách cụ thể)
+|   - customer_ids[] (bắt buộc nếu sent_for=users) — id lấy từ GET /api/admin/customers?search=
+|     (tìm theo tên hoặc số điện thoại)
+|   - scheduled_at (tuỳ chọn) — để trống hoặc quá khứ = gửi ngay; thời điểm tương lai = lên lịch,
+|     App\Console\Commands\SendScheduledNotificationsCommand (cron mỗi phút) sẽ gửi khi đến giờ.
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.admin.')->group(function () {
+    Route::post('push-notification', [AdminPushNotificationController::class, 'store'])->name('push-notification.store');
 });
 
 /*
