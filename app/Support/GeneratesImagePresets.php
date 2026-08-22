@@ -25,13 +25,23 @@ class GeneratesImagePresets
         }
 
         foreach (self::PRESETS as $preset => $maxLongEdge) {
+            $presetPath = self::presetPath($absolutePath, $preset);
+            $tmpPath = $presetPath.'.resize-tmp-'.uniqid();
+
             try {
                 Image::load($absolutePath)
                     ->fit(Fit::Max, $maxLongEdge, $maxLongEdge)
                     ->format('avif')
                     ->quality(72)
-                    ->save(self::presetPath($absolutePath, $preset));
+                    ->save($tmpPath);
+
+                if (! file_exists($tmpPath) || filesize($tmpPath) === 0) {
+                    throw new \RuntimeException('File preset sinh ra rỗng');
+                }
+
+                rename($tmpPath, $presetPath);
             } catch (\Throwable $e) {
+                @unlink($tmpPath);
                 // Nguồn hỏng thì đọc lần nào cũng lỗi giống nhau — dừng luôn, không thử tiếp 2
                 // preset còn lại. Không được để 1 ảnh hỏng làm crash cả lệnh backfill hàng trăm ảnh.
                 Log::warning('GeneratesImagePresets: không đọc được ảnh, bỏ qua', [

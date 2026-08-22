@@ -70,7 +70,7 @@ class MediaManagerInput extends Repeater
                         return $file;
                     }
 
-                    if (! method_exists($record, 'addMediaFromString')) {
+                    if (! method_exists($record, 'addMedia')) {
                         return $file;
                     }
 
@@ -82,8 +82,14 @@ class MediaManagerInput extends Repeater
                         return null;
                     }
 
+                    // Trước dùng addMediaFromString($file->get()) — đọc cả file vào RAM rồi Spatie tự
+                    // ghi lại ra 1 file tạm mới qua tempnam(sys_get_temp_dir(), ...) KHÔNG kiểm tra
+                    // write có thành công không. Nếu /tmp là volume/tmpfs riêng, đầy hoặc bị giới hạn
+                    // khác với volume storage, file tạm đó ghi rỗng/dở nhưng vẫn được dùng làm bản gốc
+                    // media — sinh ra ảnh 0 byte ngay lúc submit form. addMedia() trỏ thẳng vào file
+                    // Livewire-tmp có sẵn, bỏ hẳn vòng qua RAM + /tmp không cần thiết đó.
                     /** @var FileAdder $mediaAdder */
-                    $mediaAdder = $record->addMediaFromString($file->get());
+                    $mediaAdder = $record->addMedia($file);
 
                     $filename = $mediaComponent->shouldPreserveFilenames() ? $file->getClientOriginalName() : (Str::ulid() . '.' . $file->getClientOriginalExtension());
 
@@ -98,6 +104,22 @@ class MediaManagerInput extends Repeater
                         ->withProperties($mediaComponent->getProperties())
                         ->setOrder($counter)
                         ->toMediaCollection($component->name ?? 'default', $component->getDiskName());
+
+                    // Chặn ảnh 0 byte lọt vào DB im lặng — xảy ra khi write ra disk bị cắt cụt
+                    // (ví dụ /tmp/volume storage đầy) nhưng media record vẫn được tạo bình thường.
+                    if (! file_exists($media->getPath()) || filesize($media->getPath()) === 0) {
+                        $media->delete();
+
+                        Notification::make()
+                            ->title('Upload ảnh thất bại')
+                            ->danger()
+                            ->body('File lưu ra 0 byte, vui lòng thử tải ảnh lên lại.')
+                            ->send();
+
+                        $file->delete();
+
+                        return null;
+                    }
 
                     $homeFolder = config('filament-media-manager.model.folder')::where('model_type', get_class($record))
                         ->where('model_id', null)
