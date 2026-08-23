@@ -953,6 +953,36 @@ class ManageGeneral extends SettingsPage
                                     ->columnSpanFull(),
                             ]),
 
+                        // TAB THEME LỄ HỘI
+                        Forms\Components\Tabs\Tab::make('Theme lễ hội')
+                            ->icon('heroicon-o-gift')
+                            ->schema([
+                                Forms\Components\Section::make('Giao diện theo dịp lễ')
+                                    ->description('Bật để đổi giao diện website theo dịp lễ (ảnh chủ đề tại "Lịch đặt phòng trực tuyến" + lịch đặt phòng đỏ+sao). Tắt sẽ quay lại giao diện mặc định.')
+                                    ->schema([
+                                        Forms\Components\Toggle::make('holiday_theme_active')
+                                            ->label('Bật giao diện lễ hội')
+                                            ->helperText('Áp dụng ngay cho lịch đặt phòng trực tuyến và trang chi tiết phòng.')
+                                            ->default(false)
+                                            ->reactive()
+                                            ->columnSpanFull(),
+                                        Forms\Components\FileUpload::make('holiday_logo_image')
+                                            ->label('Ảnh chủ đề (lễ hội)')
+                                            ->helperText('Ảnh hiển thị cạnh tiêu đề "Lịch đặt phòng trực tuyến" ở trang chủ. Định dạng avif/jpg/png/webp/gif, tối đa 1MB.')
+                                            ->image()
+                                            ->imageEditor()
+                                            ->directory('sites')
+                                            ->visibility('public')
+                                            ->imagePreviewHeight('100')
+                                            ->moveFiles()
+                                            ->maxSize(1024)
+                                            ->acceptedFileTypes(['image/avif', 'image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+                                            ->visible(fn (callable $get) => $get('holiday_theme_active'))
+                                            ->columnSpanFull(),
+                                    ])
+                                    ->columnSpanFull(),
+                            ]),
+
                         // TAB ĐĂNG NHẬP / ĐĂNG KÝ
                         Forms\Components\Tabs\Tab::make('Đăng nhập')
                             ->icon('heroicon-o-user-circle')

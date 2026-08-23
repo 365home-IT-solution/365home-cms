@@ -59,6 +59,12 @@
                 init() {
                     this.load();
                     window.addEventListener('auth-state-changed', () => this.load());
+                    window.addEventListener('storage', (e) => {
+                        if (e.key === 'auth_token' || e.key === 'auth_user') this.load();
+                    });
+                    window.addEventListener('pageshow', (e) => {
+                        if (e.persisted) this.load();
+                    });
                 },
                 load() {
                     try {

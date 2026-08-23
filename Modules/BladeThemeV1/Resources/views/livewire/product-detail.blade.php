@@ -1,3 +1,4 @@
+@inject('generalSettings', 'App\Settings\GeneralSettings')
 <div class="bg-white" x-data="{ showModal: false, slotPickerOpen: true }" data-product-id="{{ $product->id ?? '' }}">
     @if (session('booking_conflict_error'))
         <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 12000)"
@@ -732,7 +733,7 @@
                                     // tính để không lẫn với màu trạng thái đã đặt/pending/khuyến mãi.
                                     $roomColor = $productColors[$product->id]['color'] ?? null;
                                 @endphp
-                                <div class="space-y-5" id="pd-timeslots-section"
+                                <div class="space-y-5 {{ $generalSettings->holiday_theme_active ? 'holiday-theme' : '' }}" id="pd-timeslots-section"
                                     style="{{ $roomColor ? "--room-accent:{$roomColor};" : '' }}">
                                     <div class="md:flex md:items-center md:justify-between md:gap-6">
                                         <div>
@@ -760,7 +761,7 @@
                                         </div>
                                         <div class="flex items-center gap-1.5">
                                             <span
-                                                class="inline-flex w-4 h-4 rounded bg-gray-900 border border-gray-900"></span>
+                                                class="inline-flex w-4 h-4 rounded border {{ $generalSettings->holiday_theme_active ? 'bg-red-600 border-red-600' : 'bg-gray-900 border-gray-900' }}"></span>
                                             Đang chọn
                                         </div>
                                         <div class="flex items-center gap-1.5">
@@ -816,9 +817,11 @@
                                             pointer-events: none;
                                         }
 
+                                        /* Đồng bộ với book.blade.php: "bị khóa ngày" dùng cùng nền primary như
+                                           "đã đặt" (không còn nền xám + icon khóa riêng), xem book/_styles.blade.php. */
                                         .selectable.blocked {
-                                            background: #e5e7eb !important;
-                                            border-color: #d1d5db !important;
+                                            background: var(--color-primary) !important;
+                                            border-color: var(--color-primary) !important;
                                             cursor: not-allowed !important;
                                             pointer-events: none;
                                         }
@@ -1334,6 +1337,42 @@
                                             font-size: .75rem;
                                             font-weight: 600;
                                         }
+
+                                        /* ── Theme lễ hội (ManageGeneral::holiday_theme_active) ──
+                                           Đồng bộ với book/_styles.blade.php: ô "đang chọn" đổi từ đen
+                                           sang đỏ + sao trắng giữa. Selector luôn thêm .holiday-theme
+                                           (3 lớp thay vì 2) nên thắng rule .selectable.active gốc phía trên
+                                           bất kể thứ tự khai báo trong file. */
+                                        .holiday-theme .selectable.active {
+                                            background: #dc2626 !important;
+                                            border-color: #dc2626 !important;
+                                            opacity: 1 !important;
+                                        }
+
+                                        .holiday-theme .selectable.active::after {
+                                            content: "\2605" !important;
+                                            position: absolute;
+                                            inset: 0;
+                                            display: flex !important;
+                                            align-items: center;
+                                            justify-content: center;
+                                            color: #ffd60a;
+                                            text-shadow: 0 1px 2px rgba(0, 0, 0, .35);
+                                            font-size: 14px;
+                                            line-height: 1;
+                                            background: none !important;
+                                        }
+
+                                        /* Ô vừa active vừa bị admin giữ chỗ (held) giữ nguyên cam+icon
+                                           khoá, không bị đỏ+sao đè lên — 4 lớp nên thắng rule ở trên. */
+                                        .holiday-theme .selectable.active.held {
+                                            background: #f59e0b !important;
+                                            border-color: #f59e0b !important;
+                                        }
+
+                                        .holiday-theme .selectable.active.held::after {
+                                            content: "" !important;
+                                        }
                                     </style>
 
                                     {{-- ── Shared Alpine state (mobile + desktop) ── --}}
@@ -1606,16 +1645,6 @@
                                                                                 data-timeslot-id="{{ $timeSlot['timeslot_id'] }}"
                                                                                 data-iso-date="{{ $date['carbon_date']->format('Y-m-d') }}"
                                                                                 @click="toggleSlot('{{ $date['carbon_date']->format('Y-m-d') }}','{{ $timeSlot['timeslot_id'] }}','{{ $mFinal }}','{{ $mPAI }}','{{ $mBase }}','{{ $mInc }}','{{ $mPromo }}','{{ \Carbon\Carbon::parse($timeSlot['start_time'])->format('H:i') }}','{{ \Carbon\Carbon::parse($timeSlot['end_time'])->format('H:i') }}','{{ $mStatus }}','{{ $product['id'] }}','{{ $product['name'] }}','{{ $timeSlot['timeslot_label'] }}','{{ $timeSlot['over_night'] ?? 0 }}')">
-                                                                                @if (str_contains($mClasses, 'blocked'))
-                                                                                    <svg class="lock-icon" viewBox="0 0 24 24"
-                                                                                        fill="none" stroke="currentColor"
-                                                                                        stroke-width="2" stroke-linecap="round"
-                                                                                        stroke-linejoin="round">
-                                                                                        <rect x="4" y="11" width="16"
-                                                                                            height="9" rx="2" />
-                                                                                        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-                                                                                    </svg>
-                                                                                @endif
                                                                                 @if (str_contains($mClasses, 'held'))
                                                                                     <div class="lock-icon" title="Đang được {{ $mHeldByName }} xử lý cho 1 đơn khác">
                                                                                         <svg viewBox="0 0 24 24" fill="none"
@@ -1969,17 +1998,6 @@
                                                                 '{{ $timeSlot['timeslot_label'] }}',
                                                                 '{{ $timeSlot['over_night'] ?? 0 }}'
                                                              )">
-
-                                                                                @if (str_contains($classes, 'blocked'))
-                                                                                    <svg class="lock-icon" viewBox="0 0 24 24"
-                                                                                        fill="none" stroke="currentColor"
-                                                                                        stroke-width="2" stroke-linecap="round"
-                                                                                        stroke-linejoin="round">
-                                                                                        <rect x="4" y="11" width="16"
-                                                                                            height="9" rx="2" />
-                                                                                        <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-                                                                                    </svg>
-                                                                                @endif
 
                                                                                 @if (str_contains($classes, 'held'))
                                                                                     <div class="lock-icon" title="Đang được {{ $heldByName }} xử lý cho 1 đơn khác">

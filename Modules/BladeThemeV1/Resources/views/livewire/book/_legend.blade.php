@@ -17,7 +17,7 @@
                             <span class="w-4 h-4 border border-[#DDDDDD] rounded bg-white"></span> Còn Trống
                         </div>
                         <div class="flex items-center gap-1">
-                            <span class="w-4 h-4 bg-gray-900 rounded"></span> Đang chọn
+                            <span class="w-4 h-4 rounded {{ ($generalSettings ?? null)?->holiday_theme_active ? 'bg-red-600' : 'bg-gray-900' }}"></span> Đang chọn
                         </div>
                         <div class="flex items-center gap-1">
                             <span class="selectable-mini promo-mini w-4 h-4 rounded"></span> Khuyến mãi

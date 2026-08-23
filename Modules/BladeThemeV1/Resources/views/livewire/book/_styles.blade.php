@@ -1300,6 +1300,12 @@
 
     .book-dt-slot-cell .selectable { width: 100%; height: 28px; }
 
+    /* .selectable.promo::before (glow khuyến mãi, blur(5px) gốc) bị hàng lưới desktop 40px cao,
+       ô 78px rộng cắt cụt cạnh tương tự .book-slot-cell ở trên — thu blur lại cho vừa. */
+    .book-dt-slot-cell .selectable.promo::before {
+        filter: blur(2px);
+    }
+
     /* ── Bảng tính giá đầy đủ (Giá cơ bản, phụ thu, khuyến mãi, tổng tiền tạm tính): ẩn hẳn
          cả mobile lẫn desktop — mobile hiện trong bottom sheet riêng (book.blade.php), desktop
          thay bằng nút "Đặt phòng ngay" + tổng tiền tạm tính gọn trên hàng chú thích trạng thái
@@ -1857,5 +1863,46 @@
     .book-skeleton-row-lg {
         height: 40px;
         border-radius: 10px;
+    }
+
+    /* ── Theme lễ hội (ManageGeneral::holiday_theme_active) ──
+       Ô "đang chọn" đổi từ đen sang đỏ + sao trắng giữa, thay cho nền đen mặc định (định nghĩa
+       trong #book-sync-product-detail phía trên). Selector luôn thêm .holiday-theme (3 lớp thay
+       vì 2) nên thắng các rule .selectable.active gốc bất kể thứ tự khai báo trong file. */
+    .holiday-theme .selectable.active {
+        background: #dc2626 !important;
+        border-color: #dc2626 !important;
+        opacity: 1 !important;
+    }
+
+    .holiday-theme .selectable.active:hover {
+        background: #dc2626 !important;
+        border-color: #dc2626 !important;
+    }
+
+    .holiday-theme .selectable.active::after {
+        content: "\2605" !important;
+        position: absolute;
+        inset: 0;
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+        color: #ffd60a;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, .35);
+        font-size: 14px;
+        line-height: 1;
+        background: none !important;
+    }
+
+    /* Ô vừa active vừa bị admin giữ chỗ (held) phải giữ nguyên cam+icon khoá, không bị đỏ+sao đè
+       lên — 4 lớp (holiday-theme + selectable + active + held) nên thắng cả rule ở trên. */
+    .holiday-theme .selectable.active.held {
+        background: #f59e0b !important;
+        border-color: #f59e0b !important;
+    }
+
+    .holiday-theme .selectable.active.held::after {
+        content: "" !important;
+        background-color: #f59e0b !important;
     }
 </style>

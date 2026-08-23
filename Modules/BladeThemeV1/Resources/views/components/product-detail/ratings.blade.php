@@ -499,7 +499,7 @@
                 })
                     .then(function (res) {
                         return res.json().then(function (json) {
-                            if (!res.ok) throw json;
+                            if (!res.ok) throw { status: res.status, body: json };
                             return json;
                         });
                     })
@@ -511,11 +511,28 @@
                         self.fetchPreview();
                     })
                     .catch(function (err) {
-                        self.formError = (err && err.errors && err.errors.star && err.errors.star[0])
-                            || (err && err.message)
+                        if (self.handleAuthError(err)) return;
+                        var body = err && err.body;
+                        self.formError = (body && body.errors && body.errors.star && body.errors.star[0])
+                            || (body && body.message)
                             || 'Có lỗi xảy ra, vui lòng thử lại.';
                     })
                     .finally(function () { self.submitting = false; });
+            },
+
+            // Token còn trong localStorage nhưng đã hết hạn/bị thu hồi phía server → API trả 401.
+            // Trước đây lỗi này chỉ set formError (dễ bị bỏ sót nếu modal đã đóng), khiến người
+            // dùng không hiểu vì sao thao tác thất bại. Giờ dọn auth cũ và mở lại modal đăng nhập,
+            // giống hệt luồng "chưa đăng nhập" ở trên.
+            handleAuthError(err) {
+                if (!err || err.status !== 401) return false;
+                localStorage.removeItem('auth_token');
+                localStorage.removeItem('auth_user');
+                this.isLoggedIn = false;
+                window.dispatchEvent(new CustomEvent('auth-state-changed'));
+                this.formError = 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.';
+                window.dispatchEvent(new CustomEvent('open-auth-modal'));
+                return true;
             },
 
             deleteRating() {
@@ -528,7 +545,7 @@
                 })
                     .then(function (res) {
                         return res.json().then(function (json) {
-                            if (!res.ok) throw json;
+                            if (!res.ok) throw { status: res.status, body: json };
                             return json;
                         });
                     })
@@ -541,7 +558,8 @@
                         self.fetchPreview();
                     })
                     .catch(function (err) {
-                        self.formError = (err && err.message) || 'Có lỗi xảy ra, vui lòng thử lại.';
+                        if (self.handleAuthError(err)) return;
+                        self.formError = (err && err.body && err.body.message) || 'Có lỗi xảy ra, vui lòng thử lại.';
                     });
             },
         };

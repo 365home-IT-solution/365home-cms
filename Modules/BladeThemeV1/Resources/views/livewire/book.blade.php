@@ -1,3 +1,4 @@
+@inject('generalSettings', 'App\Settings\GeneralSettings')
 <div x-data="{
     selectedSlots: [],
     selectedRoomId: null,
@@ -229,6 +230,7 @@
         return summary;
     }
 }" x-on:book-category-changed.window="resetSelection()"
+    class="{{ $generalSettings->holiday_theme_active ? 'holiday-theme' : '' }}"
     data-room-ids="{{ implode(',', $this->roomIds) }}">
     <div class="w-full mx-auto">
         @include('bladethemev1::livewire.book._header')

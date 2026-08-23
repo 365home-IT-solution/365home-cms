@@ -12,6 +12,15 @@
         init() {
             this.loadFromStorage();
             window.addEventListener('auth-state-changed', () => this.loadFromStorage());
+            // 'storage' bắt thay đổi localStorage từ tab/cửa sổ khác (đăng nhập/đăng xuất ở tab
+            // kia). 'pageshow' + persisted bắt trường hợp trang được phục hồi từ bfcache (nút
+            // back/forward) — Alpine không tự chạy lại init() khi đó nên tên cũ bị 'dính cache'.
+            window.addEventListener('storage', (e) => {
+                if (e.key === 'auth_token' || e.key === 'auth_user') this.loadFromStorage();
+            });
+            window.addEventListener('pageshow', (e) => {
+                if (e.persisted) this.loadFromStorage();
+            });
         },
 
         loadFromStorage() {

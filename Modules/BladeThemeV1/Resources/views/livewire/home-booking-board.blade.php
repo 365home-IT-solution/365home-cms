@@ -4,12 +4,22 @@
  * thêm bộ chọn tỉnh/thành + chi nhánh phía trên. Đổi chi nhánh không remount lại Book — bắn sự
  * kiện 'load-branch' (cơ chế có sẵn từ Book::loadBranch()).
 --}}
+@inject('generalSettings', 'App\Settings\GeneralSettings')
 <section class="py-6 bg-white" x-data="homeBookingBoard()" x-init="init()" x-cloak>
     <div class="w-full max-w-7xl mx-auto" x-show="provinces.length > 0">
 
         <div class="px-4 sm:px-6">
             <div class="mb-5">
-                <h2 class="text-2xl font-bold text-gray-900">Lịch đặt phòng trực tuyến</h2>
+                <h2 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                    {{-- Ảnh chủ đề lễ hội (ManageGeneral::holiday_theme_active/holiday_logo_image) —
+                         CHỈ hiện đúng ở đây, không còn ở logo header hay 2 label khác (Lần đầu khám
+                         phá, Các chi nhánh tại...) theo yêu cầu gộp về 1 chỗ duy nhất. --}}
+                    @if ($generalSettings->holiday_theme_active && $generalSettings->holiday_logo_image)
+                        <img src="{{ asset('/storage/'.$generalSettings->holiday_logo_image) }}"
+                             alt="" class="inline-block w-6 h-6 object-contain"/>
+                    @endif
+                    Lịch đặt phòng trực tuyến
+                </h2>
                 {{-- Tên khu vực đang chọn lấy từ provinces (đã fetch qua loadProvinces()) khớp
                      activeProvinceId — rơi về câu chung chung nếu chưa xác định được tên. --}}
                 <p class="text-sm text-gray-500 mt-1"
