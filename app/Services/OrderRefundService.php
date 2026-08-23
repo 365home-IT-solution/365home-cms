@@ -27,7 +27,7 @@ class OrderRefundService
     /**
      * @throws \RuntimeException nếu đơn không ở trạng thái 'paid'/'deposit' (chưa thu tiền thật)
      */
-    public function refund(Order $order, int $amount, string $method, ?string $reason, ?int $refundedBy): void
+    public function refund(Order $order, int $amount, string $method, ?string $reason, ?string $refundedBy): void
     {
         if (! in_array($order->status, ['paid', 'deposit'], true)) {
             throw new \RuntimeException('Chỉ áp dụng cho đơn đã thanh toán (đủ hoặc đặt cọc).');
