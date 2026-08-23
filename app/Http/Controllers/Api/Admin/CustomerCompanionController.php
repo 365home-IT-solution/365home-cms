@@ -37,6 +37,7 @@ class CustomerCompanionController extends Controller
         }
 
         $companions = $customer->companions()
+            ->withCount('orderGuestCccds')
             ->orderByDesc('id')
             ->get()
             ->map(fn (CustomerCompanion $companion) => $this->formatCompanion($companion))
@@ -406,6 +407,10 @@ class CustomerCompanionController extends Controller
 
         $data['cccd_front_url'] = $companion->cccd_front ? Storage::disk('public')->url($companion->cccd_front) : null;
         $data['cccd_back_url']  = $companion->cccd_back  ? Storage::disk('public')->url($companion->cccd_back)  : null;
+        // Số lần companion này được gắn vào 1 đơn — chỉ có giá trị khi index() eager-load bằng
+        // withCount('orderGuestCccds'); các nơi khác gọi formatCompanion() (store/update) không load
+        // nên mặc định 0 (companion mới/vừa sửa chưa gắn đơn nào).
+        $data['orders_count']   = $companion->order_guest_cccds_count ?? 0;
 
         return $data;
     }

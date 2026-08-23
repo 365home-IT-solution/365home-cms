@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\OrderExtraBookingService;
+use App\Services\OrderRefundService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Config;
@@ -352,6 +353,57 @@ class OrderPaymentController extends Controller
         }
 
         return response()->json($result);
+    }
+
+    /**
+     * POST /api/admin/orders/{order_code}/refund
+     * Admin huỷ đơn ĐÃ THANH TOÁN (paid/deposit) và ghi nhận ĐÃ hoàn tiền cho khách. Logic thật nằm
+     * ở App\Services\OrderRefundService — dùng CHUNG với action "Hoàn tiền đơn hàng" trên trang admin
+     * Filament (OrderResource\Pages\EditOrder), đảm bảo web và API luôn ghi đúng cùng 1 bộ dữ liệu
+     * (trước đây web chỉ có dropdown đổi status, không hỏi amount/method/reason).
+     *
+     * Body:
+     *  - amount : bắt buộc, số tiền đã hoàn (VNĐ)
+     *  - method : bắt buộc, 'cash' | 'transfer'
+     *  - reason : tuỳ chọn, lý do huỷ/hoàn tiền
+     */
+    public function refund(Request $request, string $orderCode, OrderRefundService $refundService): JsonResponse
+    {
+        /** @var User $admin */
+        $admin = $request->user();
+
+        $request->validate([
+            'amount' => 'required|integer|min:1',
+            'method' => 'required|in:cash,transfer',
+            'reason' => 'nullable|string|max:500',
+        ]);
+
+        $order = Order::where('order_code', $orderCode)->first();
+
+        if (! $order || (! $admin->isSuperAdmin() && $order->partner_id !== $admin->partner_id)) {
+            return response()->json(['message' => 'Không tìm thấy đơn.'], 404);
+        }
+
+        try {
+            $refundService->refund(
+                $order,
+                (int) $request->input('amount'),
+                $request->input('method'),
+                $request->input('reason'),
+                $admin->id,
+            );
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'message'       => 'Đã hoàn tiền đơn hàng.',
+            'order_code'    => $order->order_code,
+            'status'        => $order->status,
+            'refund_amount' => $order->refund_amount,
+            'refund_method' => $order->refund_method,
+            'refunded_at'   => $order->refunded_at,
+        ]);
     }
 
     // ── Riêng của admin — KHÔNG chia sẻ với ExtraChargeService/khách hàng ─────────────────────

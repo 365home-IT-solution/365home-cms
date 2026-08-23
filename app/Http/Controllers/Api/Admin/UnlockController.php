@@ -117,4 +117,74 @@ class UnlockController extends BaseUnlockController
                 : 'Đã tắt cho phép mở cổng ngoài giờ check-in.',
         ]);
     }
+
+    /**
+     * POST /api/admin/orders/{order_code}/manual-checkin
+     * Lễ tân xác nhận THỦ CÔNG khách đã nhận phòng — dùng khi phòng không có TTLock hoặc khoá lỗi
+     * (không có cách nào khác để cập nhật checked_in_at/order_status trong các trường hợp này, vì
+     * AccessCode chỉ cấp mã cho khách tự nhập vào khoá vật lý, không tự báo lại hệ thống). Tái sử
+     * dụng finalizeCheckInOut() ở lớp cha — cùng broadcast realtime + báo Telegram/admin như luồng
+     * mở khoá qua app, chỉ khác là KHÔNG gọi TTLock.
+     */
+    public function manualCheckin(Request $request, string $orderCode): JsonResponse
+    {
+        return $this->manualCheckInOut($request, $orderCode, isCheckin: true);
+    }
+
+    /**
+     * POST /api/admin/orders/{order_code}/manual-checkout
+     * Xem docblock manualCheckin() — cùng cơ chế, chiều trả phòng.
+     */
+    public function manualCheckout(Request $request, string $orderCode): JsonResponse
+    {
+        return $this->manualCheckInOut($request, $orderCode, isCheckin: false);
+    }
+
+    private function manualCheckInOut(Request $request, string $orderCode, bool $isCheckin): JsonResponse
+    {
+        /** @var User $admin */
+        $admin = $request->user();
+
+        $order = Order::with(['items.product', 'accessCodes'])
+            ->where('order_code', $orderCode)
+            ->first();
+
+        if (! $order || (! $admin->isSuperAdmin() && $order->partner_id !== $admin->partner_id)) {
+            return response()->json(['message' => 'Không tìm thấy đơn.'], 404);
+        }
+
+        if (! in_array($order->status, ['paid', 'deposit'], true)) {
+            return response()->json(['message' => 'Đơn hàng chưa được thanh toán hoặc đã kết thúc.'], 422);
+        }
+
+        if ($isCheckin && $order->checked_in_at) {
+            return response()->json(['message' => 'Đơn này đã được nhận phòng trước đó.'], 422);
+        }
+
+        if (! $isCheckin && (! $order->checked_in_at || $order->checked_out_at)) {
+            return response()->json(['message' => 'Đơn này chưa nhận phòng hoặc đã trả phòng trước đó.'], 422);
+        }
+
+        $item    = $order->items->where('extra_fee', 0)->first();
+        $product = $item?->product;
+
+        if (! $item || ! $product) {
+            return response()->json(['message' => 'Không tìm thấy phòng trong đơn hàng.'], 422);
+        }
+
+        $this->finalizeCheckInOut($order, $product, $item, $order->accessCodes->first(), $isCheckin, 'manual');
+
+        Log::info('Manual check-in/out confirmed by admin', [
+            'order_id'   => $order->id,
+            'order_code' => $order->order_code,
+            'is_checkin' => $isCheckin,
+            'admin'      => $admin->email,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => $isCheckin ? 'Đã xác nhận khách nhận phòng.' : 'Đã xác nhận khách trả phòng.',
+            'order_status' => $order->refresh()->order_status,
+        ]);
+    }
 }

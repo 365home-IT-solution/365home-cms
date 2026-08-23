@@ -89,6 +89,11 @@ class Order extends Model implements Eventable
         'extra_refund_method',
         'extra_refund_paid_at',
         'settled_adjustment_total',
+        'refund_amount',
+        'refund_method',
+        'refund_reason',
+        'refunded_at',
+        'refunded_by',
     ];
 
     protected $casts = [
@@ -101,6 +106,7 @@ class Order extends Model implements Eventable
         'extra_charge_paid_at'    => 'datetime',
         'extra_charge_expired_at' => 'datetime',
         'extra_refund_paid_at'    => 'datetime',
+        'refunded_at'             => 'datetime',
         'exclude_from_stats'     => 'boolean',
         'unlock_anytime'         => 'boolean',
         'checked_in_at'          => 'datetime',

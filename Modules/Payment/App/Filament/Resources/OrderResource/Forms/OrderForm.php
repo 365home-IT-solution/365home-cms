@@ -300,6 +300,13 @@ class OrderForm
                                                                         'failed'            => '' . __('payment::order.form.options.status.failed'),
                                                                         'refunded'          => 'Hoàn tiền',
                                                                     ])
+                                                                    // 'refunded' vẫn giữ trong danh sách để đơn ĐÃ hoàn tiền hiển thị
+                                                                    // đúng nhãn, nhưng KHÔNG cho chọn mới từ dropdown này nữa — dropdown
+                                                                    // đổi status trực tiếp không hỏi số tiền/phương thức/lý do hoàn.
+                                                                    // Dùng action "Hoàn tiền đơn hàng" (EditOrder::getHeaderActions()) —
+                                                                    // đi qua OrderRefundService, cùng logic với API refund, ghi đủ
+                                                                    // refund_amount/refund_method/refund_reason/refunded_at/refunded_by.
+                                                                    ->disableOptionWhen(fn (string $value): bool => $value === 'refunded')
                                                                     ->default('pending')
                                                                     ->live()
                                                                     ->dehydrateStateUsing(fn($state) => $state)

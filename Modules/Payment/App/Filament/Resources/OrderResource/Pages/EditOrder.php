@@ -745,6 +745,74 @@ class EditOrder extends EditRecord
                     }
                 }),
 
+            // =========================================================
+            // Hoàn tiền TOÀN BỘ đơn khi huỷ — thay cho việc đổi 'status' sang 'refunded' trực tiếp
+            // qua dropdown "Trạng thái thanh toán" (OrderForm — option đó đã bị disable, xem comment
+            // ở đó): dropdown không hỏi số tiền/phương thức/lý do hoàn nên trước đây web và API
+            // /api/admin/orders/{code}/refund ghi lệch dữ liệu nhau. Action này dùng CHUNG
+            // App\Services\OrderRefundService với API để đảm bảo luôn ghi đủ refund_amount/
+            // refund_method/refund_reason/refunded_at/refunded_by ở cả 2 nơi.
+            // =========================================================
+            Actions\Action::make('refundOrder')
+                ->label('Hoàn tiền đơn hàng')
+                ->icon('heroicon-m-arrow-uturn-left')
+                ->color('danger')
+                ->visible(fn () => (auth()->user()?->can('update_order') ?? false)
+                    && in_array($this->record->status, ['paid', 'deposit'], true))
+                ->form([
+                    \Filament\Forms\Components\TextInput::make('refund_amount')
+                        ->label('Số tiền hoàn (VNĐ)')
+                        ->numeric()
+                        ->minValue(1)
+                        ->required()
+                        ->default(fn () => (int) $this->record->full_amount),
+                    \Filament\Forms\Components\Select::make('refund_method')
+                        ->label('Phương thức hoàn')
+                        ->options(['cash' => 'Tiền mặt', 'transfer' => 'Chuyển khoản'])
+                        ->required(),
+                    \Filament\Forms\Components\Textarea::make('refund_reason')
+                        ->label('Lý do hoàn tiền / huỷ đơn')
+                        ->rows(2),
+                ])
+                ->requiresConfirmation()
+                ->modalHeading('Hoàn tiền đơn hàng')
+                ->modalDescription('PayOS không hỗ trợ hoàn tiền tự động — chỉ xác nhận SAU KHI đã hoàn tiền mặt/chuyển khoản cho khách NGOÀI hệ thống. Đơn sẽ chuyển sang trạng thái "Hoàn tiền", tự giải phóng phòng và trừ điểm thành viên đã tích (nếu có).')
+                ->modalSubmitActionLabel('Xác nhận đã hoàn tiền')
+                ->action(function (array $data) {
+                    $record = $this->record->fresh();
+
+                    try {
+                        app(\App\Services\OrderRefundService::class)->refund(
+                            $record,
+                            (int) $data['refund_amount'],
+                            $data['refund_method'],
+                            $data['refund_reason'] ?? null,
+                            auth()->id(),
+                        );
+
+                        AuditLogger::log(
+                            'update', 'Order', $record, [],
+                            ['Hoàn tiền đơn hàng' => number_format((int) $data['refund_amount'], 0, ',', '.') . 'đ ('
+                                . ($data['refund_method'] === 'cash' ? 'tiền mặt' : 'chuyển khoản') . ')'],
+                            'Đơn #' . $record->order_code,
+                        );
+
+                        Notification::make()
+                            ->title('Đã hoàn tiền đơn hàng')
+                            ->body(number_format((int) $data['refund_amount'], 0, ',', '.') . 'đ')
+                            ->success()
+                            ->send();
+
+                        $this->redirect($this->getResource()::getUrl('edit', ['record' => $record]));
+                    } catch (\RuntimeException $e) {
+                        Notification::make()
+                            ->title('Không thể hoàn tiền')
+                            ->body($e->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
+
             Actions\DeleteAction::make(),
         ];
     }

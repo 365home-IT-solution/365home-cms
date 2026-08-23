@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\Admin\DailyRoomHoldController as AdminDailyRoomHold
 use App\Http\Controllers\Api\Admin\DeductionTypeController;
 use App\Http\Controllers\Api\Admin\DepartmentController;
 use App\Http\Controllers\Api\Admin\EmployeeController;
+use App\Http\Controllers\Api\Admin\EventController as AdminEventController;
 use App\Http\Controllers\Api\Admin\FcmTokenController as AdminFcmTokenController;
 use App\Http\Controllers\Api\Admin\MembershipTierController as AdminMembershipTierController;
 use App\Http\Controllers\Api\Admin\NotificationController as AdminNotificationController;
@@ -430,6 +431,18 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/categories')->na
 | POST /api/admin/orders/{order_code}/retry-payment
 |                                          → tạo lại QR PayOS cho đơn "failed"/"cancelled_payment",
 |                                            đơn tự chuyển về "pending" — trả kèm qr_code + expired_at.
+| POST /api/admin/orders/{order_code}/refund
+|                                          → huỷ đơn ĐÃ thanh toán (paid/deposit) và ghi nhận ĐÃ hoàn
+|                                            tiền THỦ CÔNG (cash/transfer, không qua PayOS — cổng
+|                                            thanh toán không có API hoàn tiền thật). status → 'refunded',
+|                                            OrderObserver tự giải phóng slot + trừ điểm + báo khách.
+| POST /api/admin/orders/{order_code}/manual-checkin
+| POST /api/admin/orders/{order_code}/manual-checkout
+|                                          → lễ tân xác nhận nhận/trả phòng THỦ CÔNG, KHÔNG qua khoá
+|                                            điện tử/mã cổng — dùng khi phòng không có TTLock hoặc
+|                                            khoá lỗi. Cập nhật checked_in_at/checked_out_at +
+|                                            order_status, broadcast realtime + báo Telegram y hệt
+|                                            luồng mở khoá qua app.
 | DELETE /api/admin/orders/{order_code}
 |                                          → xoá HẲN 1 đơn (hard delete, không thể khôi phục) — dọn
 |                                            luôn order_items/order_services/order_guest_cccds + file
@@ -461,6 +474,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/orders')->name('
     Route::post('/{order_code}/remaining-payment', [OrderPaymentController::class, 'remainingPayment'])->name('remaining-payment');
     Route::post('/{order_code}/extra',             [OrderPaymentController::class, 'addExtra'])->name('extra');
     Route::post('/{order_code}/extra-charge-qr',   [OrderPaymentController::class, 'extraChargeQr'])->name('extra-charge-qr');
+    Route::post('/{order_code}/refund',            [OrderPaymentController::class, 'refund'])->name('refund');
+    Route::post('/{order_code}/manual-checkin',    [AdminUnlockController::class, 'manualCheckin'])->name('manual-checkin');
+    Route::post('/{order_code}/manual-checkout',   [AdminUnlockController::class, 'manualCheckout'])->name('manual-checkout');
 });
 
 /*
@@ -555,7 +571,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/cccd-declaration
 | THÊM MỚI (quét CCCD ngay trong lúc tạo) qua POST .../companions — gửi ĐƯỢC NHIỀU companion cùng
 | lúc trong 1 request (ví dụ guest_count=3 → gửi 3 companion 1 lần thay vì gọi POST 3 lần).
 |
-| GET    /api/admin/customers/{customer_id}/companions      → Danh sách companion đã lưu
+| GET    /api/admin/customers/{customer_id}/companions      → Danh sách companion đã lưu, mỗi
+|                                                              companion kèm 'orders_count' = số đơn
+|                                                              đã từng gắn companion này
+|                                                              (order_guest_cccds.companion_id)
 | POST   /api/admin/customers/{customer_id}/companions      → Thêm mới HÀNG LOẠT (multipart),
 |                                                              mỗi companion CHỌN 1 trong 2 chế độ:
 |                                                              - ẢNH: companions[{i}][cccd_front|
@@ -641,6 +660,29 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/promotions')->na
     Route::put('/{id}', [AdminPromotionController::class, 'update'])->name('update');
     Route::post('/{id}', [AdminPromotionController::class, 'update'])->name('update.post');
     Route::delete('/{id}', [AdminPromotionController::class, 'destroy'])->name('destroy');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Events — Quản lý SỰ KIỆN (bảng `events`, App\Models\Event) — ảnh + toggle on/off, nội dung dùng
+| chung không scope theo đối tác. Xem docblock Api\Admin\EventController. Bản public
+| (is_active=true) ở GET /api/v1/events.
+| GET    /api/admin/events         → ?search=&is_active=&per_page=
+| GET    /api/admin/events/{id}    → chi tiết
+| POST   /api/admin/events         → tạo (multipart/form-data, image bắt buộc)
+| PUT|POST /api/admin/events/{id}  → sửa (POST khi cần gửi kèm ảnh)
+| POST   /api/admin/events/{id}/toggle → bật/tắt nhanh is_active
+| DELETE /api/admin/events/{id}    → xoá (kèm xoá file ảnh)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/events')->name('api.admin.events.')->group(function () {
+    Route::get('/', [AdminEventController::class, 'index'])->name('index');
+    Route::get('/{id}', [AdminEventController::class, 'show'])->name('show');
+    Route::post('/', [AdminEventController::class, 'store'])->name('store');
+    Route::put('/{id}', [AdminEventController::class, 'update'])->name('update');
+    Route::post('/{id}', [AdminEventController::class, 'update'])->name('update.post');
+    Route::post('/{id}/toggle', [AdminEventController::class, 'toggle'])->name('toggle');
+    Route::delete('/{id}', [AdminEventController::class, 'destroy'])->name('destroy');
 });
 
 /*

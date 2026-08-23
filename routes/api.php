@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Auth\ZaloOtpController;
 use App\Http\Controllers\Api\BranchController;
 use App\Http\Controllers\Api\ConfigController;
+use App\Http\Controllers\Api\EventController;
 use App\Http\Controllers\Api\GraphQLController;
 use App\Http\Controllers\Api\MembershipController;
 use App\Http\Controllers\Api\ChatController;
@@ -117,6 +118,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
 
     Route::get('config',     ConfigController::class)->name('config')->middleware('throttle:config');
     Route::get('config/map', [ConfigController::class, 'map'])->name('config.map')->middleware('throttle:config');
+
+    // GET /api/v1/events → danh sách sự kiện đang bật (is_active=true), public — quản lý CRUD ở
+    // POST/PUT/DELETE /api/admin/events (Api\Admin\EventController).
+    Route::get('events', [EventController::class, 'index'])->name('events.index')->middleware('throttle:public-api');
 
     /*
     |--------------------------------------------------------------------------

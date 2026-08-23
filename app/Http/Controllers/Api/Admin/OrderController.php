@@ -48,7 +48,7 @@ class OrderController extends Controller
      *  - filter[room_id]        : lọc đơn có ít nhất 1 item thuộc phòng này (order_items.product_id)
      *  - filter[status]         : pending|paid|deposit|cancelled|failed|refunded...
      *  - filter[payment_method] : PayOS|cod
-     *  - filter[search]         : order_code / buyer_name / buyer_phone
+     *  - filter[search]         : order_code / buyer_name / buyer_phone / tên phòng trong đơn (items.product.name)
      *  - filter[from], filter[to]       : lọc theo ngày TẠO đơn — created_at (yyyy-mm-dd)
      *  - filter[checkin_date]   : lọc theo ngày NHẬN phòng (order_items.checkin_date, yyyy-mm-dd)
      *  - filter[checkout_date]  : lọc theo ngày TRẢ phòng (order_items.checkout_date, yyyy-mm-dd)
@@ -107,7 +107,8 @@ class OrderController extends Controller
                 $q->where(function ($q2) use ($search) {
                     $q2->where('order_code', 'like', "%{$search}%")
                         ->orWhere('buyer_name', 'like', "%{$search}%")
-                        ->orWhere('buyer_phone', 'like', "%{$search}%");
+                        ->orWhere('buyer_phone', 'like', "%{$search}%")
+                        ->orWhereHas('items.product', fn ($pq) => $pq->where('name', 'like', "%{$search}%"));
                 });
             })
             ->when(filled($f('from')), fn ($q) => $q->whereDate('created_at', '>=', $f('from')))

@@ -203,30 +203,7 @@ class UnlockController extends Controller
         ]);
 
         if ($opened) {
-            $checkedInAt = null;
-            if ($isCheckin) {
-                $checkedInAt = now()->toIso8601String();
-                // "nhận phòng" và "bắt đầu ở" xảy ra cùng lúc (không có sự kiện nào tách 2 mốc này) → ghi thẳng order_status = staying.
-                $order->update(['checked_in_at' => now(), 'order_status' => 'staying']);
-            } else {
-                $order->update(['checked_out_at' => now(), 'order_status' => 'checked_out']);
-            }
-
-            $this->realtime->broadcastCheckin(
-                $order->order_code,
-                $isCheckin ? 'checkin' : 'checkout',
-                $checkedInAt,
-                $order->customer_id ? (int) $order->customer_id : null,
-            );
-
-            $this->realtime->broadcastOrderUpdate(
-                $order->order_code,
-                ['order_status' => $order->order_status, 'payment_status' => $order->payment_status],
-                $order->customer_id ? (int) $order->customer_id : null,
-            );
-
-            $this->notifyUnlock($order, $product, $item, $accessCode, $isCheckin);
-            $this->notifyAdminCheckinOrCheckout($order, $isCheckin);
+            $this->finalizeCheckInOut($order, $product, $item, $accessCode, $isCheckin, 'app');
 
             $msg = $isCheckin
                 ? 'Cổng đã được mở. Chào mừng bạn!'
@@ -255,6 +232,44 @@ class UnlockController extends Controller
             'type'    => 'ttlock_error',
             'message' => 'Không thể mở cổng tự động và chưa có mã dự phòng. Vui lòng liên hệ nhân viên để được hỗ trợ.',
         ], 503);
+    }
+
+    /**
+     * Ghi nhận check-in/check-out THẬT (cập nhật cột, broadcast realtime, báo Telegram + admin) —
+     * dùng chung cho CẢ 2 nguồn: khách tự mở qua TTLock (handleTTLockUnlock() ở trên) LẪN lễ tân xác
+     * nhận thủ công không qua khoá (Admin\UnlockController::manualCheckin()/manualCheckout()).
+     * $method chỉ ảnh hưởng nội dung tin nhắn Telegram ('app' | 'manual'), không đổi logic xử lý.
+     */
+    protected function finalizeCheckInOut(
+        Order       $order,
+        Product     $product,
+        OrderItem   $item,
+        ?AccessCode $accessCode,
+        bool        $isCheckin,
+        string      $method = 'app'
+    ): void {
+        if ($isCheckin) {
+            // "nhận phòng" và "bắt đầu ở" xảy ra cùng lúc (không có sự kiện nào tách 2 mốc này) → ghi thẳng order_status = staying.
+            $order->update(['checked_in_at' => now(), 'order_status' => 'staying']);
+        } else {
+            $order->update(['checked_out_at' => now(), 'order_status' => 'checked_out']);
+        }
+
+        $this->realtime->broadcastCheckin(
+            $order->order_code,
+            $isCheckin ? 'checkin' : 'checkout',
+            $isCheckin ? now()->toIso8601String() : null,
+            $order->customer_id ? (int) $order->customer_id : null,
+        );
+
+        $this->realtime->broadcastOrderUpdate(
+            $order->order_code,
+            ['order_status' => $order->order_status, 'payment_status' => $order->payment_status],
+            $order->customer_id ? (int) $order->customer_id : null,
+        );
+
+        $this->notifyUnlock($order, $product, $item, $accessCode, $isCheckin, $method);
+        $this->notifyAdminCheckinOrCheckout($order, $isCheckin);
     }
 
     /**
@@ -288,7 +303,8 @@ class UnlockController extends Controller
         Product     $product,
         OrderItem   $item,
         ?AccessCode $accessCode,
-        bool        $isCheckin
+        bool        $isCheckin,
+        string      $method = 'app'
     ): void {
         $prefix = $isCheckin ? 'CHECK-IN' : 'CHECK-OUT';
 
@@ -310,7 +326,7 @@ class UnlockController extends Controller
             $msg .= "Mã cổng: <code>{$accessCode->code}</code>\n";
         }
 
-        $msg .= "(Mở qua app)";
+        $msg .= $method === 'manual' ? '(Lễ tân xác nhận thủ công)' : '(Mở qua app)';
 
         try {
             $this->telegram->sendLockMessage(trim($msg));
