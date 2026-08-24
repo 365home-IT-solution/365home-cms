@@ -29,10 +29,14 @@ class PushNotificationController extends Controller
     /**
      * GET /api/admin/push-notification
      * Query: search (theo tiêu đề), sent_for (all|users), status (pending|sent), per_page.
+     * Chỉ trả về thông báo admin tự tạo (created_by khác null) — bỏ qua thông báo hệ thống tự
+     * động gửi cho khách (booking, checkin_reminder, checkout_warning, membership_auto_coupon...
+     * xem App\Services\NotificationFcmService) vì các thông báo đó không gán created_by.
      */
     public function index(Request $request): JsonResponse
     {
         $notifications = NotificationFcm::query()
+            ->whereNotNull('created_by')
             ->when($request->filled('search'), fn ($q) => $q->where('title', 'like', '%'.$request->input('search').'%'))
             ->when($request->filled('sent_for'), fn ($q) => $q->where('sent_for', $request->input('sent_for')))
             ->when($request->input('status') === 'pending', fn ($q) => $q->whereNotNull('scheduled_at')->whereNull('sent_at'))
@@ -49,7 +53,7 @@ class PushNotificationController extends Controller
      */
     public function show(string $id): JsonResponse
     {
-        $notification = NotificationFcm::find($id);
+        $notification = $this->findAdminNotification($id);
 
         if (! $notification) {
             return response()->json(['message' => 'Không tìm thấy thông báo.'], 404);
@@ -93,7 +97,7 @@ class PushNotificationController extends Controller
      */
     public function update(Request $request, string $id): JsonResponse
     {
-        $notification = NotificationFcm::find($id);
+        $notification = $this->findAdminNotification($id);
 
         if (! $notification) {
             return response()->json(['message' => 'Không tìm thấy thông báo.'], 404);
@@ -132,7 +136,7 @@ class PushNotificationController extends Controller
      */
     public function resend(Request $request, string $id): JsonResponse
     {
-        $source = NotificationFcm::find($id);
+        $source = $this->findAdminNotification($id);
 
         if (! $source) {
             return response()->json(['message' => 'Không tìm thấy thông báo.'], 404);
@@ -182,6 +186,15 @@ class PushNotificationController extends Controller
         $this->dispatchNow($notification, $customerIds, $isScheduled);
 
         return response()->json(['data' => $this->toItem($notification->fresh())], 201);
+    }
+
+    /**
+     * Chỉ tìm thông báo admin tự tạo (created_by khác null) — thông báo hệ thống tự động gửi
+     * (booking, checkin_reminder...) không thuộc phạm vi quản lý của API này.
+     */
+    private function findAdminNotification(string $id): ?NotificationFcm
+    {
+        return NotificationFcm::whereNotNull('created_by')->find($id);
     }
 
     private function rules(): array
