@@ -146,7 +146,7 @@
                 </div>
                 {{-- background-position lệch sang phải: chữ + nội dung nằm bên trái, phần đồ hoạ
                      (thẻ giá/coupon) của ảnh nền dồn về bên phải, tránh đè lên chữ. --}}
-                <div class="explore-card" style="background-image: url('{{ asset('images/banner-guest-mobile.png') }}'); background-position: right center;">
+                <div class="explore-card" style="background-image: url('{{ asset('images/banner-guest-mobile.webp') }}'); background-position: right center;">
                     <div class="explore-card-content">
                         <p class="explore-card-title" style="color:#fff;">Nhận ưu đãi liền tay khi tải app!</p>
                         <p class="explore-card-subtitle" style="color:rgba(255,255,255,.88);">Sử dụng ứng dụng để săn deals mỗi ngày</p>

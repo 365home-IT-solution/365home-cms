@@ -294,7 +294,7 @@
                                 @click="window.dispatchEvent(new CustomEvent('hero-set-tab', { detail: { tab: 'day' } }))"
                                 class="flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-full text-sm font-semibold transition-colors"
                                 :class="activeTabMirror === 'day' ? 'bg-white shadow-md text-[var(--color-primary)]' : 'text-gray-500 hover:text-gray-700'">
-                                <img src="{{ asset('images/building.gif') }}" alt="" class="w-4 h-4 object-contain">
+                                <img src="{{ asset('images/building.webp') }}" alt="" class="w-4 h-4 object-contain">
                                 Theo ngày
                             </button>
                         </div>

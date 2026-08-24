@@ -10,7 +10,7 @@
              as "resource load delay". Preloading it here lets the browser fetch it immediately, in
              parallel with everything else, cutting straight into that delay without changing how
              the section renders. --}}
-        <link rel="preload" as="image" href="{{ asset('images/banner-guest-mobile.png') }}" fetchpriority="high">
+        <link rel="preload" as="image" href="{{ asset('images/banner-guest-mobile.webp') }}" fetchpriority="high">
     @endpush
 @endif
 

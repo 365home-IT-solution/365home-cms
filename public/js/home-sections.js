@@ -257,6 +257,26 @@ if (typeof window.__roomTypeIcon === 'undefined') {
     };
 }
 
+// Livewire can morph/rebuild the DOM right after the page hydrates (see comment in
+// homeBookingBoard() below), which makes Alpine re-run x-init on the same logical widget —
+// firing its initial fetch twice, back-to-back, for the exact same data (confirmed in a
+// PageSpeed network-dependency trace: /api/v1/home, /api/v1/provinces, and
+// /api/v1/search/branches each requested twice). Rather than guessing which of the two Alpine
+// instances ends up bound to the final DOM (skipping the "wrong" one would leave that widget
+// stuck on its loading skeleton forever), share a single in-flight request across any calls to
+// the same URL that overlap in time — every caller still gets the real response, only the
+// redundant network round-trip is removed.
+if (typeof window.__dedupeFetch === 'undefined') {
+    window.__dedupeFetch = function (url, opts) {
+        window.__inflightFetches = window.__inflightFetches || {};
+        const key = url + '|' + JSON.stringify((opts && opts.headers) || {});
+        if (window.__inflightFetches[key]) return window.__inflightFetches[key];
+        const promise = fetch(url, opts).finally(() => { delete window.__inflightFetches[key]; });
+        window.__inflightFetches[key] = promise;
+        return promise;
+    };
+}
+
 if (typeof window.homeSections === 'undefined') {
     window.homeSections = function () {
         return {
@@ -284,7 +304,7 @@ if (typeof window.homeSections === 'undefined') {
 
                 const url = '/api/v1/home' + (provinceId ? '?province_id=' + encodeURIComponent(provinceId) : '');
 
-                fetch(url, { headers })
+                window.__dedupeFetch(url, { headers })
                     .then(res => res.json())
                     .then(data => {
                         const allowed = ['banner', 'promotion_list', 'suggestion_list', 'room_list'];
@@ -394,7 +414,7 @@ if (typeof window.homeBookingBoard === 'undefined') {
             },
 
             loadProvinces() {
-                fetch('/api/v1/provinces')
+                window.__dedupeFetch('/api/v1/provinces')
                     .then(res => res.json())
                     .then(data => {
                         this.provinces = data.provinces || [];
@@ -422,7 +442,7 @@ if (typeof window.homeBookingBoard === 'undefined') {
                 if (!this.activeProvinceId) return;
                 this.loadingBranches = true;
                 this.branches = [];
-                fetch('/api/v1/search/branches?province_id=' + encodeURIComponent(this.activeProvinceId))
+                window.__dedupeFetch('/api/v1/search/branches?province_id=' + encodeURIComponent(this.activeProvinceId))
                     .then(res => res.json())
                     .then(data => {
                         this.branches = data.data || [];

@@ -86,7 +86,7 @@
                 </div>
 
                 <a href="http://online.gov.vn/Home/WebDetails/140984" target="_blank" rel="noopener" class="inline-block mt-4">
-                    <img src="{{ asset('images/bocongthuong.png') }}" alt="Đã thông báo Bộ Công Thương" class="h-14 w-auto">
+                    <img src="{{ asset('images/bocongthuong.webp') }}" alt="Đã thông báo Bộ Công Thương" class="h-14 w-auto">
                 </a>
             </div>
         </div>
