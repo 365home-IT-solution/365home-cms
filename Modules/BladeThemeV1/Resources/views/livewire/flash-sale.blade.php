@@ -1,7 +1,15 @@
+{{-- No x-cloak here: it hides this ENTIRE block (skeleton included) until Alpine's script has
+     fully loaded+parsed+executed — under throttled mobile conditions that's measured up to ~8s,
+     during which the whole section (skeleton meant to prevent a blank page, plus everything below
+     it) stays invisible, then reveals all at once. That single reveal was the dominant cause of
+     both the huge LCP (nothing paints until then) and CLS (footer/everything shifts down in one
+     jump) measured against production. Without x-cloak, the skeleton's own markup (no Alpine
+     styling needed to be visible — only `x-show="loading"` needs Alpine to eventually hide it)
+     paints immediately in its default visible state, so the page has real content on screen from
+     first paint instead of a blank hole, and it fills in incrementally instead of jumping once. --}}
 <div
     x-data="homeSections()"
     x-init="init()"
-    x-cloak
 >
     {{-- Skeleton toàn trang chủ trong lúc load() (public/js/home-sections.js) đang gọi
          /api/v1/home — trước đây "loading" chỉ là state nội bộ không được dùng ở template nên
