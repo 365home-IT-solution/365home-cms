@@ -49,7 +49,7 @@ class MembershipController extends Controller
                     'id'                  => $tier->id,
                     'name'                => $tier->name,
                     'slug'                => $tier->slug,
-                    'image_url'           => $tier->image ? Storage::disk('public')->url($tier->image) : null,
+                    'image'               => $tier->image ? Storage::disk('public')->url($tier->image) : null,
                     'welcome_coupon_value'=> (float) $tier->welcome_coupon_value,
                 ] : null,
                 'total_spending' => $spending,
@@ -92,7 +92,7 @@ class MembershipController extends Controller
                 'description'  => $t->description,
                 'color'        => $t->color,
                 'icon'         => $t->icon,
-                'image_url'    => $t->image ? Storage::disk('public')->url($t->image) : null,
+                'image'        => $t->image ? Storage::disk('public')->url($t->image) : null,
                 'min_spending' => (float) $t->min_spending,
                 'coupon_reward'=> $t->welcome_coupon_value > 0 ? [
                     'type'  => $t->welcome_coupon_type,
