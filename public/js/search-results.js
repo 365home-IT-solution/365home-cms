@@ -44,8 +44,8 @@
     // /Users/nitert/.claude/plans/crystalline-toasting-sunrise.md để biết bối cảnh. Query cố
     // định, không đổi lúc chạy, nên hash SHA-256 được tính sẵn 1 lần (không cần Web Crypto API).
     // Nếu sửa SEARCH_QUERY, phải tính lại hash: python3 -c "import hashlib; print(hashlib.sha256('<query>'.encode()).hexdigest())"
-    var SEARCH_QUERY = 'query SearchRooms($filters: SearchFiltersInput) { search(filters: $filters) { data { id slug name thumbnail_url room_style badge { label type bg_color text_color } price { amount unit_label } rating wishlist_status is_available latitude longitude address branch { id name slug } distance } meta { current_page last_page per_page total province_name type_name } } }';
-    var SEARCH_QUERY_HASH = '90ad5239e427fa9f1d90611c279e9ec91b4cc4bfc6428d28b7d7f5c38c18d84c';
+    var SEARCH_QUERY = 'query SearchRooms($filters: SearchFiltersInput) { search(filters: $filters) { data { id slug name thumbnail_url thumbnail { thumb card wide full width height } room_style badge { label type bg_color text_color } price { amount unit_label } rating wishlist_status is_available latitude longitude address branch { id name slug } distance } meta { current_page last_page per_page total province_name type_name } } }';
+    var SEARCH_QUERY_HASH = '9f56302ac2ce1299109233eff90c709b2139de575d20e8fccc48255b109c0105';
 
     async function graphqlRequest(body, headers) {
         var res = await fetch('/api/graphql', {

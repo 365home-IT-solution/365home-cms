@@ -54,9 +54,11 @@ class BranchSuggestion extends Component
                 'id'        => $branch->category->id,
                 'name'      => $branch->category->name,
                 'slug'      => $branch->category->slug,
-                'image_url' => $branch->category->image
-                    ? Storage::disk('public')->url($branch->category->image)
-                    : null,
+                // Prefer the pre-generated "card" preset (480px, avif) over the full-size original —
+                // this card only renders at ~170-380px wide. Falls back to the original when the
+                // preset hasn't been generated yet (see docs/be-image-thumbnails.md §4).
+                'image_url' => $branch->category->thumbnail['card']
+                    ?? ($branch->category->image ? Storage::disk('public')->url($branch->category->image) : null),
             ])
             ->values()
             ->toArray();

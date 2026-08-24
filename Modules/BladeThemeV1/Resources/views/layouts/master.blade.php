@@ -50,10 +50,24 @@
     <!-- Page-specific meta (canonical, og:, twitter:, JSON-LD) are injected per page via seo component -->
     @yield('meta')
 
-    <!-- Google Fonts -->
+    {{-- Page-specific resource hints (e.g. LCP image preload) — pushed from individual page views,
+         since a hint that's only relevant on the home page shouldn't ship on every page. --}}
+    @stack('head')
+
+    <!-- Google Fonts (non-blocking: load stylesheet without pausing rendering, apply once ready) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet"></noscript>
+
+    {{-- jQuery loaded with `defer`, so it no longer blocks parsing — but MUST come before the
+         @vite(...) tags below: those compile to type="module" scripts, which the browser also
+         defers automatically, and defer/module scripts execute in DOCUMENT ORDER. app.js uses
+         jQuery plugins ($.fn...) at load time, so if it executes before jQuery is defined, it
+         throws "Cannot read properties of undefined (reading 'fn')". Keeping jQuery's tag first
+         here (still deferred, still non-blocking) preserves the same execution order as before,
+         just without pausing HTML parsing. --}}
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js" integrity="sha512-v2CJ7UaYy4JwqLDIrZUI/4hqeoQieOmAZNXBeQyjo21dadnwR+8ZaIJVT8EE2iyI61OV8e6M8PP2/4hpQINQ/g==" crossorigin="anonymous" referrerpolicy="no-referrer" defer></script>
 
     <!-- Styles -->
     @vite(['Resources/assets/sass/app.scss', 'Resources/assets/js/app.js'], 'build-bladethemev1')
@@ -69,7 +83,6 @@
     <script>window.__WS_PUBLIC_URL = @js(config('services.websocket.public_url'));</script>
     @vite(['resources/js/ws-client.js'])
     <link rel="shortcut icon" href="{{ asset('/storage/' . $favicon) }}" type="image/x-icon">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
             --color-primary: {{ $primaryColor }};
@@ -159,7 +172,6 @@
 </head>
 
 <body class="relative">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js" integrity="sha512-v2CJ7UaYy4JwqLDIrZUI/4hqeoQieOmAZNXBeQyjo21dadnwR+8ZaIJVT8EE2iyI61OV8e6M8PP2/4hpQINQ/g==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     @yield('content')
 
     @livewire('bladethemev1::bottom-sidebar')

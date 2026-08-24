@@ -47,6 +47,21 @@ class SearchSchema
             ],
         ]);
 
+        // Mirrors App\Support\MediaThumbnailUrls::build() — already present on every room card's
+        // underlying array (BuildsRoomCard::mapRoom()), just not exposed on this GraphQL type until
+        // now. See docs/image-thumbnails-fe-guide.md §2 for which preset to use where.
+        $thumbnailType = new ObjectType([
+            'name'   => 'Thumbnail',
+            'fields' => [
+                'thumb'  => Type::string(),
+                'card'   => Type::string(),
+                'wide'   => Type::string(),
+                'full'   => Type::string(),
+                'width'  => Type::int(),
+                'height' => Type::int(),
+            ],
+        ]);
+
         $roomCardType = new ObjectType([
             'name'   => 'RoomCard',
             'fields' => [
@@ -54,6 +69,7 @@ class SearchSchema
                 'slug'             => Type::string(),
                 'name'             => Type::string(),
                 'thumbnail_url'    => Type::string(),
+                'thumbnail'        => $thumbnailType,
                 'room_style'       => Type::string(),
                 'badge'            => $badgeType,
                 'price'            => $priceType,

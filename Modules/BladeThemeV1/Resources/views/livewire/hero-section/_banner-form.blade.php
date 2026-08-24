@@ -142,13 +142,13 @@
                         <button type="button" @click="activeTab = 'hour'; dayMode = false; if (checkIn) { checkOut = checkIn }"
                             class="flex flex-col items-center gap-1.5 pb-2 border-b-2 transition-colors"
                             :class="activeTab === 'hour' ? 'border-[var(--color-primary)] text-[var(--color-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'">
-                            <img src="{{ asset('images/hourglass.gif') }}" alt="" class="w-5 h-5 object-contain">
+                            <img src="{{ asset('images/hourglass.webp') }}" alt="" class="w-5 h-5 object-contain">
                             <span class="text-sm font-semibold">Theo giờ</span>
                         </button>
                         <button type="button" @click="activeTab = 'overnight'; dayMode = false; if (checkIn) { checkOut = checkIn }"
                             class="flex flex-col items-center gap-1.5 pb-2 border-b-2 transition-colors"
                             :class="activeTab === 'overnight' ? 'border-[var(--color-primary)] text-[var(--color-primary)]' : 'border-transparent text-gray-500 hover:text-gray-700'">
-                            <img src="{{ asset('images/night-time.gif') }}" alt="" class="w-5 h-5 object-contain">
+                            <img src="{{ asset('images/night-time.webp') }}" alt="" class="w-5 h-5 object-contain">
                             <span class="text-sm font-semibold">Qua đêm</span>
                         </button>
                         <button type="button" @click="activeTab = 'day'; dayMode = true"

@@ -2,6 +2,18 @@
 
 <x-bladethemev1::seo :seoData="$seoData"/>
 
+@if (request()->path() === '/')
+    @push('head')
+        {{-- LCP element on the home page is the "Lần đầu khám phá" banner image (background-image,
+             set via inline style in flash-sale.blade.php) — the browser's preload scanner can't
+             discover a CSS background-image until it parses that CSS/layout, which Lighthouse flags
+             as "resource load delay". Preloading it here lets the browser fetch it immediately, in
+             parallel with everything else, cutting straight into that delay without changing how
+             the section renders. --}}
+        <link rel="preload" as="image" href="{{ asset('images/banner-guest-mobile.png') }}" fetchpriority="high">
+    @endpush
+@endif
+
 @section('content')
 
     @livewire('bladethemev1::header')

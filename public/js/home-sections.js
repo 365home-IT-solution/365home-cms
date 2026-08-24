@@ -113,7 +113,11 @@ if (typeof window.__homeToggleWishlist === 'undefined') {
 
 if (typeof window.roomCardHtml === 'undefined') {
     window.roomCardHtml = function (room) {
-        const img = room.thumbnail_url || room.image_url || '';
+        // Prefer the pre-generated "card" conversion (480px, avif, ~72 quality — see
+        // Product::registerMediaConversions) over thumbnail_url, which is the full-size original
+        // (often 900KB-1.2MB) — these cards only render at 170-380px wide. Falls back to the wider
+        // preset, then the original, for the rare record whose conversion hasn't finished generating.
+        const img = room.thumbnail?.card || room.thumbnail?.wide || room.thumbnail_url || room.image_url || '';
         const href = '/room/' + room.slug + '/';
         const priceHtml = room.price
             ? '<span style="font-weight:700;">' + window.__homeVnd(room.price.amount) + '</span>'
@@ -161,7 +165,8 @@ if (typeof window.roomCardHtml === 'undefined') {
 
 if (typeof window.branchCardHtml === 'undefined') {
     window.branchCardHtml = function (branch) {
-        const img = branch.image_url || '';
+        // Same "card" preset preference as roomCardHtml — see docs/image-thumbnails-fe-guide.md.
+        const img = branch.thumbnail?.card || branch.thumbnail?.wide || branch.image_url || '';
         const href = '/branch/' + branch.slug;
 
         return '<a href="' + href + '" class="home-card" style="scroll-snap-align:start; display:flex; flex-direction:column; gap:8px; text-decoration:none;">'
@@ -237,12 +242,12 @@ if (typeof window.__roomTypeImage === 'undefined') {
 // Icon đứng cạnh/trên tên loại hình dịch vụ ở hàng nút "Loại hình dịch vụ" (xem flash-sale.blade.php).
 if (typeof window.__roomTypeIconMap === 'undefined') {
     window.__roomTypeIconMap = {
-        homestay: '/images/homestay.png',
-        hotel: '/images/hotel.png',
-        motel: '/images/motel.png',
-        villa: '/images/villa.png',
-        apartment: '/images/apartment.png',
-        mini_house: '/images/minihouse.png',
+        homestay: '/images/homestay.webp',
+        hotel: '/images/hotel.webp',
+        motel: '/images/motel.webp',
+        villa: '/images/villa.webp',
+        apartment: '/images/apartment.webp',
+        mini_house: '/images/minihouse.webp',
     };
 }
 
