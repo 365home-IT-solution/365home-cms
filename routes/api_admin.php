@@ -135,17 +135,28 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/notifications')-
 | notification_fcm_recipients) — tương đương form "Push Notification" ở Filament CMS
 | (App\Filament\Resources\NotificationFcmResource), dùng cho admin app riêng (Bearer token) — xem
 | docblock App\Http\Controllers\Api\Admin\PushNotificationController.
-| POST /api/admin/push-notification → body:
+| GET    /api/admin/push-notification      → Danh sách (?search=&sent_for=&status=pending|sent&per_page=)
+| GET    /api/admin/push-notification/{id} → Chi tiết (kèm customer_ids để tiền điền form sửa)
+| POST   /api/admin/push-notification → body:
 |   - title (bắt buộc), body (bắt buộc)
 |   - sent_for: 'all' (mọi khách hàng đang có token thiết bị) | 'users' (chọn danh sách cụ thể)
 |   - customer_ids[] (bắt buộc nếu sent_for=users) — id lấy từ GET /api/admin/customers?search=
 |     (tìm theo tên hoặc số điện thoại)
 |   - scheduled_at (tuỳ chọn) — để trống hoặc quá khứ = gửi ngay; thời điểm tương lai = lên lịch,
 |     App\Console\Commands\SendScheduledNotificationsCommand (cron mỗi phút) sẽ gửi khi đến giờ.
+| PUT    /api/admin/push-notification/{id} → Sửa (body giống POST) — CHỈ khi thông báo chưa gửi
+|   (đang lên lịch chờ); nếu đã gửi rồi trả 422, dùng resend thay thế.
+| POST   /api/admin/push-notification/{id}/resend → Gửi lại (tạo bản ghi mới, giữ nguyên lịch sử
+|   bản gốc) — áp dụng cho cả thông báo đã gửi lẫn đang chờ. Body tuỳ chọn (bỏ trống = giữ nguyên
+|   bản gốc): title, body, sent_for, customer_ids[], scheduled_at.
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.admin.')->group(function () {
+    Route::get('push-notification', [AdminPushNotificationController::class, 'index'])->name('push-notification.index');
+    Route::get('push-notification/{id}', [AdminPushNotificationController::class, 'show'])->name('push-notification.show');
     Route::post('push-notification', [AdminPushNotificationController::class, 'store'])->name('push-notification.store');
+    Route::put('push-notification/{id}', [AdminPushNotificationController::class, 'update'])->name('push-notification.update');
+    Route::post('push-notification/{id}/resend', [AdminPushNotificationController::class, 'resend'])->name('push-notification.resend');
 });
 
 /*
