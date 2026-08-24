@@ -263,12 +263,17 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
     /**
      * Mã giảm giá riêng/được gán cho khách đã đăng nhập (personalCoupons + coupons, xem
      * app/Models/Customer.php) — chỉ giữ những mã ĐANG dùng được ngay (active, còn hạn, còn
-     * lượt) để hiện dạng gợi ý bấm-là-áp-dụng; mã hết hạn/hết lượt xem ở trang Tài khoản
-     * (AccountPage::loadDiscountCodes) thay vì lẫn vào đây làm rối lựa chọn.
+     * lượt, ÁP DỤNG ĐƯỢC cho đúng phòng đang xem — gồm cả giới hạn chi nhánh nếu voucher có gán,
+     * xem Coupon::appliesToRoom()/passesBranchRestriction()) để hiện dạng gợi ý bấm-là-áp-dụng;
+     * mã hết hạn/hết lượt/không áp dụng được cho phòng này xem ở trang Tài khoản
+     * (AccountPage::loadDiscountCodes) thay vì lẫn vào đây làm rối lựa chọn. Cùng quy ước với
+     * GET /api/coupons/mine?room_id=... (Api\CouponController::mine()) — 'specific_slot' luôn bị
+     * loại ở đây vì cần đúng khung giờ mới xác định được, không chỉ phòng.
      */
     private function loadMyCoupons(\App\Models\Customer $customer): void
     {
-        $now = now();
+        $now    = now();
+        $roomId = $this->product?->id;
 
         $this->myCoupons = $customer->personalCoupons()->get()
             ->merge($customer->coupons()->get())
@@ -276,7 +281,8 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             ->filter(fn ($c) => $c->is_active
                 && (!$c->start_at || $now->gte($c->start_at))
                 && (!$c->end_at || $now->lte($c->end_at))
-                && (!$c->usage_limit || $c->used_count < $c->usage_limit))
+                && (!$c->usage_limit || $c->used_count < $c->usage_limit)
+                && (! $roomId || ($c->apply_type !== 'specific_slot' && $c->appliesToRoom($roomId))))
             ->sortByDesc(fn ($c) => $c->end_at ?? $c->created_at)
             ->map(fn ($c) => [
                 'code'        => $c->code,
