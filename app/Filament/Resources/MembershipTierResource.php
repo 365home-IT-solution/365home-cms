@@ -95,7 +95,7 @@ class MembershipTierResource extends Resource
                     ->directory('membership')
                     ->maxSize(10240)
                     ->imagePreviewHeight('150')
-                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/webp'])
+                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'image/avif'])
                     ->helperText('Hiển thị làm thẻ/huy hiệu của hạng trên trang tài khoản khách hàng. Tối đa 10MB.'),
 
                 TextInput::make('min_spending')

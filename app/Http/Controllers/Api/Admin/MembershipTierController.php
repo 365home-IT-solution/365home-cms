@@ -238,7 +238,9 @@ class MembershipTierController extends Controller
             'description' => 'nullable|string|max:500',
             'color'       => 'nullable|string|max:20',
             'icon'        => 'nullable|string|max:100',
-            'image'       => 'nullable|image|mimes:jpg,jpeg,png,webp|max:5120',
+            // Rule 'image' hardcode whitelist mime không có avif — dùng 'file'+'mimes' để avif hợp lệ
+            // không bị chặn (xem ghi chú tương tự ở Api\Admin\ProductController::IMAGE_RULE).
+            'image'       => 'nullable|file|mimes:jpg,jpeg,png,webp,avif|max:5120',
             'sort_order'  => 'nullable|integer|min:0',
             'min_spending' => 'nullable|numeric|min:0',
             'is_active'    => 'nullable|boolean',
