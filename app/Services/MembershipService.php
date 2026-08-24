@@ -139,17 +139,28 @@ class MembershipService
     /**
      * Nút "Đồng bộ" ở trang Sửa hạng thành viên: rà lại từng khách ĐANG giữ hạng này, so với cấu
      * hình HIỆN TẠI ở "Coupon tự động cấp" (chỉ voucher mẫu nguồn 'auto' — KHÔNG tính mã gắn tay ở
-     * "Mã giảm giá gắn thêm cho hạng") — khách nào thiếu voucher nào (vd dữ liệu cũ trước khi hạng
-     * có đủ N voucher, khách chỉ mới được cấp 1) thì cấp bù đúng phần còn thiếu, không đụng tới
-     * voucher khách đã có. Trả về số liệu để hiển thị lên Notification cho admin biết kết quả.
+     * "Mã giảm giá gắn thêm cho hạng"). Làm 2 việc:
+     *  1. Khách nào THIẾU voucher nào (vd dữ liệu cũ trước khi hạng có đủ N voucher, khách chỉ mới
+     *     được cấp 1) thì cấp bù đúng phần còn thiếu — hành vi gốc, không đổi.
+     *  2. Đồng bộ lại GIỚI HẠN CHI NHÁNH (category_ids) cho các bản sao ĐÃ CẤP TỪ TRƯỚC theo đúng
+     *     cấu hình HIỆN TẠI của từng coupon mẫu — CHỈ áp dụng cho bản sao khách CHƯA sử dụng lần nào
+     *     (used_count = 0, xem Coupon::incrementUsage() — chỉ tăng khi mã thực sự được áp vào 1 đơn).
+     *     Bản sao ĐÃ dùng (dù chỉ 1 lần) giữ nguyên điều khoản cũ, không đụng vào — tránh đổi phạm vi
+     *     áp dụng giữa chừng lúc khách đang/đã dùng dở mã đó.
+     * Trả về số liệu để hiển thị lên Notification cho admin biết kết quả.
      *
-     * @return array{customers_checked: int, customers_updated: int, vouchers_granted: int}
+     * @return array{customers_checked: int, customers_updated: int, vouchers_granted: int, vouchers_branch_synced: int}
      */
     public function syncAutoVouchersForTierMembers(MembershipTier $tier): array
     {
         $templates = $tier->coupons()->wherePivot('source', 'auto')->get();
 
-        $result = ['customers_checked' => 0, 'customers_updated' => 0, 'vouchers_granted' => 0];
+        $result = [
+            'customers_checked'      => 0,
+            'customers_updated'      => 0,
+            'vouchers_granted'       => 0,
+            'vouchers_branch_synced' => 0,
+        ];
 
         if ($templates->isEmpty()) {
             return $result;
@@ -173,7 +184,31 @@ class MembershipService
                 }
             });
 
+        foreach ($templates as $template) {
+            $result['vouchers_branch_synced'] += $this->syncBranchRestrictionToUnusedClones($template);
+        }
+
         return $result;
+    }
+
+    /**
+     * Ghi đè lại category_ids (giới hạn chi nhánh) của MỌI bản sao cá nhân đã cấp từ $template —
+     * theo đúng category_ids HIỆN TẠI của $template — nhưng CHỈ cho bản sao có used_count = 0 (chưa
+     * từng được áp vào đơn nào). Trả về số bản sao vừa được đồng bộ.
+     */
+    private function syncBranchRestrictionToUnusedClones(Coupon $template): int
+    {
+        $templateCategoryIds = $template->categories()->pluck('categories.id')->all();
+
+        $unusedClones = Coupon::where('template_coupon_id', $template->id)
+            ->where('used_count', 0)
+            ->get();
+
+        foreach ($unusedClones as $clone) {
+            $clone->categories()->sync($templateCategoryIds);
+        }
+
+        return $unusedClones->count();
     }
 
     /**

@@ -27,14 +27,14 @@ class EditMembershipTier extends EditRecord
                 ->color('gray')
                 ->requiresConfirmation()
                 ->modalHeading('Đồng bộ voucher cho khách đang giữ hạng này')
-                ->modalDescription('Rà lại từng khách đang giữ hạng này theo đúng cấu hình hiện tại ở "Coupon tự động cấp" (KHÔNG tính mã gắn tay ở "Mã giảm giá gắn thêm cho hạng"). Khách nào thiếu voucher nào so với cấu hình (vd dữ liệu cũ từ trước khi hạng có đủ số voucher như bây giờ) sẽ được cấp bù đúng phần còn thiếu — voucher khách đã có giữ nguyên, không cấp trùng.')
+                ->modalDescription('Rà lại từng khách đang giữ hạng này theo đúng cấu hình hiện tại ở "Coupon tự động cấp" (KHÔNG tính mã gắn tay ở "Mã giảm giá gắn thêm cho hạng"). Khách nào thiếu voucher nào so với cấu hình (vd dữ liệu cũ từ trước khi hạng có đủ số voucher như bây giờ) sẽ được cấp bù đúng phần còn thiếu — voucher khách đã có giữ nguyên, không cấp trùng. Đồng thời cập nhật lại GIỚI HẠN CHI NHÁNH của các voucher đã cấp trước đó theo đúng cấu hình hiện tại — chỉ áp dụng cho voucher khách CHƯA sử dụng lần nào; voucher đã dùng rồi giữ nguyên điều khoản cũ.')
                 ->modalSubmitActionLabel('Đồng bộ ngay')
                 ->action(function () {
                     $result = app(MembershipService::class)->syncAutoVouchersForTierMembers($this->record);
 
                     Notification::make()
                         ->title('Đồng bộ xong')
-                        ->body("Đã kiểm tra {$result['customers_checked']} khách hàng — {$result['customers_updated']} khách được cấp bù, tổng {$result['vouchers_granted']} voucher.")
+                        ->body("Đã kiểm tra {$result['customers_checked']} khách hàng — {$result['customers_updated']} khách được cấp bù (tổng {$result['vouchers_granted']} voucher), {$result['vouchers_branch_synced']} voucher chưa dùng được cập nhật lại giới hạn chi nhánh.")
                         ->success()
                         ->send();
                 }),
