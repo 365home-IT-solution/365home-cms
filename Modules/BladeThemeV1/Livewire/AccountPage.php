@@ -158,13 +158,20 @@ class AccountPage extends Component
         $this->membershipTierColor = $tier?->color;
 
         if ($tier?->slug) {
-            $cardPath = "membership/{$tier->slug}.png";
-            $bgPath   = "membership/background/{$tier->slug}.png";
-            $version  = $customer->updated_at?->timestamp ?? time();
+            $bgPath  = "membership/background/{$tier->slug}.png";
+            $version = $customer->updated_at?->timestamp ?? time();
 
-            $this->membershipTierCardImg = Storage::disk('public')->exists($cardPath)
-                ? Storage::disk('public')->url($cardPath) . '?v=' . $version
-                : null;
+            // Ưu tiên ảnh upload qua admin (cột membership_tiers.image) — fallback về quy ước file
+            // cũ membership/{slug}.png cho hạng chưa upload ảnh mới.
+            if ($tier->image) {
+                $this->membershipTierCardImg = Storage::disk('public')->url($tier->image) . '?v=' . $version;
+            } else {
+                $cardPath = "membership/{$tier->slug}.png";
+                $this->membershipTierCardImg = Storage::disk('public')->exists($cardPath)
+                    ? Storage::disk('public')->url($cardPath) . '?v=' . $version
+                    : null;
+            }
+
             $this->membershipTierBgImg = Storage::disk('public')->exists($bgPath)
                 ? Storage::disk('public')->url($bgPath) . '?v=' . $version
                 : null;
