@@ -74,6 +74,7 @@ class Order extends Model implements Eventable
         'checked_in_at',
         'checked_out_at',
         'order_status',
+        'cancel_reason',
         'customer_id',
         'qr_code',
         'remaining_qr_code',
@@ -129,6 +130,12 @@ class Order extends Model implements Eventable
         'checked_in'  => 'Đã nhận phòng',
         'staying'     => 'Đang ở',
         'checked_out' => 'Đã trả phòng',
+    ];
+
+    // cancel_reason: lý do khi đơn bị huỷ — dùng cho Báo cáo đặt phòng.
+    public const CANCEL_REASON_LABELS = [
+        'no_show' => 'Khách không đến',
+        'other'   => 'Hủy vì lý do khác',
     ];
 
     private const PAYMENT_STATUS_MAP = [

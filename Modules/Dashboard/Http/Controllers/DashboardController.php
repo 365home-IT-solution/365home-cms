@@ -5,14 +5,16 @@ namespace Modules\Dashboard\Http\Controllers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
-use Modules\Category\Entities\Category;
 use Modules\Dashboard\App\Services\KpiService;
 use Modules\Dashboard\App\Services\OccupancyService;
 use Modules\Dashboard\App\Services\OverviewService;
 use Modules\Dashboard\App\Services\RankingService;
+use Modules\Dashboard\Http\Controllers\Concerns\ResolvesReportFilters;
 
 class DashboardController extends Controller
 {
+    use ResolvesReportFilters;
+
     private const KPI_FILTERS = [
         'today', 'yesterday', '7d', '30d', '90d',
         'this_month', 'last_month', 'this_year', 'last_year', 'custom',
@@ -210,44 +212,4 @@ class DashboardController extends Controller
         return response()->json(['data' => $data]);
     }
 
-    /**
-     * Chuyển 'categories' (danh sách slug chi nhánh cách nhau bởi dấu phẩy) hoặc 'branch_id'
-     * (1 id) thành danh sách category_id để lọc orders theo chi nhánh — gồm cả category con
-     * (khu vực/tầng...) của mỗi chi nhánh được chọn. 'categories' được ưu tiên nếu có.
-     *
-     * - Không truyền gì            → null (không lọc thêm, dùng toàn bộ chi nhánh user được phép xem)
-     * - Truyền nhưng không khớp gì → [] (lọc về rỗng, KHÔNG âm thầm trả toàn bộ dữ liệu)
-     */
-    private function resolveBranchCategoryIds(Request $request): ?array
-    {
-        $slugs = collect(explode(',', (string) $request->query('categories', '')))
-            ->map(fn ($s) => trim($s))
-            ->filter()
-            ->values();
-
-        if ($slugs->isNotEmpty()) {
-            $branchIds = Category::whereNull('parent_id')
-                ->where('category_type', 'product')
-                ->whereIn('slug', $slugs)
-                ->pluck('id');
-
-            $ids = [];
-            foreach ($branchIds as $branchId) {
-                $childIds = Category::where('parent_id', $branchId)->pluck('id')->toArray();
-                $ids = array_merge($ids, [$branchId], $childIds);
-            }
-
-            return array_values(array_unique($ids));
-        }
-
-        $branchId = $request->query('branch_id');
-        if ($branchId && ctype_digit((string) $branchId)) {
-            $branchId = (int) $branchId;
-            $childIds = Category::where('parent_id', $branchId)->pluck('id')->toArray();
-
-            return array_merge([$branchId], $childIds);
-        }
-
-        return null;
-    }
 }
