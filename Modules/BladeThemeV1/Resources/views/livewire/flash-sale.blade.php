@@ -50,7 +50,7 @@
                                     <template x-for="banner in bannerSection.items" :key="'banner-' + (banner.url || banner.image_url)">
                                         <div class="swiper-slide">
                                             <a :href="banner.url || '#'" class="banner-card" :style="{ pointerEvents: banner.url ? 'auto' : 'none' }">
-                                                <img :src="banner.image_url" :alt="banner.title || ''">
+                                                <img :src="banner.thumbnail?.wide || banner.image_url" :alt="banner.title || ''">
                                             </a>
                                         </div>
                                     </template>
@@ -181,7 +181,7 @@
                             <template x-for="banner in section.items" :key="'banner-' + (banner.url || banner.image_url)">
                                 <a :href="banner.url || '#'" class="banner-card legacy-banner-card"
                                     :style="{ pointerEvents: banner.url ? 'auto' : 'none', scrollSnapAlign: 'start', flexShrink: 0 }">
-                                    <img :src="banner.image_url" :alt="banner.title || ''">
+                                    <img :src="banner.thumbnail?.wide || banner.image_url" :alt="banner.title || ''">
                                 </a>
                             </template>
                         </div>
