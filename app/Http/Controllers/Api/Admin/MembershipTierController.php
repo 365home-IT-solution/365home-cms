@@ -27,9 +27,11 @@ use Illuminate\Http\Request;
  *    field này khi tạo/sửa hạng.
  *  - voucher_templates[] (POST .../voucher-templates hoặc gửi kèm trong store/update) : cấu hình
  *    N voucher CHÍNH THỨC của hạng (mỗi phần tử = 1 voucher: prefix, type, value, min_order_value?,
- *    validity_days, usage_limit?, is_exclusive?) — hệ thống TỰ TẠO coupon mẫu (nguồn pivot 'auto'),
- *    không cần tạo coupon trước ở /api/admin/coupons. Đây là luồng CHÍNH THỨC — dùng cho toàn bộ
- *    voucher hạng cấp cho MỌI khách khi lên hạng.
+ *    validity_days, usage_limit?, is_exclusive?, category_ids?) — hệ thống TỰ TẠO coupon mẫu (nguồn
+ *    pivot 'auto'), không cần tạo coupon trước ở /api/admin/coupons. Đây là luồng CHÍNH THỨC — dùng
+ *    cho toàn bộ voucher hạng cấp cho MỌI khách khi lên hạng. 'category_ids' (mảng id chi nhánh, xem
+ *    GET /api/admin/branches) giới hạn voucher chỉ dùng được ở các chi nhánh đó (gồm khu vực con) —
+ *    bỏ trống/không gửi = áp dụng mọi chi nhánh (Coupon::passesBranchRestriction()).
  *  - coupon_ids[] (gửi kèm trong store/update) : gắn TAY N coupon CÓ SẴN (tạo trước ở
  *    /api/admin/coupons) làm mẫu cho hạng (nguồn pivot 'manual') — dùng cho trường hợp NGOẠI
  *    LỆ/cứu cháy, KHÔNG dùng cho voucher chính thức (đã có voucher_templates ở trên). 2 danh sách
@@ -248,6 +250,10 @@ class MembershipTierController extends Controller
             'voucher_templates.*.validity_days'    => 'required_with:voucher_templates|integer|min:1|max:365',
             'voucher_templates.*.usage_limit'      => 'nullable|integer|min:1',
             'voucher_templates.*.is_exclusive'     => 'nullable|boolean',
+            // Chi nhánh được phép dùng voucher này — bỏ trống/không gửi = áp dụng mọi chi nhánh
+            // (xem Coupon::passesBranchRestriction()).
+            'voucher_templates.*.category_ids'     => 'nullable|array',
+            'voucher_templates.*.category_ids.*'   => 'integer|exists:categories,id',
 
             // Danh sách id coupon có sẵn (tạo ở /api/admin/coupons) gắn TAY vào hạng (nguồn pivot
             // 'manual') — dùng cho trường hợp ngoại lệ/cứu cháy, KHÔNG dùng cho voucher chính thức

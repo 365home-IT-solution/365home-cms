@@ -25,6 +25,12 @@ use Modules\Promotion\App\Models\Coupon;
  * Phạm vi hiển thị/sửa: super_admin xem & sửa mọi coupon; user thường chỉ xem/sửa coupon thuộc đúng
  * đối tác mình (coupons.partner_id) — global scope BelongsToPartner KHÔNG áp dụng ngoài Filament
  * panel nên phải lọc thủ công (cùng nguyên tắc PromotionController).
+ *
+ * 'category_ids' (chi nhánh) — ĐỘC LẬP với 'apply_type'/room_id/room_ids/room_time_slot_ids ở trên:
+ * apply_type quyết định coupon áp dụng cho (những) PHÒNG nào, category_ids cộng thêm giới hạn CHI
+ * NHÁNH (gồm khu vực con) — 2 điều kiện phải cùng đúng thì coupon mới áp dụng được (xem
+ * Coupon::passesBranchRestriction(), gọi từ appliesToRoom()/isApplicableToSlot()). Không gán chi
+ * nhánh nào (mặc định) = không giới hạn theo chi nhánh, giữ nguyên hành vi cũ.
  */
 class CouponController extends Controller
 {
@@ -48,7 +54,7 @@ class CouponController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        $query = $this->visibleCouponsQuery($user)->with(['room:id,name', 'rooms:id,name', 'customer:id,fullname,phone']);
+        $query = $this->visibleCouponsQuery($user)->with(['room:id,name', 'rooms:id,name', 'customer:id,fullname,phone', 'categories:id,name,slug']);
 
         if ($request->filled('search')) {
             $search = $request->string('search');
@@ -92,7 +98,7 @@ class CouponController extends Controller
     public function show(Request $request, int $id): JsonResponse
     {
         $coupon = $this->visibleCouponsQuery($request->user())
-            ->with(['room:id,name', 'rooms:id,name', 'customer:id,fullname,phone', 'roomTimeSlots.timeSlot'])
+            ->with(['room:id,name', 'rooms:id,name', 'customer:id,fullname,phone', 'roomTimeSlots.timeSlot', 'categories:id,name,slug'])
             ->find($id);
 
         if (! $coupon) {
@@ -159,10 +165,14 @@ class CouponController extends Controller
                 $coupon->rooms()->sync($data['room_ids']);
             }
 
+            if (! empty($data['category_ids'])) {
+                $coupon->categories()->sync($data['category_ids']);
+            }
+
             return $coupon;
         });
 
-        return response()->json(['data' => $this->toDetailItem($coupon->fresh(['room:id,name', 'rooms:id,name', 'customer:id,fullname,phone', 'roomTimeSlots.timeSlot']))], 201);
+        return response()->json(['data' => $this->toDetailItem($coupon->fresh(['room:id,name', 'rooms:id,name', 'customer:id,fullname,phone', 'roomTimeSlots.timeSlot', 'categories:id,name,slug']))], 201);
     }
 
     /**
@@ -227,9 +237,13 @@ class CouponController extends Controller
             } elseif ($applyType !== 'specific_rooms') {
                 $coupon->rooms()->sync([]);
             }
+
+            if (array_key_exists('category_ids', $data)) {
+                $coupon->categories()->sync($data['category_ids'] ?? []);
+            }
         });
 
-        return response()->json(['data' => $this->toDetailItem($coupon->fresh(['room:id,name', 'rooms:id,name', 'customer:id,fullname,phone', 'roomTimeSlots.timeSlot']))]);
+        return response()->json(['data' => $this->toDetailItem($coupon->fresh(['room:id,name', 'rooms:id,name', 'customer:id,fullname,phone', 'roomTimeSlots.timeSlot', 'categories:id,name,slug']))]);
     }
 
     /**
@@ -301,6 +315,11 @@ class CouponController extends Controller
             // KHÁC với API gán mã có sẵn cho khách (POST .../customers/{id}/assign-coupon).
             'customer_id' => 'nullable|uuid|exists:customers,id',
             'partner_id'  => 'nullable|uuid|exists:partners,id',
+
+            // Giới hạn chi nhánh được dùng coupon (xem docblock class) — bỏ trống/không gửi = áp
+            // dụng mọi chi nhánh.
+            'category_ids'   => 'nullable|array',
+            'category_ids.*' => 'integer|exists:categories,id',
         ];
     }
 
@@ -417,6 +436,11 @@ class CouponController extends Controller
             'room'            => $coupon->room ? ['id' => $coupon->room->id, 'name' => $coupon->room->name] : null,
             'rooms'           => $coupon->relationLoaded('rooms')
                 ? $coupon->rooms->map(fn ($r) => ['id' => $r->id, 'name' => $r->name])->values()
+                : [],
+            // Chi nhánh được giới hạn dùng coupon — rỗng = không giới hạn, áp dụng mọi chi nhánh
+            // (xem docblock class).
+            'categories'      => $coupon->relationLoaded('categories')
+                ? $coupon->categories->map(fn ($c) => ['id' => $c->id, 'name' => $c->name, 'slug' => $c->slug])->values()
                 : [],
             'min_order_value' => $coupon->min_order_value,
             'usage_limit'     => $coupon->usage_limit,

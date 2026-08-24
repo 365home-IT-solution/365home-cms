@@ -261,6 +261,17 @@ class MembershipTierResource extends Resource
                             ->label('Mã độc quyền (không dùng chung đơn với mã khác)')
                             ->default(true)
                             ->helperText('Đúng quy định "1 đơn chỉ áp dụng 1 voucher" — nên để bật.'),
+
+                        Select::make('category_ids')
+                            ->label('Áp dụng cho chi nhánh')
+                            ->multiple()
+                            ->searchable()
+                            ->options(fn () => \Modules\Category\Entities\Category::query()
+                                ->whereNull('parent_id')
+                                ->where('category_type', 'product')
+                                ->orderBy('name')
+                                ->pluck('name', 'id'))
+                            ->helperText('Để trống = áp dụng ở TẤT CẢ chi nhánh. Chọn 1 hoặc nhiều chi nhánh để voucher chỉ dùng được ở đó (gồm cả khu vực con của chi nhánh đã chọn).'),
                     ])
                     ->itemLabel(fn (array $state): ?string => trim(
                         ($state['prefix'] ?? '') . ' — ' .

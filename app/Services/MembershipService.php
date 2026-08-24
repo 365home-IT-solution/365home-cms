@@ -192,6 +192,9 @@ class MembershipService
             'validity_days'   => $c->validity_days,
             'usage_limit'     => $c->usage_limit,
             'is_exclusive'    => (bool) $c->is_exclusive,
+            // Chi nhánh được phép dùng voucher này — rỗng = áp dụng mọi chi nhánh (xem
+            // Coupon::passesBranchRestriction()).
+            'category_ids'    => $c->categories->pluck('id')->all(),
         ])->values()->toArray();
     }
 
@@ -221,11 +224,15 @@ class MembershipService
                 'is_active'       => true,
             ];
 
-            $templateId = $row['template_id'] ?? null;
-            $template   = $templateId ? Coupon::find($templateId) : null;
+            $templateId  = $row['template_id'] ?? null;
+            $template    = $templateId ? Coupon::find($templateId) : null;
+            $categoryIds = $row['category_ids'] ?? [];
 
             if ($template) {
                 $template->update($fields);
+                // Rỗng = gỡ hết giới hạn chi nhánh (áp dụng lại mọi chi nhánh) — cùng quy ước "gửi
+                // [] để xoá" như PromotionController::update() với 'categories'.
+                $template->categories()->sync($categoryIds);
                 $keepIds[] = $template->id;
                 continue;
             }
@@ -240,6 +247,10 @@ class MembershipService
                 'start_at'   => now(),
                 'created_by' => $this->superAdminId(),
             ]);
+
+            if (! empty($categoryIds)) {
+                $template->categories()->sync($categoryIds);
+            }
 
             $keepIds[] = $template->id;
         }
@@ -332,7 +343,7 @@ class MembershipService
 
         $prefix = strtoupper(Str::slug($template->code, ''));
 
-        Coupon::create([
+        $issued = Coupon::create([
             'partner_id'          => $template->partner_id,
             'code'                => Str::limit($prefix, 10, '') . strtoupper(Str::random(6)),
             'name'                => $template->name,
@@ -353,6 +364,13 @@ class MembershipService
             'template_coupon_id'  => $template->id,
             'created_by'          => $this->superAdminId(),
         ]);
+
+        // Sao chép đúng giới hạn chi nhánh của coupon mẫu sang bản sao cá nhân — không giới hạn
+        // chi nhánh nào thì bỏ qua (mặc định áp dụng mọi chi nhánh, không cần gọi sync([])).
+        $templateCategoryIds = $template->categories()->pluck('categories.id')->all();
+        if (! empty($templateCategoryIds)) {
+            $issued->categories()->sync($templateCategoryIds);
+        }
 
         return true;
     }
