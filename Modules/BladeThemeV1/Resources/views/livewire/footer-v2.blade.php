@@ -74,7 +74,7 @@
             <div>
                 <h3 class="text-base font-bold text-[#222222] mb-4">Tải ứng dụng</h3>
                 <div class="flex items-start gap-3">
-                    <img src="{{ $qrCodeUrl }}" alt="QR tải ứng dụng 365Home" width="90" height="90" class="rounded-lg border border-[#DDDDDD] bg-white p-1" loading="lazy">
+                    <img src="https://365home.vn/storage/977/qr-footer.png" alt="QR tải ứng dụng 365Home" width="90" height="90" class="rounded-lg border border-[#DDDDDD] bg-white p-1" loading="lazy">
                     <div class="flex flex-col gap-2">
                         <a href="{{ $appStoreUrl }}" target="_blank" rel="noopener">
                             <img src="{{ asset('images/applestore.png') }}" alt="Tải trên App Store" class="h-9 w-auto">
