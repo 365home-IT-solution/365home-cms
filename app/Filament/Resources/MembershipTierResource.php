@@ -7,6 +7,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\MembershipTierResource\Pages;
 use App\Models\MembershipTier;
 use Filament\Forms\Components\ColorPicker;
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Group;
 use Filament\Forms\Components\Hidden;
@@ -23,6 +24,7 @@ use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Columns\ColorColumn;
 use Filament\Tables\Columns\IconColumn;
+use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Modules\Promotion\App\Models\Coupon;
@@ -85,6 +87,16 @@ class MembershipTierResource extends Resource
                         ->numeric()
                         ->default(0),
                 ]),
+
+                FileUpload::make('image')
+                    ->label('Ảnh đại diện hạng')
+                    ->image()
+                    ->disk('public')
+                    ->directory('membership')
+                    ->maxSize(10240)
+                    ->imagePreviewHeight('150')
+                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'image/avif'])
+                    ->helperText('Hiển thị làm thẻ/huy hiệu của hạng trên trang tài khoản khách hàng. Tối đa 10MB.'),
 
                 TextInput::make('min_spending')
                     ->label('Tổng chi tiêu tối thiểu (VNĐ)')
@@ -291,6 +303,11 @@ class MembershipTierResource extends Resource
         return $table
             ->modifyQueryUsing(fn ($query) => $query->with('coupons'))
             ->columns([
+                ImageColumn::make('image')
+                    ->label('Ảnh')
+                    ->disk('public')
+                    ->circular(),
+
                 ColorColumn::make('color')
                     ->label('Màu')
                     ->copyable(false),

@@ -20,6 +20,7 @@ class MembershipTier extends Model
         'description',
         'color',
         'icon',
+        'image',
         'sort_order',
         'min_spending',
         'welcome_coupon_prefix',

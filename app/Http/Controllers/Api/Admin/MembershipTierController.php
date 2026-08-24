@@ -9,6 +9,7 @@ use App\Models\MembershipTier;
 use App\Services\MembershipService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * Quản lý HẠNG THÀNH VIÊN (bảng `membership_tiers`) — CRUD đầy đủ, cộng thêm 2 khu vực cấu hình
@@ -118,6 +119,10 @@ class MembershipTierController extends Controller
             'is_active'                  => $data['is_active'] ?? true,
         ]);
 
+        if ($request->hasFile('image')) {
+            $tier->update(['image' => $request->file('image')->store('membership', 'public')]);
+        }
+
         $this->syncVoucherFields($tier, $data);
 
         return response()->json(['data' => $this->toDetailItem($tier->fresh(['coupons']))], 201);
@@ -141,6 +146,10 @@ class MembershipTierController extends Controller
             'welcome_coupon_prefix', 'welcome_coupon_type', 'welcome_coupon_value',
             'welcome_coupon_days', 'welcome_coupon_usage_limit', 'is_active',
         ])->toArray());
+
+        if ($request->hasFile('image')) {
+            $tier->update(['image' => $request->file('image')->store('membership', 'public')]);
+        }
 
         $this->syncVoucherFields($tier, $data);
 
@@ -229,6 +238,9 @@ class MembershipTierController extends Controller
             'description' => 'nullable|string|max:500',
             'color'       => 'nullable|string|max:20',
             'icon'        => 'nullable|string|max:100',
+            // Rule 'image' hardcode whitelist mime không có avif — dùng 'file'+'mimes' để avif hợp lệ
+            // không bị chặn (xem ghi chú tương tự ở Api\Admin\ProductController::IMAGE_RULE).
+            'image'       => 'nullable|file|mimes:jpg,jpeg,png,webp,avif|max:5120',
             'sort_order'  => 'nullable|integer|min:0',
             'min_spending' => 'nullable|numeric|min:0',
             'is_active'    => 'nullable|boolean',
@@ -276,6 +288,7 @@ class MembershipTierController extends Controller
             'slug'          => $tier->slug,
             'color'         => $tier->color,
             'icon'          => $tier->icon,
+            'image'         => $tier->image ? Storage::disk('public')->url($tier->image) : null,
             'sort_order'    => $tier->sort_order,
             'min_spending'  => $tier->min_spending,
             'is_active'     => (bool) $tier->is_active,
