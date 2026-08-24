@@ -97,6 +97,38 @@ class SitemapController extends Controller
             ->header('Cache-Control', 'public, max-age=86400');
     }
 
+    // llms.txt (llmstxt.org) — plain-language site summary for AI crawlers (ChatGPT, Perplexity...),
+    // separate from robots.txt/sitemap.xml which are built for traditional search engine crawlers.
+    public function llmsTxt()
+    {
+        $gs   = app(\App\Settings\GeneralSettings::class);
+        $name = $gs->brand_name ?: ($gs->og_title ?: config('app.name'));
+        $desc = $gs->og_description ?: '';
+
+        $lines = ["# {$name}", ''];
+
+        if ($desc !== '') {
+            $lines[] = "> {$desc}";
+            $lines[] = '';
+        }
+
+        $lines = array_merge($lines, [
+            '## Sitemap',
+            '',
+            '- [Sitemap](' . url('/sitemap.xml') . ')',
+            '',
+            '## Pages',
+            '',
+            '- [Tìm phòng](' . route('product.search') . ')',
+            '- [Tin tức](' . url('/tin-tuc') . ')',
+            '- [Tra cứu booking](' . url('/ticket-booking') . ')',
+        ]);
+
+        return response(implode("\n", $lines), 200)
+            ->header('Content-Type', 'text/plain; charset=utf-8')
+            ->header('Cache-Control', 'public, max-age=86400');
+    }
+
     private function flattenMenuItems($items, &$collection, string $parentUrl = ''): void
     {
         foreach ($items as $item) {

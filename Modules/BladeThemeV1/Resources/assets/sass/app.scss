@@ -3,7 +3,21 @@
 @tailwind utilities;
 @import "lightgallery/css/lightgallery-bundle.min.css";
 @import "plyr/dist/plyr.css";
-@import "@fortawesome/fontawesome-free/css/all.min.css";
+// Using the SCSS source (not css/all.min.css) so we can set $fa-font-display: swap — the
+// pre-built CSS hardcodes font-display:block, which holds icon text invisible until the font
+// file loads. Both fab/far icon classes are used elsewhere in the theme (grep confirmed), so all
+// three weights stay imported.
+// $fa-font-path defaults to "../webfonts", resolved relative to css/all.min.css's own folder —
+// importing the SCSS source from a different directory (Resources/assets/sass/) breaks that
+// relative path, so point it at the npm package directly; Vite resolves bare specifiers in CSS
+// url() the same way it does JS imports.
+$fa-font-path: "@fortawesome/fontawesome-free/webfonts";
+$fa-font-display: swap;
+@import "@fortawesome/fontawesome-free/scss/fontawesome";
+@import "@fortawesome/fontawesome-free/scss/solid";
+@import "@fortawesome/fontawesome-free/scss/regular";
+@import "@fortawesome/fontawesome-free/scss/brands";
+@import "@fortawesome/fontawesome-free/scss/v4-shims";
 @import "mixin";
 @import "button";
 @import "custom";

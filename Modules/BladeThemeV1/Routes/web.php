@@ -68,6 +68,7 @@ if ($menus->isNotEmpty()) {
 // SEO
 Route::get('/sitemap.xml', [SitemapController::class, 'index'])->name('sitemap');
 Route::get('/robots.txt',  [SitemapController::class, 'robots'])->name('robots');
+Route::get('/llms.txt',    [SitemapController::class, 'llmsTxt'])->name('llms');
 
 Route::get('/bai-viet/{slug}', [BladeThemeV1Controller::class, 'postDetail'])->name('post.detail');
 Route::get('/s/{location?}', [BladeThemeV1Controller::class, 'searchProduct'])->name('product.search');
