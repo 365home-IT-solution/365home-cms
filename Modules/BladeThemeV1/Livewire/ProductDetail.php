@@ -248,8 +248,15 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             $this->authCccdBack  = $customer->cccd_back  ?? '';
 
             $this->loadMyCoupons($customer);
-        } catch (\Throwable) {
-            // Silent fail — user tiếp tục với form thường
+        } catch (\Throwable $e) {
+            // Silent fail (không chặn form khách) NHƯNG vẫn ghi log — trước đây nuốt lỗi hoàn toàn
+            // im lặng khiến không thể chẩn đoán khi buyerName/isAuthUser set được nhưng myCoupons
+            // rỗng bất thường (lỗi xảy ra ngay trong loadMyCoupons(), sau khi các field kia đã gán).
+            \Illuminate\Support\Facades\Log::error('ProductDetail::prefillFromAuth failed', [
+                'error' => $e->getMessage(),
+                'file'  => $e->getFile(),
+                'line'  => $e->getLine(),
+            ]);
         }
     }
 

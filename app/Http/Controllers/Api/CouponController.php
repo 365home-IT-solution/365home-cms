@@ -19,9 +19,23 @@ class CouponController extends Controller
      * - Coupon cá nhân từ membership tier (coupon.customer_id = customer.id)
      * - Coupon được gán qua bảng coupon_customers (many-to-many)
      * Lọc: còn hiệu lực, chưa hết lượt dùng.
+     *
+     * Query param room_id (tuỳ chọn): nếu gửi kèm (khách đang xem/chọn 1 phòng cụ thể), CHỈ trả về
+     * mã áp dụng ĐƯỢC cho phòng đó — dùng cùng Coupon::appliesToRoom() với POST /api/coupons/check
+     * (đã gồm cả kiểm tra chi nhánh, xem Coupon::passesBranchRestriction()) nên mã bị giới hạn
+     * chi nhánh (gán ở "Coupon tự động cấp" của hạng thành viên, hoặc trực tiếp ở
+     * /api/admin/coupons) sẽ tự động bị ẩn nếu phòng không thuộc chi nhánh được cấu hình. 'specific_slot'
+     * luôn bị loại khỏi kết quả khi có room_id — giống hệt quy ước ở check() — vì cần đúng khung giờ
+     * mới xác định được, không chỉ phòng; khách vẫn thấy mã này khi KHÔNG gửi room_id (xem toàn bộ
+     * mã đang có, ở trang "Ví voucher" chẳng hạn).
+     * Không gửi room_id = trả về TOÀN BỘ mã đang sở hữu như cũ (không lọc theo phòng/chi nhánh).
      */
-    public function mine(): JsonResponse
+    public function mine(Request $request): JsonResponse
     {
+        $request->validate([
+            'room_id' => 'sometimes|nullable|string|exists:products,id',
+        ]);
+
         /** @var \App\Models\Customer $customer */
         $customer = auth('sanctum')->user();
 
@@ -50,6 +64,13 @@ class CouponController extends Controller
             ->unique('code')
             ->sortBy('end_at')
             ->values();
+
+        $roomId = $request->filled('room_id') ? (string) $request->input('room_id') : null;
+        if ($roomId !== null) {
+            $coupons = $coupons
+                ->filter(fn (Coupon $c) => $c->apply_type !== 'specific_slot' && $c->appliesToRoom($roomId))
+                ->values();
+        }
 
         $data = $coupons->map(fn ($c) => [
             'code'            => $c->code,
