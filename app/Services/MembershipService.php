@@ -45,7 +45,6 @@ class MembershipService
             'spending_at_change'=> 0,
         ]);
 
-        $this->issueTierCoupon($customer, $tier);
         $this->assignTierCoupons($customer, $tier);
     }
 
@@ -74,7 +73,6 @@ class MembershipService
             'spending_at_change' => $spending,
         ]);
 
-        $this->issueTierCoupon($customer, $targetTier);
         $this->assignTierCoupons($customer, $targetTier);
     }
 
@@ -90,9 +88,8 @@ class MembershipService
 
     /**
      * Gán hạng thủ công từ admin: cập nhật tier, ghi log, phát coupon.
-     * Trả về coupon vừa tạo (hoặc null nếu tier không cấu hình coupon).
      */
-    public function assignManually(Customer $customer, int $toTierId, ?int $fromTierId = null): ?Coupon
+    public function assignManually(Customer $customer, int $toTierId, ?int $fromTierId = null): void
     {
         $customer->update(['membership_tier_id' => $toTierId]);
 
@@ -107,12 +104,10 @@ class MembershipService
         $tier = MembershipTier::find($toTierId);
 
         if (! $tier) {
-            return null;
+            return;
         }
 
         $this->assignTierCoupons($customer, $tier);
-
-        return $this->issueTierCoupon($customer, $tier);
     }
 
     /**
@@ -189,6 +184,72 @@ class MembershipService
         }
 
         return $result;
+    }
+
+    /**
+     * Danh sách mã khuyến mãi CÁ NHÂN "mồ côi" (không gắn với coupon mẫu nào — template_coupon_id
+     * NULL, KHÁC voucher_templates/coupon_ids đang cấu hình chính thức cho hạng) mà khách ĐANG giữ
+     * hạng này đang có — gom nhóm theo 'description' (mỗi lượt cấp cùng 1 nguồn luôn ghi cùng 1
+     * description, vd cơ chế welcome_coupon cũ luôn ghi "Coupon tự động cấp khi đạt hạng {tên hạng}")
+     * để hiển thị lên ô chọn ở nút "Đồng bộ", cho phép admin dọn bớt các mã phát nhầm/còn sót từ cơ
+     * chế cũ. CHỈ đếm mã CHƯA dùng (used_count=0) — mã đã dùng giữ nguyên làm lịch sử, không cho gỡ.
+     * KHÔNG liệt kê mã có template_coupon_id (đang được quản lý qua voucher_templates/coupon_ids) —
+     * gỡ loại đó ở đây sẽ bị nút "Đồng bộ" cấp bù lại ngay lập tức trong cùng 1 lượt chạy, cần sửa ở
+     * mục cấu hình voucher của hạng thay vì ở đây.
+     *
+     * @return array<string, string> key (base64 của description) => label hiển thị kèm số lượng
+     */
+    public function removableOrphanCouponOptionsForTier(MembershipTier $tier): array
+    {
+        $memberIds = Customer::where('membership_tier_id', $tier->id)->pluck('id');
+
+        if ($memberIds->isEmpty()) {
+            return [];
+        }
+
+        $groups = Coupon::whereNull('template_coupon_id')
+            ->whereIn('customer_id', $memberIds)
+            ->where('used_count', 0)
+            ->selectRaw('description, COUNT(*) as cnt')
+            ->groupBy('description')
+            ->orderByDesc('cnt')
+            ->get();
+
+        $options = [];
+        foreach ($groups as $group) {
+            $desc = $group->description ?: '(không có mô tả)';
+            $options[base64_encode($desc)] = "{$desc} — {$group->cnt} khách đang giữ, chưa dùng";
+        }
+
+        return $options;
+    }
+
+    /**
+     * Xoá các mã khuyến mãi mồ côi thuộc những nhóm $keys (key lấy từ
+     * removableOrphanCouponOptionsForTier()) khỏi TOÀN BỘ khách đang giữ $tier — chỉ xoá mã CHƯA
+     * dùng (used_count=0), gọi từ nút "Đồng bộ" khi admin có chọn. Trả về tổng số mã đã xoá.
+     */
+    public function removeOrphanCouponsFromTierMembers(MembershipTier $tier, array $keys): int
+    {
+        $keys = array_filter($keys);
+
+        if (empty($keys)) {
+            return 0;
+        }
+
+        $memberIds = Customer::where('membership_tier_id', $tier->id)->pluck('id');
+
+        if ($memberIds->isEmpty()) {
+            return 0;
+        }
+
+        $descriptions = array_map(fn ($key) => base64_decode($key), $keys);
+
+        return Coupon::whereNull('template_coupon_id')
+            ->whereIn('customer_id', $memberIds)
+            ->where('used_count', 0)
+            ->whereIn('description', $descriptions)
+            ->delete();
     }
 
     /**
@@ -408,38 +469,6 @@ class MembershipService
         }
 
         return true;
-    }
-
-    /**
-     * Tạo coupon cá nhân cho customer dựa theo cấu hình của tier.
-     */
-    private function issueTierCoupon(Customer $customer, MembershipTier $tier): ?Coupon
-    {
-        if (! $tier->welcome_coupon_value || $tier->welcome_coupon_value <= 0) {
-            return null;
-        }
-
-        $prefix = strtoupper($tier->welcome_coupon_prefix ?: Str::slug($tier->name, ''));
-        $code   = $prefix . strtoupper(Str::random(6));
-
-        return Coupon::create([
-            'code'          => $code,
-            'name'          => 'Ưu đãi hạng ' . $tier->name . ' — ' . $customer->fullname,
-            'description'   => 'Coupon tự động cấp khi đạt hạng ' . $tier->name,
-            'type'          => $tier->welcome_coupon_type,
-            'value'         => $tier->welcome_coupon_value,
-            'apply_type'    => 'all_rooms',
-            'usage_limit'   => $tier->welcome_coupon_usage_limit,
-            'used_count'    => 0,
-            'start_at'      => now(),
-            'end_at'        => $tier->welcome_coupon_days ? now()->addDays($tier->welcome_coupon_days) : null,
-            'is_active'     => true,
-            // Voucher chào mừng hạng luôn độc quyền — quy định "1 đơn chỉ áp dụng 1 voucher"
-            // áp dụng cho mọi voucher cấp theo hạng, kể cả voucher chào mừng.
-            'is_exclusive'  => true,
-            'customer_id'   => $customer->id,
-            'created_by'    => $this->superAdminId(),
-        ]);
     }
 
     /**

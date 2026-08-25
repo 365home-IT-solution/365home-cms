@@ -161,6 +161,20 @@ class BookingController extends Controller
                     $backKey  = "guests.{$guestIndex}.back";
 
                     if (! $request->hasFile($frontKey) || ! $request->hasFile($backKey)) {
+                        // Log tạm để đối chiếu key FE thực tế gửi lên so với key server đang đợi
+                        // (guests.{index}.front/back) — xoá log này sau khi xác định xong nguyên nhân.
+                        Log::warning('Booking: thiếu CCCD người đi cùng — đối chiếu key thực nhận', [
+                            'expected_front_key'   => $frontKey,
+                            'expected_back_key'    => $backKey,
+                            'guest_count'          => $guestCount,
+                            'existing_companions'  => $existingCompanions->count(),
+                            'position_index_i'     => $i,
+                            'content_type'         => $request->header('Content-Type'),
+                            'file_field_paths'     => $this->flattenFileFieldPaths($request->allFiles()),
+                            'non_file_input_keys'  => array_keys($request->except(array_keys($request->allFiles()))),
+                            'guests_raw_input'     => $request->input('guests'),
+                        ]);
+
                         $this->cleanupNewCompanionUploads($newCompanionUploads);
 
                         return response()->json([
@@ -504,6 +518,26 @@ class BookingController extends Controller
      * Xoá các file CCCD người đi cùng vừa upload trong request hiện tại (chưa kịp lưu vào
      * customer_companions) khi phải huỷ ngang do lỗi ở người tiếp theo trong vòng lặp.
      */
+    // Liệt kê dạng "dot path" (vd guests.2.front) của MỌI field file thực sự có trong request —
+    // dùng để log đối chiếu key FE thực tế gửi lên với key server đang đợi, không phụ thuộc FE
+    // đặt tên/đánh số key thế nào (kể cả sai quy ước guests[{index}][front]).
+    private function flattenFileFieldPaths(array $files, string $prefix = ''): array
+    {
+        $paths = [];
+
+        foreach ($files as $key => $value) {
+            $path = $prefix === '' ? (string) $key : "{$prefix}.{$key}";
+
+            if (is_array($value)) {
+                $paths = array_merge($paths, $this->flattenFileFieldPaths($value, $path));
+            } elseif ($value instanceof \Illuminate\Http\UploadedFile) {
+                $paths[] = $path;
+            }
+        }
+
+        return $paths;
+    }
+
     private function cleanupNewCompanionUploads(array $uploads): void
     {
         foreach ($uploads as $row) {

@@ -8,6 +8,7 @@ use App\Filament\Resources\MembershipTierResource;
 use App\Services\MembershipService;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
+use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 
@@ -29,12 +30,28 @@ class EditMembershipTier extends EditRecord
                 ->modalHeading('Đồng bộ voucher cho khách đang giữ hạng này')
                 ->modalDescription('Rà lại từng khách đang giữ hạng này theo đúng cấu hình hiện tại ở "Coupon tự động cấp" (KHÔNG tính mã gắn tay ở "Mã giảm giá gắn thêm cho hạng"). Khách nào thiếu voucher nào so với cấu hình (vd dữ liệu cũ từ trước khi hạng có đủ số voucher như bây giờ) sẽ được cấp bù đúng phần còn thiếu — voucher khách đã có giữ nguyên, không cấp trùng. Đồng thời cập nhật lại GIỚI HẠN CHI NHÁNH của các voucher đã cấp trước đó theo đúng cấu hình hiện tại — chỉ áp dụng cho voucher khách CHƯA sử dụng lần nào; voucher đã dùng rồi giữ nguyên điều khoản cũ.')
                 ->modalSubmitActionLabel('Đồng bộ ngay')
-                ->action(function () {
-                    $result = app(MembershipService::class)->syncAutoVouchersForTierMembers($this->record);
+                ->form(fn () => [
+                    Select::make('remove_coupon_keys')
+                        ->label('Gỡ bớt mã khuyến mãi mồ côi khỏi khách đang giữ (tuỳ chọn)')
+                        ->helperText('Chỉ liệt kê các mã KHÔNG thuộc cấu hình voucher chính thức của hạng (vd mã còn sót từ cơ chế cũ) và CHƯA được khách nào dùng. Không chọn gì thì vẫn đồng bộ bình thường như trước.')
+                        ->options(fn () => app(MembershipService::class)->removableOrphanCouponOptionsForTier($this->record))
+                        ->multiple()
+                        ->searchable(),
+                ])
+                ->action(function (array $data) {
+                    $service = app(MembershipService::class);
+
+                    $removed = $service->removeOrphanCouponsFromTierMembers($this->record, $data['remove_coupon_keys'] ?? []);
+                    $result  = $service->syncAutoVouchersForTierMembers($this->record);
+
+                    $body = "Đã kiểm tra {$result['customers_checked']} khách hàng — {$result['customers_updated']} khách được cấp bù (tổng {$result['vouchers_granted']} voucher), {$result['vouchers_branch_synced']} voucher chưa dùng được cập nhật lại giới hạn chi nhánh.";
+                    if ($removed > 0) {
+                        $body .= " Đã gỡ {$removed} mã khuyến mãi mồ côi khỏi khách hàng.";
+                    }
 
                     Notification::make()
                         ->title('Đồng bộ xong')
-                        ->body("Đã kiểm tra {$result['customers_checked']} khách hàng — {$result['customers_updated']} khách được cấp bù (tổng {$result['vouchers_granted']} voucher), {$result['vouchers_branch_synced']} voucher chưa dùng được cập nhật lại giới hạn chi nhánh.")
+                        ->body($body)
                         ->success()
                         ->send();
                 }),

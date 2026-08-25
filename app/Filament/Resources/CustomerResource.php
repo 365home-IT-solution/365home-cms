@@ -387,23 +387,13 @@ class CustomerResource extends Resource
                             return;
                         }
 
-                        $coupon = app(\App\Services\MembershipService::class)
-                            ->assignManually($record, $to, $from);
+                        app(\App\Services\MembershipService::class)->assignManually($record, $to, $from);
 
-                        if ($coupon) {
-                            \Filament\Notifications\Notification::make()
-                                ->title('Đã gán hạng thành công')
-                                ->body("Mã giảm giá vừa cấp: **{$coupon->code}**")
-                                ->success()
-                                ->persistent()
-                                ->send();
-                        } else {
-                            \Filament\Notifications\Notification::make()
-                                ->title('Đã gán hạng thành công')
-                                ->body('Hạng này chưa cấu hình coupon, không có mã giảm giá được tạo.')
-                                ->success()
-                                ->send();
-                        }
+                        \Filament\Notifications\Notification::make()
+                            ->title('Đã gán hạng thành công')
+                            ->body('Voucher chính thức của hạng (nếu có cấu hình) đã được cấp cho khách.')
+                            ->success()
+                            ->send();
                     })
                     ->modalHeading('Gán hạng thành viên')
                     ->modalSubmitActionLabel('Lưu'),

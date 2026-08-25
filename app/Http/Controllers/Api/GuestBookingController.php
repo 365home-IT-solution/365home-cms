@@ -150,6 +150,18 @@ class GuestBookingController extends Controller
                 $backKey  = "guests.{$guestIndex}.back";
 
                 if (! $request->hasFile($frontKey) || ! $request->hasFile($backKey)) {
+                    // Log tạm để đối chiếu key FE thực tế gửi lên so với key server đang đợi
+                    // (guests.{index}.front/back) — xoá log này sau khi xác định xong nguyên nhân.
+                    Log::warning('GuestBooking: thiếu CCCD người đi cùng — đối chiếu key thực nhận', [
+                        'expected_front_key' => $frontKey,
+                        'expected_back_key'  => $backKey,
+                        'guest_count'        => $guestCount,
+                        'content_type'       => $request->header('Content-Type'),
+                        'file_field_paths'   => $this->flattenFileFieldPaths($request->allFiles()),
+                        'non_file_input_keys'=> array_keys($request->except(array_keys($request->allFiles()))),
+                        'guests_raw_input'   => $request->input('guests'),
+                    ]);
+
                     $this->cleanupUploadedFiles($cccdFront, $cccdBack, $guestCccdRows);
 
                     return response()->json([
@@ -2125,6 +2137,26 @@ class GuestBookingController extends Controller
      * Xoá toàn bộ file CCCD đã upload (khách chính + các khách 2..N đã xử lý thành công cho tới
      * lúc gặp lỗi) khi phải huỷ tạo đơn giữa chừng — tránh rác file mồ côi trên storage.
      */
+    // Liệt kê dạng "dot path" (vd guests.2.front) của MỌI field file thực sự có trong request —
+    // dùng để log đối chiếu key FE thực tế gửi lên với key server đang đợi, không phụ thuộc FE
+    // đặt tên/đánh số key thế nào (kể cả sai quy ước guests[{index}][front]).
+    private function flattenFileFieldPaths(array $files, string $prefix = ''): array
+    {
+        $paths = [];
+
+        foreach ($files as $key => $value) {
+            $path = $prefix === '' ? (string) $key : "{$prefix}.{$key}";
+
+            if (is_array($value)) {
+                $paths = array_merge($paths, $this->flattenFileFieldPaths($value, $path));
+            } elseif ($value instanceof \Illuminate\Http\UploadedFile) {
+                $paths[] = $path;
+            }
+        }
+
+        return $paths;
+    }
+
     private function cleanupUploadedFiles(string $mainFront, string $mainBack, array $guestCccdRows): void
     {
         Storage::disk('public')->delete($mainFront);

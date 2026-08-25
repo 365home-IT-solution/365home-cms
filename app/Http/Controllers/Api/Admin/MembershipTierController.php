@@ -162,8 +162,14 @@ class MembershipTierController extends Controller
      * bù voucher nào (nguồn 'auto' — theo đúng cấu hình 'voucher_templates' hiện tại) khách đang
      * thiếu. Không đụng tới mã gắn tay ('coupon_ids'/nguồn 'manual'). An toàn gọi lại nhiều lần —
      * không cấp trùng cho khách đã có sẵn.
+     *
+     * Body tuỳ chọn 'remove_coupon_keys' (mảng string, lấy từ GET .../{id} →
+     * removable_orphan_coupons[].key): gỡ bớt mã khuyến mãi MỒ CÔI (không thuộc voucher_templates/
+     * coupon_ids, vd mã còn sót từ cơ chế welcome_coupon cũ) và CHƯA khách nào dùng, khỏi mọi khách
+     * đang giữ hạng — chạy TRƯỚC bước cấp bù ở trên. Không truyền/truyền [] = chỉ cấp bù như bình
+     * thường, không gỡ gì.
      */
-    public function syncVouchers(int $id): JsonResponse
+    public function syncVouchers(Request $request, int $id): JsonResponse
     {
         $tier = MembershipTier::find($id);
 
@@ -171,7 +177,11 @@ class MembershipTierController extends Controller
             return response()->json(['message' => 'Không tìm thấy hạng thành viên.'], 404);
         }
 
-        $result = app(MembershipService::class)->syncAutoVouchersForTierMembers($tier);
+        $service = app(MembershipService::class);
+
+        $removed = $service->removeOrphanCouponsFromTierMembers($tier, $request->input('remove_coupon_keys', []));
+        $result  = $service->syncAutoVouchersForTierMembers($tier);
+        $result['orphan_coupons_removed'] = $removed;
 
         return response()->json(['data' => $result]);
     }
@@ -318,6 +328,12 @@ class MembershipTierController extends Controller
                 'type' => $c->type, 'value' => $c->value,
                 'min_order_value' => $c->min_order_value, 'validity_days' => $c->validity_days,
             ])->values(),
+            // Mã khuyến mãi MỒ CÔI (không thuộc voucher_templates/coupon_ids, vd còn sót từ cơ chế
+            // welcome_coupon cũ) mà khách đang giữ hạng này đang có — 'key' dùng để truyền vào body
+            // 'remove_coupon_keys' của POST .../{id}/sync-vouchers.
+            'removable_orphan_coupons'   => collect($service->removableOrphanCouponOptionsForTier($tier))
+                ->map(fn ($label, $key) => ['key' => $key, 'label' => $label])
+                ->values(),
             'created_at' => optional($tier->created_at)->toISOString(),
             'updated_at' => optional($tier->updated_at)->toISOString(),
         ]);
