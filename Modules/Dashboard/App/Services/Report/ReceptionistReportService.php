@@ -9,16 +9,23 @@ use Modules\Dashboard\App\Services\OverviewService;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
+use Modules\Product\App\Models\RoomTimeSlot;
 
 /**
  * BÁO CÁO LỄ TÂN: phòng trống / đang sử dụng / dự kiến trả / dự kiến nhận + công suất sử dụng,
- * trong kỳ đã chọn (mặc định hôm nay). "Đang sử dụng"/"trống" LUÔN là ảnh chụp REALTIME tại thời
- * điểm hiện tại thực sự (Carbon::now()) — KHÔNG phụ thuộc bộ lọc ngày đang chọn (kỳ chỉ ảnh hưởng
- * "dự kiến nhận/trả", số liệu PHÁT SINH đếm theo cả kỳ). Khớp đúng quy tắc "chiếm chỗ" chuẩn đang
- * dùng ở lưới đặt phòng (xem RoomController::buildSlotStatus() / OrderObserver::
- * broadcastSlotStatusChanged()): CHỈ đơn pending/paid coi là chiếm phòng — đơn deposit (đặt cọc
- * chưa thanh toán đủ) KHÔNG coi là chiếm, khác với "overbooking" bên dưới (vẫn coi deposit là 1
- * đơn thực sự để phát hiện xung đột, khớp BuildsRoomBooking lúc tạo đơn mới).
+ * trong kỳ đã chọn (mặc định hôm nay). "Đang sử dụng"/"trống" chốt tại asOf (cuối kỳ, hoặc hiện tại
+ * nếu kỳ đang diễn ra/đã qua — KHÔNG bao giờ vượt quá kỳ đang lọc, tránh lọc period=hôm qua nhưng
+ * lại trả về trạng thái LIVE của hôm nay). Khớp đúng quy tắc "chiếm chỗ" chuẩn đang dùng ở lưới đặt
+ * phòng (xem RoomController::buildSlotStatus() / OrderObserver::broadcastSlotStatusChanged()): CHỈ
+ * đơn pending/paid coi là chiếm phòng — đơn deposit (đặt cọc chưa thanh toán đủ) KHÔNG coi là
+ * chiếm, khác với "overbooking" bên dưới (vẫn coi deposit là 1 đơn thực sự để phát hiện xung đột,
+ * khớp BuildsRoomBooking lúc tạo đơn mới).
+ *
+ * "Phòng trống": phòng theo GIỜ (styles=1) tính là trống nếu CÒN ÍT NHẤT 1 khung giờ (room_time_
+ * slots) trong ngày của asOf chưa quá giờ VÀ chưa có đơn pending/paid nào chiếm khung đó — dù các
+ * khung khác trong ngày đã có đơn (KHÔNG cần cả ngày trống mới tính trống). Phòng theo NGÀY
+ * (styles=2) không có khái niệm nhiều khung/ngày nên vẫn dùng luật cũ: hết chỗ nếu có bất kỳ đơn
+ * nào giao với phần còn lại của ngày.
  */
 class ReceptionistReportService
 {
@@ -66,10 +73,8 @@ class ReceptionistReportService
         $dayEnd = $asOf->copy()->endOfDay();
 
         // Lấy 1 lần mọi đơn CHIẾM CHỖ (chỉ pending/paid — xem OCCUPYING_STATUSES) của các phòng
-        // trong phạm vi, có giao với "từ asOf đến hết ngày của asOf" — dùng chung để suy ra cả
-        // "đang sử dụng" (đang chiếm NGAY tại asOf) lẫn "phòng trống" (không chiếm tại asOf VÀ
-        // không còn khung giờ nào khác trong ngày đó đã có đơn — 1 phòng rảnh lúc asOf nhưng đã có
-        // khách đặt khung giờ muộn hơn cùng ngày thì KHÔNG tính là phòng trống).
+        // trong phạm vi, có giao với "từ asOf đến hết ngày của asOf" — dùng cho cả "đang sử dụng"
+        // (đang chiếm NGAY tại asOf) lẫn để đối chiếu từng khung giờ khi quét "phòng trống" bên dưới.
         $occupyingItems = OrderItem::query()
             ->tap($orderScope)
             ->whereHas('order', fn ($o) => $o->whereIn('status', self::OCCUPYING_STATUSES))
@@ -82,16 +87,72 @@ class ReceptionistReportService
             ->pluck('product_id')
             ->unique();
 
-        $busyTodayProductIds = $occupyingItems->pluck('product_id')->unique();
+        $itemsByRoom = $occupyingItems->groupBy('product_id');
 
-        $cleaningProductIds = Product::whereIn('id', $productIds)
-            ->where('housekeeping_status', 'cleaning')
-            ->pluck('id');
+        $rooms = Product::whereIn('id', $productIds)->get(['id', 'styles', 'housekeeping_status']);
+
+        // Khung giờ mẫu (date IS NULL — lặp lại mỗi ngày) của các phòng THEO GIỜ trong phạm vi —
+        // 1 phòng theo giờ có thể có NHIỀU khung/ngày, chỉ 1 khung bị đặt không có nghĩa cả ngày hết
+        // chỗ, nên phải quét từng khung thay vì chỉ nhìn tổng quan đơn như phòng theo ngày.
+        $slotsByRoom = RoomTimeSlot::whereIn('room_id', $rooms->where('styles', '!=', 2)->pluck('id'))
+            ->whereNull('date')
+            ->with('timeSlot')
+            ->get()
+            ->filter(fn ($rts) => $rts->timeSlot)
+            ->groupBy('room_id');
+
+        $asOfDate = $asOf->toDateString();
+
+        // "Phòng trống": phòng theo NGÀY (styles=2) — hết chỗ nếu có bất kỳ đơn nào giao với phần
+        // còn lại của ngày (không có khái niệm "khung giờ khác còn trống"). Phòng theo GIỜ — vẫn
+        // tính là trống nếu CÒN ÍT NHẤT 1 khung giờ hôm nay chưa quá giờ (so với asOf) VÀ chưa có
+        // đơn pending/paid nào chiếm khung đó, dù các khung khác trong ngày đã có đơn.
+        $unavailableIds = collect();
+
+        foreach ($rooms as $room) {
+            if ($room->housekeeping_status === 'cleaning') {
+                $unavailableIds->push($room->id);
+                continue;
+            }
+
+            $roomItems = $itemsByRoom->get($room->id, collect());
+            $slots     = (int) $room->styles === 2 ? collect() : $slotsByRoom->get($room->id, collect());
+
+            // Phòng theo ngày, hoặc phòng theo giờ chưa cấu hình khung nào (lỗi dữ liệu) — fallback
+            // về luật "có đơn giao với phần còn lại của ngày là hết chỗ".
+            if ($slots->isEmpty()) {
+                if ($roomItems->isNotEmpty()) {
+                    $unavailableIds->push($room->id);
+                }
+                continue;
+            }
+
+            $hasOpenSlot = $slots->contains(function ($rts) use ($asOfDate, $asOf, $roomItems) {
+                $slotStart = Carbon::parse($asOfDate . ' ' . $rts->timeSlot->start_time);
+                $slotEnd   = Carbon::parse($asOfDate . ' ' . $rts->timeSlot->end_time);
+                if ($slotEnd->lte($slotStart)) {
+                    $slotEnd->addDay();
+                }
+
+                // Khung đã quá giờ (kể cả đang diễn ra dở — cùng mốc cắt với isSelectable ở
+                // RoomController::buildSlotStatus) thì không còn để chào khách được nữa.
+                if ($slotEnd->lte($asOf)) {
+                    return false;
+                }
+
+                return ! $roomItems->contains(
+                    fn ($item) => $item->checkin_date->lt($slotEnd) && $item->checkout_date->gt($slotStart)
+                );
+            });
+
+            if (! $hasOpenSlot) {
+                $unavailableIds->push($room->id);
+            }
+        }
 
         $occupiedRooms   = $occupiedProductIds->count();
-        $unavailableRooms = $busyTodayProductIds->merge($cleaningProductIds)->unique()->count();
-        $availableRooms  = max(0, $totalRooms - $unavailableRooms);
-        $cleaningRooms   = $cleaningProductIds->count();
+        $availableRooms  = max(0, $totalRooms - $unavailableIds->unique()->count());
+        $cleaningRooms   = $rooms->where('housekeeping_status', 'cleaning')->count();
 
         $expectedCheckin = OrderItem::query()
             ->tap($orderScope)
