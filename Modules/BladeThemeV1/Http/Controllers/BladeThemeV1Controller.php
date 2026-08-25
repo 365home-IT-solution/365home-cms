@@ -12,8 +12,8 @@ use Modules\BladeThemeV1\Traits\HandleColorTrait;
 use Modules\BladeThemeV1\Support\BranchBookConfig;
 use Modules\Post\Entities\Post;
 use Modules\Product\App\Models\Product;
+use Modules\Product\App\Models\RoomType;
 use App\Models\Province;
-use App\Models\ProvinceBranch;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Http\Controllers\PaymentController;
 use Illuminate\Support\Facades\Log;
@@ -337,24 +337,24 @@ class BladeThemeV1Controller extends Controller
     }
 
 
-    // /room/{slug}/ — URL phẳng cũ (không có khu vực/chi nhánh). Luôn tự chuyển sang URL canonical
-    // /homestay/{location}/{branch}/{slug} nếu xác định được chi nhánh của phòng (xem
-    // renderProductDetail()).
+    // /room/{slug}/ — URL phẳng cũ (không có loại hình/khu vực/chi nhánh). Luôn tự chuyển sang URL
+    // canonical /{type}/{location}/{branch}/{slug} nếu xác định được (xem renderProductDetail()).
     public function productDetail($slug)
     {
-        return $this->renderProductDetail($slug, null, null);
+        return $this->renderProductDetail($slug, null, null, null);
     }
 
-    // /homestay/{location}/{branch}/{slug} — URL canonical, nối tiếp silo loại hình/khu vực/chi
-    // nhánh đã có (/homestay/{location}, /homestay/{location}/{branch}) xuống tới từng phòng.
-    // $location/$branch chỉ dùng để tự sửa về ĐÚNG khu vực + chi nhánh thật (redirect 301) nếu URL
-    // gõ sai — không dùng để lọc phòng, vì slug phòng vốn đã duy nhất toàn hệ thống.
-    public function productDetailWithLocation(string $location, string $branch, string $slug)
+    // /{type}/{location}/{branch}/{slug} — URL canonical, nối tiếp silo loại hình/khu vực/chi
+    // nhánh đã có (/{type}/{location}, /{type}/{location}/{branch}) xuống tới từng phòng.
+    // $type/$location/$branch chỉ dùng để tự sửa về ĐÚNG loại hình + khu vực + chi nhánh thật
+    // (redirect 301) nếu URL gõ sai — không dùng để lọc phòng, vì slug phòng vốn đã duy nhất toàn
+    // hệ thống.
+    public function productDetailWithLocation(string $type, string $location, string $branch, string $slug)
     {
-        return $this->renderProductDetail($slug, $location, $branch);
+        return $this->renderProductDetail($slug, $type, $location, $branch);
     }
 
-    private function renderProductDetail(string $slug, ?string $location, ?string $branch)
+    private function renderProductDetail(string $slug, ?string $type, ?string $location, ?string $branch)
     {
         $product = Product::where([
             'slug' => $slug,
@@ -364,26 +364,26 @@ class BladeThemeV1Controller extends Controller
             ->whereHas('categories', function ($query) {
                 $query->where('status', 1);
             })
-            ->with(['tags:id,name', 'categories:id,slug,parent_id'])
-            ->select(['id', 'name', 'slug', 'short_description', 'description', 'price', 'discount', 'is_in_stock', 'updated_at'])
+            ->with(['tags:id,name', 'categories:id,slug,parent_id', 'roomType:id,slug,name'])
+            ->select(['id', 'name', 'slug', 'short_description', 'description', 'price', 'discount', 'is_in_stock', 'updated_at', 'room_type_id'])
             ->first();
 
         if (!$product) {
             abort(404);
         }
 
-        // Khu vực + chi nhánh THẬT của phòng — nguồn sự thật duy nhất cho URL canonical, không tin
-        // theo $location/$branch trên path (có thể sai/cũ/giả).
+        // Loại hình + khu vực + chi nhánh THẬT của phòng — nguồn sự thật duy nhất cho URL
+        // canonical, không tin theo $type/$location/$branch trên path (có thể sai/cũ/giả).
         $loc = BranchBookConfig::resolveLocationForProduct($product);
 
-        // URL đang truy cập không khớp khu vực/chi nhánh thật (kể cả /room/{slug}/ không có khu
-        // vực nào) → 301 thẳng về URL canonical duy nhất, tránh duplicate content trên nhiều URL.
-        if ($loc && ($loc['province_slug'] !== $location || $loc['branch_slug'] !== $branch)) {
-            return redirect('/homestay/' . $loc['province_slug'] . '/' . $loc['branch_slug'] . '/' . $slug, 301);
+        // URL đang truy cập không khớp loại hình/khu vực/chi nhánh thật (kể cả /room/{slug}/
+        // không có gì) → 301 thẳng về URL canonical duy nhất, tránh duplicate content.
+        if ($loc && ($loc['type_url_slug'] !== $type || $loc['province_slug'] !== $location || $loc['branch_slug'] !== $branch)) {
+            return redirect('/' . $loc['type_url_slug'] . '/' . $loc['province_slug'] . '/' . $loc['branch_slug'] . '/' . $slug . '/', 301);
         }
 
         $canonicalUrl = $loc
-            ? url('/homestay/' . $loc['province_slug'] . '/' . $loc['branch_slug'] . '/' . $slug)
+            ? url('/' . $loc['type_url_slug'] . '/' . $loc['province_slug'] . '/' . $loc['branch_slug'] . '/' . $slug . '/')
             : url('/room/' . $slug . '/');
 
         $seoKeywords    = $product->tags->pluck('name')->implode(', ');
@@ -421,9 +421,18 @@ class BladeThemeV1Controller extends Controller
             'video_upload_date'  => $product->updated_at?->toIso8601String(),
         ];
 
+        // Breadcrumb theo đúng chuỗi silo của URL canonical (loại hình > khu vực > chi nhánh) —
+        // rỗng (chỉ còn "Trang chủ > tên phòng") khi không xác định được chi nhánh của phòng.
+        $breadcrumbParents = $loc ? [
+            ['title' => $loc['type_name'], 'url' => url('/' . $loc['type_url_slug'])],
+            ['title' => $loc['province_name'], 'url' => url('/' . $loc['type_url_slug'] . '/' . $loc['province_slug'])],
+            ['title' => $loc['branch_name'], 'url' => url('/' . $loc['type_url_slug'] . '/' . $loc['province_slug'] . '/' . $loc['branch_slug'])],
+        ] : [];
+
         return view('bladethemev1::pages.product.detail', [
             'slug' => $slug,
             'name' => $product->name,
+            'breadcrumbParents' => $breadcrumbParents,
             'primaryColor' => $this->primaryColor,
             'primaryColorRgb' => $this->primaryColorRgb,
             'heavyPrimaryColor' => $this->heavyPrimaryColor,
@@ -520,7 +529,12 @@ class BladeThemeV1Controller extends Controller
         ]);
     }
 
-    public function searchProduct(Request $request, string $location = '')
+    // $type — slug URL rút gọn (homestay/khach-san/mini-house/villa/nha-nghi/chung-cu) khi vào
+    // qua route '/{type}/{location?}' (product.search.type); null khi vào qua '/s/{location?}'
+    // (product.search, không lọc loại hình). Không cần redirect/validate gì thêm ở đây — route đã
+    // where()-ràng buộc $type chỉ nhận đúng 6 giá trị hợp lệ, còn việc LỌC theo loại hình hoàn
+    // toàn nằm phía client (search-results.js tự suy filter 'type' từ pathname).
+    public function searchProduct(Request $request, ?string $type = null, string $location = '')
     {
         // Ưu tiên location trên path (kiểu /s/ho-chi-minh), fallback query string
         // ?location=... để không phá các link cũ đã chia sẻ/bookmark trước khi đổi cấu trúc URL.
@@ -541,8 +555,14 @@ class BladeThemeV1Controller extends Controller
             }
         }
 
+        $typeName = null;
+        if ($type) {
+            $typeDbSlug = BranchBookConfig::typeDbSlugFromUrl($type);
+            $typeName   = $typeDbSlug ? RoomType::where('slug', $typeDbSlug)->value('name') : null;
+        }
+
         $seoData = [
-            'seo_title'       => 'Tìm kiếm phòng' . ($province ? ' tại ' . $province->name : '') . ' | 365 HOME',
+            'seo_title'       => trim(($typeName ?: 'Tìm kiếm phòng') . ($province ? ' tại ' . $province->name : '')) . ' | 365 HOME',
             'seo_description' => 'Tìm kiếm phòng nghỉ, coworking, phòng theo giờ chất lượng tại 365 HOME.',
             'seo_keywords'    => 'tìm kiếm phòng, đặt phòng, phòng theo giờ, 365 home',
             'og_type'         => 'website',
@@ -562,23 +582,23 @@ class BladeThemeV1Controller extends Controller
         ]);
     }
 
-    // /chi-nhanh/{slug} — URL phẳng cũ (không có khu vực). Luôn tự chuyển sang URL canonical
-    // /homestay/{location}/{slug} nếu chi nhánh xác định được khu vực (xem renderBookingBoard()).
+    // /chi-nhanh/{slug} — URL phẳng cũ (không có loại hình/khu vực). Luôn tự chuyển sang URL
+    // canonical /{type}/{location}/{slug} nếu chi nhánh xác định được (xem renderBookingBoard()).
     public function bookingBoard(string $slug)
     {
-        return $this->renderBookingBoard($slug, null);
+        return $this->renderBookingBoard($slug, null, null);
     }
 
-    // /homestay/{location}/{slug} — URL canonical, gộp khu vực vào path cho SEO local (giống cấu
-    // trúc "loại hình / khu vực / chi nhánh"). $location chỉ dùng để tự sửa về ĐÚNG khu vực thật
-    // của chi nhánh (redirect 301) nếu URL gõ sai khu vực — không dùng để lọc/tìm chi nhánh, vì
-    // slug chi nhánh vốn đã là duy nhất toàn hệ thống (BranchBookConfig::build()).
-    public function bookingBoardWithLocation(string $location, string $slug)
+    // /{type}/{location}/{slug} — URL canonical, gộp loại hình + khu vực vào path cho SEO local.
+    // $type/$location chỉ dùng để tự sửa về ĐÚNG loại hình + khu vực thật của chi nhánh (redirect
+    // 301) nếu URL gõ sai — không dùng để lọc/tìm chi nhánh, vì slug chi nhánh vốn đã là duy nhất
+    // toàn hệ thống (BranchBookConfig::build()).
+    public function bookingBoardWithLocation(string $type, string $location, string $slug)
     {
-        return $this->renderBookingBoard($slug, $location);
+        return $this->renderBookingBoard($slug, $type, $location);
     }
 
-    private function renderBookingBoard(string $slug, ?string $location)
+    private function renderBookingBoard(string $slug, ?string $type, ?string $location)
     {
         $result = BranchBookConfig::build($slug);
 
@@ -587,22 +607,19 @@ class BladeThemeV1Controller extends Controller
         $branch = $result['branch'];
         $bookConfig = $result['bookConfig'];
 
-        // Khu vực THẬT của chi nhánh (qua bảng pivot province_branches) — nguồn sự thật duy nhất
-        // cho URL canonical, không tin theo $location trên path (có thể sai/cũ/giả).
-        $provinceSlug = ProvinceBranch::where('categorie_id', $branch->id)
-            ->whereHas('province')
-            ->with('province')
-            ->first()?->province?->slug;
+        // Loại hình + khu vực THẬT của chi nhánh — nguồn sự thật duy nhất cho URL canonical,
+        // không tin theo $type/$location trên path (có thể sai/cũ/giả).
+        $loc = BranchBookConfig::resolveTypeAndLocationForBranch($branch);
 
-        // URL đang truy cập không khớp khu vực thật (kể cả trường hợp /chi-nhanh/{slug} không có
-        // khu vực nào) → 301 thẳng về URL canonical duy nhất, tránh trang trùng nội dung
+        // URL đang truy cập không khớp loại hình/khu vực thật (kể cả trường hợp /chi-nhanh/{slug}
+        // không có gì) → 301 thẳng về URL canonical duy nhất, tránh trang trùng nội dung
         // (duplicate content) trên nhiều URL khác nhau — tốt cho SEO hơn giữ cả 2 URL cùng sống.
-        if ($provinceSlug && $provinceSlug !== $location) {
-            return redirect('/homestay/' . $provinceSlug . '/' . $slug, 301);
+        if ($loc && ($loc['type_url_slug'] !== $type || $loc['province_slug'] !== $location)) {
+            return redirect('/' . $loc['type_url_slug'] . '/' . $loc['province_slug'] . '/' . $slug, 301);
         }
 
-        $canonicalUrl = $provinceSlug
-            ? url('/homestay/' . $provinceSlug . '/' . $slug)
+        $canonicalUrl = $loc
+            ? url('/' . $loc['type_url_slug'] . '/' . $loc['province_slug'] . '/' . $slug)
             : url('/chi-nhanh/' . $slug);
 
         $seoData = [

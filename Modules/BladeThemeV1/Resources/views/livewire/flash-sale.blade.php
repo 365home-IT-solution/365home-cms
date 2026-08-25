@@ -113,7 +113,7 @@
                                      (thẻ đã to hơn — xem .roomtype-card). --}}
                                 <div x-ref="track" class="flex gap-6 py-2 px-1 overflow-x-hidden" style="scroll-snap-type:x mandatory;">
                                     <template x-for="type in roomTypes" :key="'roomtype-mobile-' + type.id">
-                                        <a :href="type.slug === 'homestay' ? '{{ route('product.search.homestay') }}' : ('{{ route('product.search') }}?type=' + type.slug)" class="roomtype-card" style="scroll-snap-align:start;">
+                                        <a :href="window.__typeUrlSlug(type.slug) ? ('/' + window.__typeUrlSlug(type.slug)) : ('{{ route('product.search') }}?type=' + type.slug)" class="roomtype-card" style="scroll-snap-align:start;">
                                             <img :src="window.__roomTypeIcon(type)" alt="" class="roomtype-card-icon" loading="lazy" onerror="this.style.display='none'">
                                             <span class="roomtype-card-label" x-text="type.name"></span>
                                         </a>

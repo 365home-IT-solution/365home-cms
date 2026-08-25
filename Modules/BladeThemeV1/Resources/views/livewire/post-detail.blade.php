@@ -523,13 +523,13 @@
                         <img src="{{ $post->media->first()->getUrl() }}" alt="{{ $post->title }}"
                              class="w-16 h-16 rounded-lg object-cover">
                         <div>
-                            <div class="flex space-x-2 mb-1">
-                                @foreach ($post->categories as $category)
-                                    <span class="text-xs font-semibold text-white bg-primary px-2 py-1 rounded">
-                                        {{ $category->name }}
+                            @if ($post->categories->isNotEmpty())
+                                <div class="mb-1">
+                                    <span class="text-xs font-semibold text-primary">
+                                        {{ $post->categories->first()->name }}
                                     </span>
-                                @endforeach
-                            </div>
+                                </div>
+                            @endif
                             <a href="{{ route('post.detail', ['slug' => $post->slug]) }}"
                                class="text-sm font-semibold text-black hover:text-primary">
                                 {{ \Illuminate\Support\Str::limit($post->title, 50) }}

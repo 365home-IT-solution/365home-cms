@@ -107,8 +107,9 @@ class RoomSearchService
             : collect();
 
         // Khu vực (province slug) của từng chi nhánh — FE dùng để dựng URL canonical
-        // /homestay/{province_slug}/{branch_slug}/{room_slug} (xem window.roomCardHtml() trong
-        // public/js/home-sections.js), gắn thẳng lên từng Category làm thuộc tính động.
+        // /{type}/{province_slug}/{branch_slug}/{room_slug} (xem window.roomCardHtml() trong
+        // public/js/home-sections.js — {type} lấy từ 'type_slug' của chính phòng, xem
+        // BuildsRoomCard::mapRoom()), gắn thẳng lên từng Category làm thuộc tính động.
         if ($branchCats->isNotEmpty()) {
             $provinceSlugByCat = ProvinceBranch::whereIn('categorie_id', $branchCats->keys())
                 ->with('province:id,slug')

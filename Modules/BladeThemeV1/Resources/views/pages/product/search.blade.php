@@ -7,10 +7,14 @@
         // ?view=branches — panel bên phải hiển thị danh sách phòng + bảng đặt khung giờ của chi
         // nhánh được chọn (thay cho bản đồ, không có ý nghĩa khi đang liệt kê chi nhánh). Livewire
         // Book component mount 1 lần với config rỗng, "load-branch" (search-results.js) nạp lại
-        // dữ liệu chi nhánh mỗi khi người dùng bấm 1 card — xem Book::loadBranch(). /homestay/
-        // {location} là URL rút gọn của /s/{location}?view=branches (không mang query ?view=) nên
-        // ngầm định luôn ở chế độ này — cùng luật với isBranchesView() trong search-results.js.
-        $isBranchesView = request()->query('view') === 'branches' || request()->is('homestay/*');
+        // dữ liệu chi nhánh mỗi khi người dùng bấm 1 card — xem Book::loadBranch(). /{type}/
+        // {location} (bất kỳ loại hình nào — homestay/khach-san/mini-house/villa/nha-nghi/chung-cu,
+        // xem BranchBookConfig::typeUrlSlugs()) là URL rút gọn của /s/{location}?view=branches
+        // (không mang query ?view=) nên ngầm định luôn ở chế độ này — cùng luật với isBranchesView()
+        // trong search-results.js.
+        $isBranchesView = request()->query('view') === 'branches'
+            || collect(\Modules\BladeThemeV1\Support\BranchBookConfig::typeUrlSlugs())
+                ->contains(fn ($t) => request()->is($t . '/*'));
     @endphp
 
     <script>
@@ -1167,11 +1171,13 @@
                 var imgHtml = branch.image_url
                     ? '<img src="' + esc(branch.image_url) + '" alt="" style="width:100%;height:96px;object-fit:cover;border-radius:8px;display:block;margin-bottom:8px;">'
                     : '';
-                // Đang xem theo khu vực (/s/{location} hoặc /homestay/{location}) thì dùng thẳng
-                // URL canonical /homestay/{location}/{slug} (tốt cho SEO local hơn URL phẳng).
-                var __locMatch = window.location.pathname.match(/^\/(?:s|homestay)\/([^\/?#]+)/);
-                var branchHref = __locMatch
-                    ? '/homestay/' + __locMatch[1] + '/' + encodeURIComponent(branch.slug)
+                // Có đủ khu vực (path /s/{location} hoặc /{type}/{location}) + loại hình
+                // (branch.type_url_slug, gắn kèm sẵn từ API — xem SearchController::branches())
+                // thì dùng thẳng URL canonical /{type}/{location}/{slug} (tốt cho SEO local hơn URL
+                // phẳng), không thì rơi về /chi-nhanh/{slug}.
+                var __locMatch = window.location.pathname.match(new RegExp('^\\/(?:s|' + Object.keys(window.__typeDbSlugMap).join('|') + ')\\/([^\\/?#]+)'));
+                var branchHref = (__locMatch && branch.type_url_slug)
+                    ? '/' + branch.type_url_slug + '/' + __locMatch[1] + '/' + encodeURIComponent(branch.slug)
                     : '/chi-nhanh/' + encodeURIComponent(branch.slug);
                 var popupHtml = '<div style="padding:2px;min-width:190px;">'
                     + imgHtml

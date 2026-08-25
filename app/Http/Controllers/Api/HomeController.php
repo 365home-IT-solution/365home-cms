@@ -13,6 +13,7 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Storage;
 use Modules\AppPage\App\Models\AppPage;
 use Modules\AppPage\App\Models\Banner;
+use Modules\BladeThemeV1\Support\BranchBookConfig;
 use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomType;
@@ -386,11 +387,12 @@ class HomeController extends Controller
             'id'              => $index + 1,
             'sort_order'      => $index + 1,
             'suggestion_type' => $type,
-            // Loại "Chi nhánh" → xem tất cả dẫn đến danh sách chi nhánh của khu vực (không phải phòng),
-            // dùng URL rút gọn /homestay/{location} (tương đương /s/{location}?view=branches cũ —
-            // xem routes/BladeThemeV1 'product.search.homestay').
+            // Loại "Chi nhánh" → xem tất cả dẫn đến danh sách chi nhánh của khu vực (không phải
+            // phòng, không lọc theo loại hình — getSuggestionBranches() trộn mọi loại hình), nên
+            // dùng /s/{location}?view=branches (KHÔNG dùng /{type}/{location} — URL đó chỉ dành
+            // riêng cho 1 loại hình, xem routes/BladeThemeV1 'product.search.type').
             'view_all_url'    => $province
-                ? ($type === 'branch' ? '/homestay/' . $province->slug : '/s/' . $province->slug)
+                ? ($type === 'branch' ? '/s/' . $province->slug . '?view=branches' : '/s/' . $province->slug)
                 : null,
         ];
 
@@ -415,19 +417,26 @@ class HomeController extends Controller
             ->whereHas('category', fn ($q) => $q->where('status', true))
             ->with('category')
             ->get()
-            ->map(fn ($branch) => [
-                'id'        => $branch->category->id,
-                'name'      => $branch->category->name,
-                'slug'      => $branch->category->slug,
-                // Khu vực chi nhánh — FE dùng để dựng URL canonical /homestay/{location}/{slug}
-                // (xem window.branchCardHtml() trong public/js/home-sections.js) thay vì URL phẳng
-                // /chi-nhanh/{slug}, tốt cho SEO local hơn.
-                'location'  => $province->slug,
-                'image_url' => $branch->category->image
-                    ? Storage::disk('public')->url($branch->category->image)
-                    : null,
-                'thumbnail' => $branch->category->thumbnail,
-            ])
+            ->map(function ($branch) use ($province) {
+                // Loại hình + khu vực chi nhánh — FE dùng để dựng URL canonical
+                // /{type}/{location}/{slug} (xem window.branchCardHtml() trong
+                // public/js/home-sections.js) thay vì URL phẳng /chi-nhanh/{slug}, tốt cho SEO
+                // local hơn. type_url_slug null (chi nhánh chưa xác định được loại hình) → JS tự
+                // rơi về URL phẳng.
+                $loc = BranchBookConfig::resolveTypeAndLocationForBranch($branch->category);
+
+                return [
+                    'id'            => $branch->category->id,
+                    'name'          => $branch->category->name,
+                    'slug'          => $branch->category->slug,
+                    'location'      => $province->slug,
+                    'type_url_slug' => $loc['type_url_slug'] ?? null,
+                    'image_url'     => $branch->category->image
+                        ? Storage::disk('public')->url($branch->category->image)
+                        : null,
+                    'thumbnail'     => $branch->category->thumbnail,
+                ];
+            })
             ->values()
             ->toArray();
     }

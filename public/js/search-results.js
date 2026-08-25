@@ -14,24 +14,34 @@
             .replace(/"/g, '&quot;');
     }
 
-    // /s/{location} và /homestay/{location} (xem routes/BladeThemeV1 'product.search.homestay')
-    // cùng mang location trên path theo cùng vị trí segment thứ 2.
+    // Danh sách slug URL rút gọn theo loại hình (homestay/khach-san/mini-house/villa/nha-nghi/
+    // chung-cu — xem window.__typeUrlMap trong home-sections.js, PHẢI khớp
+    // BranchBookConfig::TYPE_URL_MAP phía PHP) dùng chung cho 3 hàm bên dưới.
+    function typeUrlSlugPattern() {
+        return Object.keys(window.__typeDbSlugMap).join('|');
+    }
+
+    // /s/{location} và /{type}/{location} (xem routes/BladeThemeV1 'product.search.type') cùng
+    // mang location trên path theo cùng vị trí segment thứ 2.
     function parseLocationFromPath() {
-        var m = window.location.pathname.match(/^\/(?:s|homestay)\/([^\/?#]+)/);
+        var m = window.location.pathname.match(new RegExp('^\\/(?:s|' + typeUrlSlugPattern() + ')\\/([^\\/?#]+)'));
         return m ? decodeURIComponent(m[1]) : '';
     }
 
-    // /homestay(/{location}?) là URL rút gọn của /s?type=homestay — không có query string ?type=
-    // trên URL này, nên phải tự suy ra từ path khi query không có.
+    // /{type}(/{location}?) là URL rút gọn của /s?type={db_slug} — không có query string ?type=
+    // trên URL này, nên phải tự suy ra từ path khi query không có (map ngược slug URL đẹp -> slug
+    // thật RoomType.slug qua window.__typeDbSlugMap).
     function getTypeParam(params) {
-        return params.get('type') || (/^\/homestay(\/|$)/.test(window.location.pathname) ? 'homestay' : '');
+        if (params.get('type')) return params.get('type');
+        var m = window.location.pathname.match(new RegExp('^\\/(' + typeUrlSlugPattern() + ')(\\/|$)'));
+        return m ? (window.__typeDbSlugMap[m[1]] || '') : '';
     }
 
-    // /homestay/{location} ngầm định luôn là danh sách chi nhánh (tương đương /s/{location}?view=
-    // branches cũ) — không cần ?view= trên URL rút gọn này. Bare /homestay (không có location) vẫn
-    // là tìm phòng bình thường, không phải danh sách chi nhánh.
-    function isHomestayBranchesPath() {
-        return /^\/homestay\/[^\/?#]+/.test(window.location.pathname);
+    // /{type}/{location} ngầm định luôn là danh sách chi nhánh (tương đương /s/{location}?view=
+    // branches&type={db_slug} cũ) — không cần ?view= trên URL rút gọn này. Bare /{type} (không có
+    // location) vẫn là tìm phòng bình thường, không phải danh sách chi nhánh.
+    function isTypeBranchesPath() {
+        return new RegExp('^\\/(?:' + typeUrlSlugPattern() + ')\\/[^\\/?#]+').test(window.location.pathname);
     }
 
     // Field kiểu Int trong SearchFiltersInput (xem app/GraphQL/SearchSchema.php) — GraphQL ép kiểu
@@ -61,8 +71,8 @@
     // /Users/nitert/.claude/plans/crystalline-toasting-sunrise.md để biết bối cảnh. Query cố
     // định, không đổi lúc chạy, nên hash SHA-256 được tính sẵn 1 lần (không cần Web Crypto API).
     // Nếu sửa SEARCH_QUERY, phải tính lại hash: python3 -c "import hashlib; print(hashlib.sha256('<query>'.encode()).hexdigest())"
-    var SEARCH_QUERY = 'query SearchRooms($filters: SearchFiltersInput) { search(filters: $filters) { data { id slug name thumbnail_url thumbnail { thumb card wide full width height } room_style badge { label type bg_color text_color } price { amount unit_label } rating wishlist_status is_available latitude longitude address branch { id name slug province_slug } distance } meta { current_page last_page per_page total province_name type_name } } }';
-    var SEARCH_QUERY_HASH = 'f423d8c844f71d47fa55e85306089fa3175033e4386e46da8bd9d7128d572a09';
+    var SEARCH_QUERY = 'query SearchRooms($filters: SearchFiltersInput) { search(filters: $filters) { data { id slug name type_slug thumbnail_url thumbnail { thumb card wide full width height } room_style badge { label type bg_color text_color } price { amount unit_label } rating wishlist_status is_available latitude longitude address branch { id name slug province_slug } distance } meta { current_page last_page per_page total province_name type_name } } }';
+    var SEARCH_QUERY_HASH = '3748f35dfe814736e0c51081d356dfab1c39cbc4d03a1300992455b5f2f3179d';
 
     async function graphqlRequest(body, headers) {
         var res = await fetch('/api/graphql', {
@@ -97,16 +107,22 @@
     }
 
     // ?view=branches (từ "Xem tất cả" của block Gợi ý điểm đến loại Chi nhánh) — liệt kê chi
-    // nhánh của khu vực thay vì phòng. /homestay/{location} (URL rút gọn, không mang ?view=) ngầm
-    // định luôn ở chế độ này — xem isHomestayBranchesPath().
+    // nhánh của khu vực thay vì phòng. /{type}/{location} (URL rút gọn, không mang ?view=) ngầm
+    // định luôn ở chế độ này — xem isTypeBranchesPath().
     function isBranchesView() {
-        return new URLSearchParams(window.location.search).get('view') === 'branches' || isHomestayBranchesPath();
+        return new URLSearchParams(window.location.search).get('view') === 'branches' || isTypeBranchesPath();
     }
 
     function buildBranchesApiUrl() {
         var apiParams = new URLSearchParams();
         var location = parseLocationFromPath();
         if (location) apiParams.set('province', location);
+        // /{type}/{location} lọc chi nhánh THEO ĐÚNG loại hình đó (SearchController::branches())
+        // — nếu không, cả 6 URL loại hình sẽ hiện cùng 1 danh sách chi nhánh y hệt nhau (duplicate
+        // content, phá luôn mục đích tách URL riêng cho SEO). Không gửi type khi ở /s (chưa lọc
+        // loại hình) hay ?view=branches thuần — giữ hành vi cũ (liệt kê hết mọi loại hình).
+        var type = getTypeParam(new URLSearchParams(window.location.search));
+        if (type) apiParams.set('type', type);
         return '/api/v1/search/branches?' + apiParams.toString();
     }
 
@@ -149,8 +165,8 @@
     // để người dùng thấy được popup vừa mở.
     function slugFromBranchCard(cardEl) {
         try {
-            // Href có thể là /chi-nhanh/{slug} (phẳng) hoặc /homestay/{location}/{slug} (canonical
-            // có khu vực) — lấy segment CUỐI cùng thay vì giả định 1 prefix cố định.
+            // Href có thể là /chi-nhanh/{slug} (phẳng) hoặc /{type}/{location}/{slug} (canonical
+            // có loại hình + khu vực) — lấy segment CUỐI cùng thay vì giả định 1 prefix cố định.
             var parts = new URL(cardEl.href, window.location.origin).pathname.replace(/\/$/, '').split('/').filter(Boolean);
             return decodeURIComponent(parts[parts.length - 1] || '');
         } catch (err) {
@@ -235,17 +251,21 @@
         return label.replace(/^\/\s*/, '');
     }
 
-    function branchHeaderHtml(branch, count) {
-        // Đang xem theo khu vực (/s/{location} hoặc /homestay/{location}) thì dùng thẳng URL
-        // canonical /homestay/{location}/{slug}; tìm kiếm toàn quốc (không có location trên path)
-        // thì rơi về URL phẳng /chi-nhanh/{slug} (server tự 301 sang canonical nếu xác định được
-        // khu vực thật của chi nhánh).
+    function branchHeaderHtml(branch, rooms) {
+        // Đang xem theo khu vực (/s/{location} hoặc /{type}/{location}) + xác định được loại hình
+        // (lấy từ phòng đầu tiên của nhóm — mỗi chi nhánh trên dữ liệu thật chỉ có 1 loại hình duy
+        // nhất, xem BranchBookConfig::resolveTypeAndLocationForBranch()) thì dùng thẳng URL
+        // canonical /{type}/{location}/{slug}; không thì rơi về URL phẳng /chi-nhanh/{slug} (server
+        // tự 301 sang canonical nếu xác định được).
         var location = parseLocationFromPath();
-        var href = location ? '/homestay/' + encodeURIComponent(location) + '/' + encodeURIComponent(branch.slug) : '/chi-nhanh/' + encodeURIComponent(branch.slug);
+        var typeUrlSlug = window.__typeUrlSlug(rooms[0] && rooms[0].type_slug);
+        var href = (location && typeUrlSlug)
+            ? '/' + typeUrlSlug + '/' + encodeURIComponent(location) + '/' + encodeURIComponent(branch.slug)
+            : '/chi-nhanh/' + encodeURIComponent(branch.slug);
         return '<div style="padding:14px 4px 8px;">'
             + '<a href="' + href + '" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;">'
             + '<span style="font-size:14px;font-weight:700;color:#111827;">' + escapeHtml(branch.name) + '</span>'
-            + '<span style="font-size:12px;font-weight:500;color:#9ca3af;">(' + count + ')</span>'
+            + '<span style="font-size:12px;font-weight:500;color:#9ca3af;">(' + rooms.length + ')</span>'
             + '</a>'
             + '</div>';
     }
@@ -307,7 +327,7 @@
 
         var html = '';
         grouped.groups.forEach(function (group) {
-            html += branchHeaderHtml(group.branch, group.rooms.length) + roomsGridHtml(group.rooms);
+            html += branchHeaderHtml(group.branch, group.rooms) + roomsGridHtml(group.rooms);
         });
         if (grouped.noBranchRooms.length) {
             html += roomsGridHtml(grouped.noBranchRooms);
@@ -320,11 +340,12 @@
     // qua pin cho phần tử không có toạ độ nhưng vẫn cần đúng index để khớp với .branch-card.
     function buildMapData(orderedRooms) {
         return orderedRooms.map(function (room) {
-            // Có đủ chi nhánh + khu vực thì dùng URL canonical /homestay/{province_slug}/
-            // {branch_slug}/{room_slug} (giống window.roomCardHtml() trong home-sections.js),
-            // không thì rơi về URL phẳng /room/{slug}/.
-            var url = (room.branch && room.branch.slug && room.branch.province_slug)
-                ? '/homestay/' + room.branch.province_slug + '/' + room.branch.slug + '/' + room.slug + '/'
+            // Có đủ loại hình (room.type_slug) + chi nhánh + khu vực thì dùng URL canonical
+            // /{type}/{province_slug}/{branch_slug}/{room_slug} (giống window.roomCardHtml() trong
+            // home-sections.js), không thì rơi về URL phẳng /room/{slug}/.
+            var roomTypeUrlSlug = window.__typeUrlSlug(room.type_slug);
+            var url = (roomTypeUrlSlug && room.branch && room.branch.slug && room.branch.province_slug)
+                ? '/' + roomTypeUrlSlug + '/' + room.branch.province_slug + '/' + room.branch.slug + '/' + room.slug + '/'
                 : '/room/' + room.slug + '/';
             return {
                 slug: room.slug,

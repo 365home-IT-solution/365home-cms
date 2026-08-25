@@ -28,9 +28,10 @@ trait BuildsRoomCard
         $cats     = Category::whereIn('id', $branchCatIds)->get(['id', 'name', 'slug'])->keyBy('id');
 
         // Khu vực (province slug) của từng chi nhánh — FE dùng để dựng URL canonical
-        // /homestay/{province_slug}/{branch_slug}/{room_slug} (xem window.roomCardHtml() trong
-        // public/js/home-sections.js), gắn thẳng lên từng Category làm thuộc tính động (không lưu
-        // DB) để resolveBranch() trả ra cùng lúc với id/name/slug.
+        // /{type}/{province_slug}/{branch_slug}/{room_slug} (xem window.roomCardHtml() trong
+        // public/js/home-sections.js — {type} lấy từ 'type_slug' của chính phòng, xem
+        // mapRoom() bên dưới), gắn thẳng lên từng Category làm thuộc tính động (không lưu DB) để
+        // resolveBranch() trả ra cùng lúc với id/name/slug.
         $provinceSlugByCat = ProvinceBranch::whereIn('categorie_id', $branchCatIds)
             ->with('province:id,slug')
             ->get()
@@ -89,6 +90,10 @@ trait BuildsRoomCard
             'id'              => $room->id,
             'slug'            => $room->slug,
             'name'            => $room->name,
+            // RoomType.slug thật (hotel/homestay/villa/motel/mini_house/apartment) — FE map sang
+            // slug URL đẹp qua window.__typeUrlMap (home-sections.js) để dựng URL canonical
+            // /{type}/{province_slug}/{branch_slug}/{slug} (xem window.roomCardHtml()).
+            'type_slug'       => $room->roomType?->slug,
             'thumbnail_url'   => $mainImage?->getUrl(),
             'thumbnail'       => MediaThumbnailUrls::build($mainImage),
             'room_style'      => match ((int) $room->styles) {

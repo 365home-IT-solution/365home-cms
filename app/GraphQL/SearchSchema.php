@@ -44,9 +44,10 @@ class SearchSchema
                 'id'            => Type::int(),
                 'name'          => Type::string(),
                 'slug'          => Type::string(),
-                // FE dùng để dựng URL canonical /homestay/{province_slug}/{slug}/{room_slug} —
-                // xem BuildsRoomCard::resolveBranch() (nguồn dữ liệu field này) và
-                // window.roomCardHtml() trong public/js/home-sections.js.
+                // FE dùng để dựng URL canonical /{type}/{province_slug}/{slug}/{room_slug} — xem
+                // BuildsRoomCard::resolveBranch() (nguồn dữ liệu field này) và window.roomCardHtml()
+                // trong public/js/home-sections.js. {type} lấy từ RoomCard.type_slug (loại hình
+                // của CHÍNH phòng đó) chứ không phải field này.
                 'province_slug' => Type::string(),
             ],
         ]);
@@ -75,6 +76,10 @@ class SearchSchema
                 'thumbnail_url'    => Type::string(),
                 'thumbnail'        => $thumbnailType,
                 'room_style'       => Type::string(),
+                // RoomType.slug thật (hotel/homestay/villa/motel/mini_house/apartment) — FE map
+                // sang slug URL đẹp qua window.__typeUrlMap (xem home-sections.js) để dựng URL
+                // canonical /{type}/{province_slug}/{branch_slug}/{slug}.
+                'type_slug'        => Type::string(),
                 'badge'            => $badgeType,
                 'price'            => $priceType,
                 'rating'           => Type::float(),

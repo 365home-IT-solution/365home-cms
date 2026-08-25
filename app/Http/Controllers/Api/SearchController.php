@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Storage;
+use Modules\BladeThemeV1\Support\BranchBookConfig;
 use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
 
@@ -139,11 +140,52 @@ class SearchController extends Controller
                 }
             });
 
+        // Loại hình của từng chi nhánh — FE dùng để dựng URL canonical /{type}/{province}/{branch}
+        // (xem window.branchCardHtml() trong public/js/home-sections.js). Chi nhánh không có cột
+        // "loại hình" riêng — suy ra bằng loại hình CHIẾM ĐA SỐ trong các phòng của chi nhánh đó,
+        // cùng cách BranchBookConfig::resolveTypeAndLocationForBranch() làm cho trang chi tiết chi
+        // nhánh, chỉ khác là tính HÀNG LOẠT ở đây (1 query cho cả tỉnh) thay vì từng chi nhánh 1,
+        // tránh N+1 khi tỉnh có nhiều chi nhánh.
+        $typeCountsByBranch = [];
+        Product::where('is_activated', true)
+            ->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allCatIds))
+            ->whereNotNull('room_type_id')
+            ->with(['categories' => fn ($q) => $q->whereIn('categories.id', $allCatIds), 'roomType:id,slug'])
+            ->get()
+            ->each(function ($product) use (&$typeCountsByBranch, $childToBranchMap) {
+                $typeDbSlug = $product->roomType?->slug;
+                if (! $typeDbSlug) {
+                    return;
+                }
+                foreach ($product->categories as $category) {
+                    $branchCatId = $childToBranchMap[$category->id] ?? $category->id;
+                    $typeCountsByBranch[$branchCatId][$typeDbSlug] = ($typeCountsByBranch[$branchCatId][$typeDbSlug] ?? 0) + 1;
+                }
+            });
+        $typeUrlSlugByBranch = [];
+        foreach ($typeCountsByBranch as $branchCatId => $counts) {
+            arsort($counts);
+            $typeUrlSlugByBranch[$branchCatId] = BranchBookConfig::urlSlugFromTypeDbSlug(array_key_first($counts));
+        }
+
+        // ?type= (RoomType.slug thật, vd 'hotel') — lọc chỉ còn chi nhánh CÓ ÍT NHẤT 1 phòng loại
+        // này. Không lọc theo "loại hình chiếm đa số" ($typeUrlSlugByBranch ở trên, dùng để dựng
+        // URL canonical của riêng chi nhánh đó) vì 1 chi nhánh có thể có vài phòng khác loại hình
+        // chính — vẫn nên xuất hiện khi khách đang duyệt đúng loại hình đó. Không có ?type= → giữ
+        // hành vi cũ (liệt kê mọi chi nhánh, mọi loại hình).
+        $requestedType = $request->query('type');
+        if ($requestedType) {
+            $branchRows = $branchRows->filter(
+                fn ($branch) => ($typeCountsByBranch[$branch->category->id][$requestedType] ?? 0) > 0
+            )->values();
+        }
+
         $branches = $branchRows
             ->map(fn ($branch) => [
                 'id'            => $branch->category->id,
                 'name'          => $branch->category->name,
                 'slug'          => $branch->category->slug,
+                'type_url_slug' => $typeUrlSlugByBranch[$branch->category->id] ?? null,
                 'image_url'     => $branch->category->image
                     ? Storage::disk('public')->url($branch->category->image)
                     : null,

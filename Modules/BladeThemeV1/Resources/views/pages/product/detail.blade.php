@@ -7,6 +7,7 @@
 @section('content')
     @livewire('bladethemev1::header')
     @livewire('bladethemev1::drawer-menu')
+    @livewire('bladethemev1::breadcrumb', ['slug' => $slug, 'name' => $name, 'parents' => $breadcrumbParents])
     @livewire('bladethemev1::product-detail', ['slug' => $slug])
     @livewire('bladethemev1::footer')
     @livewire('bladethemev1::contact-link')

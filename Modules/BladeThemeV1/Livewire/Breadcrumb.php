@@ -15,15 +15,16 @@ class Breadcrumb extends Component
     public $breadcrumbs = [];
     public $slug;
 
-    // $parent — mắt xích trung gian tuỳ chọn (vd ['title' => 'Bài viết', 'url' => route('posts.page')]
-    // cho trang chi tiết bài viết) chèn giữa "Trang chủ" và crumb $name/$slug. Không truyền thì giữ
-    // nguyên hành vi cũ (chỉ 1 crumb) cho các trang dùng chung component này (template/category detail).
-    public function mount($slug = null, $name = null, $parent = null)
+    // $parents — chuỗi mắt xích trung gian tuỳ chọn (vd [['title' => 'Bài viết', 'url' => ...]], hoặc
+    // nhiều mắt xích cho trang chi tiết phòng: Homestay > khu vực > chi nhánh) chèn giữa "Trang chủ"
+    // và crumb $name/$slug cuối cùng. Không truyền thì giữ nguyên hành vi cũ (chỉ 1 crumb) cho các
+    // trang dùng chung component này (template/category detail).
+    public function mount($slug = null, $name = null, $parents = [])
     {
         $this->slug = $slug;
 
         if ($this->slug) {
-            $this->breadcrumbs = $parent ? [$parent] : [];
+            $this->breadcrumbs = array_values($parents);
             $this->breadcrumbs[] = ['title' => $name, 'url' => url($this->slug)];
         } else {
             $this->generateBreadcrumbs();

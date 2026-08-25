@@ -8,12 +8,51 @@ use Modules\Product\App\Models\Product;
 
 class BranchBookConfig
 {
+    // URL rút gọn (segment đầu path) <=> RoomType.slug thật trong DB (RoomSearchService đọc
+    // ?type= = RoomType.slug, KHÔNG phải slug URL đẹp này — xem RoomSearchService::applyFilters()).
+    // Đây là NGUỒN DUY NHẤT của mapping — mọi nơi cần đổi qua lại giữa 2 dạng slug (route/{type},
+    // JS getTypeParam()/TYPE_URL_MAP, redirect canonical...) đều phải đi qua typeUrlSlugs()/
+    // typeDbSlugFromUrl()/urlSlugFromTypeDbSlug() thay vì tự map tay, để không bao giờ lệch nhau.
+    private const TYPE_URL_MAP = [
+        'homestay'   => 'homestay',
+        'khach-san'  => 'hotel',
+        'mini-house' => 'mini_house',
+        'villa'      => 'villa',
+        'nha-nghi'   => 'motel',
+        'chung-cu'   => 'apartment',
+    ];
+
+    /** Danh sách slug URL hợp lệ — dùng làm ->where('type', ...) cho route {type}. */
+    public static function typeUrlSlugs(): array
+    {
+        return array_keys(self::TYPE_URL_MAP);
+    }
+
+    /** Slug URL (vd 'khach-san') → RoomType.slug thật trong DB (vd 'hotel'). */
+    public static function typeDbSlugFromUrl(string $urlSlug): ?string
+    {
+        return self::TYPE_URL_MAP[$urlSlug] ?? null;
+    }
+
+    /** RoomType.slug thật trong DB (vd 'hotel') → slug URL rút gọn (vd 'khach-san'). */
+    public static function urlSlugFromTypeDbSlug(?string $typeDbSlug): ?string
+    {
+        if (! $typeDbSlug) {
+            return null;
+        }
+        $found = array_search($typeDbSlug, self::TYPE_URL_MAP, true);
+
+        return $found !== false ? $found : null;
+    }
+
     /**
-     * Chi nhánh + khu vực (province) mà 1 phòng thuộc về — dùng cho URL canonical
-     * /homestay/{location}/{branch}/{slug} của trang chi tiết phòng (BladeThemeV1Controller::
-     * renderProductDetail()). $product->categories phải được eager-load trước khi gọi. Mỗi phòng
-     * chỉ nên thuộc đúng 1 chi nhánh (kiểm tra thực tế trên dữ liệu: 0/59 phòng gắn >1 chi nhánh) —
-     * lấy chi nhánh ĐẦU TIÊN tìm thấy nếu lỡ có nhiều hơn.
+     * Loại hình + chi nhánh + khu vực (province) mà 1 phòng thuộc về — dùng cho URL canonical
+     * /{type}/{location}/{branch}/{slug} của trang chi tiết phòng (BladeThemeV1Controller::
+     * renderProductDetail()). Loại hình lấy TRỰC TIẾP từ chính phòng ($product->roomType) — ĐÚNG
+     * và đơn giản hơn suy ra qua chi nhánh (dù trên dữ liệu thật mỗi chi nhánh hiện chỉ có 1 loại
+     * hình duy nhất, xem resolveTypeAndLocationForBranch()). $product->categories phải được
+     * eager-load trước khi gọi. Mỗi phòng chỉ nên thuộc đúng 1 chi nhánh (kiểm tra thực tế trên dữ
+     * liệu: 0/59 phòng gắn >1 chi nhánh) — lấy chi nhánh ĐẦU TIÊN tìm thấy nếu lỡ có nhiều hơn.
      */
     public static function resolveLocationForProduct(Product $product): ?array
     {
@@ -48,9 +87,63 @@ class BranchBookConfig
             return null;
         }
 
+        $roomType   = $product->roomType;
+        $typeUrlSlug = self::urlSlugFromTypeDbSlug($roomType?->slug);
+        if (! $typeUrlSlug) {
+            return null;
+        }
+
         return [
+            'type_url_slug' => $typeUrlSlug,
+            'type_name'     => $roomType->name,
             'province_slug' => $provinceBranch->province->slug,
             'branch_slug'   => $provinceBranch->category->slug,
+            'province_name' => $provinceBranch->province->name,
+            'branch_name'   => $provinceBranch->category->name,
+        ];
+    }
+
+    /**
+     * Loại hình + khu vực của 1 CHI NHÁNH (không phải phòng) — dùng cho URL canonical
+     * /{type}/{location}/{branch} của trang chi tiết chi nhánh (BladeThemeV1Controller::
+     * renderBookingBoard()). Chi nhánh không có cột "loại hình" riêng — suy ra bằng loại hình
+     * CHIẾM ĐA SỐ trong các phòng đang active của chi nhánh đó (trên dữ liệu thật, cả 7 chi nhánh
+     * hiện tại đều thuần 1 loại hình duy nhất — "đa số" chỉ để phòng hờ trường hợp trộn loại hình
+     * trong tương lai, không đổi kết quả với dữ liệu hiện tại).
+     */
+    public static function resolveTypeAndLocationForBranch(Category $branch): ?array
+    {
+        $childIds  = Category::where('parent_id', $branch->id)->pluck('id');
+        $allCatIds = $childIds->push($branch->id);
+
+        $typeDbSlug = Product::where('is_activated', true)
+            ->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allCatIds))
+            ->whereNotNull('room_type_id')
+            ->with('roomType:id,slug')
+            ->get()
+            ->pluck('roomType.slug')
+            ->filter()
+            ->countBy()
+            ->sortDesc()
+            ->keys()
+            ->first();
+
+        $typeUrlSlug = self::urlSlugFromTypeDbSlug($typeDbSlug);
+        if (! $typeUrlSlug) {
+            return null;
+        }
+
+        $provinceBranch = ProvinceBranch::where('categorie_id', $branch->id)
+            ->with('province')
+            ->first();
+
+        if (! $provinceBranch || ! $provinceBranch->province) {
+            return null;
+        }
+
+        return [
+            'type_url_slug' => $typeUrlSlug,
+            'province_slug' => $provinceBranch->province->slug,
         ];
     }
 
@@ -58,8 +151,8 @@ class BranchBookConfig
      * URL trang chi tiết 1 phòng (hoặc dịch vụ) — dùng chung cho mọi nơi render card sản phẩm
      * (components/products/{card,minimal,list-page,overlay}.blade.php). Sản phẩm type=service vẫn
      * đi route cũ (template.detail); phòng (type=simple) dùng URL canonical
-     * /homestay/{location}/{branch}/{slug} khi xác định được chi nhánh, rơi về /room/{slug}/ khi
-     * không — server tự 301 sang canonical nếu có (xem
+     * /{type}/{location}/{branch}/{slug} khi xác định được loại hình + chi nhánh, rơi về
+     * /room/{slug}/ khi không — server tự 301 sang canonical nếu có (xem
      * BladeThemeV1Controller::renderProductDetail()). $product->categories phải được eager-load
      * trước khi gọi (bỏ qua với type=service, không cần).
      */
@@ -72,7 +165,7 @@ class BranchBookConfig
         $loc = self::resolveLocationForProduct($product);
 
         return $loc
-            ? url('/homestay/' . $loc['province_slug'] . '/' . $loc['branch_slug'] . '/' . $product->slug . '/')
+            ? url('/' . $loc['type_url_slug'] . '/' . $loc['province_slug'] . '/' . $loc['branch_slug'] . '/' . $product->slug . '/')
             : url('/room/' . $product->slug . '/');
     }
     /**

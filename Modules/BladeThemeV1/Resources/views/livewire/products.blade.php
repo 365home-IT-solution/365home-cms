@@ -3,7 +3,10 @@
 {{-- ===== VIEW MỚI: Phòng theo loại roomtype (carousel) ===== --}}
 @if (!empty($searchSections))
     @foreach ($searchSections as $sIndex => $section)
-    @php $trackId = 'pt-' . $sIndex; @endphp
+    @php
+        $trackId = 'pt-' . $sIndex;
+        $sectionTypeUrlSlug = \Modules\BladeThemeV1\Support\BranchBookConfig::urlSlugFromTypeDbSlug($section['slug'] ?? '');
+    @endphp
     <section class="w-full mx-auto">
         <div style="max-width:80rem; margin:0 auto; padding:0 1.25rem;">
 
@@ -15,7 +18,7 @@
                     </h2>
                     {{-- <span style="font-size:12px; color:#9ca3af;">({{ $section['count'] }} phòng)</span> --}}
                 </div>
-                <a href="{{ ($section['slug'] ?? '') === 'homestay' ? route('product.search.homestay') : route('product.search') . '?type=' . ($section['slug'] ?? '') }}"
+                <a href="{{ $sectionTypeUrlSlug ? url('/' . $sectionTypeUrlSlug) : route('product.search') . '?type=' . ($section['slug'] ?? '') }}"
                     style="font-size:13px; font-weight:600; color:#0f766e; text-decoration:none; display:flex; align-items:center; gap:3px; white-space:nowrap; flex-shrink:0;">
                     Xem tất cả
                     <svg style="width:14px;height:14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">

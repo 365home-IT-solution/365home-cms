@@ -57,15 +57,15 @@ class SitemapController extends Controller
             'is_activated' => true,
             'type'         => 'simple',
         ])
-            ->with('categories:id,slug,parent_id')
-            ->select(['id', 'slug', 'updated_at'])
+            ->with(['categories:id,slug,parent_id', 'roomType:id,slug'])
+            ->select(['id', 'slug', 'updated_at', 'room_type_id'])
             ->latest('updated_at')
             ->get();
 
         foreach ($rooms as $room) {
             $loc = BranchBookConfig::resolveLocationForProduct($room);
             $room->url = $loc
-                ? url('/homestay/' . $loc['province_slug'] . '/' . $loc['branch_slug'] . '/' . $room->slug . '/')
+                ? url('/' . $loc['type_url_slug'] . '/' . $loc['province_slug'] . '/' . $loc['branch_slug'] . '/' . $room->slug . '/')
                 : url('/room/' . $room->slug . '/');
         }
 
