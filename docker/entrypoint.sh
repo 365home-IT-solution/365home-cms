@@ -35,6 +35,11 @@ php artisan migrate --force --no-interaction
 php artisan db:seed --class=RoomAdditionalServiceSeeder --force --no-interaction
 php artisan db:seed --class=AuditLogPermissionSeeder --force --no-interaction
 
+# Đồng bộ lại policies/permissions Filament Shield theo đúng Resource/Page/Widget hiện có trong
+# code — idempotent (an toàn chạy lại mỗi lần deploy), --all bỏ qua hết các câu hỏi tương tác nên
+# chạy được trong container không có TTY.
+php artisan shield:generate --all --minimal
+
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache
