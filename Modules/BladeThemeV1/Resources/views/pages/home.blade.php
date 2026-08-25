@@ -22,10 +22,9 @@
     @livewire('bladethemev1::contact-link')
     @livewire('bladethemev1::notification')
 
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            document.documentElement.style.setProperty('--swiper-theme-color', @json($primaryColor));
+        });
+    </script>
 @endsection
-
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        document.documentElement.style.setProperty('--swiper-theme-color', @json($primaryColor));
-    });
-</script>

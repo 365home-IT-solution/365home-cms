@@ -18,10 +18,13 @@ class RedirectToCanonicalDomain
     public function handle(Request $request, Closure $next)
     {
         if ($request->getHost() === 'www.' . self::CANONICAL_HOST) {
+            // This runs in the global middleware stack, before the 'web' group where
+            // SecurityHeaders normally adds HSTS — so the redirect response needs its own, or
+            // the www host itself never gets flagged as HSTS-protected by security scanners.
             return redirect()->to(
                 'https://' . self::CANONICAL_HOST . $request->getRequestUri(),
                 301
-            );
+            )->header('Strict-Transport-Security', 'max-age=31536000');
         }
 
         return $next($request);

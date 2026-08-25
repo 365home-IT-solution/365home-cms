@@ -152,10 +152,10 @@
                         <p class="explore-card-subtitle" style="color:rgba(255,255,255,.88);">Sử dụng ứng dụng để săn deals mỗi ngày</p>
                         <div style="display:flex; align-items:center; gap:10px; margin-top:2px;">
                             <a href="https://apps.apple.com/us/app/365-home/id6781598163" target="_blank" rel="noopener">
-                                <img src="{{ asset('images/applestore.png') }}" alt="Tải trên App Store" class="explore-card-badge">
+                                <img src="{{ asset('images/applestore.png') }}" alt="Tải trên App Store" class="explore-card-badge" width="298" height="96">
                             </a>
                             <a href="https://play.google.com/store/apps/details?id=com.home365.app" target="_blank" rel="noopener">
-                                <img src="{{ asset('images/googleplay.png') }}" alt="Tải trên Google Play" class="explore-card-badge">
+                                <img src="{{ asset('images/googleplay.png') }}" alt="Tải trên Google Play" class="explore-card-badge" width="298" height="96">
                             </a>
                         </div>
                     </div>
@@ -370,16 +370,27 @@
 
         /* Skeleton toàn trang chủ trong lúc /api/v1/home đang tải — xem khối x-show="loading"
            ở đầu file. */
+        {{-- Animating background-position forces a main-thread repaint every frame (flagged by
+             Lighthouse as a non-composited animation); animating transform instead runs on the
+             GPU compositor. Same visual sweep, just via a ::after overlay that translates across
+             a solid base instead of moving the gradient's own position. --}}
         @keyframes hs-skel-shimmer {
-            0% { background-position: -400px 0; }
-            100% { background-position: 400px 0; }
+            100% { transform: translateX(100%); }
         }
         .hs-skel {
-            background: linear-gradient(90deg, #eef0f2 25%, #f7f8f9 37%, #eef0f2 63%);
-            background-size: 800px 100%;
-            animation: hs-skel-shimmer 1.4s ease-in-out infinite;
+            position: relative;
+            overflow: hidden;
+            background: #eef0f2;
             border-radius: 6px;
             display: block;
+        }
+        .hs-skel::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            transform: translateX(-100%);
+            background: linear-gradient(90deg, transparent, #f7f8f9, transparent);
+            animation: hs-skel-shimmer 1.4s ease-in-out infinite;
         }
         .hs-skel-title { border-radius: 6px; }
         .hs-skel-img { padding-top: 72%; border-radius: 14px; }

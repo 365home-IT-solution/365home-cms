@@ -1767,17 +1767,27 @@
      Livewire đang tải dữ liệu (đổi chi nhánh/tab danh mục), gọn nhẹ hơn opacity mờ cũ.
      ═══════════════════════════════════════════════════════════════════════════ --}}
 <style>
+    {{-- Same fix as hs-skel-shimmer in flash-sale.blade.php — transform-based sweep instead of
+         animating background-position, so the animation runs on the GPU compositor instead of
+         forcing a main-thread repaint every frame. --}}
     @keyframes book-skel-shimmer {
-        0% { background-position: -400px 0; }
-        100% { background-position: 400px 0; }
+        100% { transform: translateX(100%); }
     }
 
     .book-skel {
-        background: linear-gradient(90deg, #eef0f2 25%, #f7f8f9 37%, #eef0f2 63%);
-        background-size: 800px 100%;
-        animation: book-skel-shimmer 1.4s ease-in-out infinite;
+        position: relative;
+        overflow: hidden;
+        background: #eef0f2;
         border-radius: 8px;
         display: block;
+    }
+    .book-skel::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        transform: translateX(-100%);
+        background: linear-gradient(90deg, transparent, #f7f8f9, transparent);
+        animation: book-skel-shimmer 1.4s ease-in-out infinite;
     }
 
     .book-skeleton-legend {

@@ -1,6 +1,6 @@
 @extends('bladethemev1::layouts.master')
 
-@section('title', 'Tài khoản của tôi')
+<x-bladethemev1::seo :seoData="$seoData" />
 
 @section('content')
     @livewire('bladethemev1::header')

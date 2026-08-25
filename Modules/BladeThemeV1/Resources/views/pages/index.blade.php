@@ -41,10 +41,10 @@
     @livewire('bladethemev1::footer')
     @livewire('bladethemev1::contact-link')
     @livewire('bladethemev1::notification')
-@endsection
 
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        document.documentElement.style.setProperty('--swiper-theme-color', @json($primaryColor));
-    });
-</script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            document.documentElement.style.setProperty('--swiper-theme-color', @json($primaryColor));
+        });
+    </script>
+@endsection
