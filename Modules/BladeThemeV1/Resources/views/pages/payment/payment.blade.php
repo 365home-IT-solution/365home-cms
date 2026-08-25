@@ -1,5 +1,7 @@
 @extends('bladethemev1::layouts.master')
 
+@section('title', 'Thanh toán')
+
 @section('content')
     @livewire('bladethemev1::header')
     @livewire('bladethemev1::drawer-menu')

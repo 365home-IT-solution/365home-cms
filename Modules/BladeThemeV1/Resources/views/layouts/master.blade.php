@@ -3,7 +3,9 @@
 
     $metaTags = [
         'canonical' => $generalSettings->canonical,
-        'robots' => $generalSettings->robots,
+        // Per-page override (e.g. account page passes seoData.robots = 'noindex, follow' so a
+        // private, user-specific page doesn't get indexed) — falls back to the global setting.
+        'robots' => (isset($seoData) && !empty($seoData['robots'])) ? $seoData['robots'] : $generalSettings->robots,
         'og_type' => $generalSettings->og_type,
         'og_url' => $generalSettings->og_url,
         'og_title' => $generalSettings->og_title,

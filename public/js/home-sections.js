@@ -404,6 +404,15 @@ if (typeof window.homeBookingBoard === 'undefined') {
             init() {
                 this.activeProvinceId = localStorage.getItem('home_province_id') || null;
                 this.loadProvinces();
+                // Nếu đã biết tỉnh từ lần trước (localStorage), gọi thẳng /api/v1/search/branches
+                // song song với /api/v1/provinces thay vì đợi provinces trả về rồi mới gọi — 2 API
+                // này không phụ thuộc nhau khi đã có sẵn provinceId (chỉ cần đợi khi CHƯA biết
+                // tỉnh, lúc đó phải lấy tỉnh mặc định từ response provinces trước — xem nhánh còn
+                // lại trong loadProvinces() bên dưới). Rút ngắn được 1 vòng round-trip nối tiếp
+                // trong network-dependency chain cho khách quay lại.
+                if (this.activeProvinceId) {
+                    this.loadBranches();
+                }
                 window.addEventListener('province-selected', (e) => {
                     const id = String(e.detail?.id || localStorage.getItem('home_province_id') || '');
                     if (id && id !== this.activeProvinceId) {
@@ -418,10 +427,13 @@ if (typeof window.homeBookingBoard === 'undefined') {
                     .then(res => res.json())
                     .then(data => {
                         this.provinces = data.provinces || [];
+                        // Chỉ tự gọi loadBranches() ở đây khi lúc init() CHƯA có activeProvinceId
+                        // (khách lần đầu, không có localStorage) — nếu đã gọi rồi ở nhánh trên thì
+                        // bỏ qua để tránh gọi trùng /api/v1/search/branches 2 lần.
                         if (!this.activeProvinceId && this.provinces.length) {
                             this.activeProvinceId = String(this.provinces[0].id);
+                            this.loadBranches();
                         }
-                        this.loadBranches();
                     })
                     .catch(() => { this.provinces = []; });
             },

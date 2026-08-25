@@ -77,10 +77,10 @@
                     <img src="{{ $qrCodeUrl }}" alt="QR tải ứng dụng 365Home" width="90" height="90" class="rounded-lg border border-[#DDDDDD] bg-white p-1" loading="lazy">
                     <div class="flex flex-col gap-2">
                         <a href="{{ $appStoreUrl }}" target="_blank" rel="noopener">
-                            <img src="{{ asset('images/applestore.png') }}" alt="Tải trên App Store" class="h-9 w-auto">
+                            <img src="{{ asset('images/applestore.png') }}" alt="Tải trên App Store" class="h-9 w-auto" width="298" height="96">
                         </a>
                         <a href="{{ $playStoreUrl }}" target="_blank" rel="noopener">
-                            <img src="{{ asset('images/googleplay.png') }}" alt="Tải trên Google Play" class="h-9 w-auto">
+                            <img src="{{ asset('images/googleplay.png') }}" alt="Tải trên Google Play" class="h-9 w-auto" width="298" height="96">
                         </a>
                     </div>
                 </div>

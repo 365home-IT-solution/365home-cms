@@ -578,7 +578,15 @@ class BladeThemeV1Controller extends Controller
 
     public function accountPage()
     {
+        $seoData = [
+            'seo_title' => 'Tài khoản của tôi',
+            'seo_description' => 'Quản lý thông tin tài khoản, đơn đặt phòng và ưu đãi thành viên tại 365 Home.',
+            'og_type' => 'website',
+            'robots' => 'noindex, follow',
+        ];
+
         return view('bladethemev1::pages.account.index', [
+            'seoData' => $seoData,
             'primaryColor' => $this->primaryColor,
             'primaryColorRgb' => $this->primaryColorRgb,
             'heavyPrimaryColor' => $this->heavyPrimaryColor,

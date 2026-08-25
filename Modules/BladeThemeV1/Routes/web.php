@@ -103,27 +103,15 @@ Route::get('/theme.css', function () {
 
     $rgb = fn($hex) => implode(', ', sscanf($hex, "#%02x%02x%02x"));
 
-    return response()->make("
-        :root {
-            --color-primary: {$theme['primary']};
-            --color-primary-rgb: " . $rgb($theme['primary']) . ";
-            --color-text-secondary: {$theme['Secondary']};
-            --color-secondary: {$theme['secondary']};
-            --color-gray: {$theme['gray']};
-            --color-success: {$theme['success']};
-            --color-danger: {$theme['danger']};
-            --color-info: {$theme['info']};
-            --color-warning: {$theme['warning']};
-            --color-background: {$theme['background']};
-            --color-bgDark: {$theme['bg_dark']};
-            --color-textDark: {$theme['text_dark']};
-            --color-red9C: {$theme['red_9c']};
-            --color-borderGray: {$theme['border_gray']};
-            --color-tickGreen: {$theme['tick_green']};
-            --color-tickYellow: {$theme['tick_yellow']};
-            --color-tickGray: {$theme['tick_gray']};
-        }
-    ", 200, [
+    return response()->make(
+        ":root{--color-primary:{$theme['primary']};--color-primary-rgb:" . $rgb($theme['primary']) . ";"
+        . "--color-text-secondary:{$theme['Secondary']};--color-secondary:{$theme['secondary']};"
+        . "--color-gray:{$theme['gray']};--color-success:{$theme['success']};--color-danger:{$theme['danger']};"
+        . "--color-info:{$theme['info']};--color-warning:{$theme['warning']};--color-background:{$theme['background']};"
+        . "--color-bgDark:{$theme['bg_dark']};--color-textDark:{$theme['text_dark']};--color-red9C:{$theme['red_9c']};"
+        . "--color-borderGray:{$theme['border_gray']};--color-tickGreen:{$theme['tick_green']};"
+        . "--color-tickYellow:{$theme['tick_yellow']};--color-tickGray:{$theme['tick_gray']}}"
+    , 200, [
         'Content-Type' => 'text/css',
         'Cache-Control' => 'public, max-age=3600'
     ]);
