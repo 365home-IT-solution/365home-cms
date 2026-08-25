@@ -65,7 +65,7 @@
                 <h3 class="text-base font-bold text-[#222222] mb-4">Đối tác thanh toán</h3>
                 <div class="flex flex-wrap gap-2">
                     <span class="inline-flex items-center justify-center h-11">
-                        <img src="{{ asset('images/payment/vnpay.png') }}" alt="VNPAY" class="max-w-full max-h-full object-contain">
+                        <img src="{{ asset('images/payment/vnpay.png') }}" alt="VNPAY" class="max-w-full max-h-full object-contain" width="92" height="58">
                     </span>
                 </div>
             </div>
@@ -86,7 +86,7 @@
                 </div>
 
                 <a href="http://online.gov.vn/Home/WebDetails/140984" target="_blank" rel="noopener" class="inline-block mt-4">
-                    <img src="{{ asset('images/bocongthuong.webp') }}" alt="Đã thông báo Bộ Công Thương" class="h-14 w-auto">
+                    <img src="{{ asset('images/bocongthuong.webp') }}" alt="Đã thông báo Bộ Công Thương" class="h-14 w-auto" width="399" height="151">
                 </a>
             </div>
         </div>

@@ -17,6 +17,7 @@ use Guava\FilamentKnowledgeBase\Filament\Panels\KnowledgeBasePanel;
 use Illuminate\Support\Facades\View as ViewFacade;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Vite;
 use Jeffgreco13\FilamentBreezy\Livewire\PersonalInfo;
 use Jeffgreco13\FilamentBreezy\Livewire\UpdatePassword;
 use Livewire\Livewire;
@@ -100,6 +101,24 @@ class AppServiceProvider extends ServiceProvider
                 }
                 return null;
             }
+        });
+
+        // build-bladethemev1's app.scss/app.js CSS (~83KB combined) render-blocks every frontend
+        // page — measured as the dominant contributor to FCP/LCP under throttled mobile (PageSpeed
+        // "Render-blocking requests"). Load it the same non-blocking way as the Google Fonts
+        // stylesheet in master.blade.php: media="print" doesn't stop the browser from downloading
+        // the file (the <link rel="preload"> Vite already emits starts that immediately either
+        // way), it only stops the browser from APPLYING it until onload flips media back to "all".
+        // Scoped to build-bladethemev1 only — Filament admin's own Vite build (public/build) is
+        // untouched, so this can't affect the admin panel's CSS loading.
+        Vite::useStyleTagAttributes(function (string $src, string $url, ?array $chunk, ?array $manifest) {
+            if (str_contains($url, 'build-bladethemev1')) {
+                return [
+                    'media' => 'print',
+                    'onload' => "this.media='all'",
+                ];
+            }
+            return [];
         });
 
         // Đảm bảo Breezy profile components luôn được đăng ký
