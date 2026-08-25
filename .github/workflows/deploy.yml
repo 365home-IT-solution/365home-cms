@@ -4,6 +4,10 @@ on:
   push:
     branches: [production]
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: 365home-it-solution/365home-cms
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -36,8 +40,48 @@ jobs:
       - name: Check artisan boots
         run: php artisan --version
 
-  deploy:
+  build:
     needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image_tag: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          build-args: |
+            VITE_REVERB_APP_KEY=${{ secrets.VITE_REVERB_APP_KEY }}
+            VITE_REVERB_HOST=${{ secrets.VITE_REVERB_HOST }}
+            VITE_REVERB_PORT=${{ secrets.VITE_REVERB_PORT }}
+            VITE_REVERB_SCHEME=${{ secrets.VITE_REVERB_SCHEME }}
+            VITE_REVERB_PATH=${{ secrets.VITE_REVERB_PATH }}
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+
+  deploy:
+    needs: build
     runs-on: ubuntu-latest
 
     steps:
@@ -48,21 +92,38 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
+          envs: IMAGE_TAG,REGISTRY,GITHUB_TOKEN,GITHUB_ACTOR
+          env_file: /dev/null
           script: |
             set -e
+            IMAGE_TAG="${{ needs.build.outputs.image_tag }}"
+            REGISTRY="${{ env.REGISTRY }}"
+            GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+            GITHUB_ACTOR="${{ github.actor }}"
+
             mkdir -p /home/dev/www
             if [ ! -d /home/dev/www/365home.vn/.git ]; then
               git clone https://x-access-token:${{ secrets.GH_PAT }}@github.com/365home-IT-solution/365home-cms.git /home/dev/www/365home.vn
             fi
+
             cd /home/dev/www/365home.vn
             git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/365home-IT-solution/365home-cms.git
             git fetch origin
             git checkout production
-            sudo chown -R $(whoami):$(whoami) /home/dev/www/365home.vn/storage/ /home/dev/www/365home.vn/bootstrap/cache/ 2>/dev/null || true
             git reset --hard origin/production
-            sudo chown -R www-data:www-data /home/dev/www/365home.vn/storage/ /home/dev/www/365home.vn/bootstrap/cache/ 2>/dev/null || true
-            sudo chmod -R 775 /home/dev/www/365home.vn/storage/ /home/dev/www/365home.vn/bootstrap/cache/ 2>/dev/null || true
-            docker compose up -d --build
+
+            # Login to GHCR và pull image
+            echo "$GITHUB_TOKEN" | docker login $REGISTRY -u "$GITHUB_ACTOR" --password-stdin
+            docker pull $IMAGE_TAG
+
+            # Deploy với compose.prod.yaml (sử dụng pre-built image)
+            DOCKER_IMAGE=$IMAGE_TAG docker compose -f compose.prod.yaml up -d
+
+            # Cleanup
+            docker logout $REGISTRY || true
+
+            # Start/Reload websocket
             pm2 startOrReload /home/dev/www/365home.vn/websocket/ecosystem.config.js --update-env
             pm2 save
+
             echo "Deploy $(date '+%Y-%m-%d %H:%M') OK"
