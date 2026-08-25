@@ -123,7 +123,9 @@ class BookingController extends Controller
         // Ưu tiên tái sử dụng CCCD người đi cùng đã lưu sẵn trong hồ sơ (customer_companions,
         // theo thứ tự id). Nếu hồ sơ chưa đủ số người cần thiết, cho phép gửi kèm CCCD (mặt
         // trước/sau) trực tiếp trong request tạo đơn này — giống luồng guest — qua key
-        // guests[{guest_index}][front]/guests[{guest_index}][back] (guest_index bắt đầu từ 2).
+        // guests[{i}][front]/guests[{i}][back], {i} là VỊ TRÍ 0-based trong danh sách người đi
+        // cùng (đã đối chiếu log thực tế — FE luôn đánh số từ 0, KHÔNG theo guest_index 2,3,4...
+        // dùng nội bộ/DB, xem GuestBookingController::store() — cùng bug, đã vá song song).
         // Sau khi quét QR hợp lệ, lưu luôn vào customer_companions để các lần đặt phòng sau
         // không cần upload lại.
         //
@@ -156,13 +158,12 @@ class BookingController extends Controller
                         continue;
                     }
 
-                    // Chưa có sẵn trong hồ sơ — chấp nhận upload trực tiếp trong request này.
-                    $frontKey = "guests.{$guestIndex}.front";
-                    $backKey  = "guests.{$guestIndex}.back";
+                    // Chưa có sẵn trong hồ sơ — chấp nhận upload trực tiếp trong request này, key
+                    // theo vị trí 0-based $i (KHÔNG phải $guestIndex — xem comment ở trên).
+                    $frontKey = "guests.{$i}.front";
+                    $backKey  = "guests.{$i}.back";
 
                     if (! $request->hasFile($frontKey) || ! $request->hasFile($backKey)) {
-                        // Log tạm để đối chiếu key FE thực tế gửi lên so với key server đang đợi
-                        // (guests.{index}.front/back) — xoá log này sau khi xác định xong nguyên nhân.
                         Log::warning('Booking: thiếu CCCD người đi cùng — đối chiếu key thực nhận', [
                             'expected_front_key'   => $frontKey,
                             'expected_back_key'    => $backKey,

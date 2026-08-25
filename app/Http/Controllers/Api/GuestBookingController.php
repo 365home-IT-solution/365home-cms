@@ -51,9 +51,10 @@ class GuestBookingController extends Controller
             'cccd_front'              => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
             'cccd_back'               => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
             'device_token'            => 'sometimes|nullable|string|max:500',
-            // CCCD người đi cùng (khung giờ qua đêm) — khách thứ 2 trở đi, key theo guest_index
-            // (guests[2][front], guests[2][back], guests[3][front]...). Chỉ THỰC SỰ bắt buộc khi
-            // có slot over_night, nhưng chưa biết được điều đó cho tới khi build xong
+            // CCCD người đi cùng (khung giờ qua đêm) — khách thứ 2 trở đi, key theo VỊ TRÍ 0-based
+            // (guests[0][front]/guests[0][back] = người đi cùng đầu tiên, guests[1] = người thứ
+            // hai...), KHÔNG phải guest_index dùng nội bộ/DB — xem bước 3.5. Chỉ THỰC SỰ bắt buộc
+            // khi có slot over_night, nhưng chưa biết được điều đó cho tới khi build xong
             // $rtsCollection ở dưới, nên ở đây chỉ validate ĐỊNH DẠNG nếu có gửi lên; check
             // "required đủ số khách" làm riêng ở bước 3.5.
             'guests'                  => 'sometimes|array',
@@ -137,21 +138,24 @@ class GuestBookingController extends Controller
         // ── 3.5 CCCD người đi cùng (bắt buộc khi có khung giờ qua đêm) ─────────
         // Luật Cư trú (hiệu lực 01/07/2026) yêu cầu khai báo lưu trú ĐỦ TỪNG NGƯỜI khi lưu trú
         // qua đêm — không chỉ người đặt phòng chính (cccd_front/cccd_back/cccd_data ở trên).
-        // Không còn chặn cứng ở 2 khách nữa — khách 2..guest_count đều cần CCCD, gửi lên qua
-        // guests[{index}][front]/guests[{index}][back] (index bắt đầu từ 2).
+        // Không còn chặn cứng ở 2 khách nữa — mỗi người đi cùng đều cần CCCD.
+        // FE gửi lên theo VỊ TRÍ 0-based: guests[0][front]/guests[0][back] = người đi cùng đầu
+        // tiên, guests[1] = người thứ hai... (đã đối chiếu log thực tế — FE luôn đánh số từ 0,
+        // KHÔNG theo guest_index 2,3,4... dùng nội bộ/DB) — map sang guest_index = vị trí + 2 khi
+        // lưu order_guest_cccds, giữ nguyên quy ước DB/API khác (addExtra, admin OrderForm...).
         $hasOvernight  = $rtsCollection->contains(fn ($rts) => (bool) $rts->over_night);
         $guestCccdRows = []; // [['guest_index' => 2, 'front' => path, 'back' => path, 'data' => [...]], ...]
 
         if ($hasOvernight) {
-            $guestCount = (int) $request->input('guest_count');
+            $guestCount     = (int) $request->input('guest_count');
+            $companionCount = max(0, $guestCount - 1);
 
-            for ($guestIndex = 2; $guestIndex <= $guestCount; $guestIndex++) {
-                $frontKey = "guests.{$guestIndex}.front";
-                $backKey  = "guests.{$guestIndex}.back";
+            for ($position = 0; $position < $companionCount; $position++) {
+                $guestIndex = $position + 2; // số thứ tự khách (2, 3, 4...) — chỉ dùng để lưu DB/hiện thông báo
+                $frontKey   = "guests.{$position}.front";
+                $backKey    = "guests.{$position}.back";
 
                 if (! $request->hasFile($frontKey) || ! $request->hasFile($backKey)) {
-                    // Log tạm để đối chiếu key FE thực tế gửi lên so với key server đang đợi
-                    // (guests.{index}.front/back) — xoá log này sau khi xác định xong nguyên nhân.
                     Log::warning('GuestBooking: thiếu CCCD người đi cùng — đối chiếu key thực nhận', [
                         'expected_front_key' => $frontKey,
                         'expected_back_key'  => $backKey,
@@ -575,17 +579,32 @@ class GuestBookingController extends Controller
             $hasOvernight  = $order->items->contains('over_night', true);
 
             // Tăng số khách cho đơn qua đêm — khách mới (guest_index vượt số đã khai báo) phải
-            // có CCCD kèm theo trong chính request này (guests[{index}][front/back]), nếu không
-            // đã có sẵn từ trước (vd request update trước đó đã bổ sung rồi).
+            // có CCCD kèm theo trong chính request này, nếu không đã có sẵn từ trước (vd request
+            // update trước đó đã bổ sung rồi). FE gửi theo VỊ TRÍ 0-based TRONG CHÍNH REQUEST NÀY
+            // (guests[0][front] = khách mới đầu tiên cần bổ sung, guests[1] = khách mới thứ hai...)
+            // — giống store(), không theo guest_index tuyệt đối 2,3,4...; map sang guest_index =
+            // declaredMax + 1 + vị trí khi lưu order_guest_cccds.
             if ($hasOvernight) {
-                $declaredMax = max(1, (int) $order->guestCccds->max('guest_index'));
-                $newGuestRows = [];
+                $declaredMax          = max(1, (int) $order->guestCccds->max('guest_index'));
+                $newGuestRows         = [];
+                $newCompanionsNeeded  = max(0, $newGuestCount - $declaredMax);
 
-                for ($guestIndex = $declaredMax + 1; $guestIndex <= $newGuestCount; $guestIndex++) {
-                    $frontKey = "guests.{$guestIndex}.front";
-                    $backKey  = "guests.{$guestIndex}.back";
+                for ($position = 0; $position < $newCompanionsNeeded; $position++) {
+                    $guestIndex = $declaredMax + 1 + $position;
+                    $frontKey   = "guests.{$position}.front";
+                    $backKey    = "guests.{$position}.back";
 
                     if (! $request->hasFile($frontKey) || ! $request->hasFile($backKey)) {
+                        Log::warning('GuestBooking update: thiếu CCCD người đi cùng — đối chiếu key thực nhận', [
+                            'expected_front_key' => $frontKey,
+                            'expected_back_key'  => $backKey,
+                            'declared_max'       => $declaredMax,
+                            'new_guest_count'    => $newGuestCount,
+                            'content_type'       => $request->header('Content-Type'),
+                            'file_field_paths'   => $this->flattenFileFieldPaths($request->allFiles()),
+                            'non_file_input_keys'=> array_keys($request->except(array_keys($request->allFiles()))),
+                        ]);
+
                         return response()->json([
                             'message' => "Tăng số khách cho đơn qua đêm cần khai báo lưu trú cho khách thứ {$guestIndex} — vui lòng gửi kèm CCCD (mặt trước/sau) của khách này.",
                         ], 422);
