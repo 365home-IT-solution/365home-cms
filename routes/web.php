@@ -445,7 +445,7 @@ Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group
                         'valid_until'   => $manualPwd->valid_until?->format('d/m/Y H:i'),
                     ];
                 }
-            } elseif (\App\Services\TTLockService::hasAccountForCategory($order->category_id)) {
+            } elseif (\Modules\TTLock\App\Services\TTLockService::hasAccountForCategory($order->category_id)) {
                 $code = $order->accessCodes->first();
 
                 $accessCode = [

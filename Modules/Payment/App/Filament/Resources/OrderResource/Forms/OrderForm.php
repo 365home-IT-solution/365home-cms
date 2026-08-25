@@ -3005,7 +3005,7 @@ class OrderForm
             return true;
         }
 
-        return \App\Services\TTLockService::hasAccountForCategory($record->category_id);
+        return \Modules\TTLock\App\Services\TTLockService::hasAccountForCategory($record->category_id);
     }
 
     // super_admin và nhân viên đối tác NỀN TẢNG (vd 365home) đặt phòng hộ mọi đối tác — cần chọn
