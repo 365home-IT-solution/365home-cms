@@ -27,6 +27,18 @@ trait BuildsRoomCard
         $childMap = Category::whereIn('parent_id', $branchCatIds)->get(['id', 'parent_id'])->pluck('parent_id', 'id')->toArray();
         $cats     = Category::whereIn('id', $branchCatIds)->get(['id', 'name', 'slug'])->keyBy('id');
 
+        // Khu vực (province slug) của từng chi nhánh — FE dùng để dựng URL canonical
+        // /homestay/{province_slug}/{branch_slug}/{room_slug} (xem window.roomCardHtml() trong
+        // public/js/home-sections.js), gắn thẳng lên từng Category làm thuộc tính động (không lưu
+        // DB) để resolveBranch() trả ra cùng lúc với id/name/slug.
+        $provinceSlugByCat = ProvinceBranch::whereIn('categorie_id', $branchCatIds)
+            ->with('province:id,slug')
+            ->get()
+            ->pluck('province.slug', 'categorie_id');
+        foreach ($cats as $catId => $cat) {
+            $cat->province_slug = $provinceSlugByCat[$catId] ?? null;
+        }
+
         return ['cats' => $cats, 'childMap' => $childMap];
     }
 
@@ -47,7 +59,7 @@ trait BuildsRoomCard
             }
             if ($branchCatId && $branchCats->has($branchCatId)) {
                 $branch = $branchCats->get($branchCatId);
-                return ['id' => $branch->id, 'name' => $branch->name, 'slug' => $branch->slug];
+                return ['id' => $branch->id, 'name' => $branch->name, 'slug' => $branch->slug, 'province_slug' => $branch->province_slug];
             }
         }
 

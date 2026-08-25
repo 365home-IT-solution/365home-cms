@@ -3,6 +3,7 @@
 namespace Modules\BladeThemeV1\Http\Controllers;
 
 use Illuminate\Routing\Controller;
+use Modules\BladeThemeV1\Support\BranchBookConfig;
 use Modules\Menu\Entities\MenuItem;
 use Modules\Post\Entities\Post;
 use Modules\Product\App\Models\Product;
@@ -49,14 +50,24 @@ class SitemapController extends Controller
             ->latest('updated_at')
             ->get();
 
-        // 3. Phòng / sản phẩm (type = simple)
+        // 3. Phòng / sản phẩm (type = simple) — liệt kê thẳng URL canonical (có khu vực/chi nhánh
+        // khi xác định được, xem BranchBookConfig::resolveLocationForProduct()) thay vì URL phẳng
+        // /room/{slug} rồi để Google tự đi theo redirect — sitemap không nên chứa URL redirect.
         $rooms = Product::where([
             'is_activated' => true,
             'type'         => 'simple',
         ])
-            ->select(['slug', 'updated_at'])
+            ->with('categories:id,slug,parent_id')
+            ->select(['id', 'slug', 'updated_at'])
             ->latest('updated_at')
             ->get();
+
+        foreach ($rooms as $room) {
+            $loc = BranchBookConfig::resolveLocationForProduct($room);
+            $room->url = $loc
+                ? url('/homestay/' . $loc['province_slug'] . '/' . $loc['branch_slug'] . '/' . $room->slug . '/')
+                : url('/room/' . $room->slug . '/');
+        }
 
         // 4. Mẫu giao diện / dịch vụ (type = service)
         $templates = Product::where([

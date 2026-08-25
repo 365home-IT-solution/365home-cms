@@ -7,8 +7,10 @@
         // ?view=branches — panel bên phải hiển thị danh sách phòng + bảng đặt khung giờ của chi
         // nhánh được chọn (thay cho bản đồ, không có ý nghĩa khi đang liệt kê chi nhánh). Livewire
         // Book component mount 1 lần với config rỗng, "load-branch" (search-results.js) nạp lại
-        // dữ liệu chi nhánh mỗi khi người dùng bấm 1 card — xem Book::loadBranch().
-        $isBranchesView = request()->query('view') === 'branches';
+        // dữ liệu chi nhánh mỗi khi người dùng bấm 1 card — xem Book::loadBranch(). /homestay/
+        // {location} là URL rút gọn của /s/{location}?view=branches (không mang query ?view=) nên
+        // ngầm định luôn ở chế độ này — cùng luật với isBranchesView() trong search-results.js.
+        $isBranchesView = request()->query('view') === 'branches' || request()->is('homestay/*');
     @endphp
 
     <script>
@@ -1165,10 +1167,16 @@
                 var imgHtml = branch.image_url
                     ? '<img src="' + esc(branch.image_url) + '" alt="" style="width:100%;height:96px;object-fit:cover;border-radius:8px;display:block;margin-bottom:8px;">'
                     : '';
+                // Đang xem theo khu vực (/s/{location} hoặc /homestay/{location}) thì dùng thẳng
+                // URL canonical /homestay/{location}/{slug} (tốt cho SEO local hơn URL phẳng).
+                var __locMatch = window.location.pathname.match(/^\/(?:s|homestay)\/([^\/?#]+)/);
+                var branchHref = __locMatch
+                    ? '/homestay/' + __locMatch[1] + '/' + encodeURIComponent(branch.slug)
+                    : '/chi-nhanh/' + encodeURIComponent(branch.slug);
                 var popupHtml = '<div style="padding:2px;min-width:190px;">'
                     + imgHtml
                     + '<p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#111827;">' + esc(branch.name) + '</p>'
-                    + '<a href="/branch/' + encodeURIComponent(branch.slug) + '" style="display:block;background:#0f766e;color:#fff;font-size:12px;font-weight:700;text-align:center;padding:7px 10px;border-radius:8px;text-decoration:none;">Xem chi tiết →</a>'
+                    + '<a href="' + branchHref + '" style="display:block;background:#0f766e;color:#fff;font-size:12px;font-weight:700;text-align:center;padding:7px 10px;border-radius:8px;text-decoration:none;">Xem chi tiết →</a>'
                     + '</div>';
                 marker.bindPopup(popupHtml, { maxWidth: 220, minWidth: 200, closeButton: true, autoPan: true });
 

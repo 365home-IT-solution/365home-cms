@@ -386,9 +386,11 @@ class HomeController extends Controller
             'id'              => $index + 1,
             'sort_order'      => $index + 1,
             'suggestion_type' => $type,
-            // Loại "Chi nhánh" → xem tất cả dẫn đến danh sách chi nhánh của khu vực (không phải phòng).
+            // Loại "Chi nhánh" → xem tất cả dẫn đến danh sách chi nhánh của khu vực (không phải phòng),
+            // dùng URL rút gọn /homestay/{location} (tương đương /s/{location}?view=branches cũ —
+            // xem routes/BladeThemeV1 'product.search.homestay').
             'view_all_url'    => $province
-                ? '/s/' . $province->slug . ($type === 'branch' ? '?view=branches' : '')
+                ? ($type === 'branch' ? '/homestay/' . $province->slug : '/s/' . $province->slug)
                 : null,
         ];
 
@@ -417,6 +419,10 @@ class HomeController extends Controller
                 'id'        => $branch->category->id,
                 'name'      => $branch->category->name,
                 'slug'      => $branch->category->slug,
+                // Khu vực chi nhánh — FE dùng để dựng URL canonical /homestay/{location}/{slug}
+                // (xem window.branchCardHtml() trong public/js/home-sections.js) thay vì URL phẳng
+                // /chi-nhanh/{slug}, tốt cho SEO local hơn.
+                'location'  => $province->slug,
                 'image_url' => $branch->category->image
                     ? Storage::disk('public')->url($branch->category->image)
                     : null,

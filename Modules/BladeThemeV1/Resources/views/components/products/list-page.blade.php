@@ -1,6 +1,6 @@
     <div class="flex max-sm:flex-col items-center sm:space-x-4 bg-white sm:p-4 p-2 rounded-lg shadow">
         @php
-            $routeName = $product->type === 'service' ? 'template.detail' : 'product.detail';
+            $productUrl = \Modules\BladeThemeV1\Support\BranchBookConfig::resolveProductUrl($product);
         @endphp
         <div class="flex-grow flex max-sm:flex-col w-full sm:gap-x-4">
             @if ($product->hasMedia('Ảnh bìa'))
@@ -14,7 +14,7 @@
             @endif
             <div>
                 <h3 class="md:text-lg text-md font-semibold">
-                    <a href="{{ route($routeName, ['slug' => $product->slug]) }}" class="hover:underline group-hover:text-primary">
+                    <a href="{{ $productUrl }}" class="hover:underline group-hover:text-primary">
                         {{ $product->name }}
                     </a>
                 </h3>
@@ -49,7 +49,7 @@
         <div
             class="max-sm:w-full max-sm:flex justify-between items-center flex-shrink-0 sm:space-y-2 space-y-0 sm:space-x-0 space-x-2 max-sm:mt-2">
                 <div class="max-sm:flex flex-shrink-0 sm:space-y-2 space-y-0 sm:space-x-0 space-x-2">
-                    <a href="{{ route($routeName, ['slug' => $product->slug]) }}">
+                    <a href="{{ $productUrl }}">
                         <x-bladethemev1::buttons.button :padding="'px-4 py-2'" :text_size="'md:text-md text-xs'" :style="'1'">
                             Xem chi tiết
                         </x-bladethemev1::buttons.button>

@@ -72,7 +72,28 @@ Route::get('/llms.txt',    [SitemapController::class, 'llmsTxt'])->name('llms');
 
 Route::get('/bai-viet/{slug}', [BladeThemeV1Controller::class, 'postDetail'])->name('post.detail');
 Route::get('/s/{location?}', [BladeThemeV1Controller::class, 'searchProduct'])->name('product.search');
-Route::get('/branch/{slug}', [BladeThemeV1Controller::class, 'bookingBoard'])->name('branch.booking');
+// URL rút gọn cho /s?type=homestay (và /s/{location}?view=branches) — loại hình chính, đáng có
+// URL riêng cho SEO/chia sẻ. Cùng controller/view với '/s', search-results.js tự suy filter
+// 'type' + chế độ "danh sách chi nhánh" từ pathname (xem getTypeParam()/isBranchesView() trong
+// public/js/search-results.js) vì URL này không mang query string ?type=/?view=.
+Route::get('/homestay/{location?}', [BladeThemeV1Controller::class, 'searchProduct'])->name('product.search.homestay');
+// URL canonical cho trang chi tiết chi nhánh — gộp khu vực vào path (tốt cho SEO local hơn URL
+// phẳng). $location chỉ để tự sửa về đúng khu vực thật nếu gõ sai (xem
+// BladeThemeV1Controller::renderBookingBoard() — 301 nếu không khớp).
+Route::get('/homestay/{location}/{slug}', [BladeThemeV1Controller::class, 'bookingBoardWithLocation'])->name('branch.booking.location');
+// /chi-nhanh/{slug} — URL phẳng (chi nhánh chưa gắn khu vực, hoặc link cũ chưa có khu vực trong
+// path). Controller tự 301 sang URL canonical /homestay/{location}/{slug} khi xác định được khu
+// vực, nên 2 URL không cùng sống song song (tránh duplicate content).
+Route::get('/chi-nhanh/{slug}', [BladeThemeV1Controller::class, 'bookingBoard'])->name('branch.booking');
+// Alias cũ — redirect vĩnh viễn để không phá link đã chia sẻ/index trước khi đổi URL chi nhánh.
+Route::get('/branch/{slug}', fn (string $slug) => redirect('/chi-nhanh/' . $slug, 301));
+// URL canonical cho trang chi tiết phòng — nối tiếp silo loại hình/khu vực/chi nhánh xuống tới
+// từng phòng. $location/$branch chỉ để tự sửa về đúng nếu gõ sai (xem
+// BladeThemeV1Controller::renderProductDetail() — 301 nếu không khớp).
+Route::get('/homestay/{location}/{branch}/{slug}', [BladeThemeV1Controller::class, 'productDetailWithLocation'])->name('product.detail.location');
+// /room/{slug}/ — URL phẳng (phòng chưa gắn chi nhánh, hoặc link cũ/chiến dịch quảng cáo chưa có
+// khu vực trong path). Controller tự 301 sang URL canonical khi xác định được chi nhánh, nên 2
+// URL không cùng sống song song (tránh duplicate content).
 Route::get('/room/{slug}/', [BladeThemeV1Controller::class, 'productDetail'])->name('product.detail');
 //Route::get('/local/home-{slug}/', [BladeThemeV1Controller::class, 'categoryDetail'])->name('category.detail');
 Route::get('/mau-giao-dien/{slug}', [BladeThemeV1Controller::class, 'templateDetail'])->name('template.detail');

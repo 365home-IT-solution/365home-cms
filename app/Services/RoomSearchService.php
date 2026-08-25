@@ -106,6 +106,19 @@ class RoomSearchService
             ? Category::whereIn('id', $branchCatIds)->get(['id', 'name', 'slug'])->keyBy('id')
             : collect();
 
+        // Khu vực (province slug) của từng chi nhánh — FE dùng để dựng URL canonical
+        // /homestay/{province_slug}/{branch_slug}/{room_slug} (xem window.roomCardHtml() trong
+        // public/js/home-sections.js), gắn thẳng lên từng Category làm thuộc tính động.
+        if ($branchCats->isNotEmpty()) {
+            $provinceSlugByCat = ProvinceBranch::whereIn('categorie_id', $branchCats->keys())
+                ->with('province:id,slug')
+                ->get()
+                ->pluck('province.slug', 'categorie_id');
+            foreach ($branchCats as $catId => $cat) {
+                $cat->province_slug = $provinceSlugByCat[$catId] ?? null;
+            }
+        }
+
         $data = collect($rooms->items())->map(function ($room) use ($wishlistedIds, $geoActive, $timeFrom, $timeTo, $branchCats, $branchChildMap) {
             $status = $wishlistedIds === null ? null : in_array($room->id, $wishlistedIds);
             $card   = $this->mapRoom($room, $status, $timeFrom, $timeTo);
@@ -126,9 +139,10 @@ class RoomSearchService
                     if ($branchCatId && $branchCats->has($branchCatId)) {
                         $branch = $branchCats->get($branchCatId);
                         $card['branch'] = [
-                            'id'   => $branch->id,
-                            'name' => $branch->name,
-                            'slug' => $branch->slug,
+                            'id'            => $branch->id,
+                            'name'          => $branch->name,
+                            'slug'          => $branch->slug,
+                            'province_slug' => $branch->province_slug,
                         ];
                         break;
                     }

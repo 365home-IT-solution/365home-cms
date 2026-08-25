@@ -118,7 +118,13 @@ if (typeof window.roomCardHtml === 'undefined') {
         // (often 900KB-1.2MB) — these cards only render at 170-380px wide. Falls back to the wider
         // preset, then the original, for the rare record whose conversion hasn't finished generating.
         const img = room.thumbnail?.card || room.thumbnail?.wide || room.thumbnail_url || room.image_url || '';
-        const href = '/room/' + room.slug + '/';
+        // Có đủ chi nhánh + khu vực (room.branch, gắn kèm sẵn từ API) thì dùng URL canonical
+        // /homestay/{province_slug}/{branch_slug}/{room_slug} (nối tiếp silo loại hình/khu vực/chi
+        // nhánh); không thì rơi về URL phẳng /room/{slug}/ (server tự 301 sang canonical nếu xác
+        // định được chi nhánh — xem BladeThemeV1Controller::renderProductDetail()).
+        const href = (room.branch && room.branch.slug && room.branch.province_slug)
+            ? '/homestay/' + room.branch.province_slug + '/' + room.branch.slug + '/' + room.slug + '/'
+            : '/room/' + room.slug + '/';
         const priceHtml = room.price
             ? '<span style="font-weight:700;">' + window.__homeVnd(room.price.amount) + '</span>'
                 + '<span style="color:#9ca3af; font-size:11px;"> ' + (room.price.unit_label || '') + '</span>'
@@ -164,10 +170,16 @@ if (typeof window.roomCardHtml === 'undefined') {
 }
 
 if (typeof window.branchCardHtml === 'undefined') {
-    window.branchCardHtml = function (branch) {
+    // locationOverride — khu vực đã biết trước từ trang gọi (vd location trên path của trang tìm
+    // kiếm, xem parseLocationFromPath() trong search-results.js) — ưu tiên hơn branch.location từ
+    // API vì luôn khớp đúng trang đang xem. Có khu vực thì dùng URL canonical /homestay/{location}/
+    // {slug} (tốt cho SEO local hơn), không có thì rơi về URL phẳng /chi-nhanh/{slug} (server tự
+    // 301 sang canonical nếu xác định được khu vực — xem BladeThemeV1Controller::renderBookingBoard()).
+    window.branchCardHtml = function (branch, locationOverride) {
         // Same "card" preset preference as roomCardHtml — see docs/image-thumbnails-fe-guide.md.
         const img = branch.thumbnail?.card || branch.thumbnail?.wide || branch.image_url || '';
-        const href = '/branch/' + branch.slug;
+        const location = locationOverride || branch.location || '';
+        const href = location ? '/homestay/' + location + '/' + branch.slug : '/chi-nhanh/' + branch.slug;
 
         return '<a href="' + href + '" class="home-card" style="scroll-snap-align:start; display:flex; flex-direction:column; gap:8px; text-decoration:none;">'
             + '<div style="position:relative; padding-top:72%; overflow:hidden; background:#f3f4f6; border-radius:14px; flex-shrink:0;">'

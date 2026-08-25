@@ -5,6 +5,7 @@ namespace Modules\BladeThemeV1\Livewire;
 use App\Models\Province;
 use Livewire\Attributes\On;
 use Livewire\Component;
+use Modules\BladeThemeV1\Support\BranchBookConfig;
 use Modules\BladeThemeV1\Traits\HandleConfigTrait;
 use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
@@ -295,6 +296,14 @@ public function getRooms($productIds)
             $product->cate_id = $product->categories->pluck('id')->join(',');
             $product->cate_name = $product->categories->pluck('name')->join(',');
             $product->cate_slug = $product->categories->pluck('slug')->join(',');
+
+            // URL canonical /homestay/{location}/{branch}/{slug} khi xác định được chi nhánh (nối
+            // tiếp silo), rơi về /room/{slug}/ khi không (server tự 301 sang canonical nếu có —
+            // xem BladeThemeV1Controller::renderProductDetail()).
+            $loc = BranchBookConfig::resolveLocationForProduct($product);
+            $product->room_url = $loc
+                ? '/homestay/' . $loc['province_slug'] . '/' . $loc['branch_slug'] . '/' . $product->slug . '/'
+                : '/room/' . $product->slug . '/';
             $product->tag_name = $product->tags->map(fn($tag) => $tag->getTranslation('name', 'vi'))->join(',');
             $product->tag_image = $product->tags->map(fn($tag) => $tag->getTranslation('image', 'vi'))->join(',');
             $product->media_file = $product->media_file;

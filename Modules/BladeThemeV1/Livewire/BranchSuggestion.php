@@ -20,6 +20,7 @@ class BranchSuggestion extends Component
 {
     public ?int $provinceId = null;
     public string $provinceName = '';
+    public string $provinceSlug = '';
     public array $branches = [];
 
     public function setProvince($id, $name = null): void
@@ -64,6 +65,7 @@ class BranchSuggestion extends Component
             ->toArray();
 
         $this->provinceName = $this->provinceName ?: $province->name;
+        $this->provinceSlug = $province->slug;
     }
 
     public function getViewAllUrlProperty(): ?string
@@ -74,7 +76,7 @@ class BranchSuggestion extends Component
 
         $province = Province::find($this->provinceId);
 
-        return $province ? '/s/' . $province->slug . '?view=branches' : null;
+        return $province ? '/homestay/' . $province->slug : null;
     }
 
     public function render(): View

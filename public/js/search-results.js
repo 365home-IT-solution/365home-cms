@@ -14,9 +14,24 @@
             .replace(/"/g, '&quot;');
     }
 
+    // /s/{location} và /homestay/{location} (xem routes/BladeThemeV1 'product.search.homestay')
+    // cùng mang location trên path theo cùng vị trí segment thứ 2.
     function parseLocationFromPath() {
-        var m = window.location.pathname.match(/^\/s\/([^\/?#]+)/);
+        var m = window.location.pathname.match(/^\/(?:s|homestay)\/([^\/?#]+)/);
         return m ? decodeURIComponent(m[1]) : '';
+    }
+
+    // /homestay(/{location}?) là URL rút gọn của /s?type=homestay — không có query string ?type=
+    // trên URL này, nên phải tự suy ra từ path khi query không có.
+    function getTypeParam(params) {
+        return params.get('type') || (/^\/homestay(\/|$)/.test(window.location.pathname) ? 'homestay' : '');
+    }
+
+    // /homestay/{location} ngầm định luôn là danh sách chi nhánh (tương đương /s/{location}?view=
+    // branches cũ) — không cần ?view= trên URL rút gọn này. Bare /homestay (không có location) vẫn
+    // là tìm phòng bình thường, không phải danh sách chi nhánh.
+    function isHomestayBranchesPath() {
+        return /^\/homestay\/[^\/?#]+/.test(window.location.pathname);
     }
 
     // Field kiểu Int trong SearchFiltersInput (xem app/GraphQL/SearchSchema.php) — GraphQL ép kiểu
@@ -28,11 +43,13 @@
         var filters = {};
         var location = parseLocationFromPath();
         if (location) filters.province = location;
-        ['type', 'buoi', 'overnight', 'checkin', 'checkout', 'time_type', 'date', 'time_from', 'time_to', 'adults'].forEach(function (key) {
+        ['buoi', 'overnight', 'checkin', 'checkout', 'time_type', 'date', 'time_from', 'time_to', 'adults'].forEach(function (key) {
             var v = params.get(key);
             if (!v) return;
             filters[key] = INT_FILTER_KEYS.indexOf(key) !== -1 ? parseInt(v, 10) : v;
         });
+        var type = getTypeParam(params);
+        if (type) filters.type = type;
         // per_page=100 (tối đa API cho phép) — trang tìm kiếm không phân trang, hiển thị hết
         // phòng phù hợp trong 1 tỉnh/chi nhánh giống trải nghiệm cũ.
         filters.per_page = 100;
@@ -44,8 +61,8 @@
     // /Users/nitert/.claude/plans/crystalline-toasting-sunrise.md để biết bối cảnh. Query cố
     // định, không đổi lúc chạy, nên hash SHA-256 được tính sẵn 1 lần (không cần Web Crypto API).
     // Nếu sửa SEARCH_QUERY, phải tính lại hash: python3 -c "import hashlib; print(hashlib.sha256('<query>'.encode()).hexdigest())"
-    var SEARCH_QUERY = 'query SearchRooms($filters: SearchFiltersInput) { search(filters: $filters) { data { id slug name thumbnail_url thumbnail { thumb card wide full width height } room_style badge { label type bg_color text_color } price { amount unit_label } rating wishlist_status is_available latitude longitude address branch { id name slug } distance } meta { current_page last_page per_page total province_name type_name } } }';
-    var SEARCH_QUERY_HASH = '9f56302ac2ce1299109233eff90c709b2139de575d20e8fccc48255b109c0105';
+    var SEARCH_QUERY = 'query SearchRooms($filters: SearchFiltersInput) { search(filters: $filters) { data { id slug name thumbnail_url thumbnail { thumb card wide full width height } room_style badge { label type bg_color text_color } price { amount unit_label } rating wishlist_status is_available latitude longitude address branch { id name slug province_slug } distance } meta { current_page last_page per_page total province_name type_name } } }';
+    var SEARCH_QUERY_HASH = 'f423d8c844f71d47fa55e85306089fa3175033e4386e46da8bd9d7128d572a09';
 
     async function graphqlRequest(body, headers) {
         var res = await fetch('/api/graphql', {
@@ -80,9 +97,10 @@
     }
 
     // ?view=branches (từ "Xem tất cả" của block Gợi ý điểm đến loại Chi nhánh) — liệt kê chi
-    // nhánh của khu vực thay vì phòng.
+    // nhánh của khu vực thay vì phòng. /homestay/{location} (URL rút gọn, không mang ?view=) ngầm
+    // định luôn ở chế độ này — xem isHomestayBranchesPath().
     function isBranchesView() {
-        return new URLSearchParams(window.location.search).get('view') === 'branches';
+        return new URLSearchParams(window.location.search).get('view') === 'branches' || isHomestayBranchesPath();
     }
 
     function buildBranchesApiUrl() {
@@ -114,8 +132,9 @@
                 + '</div>';
         }
 
+        var location = parseLocationFromPath();
         var cards = branches.map(function (branch) {
-            return window.branchCardHtml(branch);
+            return window.branchCardHtml(branch, location);
         }).join('');
 
         // .branches-track = nền chung kiểu segmented control (CSS ở search.blade.php quyết định
@@ -125,12 +144,15 @@
 
     // Bấm 1 card chi nhánh (panel trái/bottom-sheet) — KHÔNG điều hướng ngay nữa. Thay vào đó pan
     // bản đồ bên phải tới đúng khu vực chi nhánh đó và mở popup (ảnh + nút "Xem chi tiết →" mới
-    // thật sự điều hướng sang /branch/{slug}, xem window.__panToBranch ở search.blade.php). Ở
+    // thật sự điều hướng sang /chi-nhanh/{slug}, xem window.__panToBranch ở search.blade.php). Ở
     // mobile, sheet đang ở trạng thái "full" (94%) thì che gần hết bản đồ — thu về "peek" trước
     // để người dùng thấy được popup vừa mở.
     function slugFromBranchCard(cardEl) {
         try {
-            return decodeURIComponent(new URL(cardEl.href, window.location.origin).pathname.replace(/^\/branch\//, ''));
+            // Href có thể là /chi-nhanh/{slug} (phẳng) hoặc /homestay/{location}/{slug} (canonical
+            // có khu vực) — lấy segment CUỐI cùng thay vì giả định 1 prefix cố định.
+            var parts = new URL(cardEl.href, window.location.origin).pathname.replace(/\/$/, '').split('/').filter(Boolean);
+            return decodeURIComponent(parts[parts.length - 1] || '');
         } catch (err) {
             return '';
         }
@@ -171,7 +193,7 @@
 
     function renderHeader(meta, params) {
         var total = meta.total || 0;
-        var typeParam = params.get('type');
+        var typeParam = getTypeParam(params);
         var title = meta.province_name
             ? total + ' phòng tại ' + meta.province_name
             : (total > 0 ? (typeParam === 'homestay' ? total + ' phòng' : total + ' phòng trên toàn quốc') : '');
@@ -181,7 +203,6 @@
 
         var chips = '';
         var buoi = params.get('buoi');
-        var typeParam = params.get('type');
         if (buoi === '1') chips += chipHtml('Theo giờ');
         else if (buoi === '2') chips += chipHtml('Theo ngày');
         if (meta.type_name && typeParam !== 'homestay') chips += chipHtml(meta.type_name);
@@ -215,8 +236,14 @@
     }
 
     function branchHeaderHtml(branch, count) {
+        // Đang xem theo khu vực (/s/{location} hoặc /homestay/{location}) thì dùng thẳng URL
+        // canonical /homestay/{location}/{slug}; tìm kiếm toàn quốc (không có location trên path)
+        // thì rơi về URL phẳng /chi-nhanh/{slug} (server tự 301 sang canonical nếu xác định được
+        // khu vực thật của chi nhánh).
+        var location = parseLocationFromPath();
+        var href = location ? '/homestay/' + encodeURIComponent(location) + '/' + encodeURIComponent(branch.slug) : '/chi-nhanh/' + encodeURIComponent(branch.slug);
         return '<div style="padding:14px 4px 8px;">'
-            + '<a href="/branch/' + encodeURIComponent(branch.slug) + '" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;">'
+            + '<a href="' + href + '" style="display:inline-flex;align-items:center;gap:5px;text-decoration:none;">'
             + '<span style="font-size:14px;font-weight:700;color:#111827;">' + escapeHtml(branch.name) + '</span>'
             + '<span style="font-size:12px;font-weight:500;color:#9ca3af;">(' + count + ')</span>'
             + '</a>'
@@ -293,13 +320,19 @@
     // qua pin cho phần tử không có toạ độ nhưng vẫn cần đúng index để khớp với .branch-card.
     function buildMapData(orderedRooms) {
         return orderedRooms.map(function (room) {
+            // Có đủ chi nhánh + khu vực thì dùng URL canonical /homestay/{province_slug}/
+            // {branch_slug}/{room_slug} (giống window.roomCardHtml() trong home-sections.js),
+            // không thì rơi về URL phẳng /room/{slug}/.
+            var url = (room.branch && room.branch.slug && room.branch.province_slug)
+                ? '/homestay/' + room.branch.province_slug + '/' + room.branch.slug + '/' + room.slug + '/'
+                : '/room/' + room.slug + '/';
             return {
                 slug: room.slug,
                 name: room.name,
                 image: room.thumbnail_url,
                 price: room.price ? room.price.amount : null,
                 time: roomTimeLabel(room),
-                url: '/room/' + room.slug + '/',
+                url: url,
                 lat: room.latitude || null,
                 lng: room.longitude || null,
                 address: room.address,
@@ -414,7 +447,7 @@
         window.__searchResultsUrlWatcherBound = true;
         var lastSearchUrl = window.location.href;
         var checkSearchUrlChange = function () {
-            if (window.location.pathname.indexOf('/s/') !== 0 && window.location.pathname !== '/s') return;
+            if (!/^\/(s(\/|$)|homestay(\/|$))/.test(window.location.pathname)) return;
             if (window.location.href === lastSearchUrl) return;
             lastSearchUrl = window.location.href;
             if (typeof window.__loadSearchResults === 'function') window.__loadSearchResults();

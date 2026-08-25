@@ -1,10 +1,10 @@
 <div class="group rounded-lg border border-gray-200 bg-white shadow-sm transition-all duration-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800">
     @php
-        $routeName = $product->type === 'service' ? 'template.detail' : 'product.detail';
+        $productUrl = \Modules\BladeThemeV1\Support\BranchBookConfig::resolveProductUrl($product);
     @endphp
 
     <div class="relative w-full overflow-hidden rounded">
-        <a href="{{ route($routeName, ['slug' => $product->slug]) }}" class="block">
+        <a href="{{ $productUrl }}" class="block">
             @php $coverMedia = $product->getFirstMedia('Ảnh bìa'); @endphp
             @if ($coverMedia)
                 <!-- Tối ưu hiệu ứng scale để tránh rung lắc các phần tử khác -->
@@ -37,7 +37,7 @@
 
     <div class="p-3">
         <h3 class="mb-1 text-lg font-bold text-gray-900 transition-colors duration-300 ease-out group-hover:text-green-700 dark:text-white dark:group-hover:text-green-400">
-            <a href="{{ route($routeName, ['slug' => $product->slug]) }}">
+            <a href="{{ $productUrl }}">
                 {{ Str::limit($product->name, 40) }}
             </a>
         </h3>
@@ -66,7 +66,7 @@
                     ], key('cart1-'.$product->id))
                 </div>
             @endif
-            <a href="{{ route($routeName, ['slug' => $product->slug]) }}" class="flex-1">
+            <a href="{{ $productUrl }}" class="flex-1">
                 <x-bladethemev1::buttons.button :style="'1'" :text_size="'md:text-sm text-xs'" class="w-full justify-center transition-all duration-300 ease-out hover:shadow-sm">
                     Xem chi tiết
                 </x-bladethemev1::buttons.button>

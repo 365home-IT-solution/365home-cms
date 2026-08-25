@@ -15,7 +15,7 @@
                     </h2>
                     {{-- <span style="font-size:12px; color:#9ca3af;">({{ $section['count'] }} phòng)</span> --}}
                 </div>
-                <a href="{{ route('product.search') }}?type={{ $section['slug'] ?? '' }}"
+                <a href="{{ ($section['slug'] ?? '') === 'homestay' ? route('product.search.homestay') : route('product.search') . '?type=' . ($section['slug'] ?? '') }}"
                     style="font-size:13px; font-weight:600; color:#0f766e; text-decoration:none; display:flex; align-items:center; gap:3px; white-space:nowrap; flex-shrink:0;">
                     Xem tất cả
                     <svg style="width:14px;height:14px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -72,7 +72,7 @@
                     @endphp
 
                     {{-- Card kiểu Airbnb --}}
-                    <a href="{{ route('product.detail', ['slug' => $room->pslug]) }}"
+                    <a href="{{ $room->room_url }}"
                         style="flex:0 0 220px; scroll-snap-align:start; display:flex; flex-direction:column; gap:9px; text-decoration:none;">
 
                         {{-- Ảnh --}}

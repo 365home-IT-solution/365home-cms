@@ -26,7 +26,7 @@
     {{-- ==================== PHÒNG / SẢN PHẨM ==================== --}}
     @foreach($rooms as $room)
     <url>
-        <loc>{{ url('/room/' . $room->slug) }}</loc>
+        <loc>{{ $room->url }}</loc>
         <lastmod>{{ $room->updated_at?->toAtomString() }}</lastmod>
         <changefreq>weekly</changefreq>
         <priority>0.9</priority>

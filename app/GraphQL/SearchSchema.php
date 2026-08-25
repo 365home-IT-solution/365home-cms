@@ -41,9 +41,13 @@ class SearchSchema
         $branchType = new ObjectType([
             'name'   => 'Branch',
             'fields' => [
-                'id'   => Type::int(),
-                'name' => Type::string(),
-                'slug' => Type::string(),
+                'id'            => Type::int(),
+                'name'          => Type::string(),
+                'slug'          => Type::string(),
+                // FE dùng để dựng URL canonical /homestay/{province_slug}/{slug}/{room_slug} —
+                // xem BuildsRoomCard::resolveBranch() (nguồn dữ liệu field này) và
+                // window.roomCardHtml() trong public/js/home-sections.js.
+                'province_slug' => Type::string(),
             ],
         ]);
 

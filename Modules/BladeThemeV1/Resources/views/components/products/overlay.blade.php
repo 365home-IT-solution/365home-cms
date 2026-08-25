@@ -1,9 +1,9 @@
 <div
     class="relative bg-white dark:bg-gray-800 h-96 group rounded overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 ease-in-out">
     @php
-        $routeName = $product->type === 'service' ? 'template.detail' : 'product.detail';
+        $productUrl = \Modules\BladeThemeV1\Support\BranchBookConfig::resolveProductUrl($product);
     @endphp
-    <a href="{{ route($routeName, ['slug' => $product->slug]) }}" class="block h-full">
+    <a href="{{ $productUrl }}" class="block h-full">
         @if ($product->hasMedia('Ảnh bìa'))
             @php $media = $product->media->first(); @endphp
             <img class="object-cover w-full h-full transition-transform duration-300 group-hover:scale-105"
@@ -66,7 +66,7 @@
         @endif
 
         @include('bladethemev1::components.buttons.tooltip-button', [
-            'route' => route('product.detail', ['slug' => $product->slug]),
+            'route' => $productUrl,
             'icon' => 'fa-eye',
             'tooltip' => 'Xem chi tiết',
             'classes' => 'bg-white text-gray-800 hover:bg-gray-100',

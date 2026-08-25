@@ -1,8 +1,8 @@
 <div class="bg-white rounded overflow-hidden">
     @php
-        $routeName = $product->type === 'service' ? 'template.detail' : 'product.detail';
+        $productUrl = \Modules\BladeThemeV1\Support\BranchBookConfig::resolveProductUrl($product);
     @endphp
-    <a href="{{ route($routeName, ['slug' => $product->slug]) }}" class="block group">
+    <a href="{{ $productUrl }}" class="block group">
         <div class="p-4">
             <div class="flex items-center justify-between mb-3">
                 <div class="md:text-xl text-lg font-bold text-gray-800 group-hover:text-primary transition-colors duration-300">
