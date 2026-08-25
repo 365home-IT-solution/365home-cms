@@ -1708,6 +1708,15 @@ public function confirmBooking()
                 return;
             }
 
+            if (! empty($conflict['is_blocked'])) {
+                $this->dispatch('close-booking-modal');
+                $this->dispatch('notify', [
+                    'message' => "Rất tiếc! Khung giờ {$conflict['slot_label']} ngày {$conflict['date']} hiện không nhận đặt. Vui lòng chọn khung giờ khác.",
+                    'type'    => 'error',
+                ]);
+                return;
+            }
+
             $statusLabel = match($conflict['order_status'] ?? '') {
                 'paid'      => 'đã thanh toán',
                 'confirmed' => 'đã xác nhận',
@@ -1722,6 +1731,16 @@ public function confirmBooking()
         }
         if (str_starts_with($e->getMessage(), 'DATE_CONFLICT:')) {
             $conflict = json_decode(substr($e->getMessage(), 14), true);
+
+            if (! empty($conflict['is_blocked'])) {
+                $this->dispatch('close-booking-modal');
+                $this->dispatch('notify', [
+                    'message' => "Rất tiếc! Ngày {$conflict['checkin']} – {$conflict['checkout']} hiện không nhận đặt. Vui lòng chọn ngày khác.",
+                    'type'    => 'error',
+                ]);
+                return;
+            }
+
             $statusLabel = match($conflict['order_status'] ?? '') {
                 'paid'      => 'đã thanh toán',
                 'deposit'   => 'đặt cọc',
@@ -1760,6 +1779,31 @@ public function confirmBooking()
 
         if ($newStart->gte($newEnd)) {
             return null;
+        }
+
+        // Admin khóa khoảng ngày qua CMS (Modules\Book\Livewire\BlockTimeslotModal, style=2) lưu
+        // thẳng vào product.room_config['blocked_ranges'] — KHÔNG tạo Order/OrderItem nào nên
+        // truy vấn OrderItem bên dưới không bắt được. Lịch trên giao diện có hiện xám (chỉ là UI,
+        // xem product-detail.blade.php $adminBlockedRanges) nhưng không chặn thật ở server, nên
+        // phải tự kiểm tra riêng ở đây — nếu không khách vẫn đặt được ngày admin đã khóa.
+        // Ngữ nghĩa khóa CẢ 2 đầu [start, end] (giống daterange-picker.blade.php: iso >= start &&
+        // iso <= end), so với khoảng đêm ở nửa mở [newStart, newEnd) của đơn mới.
+        $blockedRanges = $this->product->room_config['blocked_ranges'] ?? [];
+        foreach ($blockedRanges as $range) {
+            if (empty($range['start']) || empty($range['end'])) {
+                continue;
+            }
+
+            $blockStart = Carbon::parse($range['start'])->startOfDay();
+            $blockEnd   = Carbon::parse($range['end'])->startOfDay();
+
+            if ($newStart->lte($blockEnd) && $newEnd->gt($blockStart)) {
+                return [
+                    'checkin'    => $newStart->format('d/m/Y'),
+                    'checkout'   => $newEnd->format('d/m/Y'),
+                    'is_blocked' => true,
+                ];
+            }
         }
 
         $query = OrderItem::with('order')
@@ -1840,6 +1884,18 @@ public function confirmBooking()
                         'slot_label' => $slot['timeslotLabel'] ?? "{$slot['startTime']} - {$slot['endTime']}",
                         'date'       => $slot['date'],
                         'is_held'    => true,
+                    ];
+                }
+
+                // Admin tô đen khung giờ này qua CMS (RoomTimeSlot.settings['blocked_dates'], xem
+                // BlockTimeslotModal::saveBlock() style=1) — API (BuildsRoomBooking::buildSlotItems())
+                // đã tự kiểm tra đúng, nhưng luồng web này trước đây thiếu, khiến khách vẫn đặt được
+                // khung giờ đã bị khóa dù lưới hiện xám (chỉ là UI, xem _slot-cell.blade.php).
+                if ($rts->isBlockedOn($slotDate)) {
+                    return [
+                        'slot_label' => $slot['timeslotLabel'] ?? "{$slot['startTime']} - {$slot['endTime']}",
+                        'date'       => $slot['date'],
+                        'is_blocked' => true,
                     ];
                 }
             }

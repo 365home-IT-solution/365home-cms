@@ -12,13 +12,21 @@ use Modules\Product\App\Models\Product;
 
 /**
  * BÁO CÁO LỄ TÂN: phòng trống / đang sử dụng / dự kiến trả / dự kiến nhận + công suất sử dụng,
- * trong kỳ đã chọn (mặc định hôm nay). "Đang sử dụng"/"trống" là ảnh chụp tại thời điểm CUỐI kỳ
- * (hoặc hiện tại nếu kỳ đang diễn ra) — vì đây là số liệu TỒN (đang có khách hay không), không
- * cộng dồn được qua nhiều ngày như "dự kiến nhận/trả" (số liệu PHÁT SINH, đếm theo cả kỳ).
+ * trong kỳ đã chọn (mặc định hôm nay). "Đang sử dụng"/"trống" LUÔN là ảnh chụp REALTIME tại thời
+ * điểm hiện tại thực sự (Carbon::now()) — KHÔNG phụ thuộc bộ lọc ngày đang chọn (kỳ chỉ ảnh hưởng
+ * "dự kiến nhận/trả", số liệu PHÁT SINH đếm theo cả kỳ). Khớp đúng quy tắc "chiếm chỗ" chuẩn đang
+ * dùng ở lưới đặt phòng (xem RoomController::buildSlotStatus() / OrderObserver::
+ * broadcastSlotStatusChanged()): CHỈ đơn pending/paid coi là chiếm phòng — đơn deposit (đặt cọc
+ * chưa thanh toán đủ) KHÔNG coi là chiếm, khác với "overbooking" bên dưới (vẫn coi deposit là 1
+ * đơn thực sự để phát hiện xung đột, khớp BuildsRoomBooking lúc tạo đơn mới).
  */
 class ReceptionistReportService
 {
     private const ACTIVE_STATUSES_EXCLUDE = ['cancelled_payment', 'failed'];
+
+    // "Chiếm phòng" cho mục đích phòng trống/đang sử dụng — whitelist, KHÔNG phải blacklist như
+    // ACTIVE_STATUSES_EXCLUDE, vì deposit/confirmed/... đều không được coi là chiếm chỗ ở đây.
+    private const OCCUPYING_STATUSES = ['pending', 'paid'];
 
     public static function getData(
         $user,
@@ -47,26 +55,43 @@ class ReceptionistReportService
             return $type === 'overbooking' ? $data + ['overbooking' => ['count' => 0, 'items' => []]] : $data;
         }
 
-        // "Đang sử dụng"/"trống" là ảnh chụp tức thời — chốt tại cuối kỳ, hoặc hiện tại nếu kỳ đang
-        // diễn ra/đã qua (kỳ tương lai không có nghĩa để hỏi "đang sử dụng").
-        $asOf = Carbon::now()->lt($end) ? Carbon::now() : $end;
-
         $orderScope = fn ($q) => $q->whereIn('product_id', $productIds)
             ->whereHas('order', fn ($o) => $o->where('exclude_from_stats', false)
                 ->whereNotIn('status', self::ACTIVE_STATUSES_EXCLUDE));
 
-        $occupiedRooms = OrderItem::query()
+        // "Đang sử dụng"/"trống" chốt tại thời điểm CUỐI kỳ, hoặc hiện tại nếu kỳ đang diễn ra/đã
+        // qua (kỳ tương lai không có nghĩa để hỏi "đang sử dụng") — asOf luôn nằm trong kỳ đang
+        // lọc, tránh lọc period=hôm qua nhưng lại âm thầm trả về trạng thái LIVE của hôm nay.
+        $asOf   = Carbon::now()->lt($end) ? Carbon::now() : $end;
+        $dayEnd = $asOf->copy()->endOfDay();
+
+        // Lấy 1 lần mọi đơn CHIẾM CHỖ (chỉ pending/paid — xem OCCUPYING_STATUSES) của các phòng
+        // trong phạm vi, có giao với "từ asOf đến hết ngày của asOf" — dùng chung để suy ra cả
+        // "đang sử dụng" (đang chiếm NGAY tại asOf) lẫn "phòng trống" (không chiếm tại asOf VÀ
+        // không còn khung giờ nào khác trong ngày đó đã có đơn — 1 phòng rảnh lúc asOf nhưng đã có
+        // khách đặt khung giờ muộn hơn cùng ngày thì KHÔNG tính là phòng trống).
+        $occupyingItems = OrderItem::query()
             ->tap($orderScope)
-            ->where('checkin_date', '<=', $asOf)
-            ->where('checkout_date', '>=', $asOf)
-            ->distinct('product_id')
-            ->count('product_id');
+            ->whereHas('order', fn ($o) => $o->whereIn('status', self::OCCUPYING_STATUSES))
+            ->where('checkin_date', '<', $dayEnd)
+            ->where('checkout_date', '>', $asOf)
+            ->get(['product_id', 'checkin_date', 'checkout_date']);
 
-        $cleaningRooms = Product::whereIn('id', $productIds)
+        $occupiedProductIds = $occupyingItems
+            ->filter(fn ($item) => $item->checkin_date->lte($asOf) && $item->checkout_date->gte($asOf))
+            ->pluck('product_id')
+            ->unique();
+
+        $busyTodayProductIds = $occupyingItems->pluck('product_id')->unique();
+
+        $cleaningProductIds = Product::whereIn('id', $productIds)
             ->where('housekeeping_status', 'cleaning')
-            ->count();
+            ->pluck('id');
 
-        $availableRooms = max(0, $totalRooms - $occupiedRooms - $cleaningRooms);
+        $occupiedRooms   = $occupiedProductIds->count();
+        $unavailableRooms = $busyTodayProductIds->merge($cleaningProductIds)->unique()->count();
+        $availableRooms  = max(0, $totalRooms - $unavailableRooms);
+        $cleaningRooms   = $cleaningProductIds->count();
 
         $expectedCheckin = OrderItem::query()
             ->tap($orderScope)
@@ -81,9 +106,12 @@ class ReceptionistReportService
             ->count('order_id');
 
         // Công suất sử dụng KHÔNG tính phòng đang dọn vào mẫu số — phòng đang dọn tạm thời không
-        // sẵn sàng để đón khách nên không nên bị coi là "bỏ trống lãng phí".
+        // sẵn sàng để đón khách nên không nên bị coi là "bỏ trống lãng phí". Chặn trần 100% — dữ
+        // liệu thực tế có thể có phòng vừa được đánh dấu "đang dọn" nhưng vẫn còn đơn pending/paid
+        // đang chiếm (housekeeping_status cập nhật trễ hơn đơn), khiến occupied_rooms > capacityBase
+        // nếu không chặn.
         $capacityBase = $totalRooms - $cleaningRooms;
-        $capacityPct  = $capacityBase > 0 ? round(($occupiedRooms / $capacityBase) * 100, 2) : 0;
+        $capacityPct  = $capacityBase > 0 ? min(100, round(($occupiedRooms / $capacityBase) * 100, 2)) : 0;
 
         $data = [
             'period'            => ['start' => $start->toDateString(), 'end' => $end->toDateString()],

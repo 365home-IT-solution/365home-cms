@@ -144,6 +144,28 @@ trait BuildsRoomBooking
             ]);
         }
 
+        // Admin khóa khoảng ngày qua CMS (Modules\Book\Livewire\BlockTimeslotModal, style=2) lưu
+        // thẳng vào room.room_config['blocked_ranges'] — KHÔNG tạo Order/OrderItem nào nên truy vấn
+        // OrderItem bên dưới không bắt được, phải tự kiểm tra riêng (cùng gap với BookingController
+        // (Livewire web)::checkDateRangeConflicts(), đã vá song song). Ngữ nghĩa khóa CẢ 2 đầu
+        // [start, end] (giống daterange-picker.blade.php: iso >= start && iso <= end), so với
+        // khoảng đêm ở nửa mở [checkin, checkout) của đơn mới.
+        $blockedRanges = $room->room_config['blocked_ranges'] ?? [];
+        foreach ($blockedRanges as $range) {
+            if (empty($range['start']) || empty($range['end'])) {
+                continue;
+            }
+
+            $blockStart = Carbon::parse($range['start'])->startOfDay();
+            $blockEnd   = Carbon::parse($range['end'])->startOfDay();
+
+            if ($checkin->lte($blockEnd) && $checkout->gt($blockStart)) {
+                throw ValidationException::withMessages([
+                    'checkin_date' => ['Khoảng ngày này hiện không nhận đặt.'],
+                ]);
+            }
+        }
+
         $conflict = OrderItem::where('product_id', $room->id)
             ->whereNotNull('checkin_date')
             ->whereNotNull('checkout_date')
