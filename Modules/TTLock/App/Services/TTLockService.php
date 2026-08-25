@@ -13,7 +13,9 @@ use Illuminate\Support\Facades\Log;
  */
 class TTLockService
 {
-    private const TOKEN_URL = 'https://cnapi.ttlock.com';
+    // Remote unlock (mở khoá từ xa) LUÔN đi qua domain Sciener chung này, KHÁC với domain OAuth/
+    // API còn lại (đi theo $this->apiBase riêng của từng account/khu vực — xem __construct()).
+    private const SCIENER_API = 'https://api.sciener.com';
 
     private string $clientId;
     private string $clientSecret;
@@ -129,7 +131,7 @@ class TTLockService
         try {
             $response = Http::timeout(12)->withOptions([
                 'verify' => false,
-            ])->asForm()->post(self::TOKEN_URL . '/oauth2/token', [
+            ])->asForm()->post($this->apiBase . '/oauth2/token', [
                 'clientId'     => $this->clientId,
                 'clientSecret' => $this->clientSecret,
                 'username'     => $this->username,
@@ -166,7 +168,7 @@ class TTLockService
         try {
             $response = Http::timeout(10)->withOptions([
                 'verify' => false,
-            ])->asForm()->post(self::TOKEN_URL . '/oauth2/token', [
+            ])->asForm()->post($this->apiBase . '/oauth2/token', [
                 'clientId'      => $this->clientId,
                 'clientSecret'  => $this->clientSecret,
                 'grant_type'    => 'refresh_token',
@@ -482,6 +484,88 @@ class TTLockService
             ]);
             return false;
         }
+    }
+
+    // =========================================================
+    // Mở khóa từ xa (remote unlock) — 1 ổ
+    // POST /v3/lock/unlock
+    // =========================================================
+
+    public function remoteUnlock(int $lockId): bool
+    {
+        $token = $this->getAccessToken();
+
+        if (!$token) {
+            Log::error('TTLock remoteUnlock: no access token');
+            return false;
+        }
+
+        try {
+            $response = Http::timeout(15)->withOptions([
+                'verify' => false,
+                'curl'   => [CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4],
+            ])->asForm()->post(self::SCIENER_API . '/v3/lock/unlock', [
+                'clientId'    => $this->clientId,
+                'accessToken' => $token,
+                'lockId'      => $lockId,
+                'date'        => (int) round(microtime(true) * 1000),
+            ]);
+
+            $data = $response->json();
+
+            Log::info('TTLock remoteUnlock response', [
+                'lockId'   => $lockId,
+                'status'   => $response->status(),
+                'errcode'  => $data['errcode'] ?? null,
+                'errmsg'   => $data['errmsg'] ?? null,
+            ]);
+
+            if (($data['errcode'] ?? -1) === -4043) {
+                Log::warning('TTLock remoteUnlock: tính năng chưa bật trên khóa', [
+                    'lockId' => $lockId,
+                    'hint'   => 'Bật Remote Unlock trong Sciener APP > cài đặt khóa',
+                ]);
+            }
+
+            return $response->successful() && (($data['errcode'] ?? -1) === 0);
+
+        } catch (\Exception $e) {
+            Log::error('TTLock remoteUnlock exception', [
+                'lockId' => $lockId,
+                'error'  => $e->getMessage(),
+            ]);
+            return false;
+        }
+    }
+
+    /**
+     * Mở CẢ 2 ổ khóa của 1 cửa vật lý (Product::unlock_both_locks = true) — dùng khi 1 cửa gắn 2
+     * ổ TTLock cần nhả CÙNG LÚC mới thật sự mở được, khác với remoteUnlock() thường (mở 1 ổ theo
+     * đúng phase check-in/check-out). CHỈ coi là thành công khi CẢ 2 ổ đều mở được — 1 ổ lỗi thì
+     * dù ổ kia đã nhả, cửa vẫn coi như CHƯA mở (đúng yêu cầu nghiệp vụ), để caller báo lỗi rõ ràng
+     * thay vì báo "đã mở" trong khi cửa thực tế vẫn khóa.
+     *
+     * @return array{success: bool, checkin_success: bool, checkout_success: bool}
+     */
+    public function remoteUnlockBoth(int $checkinLockId, int $checkoutLockId): array
+    {
+        $checkinSuccess  = $this->remoteUnlock($checkinLockId);
+        $checkoutSuccess = $this->remoteUnlock($checkoutLockId);
+
+        if (! $checkinSuccess || ! $checkoutSuccess) {
+            Log::error('TTLock remoteUnlockBoth: mở thiếu ổ — cửa coi như chưa mở', [
+                'checkin_lock_id'  => $checkinLockId,
+                'checkout_lock_id' => $checkoutLockId,
+                'checkin_success'  => $checkinSuccess,
+                'checkout_success' => $checkoutSuccess,
+            ]);
+        }
+
+        return [
+            'success'          => $checkinSuccess && $checkoutSuccess,
+            'checkin_success'  => $checkinSuccess,
+            'checkout_success' => $checkoutSuccess,
+        ];
     }
 
     // =========================================================
