@@ -141,6 +141,7 @@ class Products extends Component
         // --- Build base query ---
         $query = Product::where('is_activated', true)
             ->where('is_in_stock', true)
+            ->activeBranch()
             ->orderBy('sort_order');
 
         // Chỉ lấy sản phẩm có room type đang active (bỏ qua product chưa gán room type)

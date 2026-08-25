@@ -459,6 +459,7 @@ class HomeController extends Controller
 
         return Product::where('is_activated', true)
             ->where('is_in_stock', true)
+            ->activeBranch()
             ->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds))
             ->with(['roomTimeSlots.timeSlot', 'media', 'roomType', 'categories'])
             ->get()

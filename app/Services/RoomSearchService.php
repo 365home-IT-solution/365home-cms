@@ -71,6 +71,7 @@ class RoomSearchService
 
         $query = Product::where('is_activated', true)
             ->where('is_in_stock', true)
+            ->activeBranch()
             ->with(['roomTimeSlots.timeSlot', 'media', 'roomType', 'categories:id']);
 
         $ctx = $this->applyFilters($query, $filters, $validated, $authUser);
@@ -190,6 +191,7 @@ class RoomSearchService
 
         $query = Product::where('is_activated', true)
             ->where('is_in_stock', true)
+            ->activeBranch()
             ->with(['categories:id', 'roomTimeSlots.promotions']);
 
         $ctx = $this->applyFilters($query, $filters, $validated, $authUser);

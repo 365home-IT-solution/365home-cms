@@ -103,6 +103,30 @@ class Product extends Model implements HasMedia, Resourceable
         return $this->morphToMany(Category::class, 'categorizable');
     }
 
+    // Loại phòng/tìm kiếm chỉ nên hiện phòng thuộc chi nhánh (category gốc, category_type=product)
+    // đang active (status=true) — chi nhánh tạm ngưng/ẩn thì phòng của nó cũng phải biến mất khỏi
+    // mọi danh sách/tìm kiếm, bất kể lọc theo tỉnh/ward/chi nhánh cụ thể hay tìm toàn quốc. Chỉ
+    // LOẠI (whereDoesntHave) phòng thuộc chi nhánh KHÔNG active — phòng chưa gắn chi nhánh nào vẫn
+    // giữ nguyên hiển thị như trước (không phải điều được yêu cầu ở đây).
+    public function scopeActiveBranch($query)
+    {
+        $inactiveBranchIds = Category::whereNull('parent_id')
+            ->where('category_type', 'product')
+            ->where('status', false)
+            ->pluck('id');
+
+        if ($inactiveBranchIds->isEmpty()) {
+            return $query;
+        }
+
+        $inactiveCatIds = $inactiveBranchIds
+            ->merge(Category::whereIn('parent_id', $inactiveBranchIds)->pluck('id'))
+            ->unique()
+            ->values();
+
+        return $query->whereDoesntHave('categories', fn ($q) => $q->whereIn('categories.id', $inactiveCatIds));
+    }
+
     public function comments()
     {
         return $this->morphMany(Comment::class, 'commentable');
