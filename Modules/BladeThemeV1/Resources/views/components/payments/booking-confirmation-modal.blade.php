@@ -84,24 +84,28 @@
 </div>
 
 <!-- Modal Xác nhận đặt phòng -->
+{{-- x-teleport="body": khung đặt giờ/lịch đặt phòng nằm trong sidebar có position:sticky,
+     mà sticky luôn tạo stacking context riêng nên z-index của modal bị giới hạn trong đó.
+     Teleport ra <body> để modal luôn đè lên trên cùng, không bị khung đặt giờ che mất. --}}
+<template x-teleport="body">
 <div    x-data="{ showModal: false }"
         x-show="showModal"
         x-on:open-booking-modal.window="showModal = true"
         x-on:close-booking-modal.window="showModal = false"
-        x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true" style="display: none;">
-    <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+        x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="fixed inset-0 z-[9999] overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true" style="display: none;">
+    <div class="flex min-h-full items-center justify-center p-4">
         <!-- Background overlay -->
         <div x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" @click="showModal = false"></div>
 
-        <!-- This element is to trick the browser into centering the modal contents. -->
-        <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true"></span>
-
         <!-- Modal panel -->
-        <div x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95" x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100" x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100" x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95" class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-xl sm:w-full">
+        <div @click.stop x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95" x-transition:enter-end="opacity-100 translate-y-0 sm:scale-100" x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100 translate-y-0 sm:scale-100" x-transition:leave-end="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95" class="relative w-full max-w-3xl bg-white rounded-2xl text-left shadow-xl transform transition-all flex flex-col max-h-[90vh]">
 
-            <!-- Close button -->
-            <div class="absolute top-0 right-0 pt-4 pr-4">
-                <button @click="showModal = false" type="button" class="bg-white rounded-md text-gray-400 hover:text-neutral-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500">
+            <!-- Header -->
+            <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-200 shrink-0">
+                <h3 class="text-lg sm:text-xl font-bold text-gray-900" id="modal-title">
+                    Xác nhận đặt phòng
+                </h3>
+                <button @click="showModal = false" type="button" class="shrink-0 bg-white rounded-md text-gray-400 hover:text-neutral-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary">
                     <span class="sr-only">Close</span>
                     <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -109,36 +113,24 @@
                 </button>
             </div>
 
-            <!-- Modal content -->
-            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                <div class="sm:flex sm:items-start">
-                    <div class="w-full">
-                        <!-- Header -->
-                        <div class="text-center mb-6">
-                            <h3 class="text-2xl font-bold text-gray-900" id="modal-title">
-                                Xác nhận đặt phòng
-                            </h3>
-                        </div>
-
-                        <!-- Booking details -->
-                        <div class="space-y-4">
-                            <!-- Customer info -->
-                            <ul class="list-none">
-
-
-                                <li class="px-[16px] py-[12px] border-b border-gray-200">
+            <!-- Modal content: 2 cột, responsive, cuộn nếu dài -->
+            <div class="overflow-y-auto px-5 py-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 md:gap-x-6">
+                    <!-- Cột trái: Thông tin khách hàng + thời gian đặt phòng -->
+                    <ul class="list-none divide-y divide-gray-200">
+                                <li class="py-[12px]">
                                     <span class="text-neutral-900 text-[16px] font-semibold">Tên khách hàng:</span>
                                     <span class="text-[16px]">{{ $buyerName }}</span>
                                 </li>
-                                <li class="px-[16px] py-[12px] border-b border-gray-200">
+                                <li class="py-[12px]">
                                     <span class="text-neutral-900 text-[16px] font-semibold">Số điện thoại:</span>
                                     <span class="text-[16px]">{{ $buyerPhone }}</span>
                                 </li>
-                                <li class="px-[16px] py-[12px] border-b border-gray-200">
+                                <li class="py-[12px]">
                                     <span class="text-neutral-900 text-[16px] font-semibold">Chi nhánh:</span>
                                     <span class="text-[16px]">Home - {{ $categories['c3'] }}, {{$categories['c2']}}</span>
                                 </li>
-                                <li class="px-[16px] py-[12px] border-b border-gray-200">
+                                <li class="py-[12px]">
                                     <span class="text-neutral-900 text-[16px] font-semibold">Tên phòng:</span>
                                     <span class="text-[16px]">{{ $product['name'] }}</span>
                                 </li>
@@ -156,7 +148,7 @@
                                 @endphp
 
                                 <!-- Thời gian đặt phòng -->
-                                <li class="px-[16px] py-[12px] border-b border-gray-200">
+                                <li class="py-[12px]">
                                     @if($bookingStyle == 2)
                                         {{-- Style=2: hiển thị ngày nhận/trả phòng --}}
                                         @php
@@ -239,11 +231,14 @@
                                         @endif
                                     @endif
                                 </li>
+                    </ul>
 
-@if(!empty($selectedSlots) && count($selectedSlots) >= 2 || $customerOrderCount >= 1 || (!$hasFullDayBooking && $appliedCoupon && $couponDiscountAmount > 0))
-    <li class="px-[16px] py-[8px] border-b border-gray-100">
+                    <!-- Cột phải: Giá & dịch vụ -->
+                    <ul class="list-none divide-y divide-gray-200">
+@if(!empty($selectedSlots) && count($selectedSlots) >= 2 || $customerOrderCount >= 1 || (!$hasFullDayBooking && count($appliedCoupons) > 0 && $couponDiscountAmount > 0))
+    <li class="py-[8px]">
         <div class="bg-blue-50 border border-blue-100 rounded-xl p-3 text-[13px] text-blue-800 space-y-1">
-            <p class="font-semibold text-blue-900 mb-2">📋 Cách tính giá:</p>
+            <p class="font-semibold text-blue-900 mb-2">Cách tính giá:</p>
 
             {{-- Bước 1: Giá gốc --}}
             <div class="flex justify-between">
@@ -282,22 +277,26 @@
                 </div>
             @endif
 
-            {{-- Bước thêm: Mã giảm giá --}}
-            @if(!$hasFullDayBooking && $appliedCoupon && $couponDiscountAmount > 0)
+            {{-- Bước thêm: Mã giảm giá (có thể nhiều mã, mỗi mã 1 dòng theo thứ tự đã cascading —
+                 xem ProductDetail::calculateCouponDiscounts) --}}
+            @if(!$hasFullDayBooking && count($appliedCoupons) > 0 && $couponDiscountAmount > 0)
                 @php
-                    $couponStep = '②';
                     $stepNum = 2;
                     if (!empty($selectedSlots) && count($selectedSlots) >= 2) $stepNum++;
                     if ($customerOrderCount >= 1) $stepNum++;
-                    $couponStep = ['②','③','④','⑤'][$stepNum - 2] ?? '④';
+                    $stepSymbols = ['②','③','④','⑤','⑥','⑦'];
                 @endphp
-                <div class="flex justify-between text-green-700">
-                    <span>{{ $couponStep }} Mã giảm giá
-                        <span class="font-mono bg-green-100 text-green-800 px-1 rounded text-[11px]">{{ $appliedCoupon->code }}</span>
-                        <span class="text-gray-400 italic text-[11px]">(tính sau bước trước)</span>
-                    </span>
-                    <span class="font-semibold">-{{ number_format($couponDiscountAmount, 0, ',', '.') }}đ</span>
-                </div>
+                @foreach ($appliedCoupons as $coupon)
+                    @continue(empty($couponDiscounts[$coupon->id]))
+                    <div class="flex justify-between text-green-700">
+                        <span>{{ $stepSymbols[$stepNum - 2] ?? '④' }} Mã giảm giá
+                            <span class="font-mono bg-green-100 text-green-800 px-1 rounded text-[11px]">{{ $coupon->code }}</span>
+                            <span class="text-gray-400 italic text-[11px]">(tính sau bước trước)</span>
+                        </span>
+                        <span class="font-semibold">-{{ number_format($couponDiscounts[$coupon->id], 0, ',', '.') }}đ</span>
+                    </div>
+                    @php $stepNum++; @endphp
+                @endforeach
             @endif
 
             {{-- Tổng tiết kiệm --}}
@@ -306,21 +305,21 @@
             @endphp
             @if($totalSaved > 0)
                 <div class="border-t border-blue-200 pt-2 mt-1 flex justify-between text-blue-900 font-semibold">
-                    <span>💰 Tổng tiết kiệm</span>
+                    <span>Tổng tiết kiệm</span>
                     <span class="text-green-700">-{{ number_format($totalSaved, 0, ',', '.') }}đ</span>
                 </div>
             @endif
 
             {{-- Thành tiền --}}
             <div class="flex justify-between text-blue-900 font-bold text-[14px] border-t border-blue-200 pt-2">
-                <span>✅ Thành tiền</span>
+                <span>Thành tiền</span>
                 <span class="text-primary">{{ number_format($totalAmount, 0, ',', '.') }}đ</span>
             </div>
         </div>
     </li>
 @endif
                                 @if($bulkDiscountAmount > 0 && count($selectedSlots) >= 2)
-                                    <li class="px-[16px] py-[8px] border-b border-gray-200">
+                                    <li class="py-[8px]">
                                         <div class="text-[15px] text-green-600">
                                             Giảm (book {{ count($selectedSlots) }} khung giờ): -{{ number_format($bulkDiscountAmount, 0, ',', '.') }}đ
                                         </div>
@@ -328,101 +327,40 @@
                                 @endif
                                 @if ($extraFee > 0)
                                     @php $mfgModal = (int)(($product->room_config ?? [])['max_free_guests'] ?? 2); @endphp
-                                    <li class="px-[16px] py-[12px] border-b border-gray-200">
+                                    <li class="py-[12px]">
                                         <span class="text-neutral-900 text-[16px] font-semibold">Phụ phí khách thêm ({{ max(0, $guests - $mfgModal) }} người):</span>
                                         <span class="text-orange-600 font-semibold">+{{ number_format($extraFee, 0, ',', '.') }}đ</span>
                                     </li>
                                 @endif
-      @if($additionalServices && $additionalServices->count() > 0)                         
-       {{-- Tổng dịch vụ đã chọn --}}
-        @if($modalServiceTotal > 0)
-            <div class="mt-3 pt-2 border-t border-gray-100 flex items-center justify-between">
-                <p class="text-sm text-gray-500">
-                    🛎️ {{ array_sum($selectedServices ?? []) }} dịch vụ đã chọn
-                </p>
-                <p class="text-sm font-bold text-orange-500">
-                    +{{ number_format($modalServiceTotal, 0, ',', '.') }}đ
-                </p>
-            </div>
+                                @if($additionalServices && $additionalServices->count() > 0 && $modalServiceTotal > 0)
+                                    <li class="py-[12px]">
+                                        <div class="flex items-center justify-between">
+                                            <p class="text-sm text-gray-500">
+                                                {{ array_sum($selectedServices ?? []) }} dịch vụ đã chọn
+                                            </p>
+                                            <p class="text-sm font-bold text-orange-500">
+                                                +{{ number_format($modalServiceTotal, 0, ',', '.') }}đ
+                                            </p>
+                                        </div>
 
-            {{-- Chi tiết từng dịch vụ đã chọn --}}
-            <div class="mt-2 space-y-1">
-                @foreach($additionalServices as $service)
-                    @php $qty = $selectedServices[$service->id] ?? 0; @endphp
-                    @if($qty > 0)
-                        <div wire:key="modal-detail-{{ $service->id }}" class="flex items-center justify-between text-[12px] text-gray-600 ml-2">
-                            <span>• {{ $service->name }} x{{ $qty }}</span>
-                            <span class="text-orange-500 font-medium">
-                                +{{ number_format($service->price * $qty, 0, ',', '.') }}đ
-                            </span>
-                        </div>
-                    @endif
-                @endforeach
-            </div>
-        @endif
+                                        {{-- Chi tiết từng dịch vụ đã chọn --}}
+                                        <div class="mt-2 space-y-1">
+                                            @foreach($additionalServices as $service)
+                                                @php $qty = $selectedServices[$service->id] ?? 0; @endphp
+                                                @if($qty > 0)
+                                                    <div wire:key="modal-detail-{{ $service->id }}" class="flex items-center justify-between text-[12px] text-gray-600">
+                                                        <span>• {{ $service->name }} x{{ $qty }}</span>
+                                                        <span class="text-orange-500 font-medium">
+                                                            +{{ number_format($service->price * $qty, 0, ',', '.') }}đ
+                                                        </span>
+                                                    </div>
+                                                @endif
+                                            @endforeach
+                                        </div>
+                                    </li>
+                                @endif
 
-<div class="overflow-x-auto pb-2">
-    <div style="display: flex; gap: 12px;">
-        @foreach($additionalServices as $service)
-            @php
-                $qty = $selectedServices[$service->id] ?? 0;
-                $isSelected = $qty > 0;
-            @endphp
-            <div wire:key="modal-service-{{ $service->id }}" style="width: 105px; flex-shrink: 0;"
-                 class="rounded-2xl border-2 flex flex-col items-center py-3 px-2 gap-1 transition-all duration-200
-                {{ $isSelected ? 'border-orange-400 bg-orange-50 shadow-md' : 'border-gray-200 bg-white' }}">
-
-                {{-- Icon --}}
-                <div class="w-20 h-20 rounded-xl flex items-center justify-center transition-colors duration-200
-                    {{ $isSelected ? 'bg-orange-500' : 'bg-orange-100' }}">
-                    @if(!empty($service->image))
-                      <div wire:ignore>
-            <img src="{{ asset('storage/' . $service->image) }}"
-                 alt="{{ $service->name }}"
-                 class="w-full h-full object-contain">
-        </div>
-                    @else
-                        <span class="text-xl leading-none">{{ $service->image ?? '🍽️' }}</span>
-                    @endif
-                </div>
-
-                <p class="text-[11px] font-semibold text-gray-700 text-center leading-tight">
-                    {{ $service->name }}
-                </p>
-                <p class="text-[11px] text-gray-400 font-medium">
-                    {{ number_format($service->price, 0, ',', '.') }}đ
-                </p>
-
-                {{-- Tăng / Giảm --}}
-                <div class="flex items-center justify-center gap-1 mt-1 w-full">
-                    <button
-                        wire:click="decrementService({{ $service->id }})"
-                        type="button"
-                        style="width:20px;height:20px;min-width:20px;padding:0;box-sizing:border-box;"
-                        class="shrink-0 rounded-full border border-gray-300 text-gray-500 text-xs font-bold
-                               flex items-center justify-center leading-none
-                               hover:bg-orange-500 hover:text-white hover:border-orange-500 transition-all">
-                        −
-                    </button>
-                    <span class="text-xs font-bold text-gray-800 w-4 text-center shrink-0">{{ $qty }}</span>
-                    <button
-                        wire:click="incrementService({{ $service->id }})"
-                        type="button"
-                        style="width:20px;height:20px;min-width:20px;padding:0;box-sizing:border-box;"
-                        class="shrink-0 rounded-full border border-orange-400 text-orange-500 text-xs font-bold
-                               flex items-center justify-center leading-none
-                               hover:bg-orange-500 hover:text-white transition-all">
-                        +
-                    </button>
-                </div>
-            </div>
-        @endforeach
-    </div>
-</div>
-@endif
-                               
-
-                                <li class="px-[16px] py-[12px] border-b-2 border-gray-300">
+                                <li class="py-[12px]">
                                     @if($bookingStyle == 2 && !empty($startTime) && !empty($endTime))
                                         @php
                                             $ciModal = \Carbon\Carbon::parse($startTime)->startOfDay();
@@ -493,35 +431,44 @@
                                         <span class="text-[18px] font-bold text-primary">{{ number_format($totalAmount, 0, ',', '.') }}đ</span>
                                     @endif
                                 </li>
-
-
-
-                                @if($note)
-                                    <li class="px-[16px] py-[12px] border-t border-gray-200 pt-3">
-                                        <p class="text-[16px] text-black font-semibold mb-1">Ghi chú:</p>
-                                        <p class="text-[16px] bg-gray-50 p-2 rounded">{{ $note }}</p>
-                                    </li>
-                                @endif
-                            </ul>
-
-                            @php
-                                $hasOvernight = !empty($selectedSlots) && collect($selectedSlots)->contains(fn($slot) => isset($slot['overNight']) && $slot['overNight'] == 1);
-                            @endphp
-
-                            @if($hasOvernight)
-                                <em style="color: #ffffff;font-size:13px;width:100%;display:block;text-align:center;border-radius:20px;padding:8px;" class="bg-primary">Bạn đang book có khung giờ qua đêm nên Home chỉ nhận tối đa 2 khách</em>
-                            @endif
-                        </div>
-                    </div>
+                    </ul>
                 </div>
+
+                @php
+                    $hasOvernight = !empty($selectedSlots) && collect($selectedSlots)->contains(fn($slot) => isset($slot['overNight']) && $slot['overNight'] == 1);
+                @endphp
+
+                @if($note || $hasOvernight)
+                    <div class="mt-4 space-y-3">
+                        @if($note)
+                            <div>
+                                <p class="text-[16px] text-black font-semibold mb-1">Ghi chú:</p>
+                                <p class="text-[16px] bg-gray-50 p-2 rounded">{{ $note }}</p>
+                            </div>
+                        @endif
+
+                        @if($hasOvernight)
+                            <em style="color: #ffffff;font-size:13px;width:100%;display:block;text-align:center;border-radius:20px;padding:8px;" class="bg-primary">Bạn đang book có khung giờ qua đêm nên Home chỉ nhận tối đa 2 khách</em>
+                        @endif
+                    </div>
+                @endif
             </div>
 
+            @if($bookingConfirmError)
+                <div class="mx-5 mb-3 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 shrink-0">
+                    <svg class="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                    </svg>
+                    <p class="text-[14px] text-red-700 font-medium">{{ $bookingConfirmError }}</p>
+                </div>
+            @endif
+
             <!-- Modal footer -->
-            <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse space-y-3 sm:space-y-0 sm:space-x-3 sm:space-x-reverse relative">
+            <div class="bg-gray-50 px-5 py-3 border-t border-gray-200 flex flex-col sm:flex-row-reverse gap-3 shrink-0 relative rounded-b-2xl">
 
                 {{-- Loading overlay --}}
                 <div wire:loading wire:target="confirmBooking"
-                     class="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center gap-2 z-10 rounded-b-lg">
+                     class="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center gap-2 z-10 rounded-b-2xl">
                     <svg class="animate-spin w-7 h-7 text-primary" fill="none" viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
@@ -553,3 +500,4 @@
         </div>
     </div>
 </div>
+</template>

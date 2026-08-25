@@ -71,24 +71,24 @@ class CategoryFilter
                             ) as is_last_child
                         ');
 
-                    // Lọc theo quyền chi nhánh của user
+                    // Lọc theo đối tác (+ thu hẹp thêm theo quyền chi nhánh cụ thể nếu có)
                     if ($user && ! $user->isSuperAdmin()) {
                         $allowedBranchIds      = $user->allowedBranchIds();
                         $allowedPostCategoryIds = $user->allowedPostCategoryIds();
 
-                        if (empty($allowedBranchIds)) {
-                            $query->whereRaw('1 = 0');
-                        } else {
-                            $query->where(function ($q) use ($allowedBranchIds, $allowedPostCategoryIds) {
+                        $query->where(function ($q) use ($user, $allowedBranchIds, $allowedPostCategoryIds) {
+                            $q->where('partner_id', $user->partner_id);
+
+                            if (! empty($allowedBranchIds)) {
                                 $q->whereIn('id', $allowedBranchIds)
                                   ->orWhereIn('parent_id', $allowedBranchIds);
+                            }
 
-                                if (! empty($allowedPostCategoryIds)) {
-                                    $q->orWhereIn('id', $allowedPostCategoryIds)
-                                      ->orWhereIn('parent_id', $allowedPostCategoryIds);
-                                }
-                            });
-                        }
+                            if (! empty($allowedPostCategoryIds)) {
+                                $q->orWhereIn('id', $allowedPostCategoryIds)
+                                  ->orWhereIn('parent_id', $allowedPostCategoryIds);
+                            }
+                        });
                     }
 
                     $categories = $query->get();

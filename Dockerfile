@@ -27,8 +27,25 @@ COPY --from=vendor /app/vendor ./vendor
 # Copy full source (modules read ../../.env relative to their directory)
 COPY . .
 
-# Provide a minimal .env so vite module builds don't fail
-RUN cp .env.example .env
+# Provide a minimal .env so vite module builds don't fail — .env thật KHÔNG được đưa vào build
+# context (xem .dockerignore, tránh baked secret khác như DB password vào image). Riêng
+# VITE_REVERB_* không phải secret thật (key Reverb vốn để lộ client-side, chỉ REVERB_APP_SECRET
+# mới nhạy cảm và KHÔNG truyền ở đây) nên nhận qua --build-arg (compose.yaml truyền từ .env thật
+# lúc build) rồi ghi đè vào .env.example — thiếu bước này thì Echo/Reverb phía trình duyệt luôn
+# build với key rỗng, im lặng không kết nối được dù server cấu hình đúng.
+ARG VITE_REVERB_APP_KEY
+ARG VITE_REVERB_HOST
+ARG VITE_REVERB_PORT
+ARG VITE_REVERB_SCHEME
+ARG VITE_REVERB_PATH
+RUN cp .env.example .env \
+    && { \
+        echo "VITE_REVERB_APP_KEY=${VITE_REVERB_APP_KEY}"; \
+        echo "VITE_REVERB_HOST=${VITE_REVERB_HOST}"; \
+        echo "VITE_REVERB_PORT=${VITE_REVERB_PORT}"; \
+        echo "VITE_REVERB_SCHEME=${VITE_REVERB_SCHEME}"; \
+        echo "VITE_REVERB_PATH=${VITE_REVERB_PATH}"; \
+    } >> .env
 
 # Build root assets (public/build)
 RUN npm run build
@@ -50,7 +67,7 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # Install PHP 8.3 (Ondrej PPA) + Nginx + Supervisor
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      gnupg curl ca-certificates zip unzip git supervisor nginx cron \
+      gnupg curl ca-certificates zip unzip git supervisor nginx cron zbar-tools \
     && curl -sS 'https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xb8dc7e53946656efbce4c1dd71daeaab4ad4cab6' \
        | gpg --dearmor | tee /etc/apt/keyrings/ppa_ondrej_php.gpg > /dev/null \
     && echo "deb [signed-by=/etc/apt/keyrings/ppa_ondrej_php.gpg] https://ppa.launchpadcontent.net/ondrej/php/ubuntu noble main" \

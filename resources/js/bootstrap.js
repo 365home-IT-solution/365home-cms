@@ -30,3 +30,7 @@ window.axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
 //     forceTLS: (import.meta.env.VITE_PUSHER_SCHEME ?? 'https') === 'https',
 //     enabledTransports: ['ws', 'wss'],
 // });
+
+// Kênh Echo riêng cho ADMIN (xem resources/js/echo-admin.js) — chỉ nạp trong panel Filament, vì
+// window.Echo ở ĐÂY (bundle của trang web khách hàng) không cần/không nên tự kết nối WebSocket
+// tới kênh private chỉ dành cho admin (khách hàng không xác thực được, tốn 1 kết nối vô ích).

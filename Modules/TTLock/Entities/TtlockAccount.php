@@ -2,13 +2,17 @@
 
 namespace Modules\TTLock\Entities;
 
+use App\Models\Concerns\BelongsToPartner;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Modules\Category\Entities\Category;
 
 class TtlockAccount extends Model
 {
+    use BelongsToPartner;
+
     protected $fillable = [
+        'partner_id',
         'name',
         'client_id',
         'client_secret',

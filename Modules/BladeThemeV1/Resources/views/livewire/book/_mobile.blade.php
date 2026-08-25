@@ -1,20 +1,21 @@
 {{--
-    Mobile two-panel booking grid.
+    Mobile/tablet two-panel booking grid (1 phòng/lần, carousel prev-next) — desktop (≥lg) dùng
+    book/_desktop-grid.blade.php hiển thị tất cả phòng cùng lúc thay cho khối này.
     Included from book.blade.php — inherits:
-      $dates, $styleOneRooms, $totalStyleOneRooms, $today, $category, $productColors
+      $dates, $styleOneRooms, $totalStyleOneRooms, $today, $category
 --}}
-<div x-data="{
+@php
+    // Màu viền theo phòng (color_product) cho cột "Ngày" dùng chung — phải đổi theo phòng đang
+    // active (bind qua Alpine :style bên dưới, xem book/_desktop-grid.blade.php cho cùng cách làm).
+    $roomColorList = $styleOneRooms->map(fn ($r) => $productColors[$r->id]['color'] ?? null)->values()->all();
+@endphp
+<div class="lg:hidden" x-data="{
     activeRoomIdx: 0, totalRooms: {{ $totalStyleOneRooms }},
+    roomColors: {{ \Illuminate\Support\Js::from($roomColorList) }},
     slotPage: 0, slotsPerPage: 5,
     slotCounts: [{{ $styleOneRooms->map(fn($r) => $r->roomTimeSlots->count())->join(', ') }}],
     categorySlug: '{{ \Str::slug($category['name']) }}',
     touchStartX: 0,
-    roomColors: [
-        @foreach ($styleOneRooms as $room)
-        @php $rc = $productColors[$room->id] ?? null; $rcBg = $rc['color'] ?? '#4e6b4c'; $rcText = $autoTextColor($rcBg); @endphp
-        { bg: '{{ $rcBg }}', text: '{{ $rcText }}' },
-        @endforeach
-    ],
     get totalSlotPages() { return Math.ceil((this.slotCounts[this.activeRoomIdx] ?? 5) / this.slotsPerPage); },
     changeRoom(dir) {
         const newIdx = this.activeRoomIdx + dir;
@@ -32,12 +33,20 @@
             window.dispatchEvent(new CustomEvent('book-activate-room', {
                 detail: { tabId: tabs[nextTabIdx].id, fromEnd: dir < 0 }
             }));
+            return;
+        }
+        // Vòng lặp: hết phòng cuối/đầu của chi nhánh này và không còn tab kế bên để nhảy sang
+        // (chỉ 1 tab, hoặc đã ở tab đầu/cuối) — quay lại phòng đầu tiên/cuối cùng của chi nhánh.
+        if (this.totalRooms > 1) {
+            this.activeRoomIdx = dir > 0 ? 0 : this.totalRooms - 1;
+            this.slotPage = 0;
         }
     },
     onTouchStart(e) { this.touchStartX = e.touches[0].clientX; },
+    // Ngưỡng 25px (giảm từ 40px) — nhạy hơn, chỉ cần vuốt 1 đoạn ngắn là đổi phòng.
     onTouchEnd(e) {
         const diff = this.touchStartX - e.changedTouches[0].clientX;
-        if (Math.abs(diff) > 40) { this.changeRoom(diff > 0 ? 1 : -1); }
+        if (Math.abs(diff) > 25) { this.changeRoom(diff > 0 ? 1 : -1); }
     }
 }"
     @touchstart.passive="onTouchStart($event)"
@@ -50,31 +59,58 @@
     "
 >
 
-    {{-- ── Room carousel header ── --}}
-    <div class="book-room-nav-wrap" :style="{ background: roomColors[activeRoomIdx]?.bg ?? '#4e6b4c', color: roomColors[activeRoomIdx]?.text ?? '#ffffff', transition: 'background 0.4s ease, color 0.3s ease' }">
-        <button class="book-nav-btn" type="button"
-            @click="changeRoom(-1)"
-            aria-label="Phòng trước">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
-            </svg>
-        </button>
-        <div class="book-room-titles-wrap">
-            @foreach ($styleOneRooms as $ri => $roomTitle)
-            <div x-show="activeRoomIdx === {{ $ri }}"
-                class="book-room-title-block">
-                <h3 class="book-room-name">{{ $roomTitle->name }}</h3>
-                <p class="book-room-sub">{{ $category['name'] }}{{ isset($category['parent_name']) ? ', ' . $category['parent_name'] : '' }}</p>
+    <div class="book-card-outer">
+
+    {{-- ── Room carousel header — trải rộng hết chiều ngang (w-full). Tên phòng bên trái, 2 nút
+         trượt gộp gần nhau bên phải cùng hàng (thay vì mỗi nút 1 đầu, cách xa nhau như trước). ── --}}
+    <div class="book-top-row">
+        <div class="book-room-nav-wrap w-full">
+            <div class="book-room-titles-wrap">
+                @foreach ($styleOneRooms as $ri => $roomTitle)
+                @php
+                    // Phòng đang có khuyến mãi giảm giá (percentage/fixed) hiệu lực ngay bây giờ ở
+                    // bất kỳ khung giờ nào — chỉ để hiện icon flash-sale trang trí cạnh tên phòng,
+                    // không cần khớp chính xác từng ngày/giờ như calculateSlotPrice() (dùng khi tính
+                    // giá thật cho từng ô lịch).
+                    $roomHasDiscount = $roomTitle->roomTimeSlots->contains(
+                        fn ($rts) => $rts->promotions->contains(
+                            fn ($p) => in_array($p->type, ['percentage', 'fixed'])
+                                && $p->is_active
+                                && \Carbon\Carbon::parse($p->start_at)->lte(now())
+                                && \Carbon\Carbon::parse($p->end_at)->gte(now())
+                        )
+                    );
+                @endphp
+                <div x-show="activeRoomIdx === {{ $ri }}"
+                    class="book-room-title-block">
+                    <h3 class="book-room-name">
+                        {{ $roomTitle->name }}
+                        @if($roomHasDiscount)
+                            <img src="{{ asset('images/flash-sale.gif') }}" alt="" class="book-room-flash-icon">
+                        @endif
+                    </h3>
+                </div>
+                @endforeach
             </div>
-            @endforeach
+            <div class="book-nav-btn-group">
+                <button class="book-nav-btn book-nav-btn-labeled" type="button"
+                    @click="changeRoom(-1)"
+                    aria-label="Phòng trước">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+                    </svg>
+                    <span>Trước</span>
+                </button>
+                <button class="book-nav-btn book-nav-btn-labeled" type="button"
+                    @click="changeRoom(1)"
+                    aria-label="Phòng tiếp">
+                    <span>Sau</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </button>
+            </div>
         </div>
-        <button class="book-nav-btn" type="button"
-            @click="changeRoom(1)"
-            aria-label="Phòng tiếp">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-            </svg>
-        </button>
     </div>
 
     {{-- ── Slot page navigation strip (only when room has > 5 slots) ── --}}
@@ -92,22 +128,36 @@
     @endif
     @endforeach
 
-    {{-- ── Fixed column headers (outside scroll container) ── --}}
-    <div class="book-grid-header" :style="{ '--room-color': roomColors[activeRoomIdx]?.bg ?? '#4e6b4c', '--room-text-color': roomColors[activeRoomIdx]?.text ?? '#ffffff' }">
-        <div class="book-col-header">Ngày</div>
+    {{-- ── Fixed column headers (ngoài khung cuộn — không còn cần position:sticky vì cuộn
+         giờ nằm bên trong từng card thân) ── --}}
+    <div class="book-grid-header">
+        <div class="book-col-header"
+            :style="roomColors[activeRoomIdx] ? `--room-border-color:${roomColors[activeRoomIdx]}` : ''">Ngày</div>
         <div class="book-slots-headers-wrap">
             @foreach ($styleOneRooms as $ri => $room)
-            @php $rc = $productColors[$room->id] ?? null; $mRcBg = $rc['color'] ?? '#4e6b4c'; $mRcText = $autoTextColor($mRcBg); @endphp
-            <div x-show="activeRoomIdx === {{ $ri }}" x-cloak class="book-slots-header-row">
+            @php
+                $roomConfig = $productColors[$room->id] ?? null;
+                $roomBg     = $roomConfig['color'] ?? null;
+            @endphp
+            <div x-show="activeRoomIdx === {{ $ri }}" x-cloak class="book-slots-header-row"
+                style="{{ $roomBg ? "--room-border-color:{$roomBg};" : '' }}">
                 @foreach ($room->roomTimeSlots as $roomTimeSlot)
                 @php
                 $startTime   = \Carbon\Carbon::parse($roomTimeSlot->timeSlot->start_time);
                 $endTime     = \Carbon\Carbon::parse($roomTimeSlot->timeSlot->end_time);
                 $isOvernight = $endTime->isNextDay() || $endTime->lt($startTime);
                 @endphp
-                <div class="book-slot-th" style="color: {{ $mRcText }};" x-show="Math.floor({{ $loop->index }} / slotsPerPage) === slotPage">
-                    {{ $startTime->format('H:i') }}<br>{{ $endTime->format('H:i') }}
-                    @if($isOvernight)<span class="book-overnight-tag">Qua đêm</span>@endif
+                <div class="book-slot-th" x-show="Math.floor({{ $loop->index }} / slotsPerPage) === slotPage">
+                    <span class="book-slot-time-start">{{ $startTime->format('H:i') }}</span><span class="book-slot-time-sep">&nbsp;–&nbsp;</span><br class="book-slot-time-br"><span class="book-slot-time-end">{{ $endTime->format('H:i') }}</span>
+                    @if($isOvernight)
+                        <svg class="book-slot-icon" style="color:#1e3a8a" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+                            <path fill-rule="evenodd" d="M9.528 1.718a.75.75 0 0 1 .162.819A8.97 8.97 0 0 0 9 6a9 9 0 0 0 9 9 8.97 8.97 0 0 0 3.463-.69.75.75 0 0 1 .981.98 10.503 10.503 0 0 1-9.694 6.46c-5.799 0-10.5-4.7-10.5-10.5 0-4.368 2.667-8.112 6.46-9.694a.75.75 0 0 1 .818.162Z" clip-rule="evenodd" />
+                        </svg>
+                    @else
+                        <svg class="book-slot-icon" style="color:#eab308" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M8 1a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 1ZM10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM12.95 4.11a.75.75 0 1 0-1.06-1.06l-1.062 1.06a.75.75 0 0 0 1.061 1.062l1.06-1.061ZM15 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 15 8ZM11.89 12.95a.75.75 0 0 0 1.06-1.06l-1.06-1.062a.75.75 0 0 0-1.062 1.061l1.061 1.06ZM8 12a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 12ZM5.172 11.89a.75.75 0 0 0-1.061-1.062L3.05 11.89a.75.75 0 1 0 1.06 1.06l1.06-1.06ZM4 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 4 8ZM4.11 5.172A.75.75 0 0 0 5.173 4.11L4.11 3.05a.75.75 0 1 0-1.06 1.06l1.06 1.06Z" />
+                        </svg>
+                    @endif
                 </div>
                 @endforeach
             </div>
@@ -115,190 +165,64 @@
         </div>
     </div>
 
-    {{-- ── Two-panel grid (vertically scrollable) ── --}}
-    <div class="book-mobile-scroll" :style="{ '--room-color': roomColors[activeRoomIdx]?.bg ?? '#4e6b4c', '--room-text-color': roomColors[activeRoomIdx]?.text ?? '#ffffff' }">
-    <div class="book-grid-outer" :style="{ background: roomColors[activeRoomIdx]?.bg ?? '#4e6b4c' }">
+    {{-- ── Thân: khung (viền/bo góc) của mỗi card đứng yên cố định, chỉ nội dung bên trong
+         cuộn dọc, đồng bộ 2 chiều qua @scroll để cột Ngày và khung giờ luôn khớp hàng ── --}}
+    <div class="book-grid-outer">
 
         {{-- Left: Dates card --}}
         <div class="book-dates-card">
-            @foreach ($dates as $date)
-            @php $dateShort = \Carbon\Carbon::createFromFormat('d-m-Y', $date['date'])->format('d/m'); @endphp
-            <div class="book-date-row{{ $date['is_today'] ? ' is-today' : '' }}">
-                <span class="book-date-day">{{ $date['day'] }}</span>
-                <span class="book-date-num">{{ $dateShort }}</span>
+            <div class="book-dates-scroll" x-ref="bookDatesScroll"
+                @scroll="$refs['bookSlotsScroll' + activeRoomIdx].scrollTop = $event.target.scrollTop">
+                @foreach ($dates as $date)
+                @php $dateShort = \Carbon\Carbon::createFromFormat('d-m-Y', $date['date'])->format('d/m'); @endphp
+                <div class="book-date-row{{ $date['is_today'] ? ' is-today' : '' }}">
+                    <span class="book-date-day">{{ $date['day'] }}</span>
+                    <span class="book-date-num">{{ $dateShort }}</span>
+                </div>
+                @endforeach
             </div>
-            @endforeach
         </div>
 
         {{-- Right: Scrollable slots per room --}}
         <div class="book-slots-outer">
             @foreach ($styleOneRooms as $ri => $room)
-            @php $rc = $productColors[$room->id] ?? null; $mRcBg = $rc['color'] ?? '#4e6b4c'; $mRcText = $autoTextColor($mRcBg); @endphp
             <div x-show="activeRoomIdx === {{ $ri }}" x-cloak class="book-slots-card">
+                <div class="book-slots-scroll" x-ref="bookSlotsScroll{{ $ri }}"
+                    @scroll="$refs.bookDatesScroll.scrollTop = $event.target.scrollTop">
 
-                {{-- One row per date --}}
+                {{-- Render đầy đủ (giá/khuyến mãi) cho MỌI phòng, kể cả các phòng đang ẩn qua x-show
+                     (chưa active) — đã verify chi phí tối đa an toàn qua Livewire::test() (chi nhánh
+                     nhiều phòng nhất hiện có, 31 ngày, ~100MB, memory_limit hiện tại 512M). Từng thử
+                     giới hạn chỉ render phòng active để tiết kiệm chi phí, nhưng gây lỗi ô trống khi
+                     đổi phòng sau khi đã "Xem thêm ngày" (server không đồng bộ kịp phòng đang active
+                     lúc đổi phòng thuần client-side) — ưu tiên đúng giao diện hơn tối ưu này. --}}
                 @foreach ($dates as $date)
                 <div class="book-slots-row">
                     @foreach ($room->roomTimeSlots as $roomTimeSlot)
-                    @php
-                    $price    = $roomTimeSlot->price ?? 0;
-                    $classes  = '';
-                    $isSelectable = true;
-                    $finalPrice   = $price;
-
-                    $currentDateTime = \Carbon\Carbon::createFromFormat(
-                        'd-m-Y H:i:s',
-                        $date['date'] . ' ' . $roomTimeSlot->timeSlot->start_time,
-                    );
-
-                    $status      = 'available';
-                    $matchedItem = null;
-
-                    foreach ($room->orderItems as $orderItem) {
-                        $checkin  = \Carbon\Carbon::parse($orderItem->checkin_date);
-                        $checkout = \Carbon\Carbon::parse($orderItem->checkout_date);
-                        if ($currentDateTime->between($checkin, $checkout)) {
-                            if ($orderItem->order) { $status = $orderItem->order->status; }
-                            $matchedItem = $orderItem;
-                            break;
-                        }
-                    }
-
-                    if ($status === 'pending') {
-                        $classes .= ' pending'; $isSelectable = false;
-                    } elseif (in_array($status, ['paid', 'shipped', 'confirmed'])) {
-                        $classes .= ' booked'; $isSelectable = false;
-                    }
-                    
-                    $orderColor = null;
-                   if ($matchedItem) {
-                        if (in_array($status, ['paid', 'shipped', 'confirmed'])) {
-                            $orderColor = '#4e6b4c';
-                        } elseif ($status === 'deposit') {
-                            $orderColor = '#3b82f6';
-                        } elseif ($status === 'pending') {
-                            $orderColor = '#f97316';
-                        } else {
-                            $orderColor = '#94a3b8';
-                        }
-                    }
-
-                    $slotDate   = \Carbon\Carbon::createFromFormat('d-m-Y', $date['date'])->startOfDay();
-                    $yesterday  = now()->subDay()->startOfDay();
-                    $cutoffTime = now()->startOfDay()->setTime(7, 30, 0);
-
-                    if ($slotDate->lt($yesterday)) {
-                        $isSelectable = false; $classes .= ' past-date';
-                    } elseif ($slotDate->eq($yesterday)) {
-                        if (now()->gte($cutoffTime)) { $isSelectable = false; $classes .= ' past-date'; }
-                    } elseif ($slotDate->eq($today)) {
-                        $slotEndTimeParsed = \Carbon\Carbon::parse($roomTimeSlot->timeSlot->end_time);
-                        $isOvernightSlot   = $slotEndTimeParsed->lt(\Carbon\Carbon::parse($roomTimeSlot->timeSlot->start_time));
-                        $slotEndDateTime   = $slotDate->copy()->setTime(
-                            $slotEndTimeParsed->hour,
-                            $slotEndTimeParsed->minute,
-                            $slotEndTimeParsed->second
-                        );
-                        if ($isOvernightSlot) { $slotEndDateTime->addDay(); }
-                        if (now()->gte($slotEndDateTime)) { $isSelectable = false; $classes .= ' past-date'; }
-                    }
-
-                    $rtsSettings  = is_array($roomTimeSlot->settings)
-                        ? $roomTimeSlot->settings
-                        : (json_decode($roomTimeSlot->settings, true) ?? []);
-                    $blockedDates = $rtsSettings['blocked_dates'] ?? [];
-                    $slotDateYmd  = \Carbon\Carbon::createFromFormat('d-m-Y', $date['date'])->toDateString();
-                    if (in_array($slotDateYmd, $blockedDates)) { $isSelectable = false; $classes .= ' blocked'; }
-
-                    $slotStartTime = \Carbon\Carbon::parse($roomTimeSlot->timeSlot->start_time)->format('H:i:s');
-                    $priceData     = $this->calculateSlotPrice($roomTimeSlot, $date['date'], $slotStartTime);
-                    $finalPrice    = $priceData['final_price'];
-                    $originalPrice = $priceData['original_price'];
-                    $totalDiscount = $priceData['total_discount'];
-                    $hasPromotion  = $priceData['has_promotion'];
-                    $isIncrease    = $priceData['is_increase'];
-                    $activePromotions = $priceData['promotions'] ?? [];
-
-                    $hasDiscountPromotion = false; $hasIncreasePromotion = false;
-                    $discountPromotions   = []; $increasePromotions = [];
-
-                    foreach ($activePromotions as $promo) {
-                        if (in_array($promo->type, ['percentage', 'fixed'])) { $hasDiscountPromotion = true; $discountPromotions[] = $promo; }
-                        if (in_array($promo->type, ['increase_percentage', 'increase_fixed'])) { $hasIncreasePromotion = true; $increasePromotions[] = $promo; }
-                    }
-
-                    $showPromotion = $hasDiscountPromotion;
-                    if ($hasDiscountPromotion) { $classes .= ' promo'; }
-                    if ($hasIncreasePromotion && !$hasDiscountPromotion) { $classes .= ' promo-increase'; }
-
-                    $discountPromotionsData = collect($discountPromotions)->map(function($p) use ($originalPrice, $priceData) {
-                        $amount = 0;
-                        if ($p->type === 'percentage') { $amount = ($originalPrice + $priceData['increase_amount']) * ($p->value / 100); }
-                        elseif ($p->type === 'fixed') { $amount = $p->value; }
-                        return ['name' => $p->name, 'type' => $p->type, 'value' => $p->value, 'amount' => $amount, 'lable_client' => $p->lable_client ?? null, 'image' => $p->image ?? null];
-                    })->toArray();
-
-                    $increasePromotionsData = collect($increasePromotions)->map(function($p) use ($originalPrice) {
-                        $amount = 0;
-                        if ($p->type === 'increase_percentage') { $amount = $originalPrice * ($p->value / 100); }
-                        elseif ($p->type === 'increase_fixed') { $amount = $p->value; }
-                        return ['name' => $p->name, 'type' => $p->type, 'value' => $p->value, 'amount' => $amount, 'lable_client' => $p->lable_client ?? null, 'image' => $p->image ?? null];
-                    })->toArray();
-
-                    $displayPromotion         = $increasePromotions[0] ?? null;
-                    $displayDiscountPromotion = $discountPromotionsData[0] ?? null;
-                    @endphp
-
                     <div class="book-slot-cell" x-show="Math.floor({{ $loop->index }} / slotsPerPage) === slotPage">
-                        <div class="selectable {{ $classes }}"
-                           style="{{ !$isSelectable ? 'pointer-events:none;opacity:0.55;' : 'cursor:pointer;' }}{{ $orderColor ? '--order-color:' . $orderColor . ';' : '' }}"
-                            @click="toggleSlot($el, {
-                                date: '{{ $date['date'] }}',
-                                startTime: '{{ $roomTimeSlot->timeSlot->start_time }}',
-                                endTime: '{{ $roomTimeSlot->timeSlot->end_time }}',
-                                timeslotId: '{{ $roomTimeSlot->timeSlot->id }}',
-                                roomId: '{{ $room->id }}',
-                                price: {{ $finalPrice }},
-                                originalPrice: {{ $priceData['price_after_increase'] }},
-                                basePrice: {{ $originalPrice }},
-                                increaseAmount: {{ $priceData['increase_amount'] ?? 0 }},
-                                promoDiscount: {{ $totalDiscount }},
-                                hasDiscount: {{ $hasDiscountPromotion ? 'true' : 'false' }},
-                                hasIncrease: {{ $hasIncreasePromotion ? 'true' : 'false' }},
-                                isIncrease: {{ $isIncrease ? 'true' : 'false' }},
-                                is_activated: {{ $room->is_activated ? 'true' : 'false' }},
-                                overNight: {{ $roomTimeSlot->over_night ?? 0 }},
-                                totalSlotsInRoom: {{ $room->roomTimeSlots->count() }},
-                                fullBookingDiscountValue: '{{ $room->full_booking_discount }}',
-                                bulkDiscountRules: {{ json_encode($room->bulk_discount_rules ?? []) }},
-                                discountPromotions: {{ json_encode($discountPromotionsData) }},
-                                increasePromotions: {{ json_encode($increasePromotionsData) }}
-                            })">
-                            @if ($hasIncreasePromotion && $displayPromotion && $displayPromotion->image)
-                            <div class="promotion-corner-image">
-                                <img src="{{ asset('storage/' . $displayPromotion->image) }}" alt="{{ $displayPromotion->name }}" class="corner-img">
-                            </div>
-                            @endif
-                            @if ($hasIncreasePromotion && $displayPromotion && $displayPromotion->lable_client)
-                            <div class="promotion-center-label">{!! $displayPromotion->lable_client !!}</div>
-                            @endif
-                            @if ($hasDiscountPromotion && !$hasIncreasePromotion && $displayDiscountPromotion && !empty($displayDiscountPromotion['image']))
-                            <div class="promotion-corner-image">
-                                <img src="{{ asset('storage/' . $displayDiscountPromotion['image']) }}" alt="{{ $displayDiscountPromotion['name'] }}" class="corner-img">
-                            </div>
-                            @endif
-                            @if ($hasDiscountPromotion && !$hasIncreasePromotion && $displayDiscountPromotion && !empty($displayDiscountPromotion['lable_client']))
-                            <div class="promotion-center-label">{!! $displayDiscountPromotion['lable_client'] !!}</div>
-                            @endif
-                        </div>
+                        @include('bladethemev1::livewire.book._slot-cell', ['room' => $room, 'date' => $date, 'roomTimeSlot' => $roomTimeSlot])
                     </div>
                     @endforeach
                 </div>
                 @endforeach
 
+                </div>{{-- end .book-slots-scroll --}}
             </div>
             @endforeach
         </div>{{-- end .book-slots-outer --}}
     </div>{{-- end .book-grid-outer --}}
-    </div>{{-- end .book-mobile-scroll --}}
+
+    {{-- ── Xem thêm ngày (mỗi lần bấm hiện thêm tối đa 10 ngày kế tiếp, tự ẩn khi đã hiện hết). ── --}}
+    @if ($this->visibleDaysCount < \Modules\BladeThemeV1\Livewire\Book::MAX_VISIBLE_DAYS)
+        <div class="book-loadmore-row">
+            <button type="button" class="book-loadmore-btn" wire:click="loadMoreDates" wire:loading.attr="disabled" wire:target="loadMoreDates">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                </svg>
+                <span>Xem thêm {{ min(\Modules\BladeThemeV1\Livewire\Book::LOAD_MORE_DAYS_STEP, \Modules\BladeThemeV1\Livewire\Book::MAX_VISIBLE_DAYS - $this->visibleDaysCount) }} ngày</span>
+            </button>
+        </div>
+    @endif
+
+    </div>{{-- end .book-card-outer --}}
 </div>{{-- end x-data room carousel --}}

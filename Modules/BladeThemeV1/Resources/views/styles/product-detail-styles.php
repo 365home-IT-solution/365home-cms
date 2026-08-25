@@ -103,7 +103,7 @@
         right: 0;
         bottom: 0;
         border-radius: inherit;
-        background-color: var(--color-tickGray);
+        background-color: #111827;
     }
 
     .selectable.booked::after {
@@ -348,7 +348,7 @@
         right: 0;
         bottom: 0;
         border-radius: inherit;
-        background-color: var(--color-tickGray);
+        background-color: #111827;
     }
 
     .active-tab {

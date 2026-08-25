@@ -10,7 +10,7 @@
     @endif
 
     {{--  Footer main  --}}
-    <div class="mx-auto md:px-8 px-4 py-6 lg:py-12">
+    <div class="max-w-11xl mx-auto md:px-8 px-4 py-6 lg:py-12">
         @if (!empty($footerConfig) && isset($footerConfig['content']) && !empty($footerConfig['content']))
             <!-- Custom Title Style -->
             <style>

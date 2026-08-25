@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\AccessCode\App\Filament\Resources\AccessCodeResource\Tables;
 
+use App\Filament\Support\PartnerTableHelpers;
 use Filament\Forms\Components\Toggle;
 use Filament\Tables\Columns\BadgeColumn;
 use Filament\Tables\Columns\TextColumn;
@@ -87,12 +88,16 @@ class AccessCodeTable
                 TextColumn::make('notes')
                     ->label('Ghi chú')
                     ->toggleable(isToggledHiddenByDefault: true),
+                PartnerTableHelpers::column(),
             ])
             ->defaultSort('created_at', 'desc')
             ->headerActions([
                 GenerateTTLockPasscodesAction::make(),
             ])
-            ->filters(AccessCodeFilter::filter())
+            ->filters([
+                ...AccessCodeFilter::filter(),
+                PartnerTableHelpers::filter(),
+            ])
             ->actions(AccessCodeAction::action())
             ->bulkActions(AccessCodeBulkAction::bulkActions());
     }

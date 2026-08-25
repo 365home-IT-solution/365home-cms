@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\AuditLog\App\Filament\Resources\AuditLogResource\Tables;
 
+use App\Filament\Support\PartnerTableHelpers;
 use Filament\Support\Enums\FontWeight;
 use Filament\Tables\Actions\Action;
 use Filament\Tables\Columns\BadgeColumn;
@@ -55,8 +56,11 @@ class AuditLogTable
                     ->label('Đối tượng')
                     ->description(fn ($record) => $record->target_label)
                     ->formatStateUsing(fn ($state) => AuditLog::moduleLabels()[$state] ?? $state),
+                PartnerTableHelpers::column(),
             ])
             ->filters([
+                PartnerTableHelpers::filter(),
+
                 SelectFilter::make('module')
                     ->label('Module')
                     ->options(AuditLog::moduleLabels())

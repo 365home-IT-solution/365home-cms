@@ -167,8 +167,9 @@ class TrafficAnalyticsWidget extends Widget
         }
 
         $allCategoryIds = $user->allowedCategoryIds();
+        // Order đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds chỉ thu hẹp thêm.
         if (empty($allCategoryIds)) {
-            return $query->whereRaw('1 = 0');
+            return $query;
         }
 
         return $query->whereIn('category_id', $allCategoryIds);

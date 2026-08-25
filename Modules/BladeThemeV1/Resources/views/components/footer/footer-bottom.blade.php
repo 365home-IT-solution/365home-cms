@@ -11,7 +11,7 @@
 @endphp
 
 <div style="background: {{ $backgroundColor }}" class="border-t">
-    <div class="max-w-screen-xl mx-auto md:px-8 px-4">
+    <div class="max-w-11xl mx-auto md:px-8 px-4">
         <div style="color: {{ $baseColor }}" class="py-6 md:flex justify-between items-center">
             <div class="text-sm mb-4 md:mb-0 max-md:text-center">
                 © {{ date('Y') }}.  Copyright by <a href="https://goldenbeeltd.vn">Golden Bee</a>  

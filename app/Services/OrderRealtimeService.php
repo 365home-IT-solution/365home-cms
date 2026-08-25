@@ -106,6 +106,38 @@ class OrderRealtimeService
     }
 
     /**
+     * Bắn tín hiệu "có đơn thay đổi" cho admin đang xem DANH SÁCH đơn hàng hoặc dashboard/KPI —
+     * CHỈ là tín hiệu làm mới, KHÔNG kèm dữ liệu đơn (client tự gọi lại REST API tương ứng của
+     * mình để lấy dữ liệu, luôn đúng phạm vi quyền chi nhánh của admin đó) — cùng nguyên tắc
+     * AdminNotificationRealtimeService::broadcastNew(). Phát vào phòng CHUNG 'admin:orders' (không
+     * phân biệt chi nhánh/đối tác ở tầng Node, vì REST API phía sau đã tự lọc đúng phạm vi rồi).
+     *
+     * @param  string  $event  'created' | 'status_changed' | 'deleted'
+     */
+    public function broadcastAdminListChanged(string $orderCode, string $event): void
+    {
+        $url = $this->wsUrl();
+        if (empty($url)) {
+            return;
+        }
+
+        try {
+            Http::withHeaders(['x-internal-key' => $this->wsKey()])
+                ->timeout(2)
+                ->post("{$url}/internal/admin-order-changed", [
+                    'order_code' => $orderCode,
+                    'event'      => $event,
+                ]);
+        } catch (\Throwable $e) {
+            Log::warning('WS admin-order-changed push failed', [
+                'order_code' => $orderCode,
+                'event'      => $event,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
      * Broadcast thông báo mã cổng/phòng thay đổi.
      *
      * @param  string    $orderCode

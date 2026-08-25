@@ -186,7 +186,7 @@
                 x-transition:leave="transition ease-in duration-150"
                 x-transition:leave-start="opacity-100 scale-100"
                 x-transition:leave-end="opacity-0 scale-95"
-                class="relative w-full max-w-sm rounded-2xl border border-gray-200 shadow-2xl overflow-hidden bg-white"
+                class="relative w-full max-w-3xl rounded-2xl border border-gray-200 shadow-2xl overflow-hidden bg-white"
                 @click.stop
             >
                 {{-- Nút đóng --}}
@@ -199,25 +199,26 @@
                     </svg>
                 </button>
 
-                <div class="p-6">
+                {{-- 2 cột từ md trở lên: cột 1 hình ảnh minh hoạ (voucher.png), cột 2 toàn bộ form
+                     (cả 3 bước phone/otp/register) — mobile chỉ hiện cột form, ẩn hẳn cột ảnh cho
+                     đỡ chật. --}}
+                <div class="grid md:grid-cols-2">
+                    <div class="hidden md:block" style="background-image:url('{{ asset('images/voucher.png') }}'); background-size:cover; background-position:center;"></div>
 
-                    {{-- BƯỚC 1: Số điện thoại --}}
+                <div class="p-6 md:p-8">
+
+                    {{-- BƯỚC 1: Số điện thoại — giao diện tham khảo kiểu Go2Joy: lời chào lớn +
+                         phụ đề, ô nhập bo tròn rộng rãi, nút hành động chính to dạng pill. Luồng
+                         hoạt động GIỮ NGUYÊN như cũ (OTP gửi qua Zalo / đăng nhập mật khẩu) — chỉ
+                         đổi giao diện, không có đăng nhập Zalo kiểu OAuth (chưa có backend). Bỏ
+                         tab chuyển đổi OTP/Mật khẩu (segmented control) — thay bằng 1 dòng chữ
+                         gạch dưới bên dưới nút chính để đổi chế độ, gọn hơn. --}}
                     <div x-show="step === 'phone'">
-                        <h2 class="text-lg font-semibold text-gray-900 mb-3">Đăng nhập / Đăng ký</h2>
-
-                        {{-- Mode tabs --}}
-                        <div class="flex gap-1 mb-5 p-1 bg-gray-100 rounded-lg">
-                            <button type="button"
-                                @click="loginMode = 'otp'; error = ''"
-                                class="flex-1 py-1.5 text-xs font-semibold rounded-md transition-all"
-                                :class="loginMode === 'otp' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'"
-                            >OTP qua Zalo</button>
-                            <button type="button"
-                                @click="loginMode = 'password'; error = ''"
-                                class="flex-1 py-1.5 text-xs font-semibold rounded-md transition-all"
-                                :class="loginMode === 'password' ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'"
-                            >Mật khẩu</button>
-                        </div>
+                        {{-- pr-8: chừa chỗ cho nút đóng (×) absolute top-4 right-4 — không có
+                             padding này thì tiêu đề/phụ đề dài tràn ra hết bề ngang, ở mobile chữ
+                             xuống dòng ngay dưới/đè lên nút đóng (đúng lỗi đã gặp). --}}
+                        <h2 class="text-2xl font-bold text-gray-900 mb-1 pr-8">365 Home xin chào!</h2>
+                        <p class="text-sm text-gray-500 mb-5 pr-8">Đăng nhập để đặt phòng với những ưu đãi độc quyền dành cho thành viên.</p>
 
                         <div class="mb-4">
                             <label class="block text-xs font-medium text-gray-500 mb-1.5 uppercase tracking-wide">Số điện thoại</label>
@@ -226,7 +227,7 @@
                                 type="tel"
                                 placeholder="VD: 0912 345 678"
                                 @keydown.enter="loginMode === 'otp' ? sendOtp() : loginWithPassword()"
-                                class="w-full rounded-lg px-3 py-2.5 text-gray-900 text-sm bg-gray-50 border border-gray-200 focus:outline-none focus:ring-2 focus:border-transparent transition-all"
+                                class="w-full rounded-xl px-4 py-3.5 text-gray-900 text-sm bg-white border border-gray-200 focus:outline-none focus:ring-2 focus:border-transparent transition-all"
                                 style="--tw-ring-color: {{ $primaryHex }}40;"
                             >
                         </div>
@@ -240,7 +241,7 @@
                                     :type="showLoginPassword ? 'text' : 'password'"
                                     placeholder="Nhập mật khẩu"
                                     @keydown.enter="loginWithPassword()"
-                                    class="w-full rounded-lg px-3 py-2.5 pr-10 text-gray-900 text-sm bg-gray-50 border border-gray-200 focus:outline-none focus:ring-2 focus:border-transparent transition-all"
+                                    class="w-full rounded-xl px-4 py-3.5 pr-10 text-gray-900 text-sm bg-white border border-gray-200 focus:outline-none focus:ring-2 focus:border-transparent transition-all"
                                     style="--tw-ring-color: {{ $primaryHex }}40;"
                                 >
                                 <button type="button" @click="showLoginPassword = !showLoginPassword"
@@ -255,6 +256,13 @@
                             </div>
                         </div>
 
+                        {{-- Gợi ý kênh gửi OTP (thay cho icon Zalo từng nằm trên tab) — chỉ hiện ở
+                             chế độ OTP. --}}
+                        <p x-show="loginMode === 'otp'" x-cloak class="flex items-center gap-1.5 text-xs text-gray-400 mb-4 -mt-1.5">
+                            <img src="{{ asset('images/zalo.png') }}" alt="" style="width:14px;height:14px;flex-shrink:0;object-fit:contain;">
+                            Mã xác thực sẽ được gửi qua Zalo
+                        </p>
+
                         <div x-show="error" x-cloak class="mb-3 text-sm text-red-500 flex items-center gap-1.5">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
@@ -265,7 +273,7 @@
                         <button
                             @click="loginMode === 'otp' ? sendOtp() : loginWithPassword()"
                             :disabled="loading || !phone || (loginMode === 'password' && !loginPassword)"
-                            class="w-full rounded-lg py-2.5 text-sm font-semibold flex items-center justify-center gap-2 transition-opacity hover:opacity-85 active:opacity-75 disabled:opacity-50 disabled:cursor-not-allowed"
+                            class="w-full rounded-lg py-3.5 text-sm font-bold flex items-center justify-center gap-2 transition-opacity hover:opacity-85 active:opacity-75 disabled:opacity-50 disabled:cursor-not-allowed"
                             style="background-color: {{ $primaryHex }}; color: {{ $textOnPrimary }};"
                         >
                             <svg x-show="loading" class="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -274,6 +282,19 @@
                             </svg>
                             <span x-text="loading ? (loginMode === 'otp' ? 'Đang gửi...' : 'Đang đăng nhập...') : (loginMode === 'otp' ? 'Gửi mã OTP' : 'Đăng nhập')"></span>
                         </button>
+
+                        {{-- Đổi chế độ đăng nhập — thay cho tab segmented control cũ, chỉ 1 dòng
+                             chữ gạch dưới. --}}
+                        <p class="text-center text-sm mt-4">
+                            <button type="button" x-show="loginMode === 'otp'" x-cloak
+                                @click="loginMode = 'password'; error = ''"
+                                class="font-semibold underline" style="color: {{ $primaryHex }};"
+                            >Đăng nhập bằng mật khẩu</button>
+                            <button type="button" x-show="loginMode === 'password'" x-cloak
+                                @click="loginMode = 'otp'; error = ''"
+                                class="font-semibold underline" style="color: {{ $primaryHex }};"
+                            >Đăng nhập bằng OTP qua Zalo</button>
+                        </p>
                     </div>
 
                     {{-- BƯỚC 2: OTP --}}
@@ -285,8 +306,8 @@
                             Quay lại
                         </button>
 
-                        <h2 class="text-lg font-semibold text-gray-900 mb-1">Nhập mã OTP</h2>
-                        <p class="text-sm text-gray-500 mb-5">
+                        <h2 class="text-lg font-semibold text-gray-900 mb-1 pr-8">Nhập mã OTP</h2>
+                        <p class="text-sm text-gray-500 mb-5 pr-8">
                             Mã đã gửi đến Zalo số
                             <span class="font-semibold" style="color: {{ $primaryHex }};" x-text="phone"></span>.
                         </p>
@@ -299,7 +320,7 @@
                                 maxlength="6"
                                 placeholder="_ _ _ _ _ _"
                                 @keydown.enter="verifyOtp()"
-                                class="w-full rounded-lg px-3 py-2.5 text-gray-900 text-sm tracking-[0.5em] text-center bg-gray-50 border border-gray-200 focus:outline-none transition-all"
+                                class="w-full rounded-lg px-3 py-2.5 text-gray-900 text-sm tracking-[0.5em] text-center bg-white border border-gray-200 focus:outline-none transition-all"
                             >
                         </div>
 
@@ -313,7 +334,7 @@
                         <button
                             @click="verifyOtp()"
                             :disabled="loading || otp.length < 6"
-                            class="w-full rounded-lg py-2.5 text-sm font-semibold flex items-center justify-center gap-2 transition-opacity hover:opacity-85 active:opacity-75 disabled:opacity-50 disabled:cursor-not-allowed"
+                            class="w-full rounded-lg py-3.5 text-sm font-bold flex items-center justify-center gap-2 transition-opacity hover:opacity-85 active:opacity-75 disabled:opacity-50 disabled:cursor-not-allowed"
                             style="background-color: {{ $primaryHex }}; color: {{ $textOnPrimary }};"
                         >
                             <svg x-show="loading" class="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -326,8 +347,8 @@
 
                     {{-- BƯỚC 3: Đăng ký --}}
                     <div x-show="step === 'register'">
-                        <h2 class="text-lg font-semibold text-gray-900 mb-1">Hoàn tất đăng ký</h2>
-                        <p class="text-sm text-gray-500 mb-5">Số điện thoại chưa có tài khoản. Điền thông tin để tạo tài khoản.</p>
+                        <h2 class="text-lg font-semibold text-gray-900 mb-1 pr-8">Hoàn tất đăng ký</h2>
+                        <p class="text-sm text-gray-500 mb-5 pr-8">Số điện thoại chưa có tài khoản. Điền thông tin để tạo tài khoản.</p>
 
                         <div class="mb-3">
                             <label class="block text-xs font-medium text-gray-500 mb-1.5 uppercase tracking-wide">Họ và tên</label>
@@ -335,7 +356,7 @@
                                 x-model="fullname"
                                 type="text"
                                 placeholder="Nguyễn Văn A"
-                                class="w-full rounded-lg px-3 py-2.5 text-gray-900 text-sm bg-gray-50 border border-gray-200 focus:outline-none transition-all"
+                                class="w-full rounded-lg px-3 py-2.5 text-gray-900 text-sm bg-white border border-gray-200 focus:outline-none transition-all"
                             >
                         </div>
 
@@ -344,7 +365,7 @@
                             <input
                                 x-model="date_of_birth"
                                 type="date"
-                                class="w-full rounded-lg px-3 py-2.5 text-gray-900 text-sm bg-gray-50 border border-gray-200 focus:outline-none transition-all"
+                                class="w-full rounded-lg px-3 py-2.5 text-gray-900 text-sm bg-white border border-gray-200 focus:outline-none transition-all"
                             >
                         </div>
 
@@ -364,7 +385,7 @@
                                             x-model="password"
                                             :type="showPassword ? 'text' : 'password'"
                                             placeholder="Ít nhất 8 ký tự"
-                                            class="w-full rounded-lg px-3 py-2.5 pr-10 text-gray-900 text-sm bg-gray-50 border border-gray-200 focus:outline-none transition-all"
+                                            class="w-full rounded-lg px-3 py-2.5 pr-10 text-gray-900 text-sm bg-white border border-gray-200 focus:outline-none transition-all"
                                         >
                                         <button type="button" @click="showPassword = !showPassword" class="absolute inset-y-0 right-3 flex items-center text-gray-400 hover:text-gray-600">
                                             <svg x-show="!showPassword" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -382,7 +403,7 @@
                                         x-model="password_confirmation"
                                         :type="showPassword ? 'text' : 'password'"
                                         placeholder="Nhập lại mật khẩu"
-                                        class="w-full rounded-lg px-3 py-2.5 text-gray-900 text-sm bg-gray-50 border border-gray-200 focus:outline-none transition-all"
+                                        class="w-full rounded-lg px-3 py-2.5 text-gray-900 text-sm bg-white border border-gray-200 focus:outline-none transition-all"
                                     >
                                 </div>
                                 <p class="text-xs text-gray-400">Đặt mật khẩu để có thể đăng nhập bằng SĐT + mật khẩu sau này.</p>
@@ -399,7 +420,7 @@
                         <button
                             @click="registerUser()"
                             :disabled="loading || !fullname || !date_of_birth"
-                            class="w-full rounded-lg py-2.5 text-sm font-semibold flex items-center justify-center gap-2 transition-opacity hover:opacity-85 active:opacity-75 disabled:opacity-50 disabled:cursor-not-allowed"
+                            class="w-full rounded-lg py-3.5 text-sm font-bold flex items-center justify-center gap-2 transition-opacity hover:opacity-85 active:opacity-75 disabled:opacity-50 disabled:cursor-not-allowed"
                             style="background-color: {{ $primaryHex }}; color: {{ $textOnPrimary }};"
                         >
                             <svg x-show="loading" class="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -410,6 +431,7 @@
                         </button>
                     </div>
 
+                </div>
                 </div>
             </div>
         </div>

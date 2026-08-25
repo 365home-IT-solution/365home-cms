@@ -62,15 +62,29 @@ class SearchBooking extends Component
     {
         $this->depositError = '';
 
+        $phone = preg_replace('/[^0-9]/', '', $this->sdt);
+
+        if (empty($phone)) {
+            $this->depositError = 'Vui lòng tra cứu đơn bằng số điện thoại trước khi thanh toán.';
+            return;
+        }
+
         try {
-            $order = Order::with('items')->where('order_code', $orderCode)->firstOrFail();
+            $order = Order::with('items')
+                ->where('order_code', $orderCode)
+                ->where('buyer_phone', $phone)
+                ->firstOrFail();
 
             if ($order->status !== 'deposit' || $order->deposit_percent === null) {
                 $this->depositError = 'Đơn này không ở trạng thái chờ thanh toán cọc.';
                 return;
             }
 
-            $depositAmount = (int) $order->amount; // amount đã được set = deposit khi tạo đơn
+            // 'amount' lưu TỔNG GIÁ CỐ ĐỊNH của đơn (giống 'full_amount'), KHÔNG PHẢI tiền cọc cần
+            // thu — xem Order::depositDueAmount()/ProductDetail::confirmBooking(). Dùng thẳng
+            // $order->amount ở đây trước đó khiến khách quay lại thanh toán cọc bị tính NHẦM thành
+            // toàn bộ giá trị đơn thay vì đúng % cọc.
+            $depositAmount = $order->depositDueAmount();
 
             $clientId    = Config::get('payos.client_id');
             $apiKey      = Config::get('payos.api_key');
@@ -127,8 +141,18 @@ class SearchBooking extends Component
     {
         $this->remainingError = '';
 
+        $phone = preg_replace('/[^0-9]/', '', $this->sdt);
+
+        if (empty($phone)) {
+            $this->remainingError = 'Vui lòng tra cứu đơn bằng số điện thoại trước khi thanh toán.';
+            return;
+        }
+
         try {
-            $order = Order::with('items')->where('order_code', $orderCode)->firstOrFail();
+            $order = Order::with('items')
+                ->where('order_code', $orderCode)
+                ->where('buyer_phone', $phone)
+                ->firstOrFail();
 
             if ($order->status !== 'deposit') {
                 $this->remainingError = 'Đơn này không ở trạng thái chờ thanh toán còn lại.';
@@ -139,9 +163,15 @@ class SearchBooking extends Component
             // Luôn tạo link mới để đảm bảo returnUrl đúng (không reuse link cũ)
             $order->update(['remaining_checkout_url' => null]);
 
-            $fullAmount  = (int) ($order->full_amount ?? $order->amount);
-            $paidAmount  = (int) $order->amount;
-            $remaining   = $fullAmount - $paidAmount;
+            // Cùng lỗi với createDepositPayment() ở trên: 'amount' KHÔNG PHẢI tiền đã cọc, nên
+            // fullAmount - amount luôn ra ~0 (2 cột lưu cùng 1 giá trị tổng giá) — khách không bao
+            // giờ tạo được QR phần còn lại qua trang tra cứu này. Tính đúng qua
+            // depositPaidAmount() (số tiền cọc THỰC TẾ, mặc định = depositDueAmount() trừ khi admin
+            // tự sửa tay) + phát sinh thêm nếu có — cùng công thức OrderPaymentController::calcRemaining().
+            $fullAmount  = (int) $order->full_amount;
+            $depositPaid = $order->depositPaidAmount();
+            $extraCharge = (int) ($order->extra_charge_amount ?? 0);
+            $remaining   = max(0, ($fullAmount - $depositPaid) + $extraCharge);
 
             if ($remaining <= 0) {
                 $this->remainingError = 'Không còn khoản cần thanh toán.';

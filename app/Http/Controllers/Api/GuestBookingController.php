@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Modules\Category\Entities\Category;
 use Modules\Payment\App\Services\CccdScannerService;
 use Illuminate\Validation\ValidationException;
 use Modules\Payment\Entities\Order;
@@ -50,6 +51,14 @@ class GuestBookingController extends Controller
             'cccd_front'              => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
             'cccd_back'               => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
             'device_token'            => 'sometimes|nullable|string|max:500',
+            // CCCD người đi cùng (khung giờ qua đêm) — khách thứ 2 trở đi, key theo guest_index
+            // (guests[2][front], guests[2][back], guests[3][front]...). Chỉ THỰC SỰ bắt buộc khi
+            // có slot over_night, nhưng chưa biết được điều đó cho tới khi build xong
+            // $rtsCollection ở dưới, nên ở đây chỉ validate ĐỊNH DẠNG nếu có gửi lên; check
+            // "required đủ số khách" làm riêng ở bước 3.5.
+            'guests'                  => 'sometimes|array',
+            'guests.*.front'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'guests.*.back'           => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
         ];
 
         if ($request->input('type') === 'slot') {
@@ -72,6 +81,8 @@ class GuestBookingController extends Controller
             }
         }
         $couponCodes = array_values(array_unique(array_map('strtoupper', array_filter((array) ($couponInput ?? [])))));
+
+        $this->guardExclusiveCoupons($couponCodes);
 
         $buyerName = trim($request->input('buyer_name'));
         $buyerPhone = trim($request->input('buyer_phone'));
@@ -121,6 +132,55 @@ class GuestBookingController extends Controller
             [$basePrice, $summaryName, $itemsData, $rtsCollection, $slotSummary] = $this->buildSlotItems($request, $room);
         } else {
             [$basePrice, $summaryName, $itemsData, $rtsCollection, $slotSummary] = $this->buildDailyItems($request, $room);
+        }
+
+        // ── 3.5 CCCD người đi cùng (bắt buộc khi có khung giờ qua đêm) ─────────
+        // Luật Cư trú (hiệu lực 01/07/2026) yêu cầu khai báo lưu trú ĐỦ TỪNG NGƯỜI khi lưu trú
+        // qua đêm — không chỉ người đặt phòng chính (cccd_front/cccd_back/cccd_data ở trên).
+        // Không còn chặn cứng ở 2 khách nữa — khách 2..guest_count đều cần CCCD, gửi lên qua
+        // guests[{index}][front]/guests[{index}][back] (index bắt đầu từ 2).
+        $hasOvernight  = $rtsCollection->contains(fn ($rts) => (bool) $rts->over_night);
+        $guestCccdRows = []; // [['guest_index' => 2, 'front' => path, 'back' => path, 'data' => [...]], ...]
+
+        if ($hasOvernight) {
+            $guestCount = (int) $request->input('guest_count');
+
+            for ($guestIndex = 2; $guestIndex <= $guestCount; $guestIndex++) {
+                $frontKey = "guests.{$guestIndex}.front";
+                $backKey  = "guests.{$guestIndex}.back";
+
+                if (! $request->hasFile($frontKey) || ! $request->hasFile($backKey)) {
+                    $this->cleanupUploadedFiles($cccdFront, $cccdBack, $guestCccdRows);
+
+                    return response()->json([
+                        'message' => "Khung giờ qua đêm cần khai báo lưu trú cho khách thứ {$guestIndex} — vui lòng gửi kèm CCCD (mặt trước/sau) của khách này.",
+                    ], 422);
+                }
+
+                $guestFront = $request->file($frontKey)->store('cccd', 'public');
+                $guestBack  = $request->file($backKey)->store('cccd', 'public');
+
+                $tempGuestOrder = new Order(['cccd_front' => $guestFront, 'cccd_back' => $guestBack]);
+                $guestData      = app(CccdScannerService::class)->scanOrder($tempGuestOrder);
+
+                if (! $guestData) {
+                    Storage::disk('public')->delete($guestFront);
+                    Storage::disk('public')->delete($guestBack);
+                    $this->cleanupUploadedFiles($cccdFront, $cccdBack, $guestCccdRows);
+
+                    return response()->json([
+                        'message' => "Không đọc được QR trên ảnh CCCD của khách thứ {$guestIndex}. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.",
+                    ], 422);
+                }
+
+                // Không kiểm tra tuổi người đi cùng (khác CCCD chính) — trẻ nhỏ đi cùng phụ huynh vẫn hợp lệ.
+                $guestCccdRows[] = [
+                    'guest_index' => $guestIndex,
+                    'front'       => $guestFront,
+                    'back'        => $guestBack,
+                    'data'        => $guestData,
+                ];
+            }
         }
 
         // ── 4. Dịch vụ bổ sung ───────────────────────────────────────────────
@@ -204,7 +264,22 @@ class GuestBookingController extends Controller
             }
         }
 
-        $category      = $room->categories()->first();
+        // Dữ liệu đối tác cũ (vd 365home) tổ chức category 2 CẤP: chi nhánh thật (parent_id NULL)
+        // → danh mục phòng con CÙNG TÊN với phòng (parent_id = chi nhánh) — Product được gán
+        // categorizable vào danh mục CON đó, không phải thẳng vào chi nhánh. Nếu dùng thẳng kết
+        // quả categories()->first(), 'category_id' của đơn sẽ lưu NHẦM thành danh mục con (hiện
+        // tên phòng thay vì tên chi nhánh khi admin mở sửa đơn) — leo lên tới đúng cấp chi nhánh
+        // (parent_id NULL) trước khi lưu vào đơn.
+        $category = $room->categories()->first();
+        // Giới hạn tối đa 5 lần leo lên — đủ dư cho mọi cấu trúc thực tế (thường chỉ 1-2 cấp),
+        // đồng thời chặn vòng lặp vô hạn nếu dữ liệu category bị lỗi (vd tự trỏ vòng lặp cha-con).
+        for ($i = 0; $i < 5 && $category && $category->parent_id; $i++) {
+            $parent = Category::find($category->parent_id);
+            if (! $parent) {
+                break;
+            }
+            $category = $parent;
+        }
         $paymentMethod = $request->input('payment_method', 'PayOS');
 
         $depositPercentToSave = $depositInfo !== null ? (int) ($depositInfo['percentage']) : null;
@@ -217,7 +292,7 @@ class GuestBookingController extends Controller
             $room, $amountDue, $finalAmount, $subtotal, $buyerName, $buyerPhone,
             $cccdFront, $cccdBack, $cccdData, $category, $itemsData, $servicesData,
             $paymentMethod, $request, $appliedCoupons, $appliedCouponCodes, $depositPercentToSave,
-            $deviceToken
+            $deviceToken, $guestCccdRows
         ) {
             Product::where('id', $room->id)->lockForUpdate()->first();
 
@@ -230,7 +305,7 @@ class GuestBookingController extends Controller
                     ->whereNotNull('checkout_date')
                     ->where('checkin_date', '<', $itemData['checkout_date'])
                     ->where('checkout_date', '>', $itemData['checkin_date'])
-                    ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped']))
+                    ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
                     ->exists();
 
                 if ($conflict) {
@@ -243,8 +318,14 @@ class GuestBookingController extends Controller
             $firstCode = $appliedCouponCodes[0] ?? null;
 
             $order = Order::create([
-                'amount'          => $subtotal,
-                'full_amount'     => $amountDue,
+                // Cả 'amount' và 'full_amount' lưu ĐÚNG TỔNG GIÁ thật của đơn (không phải số tiền
+                // cọc cần trả ngay) — 'full_amount' CỐ ĐỊNH từ đây trở đi (không đổi dù sau này có
+                // phát sinh phụ phí/điều chỉnh giá), 'amount' là nơi cập nhật khi giá thay đổi. Số
+                // tiền THỰC TẾ cần thu qua PayOS (cọc hay đủ) được TÍNH LẠI riêng lúc tạo link
+                // (xem createPayOSLink) từ full_amount * deposit_percent, không lưu trực tiếp vào
+                // 2 cột này.
+                'amount'          => $finalAmount,
+                'full_amount'     => $finalAmount,
                 'deposit_percent' => $depositPercentToSave,
                 'coupon_code'     => $firstCode,
                 'coupon_codes'    => $appliedCouponCodes ?: null,
@@ -258,9 +339,26 @@ class GuestBookingController extends Controller
                 'status'          => 'pending',
                 'guest_count'     => $request->guest_count,
                 'category_id'     => $category?->id,
+                // Đơn đặt qua API khách hàng KHÔNG đăng nhập bằng App\Models\User (mà là Customer/
+                // khách vãng lai) nên BelongsToPartner::creating() không tự gán được partner_id
+                // (chỉ tự gán khi người tạo là User — xem app/Models/Concerns/BelongsToPartner.php).
+                // Gán thẳng theo đúng partner_id của CHÍNH phòng đang đặt — nếu không, đơn tạo ra
+                // sẽ có partner_id = null, khiến admin mở sửa đơn bị "mất" thông tin đối tác/chi
+                // nhánh (Select "Đối tác" không tự chọn được, "Chi nhánh" không hiện tên).
+                'partner_id'      => $room->partner_id,
                 'customer_id'     => null,
                 'device_token'    => $deviceToken,
             ]);
+
+            // CCCD khách thứ 2 trở đi (khung giờ qua đêm) — xem bước 3.5.
+            foreach ($guestCccdRows as $guestRow) {
+                $order->guestCccds()->create([
+                    'guest_index' => $guestRow['guest_index'],
+                    'cccd_front'  => $guestRow['front'],
+                    'cccd_back'   => $guestRow['back'],
+                    'cccd_data'   => $guestRow['data'],
+                ]);
+            }
 
             foreach ($itemsData as $itemData) {
                 $order->items()->create($itemData);
@@ -313,6 +411,8 @@ class GuestBookingController extends Controller
                 'id'             => $order->id,
                 'order_code'     => $order->order_code,
                 'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
                 'payment_method' => $order->payment_method,
                 'qr_code'        => $order->qr_code,
                 'expired_at'     => $order->expired_at,
@@ -321,6 +421,12 @@ class GuestBookingController extends Controller
                 'cccd_front'     => $order->cccd_front ? Storage::disk('public')->url($order->cccd_front) : null,
                 'cccd_back'      => $order->cccd_back  ? Storage::disk('public')->url($order->cccd_back)  : null,
                 'cccd_data'      => $order->cccd_data,
+                'guests'         => $order->guestCccds->map(fn ($g) => [
+                    'guest_index' => $g->guest_index,
+                    'cccd_front'  => Storage::disk('public')->url($g->cccd_front),
+                    'cccd_back'   => Storage::disk('public')->url($g->cccd_back),
+                    'cccd_data'   => $g->cccd_data,
+                ])->values(),
             ],
             'room' => [
                 'id'   => $room->id,
@@ -361,6 +467,11 @@ class GuestBookingController extends Controller
             'note_for_admin'          => 'sometimes|nullable|string|max:500',
             'cccd_front'              => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
             'cccd_back'               => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            // CCCD khách thứ 2 trở đi, gửi khi tăng guest_count cho đơn có khung giờ qua đêm —
+            // cùng key guests[{index}][front/back] như lúc tạo đơn.
+            'guests'                  => 'sometimes|array',
+            'guests.*.front'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'guests.*.back'           => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
             'services'                => 'sometimes|array',
             'services.*.service_id'   => 'required_with:services|integer',
             'services.*.quantity'     => 'required_with:services|integer|min:1',
@@ -372,6 +483,7 @@ class GuestBookingController extends Controller
             'items.product.roomTimeSlots.timeSlot',
             'items.product.roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
             'services',
+            'guestCccds',
         ])
             ->where('order_code', $orderCode)
             ->whereNull('customer_id')
@@ -444,45 +556,70 @@ class GuestBookingController extends Controller
         }
 
         // ── Phụ thu khách ─────────────────────────────────────────────────────
+        $priceInputsChanged = false;
+
         if ($request->has('guest_count')) {
             $newGuestCount = (int) $request->input('guest_count');
-            $order->items()->update(['guest_count' => $newGuestCount]);
+            $hasOvernight  = $order->items->contains('over_night', true);
 
-            $guestRoom      = $order->items->first()?->product;
-            $guestConfig    = $guestRoom?->room_config ?? [];
-            $guestFee       = (int) ($guestConfig['extra_guest_fee'] ?? 0);
-            $guestThreshold = (int) ($guestConfig['max_free_guests'] ?? 2);
-            $updates['guest_count'] = $newGuestCount;
+            // Tăng số khách cho đơn qua đêm — khách mới (guest_index vượt số đã khai báo) phải
+            // có CCCD kèm theo trong chính request này (guests[{index}][front/back]), nếu không
+            // đã có sẵn từ trước (vd request update trước đó đã bổ sung rồi).
+            if ($hasOvernight) {
+                $declaredMax = max(1, (int) $order->guestCccds->max('guest_index'));
+                $newGuestRows = [];
 
-            if ($guestFee > 0) {
-                $itemsSum       = (int) $order->items->sum('price');
-                $oldServicesSum = (int) $order->services->sum('subtotal');
-                $oldSurcharge   = max(0, (int) $order->amount - $itemsSum - $oldServicesSum);
-                $isSlotType     = (int) $guestRoom?->styles === 1;
-                $nights         = $isSlotType ? $this->countNights($order->items) : max(1, $order->items->count());
-                $newSurcharge   = max(0, $newGuestCount - $guestThreshold) * $guestFee * $nights;
+                for ($guestIndex = $declaredMax + 1; $guestIndex <= $newGuestCount; $guestIndex++) {
+                    $frontKey = "guests.{$guestIndex}.front";
+                    $backKey  = "guests.{$guestIndex}.back";
 
-                if ($newSurcharge !== $oldSurcharge) {
-                    $newAmtWithSurcharge = max(0, (int) $order->amount - $oldSurcharge + $newSurcharge);
-                    $updates['amount']   = $newAmtWithSurcharge;
-
-                    [$promoDiscount, , $systemDiscount, , $couponDiscount] = $this->computeSlotDiscounts($order, $itemsSum);
-                    $totalDisc = $promoDiscount + $systemDiscount + $couponDiscount;
-
-                    $depositPct = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
-                    if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
-                        $updates['full_amount'] = (int) ceil(max(0, $newAmtWithSurcharge - $totalDisc) * $depositPct / 100);
-                    } else {
-                        $updates['full_amount'] = max(0, $newAmtWithSurcharge - $totalDisc);
+                    if (! $request->hasFile($frontKey) || ! $request->hasFile($backKey)) {
+                        return response()->json([
+                            'message' => "Tăng số khách cho đơn qua đêm cần khai báo lưu trú cho khách thứ {$guestIndex} — vui lòng gửi kèm CCCD (mặt trước/sau) của khách này.",
+                        ], 422);
                     }
 
-                    if ($order->checkout_url) {
-                        $updates['checkout_url'] = null;
-                        $updates['qr_code']      = null;
-                        $updates['expired_at']   = null;
+                    $guestFront = $request->file($frontKey)->store('cccd', 'public');
+                    $guestBack  = $request->file($backKey)->store('cccd', 'public');
+
+                    $tempGuestOrder = new Order(['cccd_front' => $guestFront, 'cccd_back' => $guestBack]);
+                    $guestData      = app(CccdScannerService::class)->scanOrder($tempGuestOrder);
+
+                    if (! $guestData) {
+                        Storage::disk('public')->delete($guestFront);
+                        Storage::disk('public')->delete($guestBack);
+                        foreach ($newGuestRows as $row) {
+                            Storage::disk('public')->delete($row['front']);
+                            Storage::disk('public')->delete($row['back']);
+                        }
+
+                        return response()->json([
+                            'message' => "Không đọc được QR trên ảnh CCCD của khách thứ {$guestIndex}. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.",
+                        ], 422);
                     }
+
+                    $newGuestRows[] = [
+                        'guest_index' => $guestIndex,
+                        'front'       => $guestFront,
+                        'back'        => $guestBack,
+                        'data'        => $guestData,
+                    ];
+                }
+
+                foreach ($newGuestRows as $row) {
+                    $order->guestCccds()->create([
+                        'guest_index' => $row['guest_index'],
+                        'cccd_front'  => $row['front'],
+                        'cccd_back'   => $row['back'],
+                        'cccd_data'   => $row['data'],
+                    ]);
                 }
             }
+
+            $order->items()->update(['guest_count' => $newGuestCount]);
+            $order->guest_count = $newGuestCount;
+            $updates['guest_count'] = $newGuestCount;
+            $priceInputsChanged = true;
         }
 
         // ── Cập nhật services ─────────────────────────────────────────────────
@@ -499,7 +636,6 @@ class GuestBookingController extends Controller
 
             $availableServices = $room->additionalServices->keyBy('id');
             $servicesData      = [];
-            $addedTotal        = 0;
 
             foreach ($request->input('services') as $index => $entry) {
                 $serviceId = (int) $entry['service_id'];
@@ -513,7 +649,6 @@ class GuestBookingController extends Controller
                 }
 
                 $subtotal       = $service->price * $quantity;
-                $addedTotal    += $subtotal;
                 $servicesData[] = [
                     'service_id'   => $service->id,
                     'service_name' => $service->name,
@@ -523,31 +658,24 @@ class GuestBookingController extends Controller
                 ];
             }
 
-            $oldServicesTotal      = (int) $order->services->sum('subtotal');
-            $currentAmountBase     = isset($updates['amount']) ? (int) $updates['amount'] : (int) $order->amount;
-            $roomBaseAmount        = max(0, $currentAmountBase - $oldServicesTotal);
-            $newSubtotal           = $roomBaseAmount + $addedTotal;
-
             $order->services()->delete();
             foreach ($servicesData as $svc) {
                 $order->services()->create($svc);
             }
+            $order->unsetRelation('services');
+            $priceInputsChanged = true;
+        }
 
-            $itemsSum = (int) $order->items->sum('price');
-            [$promoDiscount, , $systemDiscount, , $couponDiscount] = $this->computeSlotDiscounts($order, $itemsSum);
-            $totalDiscount = $promoDiscount + $systemDiscount + $couponDiscount;
+        // Tính lại TOÀN BỘ tổng giá từ đầu (không dựa vào 'amount'/'full_amount' cũ để cộng trừ
+        // dồn) mỗi khi số khách hoặc dịch vụ thay đổi — tránh sai số tích luỹ qua nhiều lần sửa.
+        // Cả 'amount' và 'full_amount' đều lưu ĐÚNG TỔNG GIÁ MỚI (không phải tiền cọc); số tiền
+        // cần thu ngay qua PayOS tính riêng qua depositDueAmount() lúc rebuild link bên dưới.
+        if ($priceInputsChanged) {
+            $newTotal = $this->recalculateOrderTotal($order);
+            $updates['amount']      = $newTotal;
+            $updates['full_amount'] = $newTotal;
 
-            $depositPct = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
-            if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
-                $newFullAmount = (int) ceil(max(0, $newSubtotal - $totalDiscount) * $depositPct / 100);
-            } else {
-                $newFullAmount = max(0, $newSubtotal - $totalDiscount);
-            }
-
-            $updates['amount']      = $newSubtotal;
-            $updates['full_amount'] = $newFullAmount;
-
-            if ($newFullAmount !== (int) $order->full_amount && $order->checkout_url) {
+            if ($newTotal !== $originalFullAmount && $order->checkout_url) {
                 $updates['checkout_url'] = null;
                 $updates['qr_code']      = null;
                 $updates['expired_at']   = null;
@@ -563,12 +691,14 @@ class GuestBookingController extends Controller
             app(CccdDeclarationService::class)->upsertFromOrder($order->load('items'));
         }
 
-        // Tạo lại link PayOS nếu giá thay đổi
+        // Tạo lại link PayOS nếu giá thay đổi — số tiền thu qua PayOS luôn tính động (cọc hay đủ),
+        // KHÔNG phải full_amount (nay là tổng giá cố định, không phải tiền cần thu ngay).
         $priceChanged = (int) $order->full_amount !== $originalFullAmount;
+        $dueNow       = $order->depositDueAmount();
         if (
             $order->payment_method === 'PayOS' &&
             ($priceChanged || ! $order->checkout_url) &&
-            (int) $order->full_amount >= 2000
+            $dueNow >= 2000
         ) {
             $itemName = $order->items->first()?->name ?? 'Đặt phòng';
             $this->rebuildPayOSLink($order, $itemName);
@@ -580,6 +710,7 @@ class GuestBookingController extends Controller
             'items.product.roomTimeSlots.timeSlot',
             'items.product.roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
             'services',
+            'guestCccds',
         ]);
 
         return response()->json($this->buildOrderResponse($order));
@@ -633,6 +764,7 @@ class GuestBookingController extends Controller
             'items.product.roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
             'services',
             'accessCodes',
+            'guestCccds',
         ])
             ->where('order_code', $orderCode)
             ->whereNull('customer_id')
@@ -669,15 +801,19 @@ class GuestBookingController extends Controller
 
         if (in_array($order->status, ['paid', 'failed', 'cancelled', 'cancelled_payment'])) {
             return response()->json([
-                'order_code' => $order->order_code,
-                'status'     => $order->status,
+                'order_code'     => $order->order_code,
+                'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
             ]);
         }
 
         if ($order->payment_method !== 'PayOS') {
             return response()->json([
-                'order_code' => $order->order_code,
-                'status'     => $order->status,
+                'order_code'     => $order->order_code,
+                'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
             ]);
         }
 
@@ -688,8 +824,10 @@ class GuestBookingController extends Controller
 
             if (! $clientId || ! $apiKey || ! $checksumKey) {
                 return response()->json([
-                    'order_code' => $order->order_code,
-                    'status'     => $order->status,
+                    'order_code'     => $order->order_code,
+                    'status'         => $order->status,
+                    'payment_status' => $order->payment_status,
+                    'order_status'   => $order->order_status,
                 ]);
             }
 
@@ -708,18 +846,13 @@ class GuestBookingController extends Controller
                 if ($isRemaining) {
                     // Backup cho webhook: cập nhật nếu webhook chưa kịp chạy
                     if ($order->status === 'deposit') {
-                        // Tính full_amount đúng để Observer tích điểm chính xác
-                        $depositPct  = (int) ($order->deposit_percent ?? 0);
-                        $depositPaid = (int) $order->full_amount;
-                        $realTotal   = $depositPct > 0
-                            ? (int) round($depositPaid * 100 / $depositPct)
-                            : $depositPaid;
+                        // full_amount CỐ ĐỊNH từ lúc tạo đơn (tổng giá thật) — không tính ngược từ
+                        // tiền cọc nữa. Chỉ cập nhật 'amount' = tổng thực thu (gồm phụ phí nếu có).
                         $extraCharge = (int) ($order->extra_charge_amount ?? 0);
-                        $totalPaid   = $realTotal + $extraCharge;
+                        $totalPaid   = (int) $order->full_amount + $extraCharge;
 
                         $order->update([
                             'status'            => 'paid',
-                            'full_amount'       => $totalPaid,
                             'amount'            => $totalPaid,
                             'remaining_paid_at' => now(),
                         ]);
@@ -739,8 +872,10 @@ class GuestBookingController extends Controller
             }
 
             return response()->json([
-                'order_code' => $order->order_code,
-                'status'     => $order->status,
+                'order_code'     => $order->order_code,
+                'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
             ]);
 
         } catch (\Throwable $e) {
@@ -749,8 +884,10 @@ class GuestBookingController extends Controller
                 'error'      => $e->getMessage(),
             ]);
             return response()->json([
-                'order_code' => $order->order_code,
-                'status'     => $order->status,
+                'order_code'     => $order->order_code,
+                'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
             ]);
         }
     }
@@ -780,11 +917,11 @@ class GuestBookingController extends Controller
             return response()->json(['message' => 'Chỉ áp dụng cho đơn đang ở trạng thái đặt cọc.'], 422);
         }
 
-        $depositPct  = (int) $order->deposit_percent;
-        $depositPaid = (int) $order->full_amount;
-        $realTotal   = $depositPct > 0 ? (int) round($depositPaid * 100 / $depositPct) : $depositPaid;
+        // full_amount CỐ ĐỊNH = tổng giá thật từ lúc tạo đơn — tiền cọc đã thu tính lại từ đó qua
+        // depositDueAmount(), không tính ngược nữa.
+        $depositPaid = $order->depositDueAmount();
         $extraCharge = (int) ($order->extra_charge_amount ?? 0);
-        $remaining   = ($realTotal - $depositPaid) + $extraCharge;
+        $remaining   = ((int) $order->full_amount - $depositPaid) + $extraCharge;
 
         if ($order->remaining_checkout_url && $order->remaining_payos_code) {
             return response()->json([
@@ -857,6 +994,107 @@ class GuestBookingController extends Controller
     }
 
     // ══════════════════════════════════════════════════════════════════════
+    // POST /api/guest/orders/{order_code}/extra
+    // Khách vãng lai tự đặt thêm dịch vụ/số khách trên đơn đã paid/deposit —
+    // trả QR thanh toán khoản phát sinh ngay trong response.
+    // ══════════════════════════════════════════════════════════════════════
+
+    public function addExtra(Request $request, string $orderCode, \App\Services\OrderExtraBookingService $service): JsonResponse
+    {
+        $request->validate([
+            'buyer_phone'                        => 'required|string|max:20',
+            'services'                           => 'sometimes|array',
+            'services.*.service_id'              => 'required_with:services|integer',
+            'services.*.quantity'                => 'required_with:services|integer|min:1',
+            // guest_count ở đây là SỐ KHÁCH THÊM (cộng dồn vào guest_count hiện có), không phải tổng mới.
+            'guest_count'                        => 'sometimes|integer|min:1|max:50',
+            'room_addition'                      => 'sometimes|array',
+            'room_addition.type'                 => 'required_with:room_addition|in:slot,daily',
+            'room_addition.product_id'           => 'sometimes|string',
+            'room_addition.slots'                => 'required_if:room_addition.type,slot|array|min:1',
+            'room_addition.slots.*.timeslot_id'  => 'required_with:room_addition.slots|integer',
+            'room_addition.slots.*.date'         => 'required_with:room_addition.slots|date_format:d-m-Y|after_or_equal:today',
+            'room_addition.checkin_date'         => 'required_if:room_addition.type,daily|date_format:d-m-Y|after_or_equal:today',
+            'room_addition.checkout_date'        => 'required_if:room_addition.type,daily|date_format:d-m-Y|after:room_addition.checkin_date',
+            // CCCD khách đi cùng — chỉ bắt buộc khi phần đặt thêm có khung giờ qua đêm (check ở Service).
+            'guests'                              => 'sometimes|array',
+            'guests.*.front'                      => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'guests.*.back'                       => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+        ]);
+
+        $order = Order::with(['items.product.additionalServices', 'services'])
+            ->where('order_code', $orderCode)
+            ->whereNull('customer_id')
+            ->where('buyer_phone', trim($request->input('buyer_phone')))
+            ->first();
+
+        if (! $order) {
+            return response()->json(['message' => 'Đơn hàng không tồn tại hoặc số điện thoại không khớp.'], 404);
+        }
+
+        $result = $service->addExtra(
+            $order,
+            $request->input('services', []),
+            $request->has('guest_count') ? (int) $request->input('guest_count') : null,
+            $request->input('room_addition'),
+            $this->extractGuestFiles($request),
+        );
+
+        if (isset($result['error'])) {
+            return response()->json(['message' => $result['error']], 422);
+        }
+
+        return response()->json($result);
+    }
+
+    /**
+     * Trích UploadedFile theo guest_index từ multipart 'guests[{n}][front/back]'.
+     *
+     * @return array<int, array{front?:\Illuminate\Http\UploadedFile, back?:\Illuminate\Http\UploadedFile}>
+     */
+    private function extractGuestFiles(Request $request): array
+    {
+        $guestFiles = [];
+
+        foreach ((array) $request->file('guests', []) as $guestIndex => $files) {
+            $guestFiles[(int) $guestIndex] = [
+                'front' => $files['front'] ?? null,
+                'back'  => $files['back'] ?? null,
+            ];
+        }
+
+        return $guestFiles;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // POST /api/guest/orders/{order_code}/extra-charge-qr
+    // Tạo lại QR PayOS cho khoản phát sinh (đặt thêm) đang chờ thanh toán — xác thực
+    // qua buyer_phone, dùng khi khách bận không thanh toán kịp, QR cũ hết hạn.
+    // ══════════════════════════════════════════════════════════════════════
+
+    public function extraChargeQr(Request $request, string $orderCode, \App\Services\OrderExtraBookingService $service): JsonResponse
+    {
+        $request->validate(['buyer_phone' => 'required|string|max:20']);
+
+        $order = Order::where('order_code', $orderCode)
+            ->whereNull('customer_id')
+            ->where('buyer_phone', trim($request->input('buyer_phone')))
+            ->first();
+
+        if (! $order) {
+            return response()->json(['message' => 'Đơn hàng không tồn tại hoặc số điện thoại không khớp.'], 404);
+        }
+
+        $result = $service->regenerateExtraChargeQr($order);
+
+        if (isset($result['error'])) {
+            return response()->json(['message' => $result['error']], 422);
+        }
+
+        return response()->json($result);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
     // Private helpers
     // ══════════════════════════════════════════════════════════════════════
 
@@ -868,15 +1106,15 @@ class GuestBookingController extends Controller
         $itemsData     = [];
         $slotSummary   = [];
         $rtsCollection = collect();
+        $errors        = [];
 
         foreach ($slots as $index => $slot) {
             $timeslotId = (int) $slot['timeslot_id'];
             $dateStr    = $slot['date'] ?? $defaultDate;
 
             if (! $dateStr) {
-                throw ValidationException::withMessages([
-                    "slots.{$index}.date" => ['Vui lòng cung cấp ngày đặt phòng.'],
-                ]);
+                $errors["slots.{$index}.date"] = ['Vui lòng cung cấp ngày đặt phòng.'];
+                continue;
             }
 
             $rts = $room->roomTimeSlots
@@ -885,15 +1123,13 @@ class GuestBookingController extends Controller
                 ->first();
 
             if (! $rts || ! $rts->timeSlot) {
-                throw ValidationException::withMessages([
-                    "slots.{$index}.timeslot_id" => ['Khung giờ không tồn tại cho phòng này.'],
-                ]);
+                $errors["slots.{$index}.timeslot_id"] = ['Khung giờ không tồn tại cho phòng này.'];
+                continue;
             }
 
             if ($rts->isBlockedOn($dateStr)) {
-                throw ValidationException::withMessages([
-                    "slots.{$index}.date" => ['Khung giờ này đã bị chặn vào ngày bạn chọn.'],
-                ]);
+                $errors["slots.{$index}.date"] = ['Khung giờ này đã bị chặn vào ngày bạn chọn.'];
+                continue;
             }
 
             $timeSlot = $rts->timeSlot;
@@ -908,13 +1144,12 @@ class GuestBookingController extends Controller
                 ->whereNotNull('checkout_date')
                 ->where('checkin_date', '<', $checkout)
                 ->where('checkout_date', '>', $checkin)
-                ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped']))
+                ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
                 ->exists();
 
             if ($conflict) {
-                throw ValidationException::withMessages([
-                    "slots.{$index}.timeslot_id" => ['Khung giờ này đã được đặt rồi.'],
-                ]);
+                $errors["slots.{$index}.timeslot_id"] = ['Khung giờ này đã được đặt rồi.'];
+                continue;
             }
 
             $startLabel  = substr($timeSlot->start_time, 0, 5);
@@ -934,6 +1169,7 @@ class GuestBookingController extends Controller
                 'checkout_date' => $checkout,
                 'extra_fee'     => 0,
                 'guest_count'   => $request->guest_count,
+                'over_night'    => $isOvernight,
             ];
 
             $slotSummary[] = [
@@ -944,6 +1180,12 @@ class GuestBookingController extends Controller
             ];
 
             $rtsCollection->push($rts);
+        }
+
+        // Gom lỗi của TẤT CẢ khung giờ bị trùng/không hợp lệ trong 1 lần request — xem cùng comment
+        // ở BookingController::buildSlotItems() (bản khách đã đăng nhập, cùng logic).
+        if (! empty($errors)) {
+            throw ValidationException::withMessages($errors);
         }
 
         $slotCount   = count($slots);
@@ -971,7 +1213,7 @@ class GuestBookingController extends Controller
             ->whereNotNull('checkout_date')
             ->where('checkin_date', '<', $checkout)
             ->where('checkout_date', '>', $checkin)
-            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped', 'confirmed']))
+            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'confirmed']))
             ->exists();
 
         if ($conflict) {
@@ -1016,6 +1258,8 @@ class GuestBookingController extends Controller
                 'checkout_date' => $checkoutDt,
                 'extra_fee'     => 0,
                 'guest_count'   => $request->guest_count,
+                // Đặt theo ngày (daily) luôn ở qua đêm — checkin ngày này, checkout ngày sau.
+                'over_night'    => true,
             ];
 
             $nightSummary[] = [
@@ -1261,7 +1505,25 @@ class GuestBookingController extends Controller
     }
 
     /**
-     * Áp dụng coupon cho guest: chấp nhận mọi coupon active có code hợp lệ.
+     * Cho phép áp nhiều mã/đơn, TRỪ mã is_exclusive=true — cùng quy tắc BookingController::guardExclusiveCoupons().
+     */
+    private function guardExclusiveCoupons(array $codes): void
+    {
+        if (count($codes) < 2) {
+            return;
+        }
+
+        $exclusiveCodes = Coupon::whereIn('code', $codes)->where('is_exclusive', true)->pluck('code');
+
+        if ($exclusiveCodes->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'coupon_codes' => ['Mã "' . $exclusiveCodes->implode('", "') . '" không thể dùng chung với mã giảm giá khác.'],
+            ]);
+        }
+    }
+
+    /**
+     * Áp dụng coupon cho guest: chấp nhận coupon active, công khai (không cá nhân).
      */
     private function applyGuestCoupons(
         array $codes,
@@ -1291,6 +1553,14 @@ class GuestBookingController extends Controller
                 ]);
             }
 
+            // Coupon cá nhân (customer_id trực tiếp hoặc gán qua coupon_customers pivot,
+            // vd: coupon gắn theo hạng thành viên) không áp dụng được cho đơn khách vãng lai.
+            if ($coupon->customer_id !== null || $coupon->customers()->exists()) {
+                throw ValidationException::withMessages([
+                    $field => ["Mã \"{$code}\" không tồn tại, đã hết hạn, hoặc không áp dụng cho đơn không đăng nhập."],
+                ]);
+            }
+
             if ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {
                 throw ValidationException::withMessages([
                     $field => ["Mã \"{$code}\" đã hết lượt sử dụng."],
@@ -1304,8 +1574,7 @@ class GuestBookingController extends Controller
             }
 
             $applicable = match ($coupon->apply_type) {
-                'all_rooms'     => true,
-                'specific_room' => $coupon->room_id === $room->id,
+                'all_rooms', 'specific_room', 'specific_rooms' => $coupon->appliesToRoom($room->id),
                 'specific_slot' => $rtsCollection->some(fn (RoomTimeSlot $rts) => $coupon->isApplicableToSlot($rts)),
                 default         => false,
             };
@@ -1349,6 +1618,39 @@ class GuestBookingController extends Controller
      * Tính lại discount đúng cho slot orders, xử lý cả full_booking và non-full_booking.
      * Returns: [$promoDiscount, $promoApplied, $systemDiscount, $systemDiscountInfo, $couponDiscount, $couponBase]
      */
+    // Tính lại TOÀN BỘ tổng giá của đơn từ đầu (items + dịch vụ + phụ thu khách - giảm giá) dựa
+    // trên dữ liệu HIỆN TẠI đã lưu (không cộng/trừ dồn từ giá trị amount/full_amount cũ) — dùng khi
+    // khách tự sửa số khách/dịch vụ lúc đơn còn pending, tránh sai số tích luỹ qua nhiều lần sửa.
+    private function recalculateOrderTotal(Order $order): int
+    {
+        $order->loadMissing(['items.product', 'services']);
+
+        $itemsSum      = (int) $order->items->sum('price');
+        $servicesTotal = (int) $order->services->sum('subtotal');
+
+        [$promoDiscount, , $systemDiscount, , $couponDiscount] = $this->computeSlotDiscounts($order, $itemsSum);
+        $totalDiscount  = $promoDiscount + $systemDiscount + $couponDiscount;
+        $slotFinalPrice = max(0, $itemsSum - $totalDiscount);
+
+        $room           = $order->items->first()?->product;
+        $guestSurcharge = 0;
+
+        if ($room) {
+            $config    = $room->room_config ?? [];
+            $fee       = (int) ($config['extra_guest_fee'] ?? 0);
+            $threshold = (int) ($config['max_free_guests'] ?? 2);
+            $guests    = (int) $order->guest_count;
+
+            if ($fee > 0 && $guests > $threshold) {
+                $isSlotType     = (int) $room->styles === 1;
+                $nights         = $isSlotType ? $this->countNights($order->items) : max(1, $order->items->count());
+                $guestSurcharge = ($guests - $threshold) * $fee * $nights;
+            }
+        }
+
+        return $slotFinalPrice + $servicesTotal + $guestSurcharge;
+    }
+
     private function computeSlotDiscounts(Order $order, int $itemsSum): array
     {
         $product     = $order->items->first()?->product;
@@ -1566,15 +1868,13 @@ class GuestBookingController extends Controller
         $couponsInfo = $this->buildCouponsInfo($couponCodes, $couponBase);
 
         // ── Deposit & totals ──────────────────────────────────────────────────
+        // full_amount CỐ ĐỊNH = tổng giá thật của đơn (không phải tiền cọc) — không cần suy ngược
+        // nữa. Tiền cọc cần thu tính riêng qua depositDueAmount().
         $totalSlotDiscount = $promoDiscount + $systemDiscount + $couponDiscount;
-        $depositPct = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
-        if ($depositPct !== null && $depositPct > 0 && $depositPct < 100) {
-            $realFinalAmount = (int) round((int) $order->full_amount * 100 / $depositPct);
-            $totalDiscount   = max(0, (int) $order->amount - $realFinalAmount);
-        } else {
-            $realFinalAmount = (int) $order->full_amount;
-            $totalDiscount   = $totalSlotDiscount;
-        }
+        $depositPct        = $order->deposit_percent !== null ? (int) $order->deposit_percent : null;
+        $realFinalAmount   = (int) $order->full_amount;
+        $totalDiscount     = $totalSlotDiscount;
+        $depositDueNow     = $order->depositDueAmount();
 
         $slotsFinal = max(0, $slotsTotal - $promoDiscount - $systemDiscount - $couponDiscount);
 
@@ -1583,6 +1883,8 @@ class GuestBookingController extends Controller
                 'id'             => $order->id,
                 'order_code'     => $order->order_code,
                 'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
                 'payment_method' => $order->payment_method,
                 'qr_code'        => $order->qr_code,
                 'expired_at'     => $order->expired_at,
@@ -1592,6 +1894,12 @@ class GuestBookingController extends Controller
                 'cccd_front'     => $order->cccd_front ? Storage::disk('public')->url($order->cccd_front) : null,
                 'cccd_back'      => $order->cccd_back  ? Storage::disk('public')->url($order->cccd_back)  : null,
                 'cccd_data'      => $order->cccd_data,
+                'guests'         => $order->guestCccds->map(fn ($g) => [
+                    'guest_index' => $g->guest_index,
+                    'cccd_front'  => Storage::disk('public')->url($g->cccd_front),
+                    'cccd_back'   => Storage::disk('public')->url($g->cccd_back),
+                    'cccd_data'   => $g->cccd_data,
+                ])->values(),
             ],
             'room' => [
                 'id'        => $product?->id,
@@ -1608,8 +1916,8 @@ class GuestBookingController extends Controller
             'deposit'         => $depositPct !== null ? [
                 'type'             => 'deposit',
                 'percentage'       => $depositPct,
-                'deposit_amount'   => (int) $order->full_amount,
-                'remaining_amount' => max(0, $realFinalAmount - (int) $order->full_amount) + (int) ($order->extra_charge_amount ?? 0),
+                'deposit_amount'   => $depositDueNow,
+                'remaining_amount' => max(0, $realFinalAmount - $depositDueNow) + (int) ($order->extra_charge_amount ?? 0),
             ] : null,
             'summary' => [
                 'slots_total'          => $slotsTotal,
@@ -1621,7 +1929,7 @@ class GuestBookingController extends Controller
                 'guest_surcharge'      => $guestSurchargeTotal,
                 'services_total'       => $servicesTotal,
                 'total_after_discount' => $realFinalAmount,
-                'final_amount'         => (int) $order->full_amount,
+                'final_amount'         => $realFinalAmount,
                 'grand_total'          => $realFinalAmount + (int) ($order->extra_charge_amount ?? 0),
             ],
         ];
@@ -1655,10 +1963,10 @@ class GuestBookingController extends Controller
             return null;
         }
 
-        $checkinDate = $order->items->where('extra_fee', 0)->first()?->checkin_date;
+        $pwdAnchorDate = $order->paid_at ?? $order->deposit_paid_at ?? $order->created_at;
 
         // Case 1: Mật khẩu thủ công (gate_password / room_password)
-        $manualPwd = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($product, $checkinDate);
+        $manualPwd = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($product, $pwdAnchorDate);
         if ($manualPwd) {
             return [
                 'type'          => 'manual',
@@ -1693,6 +2001,8 @@ class GuestBookingController extends Controller
             'order_code'                => $order->order_code,
             'created_at'                => $order->created_at->format('Y-m-d H:i:s'),
             'status'                    => $order->status,
+            'payment_status'            => $order->payment_status,
+            'order_status'              => $order->order_status,
             'room_id'                   => $product?->id,
             'room_slug'                 => $product?->slug,
             'room_name'                 => $roomName,
@@ -1731,17 +2041,18 @@ class GuestBookingController extends Controller
 
             $payOS     = new PayOS($clientId, $apiKey, $checksumKey);
             $expiredAt = now()->addMinutes(15);
+            $dueNow    = $order->depositDueAmount();
 
             $response = $payOS->createPaymentLink([
                 'orderCode'   => (int) $order->order_code,
-                'amount'      => (int) $order->full_amount,
+                'amount'      => $dueNow,
                 'description' => 'TT don ' . $order->order_code,
                 'returnUrl'   => route('payment.success') . '?orderCode=' . $order->order_code,
                 'cancelUrl'   => route('payment.cancel') . '?orderCode=' . $order->order_code,
                 'buyerName'   => $order->buyer_name ?? '',
                 'buyerPhone'  => $order->buyer_phone ?? '',
                 'expiredAt'   => $expiredAt->timestamp,
-                'items'       => [['name' => $itemName, 'quantity' => 1, 'price' => (int) $order->full_amount]],
+                'items'       => [['name' => $itemName, 'quantity' => 1, 'price' => $dueNow]],
             ]);
 
             $updates = ['expired_at' => $expiredAt];
@@ -1783,17 +2094,18 @@ class GuestBookingController extends Controller
 
             $newCode   = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
             $expiredAt = now()->addMinutes(15);
+            $dueNow    = $order->depositDueAmount();
 
             $response = $payOS->createPaymentLink([
                 'orderCode'   => $newCode,
-                'amount'      => (int) $order->full_amount,
+                'amount'      => $dueNow,
                 'description' => 'TT don ' . $order->order_code,
                 'returnUrl'   => route('payment.success') . '?orderCode=' . $order->order_code,
                 'cancelUrl'   => route('payment.cancel') . '?orderCode=' . $order->order_code,
                 'buyerName'   => $order->buyer_name ?? '',
                 'buyerPhone'  => $order->buyer_phone ?? '',
                 'expiredAt'   => $expiredAt->timestamp,
-                'items'       => [['name' => $itemName, 'quantity' => 1, 'price' => (int) $order->full_amount]],
+                'items'       => [['name' => $itemName, 'quantity' => 1, 'price' => $dueNow]],
             ]);
 
             if ($checkoutUrl = $response['checkoutUrl'] ?? null) {
@@ -1806,6 +2118,21 @@ class GuestBookingController extends Controller
             }
         } catch (\Throwable $e) {
             Log::error('Guest rebuildPayOSLink error', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Xoá toàn bộ file CCCD đã upload (khách chính + các khách 2..N đã xử lý thành công cho tới
+     * lúc gặp lỗi) khi phải huỷ tạo đơn giữa chừng — tránh rác file mồ côi trên storage.
+     */
+    private function cleanupUploadedFiles(string $mainFront, string $mainBack, array $guestCccdRows): void
+    {
+        Storage::disk('public')->delete($mainFront);
+        Storage::disk('public')->delete($mainBack);
+
+        foreach ($guestCccdRows as $row) {
+            Storage::disk('public')->delete($row['front']);
+            Storage::disk('public')->delete($row['back']);
         }
     }
 

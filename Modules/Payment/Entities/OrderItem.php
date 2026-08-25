@@ -27,16 +27,20 @@ class OrderItem extends Model implements HasMedia
         'slot_label',
         'slot_day',
         'slot_raw_day',
+        'over_night',
         'extra_fee',
         'guest_count',
         'expiry_notified',
         'checkout_notified',
+        'housekeeping_triggered',
     ];
 
     protected $casts = [
         'price' => 'integer',
         'checkin_date' => 'datetime',
         'checkout_date' => 'datetime',
+        'over_night' => 'boolean',
+        'housekeeping_triggered' => 'boolean',
     ];
 
     protected $dates = [

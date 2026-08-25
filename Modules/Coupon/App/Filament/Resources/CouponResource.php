@@ -55,6 +55,12 @@ class CouponResource extends Resource
         $allowedCategoryIds = $user->allowedCategoryIds();
         $allowedBranchIds   = $user->allowedBranchIds();
 
+        // Coupon đã lọc theo partner_id qua BelongsToPartner; chưa gán quyền chi nhánh cụ thể thì
+        // không thu hẹp thêm (tránh chặn nhầm toàn bộ coupon của đối tác mình).
+        if (empty($allowedCategoryIds) && empty($allowedBranchIds)) {
+            return $query;
+        }
+
         // Room IDs thuộc các chi nhánh (bao gồm cả danh mục con)
         $permittedRoomIds = Product::whereHas(
             'categories',
@@ -65,8 +71,9 @@ class CouponResource extends Resource
         $overlappingUserIds = UserBranchPermission::whereIn('category_id', $allowedBranchIds)
             ->pluck('user_id');
 
-        return $query->where(function (Builder $q) use ($permittedRoomIds, $overlappingUserIds) {
+        return $query->where(function (Builder $q) use ($permittedRoomIds, $overlappingUserIds, $user) {
             $q->whereIn('room_id', $permittedRoomIds)
+                ->orWhere('created_by', $user->id)
                 ->orWhere(function (Builder $q2) use ($overlappingUserIds) {
                     $q2->where('apply_type', 'all_rooms')
                         ->where(function (Builder $q3) use ($overlappingUserIds) {

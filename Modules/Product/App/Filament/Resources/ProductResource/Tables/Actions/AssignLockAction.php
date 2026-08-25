@@ -7,6 +7,7 @@ namespace Modules\Product\App\Filament\Resources\ProductResource\Tables\Actions;
 use Modules\TTLock\App\Services\TTLockService;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Placeholder;
+use Filament\Forms\Components\Toggle;
 use Filament\Tables\Actions\Action;
 use Filament\Notifications\Notification;
 use Modules\Product\App\Models\Product;
@@ -20,12 +21,16 @@ class AssignLockAction
             ->label('Gán khóa TTLock')
             ->icon('heroicon-o-key')
             ->color('warning')
+            // Chi nhánh chưa đăng ký tài khoản TTLock thì ẩn hẳn nút này — không còn gì để gán,
+            // hiện nút rồi mở modal chỉ để báo "chưa có tài khoản" gây rối, không cần thiết.
+            ->visible(fn (Product $record) => TTLockService::hasAccountForCategory($record->branch_category_id))
             ->modalHeading(fn (Product $record) => "Gán khóa TTLock → {$record->name}")
             ->modalDescription('Chọn 2 khóa TTLock cho phòng này: khóa ngoài (check-in) và khóa trong (check-out).')
             ->modalWidth('lg')
             ->fillForm(fn (Product $record): array => [
-                'lock_id'          => $record->lock_id,
-                'lock_id_checkout' => $record->lock_id_checkout,
+                'lock_id'            => $record->lock_id,
+                'lock_id_checkout'   => $record->lock_id_checkout,
+                'unlock_both_locks'  => $record->unlock_both_locks,
             ])
             ->form(function (Product $record): array {
                 $categoryId = $record->branch_category_id
@@ -81,6 +86,11 @@ class AssignLockAction
                         ->searchable()
                         ->placeholder('— Chọn khóa trong —')
                         ->nullable();
+
+                    $fields[] = Toggle::make('unlock_both_locks')
+                        ->label('Cửa cần mở CẢ 2 ổ cùng lúc')
+                        ->helperText('Bật lên nếu đây là 1 cửa vật lý gắn 2 ổ khóa cần nhả CÙNG LÚC mới mở được cửa (khác với mặc định: ổ ngoài dùng lúc check-in, ổ trong dùng lúc check-out, mỗi lần chỉ mở 1 ổ). Khi bật, mọi thao tác mở khóa sẽ mở cả 2 ổ và chỉ báo thành công nếu cả 2 đều mở được.')
+                        ->default(false);
                 }
 
                 return $fields;
@@ -90,8 +100,9 @@ class AssignLockAction
                 $newCheckout = $data['lock_id_checkout'] ?? null;
 
                 $record->update([
-                    'lock_id'          => $newCheckin,
-                    'lock_id_checkout' => $newCheckout,
+                    'lock_id'            => $newCheckin,
+                    'lock_id_checkout'   => $newCheckout,
+                    'unlock_both_locks'  => $data['unlock_both_locks'] ?? false,
                 ]);
 
                 Notification::make()

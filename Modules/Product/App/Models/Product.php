@@ -2,14 +2,18 @@
 
 namespace Modules\Product\App\Models;
 
+use App\Models\Concerns\BelongsToPartner;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Modules\Category\Entities\Category;
 use Modules\Category\Traits\Categorizable;
 use Modules\Comment\Entities\Comment;
+use Modules\Employee\Entities\Employee;
+use Spatie\Image\Enums\Fit;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Spatie\Tags\HasTags;
 use Guava\Calendar\Contracts\Resourceable;
 use Guava\Calendar\ValueObjects\CalendarResource;
@@ -20,13 +24,17 @@ class Product extends Model implements HasMedia, Resourceable
         Categorizable,
         InteractsWithMedia,
         HasTags,
-        HasUlids;
+        HasUlids,
+        BelongsToPartner;
 
     protected $fillable = [
+        'partner_id',
         'name',
         'slug',
         'sku',
         'type',
+        'bed_type',
+        'room_area_sqm',
         'description',
         'short_description',
         'price',
@@ -40,11 +48,13 @@ class Product extends Model implements HasMedia, Resourceable
         'is_activated',
         'is_shipped',
         'is_trend',
+        'housekeeping_status',
         'wifi',
         'home_code',
         'lock_id',
         'lock_id_checkout',
         'has_manual_lock',
+        'unlock_both_locks',
         'address',
         'latitude',
         'longitude',
@@ -73,12 +83,14 @@ class Product extends Model implements HasMedia, Resourceable
         'discount'     => 'decimal:2',
         'vat'          => 'decimal:2',
         'weight'       => 'decimal:2',
+        'room_area_sqm' => 'decimal:2',
         'rating_score' => 'decimal:1',
         'is_in_stock'     => 'boolean',
         'is_activated'    => 'boolean',
         'is_shipped'      => 'boolean',
         'is_trend'        => 'boolean',
         'has_manual_lock' => 'boolean',
+        'unlock_both_locks' => 'boolean',
         'nights'          => 'boolean',
         'room_config'          => 'array',
         'bulk_discount_rules'  => 'array',
@@ -158,6 +170,66 @@ class Product extends Model implements HasMedia, Resourceable
         return $this->hasMany(\Modules\Payment\Entities\OrderItem::class, 'product_id');
     }
 
+    public function cleaningLogs()
+    {
+        return $this->hasMany(RoomCleaningLog::class, 'product_id')->latest('marked_for_cleaning_at');
+    }
+
+    // Lượt dọn đang chờ xác nhận (nếu phòng đang ở trạng thái 'cleaning') — dùng để cập nhật
+    // đúng dòng log khi nhân viên xác nhận đã dọn xong, thay vì tạo dòng mới mỗi lần.
+    public function pendingCleaningLog()
+    {
+        return $this->cleaningLogs()->whereNull('cleaned_at')->first();
+    }
+
+    public function isBeingCleaned(): bool
+    {
+        return $this->housekeeping_status === 'cleaning';
+    }
+
+    public function markForCleaning(?int $orderItemId = null): void
+    {
+        if ($this->housekeeping_status !== 'available') {
+            return;
+        }
+
+        $this->update(['housekeeping_status' => 'cleaning']);
+
+        $this->cleaningLogs()->create([
+            'order_item_id'           => $orderItemId,
+            'marked_for_cleaning_at'  => now(),
+        ]);
+    }
+
+    // $employee null khi super_admin/chủ đối tác tự xác nhận — 2 vai trò này không có hồ sơ Employee
+    // gắn với đối tác nào (xem ProductController::confirmCleaning()/RoomCleaningAction — chỉ cho phép
+    // null khi user isSuperAdmin()/isPartnerOwner(), nhân viên thường vẫn bắt buộc phải có Employee).
+    public function confirmCleaned(?Employee $employee, ?string $note = null): void
+    {
+        $this->update(['housekeeping_status' => 'available']);
+
+        $log = $this->pendingCleaningLog();
+
+        if ($log) {
+            $log->update([
+                'employee_id' => $employee?->id,
+                'cleaned_at'  => now(),
+                'note'        => $note,
+            ]);
+
+            return;
+        }
+
+        // Không có log tự động (vd super_admin/nhân viên tự bấm dọn thủ công trước đó) — vẫn ghi
+        // lại 1 dòng để có audit trail đầy đủ.
+        $this->cleaningLogs()->create([
+            'employee_id'            => $employee?->id,
+            'marked_for_cleaning_at' => now(),
+            'cleaned_at'             => now(),
+            'note'                   => $note,
+        ]);
+    }
+
     public function manualLockPasswords()
     {
         return $this->belongsToMany(
@@ -197,8 +269,23 @@ class Product extends Model implements HasMedia, Resourceable
 
     public function getBranchCategoryIdAttribute()
     {
-        $category = $this->primary_category;
-        return $category ? $category->id : null;
+        return $this->categories()->where('category_type', 'product')->value('categories.id');
+    }
+
+    // 4 preset kích thước cho ảnh phòng (thumbnail card, chi tiết phòng...) — xem
+    // docs/be-image-thumbnails.md. Áp dụng cho mọi collection ảnh (Ảnh bìa, Ảnh chính, Thư viện).
+    // Bản gốc đã bị ResizeOversizedMedia hạ xuống ≤1440px trước khi conversion này chạy (cùng
+    // event MediaHasBeenAddedEvent, xem EventServiceProvider), nên preset "full" thực chất chỉ là
+    // đổi định dạng/nén lại bản gốc, không cắt thêm kích thước.
+    public function registerMediaConversions(?Media $media = null): void
+    {
+        foreach (['thumb' => 240, 'card' => 480, 'wide' => 1080, 'full' => 1440] as $name => $size) {
+            $this->addMediaConversion($name)
+                ->fit(Fit::Max, $size, $size)
+                ->format('avif')
+                ->quality(72)
+                ->nonQueued();
+        }
     }
 
     public function toCalendarResource(): CalendarResource

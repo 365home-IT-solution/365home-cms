@@ -24,7 +24,9 @@ use Modules\BladeThemeV1\Services\Payment\OrderHandlerService;
 use Modules\BladeThemeV1\Services\Payment\PaymentService;
 use Modules\BladeThemeV1\Services\OcrSpaceService;
 use Modules\Payment\App\Services\CccdScannerService;
+use App\Services\CccdDeclarationService;
 use App\Services\PromotionCalculator;
+use Modules\Category\Entities\Category;
 
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Session;
@@ -39,6 +41,31 @@ class ProductDetail extends Component
         WithFileUploads,
         ValidationRulesTrait,
         PropertiesProductDetail;
+
+    // resources/js/echo-client.js nghe kênh public "timeslot-holds.{productId}" rồi tự gọi
+    // Livewire.dispatch('timeslotHoldsChanged') mỗi khi 1 admin giữ/trả 1 khung giờ real-time (xem
+    // App\Services\TimeslotHoldService) — method no-op này chỉ để ép Livewire render lại, lưới
+    // khung giờ tự đọc lại đúng trạng thái "held" mới nhất (đã tính trong product-detail.blade.php).
+    #[\Livewire\Attributes\On('timeslotHoldsChanged')]
+    public function onTimeslotHoldsChanged(): void {}
+
+    // resources/js/ws-client.js nghe kênh Node WS "room:{roomId}:{date}" (event slot.updated) rồi
+    // tự gọi Livewire.dispatch('roomAvailabilityChanged') mỗi khi admin đổi giá/khung giờ/khuyến
+    // mãi ở SettingBook (xem SlotRealtimeService::broadcastBlockedRange). KHÁC với
+    // onTimeslotHoldsChanged() ở trên — hold-status đọc live ngay trong blade nên chỉ cần re-render,
+    // còn giá/khung giờ đã nạp 1 lần vào $roomTimeSlots/$timeSlots ở mount() nên phải fetch lại
+    // thật sự, không chỉ re-render suông.
+    #[\Livewire\Attributes\On('roomAvailabilityChanged')]
+    public function onRoomAvailabilityChanged(): void
+    {
+        if (! $this->product) {
+            return;
+        }
+
+        $this->roomTimeSlots = $this->fetchRoomTimeSlots($this->product->id);
+        $this->initializeProductData();
+    }
+
 const LOYALTY_DISCOUNT_ENABLED = 0;
     public bool $fromBookingPage = false;
     public $originalTotalAmount = 0;
@@ -52,10 +79,17 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
 
     // ✅ ĐÃ CÓ - Properties cho Coupon
     public $couponCode = '';
-    public $appliedCoupon = null;
+    // Cho phép áp nhiều mã cùng lúc (khớp API BookingController::applyMultipleCoupons) — keyed
+    // theo coupon->id để tránh áp trùng và để removeCoupon() xoá đúng mã.
+    public array $appliedCoupons = [];
+    // coupon_id => số tiền giảm riêng của mã đó (sau khi cascading) — dùng để hiện từng dòng.
+    public array $couponDiscounts = [];
     public $couponDiscountAmount = 0;
     public $couponErrorMessage = '';
     public $couponSuccessMessage = '';
+    // Mã giảm giá riêng/được gán cho khách đã đăng nhập (personalCoupons + coupons) — hiện dạng
+    // gợi ý bấm-là-áp-dụng ngay trong form, chỉ load lại khi prefillFromAuth() xác thực token.
+    public array $myCoupons = [];
 
     // OCR properties
     public $cccdFrontText = '';
@@ -65,6 +99,15 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
 
     public $additionalServices = null;
     public array $selectedServices = [];
+
+    // Đánh giá sao — tách riêng khỏi $product->ratings_count/ratings_avg_star. Đây là
+    // withCount()/withAvg() gắn vào model TRONG 1 lần query cụ thể (fetchProduct()); Livewire
+    // hydrate lại $product ở mỗi request sau (mọi lần gọi action/property update) bằng
+    // Model::find() thông thường, không giữ lại 2 cột tính toán này — khiến header rating hiện
+    // sai (rơi về "Chưa có đánh giá") ngay sau khi có bất kỳ Livewire round-trip nào, dù dữ liệu
+    // thật vẫn còn nguyên trong DB. Lưu thành property scalar riêng để sống sót qua hydrate.
+    public int $ratingsCount = 0;
+    public ?float $ratingsAvg = null;
 
     public function boot(PaymentService $paymentService, OrderHandlerService $orderHandler, OcrSpaceService $ocrService, CccdScannerService $cccdScanner)
     {
@@ -80,12 +123,14 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         $this->slug = $slug;
         $this->product = $this->fetchProduct();
         if ($this->product) {
+            $this->ratingsCount = $this->product->ratings_count ?? 0;
+            $this->ratingsAvg = $this->product->ratings_avg_star !== null ? (float) $this->product->ratings_avg_star : null;
             $this->productTags = $this->fetchProductTags($this->product->id);
             $this->roomTimeSlots = $this->fetchRoomTimeSlots($this->product->id);
             $this->product = $this->product->load('categories');
             $this->initializeProductData();
 
-            if (Session::has('booking_data') && request()->query('from_book') == 1) {
+            if (Session::has('booking_data')) {
                 $this->fromBookingPage = true;
                 $bookingData = Session::get('booking_data');
                 Session::forget('booking_data');
@@ -171,6 +216,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
                 $this->authUserId   = null;
                 $this->authCccdFront = '';
                 $this->authCccdBack  = '';
+                $this->myCoupons     = [];
             }
             return;
         }
@@ -200,16 +246,79 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             // Lưu path CCCD từ profile để dùng khi đặt phòng (không cần upload lại)
             $this->authCccdFront = $customer->cccd_front ?? '';
             $this->authCccdBack  = $customer->cccd_back  ?? '';
-        } catch (\Throwable) {
-            // Silent fail — user tiếp tục với form thường
+
+            $this->loadMyCoupons($customer);
+        } catch (\Throwable $e) {
+            // Silent fail (không chặn form khách) NHƯNG vẫn ghi log — trước đây nuốt lỗi hoàn toàn
+            // im lặng khiến không thể chẩn đoán khi buyerName/isAuthUser set được nhưng myCoupons
+            // rỗng bất thường (lỗi xảy ra ngay trong loadMyCoupons(), sau khi các field kia đã gán).
+            \Illuminate\Support\Facades\Log::error('ProductDetail::prefillFromAuth failed', [
+                'error' => $e->getMessage(),
+                'file'  => $e->getFile(),
+                'line'  => $e->getLine(),
+            ]);
         }
+    }
+
+    /**
+     * Mã giảm giá riêng/được gán cho khách đã đăng nhập (personalCoupons + coupons, xem
+     * app/Models/Customer.php) — chỉ giữ những mã ĐANG dùng được ngay (active, còn hạn, còn
+     * lượt, ÁP DỤNG ĐƯỢC cho đúng phòng đang xem — gồm cả giới hạn chi nhánh nếu voucher có gán,
+     * xem Coupon::appliesToRoom()/passesBranchRestriction()) để hiện dạng gợi ý bấm-là-áp-dụng;
+     * mã hết hạn/hết lượt/không áp dụng được cho phòng này xem ở trang Tài khoản
+     * (AccountPage::loadDiscountCodes) thay vì lẫn vào đây làm rối lựa chọn. Cùng quy ước với
+     * GET /api/coupons/mine?room_id=... (Api\CouponController::mine()) — 'specific_slot' luôn bị
+     * loại ở đây vì cần đúng khung giờ mới xác định được, không chỉ phòng.
+     */
+    private function loadMyCoupons(\App\Models\Customer $customer): void
+    {
+        $now    = now();
+        $roomId = $this->product?->id;
+
+        $this->myCoupons = $customer->personalCoupons()->get()
+            ->merge($customer->coupons()->get())
+            ->unique('id')
+            ->filter(fn ($c) => $c->is_active
+                && (!$c->start_at || $now->gte($c->start_at))
+                && (!$c->end_at || $now->lte($c->end_at))
+                && (!$c->usage_limit || $c->used_count < $c->usage_limit)
+                && (! $roomId || ($c->apply_type !== 'specific_slot' && $c->appliesToRoom($roomId))))
+            ->sortByDesc(fn ($c) => $c->end_at ?? $c->created_at)
+            ->map(fn ($c) => [
+                'code'        => $c->code,
+                'name'        => $c->name,
+                'value_label' => $c->type === 'percentage'
+                    ? rtrim(rtrim(number_format((float) $c->value, 2), '0'), '.') . '%'
+                    : number_format((float) $c->value, 0, ',', '.') . 'đ',
+            ])
+            ->values()
+            ->toArray();
+    }
+
+    /**
+     * Gọi từ nút "+" cạnh mã gợi ý (form mã giảm giá, khách đã đăng nhập) — điền mã rồi áp dụng
+     * ngay qua applyCoupon() để giữ chung 1 đường validate (chọn khung giờ, min order value...).
+     */
+    public function quickApplyCoupon(string $code): void
+    {
+        $this->couponCode = $code;
+        $this->applyCoupon();
     }
 
     protected function initializeProductData()
     {
         $this->mediaSecond = $this->product->getMedia('Thư viện');
         $this->shortDescription = html_entity_decode(strip_tags($this->product->short_description));
-        $this->categories = $this->product->category_names;
+
+        // category_names là thuộc tính GẮN TAY vào $product trong fetchProduct() (không phải cột/
+        // relation thật) — cùng vấn đề với ratingsCount/ratingsAvg ở trên: Livewire hydrate lại
+        // $product bằng Model::find() thông thường ở các request sau (vd onRoomAvailabilityChanged()
+        // gọi lại initializeProductData() khi có sự kiện WS), làm mất thuộc tính gắn tay này → trả
+        // về null, khiến $categories['c3'] ở blade lỗi "array offset on null". Giữ nguyên giá trị
+        // CŨ (đã đúng từ mount()) thay vì ghi đè bằng null khi category_names không còn nữa.
+        $this->categories = $this->product->category_names
+            ?? $this->categories
+            ?? ['c1' => null, 'c2' => null, 'c3' => null];
         $this->dates = $this->generateDateRange();
         $this->timeSlots = $this->prepareTimeSlots($this->product);
         $this->fetchDateStatusOrder($this->product->id);
@@ -240,13 +349,37 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             }
         }
 
+        $code = strtoupper(trim($this->couponCode));
+
+        // Đã áp dụng mã này rồi — không cho thêm trùng
+        if (collect($this->appliedCoupons)->contains(fn ($c) => $c->code === $code)) {
+            $this->couponErrorMessage = sprintf('Mã "%s" đã được áp dụng rồi', $code);
+            return;
+        }
+
+        // Mã is_exclusive=true không được dùng chung với BẤT KỲ mã nào khác — cùng quy tắc
+        // BookingController::guardExclusiveCoupons() (API). Chặn theo 2 chiều: đã có mã exclusive
+        // đang áp dụng thì không cho thêm mã mới nào nữa; hoặc mã mới đang định thêm là exclusive
+        // thì không cho thêm khi đã có sẵn mã khác.
+        $hasExclusiveApplied = collect($this->appliedCoupons)->contains(fn ($c) => (bool) $c->is_exclusive);
+        if ($hasExclusiveApplied) {
+            $this->couponErrorMessage = 'Đã áp dụng mã độc quyền, không thể áp thêm mã khác. Vui lòng gỡ mã hiện tại trước.';
+            return;
+        }
+
         // Tìm coupon
-        $coupon = Coupon::where('code', strtoupper($this->couponCode))
+        $coupon = Coupon::where('code', $code)
             ->where('is_active', true)
             ->first();
 
         if (!$coupon) {
             $this->couponErrorMessage = 'Mã giảm giá không tồn tại hoặc đã hết hạn';
+            return;
+        }
+
+        // Chiều còn lại: mã MỚI này là exclusive nhưng đã có sẵn mã khác đang áp dụng.
+        if ($coupon->is_exclusive && ! empty($this->appliedCoupons)) {
+            $this->couponErrorMessage = sprintf('Mã "%s" không thể dùng chung với mã giảm giá khác. Vui lòng gỡ mã hiện tại trước.', $code);
             return;
         }
 
@@ -265,6 +398,21 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         if ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {
             $this->couponErrorMessage = 'Mã giảm giá đã hết lượt sử dụng';
             return;
+        }
+
+        // Mã cá nhân/được gán riêng (customer_id trực tiếp hoặc qua bảng coupon_customers) — chỉ
+        // chủ sở hữu mới dùng được, khớp validateOneCoupon() bên BookingController (API) để
+        // tránh lỗ hổng dùng mã của người khác qua form web này.
+        $isRestricted = $coupon->customer_id !== null || $coupon->customers()->exists();
+        if ($isRestricted) {
+            $owns = $this->isAuthUser && $this->authUserId && (
+                $coupon->customer_id === $this->authUserId
+                || $coupon->customers()->where('customer_id', $this->authUserId)->exists()
+            );
+            if (!$owns) {
+                $this->couponErrorMessage = 'Mã giảm giá không thuộc về tài khoản của bạn';
+                return;
+            }
         }
 
         // Kiểm tra áp dụng cho slot
@@ -288,8 +436,9 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             return;
         }
 
-        // Áp dụng coupon thành công
-        $this->appliedCoupon = $coupon;
+        // Áp dụng coupon thành công — thêm vào danh sách (giữ các mã đã áp trước đó)
+        $this->appliedCoupons[$coupon->id] = $coupon;
+        $this->couponCode = '';
         $this->couponSuccessMessage = sprintf(
             'Áp dụng mã giảm giá "%s" thành công!',
             $coupon->code
@@ -415,12 +564,11 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
     }
 
     /**
-     * Xóa coupon đã áp dụng
+     * Xóa 1 coupon đã áp dụng (trong số nhiều mã có thể đang áp cùng lúc) theo id.
      */
-    public function removeCoupon()
+    public function removeCoupon($couponId)
     {
-        $this->appliedCoupon = null;
-        $this->couponCode = '';
+        unset($this->appliedCoupons[$couponId], $this->couponDiscounts[$couponId]);
         $this->resetCouponMessages();
 
         if (((int) ($this->bookingStyle ?? 1)) === 2) {
@@ -433,6 +581,38 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             'message' => 'Đã xóa mã giảm giá',
             'type' => 'info',
         ]);
+    }
+
+    /**
+     * Tính giảm giá cascading cho TẤT CẢ coupon đang áp dụng, cùng thứ tự với
+     * BookingController::applyMultipleCoupons (API đặt phòng thật): mã % trước (áp trên số tiền
+     * lớn hơn, lợi hơn cho khách), mã fixed sau — mỗi mã trừ trên phần còn lại sau mã trước.
+     * Ghi kết quả từng mã vào $couponDiscounts để hiện riêng từng dòng, trả về tổng giảm.
+     */
+    protected function calculateCouponDiscounts(float $amount): float
+    {
+        $this->couponDiscounts = [];
+
+        if (empty($this->appliedCoupons)) {
+            return 0;
+        }
+
+        $coupons = collect($this->appliedCoupons)
+            ->sortByDesc(fn ($c) => $c->type === 'percentage' ? 1 : 0);
+
+        $remaining = $amount;
+        $total = 0.0;
+        foreach ($coupons as $coupon) {
+            if ($remaining <= 0) {
+                break;
+            }
+            $discount = $coupon->calculateDiscount($remaining);
+            $this->couponDiscounts[$coupon->id] = $discount;
+            $remaining -= $discount;
+            $total += $discount;
+        }
+
+        return $total;
     }
 
     protected function getLoyaltyDiscountRate(): float
@@ -490,8 +670,49 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
 
     // =========================================================
 
+    // Click chọn/bỏ chọn 1 ô luôn đi qua đây NGAY LẬP TỨC (Alpine gọi @this.set('selectedSlots',
+    // ...) mỗi lần bấm — không đợi tới lúc mở modal xác nhận hay bấm đặt phòng cuối cùng) — nên đây
+    // là đúng chỗ để kiểm tra real-time "khung giờ đang bị ADMIN giữ chỗ" (xem TimeslotHoldService)
+    // và tự bỏ chọn NGAY nếu có, thay vì để khách chọn xong rồi mới báo lỗi ở bước sau.
+    private function purgeSlotsHeldByAdmin(): void
+    {
+        if (empty($this->selectedSlots) || ! $this->product) {
+            return;
+        }
+
+        $this->product->loadMissing('roomTimeSlots');
+        $rtsMap  = collect($this->product->roomTimeSlots)->keyBy('timeslot_id');
+        $service = app(\App\Services\TimeslotHoldService::class);
+
+        $kept          = [];
+        $removedLabels = [];
+
+        foreach ($this->selectedSlots as $slot) {
+            $rts  = $rtsMap->get($slot['timeslotId'] ?? null);
+            $hold = $rts ? $service->isHeldByAdmin($rts->id, $slot['date'] ?? '') : null;
+
+            if ($hold) {
+                $removedLabels[] = ($slot['timeslotLabel'] ?? "{$slot['startTime']} - {$slot['endTime']}") . ' ngày ' . ($slot['date'] ?? '');
+                continue;
+            }
+
+            $kept[] = $slot;
+        }
+
+        if (count($kept) !== count($this->selectedSlots)) {
+            $this->selectedSlots = $kept;
+
+            $this->dispatch('notify', [
+                'message' => 'Khung giờ ' . implode(', ', $removedLabels) . ' vừa được nhân viên xử lý cho đơn khác — đã tự bỏ chọn, vui lòng chọn khung giờ khác.',
+                'type'    => 'error',
+            ]);
+        }
+    }
+
     public function updatedSelectedSlots()
     {
+        $this->purgeSlotsHeldByAdmin();
+
         if (is_null($this->additionalServices) || $this->additionalServices->isEmpty()) {
             $this->additionalServices = $this->product
                 ? $this->product->additionalServices()->where('additional_services.is_active', 1)->get()
@@ -508,6 +729,8 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         $this->extraFee = 0;
         $this->increaseAmount = 0;
 
+        $this->isOvernightBooking = $this->hasOvernightSlotSelected();
+
         if (empty($this->selectedSlots)) {
             $this->startTime = '';
             $this->endTime = '';
@@ -515,19 +738,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             return;
         }
 
-        $sortedSlots = collect($this->selectedSlots)->sortBy(function ($slot) {
-            return Carbon::parse("{$slot['date']} {$slot['startTime']}");
-        })->values()->toArray();
-
-        $this->startTime = Carbon::parse("{$sortedSlots[0]['date']} {$sortedSlots[0]['startTime']}")->format('Y-m-d H:i');
-        $lastSlot = $sortedSlots[count($sortedSlots) - 1];
-        $endDateTime = Carbon::parse("{$lastSlot['date']} {$lastSlot['endTime']}");
-
-        if (isset($lastSlot['overNight']) && $lastSlot['overNight'] == 1) {
-            $endDateTime->addDay();
-        }
-
-        $this->endTime = $endDateTime->format('Y-m-d H:i');
+        [$this->startTime, $this->endTime] = $this->computeCheckinCheckoutFromSlots();
 
         // ========== ✅ KIỂM TRA FULL BOOKING TRƯỚC ==========
         $this->hasFullDayBooking = $this->checkFullDayBooking();
@@ -621,10 +832,8 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
 
         // ========== COUPON: luôn áp dụng được, kể cả khi full booking ==========
         // Tính trên $totalAfterPromo (giá sau các discount trước đó) — không dùng giá gốc
-        if ($this->appliedCoupon) {
-            $this->couponDiscountAmount = $this->appliedCoupon->calculateDiscount($totalAfterPromo);
-            $totalAfterPromo           -= $this->couponDiscountAmount;
-        }
+        $this->couponDiscountAmount = $this->calculateCouponDiscounts($totalAfterPromo);
+        $totalAfterPromo           -= $this->couponDiscountAmount;
 
         // Tính phụ phí theo cấu hình phòng
         $cfg1 = $this->product ? ($this->product->room_config ?? []) : [];
@@ -649,6 +858,42 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
                 : collect();
         }
         $this->isCalculating = false;
+    }
+
+    // Nhận phòng = mốc bắt đầu SỚM NHẤT, trả phòng = mốc kết thúc MUỘN NHẤT trên TOÀN BỘ khung
+    // giờ đã chọn (mỗi slot tự cộng thêm 1 ngày nếu là khung giờ qua đêm) — KHÔNG chỉ dựa vào
+    // slot có startTime muộn nhất, vì slot đó chưa chắc có endTime muộn nhất (vd: slot qua đêm
+    // ngày 1 kết thúc 06:00 ngày 2 vẫn có thể muộn hơn 1 slot khác bắt đầu sớm trong ngày 2).
+    // Tách thành method riêng (thay vì chỉ tính 1 lần trong updatedSelectedSlots()) để panel
+    // "Thời gian đã chọn" trong blade luôn gọi TRỰC TIẾP hàm này và tính lại NGAY từ
+    // $selectedSlots hiện có mỗi lần render, không phụ thuộc vào việc $startTime/$endTime đã
+    // được cập nhật kịp hay chưa (đã ghi nhận thực tế: hiển thị đôi khi chỉ hiện đúng khung giờ
+    // vừa bấm cuối cùng thay vì gộp toàn bộ khung đã chọn).
+    public function computeCheckinCheckoutFromSlots(): array
+    {
+        if (empty($this->selectedSlots)) {
+            return ['', ''];
+        }
+
+        $slotStarts = [];
+        $slotEnds = [];
+
+        foreach ($this->selectedSlots as $slot) {
+            $slotStart = Carbon::parse("{$slot['date']} {$slot['startTime']}");
+            $slotEnd = Carbon::parse("{$slot['date']} {$slot['endTime']}");
+
+            if ((($slot['overNight'] ?? 0) == 1) || $slotEnd->lt($slotStart)) {
+                $slotEnd->addDay();
+            }
+
+            $slotStarts[] = $slotStart;
+            $slotEnds[] = $slotEnd;
+        }
+
+        return [
+            collect($slotStarts)->min()->format('Y-m-d H:i'),
+            collect($slotEnds)->max()->format('Y-m-d H:i'),
+        ];
     }
 
     /**
@@ -737,6 +982,11 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
 
     public function updatedGuests()
     {
+        // Cắt bớt CCCD người đi cùng dư ra khi giảm số khách (giữ đúng thứ tự index 0..N-1).
+        $companionCount = max(0, (int) $this->guests - 1);
+        $this->cccdFrontExtra = array_slice($this->cccdFrontExtra, 0, $companionCount, true);
+        $this->cccdBackExtra  = array_slice($this->cccdBackExtra, 0, $companionCount, true);
+
         if ($this->bookingStyle == 2) {
             $this->calculateDateRangeTotal();
         } else {
@@ -829,12 +1079,8 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         $this->increaseAmount      = $totalIncrease;
         $this->promoDiscountAmount = $totalDiscount;
 
-        if ($this->appliedCoupon) {
-            $applicableSlots = $this->getApplicableSlots($this->appliedCoupon);
-            $applicableAmount = collect($applicableSlots)->sum('price');
-            $this->couponDiscountAmount = $this->appliedCoupon->calculateDiscount((float) $applicableAmount);
-            $totalAfterPromo -= $this->couponDiscountAmount;
-        }
+        $this->couponDiscountAmount = $this->calculateCouponDiscounts($totalAfterPromo);
+        $totalAfterPromo           -= $this->couponDiscountAmount;
 
         $resolvedCheckin  = $dateConfigs[$checkin->format('Y-m-d')]['checkin'] ?? null;
         $lastNightDate    = $checkout->copy()->subDay()->format('Y-m-d');
@@ -860,6 +1106,23 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             }
         }
         $this->totalAmount = max(0, $totalAfterPromo + $this->extraFee + $serviceTotal);
+    }
+
+    /**
+     * True nếu có ít nhất 1 khung giờ đang chọn là qua đêm (room_time_slots.over_night), HOẶC
+     * phòng đang đặt theo kiểu "Theo Ngày" (style=2 — nhận phòng ngày này trả ngày sau, luôn là
+     * qua đêm về bản chất dù không có cột over_night riêng như style=1) — dùng để quyết định có
+     * hiển thị/bắt buộc upload CCCD người đi cùng (cccdFrontExtra/cccdBackExtra) hay không. Đồng
+     * bộ với OrderForm.php phía admin (requiresSecondGuestCccd() coi style=2 luôn qua đêm).
+     */
+    public function hasOvernightSlotSelected(): bool
+    {
+        if ((int) ($this->bookingStyle ?? 1) === 2) {
+            return true;
+        }
+
+        return !empty($this->selectedSlots)
+            && collect($this->selectedSlots)->contains(fn ($slot) => ($slot['overNight'] ?? 0) == 1);
     }
 
     public function datPhong()
@@ -888,6 +1151,18 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         $hasDateRange     = $this->bookingStyle == 2 && !empty($this->startTime) && !empty($this->endTime);
         $hasBooking       = $hasSelectedSlots || $hasDateRange;
         $hasAllFields     = collect($requiredFields)->every(fn($field) => !empty($this->{$field}));
+
+        // CCCD người đi cùng — bắt buộc đủ cho từng khách từ #2 trở đi khi có khung giờ qua đêm
+        // (không có hồ sơ auth để tái dùng như CCCD chính, luôn phải upload/nhập mới).
+        if ($hasAllFields && $this->hasOvernightSlotSelected()) {
+            $companionCount = max(0, (int) $this->guests - 1);
+            for ($i = 0; $i < $companionCount; $i++) {
+                if (empty($this->cccdFrontExtra[$i] ?? null) || empty($this->cccdBackExtra[$i] ?? null)) {
+                    $hasAllFields = false;
+                    break;
+                }
+            }
+        }
 
         if (!$hasAllFields && !$hasBooking) {
             $this->validateAndNotify();
@@ -930,10 +1205,17 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         if ($this->bookingStyle == 1 && !empty($this->selectedSlots)) {
             $conflict = $this->checkSlotConflicts();
             if ($conflict) {
+                if (! empty($conflict['is_held'])) {
+                    $this->dispatch('notify', [
+                        'message' => "Khung giờ {$conflict['slot_label']} ngày {$conflict['date']} đang được nhân viên xử lý cho 1 đơn khác — vui lòng chọn khung giờ khác hoặc thử lại sau ít phút.",
+                        'type'    => 'error',
+                    ]);
+                    return;
+                }
+
                 $statusLabel = match($conflict['order_status']) {
                     'paid'      => 'đã thanh toán',
                     'confirmed' => 'đã xác nhận',
-                    'shipped'   => 'đang xử lý',
                     default     => 'đang chờ thanh toán',
                 };
                 $this->dispatch('notify', [
@@ -962,6 +1244,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             }
         }
 
+        $this->bookingConfirmError = '';
         $this->dispatch('open-booking-modal');
     }
 
@@ -1020,6 +1303,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
 
 public function confirmBooking()
 {
+    $this->bookingConfirmError = '';
     try {
         // Upload file TRƯỚC transaction (không thể rollback file)
         // Nếu auth user đã có CCCD trong profile → dùng lại, không bắt upload lại
@@ -1036,6 +1320,35 @@ public function confirmBooking()
             $backPath = $this->authCccdBack;
         }
 
+        // CCCD người đi cùng (khung giờ qua đêm) — không có hồ sơ auth để tái dùng, luôn là file
+        // mới upload. Mỗi khách từ #2 trở đi có 1 cặp ảnh trong $cccdFrontExtra/$cccdBackExtra
+        // (index 0 = khách #2, index 1 = khách #3...).
+        $companionPaths = [];
+        foreach ($this->cccdFrontExtra as $i => $file) {
+            $backFile = $this->cccdBackExtra[$i] ?? null;
+            $companionPaths[$i] = [
+                'front' => $file     ? $file->store('cccd/front', 'public')     : null,
+                'back'  => $backFile ? $backFile->store('cccd/back', 'public')  : null,
+            ];
+        }
+
+        $deleteAllUploaded = function () use ($frontPath, $backPath, &$companionPaths) {
+            if ($frontPath && $this->cccd_front) {
+                \Illuminate\Support\Facades\Storage::disk('public')->delete($frontPath);
+            }
+            if ($backPath && $this->cccd_back) {
+                \Illuminate\Support\Facades\Storage::disk('public')->delete($backPath);
+            }
+            foreach ($companionPaths as $paths) {
+                if ($paths['front']) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete($paths['front']);
+                }
+                if ($paths['back']) {
+                    \Illuminate\Support\Facades\Storage::disk('public')->delete($paths['back']);
+                }
+            }
+        };
+
         // Quét QR CCCD — chỉ khi có file mới upload (guest hoặc auth user đổi ảnh)
         $cccdData = null;
         if ($this->cccd_front || $this->cccd_back) {
@@ -1043,16 +1356,8 @@ public function confirmBooking()
 
             if (!$cccdData) {
                 // Không đọc được QR → xóa file, yêu cầu upload lại
-                if ($frontPath && $this->cccd_front) {
-                    \Illuminate\Support\Facades\Storage::disk('public')->delete($frontPath);
-                }
-                if ($backPath && $this->cccd_back) {
-                    \Illuminate\Support\Facades\Storage::disk('public')->delete($backPath);
-                }
-                $this->dispatch('notify', [
-                    'message' => 'Không đọc được mã QR trên CCCD. Vui lòng upload ảnh gốc rõ nét, chụp thẳng mặt sau CCCD, không chụp lại màn hình.',
-                    'type'    => 'error',
-                ]);
+                $deleteAllUploaded();
+                $this->bookingConfirmError = 'Không đọc được mã QR trên CCCD. Vui lòng upload ảnh gốc rõ nét, chụp thẳng mặt sau CCCD, không chụp lại màn hình.';
                 return;
             }
 
@@ -1061,22 +1366,53 @@ public function confirmBooking()
                     $dob = Carbon::createFromFormat('d/m/Y', $cccdData['dob']);
                     if ($dob->diffInYears(Carbon::now()) < 18) {
                         // Chưa đủ 18 tuổi → xóa file, không tạo đơn
-                        if ($frontPath && $this->cccd_front) {
-                            \Illuminate\Support\Facades\Storage::disk('public')->delete($frontPath);
-                        }
-                        if ($backPath && $this->cccd_back) {
-                            \Illuminate\Support\Facades\Storage::disk('public')->delete($backPath);
-                        }
-                        $this->dispatch('notify', [
-                            'message' => 'Người đặt phòng chưa đủ 18 tuổi. Vui lòng liên hệ trực tiếp để được hỗ trợ.',
-                            'type'    => 'error',
-                        ]);
+                        $deleteAllUploaded();
+                        $this->bookingConfirmError = 'Người đặt phòng chưa đủ 18 tuổi. Vui lòng liên hệ trực tiếp để được hỗ trợ.';
                         return;
                     }
                 } catch (\Throwable) {
                     // Không parse được ngày sinh → bỏ qua kiểm tra tuổi
                 }
             }
+        }
+
+        // Quét QR CCCD của từng người đi cùng (khung giờ qua đêm) — bắt buộc đọc được QR như CCCD
+        // chính để admin có đủ thông tin khai báo lưu trú cho tất cả mọi người, nhưng KHÔNG kiểm
+        // tra tuổi (người đi cùng không cần đủ 18, ví dụ trẻ nhỏ đi cùng phụ huynh).
+        $companionCccdList = [];
+        $seenCccds = array_filter([$cccdData['cccd'] ?? null]);
+
+        foreach ($companionPaths as $i => $paths) {
+            if (!$paths['front'] && !$paths['back']) {
+                continue;
+            }
+
+            $guestNumber = $i + 2;
+            $data = $this->cccdScanner->scanPaths($paths['front'], $paths['back']);
+
+            if (!$data) {
+                $deleteAllUploaded();
+                $this->bookingConfirmError = "Không đọc được mã QR trên CCCD người đi cùng thứ {$guestNumber}. Vui lòng upload ảnh gốc rõ nét, chụp thẳng mặt sau CCCD, không chụp lại màn hình.";
+                return;
+            }
+
+            // Chặn dùng chung 1 CCCD cho nhiều người trong cùng đơn (kể cả khách chính).
+            if (!empty($data['cccd']) && in_array($data['cccd'], $seenCccds, true)) {
+                $deleteAllUploaded();
+                $this->bookingConfirmError = "CCCD của người đi cùng thứ {$guestNumber} bị trùng với một CCCD khác trong đơn. Vui lòng upload CCCD của một người khác.";
+                return;
+            }
+
+            if (!empty($data['cccd'])) {
+                $seenCccds[] = $data['cccd'];
+            }
+
+            $companionCccdList[] = [
+                'guest_index' => $guestNumber,
+                'front'       => $paths['front'],
+                'back'        => $paths['back'],
+                'data'        => $data,
+            ];
         }
 
         $roomConfig   = $this->product ? ($this->product->room_config ?? []) : [];
@@ -1109,6 +1445,20 @@ public function confirmBooking()
                 !empty($cccdData['gender'])    ? "Giới tính: {$cccdData['gender']}"    : null,
                 !empty($cccdData['address'])   ? "Địa chỉ:   {$cccdData['address']}"   : null,
             ]));
+        }
+
+        // Ghép thêm thông tin CCCD của từng người đi cùng (nếu có, khung giờ qua đêm) vào cuối note.
+        foreach ($companionCccdList as $companion) {
+            $note = implode("\n", array_filter([
+                !empty($companion['data']['cccd'])      ? "Số CCCD:   {$companion['data']['cccd']}"      : null,
+                !empty($companion['data']['full_name']) ? "Họ và tên: {$companion['data']['full_name']}" : null,
+                !empty($companion['data']['dob'])       ? "Ngày sinh: {$companion['data']['dob']}"       : null,
+                !empty($companion['data']['gender'])    ? "Giới tính: {$companion['data']['gender']}"    : null,
+                !empty($companion['data']['address'])   ? "Địa chỉ:   {$companion['data']['address']}"   : null,
+            ]));
+            if ($note !== '') {
+                $noteForAdmin = trim($noteForAdmin . "\n\n--- Người đi cùng #{$companion['guest_index']} ---\n" . $note);
+            }
         }
 
         // Security: nếu đặt phòng với tài khoản đã xác thực, re-fetch dữ liệu từ DB
@@ -1164,7 +1514,7 @@ public function confirmBooking()
         // TRANSACTION: conflict check + order creation trong cùng 1 transaction
         // lockForUpdate ngăn 2 request đồng thời cùng tạo đơn trùng khung giờ
         // =====================================================================
-        $order = DB::transaction(function () use ($frontPath, $backPath, $extraFee, $categoryId, $orderTotal, $noteForAdmin, $paymentAmount, $depositPercent, $fullAmount, $verifiedBuyerName, $verifiedBuyerPhone, $verifiedUserId, $cccdData) {
+        $order = DB::transaction(function () use ($frontPath, $backPath, $companionCccdList, $extraFee, $categoryId, $orderTotal, $noteForAdmin, $paymentAmount, $depositPercent, $fullAmount, $verifiedBuyerName, $verifiedBuyerPhone, $verifiedUserId, $cccdData) {
 
             // --- Kiểm tra xung đột (style 1) ---
             if ($this->bookingStyle == 1 && !empty($this->selectedSlots)) {
@@ -1187,23 +1537,48 @@ public function confirmBooking()
                 'order_code'      => time() . rand(1000, 9999),
                 'buyer_name'      => $verifiedBuyerName,
                 'buyer_phone'     => $verifiedBuyerPhone,
+                'buyer_email'     => $this->buyerEmail ?: null,
                 'user_id'         => $verifiedUserId,
-                'amount'          => $paymentAmount,
+                // Cả 'amount' và 'full_amount' lưu ĐÚNG TỔNG GIÁ thật của đơn (không phải tiền cọc
+                // cần trả ngay) — 'full_amount' CỐ ĐỊNH từ đây trở đi, 'amount' là nơi cập nhật khi
+                // giá thay đổi sau này. Số tiền PayOS thu ngay tính riêng qua depositDueAmount().
+                'amount'          => $fullAmount,
                 'full_amount'     => $fullAmount,
                 'deposit_percent' => $depositPercent < 100 ? $depositPercent : null,
                 // Đơn cọc (style=2 + deposit_percent < 100) → khởi đầu với status 'deposit'
                 'status'         => ($depositPercent < 100) ? 'deposit' : 'pending',
                 'payment_method' => $this->paymentMethod ?? 'payos',
-                'description'    => !empty($this->note) ? $this->note : 'Đặt phòng - ' . $this->product->name,
+                'description'    => $this->note ?: null,
                 'cccd_front'     => $frontPath,
                 'cccd_back'      => $backPath,
                 'cccd_data'      => $cccdData,
                 'guest_count'    => $this->guests,
                 'category_id'    => $categoryId,
-                'coupon_code'    => $this->appliedCoupon ? $this->appliedCoupon->code : null,
+                // Đơn đặt qua trang khách (Livewire, không đăng nhập App\Models\User) nên
+                // BelongsToPartner::creating() không tự gán được partner_id — gán thẳng theo
+                // đúng partner_id của phòng đang đặt, tránh admin mở sửa đơn bị "mất" thông tin
+                // đối tác/chi nhánh.
+                'partner_id'     => $this->product->partner_id,
+                // coupon_code giữ mã đầu tiên (backward compat, xem BookingController/OrderController
+                // API cùng quy ước) — coupon_codes (JSON) mới là nguồn đầy đủ khi áp nhiều mã.
+                'coupon_code'    => collect($this->appliedCoupons)->first()?->code,
+                'coupon_codes'   => collect($this->appliedCoupons)->pluck('code')->values()->all() ?: null,
                 'coupon_discount'=> $this->couponDiscountAmount,
                 'note_for_admin' => $noteForAdmin,
             ]);
+
+            // CCCD người đi cùng (khung giờ qua đêm) — mỗi khách 1 dòng trong order_guest_cccds
+            // theo guest_index (2, 3, 4...), khớp với cách GuestBookingController/BookingController
+            // (API) và admin OrderForm đang lưu — không ghi vào cột cccd_front_2/back_2/cccd_data_2
+            // cũ trên orders nữa.
+            foreach ($companionCccdList as $companion) {
+                $order->guestCccds()->create([
+                    'guest_index' => $companion['guest_index'],
+                    'cccd_front'  => $companion['front'],
+                    'cccd_back'   => $companion['back'],
+                    'cccd_data'   => $companion['data'],
+                ]);
+            }
 
             // ✅ 1. Lưu ORDER ITEMS
             if ($this->bookingStyle == 2) {
@@ -1241,6 +1616,9 @@ public function confirmBooking()
                     'checkin_date'  => $checkinDateTime,
                     'checkout_date' => $checkoutDateTime,
                     'guest_count'   => $this->guests,
+                    // Phòng theo ngày luôn qua đêm về bản chất — đồng bộ với hasOvernightSlotSelected()
+                    // ở trên, để dữ liệu order_items nhất quán với style=1 (cũng set over_night thật).
+                    'over_night'    => true,
                 ]);
             } else {
                 foreach ($this->selectedSlots as $slot) {
@@ -1258,20 +1636,30 @@ public function confirmBooking()
                         'checkin_date'  => $checkinDateTime,
                         'checkout_date' => $checkoutDateTime,
                         'guest_count'   => $this->guests,
+                        'slot_label'    => $slot['timeslotLabel'] ?? null,
+                        'over_night'    => ($slot['overNight'] ?? 0) == 1,
                     ]);
                 }
             }
 
             // ✅ 2. Phụ phí khách
             if ($extraFee > 0) {
+                // Style 1 (khung giờ): tính lại TRỰC TIẾP từ selectedSlots thay vì đọc $this->startTime/
+                // $this->endTime — 2 property đó có thể chưa kịp đồng bộ đúng lúc submit (cùng nguyên
+                // nhân khiến panel "Thời gian đã chọn" từng hiện sai, xem computeCheckinCheckoutFromSlots()).
+                // Style 2 (theo ngày) không dùng selectedSlots nên vẫn giữ nguyên $this->startTime/$this->endTime.
+                [$extraFeeCheckin, $extraFeeCheckout] = $this->bookingStyle == 2
+                    ? [$this->startTime, $this->endTime]
+                    : $this->computeCheckinCheckoutFromSlots();
+
                 $order->items()->create([
                     'product_id'    => null,
                     'name'          => 'Phụ phí khách thêm (' . ($this->guests - 2) . ' người)',
                     'price'         => $extraFee,
                     'quantity'      => 1,
                     'extra_fee'     => $extraFee,
-                    'checkin_date'  => $this->startTime,
-                    'checkout_date' => $this->endTime,
+                    'checkin_date'  => $extraFeeCheckin,
+                    'checkout_date' => $extraFeeCheckout,
                     'guest_count'   => $this->guests,
                 ]);
             }
@@ -1294,12 +1682,14 @@ public function confirmBooking()
                 }
             }
 
-            if ($this->appliedCoupon) {
-                $this->appliedCoupon->incrementUsage();
+            foreach ($this->appliedCoupons as $appliedCoupon) {
+                $appliedCoupon->incrementUsage();
             }
 
             return $order;
         });
+
+        app(CccdDeclarationService::class)->upsertFromOrder($order->load('items'));
 
         Session::forget('booking_data');
         Session::forget('booking_detail_state');
@@ -1308,10 +1698,28 @@ public function confirmBooking()
     } catch (\RuntimeException $e) {
         if (str_starts_with($e->getMessage(), 'SLOT_CONFLICT:')) {
             $conflict = json_decode(substr($e->getMessage(), 14), true);
+
+            if (! empty($conflict['is_held'])) {
+                $this->dispatch('close-booking-modal');
+                $this->dispatch('notify', [
+                    'message' => "Rất tiếc! Khung giờ {$conflict['slot_label']} ngày {$conflict['date']} đang được nhân viên xử lý cho 1 đơn khác. Vui lòng chọn khung giờ khác hoặc thử lại sau ít phút.",
+                    'type'    => 'error',
+                ]);
+                return;
+            }
+
+            if (! empty($conflict['is_blocked'])) {
+                $this->dispatch('close-booking-modal');
+                $this->dispatch('notify', [
+                    'message' => "Rất tiếc! Khung giờ {$conflict['slot_label']} ngày {$conflict['date']} hiện không nhận đặt. Vui lòng chọn khung giờ khác.",
+                    'type'    => 'error',
+                ]);
+                return;
+            }
+
             $statusLabel = match($conflict['order_status'] ?? '') {
                 'paid'      => 'đã thanh toán',
                 'confirmed' => 'đã xác nhận',
-                'shipped'   => 'đang xử lý',
                 default     => 'đang chờ thanh toán',
             };
             $this->dispatch('close-booking-modal');
@@ -1323,6 +1731,16 @@ public function confirmBooking()
         }
         if (str_starts_with($e->getMessage(), 'DATE_CONFLICT:')) {
             $conflict = json_decode(substr($e->getMessage(), 14), true);
+
+            if (! empty($conflict['is_blocked'])) {
+                $this->dispatch('close-booking-modal');
+                $this->dispatch('notify', [
+                    'message' => "Rất tiếc! Ngày {$conflict['checkin']} – {$conflict['checkout']} hiện không nhận đặt. Vui lòng chọn ngày khác.",
+                    'type'    => 'error',
+                ]);
+                return;
+            }
+
             $statusLabel = match($conflict['order_status'] ?? '') {
                 'paid'      => 'đã thanh toán',
                 'deposit'   => 'đặt cọc',
@@ -1361,6 +1779,31 @@ public function confirmBooking()
 
         if ($newStart->gte($newEnd)) {
             return null;
+        }
+
+        // Admin khóa khoảng ngày qua CMS (Modules\Book\Livewire\BlockTimeslotModal, style=2) lưu
+        // thẳng vào product.room_config['blocked_ranges'] — KHÔNG tạo Order/OrderItem nào nên
+        // truy vấn OrderItem bên dưới không bắt được. Lịch trên giao diện có hiện xám (chỉ là UI,
+        // xem product-detail.blade.php $adminBlockedRanges) nhưng không chặn thật ở server, nên
+        // phải tự kiểm tra riêng ở đây — nếu không khách vẫn đặt được ngày admin đã khóa.
+        // Ngữ nghĩa khóa CẢ 2 đầu [start, end] (giống daterange-picker.blade.php: iso >= start &&
+        // iso <= end), so với khoảng đêm ở nửa mở [newStart, newEnd) của đơn mới.
+        $blockedRanges = $this->product->room_config['blocked_ranges'] ?? [];
+        foreach ($blockedRanges as $range) {
+            if (empty($range['start']) || empty($range['end'])) {
+                continue;
+            }
+
+            $blockStart = Carbon::parse($range['start'])->startOfDay();
+            $blockEnd   = Carbon::parse($range['end'])->startOfDay();
+
+            if ($newStart->lte($blockEnd) && $newEnd->gt($blockStart)) {
+                return [
+                    'checkin'    => $newStart->format('d/m/Y'),
+                    'checkout'   => $newEnd->format('d/m/Y'),
+                    'is_blocked' => true,
+                ];
+            }
         }
 
         $query = OrderItem::with('order')
@@ -1421,9 +1864,41 @@ public function confirmBooking()
         // Build map timeslot_id => start_time từ $this->timeSlots đã load sẵn
         $timeSlotsMap = collect($this->timeSlots)->keyBy('timeslot_id');
 
+        // map timeslot_id (catalog) => room_time_slot (instance riêng của CHÍNH phòng này) — cần
+        // room_time_slot_id thật để tra TimeslotHold bên dưới (bảng đó khóa theo room_time_slot_id,
+        // không phải timeslot_id chung).
+        $this->product->loadMissing('roomTimeSlots');
+        $rtsMap = collect($this->product->roomTimeSlots)->keyBy('timeslot_id');
+
         foreach ($this->selectedSlots as $slot) {
             $timeslotId = $slot['timeslotId'];
             $slotDate   = $slot['date']; // Y-m-d
+
+            // Admin đang giữ chỗ real-time đúng khung giờ + ngày này (xem TimeslotHoldService) —
+            // chặn TRƯỚC KHI xét tới OrderItem thật, vì hold có thể chưa kịp thành đơn thật nào.
+            $rts = $rtsMap->get($timeslotId);
+            if ($rts) {
+                $activeHold = app(\App\Services\TimeslotHoldService::class)->isHeldByAdmin($rts->id, $slotDate);
+                if ($activeHold) {
+                    return [
+                        'slot_label' => $slot['timeslotLabel'] ?? "{$slot['startTime']} - {$slot['endTime']}",
+                        'date'       => $slot['date'],
+                        'is_held'    => true,
+                    ];
+                }
+
+                // Admin tô đen khung giờ này qua CMS (RoomTimeSlot.settings['blocked_dates'], xem
+                // BlockTimeslotModal::saveBlock() style=1) — API (BuildsRoomBooking::buildSlotItems())
+                // đã tự kiểm tra đúng, nhưng luồng web này trước đây thiếu, khiến khách vẫn đặt được
+                // khung giờ đã bị khóa dù lưới hiện xám (chỉ là UI, xem _slot-cell.blade.php).
+                if ($rts->isBlockedOn($slotDate)) {
+                    return [
+                        'slot_label' => $slot['timeslotLabel'] ?? "{$slot['startTime']} - {$slot['endTime']}",
+                        'date'       => $slot['date'],
+                        'is_blocked' => true,
+                    ];
+                }
+            }
 
             // Lấy start_time chính xác từ time_slots
             $tsInfo    = $timeSlotsMap->get($timeslotId);
@@ -1449,7 +1924,7 @@ public function confirmBooking()
                 ->whereHas('order', function ($q) {
                     $q->where(function ($inner) {
                         // Đơn đã thanh toán / xác nhận → luôn block
-                        $inner->whereIn('status', ['paid', 'shipped', 'confirmed'])
+                        $inner->whereIn('status', ['paid', 'confirmed'])
                               // Đơn pending → chỉ block nếu chưa hết hạn 15p
                               ->orWhere(function ($pendingQ) {
                                   $pendingQ->where('status', 'pending')
@@ -1497,6 +1972,19 @@ public function confirmBooking()
         $branchCategory = $this->product->categories()
             ->where('category_type', 'product')
             ->first();
+
+        // Dữ liệu đối tác cũ (vd 365home) tổ chức category 2 CẤP: chi nhánh thật (parent_id NULL)
+        // → danh mục phòng con CÙNG TÊN với phòng (parent_id = chi nhánh). Nếu dùng thẳng kết quả
+        // categories()->first(), category_id của đơn sẽ lưu NHẦM thành danh mục con (hiện tên
+        // phòng thay vì tên chi nhánh khi admin mở sửa đơn) — leo lên tới đúng cấp chi nhánh
+        // (parent_id NULL) trước khi lưu vào đơn.
+        for ($i = 0; $i < 5 && $branchCategory && $branchCategory->parent_id; $i++) {
+            $parent = Category::find($branchCategory->parent_id);
+            if (!$parent) {
+                break;
+            }
+            $branchCategory = $parent;
+        }
 
         if ($branchCategory) {
             return $branchCategory->id;
@@ -1547,7 +2035,7 @@ public function confirmBooking()
                         ->where('checkin_date', '<=', $endDate)
                         ->whereHas('order', function ($subQuery) {
                             $subQuery->where(function ($inner) {
-                                $inner->whereIn('status', ['paid', 'shipped'])
+                                $inner->whereIn('status', ['paid'])
                                       ->orWhere(function ($pendingQ) {
                                           $pendingQ->where('status', 'pending')
                                                    ->where(function ($expQ) {
@@ -1561,6 +2049,8 @@ public function confirmBooking()
                 'orderItems.order'
             ]
         )
+            ->withCount('ratings')
+            ->withAvg('ratings', 'star')
             ->where([
                 'is_activated' => true,
                 'type' => 'simple'
@@ -2005,7 +2495,7 @@ public function confirmBooking()
                         ->where('checkin_date', '<=', $endDate)
                         ->whereHas('order', function ($subQuery) {
                             $subQuery->where(function ($inner) {
-                                $inner->whereIn('status', ['paid', 'shipped'])
+                                $inner->whereIn('status', ['paid'])
                                       ->orWhere(function ($pendingQ) {
                                           $pendingQ->where('status', 'pending')
                                                    ->where(function ($expQ) {

@@ -1,3 +1,4 @@
+@inject('generalSettings', 'App\Settings\GeneralSettings')
 <div x-data="{
     selectedSlots: [],
     selectedRoomId: null,
@@ -7,6 +8,7 @@
     fullDayDates: [], // Thêm để track ngày nào full booking
 
     resetSelection() {
+        document.querySelectorAll('.selectable.active').forEach(el => el.classList.remove('active'));
         this.selectedSlots = [];
         this.selectedRoomId = null;
         this.selectedRoomIsActive = null;
@@ -30,8 +32,21 @@
             s => s.timeslotId === slot.timeslotId && s.date === slot.date
         );
 
+        // Mobile (book/_mobile.blade.php) và desktop (book/_desktop-grid.blade.php) render 2 DOM
+        // riêng biệt cho CÙNG 1 ô khung giờ (cùng phòng/ngày/khung giờ) — bấm chọn ở bên nào thì
+        // chỉ el bên đó nhận class active, còn ô song sinh bên kia (ẩn qua CSS lg:hidden/hidden
+        // lg:block, không phải bị gỡ khỏi DOM) không được đồng bộ, nên khi đổi kích thước trình
+        // duyệt qua breakpoint sẽ thấy ô đã chọn không tô đen dù selectedSlots vẫn đúng. Tìm mọi
+        // ô cùng data-room-id/timeslot-id/date (xem _slot-cell.blade.php) để toggle đồng thời,
+        // không chỉ riêng el. Chú ý: toàn khối x-data này nằm trong 1 attribute HTML bọc bởi dấu
+        // ngoặc kép, nên tuyệt đối không được gõ ký tự ngoặc kép ở bất kỳ đâu trong toàn bộ khối
+        // này (kể cả trong comment) — chỉ dùng dấu nháy đơn cho chuỗi.
+        const twins = document.querySelectorAll(
+            '.selectable[data-room-id=\'' + slot.roomId + '\'][data-timeslot-id=\'' + slot.timeslotId + '\'][data-date=\'' + slot.date + '\']'
+        );
+
         if (isSelected) {
-            el.classList.remove('active');
+            twins.forEach(twin => twin.classList.remove('active'));
             // Fix: filter by BOTH date AND timeslotId — same timeslot can exist on multiple dates
             this.selectedSlots = this.selectedSlots.filter(
                 s => !(s.timeslotId === slot.timeslotId && s.date === slot.date)
@@ -45,7 +60,7 @@
                 this.fullDayDates = [];
             }
         } else {
-            el.classList.add('active');
+            twins.forEach(twin => twin.classList.add('active'));
             this.selectedSlots.push(slot);
         }
 
@@ -214,87 +229,90 @@
 
         return summary;
     }
-}" x-on:book-category-changed.window="resetSelection()">
+}" x-on:book-category-changed.window="resetSelection()"
+    class="{{ $generalSettings->holiday_theme_active ? 'holiday-theme' : '' }}"
+    data-room-ids="{{ implode(',', $this->roomIds) }}">
     <div class="w-full mx-auto">
         @include('bladethemev1::livewire.book._header')
 
-        <div id="default-styled-tab-content" wire:loading.class="opacity-50 pointer-events-none" wire:target="setActiveCategoryTab">
+        <div id="default-styled-tab-content" wire:loading.class="pointer-events-none">
+            {{-- Skeleton (book/_skeleton.blade.php) thay chỗ nội dung thật trong lúc Livewire tải
+                 dữ liệu (đổi chi nhánh — loadBranch(), hoặc đổi tab danh mục —
+                 setActiveCategoryTab()) — mượt hơn hẳn so với chỉ làm mờ opacity nội dung cũ.
+                 Không dùng wire:target giới hạn theo tên method — loadBranch() được gọi gián tiếp
+                 qua sự kiện 'load-branch' (Livewire.dispatch), không phải wire:click trực tiếp,
+                 nên wire:target khớp theo tên method không nhận diện đúng request đang chạy. --}}
+            <div wire:loading.block style="display:none;">
+                @include('bladethemev1::livewire.book._skeleton')
+            </div>
+            <div wire:loading.remove>
             @if(!empty($activeCategoryData))
             @php $category = $activeCategoryData; @endphp
-            <div class="pb-10 relative" id="styled-{{ \Str::slug($category['name']) }}" role="tabpanel"
+            <div class="relative" id="styled-{{ \Str::slug($category['name']) }}" role="tabpanel"
                 aria-labelledby="styled-{{ \Str::slug($category['name']) }}-tab" wire:key="book-category-{{ $category['id'] }}">
 
                 @php
+                // $dates chỉ chứa $visibleDaysCount ngày (mặc định 15/31) — không build sẵn cả
+                // tháng, tránh render (số phòng x số khung giờ x số ngày) ô lịch cùng lúc gây
+                // tràn bộ nhớ PHP. Bấm "Xem thêm ngày" gọi loadMoreDates() (round-trip Livewire
+                // nhỏ) để tăng dần con số này.
                 $dates = $this->getDatesForOneMonth();
                 $styleOneRooms = collect($category['products'])->filter(fn($r) => ($r->styles ?? 1) == 1)->values();
                 $totalStyleOneRooms = $styleOneRooms->count();
                 $today = now()->startOfDay();
-                // Auto-compute contrast text color from hex background
-                $autoTextColor = function(string $hex): string {
-                $hex = ltrim($hex, '#');
-                if (strlen($hex) === 3) {
-                $hex = $hex[0].$hex[0].$hex[1].$hex[1].$hex[2].$hex[2];
-                }
-                $r = hexdec(substr($hex, 0, 2));
-                $g = hexdec(substr($hex, 2, 2));
-                $b = hexdec(substr($hex, 4, 2));
-                return (0.299 * $r + 0.587 * $g + 0.114 * $b) > 128 ? '#111827' : '#ffffff';
-                };
-                // Xây dựng bản đồ màu theo thứ tự xuất hiện của order_id trong category
-                // Đảm bảo mỗi đơn có màu riêng, không trùng giữa các phòng khác nhau
-               $orderColorMap = [];
                 @endphp
 
-                @include('bladethemev1::livewire.book._legend')
+                @if($totalStyleOneRooms > 0)
+                    @include('bladethemev1::livewire.book._legend')
 
-                <div class="md:hidden">
-                    @include('bladethemev1::livewire.book._mobile')
-                </div>
+                    {{-- Bảng đặt phòng, và bên dưới là bảng tính giá (Giá cơ bản, tổng tiền tạm
+                         tính) — luôn xếp dọc (cả mobile lẫn desktop). Trên mobile, bảng tính giá này
+                         bị ẩn và thay bằng bottom sheet (bên dưới) để không chiếm chỗ khi chưa chọn
+                         khung giờ. --}}
+                    <div class="book-panel">
+                        @include('bladethemev1::livewire.book._mobile')
+                        @include('bladethemev1::livewire.book._desktop-grid')
 
-                @include('bladethemev1::livewire.book._desktop-table')
-
-                @if ($visibleDays < \Modules\BladeThemeV1\Livewire\Book::MAX_VISIBLE_DAYS)
-                <div class="flex justify-center mt-3 mb-1">
-                    <button type="button"
-                            wire:click="loadMoreDays"
-                            wire:loading.attr="disabled"
-                            wire:target="loadMoreDays"
-                            class="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs md:text-sm font-bold text-primary border border-primary/40 hover:bg-primary/5 transition-all disabled:opacity-50">
-                        <span wire:loading.remove wire:target="loadMoreDays">Xem thêm ngày</span>
-                        <span wire:loading wire:target="loadMoreDays">Đang tải...</span>
-                    </button>
-                </div>
+                        <div class="book-pricing-desktop">
+                            @include('bladethemev1::livewire.book._pricing')
+                        </div>
+                    </div>
+                @else
+                    <div style="padding:2.5rem 1rem; text-align:center;">
+                        <svg style="width:40px;height:40px;color:#d1d5db;margin:0 auto 12px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        <p style="color:#6b7280;font-size:14px;margin:0;">Không có phòng khả dụng cho danh mục này.</p>
+                    </div>
                 @endif
-
-                @include('bladethemev1::livewire.book._pricing')
 
             </div>
             @endif
+            </div>
         </div>
 
-        {{-- Mobile sticky pricing bar (shown after selecting a time slot) --}}
-        <div class="book-mobile-price-bar"
+        {{-- Mobile bottom sheet: hiện bảng tính giá đầy đủ sau khi user chọn khung giờ.
+             Không dùng backdrop toàn màn hình nữa — trước đây backdrop phủ inset:0 chặn
+             luôn cả click vào bảng khung giờ phía trên sheet, khiến không chọn thêm được
+             khung giờ thứ 2 (chỉ bấm được nút "X" hoặc bấm ra ngoài để đóng). Giờ người
+             dùng có thể chọn tiếp trong khi sheet vẫn hiện, đóng bằng nút "X". --}}
+        <div class="book-bottom-sheet"
              x-show="selectedSlots.length > 0"
-             x-transition:enter="bar-enter"
-             x-transition:enter-start="bar-enter-from"
-             x-transition:enter-end="bar-enter-to"
-             x-transition:leave="bar-leave"
-             x-transition:leave-start="bar-leave-from"
-             x-transition:leave-end="bar-leave-to"
+             x-transition:enter="sheet-enter"
+             x-transition:enter-start="sheet-enter-from"
+             x-transition:enter-end="sheet-enter-to"
+             x-transition:leave="sheet-leave"
+             x-transition:leave-start="sheet-leave-from"
+             x-transition:leave-end="sheet-leave-to"
              style="display:none">
-            <div class="flex items-center justify-between gap-3">
-                <div class="min-w-0">
-                    <p style="font-size:0.7rem;color:#6b7280;font-weight:500;margin:0 0 2px;">Tổng tiền tạm tính</p>
-                    <p style="font-size:1.1rem;font-weight:800;color:#4e6b4c;margin:0;line-height:1.2;" x-text="totalAfterAllDiscounts.toLocaleString() + ' đ'"></p>
-                    <p style="font-size:0.65rem;color:#9ca3af;margin:0;" x-text="selectedSlots.length + ' khung giờ đã chọn'"></p>
-                </div>
-                <div x-show="selectedRoomIsActive === true || selectedRoomId === null" style="flex-shrink:0">
-                    <button @click="$wire.saveAndRedirect(selectedSlots)"
-                            :disabled="selectedSlots.length === 0"
-                            style="padding:10px 22px;border-radius:999px;font-weight:800;font-size:0.85rem;color:white;background:linear-gradient(135deg,#4e6b4c,#6a8f68,#5a7d58);border:none;cursor:pointer;box-shadow:0 6px 18px rgba(78,107,76,0.35);white-space:nowrap;">
-                        Đặt phòng ngay
-                    </button>
-                </div>
+            <div class="book-sheet-handle-row">
+                <span class="book-sheet-handle"></span>
+                <button type="button" class="book-sheet-close" @click="resetSelection()" aria-label="Đóng">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="book-sheet-scroll">
+                @include('bladethemev1::livewire.book._pricing')
             </div>
         </div>
 

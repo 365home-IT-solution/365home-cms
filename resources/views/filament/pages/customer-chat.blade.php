@@ -1,8 +1,16 @@
 <x-filament-panels::page>
-    <div class="flex gap-4 overflow-hidden rounded-xl" style="height: calc(100vh - 13rem)">
+    {{--
+        Responsive: desktop (lg+) hiện đủ 3 cột cùng lúc như cũ. Dưới lg, 3 cột không đủ chỗ (2 cột
+        w-72 cố định đã chiếm hết màn hình điện thoại) nên chuyển sang single-pane, điều hướng qua
+        lại bằng `mobileView` (list → orders → chat) + nút back, giống UX app chat trên mobile.
+    --}}
+    <div x-data="{ mobileView: 'list' }" class="flex gap-4 overflow-hidden rounded-xl" style="height: calc(100vh - 13rem)">
 
         {{-- ── Left: Danh sách conversation ──────────────────────────── --}}
-        <div class="w-72 flex flex-col flex-shrink-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+        <div
+            :class="mobileView === 'list' ? 'flex' : 'hidden lg:flex'"
+            class="w-full lg:w-72 flex-col flex-shrink-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden"
+        >
 
             {{-- Header --}}
             <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
@@ -22,6 +30,7 @@
                         wire:click="selectConversation('{{ $conv['id'] }}')"
                         wire:loading.class="opacity-50"
                         wire:target="selectConversation('{{ $conv['id'] }}')"
+                        @click="mobileView = 'orders'"
                         class="w-full p-3 text-left transition-colors {{ $selectedId === $conv['id'] ? 'bg-primary-50 dark:bg-primary-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800/60' }}"
                     >
                         <div class="flex items-start justify-between gap-1">
@@ -50,12 +59,18 @@
         </div>
 
         {{-- ── Center: Khung chat ──────────────────────────────────────── --}}
-        <div class="flex-1 flex flex-col min-w-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+        <div
+            :class="mobileView === 'chat' ? 'flex' : 'hidden lg:flex'"
+            class="flex-1 flex-col min-w-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden"
+        >
 
             @if ($selectedConversation)
 
                 {{-- Header --}}
                 <div class="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+                    <button type="button" @click="mobileView = 'orders'" class="lg:hidden flex-shrink-0 w-8 h-8 -ml-1 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
+                        <x-heroicon-o-chevron-left class="w-5 h-5" />
+                    </button>
                     <div class="w-9 h-9 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center text-primary-700 dark:text-primary-300 font-bold text-sm flex-shrink-0">
                         {{ mb_strtoupper(mb_substr($selectedConversation['customer']['fullname'], 0, 1)) }}
                     </div>
@@ -166,11 +181,17 @@
 
         {{-- ── Right: Danh sách đơn hàng của khách ──────────────────── --}}
         @if ($selectedConversation)
-        <div class="w-72 flex-shrink-0 flex flex-col bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+        <div
+            :class="mobileView === 'orders' ? 'flex' : 'hidden lg:flex'"
+            class="w-full lg:w-72 flex-shrink-0 flex-col bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden"
+        >
 
             {{-- Header danh sách đơn --}}
             <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
                 <div class="flex items-center gap-2">
+                    <button type="button" @click="mobileView = 'list'" class="lg:hidden flex-shrink-0 w-8 h-8 -ml-1 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
+                        <x-heroicon-o-chevron-left class="w-5 h-5" />
+                    </button>
                     <x-heroicon-o-shopping-bag class="w-4 h-4 text-primary-600" />
                     <span class="font-semibold text-sm text-gray-900 dark:text-white">
                         Đơn hàng
@@ -199,6 +220,7 @@
                     wire:click="selectOrder('__general__')"
                     wire:loading.class="opacity-50"
                     wire:target="selectOrder('__general__')"
+                    @click="mobileView = 'chat'"
                     class="w-full p-3 text-left transition-colors {{ $selectedOrderId === '__general__' ? 'bg-primary-50 dark:bg-primary-900/20 border-l-2 border-l-primary-500' : 'hover:bg-gray-50 dark:hover:bg-gray-800/60' }}"
                 >
                     <div class="flex items-center justify-between gap-2">
@@ -221,6 +243,7 @@
                         wire:click="selectOrder('{{ $order['id'] }}')"
                         wire:loading.class="opacity-50"
                         wire:target="selectOrder('{{ $order['id'] }}')"
+                        @click="mobileView = 'chat'"
                         class="w-full p-3 text-left transition-colors {{ $selectedOrderId === $order['id'] ? 'bg-primary-50 dark:bg-primary-900/20 border-l-2 border-l-primary-500' : 'hover:bg-gray-50 dark:hover:bg-gray-800/60' }}"
                     >
                         <div class="flex items-center justify-between gap-1 mb-1">

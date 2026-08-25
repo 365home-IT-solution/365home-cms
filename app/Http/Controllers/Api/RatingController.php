@@ -42,14 +42,26 @@ class RatingController extends Controller
             ],
         ];
 
+        $user = auth('sanctum')->user();
+        $myRating = $user
+            ? RoomRating::where('customer_id', $user->id)->where('room_id', $roomId)->first()
+            : null;
+
         return response()->json([
             'summary' => $summary,
+            'my_rating' => $myRating ? [
+                'id'      => $myRating->id,
+                'star'    => $myRating->star,
+                'comment' => $myRating->comment,
+            ] : null,
             'data'    => $ratings->getCollection()->map(fn ($r) => [
-                'id'         => $r->id,
-                'user_name'  => $r->customer?->fullname ?? 'Ẩn danh',
-                'star'       => $r->star,
-                'comment'    => $r->comment,
-                'created_at' => $r->created_at?->toISOString(),
+                'id'          => $r->id,
+                'user_name'   => $r->customer?->fullname ?? 'Ẩn danh',
+                'star'        => $r->star,
+                'comment'     => $r->comment,
+                'admin_reply' => $r->admin_reply,
+                'replied_at'  => $r->replied_at?->toISOString(),
+                'created_at'  => $r->created_at?->toISOString(),
             ]),
             'meta' => [
                 'current_page' => $ratings->currentPage(),
@@ -103,6 +115,12 @@ class RatingController extends Controller
 
     public function destroy(string $roomId): JsonResponse
     {
+        $room = Product::where('id', $roomId)->where('is_activated', true)->first();
+
+        if (! $room) {
+            return response()->json(['message' => 'Phòng không tồn tại.'], 404);
+        }
+
         $user = auth('sanctum')->user();
 
         $rating = RoomRating::where('customer_id', $user->id)

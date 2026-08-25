@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Modules\Category\Entities\Category;
 use Modules\Payment\Entities\Order;
 use Modules\Promotion\App\Models\Coupon;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -41,6 +42,7 @@ class Customer extends Authenticatable
         'total_spending',
         'welcome_coupon_sent_at',
         'province_id',
+        'province_name',
     ];
 
     protected $hidden = [
@@ -61,6 +63,15 @@ class Customer extends Authenticatable
     public function getNameAttribute(): string
     {
         return $this->fullname ?? '';
+    }
+
+    // Cùng lý do như getNameAttribute() ở trên: Customer dùng chung Sanctum nên đôi lúc bị code
+    // dùng chung cho cả User lẫn Customer gọi nhầm các method chỉ có ở User (vd isSuperAdmin()),
+    // gây BadMethodCallException/500. Khách hàng KHÔNG BAO GIỜ là super admin nên trả về false là
+    // đúng về nghĩa — chỉ chặn crash, không đổi hành vi phân quyền thật nào của User.
+    public function isSuperAdmin(): bool
+    {
+        return false;
     }
 
     protected static function boot(): void
@@ -90,6 +101,17 @@ class Customer extends Authenticatable
         return $this->belongsTo(MembershipTier::class, 'membership_tier_id');
     }
 
+    // Chi nhánh GỐC (parent_id=null) mà khách hàng thuộc về — tự động gán TOÀN BỘ chi nhánh gốc
+    // trong phạm vi quyền của user tạo (CustomerController::store(), cùng nguồn với field
+    // "categories" ở POST /api/admin/login — xem User::rootProductCategoryIds()), KHÔNG cho FE tự
+    // chọn tay. KHÔNG dùng để giới hạn ai xem được khách hàng này, xem ghi chú tại
+    // CustomerController::index().
+    public function categories(): BelongsToMany
+    {
+        return $this->belongsToMany(Category::class, 'customer_categories', 'customer_id', 'category_id')
+            ->withTimestamps();
+    }
+
     public function membershipLogs(): HasMany
     {
         return $this->hasMany(CustomerMembershipLog::class, 'customer_id');
@@ -115,5 +137,12 @@ class Customer extends Authenticatable
     public function orders(): HasMany
     {
         return $this->hasMany(Order::class, 'customer_id');
+    }
+
+    // CCCD người đi cùng đã lưu sẵn, tái sử dụng cho các lần đặt phòng qua đêm sau này — xem
+    // migration 2026_07_20_000002_create_customer_companions_table.
+    public function companions(): HasMany
+    {
+        return $this->hasMany(CustomerCompanion::class);
     }
 }

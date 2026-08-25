@@ -19,7 +19,19 @@ class ListCategory extends ListRecords
     {
         return [
             Actions\CreateAction::make()
-                ->modalWidth(MaxWidth::Full),
+                ->modalWidth(MaxWidth::Full)
+                // Tài khoản đối tác/nhân viên tạo chi nhánh: partner_id LUÔN lấy theo tài khoản
+                // đang đăng nhập (ghi đè giá trị từ form nếu có) — field "Đối tác sở hữu" trên
+                // form chỉ hiện cho super_admin nên user thường không tự chọn được.
+                ->mutateFormDataUsing(function (array $data): array {
+                    $user = auth()->user();
+
+                    if ($user && ! $user->isSuperAdmin()) {
+                        $data['partner_id'] = $user->partner_id;
+                    }
+
+                    return $data;
+                }),
         ];
     }
 

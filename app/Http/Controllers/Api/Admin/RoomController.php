@@ -1,0 +1,710 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Controllers\Api\Admin;
+
+use App\Http\Controllers\Api\TimeSlotHoldController;
+use App\Http\Controllers\Controller;
+use App\Models\User;
+use App\Services\PromotionCalculator;
+use Carbon\Carbon;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Modules\BladeThemeV1\Livewire\Book;
+use Modules\Category\Entities\Category;
+use Modules\Payment\Entities\OrderItem;
+use Modules\Product\App\Models\Product;
+
+class RoomController extends Controller
+{
+    private const DEFAULT_DAYS = 10;
+    private const MAX_DAYS     = 60;
+
+    private const DAY_ABBREVIATIONS = [
+        0 => 'CN', 1 => 'T2', 2 => 'T3', 3 => 'T4', 4 => 'T5', 5 => 'T6', 6 => 'T7',
+    ];
+
+    /**
+     * GET /api/admin/rooms
+     * Danh sách phòng — chỉ trả id/name/slug, dùng để admin chọn phòng khi tạo/sửa đơn
+     * (POST /api/admin/orders cần room_id). Chỉ hiển thị phòng đang hoạt động (is_activated=true).
+     *
+     * Phạm vi hiển thị:
+     *  - super_admin: TẤT CẢ phòng (mọi đối tác).
+     *  - User thường: chỉ phòng thuộc đúng đối tác của mình (products.partner_id).
+     *
+     * Query params:
+     *  - categories : slug của 1 chi nhánh CHA (xem GET /api/admin/branches) — lọc thêm chỉ lấy
+     *    phòng thuộc chi nhánh đó (gồm cả danh mục con/khu vực bên trong chi nhánh). Dùng khi
+     *    admin/super_admin quản lý nhiều chi nhánh cần chọn đúng 1 chi nhánh trước.
+     */
+    public function index(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $query = Product::query()->where('is_activated', true);
+
+        if (! $user->isSuperAdmin()) {
+            $query->where('partner_id', $user->partner_id);
+
+            // Thu hẹp thêm về đúng chi nhánh admin được gán (rỗng = không bị giới hạn chi nhánh cụ
+            // thể trong đối tác, vd chủ đối tác — thấy hết đối tác mình).
+            $allowedCategoryIds = $user->allowedCategoryIds();
+            if (! empty($allowedCategoryIds)) {
+                $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedCategoryIds));
+            }
+        }
+
+        if ($request->filled('categories')) {
+            $branch = Category::query()
+                ->whereNull('parent_id')
+                ->where('category_type', 'product')
+                ->where('slug', $request->string('categories'))
+                ->first();
+
+            // Slug không khớp chi nhánh nào -> trả rỗng thay vì bỏ qua filter (tránh lộ toàn bộ
+            // phòng ngoài ý muốn khi admin gõ nhầm slug).
+            if (! $branch) {
+                return response()->json(['data' => []]);
+            }
+
+            $categoryIds = $this->expandBranchIds($branch->id);
+            $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $categoryIds));
+        }
+
+        $rooms = $query->orderBy('name')->get(['id', 'name', 'slug']);
+
+        return response()->json(['data' => $rooms]);
+    }
+
+    /**
+     * GET /api/admin/rooms/{id}/time-slots
+     * Khung giờ (theo kiểu đặt "slot" — phòng có styles=1 hoặc null) x ngày của 1 phòng, dùng để
+     * admin xem khung nào còn trống trước khi gọi POST /api/admin/orders (type=slot, slots[]).
+     * CHỈ áp dụng cho phòng có khung giờ — phòng đặt theo ngày (styles=2, type=daily) trả lỗi 422
+     * rõ ràng thay vì mảng rỗng (phòng loại đó không cần chọn khung giờ, chỉ cần checkin/checkout).
+     *
+     * Format mỗi ô khung giờ x ngày khớp HỆT app khách hàng (BranchController::buildSlotStatus())
+     * — cùng tái sử dụng Book::calculateSlotPrice() (khuyến mãi) + TimeSlotHoldController::
+     * getActiveHolds() (giữ chỗ tạm) để giá/khuyến mãi/trạng thái giữ chỗ hiển thị đúng khớp với
+     * những gì khách đang thấy trên app, không phải 1 phiên bản tính riêng lệch nhau.
+     *
+     * Mặc định trả 10 NGÀY kể từ hôm nay — muốn xem thêm, gọi lại với offset_days tăng dần theo
+     * đúng số ngày đã xem (không lặp lại ngày cũ), giống phân trang nhưng theo đơn vị ngày:
+     *   Lần 1: (mặc định)                → ngày 0-9   (hôm nay .. hôm nay+9)
+     *   Lần 2: ?offset_days=10           → ngày 10-19
+     *   Lần 3: ?offset_days=20           → ngày 20-29
+     *
+     * offset_days cũng nhận giá trị ÂM để xem các ngày TRƯỚC hôm nay (VD: ?offset_days=-10&days=10
+     * → hôm nay-10 .. hôm nay-1). Các ngày quá khứ luôn trả is_selectable=false (không thể đặt),
+     * chỉ dùng để xem lại lịch sử khung giờ.
+     *
+     * ── Dạng LƯỚI NHIỀU PHÒNG (tab "Lưới ngày" — nhiều phòng x 1 ngày, thay vì 1 phòng x nhiều
+     * ngày như mặc định ở trên): BỎ {id} khỏi URL (gọi .../rooms/time-slots, không có id) và
+     * truyền categories/room_ids[] (bắt buộc 1 trong 2 — đây chính là param quyết định chuyển
+     * sang dạng lưới) thay vì chọn 1 phòng cụ thể qua {id}, chỉ lấy đúng 1 NGÀY (bỏ qua days/
+     * offset_days, dùng ?date= — mặc định hôm nay). Cùng field trạng thái mỗi ô (status/
+     * is_selectable/is_blocked/held) với dạng 1-phòng ở trên, dùng chung buildSlotStatus() nên
+     * luôn khớp nhau — xem buildGridResponse().
+     *
+     * Query params (dạng 1 phòng — mặc định):
+     *  - days        : số ngày muốn lấy mỗi lần gọi (mặc định 10, tối đa 60)
+     *  - offset_days : số ngày lệch so với hôm nay (mặc định 0, có thể âm để xem ngày trước)
+     *  - order_code  : (tuỳ chọn) đơn đang sửa ở FE — khung giờ nào đơn NÀY đang giữ sẽ có thêm cờ
+     *    held_by_order=true trong mỗi ô ngày x khung giờ (is_selectable KHÔNG đổi theo cờ này, vẫn
+     *    false như slot bị đơn khác giữ — FE tự quyết định cho chọn lại dựa vào held_by_order thay
+     *    vì phải tự đối chiếu checkin_date của item với time_slots[].time).
+     *
+     * Query params (dạng lưới nhiều phòng — không có {id}):
+     *  - categories  : slug chi nhánh gốc — lấy tất cả phòng theo khung giờ (styles=1) thuộc chi
+     *                  nhánh đó. Bắt buộc truyền 1 trong 2: categories/room_ids.
+     *  - room_ids[]  : (tuỳ chọn) lọc thẳng 1 số phòng cụ thể, dùng độc lập nếu không có categories.
+     *  - date        : ngày xem (Y-m-d) — ưu tiên nếu có.
+     *  - offset_days : (tuỳ chọn, bỏ qua nếu đã có date) số ngày lệch so với hôm nay, mặc định 0
+     *                  (hôm nay), có thể âm để xem ngày trước — chỉ dịch ra ĐÚNG 1 ngày (khác
+     *                  offset_days ở dạng 1-phòng, dịch cả CỤM ngày).
+     *
+     * "held_by_me" tự suy từ chính admin đang gọi API (Admin\TimeSlotHoldController dùng định danh
+     * "admin:{user_id}", KHÔNG phải session_id tự khai như phía khách) — không cần client tự truyền
+     * gì thêm.
+     */
+    public function timeSlots(Request $request, ?string $id = null): JsonResponse
+    {
+        return $this->buildTimeSlotsResponse($request, $id, includePricing: true);
+    }
+
+    /**
+     * GET /api/admin/rooms/{id}/time-slots/overview
+     * Giống hệt timeSlots() ở trên (cùng lưới ngày x khung giờ, cùng is_selectable/is_blocked/held,
+     * cùng hỗ trợ dạng lưới nhiều phòng qua ?view=grid) nhưng KHÔNG trả price/final_price/
+     * has_promotion/is_increase/promotions — dùng cho màn hình chỉ cần xem trạng thái khung giờ
+     * (không cần lộ giá/khuyến mãi).
+     */
+    public function timeSlotsOverview(Request $request, ?string $id = null): JsonResponse
+    {
+        return $this->buildTimeSlotsResponse($request, $id, includePricing: false);
+    }
+
+    private function buildTimeSlotsResponse(Request $request, ?string $id, bool $includePricing): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        // Dạng lưới nhiều phòng x 1 ngày — không có {id} trong URL, chuyển hẳn sang nhánh riêng
+        // (khác cấu trúc dữ liệu: nhiều phòng thay vì nhiều ngày) — xem docblock timeSlots().
+        if ($id === null) {
+            return $this->buildGridResponse($request, $user, $includePricing);
+        }
+
+        $with = [
+            'roomTimeSlots' => fn ($q) => $q->whereNull('date'),
+            'roomTimeSlots.timeSlot',
+        ];
+        if ($includePricing) {
+            $with['roomTimeSlots.promotions'] = fn ($q) => $q->where('is_active', true);
+        }
+
+        $room = Product::where('id', $id)
+            ->where('is_activated', true)
+            ->with($with)
+            ->first();
+
+        if (! $room || (! $user->isSuperAdmin() && ! $this->userCanAccessRoom($user, $room))) {
+            return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
+        }
+
+        // styles=2 = phòng đặt theo NGÀY (type=daily) — không có khái niệm "khung giờ" lặp lại,
+        // trả lỗi rõ ràng thay vì im lặng trả mảng rỗng (styles=1 hoặc null đều coi là phòng theo
+        // khung giờ, khớp quy ước ở BranchController::timeSlots()/BuildsRoomBooking).
+        if ((int) $room->styles === 2) {
+            return response()->json(['message' => 'Phòng này đặt theo ngày (daily), không có khung giờ.'], 422);
+        }
+
+        $days       = max(1, min((int) $request->query('days', self::DEFAULT_DAYS), self::MAX_DAYS));
+        // Âm = xem các ngày TRƯỚC hôm nay, dương = các ngày SAU (mặc định) — không ép về 0.
+        $offsetDays = (int) $request->query('offset_days', 0);
+        // Định danh khớp đúng Admin\TimeSlotHoldController — không nhận session_id từ client.
+        $sessionId  = 'admin:' . $user->id;
+
+        $startDate = Carbon::today()->addDays($offsetDays);
+        $endDate   = $startDate->copy()->addDays($days - 1)->endOfDay();
+
+        $timeSlots = $room->roomTimeSlots
+            ->filter(fn ($rts) => $rts->timeSlot)
+            ->sortBy(fn ($rts) => $rts->timeSlot->start_time)
+            ->values();
+
+        // order_code (tuỳ chọn) = đơn đang sửa ở FE — slot nào đơn NÀY đang giữ sẽ được đánh dấu
+        // held_by_order=true (dù is_selectable vẫn false như slot bị đơn khác giữ, để không đổi
+        // hành vi mặc định), giúp FE tự cho phép chọn lại đúng khung của chính đơn mà không phải
+        // tự đối chiếu checkin_date với time_slots[].time.
+        $currentOrderSlotKeys = [];
+        if ($request->filled('order_code')) {
+            $currentOrderItems = OrderItem::where('product_id', $room->id)
+                ->whereNotNull('checkin_date')
+                ->whereHas('order', function ($q) use ($request, $user) {
+                    $q->where('order_code', $request->query('order_code'));
+                    if (! $user->isSuperAdmin()) {
+                        $q->where('partner_id', $user->partner_id);
+                    }
+                })
+                ->get(['checkin_date']);
+
+            foreach ($currentOrderItems as $item) {
+                $checkin   = Carbon::parse($item->checkin_date);
+                $startTime = $checkin->format('H:i:s');
+                $rts       = $timeSlots->first(fn ($rts) => $rts->timeSlot->start_time === $startTime);
+                if ($rts) {
+                    $currentOrderSlotKeys[$checkin->toDateString() . '|' . $rts->timeslot_id] = true;
+                }
+            }
+        }
+
+        $roomInfo = [
+            'id'   => $room->id,
+            'name' => $room->name,
+            'slug' => $room->slug,
+        ];
+
+        if ($timeSlots->isEmpty()) {
+            return response()->json([
+                'room'       => $roomInfo,
+                'time_slots' => [],
+                'period'     => ['start' => $startDate->toDateString(), 'end' => $endDate->toDateString(), 'days' => $days, 'offset_days' => $offsetDays],
+                'days'       => [],
+            ]);
+        }
+
+        // order_items có thể đụng khoảng ngày đang xem — load 1 lần cho cả phòng thay vì query lặp
+        // lại cho từng ô khung giờ x ngày (N ngày x M khung giờ query riêng sẽ rất tốn).
+        $room->load(['orderItems' => function ($q) use ($startDate, $endDate) {
+            $q->where('checkout_date', '>', $startDate)
+                ->where('checkin_date', '<=', $endDate)
+                // Chỉ pending/paid tính là đã chiếm chỗ trên API HIỂN THỊ này — đơn 'deposit' (đặt
+                // cọc, chưa thanh toán đủ) chủ động KHÔNG hiện là đã đặt theo yêu cầu nghiệp vụ,
+                // dù BuildsRoomBooking (lúc tạo đơn MỚI) vẫn coi deposit là xung đột (không đổi ở đó).
+                ->whereHas('order', fn ($o) => $o->whereIn('status', ['pending', 'paid']));
+        }, 'orderItems.order']);
+
+        $holds = TimeSlotHoldController::getActiveHolds((string) $room->id);
+        $book  = new Book();
+        $today = Carbon::today();
+
+        $daysOut = [];
+
+        for ($i = 0; $i < $days; $i++) {
+            $date = $startDate->copy()->addDays($i);
+            $dateArr = [
+                'date'     => $date->format('d-m-Y'),
+                'day'      => self::DAY_ABBREVIATIONS[$date->dayOfWeek] ?? '',
+                'is_today' => $date->isToday(),
+            ];
+
+            $slots = $timeSlots
+                ->map(fn ($rts) => $this->buildSlotStatus($room, $rts, $dateArr, $book, $today, $holds, $sessionId, $currentOrderSlotKeys, $includePricing))
+                ->values();
+
+            $daysOut[] = $dateArr + ['slots' => $slots];
+        }
+
+        return response()->json([
+            'room' => $roomInfo,
+            'time_slots' => $timeSlots->map(fn ($rts) => [
+                // ID của bảng room_time_slots — dùng field NÀY (không phải timeslot_id, đó là
+                // time_slots.id) khi gọi POST/DELETE /api/admin/rooms/{id}/block (room_time_slot_ids[]).
+                'room_time_slot_id' => $rts->id,
+                'timeslot_id'       => $rts->timeslot_id,
+                'time'              => substr($rts->timeSlot->start_time, 0, 5) . ' - ' . substr($rts->timeSlot->end_time, 0, 5),
+                'over_night'        => (bool) $rts->over_night,
+            ])->values(),
+            'period' => ['start' => $startDate->toDateString(), 'end' => $endDate->toDateString(), 'days' => $days, 'offset_days' => $offsetDays],
+            'days'   => $daysOut,
+        ]);
+    }
+
+    /**
+     * Dạng LƯỚI NHIỀU PHÒNG x 1 NGÀY (tab "Lưới ngày") — nhánh của buildTimeSlotsResponse() khi
+     * gọi KHÔNG kèm {id} (xem docblock timeSlots()). Dùng CHUNG buildSlotStatus() với dạng 1-phòng
+     * nên trạng thái mỗi ô luôn khớp nhau giữa 2 dạng, không phải 2 công thức tính lệch nhau.
+     */
+    private function buildGridResponse(Request $request, User $user, bool $includePricing): JsonResponse
+    {
+        if (! $request->filled('categories') && ! $request->filled('room_ids')) {
+            return response()->json(['message' => 'Dạng lưới nhiều phòng (view=grid) bắt buộc truyền categories (slug chi nhánh) hoặc room_ids[].'], 422);
+        }
+
+        // date (tuyệt đối) ưu tiên nếu có; không thì tính theo offset_days kể từ hôm nay (giống
+        // offset_days ở dạng 1-phòng, nhưng chỉ dịch ra ĐÚNG 1 ngày thay vì cả cụm ngày) — không
+        // truyền gì thì mặc định hôm nay (offset_days=0), không đổi hành vi cũ.
+        $date = $request->filled('date')
+            ? Carbon::createFromFormat('Y-m-d', $request->query('date'))->startOfDay()
+            : Carbon::today()->addDays((int) $request->query('offset_days', 0));
+
+        $query = Product::query()
+            ->where('is_activated', true)
+            ->where('styles', 1);
+
+        if (! $user->isSuperAdmin()) {
+            $query->where('partner_id', $user->partner_id);
+
+            $allowedCategoryIds = $user->allowedCategoryIds();
+            if (! empty($allowedCategoryIds)) {
+                $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedCategoryIds));
+            }
+        }
+
+        if ($request->filled('categories')) {
+            $branch = Category::query()
+                ->whereNull('parent_id')
+                ->where('category_type', 'product')
+                ->where('slug', $request->string('categories'))
+                ->first();
+
+            if (! $branch) {
+                return response()->json(['message' => 'Không tìm thấy chi nhánh.'], 404);
+            }
+
+            $categoryIds = $this->expandBranchIds($branch->id);
+            $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $categoryIds));
+        }
+
+        if ($request->filled('room_ids')) {
+            $query->whereIn('id', (array) $request->input('room_ids'));
+        }
+
+        $with = [
+            'roomTimeSlots' => fn ($q) => $q->whereNull('date'),
+            'roomTimeSlots.timeSlot',
+        ];
+        if ($includePricing) {
+            $with['roomTimeSlots.promotions'] = fn ($q) => $q->where('is_active', true);
+        }
+
+        $rooms = $query->with($with)->orderBy('name')->get();
+
+        $dateArr = ['date' => $date->format('d-m-Y'), 'day' => self::DAY_ABBREVIATIONS[$date->dayOfWeek] ?? '', 'is_today' => $date->isToday()];
+
+        if ($rooms->isEmpty()) {
+            return response()->json(['date' => $date->toDateString(), 'day' => $dateArr['day'], 'rooms' => []]);
+        }
+
+        // Order_items chồng lấn đúng NGÀY đang xem cho TẤT CẢ phòng trong 1 query (tránh N+1 theo
+        // từng phòng) — cùng điều kiện status (pending/paid) với dạng 1-phòng ở buildTimeSlotsResponse().
+        $orderItemsByRoom = OrderItem::whereIn('product_id', $rooms->pluck('id'))
+            ->where('checkout_date', '>', $date)
+            ->where('checkin_date', '<=', $date->copy()->endOfDay())
+            ->whereHas('order', fn ($o) => $o->whereIn('status', ['pending', 'paid']))
+            ->with('order')
+            ->get()
+            ->groupBy('product_id');
+
+        $book      = new Book();
+        $today     = Carbon::today();
+        $sessionId = 'admin:' . $user->id;
+
+        $roomsOut = $rooms->map(function (Product $room) use ($orderItemsByRoom, $book, $today, $dateArr, $sessionId, $includePricing) {
+            // buildSlotStatus() đọc order_items qua $room->orderItems — gán RELATION đã preload sẵn
+            // thay vì để nó tự lazy-load lại theo từng phòng.
+            $room->setRelation('orderItems', $orderItemsByRoom->get($room->id, collect()));
+
+            $holds = TimeSlotHoldController::getActiveHolds((string) $room->id);
+
+            $timeSlots = $room->roomTimeSlots
+                ->filter(fn ($rts) => $rts->timeSlot)
+                ->sortBy(fn ($rts) => $rts->timeSlot->start_time)
+                ->values();
+
+            $slots = $timeSlots->map(function ($rts) use ($room, $dateArr, $book, $today, $holds, $sessionId, $includePricing) {
+                $status = $this->buildSlotStatus($room, $rts, $dateArr, $book, $today, $holds, $sessionId, [], $includePricing);
+
+                return $status + [
+                    'time'       => substr($rts->timeSlot->start_time, 0, 5) . ' - ' . substr($rts->timeSlot->end_time, 0, 5),
+                    'over_night' => (bool) $rts->over_night,
+                ];
+            })->values();
+
+            return ['id' => $room->id, 'name' => $room->name, 'slug' => $room->slug, 'slots' => $slots];
+        })->values();
+
+        return response()->json(['date' => $date->toDateString(), 'day' => $dateArr['day'], 'rooms' => $roomsOut]);
+    }
+
+    /**
+     * Trạng thái + giá 1 ô "khung giờ x ngày" — bản admin của
+     * BranchController::buildSlotStatus() (khách hàng), giữ NGUYÊN công thức tính để 2 nơi luôn
+     * khớp nhau, chỉ khác nguồn dữ liệu đầu vào (1 phòng theo đối tác admin, không phải mọi phòng
+     * trong 1 chi nhánh public).
+     */
+    private function buildSlotStatus(Product $room, $rts, array $date, Book $book, Carbon $today, array $holds, ?string $sessionId, array $currentOrderSlotKeys = [], bool $includePricing = true): array
+    {
+        $currentDateTime = Carbon::createFromFormat('d-m-Y H:i:s', $date['date'] . ' ' . $rts->timeSlot->start_time);
+
+        $status = 'available';
+        foreach ($room->orderItems as $orderItem) {
+            $checkin  = Carbon::parse($orderItem->checkin_date);
+            $checkout = Carbon::parse($orderItem->checkout_date);
+            if ($currentDateTime->between($checkin, $checkout)) {
+                if ($orderItem->order) {
+                    $status = $orderItem->order->status;
+                }
+                break;
+            }
+        }
+
+        $isSelectable = ! in_array($status, ['pending', 'paid']);
+
+        $slotDate   = Carbon::createFromFormat('d-m-Y', $date['date'])->startOfDay();
+        $yesterday  = now()->subDay()->startOfDay();
+        $cutoffTime = now()->startOfDay()->setTime(7, 30, 0);
+
+        if ($slotDate->lt($yesterday)) {
+            $isSelectable = false;
+        } elseif ($slotDate->eq($yesterday)) {
+            if (now()->gte($cutoffTime)) {
+                $isSelectable = false;
+            }
+        } elseif ($slotDate->eq($today)) {
+            $slotEndTimeParsed = Carbon::parse($rts->timeSlot->end_time);
+            $isOvernightSlot   = $slotEndTimeParsed->lt(Carbon::parse($rts->timeSlot->start_time));
+            $slotEndDateTime   = $slotDate->copy()->setTime($slotEndTimeParsed->hour, $slotEndTimeParsed->minute, $slotEndTimeParsed->second);
+            if ($isOvernightSlot) {
+                $slotEndDateTime->addDay();
+            }
+            if (now()->gte($slotEndDateTime)) {
+                $isSelectable = false;
+            }
+        }
+
+        $isBlocked = $rts->isBlockedOn($slotDate->toDateString());
+        if ($isBlocked) {
+            $isSelectable = false;
+        }
+
+        $heldEntry = collect($holds)->first(
+            fn ($h) => (int) $h['timeslot_id'] === (int) $rts->timeslot_id && $h['date'] === $date['date']
+        );
+        $held     = $heldEntry !== null;
+        $heldByMe = $held && $sessionId !== null && $heldEntry['session_id'] === $sessionId;
+        if ($held && ! $heldByMe) {
+            $isSelectable = false;
+        }
+
+        $slotStartTime = Carbon::parse($rts->timeSlot->start_time)->format('H:i:s');
+        $priceData     = $book->calculateSlotPrice($rts, $date['date'], $slotStartTime);
+
+        $finalPrice    = (int) $priceData['final_price'];
+        $originalPrice = (int) $priceData['original_price'];
+
+        // true nếu chính khung này đang bị đơn được truyền qua ?order_code= giữ (xem timeSlots())
+        // — is_selectable KHÔNG đổi theo cờ này (vẫn false như slot bị đơn khác giữ), FE tự quyết
+        // định cho chọn lại dựa vào held_by_order thay vì phải tự đối chiếu checkin_date.
+        $heldByOrder = isset($currentOrderSlotKeys[$slotDate->toDateString() . '|' . $rts->timeslot_id]);
+
+        $result = [
+            // room_time_slots.id — dùng để gọi POST/DELETE /api/admin/rooms/{id}/block
+            // (room_time_slot_ids[]). Cố định theo cột khung giờ, giống nhau ở mọi ngày trong "days".
+            'room_time_slot_id' => $rts->id,
+            'timeslot_id'    => $rts->timeslot_id,
+            'status'         => $status,
+            'is_selectable'  => $isSelectable,
+            'is_blocked'     => $isBlocked,
+            'held'           => $held,
+            'held_by_me'     => $heldByMe,
+            'held_by_order'  => $heldByOrder,
+        ];
+
+        if (! $includePricing) {
+            return $result;
+        }
+
+        $slotStartTime = Carbon::parse($rts->timeSlot->start_time)->format('H:i:s');
+        $priceData     = $book->calculateSlotPrice($rts, $date['date'], $slotStartTime);
+
+        $finalPrice    = (int) $priceData['final_price'];
+        $originalPrice = (int) $priceData['original_price'];
+
+        return $result + [
+            'price'         => $originalPrice,
+            'final_price'   => $finalPrice !== $originalPrice ? $finalPrice : null,
+            'has_promotion' => $priceData['has_promotion'],
+            'is_increase'   => $priceData['is_increase'],
+            'promotions'    => collect($priceData['promotions'])->map(fn ($p) => [
+                'id'    => $p->id,
+                'name'  => $p->name,
+                'type'  => $p->type,
+                'value' => $p->value,
+                'label' => $p->lable_client,
+            ])->values(),
+        ];
+    }
+
+    /**
+     * GET /api/admin/rooms/{id}/dates
+     * Lịch phòng theo NGÀY (styles=2) — bản admin của DailyRoomController::dates(), dùng lại đúng
+     * PromotionCalculator nên giá/khuyến mãi khớp 100% với app khách hàng.
+     *
+     * Chế độ calendar (tháng):    ?month=YYYY-MM        → không có totals
+     * Chế độ xem trước 1 khoảng:  ?from=YYYY-MM-DD&to=YYYY-MM-DD (from=checkin, to=checkout,
+     *                             exclusive) → có thêm subtotal/deposit + cờ "holding" (đang bị
+     *                             giữ tạm bởi người khác — xem Admin\DailyRoomHoldController).
+     */
+    public function dates(Request $request, string $id): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $room = Product::where('id', $id)
+            ->where('is_activated', true)
+            ->where('styles', 2)
+            ->with([
+                'roomTimeSlots' => fn ($q) => $q->whereHas('timeSlot', fn ($q2) => $q2->where('type', 'date')),
+                'roomTimeSlots.timeSlot',
+                'roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
+            ])
+            ->first();
+
+        if (! $room || (! $user->isSuperAdmin() && ! $this->userCanAccessRoom($user, $room))) {
+            return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
+        }
+
+        $isRangeMode = $request->has('from') || $request->has('to');
+
+        if ($isRangeMode) {
+            $request->validate([
+                'from' => 'required|date_format:Y-m-d',
+                'to'   => 'required|date_format:Y-m-d|after:from',
+            ]);
+            $rangeStart = Carbon::parse($request->query('from'))->startOfDay();
+            $rangeEnd   = Carbon::parse($request->query('to'))->startOfDay();
+
+            if ($rangeStart->diffInDays($rangeEnd) > 92) {
+                return response()->json(['message' => 'Khoảng ngày tối đa 3 tháng.'], 422);
+            }
+        } else {
+            $monthStr = $request->query('month', now()->format('Y-m'));
+            try {
+                $month = Carbon::createFromFormat('Y-m', $monthStr)->startOfMonth();
+            } catch (\Throwable) {
+                return response()->json(['message' => 'Định dạng month không hợp lệ. Dùng YYYY-MM.'], 422);
+            }
+            $rangeStart = $month->copy()->startOfMonth();
+            $rangeEnd   = $month->copy()->endOfMonth();
+        }
+
+        $slotsByDate = $room->roomTimeSlots->keyBy(fn ($rts) => $rts->timeSlot?->label);
+        $bookedDates = $this->dailyBookedDates($room->id, $rangeStart, $rangeEnd);
+        $basePrice   = (float) $room->price;
+        $defCheckin  = $room->default_checkin  ?? '14:00';
+        $defCheckout = $room->default_checkout ?? '12:00';
+        $calculator  = app(PromotionCalculator::class);
+
+        $dates              = [];
+        $subtotal           = 0;
+        $totalPromoDiscount = 0;
+        $current            = $rangeStart->copy();
+
+        while ($isRangeMode ? $current->lt($rangeEnd) : $current->lte($rangeEnd)) {
+            $dateStr = $current->format('Y-m-d');
+            $rts     = $slotsByDate->get($dateStr);
+
+            $price  = $rts?->price !== null ? (float) $rts->price : $basePrice;
+            $promos = $calculator->calculateForDate($rts, $price, $dateStr);
+            $disc   = $price - $promos['final_price'];
+
+            $subtotal           += $price;
+            $totalPromoDiscount += $disc;
+
+            $dates[] = [
+                'date'               => $dateStr,
+                'price'              => (int) $price,
+                'final_price'        => (int) $promos['final_price'],
+                'promotion_discount' => (int) $disc,
+                'has_override'       => $rts !== null,
+                'available'          => ! in_array($dateStr, $bookedDates),
+                'checkin'            => $rts?->checkin  ?? $defCheckin,
+                'checkout'           => $rts?->checkout ?? $defCheckout,
+                'promotions'         => $promos['applied'],
+            ];
+
+            $current->addDay();
+        }
+
+        $response = [
+            'room'             => ['id' => $room->id, 'name' => $room->name, 'slug' => $room->slug],
+            'from'             => $rangeStart->format('Y-m-d'),
+            'to'               => $rangeEnd->format('Y-m-d'),
+            'base_price'       => (int) $basePrice,
+            'default_checkin'  => $defCheckin,
+            'default_checkout' => $defCheckout,
+            'dates'            => $dates,
+        ];
+
+        if ($isRangeMode) {
+            // "holding" đánh dấu theo người KHÁC đang giữ (loại trừ chính admin đang gọi) — dùng
+            // đúng định danh admin:{user_id} khớp Admin\DailyRoomHoldController.
+            $holderId    = 'admin:' . $user->id;
+            $activeHolds = array_values(array_filter(
+                Cache::get("daily_holds:{$room->id}", []),
+                fn ($h) => ($h['session_id'] ?? '') !== $holderId
+                    && Carbon::parse($h['expires_at'] ?? now()->subSecond())->isFuture()
+            ));
+
+            $dates = array_map(function ($day) use ($activeHolds) {
+                $d = $day['date'];
+                $day['holding'] = count(array_filter(
+                    $activeHolds,
+                    fn ($h) => $d >= $h['checkin'] && $d < $h['checkout']
+                )) > 0;
+                return $day;
+            }, $dates);
+
+            $response['dates'] = $dates;
+
+            $nights          = count($dates);
+            $totalAfterPromo = (int) max(0, $subtotal - $totalPromoDiscount);
+            $depositMin      = (int) ($room->deposit_min_nights  ?? 0);
+            $depositPct      = (int) ($room->deposit_multi_night ?? 50);
+            $canDeposit      = $depositMin > 0 && $nights >= $depositMin && $depositPct < 100;
+            $depositAmt      = $canDeposit ? (int) ceil($totalAfterPromo * $depositPct / 100) : null;
+
+            $response['nights']             = $nights;
+            $response['subtotal']           = (int) $subtotal;
+            $response['promotion_discount'] = (int) $totalPromoDiscount;
+            $response['total_after_promo']  = $totalAfterPromo;
+            $response['deposit']            = $canDeposit ? [
+                'eligible'         => true,
+                'min_nights'       => $depositMin,
+                'percentage'       => $depositPct,
+                'deposit_amount'   => $depositAmt,
+                'remaining_amount' => $totalAfterPromo - $depositAmt,
+            ] : [
+                'eligible'   => false,
+                'min_nights' => $depositMin,
+            ];
+        }
+
+        return response()->json($response);
+    }
+
+    private function dailyBookedDates(string $roomId, Carbon $from, Carbon $to): array
+    {
+        $items = OrderItem::where('product_id', $roomId)
+            ->whereNotNull('checkin_date')
+            ->whereNotNull('checkout_date')
+            ->where('checkout_date', '>', $from)
+            ->where('checkin_date', '<', $to->copy()->addDay())
+            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'confirmed']))
+            ->get(['checkin_date', 'checkout_date']);
+
+        $booked = [];
+        foreach ($items as $item) {
+            $night = Carbon::parse($item->checkin_date)->startOfDay();
+            $end   = Carbon::parse($item->checkout_date)->startOfDay();
+            while ($night->lt($end)) {
+                $booked[] = $night->format('Y-m-d');
+                $night->addDay();
+            }
+        }
+
+        return array_unique($booked);
+    }
+
+    /** Mở rộng 1 chi nhánh (branch category) ra chính nó + toàn bộ danh mục con (khu vực/tầng...). */
+    // Kiểm tra 1 phòng cụ thể có nằm trong phạm vi chi nhánh admin được phép xem không (partner_id
+    // đã được caller kiểm tra trước bằng !== so sánh trực tiếp — hàm này chỉ còn lo tầng chi nhánh
+    // BÊN TRONG đối tác). allowedCategoryIds() rỗng = không bị giới hạn chi nhánh cụ thể → cho qua.
+    private function userCanAccessRoom(User $user, Product $room): bool
+    {
+        if ($room->partner_id !== $user->partner_id) {
+            return false;
+        }
+
+        $allowedCategoryIds = $user->allowedCategoryIds();
+        if (empty($allowedCategoryIds)) {
+            return true;
+        }
+
+        return $room->categories()->whereIn('categories.id', $allowedCategoryIds)->exists();
+    }
+
+    private function expandBranchIds(int $branchId): array
+    {
+        $allIds       = [$branchId];
+        $currentLevel = [$branchId];
+
+        while (! empty($currentLevel)) {
+            $children = Category::whereIn('parent_id', $currentLevel)->pluck('id')->toArray();
+            $children = array_diff($children, $allIds);
+            if (empty($children)) {
+                break;
+            }
+            $allIds       = array_merge($allIds, $children);
+            $currentLevel = $children;
+        }
+
+        return $allIds;
+    }
+}

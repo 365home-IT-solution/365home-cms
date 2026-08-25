@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\User\App\Filament\Resources\UserResource\Tables;
 
+use App\Filament\Support\PartnerTableHelpers;
 use Filament\Tables\Columns\SpatieMediaLibraryImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -47,9 +48,13 @@ class UserTable
                     ->label(__('user::user.table.label.created_at'))
                     ->dateTime()
                     ->sortable(),
+                PartnerTableHelpers::column(),
             ])
             ->defaultSort('created_at', 'desc')
-            ->filters(UserFilter::filter())
+            ->filters([
+                ...UserFilter::filter(),
+                PartnerTableHelpers::filter(),
+            ])
             ->actions(UserAction::action())
             ->bulkActions(UserBulkAction::bulkActions());
     }

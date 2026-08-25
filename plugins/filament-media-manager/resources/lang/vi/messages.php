@@ -23,7 +23,7 @@ return [
         'notifications' => [
             'create-subfolder' => 'Thư mục con được tạo thành công',
         ],
-        'group' => 'Nội dung',
+        'group' => 'Cấu hình web',
     ],
     'media' => [
         'title' => 'Thư viện',

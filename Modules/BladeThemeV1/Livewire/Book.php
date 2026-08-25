@@ -2,12 +2,15 @@
 
 namespace Modules\BladeThemeV1\Livewire;
 
+use App\Services\TimeslotHoldService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Session;
+use Livewire\Attributes\On;
 use Livewire\Component;
 use Illuminate\Support\Facades\DB;
 use Modules\BladeThemeV1\App\Models\BlindBag;
+use Modules\BladeThemeV1\Support\BranchBookConfig;
 use Modules\BladeThemeV1\Traits\HasTimeSlots;
 use Modules\BladeThemeV1\Traits\PropertiesProductDetail;
 use Modules\Category\Entities\Category;
@@ -23,6 +26,10 @@ class Book extends Component
     public $choose_room, $title_booking, $sub_title_booking;
     public $blindBag, $image_event;
 
+    /** Chỉ true khi nhúng ở trang chủ — hiện thêm header tên chi nhánh vì trang chủ không có
+     *  ngữ cảnh URL như /branch/{slug} để người dùng biết đang xem lịch của chi nhánh nào. */
+    public bool $showBranchHeader = false;
+
     /** Danh sách tab (id + name) cho tất cả danh mục — nhẹ, không kèm sản phẩm/timeslot. */
     public array $categoryTabs = [];
 
@@ -32,19 +39,106 @@ class Book extends Component
     /** Dữ liệu đầy đủ (sản phẩm + timeslot + đơn đã đặt) — chỉ load cho danh mục active. */
     public array $activeCategoryData = [];
 
-    /** Số ngày đang hiển thị trong bảng lịch — bắt đầu nhỏ, mở rộng dần qua loadMoreDays(). */
-    public int $visibleDays = self::INITIAL_VISIBLE_DAYS;
+    /** Số ngày đang render — chỉ tăng qua loadMoreDates(), giữ nhỏ để tránh render
+     *  (số phòng x số khung giờ x số ngày) ô lịch cùng lúc gây tràn bộ nhớ PHP. */
+    public int $visibleDaysCount = self::INITIAL_VISIBLE_DAYS;
 
-    const INITIAL_VISIBLE_DAYS = 10;
+    // Số ngày hiện mặc định / tối đa trong bảng lịch.
+    const INITIAL_VISIBLE_DAYS = 15;
     const MAX_VISIBLE_DAYS = 31;
     const LOAD_MORE_DAYS_STEP = 10;
 
-    public function mount($config)
+    // Danh sách id các phòng đang hiển thị trên bảng — render thành 1 attribute DUY NHẤT
+    // "data-room-ids" trên div gốc (book.blade.php), giống hệt cách ProductDetail expose
+    // "data-product-id" — để resources/js/echo-client.js biết cần nghe kênh public nào
+    // ("timeslot-holds.{roomId}") mà không phải quét rải rác nhiều attribute trong DOM.
+    public function getRoomIdsProperty(): array
     {
+        return collect($this->activeCategoryData['products'] ?? [])->pluck('id')->all();
+    }
+
+    /** Cache trong-request (không phải property Livewire, không persist giữa các lượt request)
+     *  cho map hold real-time — tính 1 lần/lượt render dù bảng lịch gọi lại nhiều lần khi lặp
+     *  qua từng ô (xem getActiveHoldsMap() bên dưới). */
+    protected ?array $activeHoldsCache = null;
+
+    // Nạp 1 LẦN toàn bộ hold đang hiệu lực cho tất cả room_time_slot_id đang hiển thị trên bảng
+    // (mọi phòng, kể cả phòng "peek" chưa active — book/_desktop-grid.blade.php render đủ giá cho
+    // tất cả), rồi book/_slot-cell.blade.php tra map này thay vì tự gọi
+    // TimeslotHoldService::isHeldByAdmin() cho TỪNG ô — trước đây mỗi ô tự query (+ DELETE purge)
+    // riêng, với bảng nhiều ngày/phòng có thể thành hàng trăm round-trip DB chỉ để vẽ 1 lượt bảng
+    // (xem TimeslotHoldService::getActiveHoldsMap() để biết lý do đổi).
+    public function getActiveHoldsMap(): array
+    {
+        if ($this->activeHoldsCache !== null) {
+            return $this->activeHoldsCache;
+        }
+
+        $roomTimeSlotIds = collect($this->activeCategoryData['products'] ?? [])
+            ->flatMap(fn ($room) => $room->roomTimeSlots->pluck('id'))
+            ->unique()
+            ->values()
+            ->all();
+
+        return $this->activeHoldsCache = app(TimeslotHoldService::class)->getActiveHoldsMap($roomTimeSlotIds);
+    }
+
+    // resources/js/echo-client.js nghe kênh public "timeslot-holds.{roomId}" cho MỌI phòng đang
+    // hiển thị trên bảng (đọc data-room-ids ở book.blade.php) rồi tự gọi
+    // Livewire.dispatch('timeslotHoldsChanged') mỗi khi 1 admin giữ/trả 1 khung giờ real-time (xem
+    // App\Services\TimeslotHoldService) — method no-op này chỉ để ép Livewire render lại, các
+    // blade con tự đọc lại đúng trạng thái "held".
+    #[On('timeslotHoldsChanged')]
+    public function onTimeslotHoldsChanged(): void {}
+
+    // resources/js/ws-client.js nghe kênh Node WS "room:{roomId}:{date}" (event slot.updated) rồi
+    // tự gọi Livewire.dispatch('roomAvailabilityChanged') mỗi khi admin đổi giá/khung giờ/khuyến
+    // mãi ở SettingBook (xem SlotRealtimeService::broadcastBlockedRange). KHÁC với
+    // onTimeslotHoldsChanged() ở trên — hold-status đọc live ngay trong blade con, còn dữ liệu
+    // giá/khung giờ đã cache sẵn trong $activeCategoryData nên phải load lại thật sự.
+    #[On('roomAvailabilityChanged')]
+    public function onRoomAvailabilityChanged(): void
+    {
+        if (empty($this->activeCategoryId)) {
+            return;
+        }
+
+        $this->loadActiveCategoryData();
+    }
+
+    public function mount($config, bool $showBranchHeader = false)
+    {
+        $this->showBranchHeader = $showBranchHeader;
         $this->setConfig($config);
         $this->initializeData();
         $this->blindBag = BlindBag::first();
     }
+
+    /**
+     * Nạp lại toàn bộ config cho 1 chi nhánh khác vào component Book đang mount sẵn — dùng ở
+     * panel đặt lịch inline của trang tìm kiếm (?view=branches), nơi 1 Book component duy nhất
+     * được tái sử dụng cho từng chi nhánh người dùng bấm chọn, thay vì điều hướng sang trang
+     * chi tiết chi nhánh riêng. Reset state cũ trước khi nạp, phòng khi chi nhánh mới không có
+     * phòng khả dụng (categoryTabs rỗng) — nếu không sẽ giữ lại dữ liệu của chi nhánh trước đó.
+     */
+    #[On('load-branch')]
+    public function loadBranch(string $slug): void
+    {
+        $result = BranchBookConfig::build($slug);
+
+        if (! $result) {
+            return;
+        }
+
+        $this->categoryTabs = [];
+        $this->activeCategoryId = null;
+        $this->activeCategoryData = [];
+        $this->visibleDaysCount = self::INITIAL_VISIBLE_DAYS;
+
+        $this->setConfig($result['bookConfig']);
+        $this->initializeData();
+    }
+
 
     protected function initializeData()
     {
@@ -92,14 +186,8 @@ class Book extends Component
         }
 
         $this->activeCategoryId = $categoryId;
-        $this->visibleDays = self::INITIAL_VISIBLE_DAYS;
         $this->loadActiveCategoryData();
         $this->dispatch('book-category-changed');
-    }
-
-    public function loadMoreDays(): void
-    {
-        $this->visibleDays = min($this->visibleDays + self::LOAD_MORE_DAYS_STEP, self::MAX_VISIBLE_DAYS);
     }
 
     protected function loadActiveCategoryData(): void
@@ -142,7 +230,7 @@ class Book extends Component
                     $query->where('checkout_date', '>', $startDate)
                         ->where('checkin_date', '<=', $endDate);
                     $query->whereHas('order', function ($subQuery) {
-                        $subQuery->whereIn('status', ['pending', 'paid', 'shipped', 'confirmed']);
+                        $subQuery->whereIn('status', ['pending', 'paid', 'confirmed']);
                     });
                 },
                 'orderItems.order'
@@ -172,6 +260,11 @@ class Book extends Component
         return $products;
     }
 
+    public function loadMoreDates(): void
+    {
+        $this->visibleDaysCount = min($this->visibleDaysCount + self::LOAD_MORE_DAYS_STEP, self::MAX_VISIBLE_DAYS);
+    }
+
     public function getDatesForOneMonth()
 {
     $dates = [];
@@ -180,7 +273,10 @@ class Book extends Component
 
     // Nếu chưa qua 7:30 sáng, hiển thị cả ngày hôm qua
     $startDate = $now->lt($cutoff) ? Carbon::yesterday() : Carbon::today();
-    $daysCount = $this->visibleDays;
+    // Chỉ build đúng số ngày đang hiển thị — tránh render (số phòng x số khung giờ x
+    // số ngày) ô lịch cùng lúc gây tràn bộ nhớ PHP. loadMoreDates() tăng dần con số
+    // này (round-trip Livewire nhỏ, chỉ khi user thật sự bấm "Xem thêm ngày").
+    $daysCount = $this->visibleDaysCount;
 
     for ($i = 0; $i < $daysCount; $i++) {
         $date = $startDate->copy()->addDays($i);
@@ -264,18 +360,26 @@ class Book extends Component
             return;
         }
 
-        $firstDate = Carbon::createFromFormat('d-m-Y', $enrichedSlots[0]['date'])->format('Y-m-d');
-        $startTime = Carbon::parse("{$firstDate} {$enrichedSlots[0]['startTime']}")->format('Y-m-d H:i');
+        // Lấy mốc bắt đầu/kết thúc THỰC của từng slot (mỗi slot tự cộng thêm 1 ngày nếu là
+        // khung giờ qua đêm), rồi lấy min(start) → max(end) trên toàn bộ slot đã chọn — tránh
+        // trường hợp slot có startTime muộn nhất chưa chắc có endTime muộn nhất.
+        $slotStarts = [];
+        $slotEnds = [];
+        foreach ($enrichedSlots as $slot) {
+            $slotDate = Carbon::createFromFormat('d-m-Y', $slot['date'])->format('Y-m-d');
+            $slotStart = Carbon::parse("{$slotDate} {$slot['startTime']}");
+            $slotEnd = Carbon::parse("{$slotDate} {$slot['endTime']}");
 
-        $lastSlotIndex = count($enrichedSlots) - 1;
-        $lastSlot = $enrichedSlots[$lastSlotIndex];
-        $lastDate = Carbon::createFromFormat('d-m-Y', $lastSlot['date'])->format('Y-m-d');
+            if ((($slot['overNight'] ?? 0) == 1) || $slotEnd->lt($slotStart)) {
+                $slotEnd->addDay();
+            }
 
-        if (isset($lastSlot['overNight']) && $lastSlot['overNight'] == 1) {
-            $lastDate = Carbon::parse($lastDate)->addDay()->format('Y-m-d');
+            $slotStarts[] = $slotStart;
+            $slotEnds[] = $slotEnd;
         }
 
-        $endTime = Carbon::parse("{$lastDate} {$lastSlot['endTime']}")->format('Y-m-d H:i');
+        $startTime = collect($slotStarts)->min()->format('Y-m-d H:i');
+        $endTime = collect($slotEnds)->max()->format('Y-m-d H:i');
 
         Session::put('booking_data', [
             'start_time' => $startTime,
@@ -286,7 +390,7 @@ class Book extends Component
 
         $firstRoomSlug = Product::where('id', $enrichedSlots[0]['roomId'])->value('slug');
 
-        return redirect()->route('product.detail', ['slug' => $firstRoomSlug ?? 'default-slug', 'from_book' => 1]);
+        return redirect()->route('product.detail', ['slug' => $firstRoomSlug ?? 'default-slug']);
     }
 
     /**

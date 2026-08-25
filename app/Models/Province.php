@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Support\ImagePresetUrls;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use App\Models\Ward;
@@ -17,6 +18,8 @@ class Province extends Model
         'name',
         'slug',
         'image',
+        'image_width',
+        'image_height',
         'lat',
         'lng',
         'code',
@@ -26,11 +29,18 @@ class Province extends Model
     ];
 
     protected $casts = [
-        'lat'        => 'float',
-        'lng'        => 'float',
-        'code'       => 'integer',
-        'phone_code' => 'integer',
+        'lat'          => 'float',
+        'lng'          => 'float',
+        'code'         => 'integer',
+        'phone_code'   => 'integer',
+        'image_width'  => 'integer',
+        'image_height' => 'integer',
     ];
+
+    public function getThumbnailAttribute(): ?array
+    {
+        return ImagePresetUrls::build($this->image, 'public', $this->image_width, $this->image_height);
+    }
 
     public function branches(): HasMany
     {

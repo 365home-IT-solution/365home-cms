@@ -26,7 +26,10 @@ class OpenGateAction
                 if (!$product || !$product->lock_id) {
                     return false;
                 }
-                return TTLockService::forCategory($record->category_id) !== null;
+                // Dùng hasAccountForCategory() (có cache tĩnh trong request) thay vì forCategory()
+                // — ->visible() chạy lại cho MỖI dòng của bảng đơn hàng, forCategory() dựng cả 1
+                // instance TTLockService mỗi lần dù chỉ cần biết có/không, tốn hơn không cần thiết.
+                return TTLockService::hasAccountForCategory($record->category_id);
             })
             ->requiresConfirmation()
             ->modalHeading(fn (Order $record) => "Mở cổng — Đơn #{$record->order_code}")
@@ -53,14 +56,21 @@ class OpenGateAction
                     return;
                 }
 
-                $success = $ttlock->remoteUnlock((int) $product->lock_id);
+                // Cửa gắn 2 ổ cần nhả CÙNG LÚC (Product::unlock_both_locks) — mở cả 2 ổ, chỉ báo
+                // thành công khi cả 2 đều mở được (xem TTLockService::remoteUnlockBoth()).
+                $bothLocksRequired = $product->unlock_both_locks && $product->lock_id && $product->lock_id_checkout;
+
+                $success = $bothLocksRequired
+                    ? $ttlock->remoteUnlockBoth((int) $product->lock_id, (int) $product->lock_id_checkout)['success']
+                    : $ttlock->remoteUnlock((int) $product->lock_id);
 
                 Log::info('OpenGateAction', [
-                    'order_id'   => $record->id,
-                    'order_code' => $record->order_code,
-                    'lock_id'    => $product->lock_id,
-                    'success'    => $success,
-                    'admin'      => auth()->user()?->email,
+                    'order_id'    => $record->id,
+                    'order_code'  => $record->order_code,
+                    'lock_id'     => $product->lock_id,
+                    'both_locks'  => $bothLocksRequired,
+                    'success'     => $success,
+                    'admin'       => auth()->user()?->email,
                 ]);
 
                 if ($success) {

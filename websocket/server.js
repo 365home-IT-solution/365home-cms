@@ -49,6 +49,24 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Subscribe PHỦ MỌI NGÀY của 1 phòng theo khung giờ — thay thế cho việc phải tự liệt kê/
+    // subscribe:room theo từng ngày riêng (VD khách đang chọn khung giờ rải nhiều ngày cùng lúc
+    // trên form đặt phòng, đổi ngày xem liên tục). Mọi event slot.updated/slot.hold.updated của
+    // phòng này (bất kể ngày nào) đều bắn thêm vào đây — xem các endpoint /internal/slot-update,
+    // /internal/slot-hold-update, /internal/slot-blocked-range bên dưới (dùng chung 1 emit tới cả 2
+    // room cùng lúc để KHÔNG bắn trùng 2 lần cho client đã subscribe cả 2 kiểu).
+    socket.on('subscribe:room-slots', ({ room_id }) => {
+        if (room_id) {
+            socket.join(`room-all:${room_id}`);
+        }
+    });
+
+    socket.on('unsubscribe:room-slots', ({ room_id }) => {
+        if (room_id) {
+            socket.leave(`room-all:${room_id}`);
+        }
+    });
+
     // Subscribe to daily room hold events (no auth required)
     socket.on('subscribe:daily-room', ({ room_id }) => {
         if (room_id) {
@@ -95,6 +113,29 @@ io.on('connection', (socket) => {
 
     socket.on('unsubscribe:chat-admin', () => {
         socket.leave('chat:admin');
+    });
+
+    // Subscribe to admin notification bell (đơn hàng mới/đổi trạng thái...) — phòng CHUNG cho mọi
+    // admin đang mở app/SPA riêng, không phân biệt ai xem được thông báo nào (REST API tự lọc đúng
+    // theo user khi client gọi lại GET /api/admin/notifications sau khi nhận event này).
+    socket.on('subscribe:admin-notifications', () => {
+        socket.join('admin:notifications');
+    });
+
+    socket.on('unsubscribe:admin-notifications', () => {
+        socket.leave('admin:notifications');
+    });
+
+    // Subscribe to admin order list/dashboard refresh signal (đơn mới/đổi trạng thái/xoá) — phòng
+    // CHUNG, chỉ báo hiệu "có gì đổi", không kèm dữ liệu — client tự gọi lại REST API tương ứng
+    // (GET /api/admin/orders, dashboard/kpi-stats...) để lấy đúng dữ liệu theo phạm vi quyền của
+    // chính admin đó, cùng nguyên tắc admin:notifications ở trên.
+    socket.on('subscribe:admin-orders', () => {
+        socket.join('admin:orders');
+    });
+
+    socket.on('unsubscribe:admin-orders', () => {
+        socket.leave('admin:orders');
     });
 
     socket.on('disconnect', () => {
@@ -147,7 +188,7 @@ app.post('/internal/slot-update', (req, res) => {
     }
 
     const channel = `room:${room_id}:${date}`;
-    io.to(channel).emit('slot.updated', { room_id, date, slot_ids, status: status || 'pending' });
+    io.to(channel).to(`room-all:${room_id}`).emit('slot.updated', { room_id, date, slot_ids, status: status || 'pending' });
     console.log(`[WS] Slot update: room=${room_id} date=${date} slots=[${slot_ids}] → ${channel}`);
 
     return res.json({ ok: true });
@@ -168,6 +209,29 @@ app.post('/internal/daily-booked', (req, res) => {
     const channel = `daily:${room_id}`;
     io.to(channel).emit('daily.booked', { room_id, checkin, checkout });
     console.log(`[WS] Daily booked: room=${room_id} ${checkin}→${checkout} → ${channel}`);
+
+    return res.json({ ok: true });
+});
+
+// ── Time-slot hold update — "đang chọn" tạm thời cho phòng theo khung giờ ────
+// holds: danh sách {session_id, timeslot_id} CÒN GIỮ của ĐÚNG ngày `date` này (Laravel đã lọc sẵn
+// theo date trước khi gọi, xem TimeSlotHoldController) — luôn bắn cho đúng 1 channel
+// room:{room_id}:{date} (cùng channel với slot.updated), kể cả khi holds rỗng (vừa release hold
+// cuối cùng của ngày đó) để client biết ngày này hết hold, không phải suy đoán từ việc "không thấy
+// event nào nữa".
+app.post('/internal/slot-hold-update', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { room_id, date, holds } = req.body;
+    if (!room_id || !date) {
+        return res.status(422).json({ error: 'Missing room_id or date' });
+    }
+
+    io.to(`room:${room_id}:${date}`).to(`room-all:${room_id}`).emit('slot.hold.updated', { room_id, date, holds: holds || [] });
+    console.log(`[WS] Slot hold update: room=${room_id} date=${date} holds=${(holds || []).length}`);
 
     return res.json({ ok: true });
 });
@@ -310,6 +374,42 @@ app.post('/internal/chat-read', (req, res) => {
     return res.json({ ok: true });
 });
 
+// ── Admin notification — báo "có thông báo mới", client tự gọi lại REST API để lấy nội dung ──
+app.post('/internal/admin-notify', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { notification } = req.body;
+    if (!notification) {
+        return res.status(422).json({ error: 'Missing notification' });
+    }
+
+    io.to('admin:notifications').emit('admin_notification.new', notification);
+    console.log('[WS] Admin notification pushed to admin:notifications');
+
+    return res.json({ ok: true });
+});
+
+// ── Admin order list/dashboard refresh signal — Laravel gọi khi đơn tạo/đổi trạng thái/xoá ──
+app.post('/internal/admin-order-changed', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { order_code, event } = req.body;
+    if (!order_code || !event) {
+        return res.status(422).json({ error: 'Missing order_code or event' });
+    }
+
+    io.to('admin:orders').emit('admin_order.changed', { order_code, event });
+    console.log(`[WS] Admin order changed (${event}) pushed to admin:orders — order_code=${order_code}`);
+
+    return res.json({ ok: true });
+});
+
 // ── Slot blocked range — admin tô đen/gỡ tô đen nhiều ngày cùng lúc ─────────
 app.post('/internal/slot-blocked-range', (req, res) => {
     const key = req.headers['x-internal-key'];
@@ -317,17 +417,22 @@ app.post('/internal/slot-blocked-range', (req, res) => {
         return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const { room_id, dates, slot_ids, status } = req.body;
+    const { room_id, dates, slot_ids, status, source } = req.body;
     if (!room_id || !Array.isArray(dates) || dates.length === 0) {
         return res.status(422).json({ error: 'Missing room_id or dates' });
     }
 
     for (const date of dates) {
-        io.to(`room:${room_id}:${date}`).emit('slot.updated', {
+        io.to(`room:${room_id}:${date}`).to(`room-all:${room_id}`).emit('slot.updated', {
             room_id,
             date,
             slot_ids: slot_ids || [],
             status: status || 'blocked',
+            // Truyền lại nguyên trạng cho client web (resources/js/ws-client.js) — phía đó dựa vào
+            // field này để bỏ qua việc ép Livewire re-render toàn bộ khi Reverb đã vá trực tiếp rồi
+            // (xem SlotRealtimeService::broadcastBlockedRange()). Field phụ, không phá hợp đồng cũ
+            // với app RN/Filament (chỉ đọc thêm nếu có, bỏ qua nếu không).
+            ...(source ? { source } : {}),
         });
     }
 

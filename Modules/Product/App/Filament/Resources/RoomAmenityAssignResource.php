@@ -18,9 +18,25 @@ class RoomAmenityAssignResource extends Resource
 
     protected static ?string $navigationLabel = 'Gán Tiện Ích Phòng';
 
+    // BẮT BUỘC khai báo riêng — dùng chung model Product với ProductResource, không khai báo thì
+    // Filament tự suy nhãn trang phân quyền (Shield) từ tên model thành "Product", trùng tên với
+    // mục khác, không phân biệt được trên trang chọn quyền.
+    protected static ?string $modelLabel       = 'Gán Tiện Ích Phòng';
+    protected static ?string $pluralModelLabel = 'Gán Tiện Ích Phòng';
+
     protected static ?string $slug = 'room-amenity-assign';
 
     protected static ?int $navigationSort = 5;
+
+    public static function getModelLabel(): string
+    {
+        return 'Gán Tiện Ích Phòng';
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return 'Gán Tiện Ích Phòng';
+    }
 
     public static function getNavigationBadge(): ?string
     {
@@ -35,9 +51,18 @@ class RoomAmenityAssignResource extends Resource
         ];
     }
 
+    // Theo yêu cầu: CHỈ super_admin được dùng "Gán Tiện Ích Phòng" (nhóm Quản lý API) — hard-code
+    // isSuperAdmin(), không dựa vào permission Shield (room::amenity::assign) nữa, giống
+    // PartnerResource/BranchResource — tránh bị cấp nhầm quyền này cho role khác qua Roles &
+    // Permissions.
+    private static function isSuperAdmin(): bool
+    {
+        return auth()->user()?->isSuperAdmin() ?? false;
+    }
+
     public static function canViewAny(): bool
     {
-        return auth()->user()?->can('view_any_room::amenity::assign') ?? false;
+        return self::isSuperAdmin();
     }
 
     public static function canCreate(): bool
@@ -47,16 +72,16 @@ class RoomAmenityAssignResource extends Resource
 
     public static function canEdit($record): bool
     {
-        return auth()->user()?->can('update_room::amenity::assign') ?? false;
+        return self::isSuperAdmin();
     }
 
     public static function canDelete($record): bool
     {
-        return auth()->user()?->can('delete_room::amenity::assign') ?? false;
+        return self::isSuperAdmin();
     }
 
     public static function canDeleteAny(): bool
     {
-        return auth()->user()?->can('delete_any_room::amenity::assign') ?? false;
+        return self::isSuperAdmin();
     }
 }

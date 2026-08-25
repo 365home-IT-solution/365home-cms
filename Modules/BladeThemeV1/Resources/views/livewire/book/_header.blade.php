@@ -1,3 +1,20 @@
+        @if($showBranchHeader && !empty($title_booking))
+        <div class="book-branch-header">
+            <div class="book-branch-header-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                </svg>
+            </div>
+            <div class="min-w-0">
+                <p class="book-branch-header-title">{{ $title_booking }}</p>
+                @if(!empty($sub_title_booking))
+                    <p class="book-branch-header-sub">{{ $sub_title_booking }}</p>
+                @endif
+            </div>
+        </div>
+        @endif
+
         @if(!empty($image_event))
         <div class="flex justify-center mb-4">
             <div class="w-full md:w-[380px] md:h-[120px] overflow-hidden">
@@ -6,9 +23,8 @@
         </div>
         @endif
 
-        <h2 class="mt-3 mb-1 text-center text-base font-bold uppercase text-primary">{{ $title_booking }}</h2>
-        <h5 class="mb-3 text-center text-primary text-sm font-bold">{{ $sub_title_booking }}</h5>
-
+        {{--
+           
         <div class="flex items-center justify-center gap-3 mb-5">
             <div class="flex-1 h-px bg-gradient-to-r from-transparent to-primary/30 max-w-[120px]"></div>
             <div class="promo-badge-btn text-primary px-6 py-2 rounded-full text-md font-semibold">
@@ -42,3 +58,4 @@
             .book-tab-scroll { scrollbar-width: none; }
             .book-tab-scroll::-webkit-scrollbar { display: none; }
         </style>
+        --}}

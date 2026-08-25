@@ -3,16 +3,12 @@
 namespace App\Observers;
 
 use App\Models\Customer;
-use App\Models\User;
-use App\Services\FcmService;
+use App\Services\AdminNotificationService;
 use App\Services\MembershipService;
 use App\Services\NotificationFcmService;
 use App\Services\OrderRealtimeService;
 use App\Services\SlotRealtimeService;
-use Filament\Notifications\Notification;
-use Filament\Notifications\Actions\Action;
 use Modules\AuditLog\Services\AuditLogger;
-use Modules\Category\Entities\Category;
 use Modules\Payment\App\Filament\Resources\OrderResource;
 use Modules\Payment\Entities\Order;
 
@@ -24,61 +20,21 @@ class OrderObserver
         'payment_method', 'note_for_admin', 'guest_count',
         'checkin_date', 'checkout_date',
     ];
-    /**
-     * Trả về danh sách user nhận thông báo cho một đơn hàng cụ thể:
-     *  - super_admin → luôn nhận tất cả
-     *  - user thường → chỉ nhận nếu có quyền xem category của đơn
-     */
-    private function adminUsers(Order $order): \Illuminate\Support\Collection
-    {
-        $superAdminRole = config('filament-shield.super_admin.name');
-        $superAdmins    = User::role($superAdminRole)->get();
-
-        if ($order->category_id === null) {
-            return $superAdmins->isNotEmpty() ? $superAdmins : User::all();
-        }
-
-        // Tìm parent_id của category đơn hàng để khớp với cả branch-level permission
-        $matchIds = [$order->category_id];
-        $cat = Category::select('id', 'parent_id')->find($order->category_id);
-        if ($cat && $cat->parent_id) {
-            $matchIds[] = $cat->parent_id;
-        }
-
-        // User không phải super_admin nhưng có phân quyền chi nhánh bao gồm category này
-        $regionalUsers = User::whereDoesntHave('roles', fn ($q) => $q->where('name', $superAdminRole))
-            ->whereHas('branchPermissions', fn ($q) => $q->whereIn('category_id', $matchIds))
-            ->get();
-
-        $all = $superAdmins->merge($regionalUsers)->unique('id');
-
-        return $all->isNotEmpty() ? $all : User::all();
-    }
 
     private function send(Order $order, string $title, string $icon, string $color): void
     {
-        $body  = "#{$order->order_code} · {$order->buyer_name} · " . number_format($order->full_amount) . ' VNĐ';
-        $users = $this->adminUsers($order);
+        $body    = "#{$order->order_code} · {$order->buyer_name} · " . number_format($order->full_amount) . ' VNĐ';
+        $service = app(AdminNotificationService::class);
 
-        Notification::make()
-            ->title($title)
-            ->body($body)
-            ->icon($icon)
-            ->color($color)
-            ->actions([
-                Action::make('view')
-                    ->label('Xem đơn')
-                    ->url(OrderResource::getUrl('edit', ['record' => $order->id]))
-                    ->button(),
-            ])
-            ->sendToDatabase($users);
-
-        // Push notification đến thiết bị di động admin (kể cả khi đóng trình duyệt)
-        try {
-            app(FcmService::class)->sendToUsers($users, $title, $body);
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('FCM push failed: ' . $e->getMessage());
-        }
+        $service->notify(
+            $service->recipientsForOrder($order),
+            $title,
+            $body,
+            ['type' => 'order', 'order_code' => $order->order_code],
+            $icon,
+            $color,
+            OrderResource::getUrl('edit', ['record' => $order->id]),
+        );
     }
 
     private function sendToCustomer(Order $order, string $title, string $body): void
@@ -125,8 +81,27 @@ class OrderObserver
     }
 
     /**
-     * Chỉ notify khi đơn mới tạo ở trạng thái pending
-     * (status='deposit' bỏ qua — sẽ được notify bởi updated() sau khi PayOS xác nhận)
+     * Ghi lại mốc thời gian CHÍNH XÁC lúc đơn chuyển sang 'paid' (thanh toán đủ, không cọc) — CHỈ
+     * set 1 LẦN DUY NHẤT rồi giữ nguyên mãi mãi. Trước đây "Lịch sử thanh toán" phải dùng tạm
+     * updated_at cho mốc này, nhưng cột đó bị chính Eloquent cập nhật lại ở MỌI LẦN LƯU sau đó
+     * (thêm/bớt khung giờ, sửa ghi chú...), khiến mốc "Khách thanh toán đầy đủ" hiển thị SAI — trôi
+     * theo lần sửa đơn gần nhất thay vì đúng lúc thanh toán thật sự. Đặt ở saving() (trước khi lưu)
+     * để set trong CÙNG 1 câu UPDATE, áp dụng cho MỌI nơi set status='paid' (webhook PayOS, admin
+     * xác nhận tiền mặt/chuyển khoản, API guest booking...) mà không cần sửa từng nơi gọi.
+     */
+    public function saving(Order $order): void
+    {
+        if ($order->isDirty('status') && $order->status === 'paid' && is_null($order->paid_at)) {
+            $order->paid_at = now();
+        }
+    }
+
+    /**
+     * Thông báo admin "Đơn mới" CHỈ hiện sau khi khách đã thanh toán (đủ hoặc cọc) thành công —
+     * KHÔNG báo ngay lúc tạo đơn khi còn 'pending' (chưa chắc khách sẽ thanh toán). Đơn tạo ở trạng
+     * thái pending sẽ được báo sau, ở updated() khi chuyển sang paid/deposit. Trường hợp đơn được
+     * tạo THẲNG ở trạng thái paid/deposit (vd webhook tạo đơn kèm xác nhận thanh toán luôn, bỏ qua
+     * pending) thì báo ngay tại đây vì điều kiện "đã thanh toán" đã thỏa từ lúc tạo.
      */
     public function created(Order $order): void
     {
@@ -148,11 +123,27 @@ class OrderObserver
             );
         }
 
+        $this->maybeAssignCustomerBranch($order);
+
+        // Tín hiệu cho admin đang xem danh sách đơn/dashboard tự làm mới — riêng biệt với thông báo
+        // "Đơn mới" bên dưới (thông báo CHỈ báo sau khi thanh toán, còn đây là DỮ LIỆU list nên hiện
+        // ngay cả đơn pending, admin cần thấy để theo dõi).
+        app(OrderRealtimeService::class)->broadcastAdminListChanged($order->order_code, 'created');
+
+        // Phòng trường hợp đơn được tạo THẲNG ở trạng thái paid/deposit (bỏ qua pending — vd webhook
+        // tạo đơn kèm xác nhận thanh toán luôn trong 1 lần insert, không qua updated() riêng) — vẫn
+        // cần lưới lịch phòng phản ánh đúng ngay từ lúc tạo, không đợi lần đổi trạng thái kế tiếp.
+        // Trùng với broadcastBooked() gọi trực tiếp ở luồng tạo đơn (status='pending') thì chỉ là 1
+        // event thừa vô hại (cùng giá trị status), không gây sai lệch.
+        $this->broadcastSlotStatusChanged($order);
+
+        if (in_array($order->status, ['paid', 'deposit'], true)) {
+            $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'success');
+        }
+
         if ($order->status !== 'pending') {
             return;
         }
-
-        $this->send($order, 'Đơn đặt phòng mới', 'heroicon-o-shopping-bag', 'info');
 
         $this->sendToCustomer(
             $order,
@@ -173,6 +164,14 @@ class OrderObserver
      */
     public function updated(Order $order): void
     {
+        // Luồng khách tự đặt qua app (BuildsRoomBooking) KHÔNG set category_id ngay lúc tạo đơn —
+        // chỉ được PaymentController::handleSuccessfulPayment() backfill sau khi thanh toán thành
+        // công, nên phải bắt cả ở đây (created() chỉ đủ cho đơn admin tạo trực tiếp, đã có
+        // category_id ngay từ đầu — xem CreateOrder.php).
+        if ($order->wasChanged('category_id')) {
+            $this->maybeAssignCustomerBranch($order);
+        }
+
         $changed = array_keys($order->getChanges());
         $tracked = array_intersect($changed, self::TRACKED_FIELDS);
 
@@ -201,9 +200,33 @@ class OrderObserver
             return;
         }
 
-        // pending → paid: đã có thông báo "Đơn đặt phòng mới", không gửi thêm
+        // Đồng bộ realtime cho MỌI lần đổi trạng thái, bất kể đến từ đâu (API admin, Filament,
+        // webhook PayOS, cron hết hạn đơn...) — vì observer này chạy tự động theo Eloquent
+        // update()/save(), không phụ thuộc code gọi có tự nhớ bắn realtime hay không (trước đây MỖI
+        // nơi đổi status phải tự gọi OrderRealtimeService, dễ sót — đây là nguồn duy nhất, không sót).
+        // 2 việc tách biệt: broadcastOrderUpdate() đồng bộ DỮ LIỆU cho khách đang xem đúng đơn này
+        // (subscribe:order); broadcastAdminListChanged() chỉ là TÍN HIỆU làm mới cho admin đang xem
+        // danh sách đơn/dashboard (không kèm dữ liệu, FE tự gọi lại REST — cùng nguyên tắc
+        // admin_notification.new).
+        app(OrderRealtimeService::class)->broadcastOrderUpdate(
+            $order->order_code,
+            ['status' => $newStatus, 'order_status' => $order->order_status],
+            $order->customer_id ? (int) $order->customer_id : null,
+        );
+        app(OrderRealtimeService::class)->broadcastAdminListChanged($order->order_code, 'status_changed');
+
+        // Đồng bộ field `status` trên lưới lịch phòng theo KHUNG GIỜ (GET .../rooms/{id}/time-slots,
+        // xem RoomController::buildSlotStatus()) cho MỌI lần đổi trạng thái đơn — trước đây chỉ bắn
+        // lúc đơn bị huỷ/hết hạn (xem broadcastSlotRelease() bên dưới), bỏ sót pending→paid,
+        // pending→deposit, deposit→paid... khiến admin/khách phải tải lại trang mới thấy đúng trạng
+        // thái mới nhất của từng ô ngày.
+        $this->broadcastSlotStatusChanged($order);
+
+        // pending → paid: lần thanh toán đầu tiên (đủ ngay) — đây mới là thời điểm "Đơn mới" thực sự
+        // báo cho admin (xem created()).
         if ($newStatus === 'paid' && $oldStatus === 'pending') {
             $this->accumulateMembershipSpending($order);
+            $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'success');
             $this->sendToCustomer(
                 $order,
                 'Thanh toán thành công',
@@ -213,6 +236,23 @@ class OrderObserver
                 $order,
                 'Thanh toán thành công',
                 $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã xác nhận.")
+            );
+            return;
+        }
+
+        // pending → deposit: lần thanh toán đầu tiên (cọc) — cũng tính là "Đơn mới" (đã thanh toán
+        // một phần, khác với đơn pending chưa ai trả tiền).
+        if ($newStatus === 'deposit' && $oldStatus === 'pending') {
+            $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'success');
+            $this->sendToCustomer(
+                $order,
+                'Đặt cọc thành công',
+                "Đơn #{$order->order_code} đã nhận cọc. Vui lòng thanh toán phần còn lại khi check-in."
+            );
+            $this->sendToGuest(
+                $order,
+                'Đặt cọc thành công',
+                $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã nhận cọc.")
             );
             return;
         }
@@ -247,18 +287,21 @@ class OrderObserver
         $map = [
             'paid'      => ['title' => 'Đơn đã thanh toán đủ',  'icon' => 'heroicon-o-check-circle', 'color' => 'success'],
             'deposit'   => ['title' => 'Đơn đã đặt cọc',        'icon' => 'heroicon-o-banknotes',    'color' => 'warning'],
-            'shipped'   => ['title' => 'Đơn đang xử lý',        'icon' => 'heroicon-o-arrow-path',   'color' => 'info'],
             'cancelled' => ['title' => 'Đơn bị hủy',            'icon' => 'heroicon-o-x-circle',     'color' => 'danger'],
+            'refunded'  => ['title' => 'Đơn đã hoàn tiền',      'icon' => 'heroicon-o-arrow-uturn-left', 'color' => 'info'],
         ];
 
-        // Slot giải phóng khi đơn bị hủy/hết hạn → broadcast để FE re-fetch
-        $releasedStatuses = ['cancelled_payment', 'failed', 'cancelled'];
+        // Slot giải phóng khi đơn bị hủy/hết hạn/hoàn tiền → broadcast để FE re-fetch
+        $releasedStatuses = ['cancelled_payment', 'failed', 'cancelled', 'refunded'];
         if (in_array($newStatus, $releasedStatuses) && ! in_array($oldStatus, $releasedStatuses)) {
             $this->broadcastSlotRelease($order);
         }
 
-        // Guest: thông báo khi huỷ thanh toán hoặc hết hạn QR
+        // Thông báo khi huỷ thanh toán hoặc hết hạn QR (kể cả cron ExpirePaymentOrders tự huỷ đơn
+        // pending quá 15 phút) — trước đây CHỈ báo guest (device_token), khách đã đăng nhập
+        // (customer_id) không nhận được gì khi đơn tự hết hạn.
         if ($newStatus === 'failed' || $newStatus === 'cancelled_payment') {
+            $this->sendToCustomer($order, 'Thanh toán không thành công', "Đơn #{$order->order_code} đã bị huỷ. Vui lòng đặt lại nếu cần.");
             $this->sendToGuest($order, 'Thanh toán không thành công', "Đơn #{$order->order_code} đã bị huỷ. Vui lòng đặt lại nếu cần.");
         }
 
@@ -271,8 +314,8 @@ class OrderObserver
 
         $customerMessages = [
             'deposit'   => ['Đơn đã cọc thành công',   "Đơn #{$order->order_code} đã nhận cọc. Vui lòng thanh toán phần còn lại khi check-in."],
-            'shipped'   => ['Đơn đang được xử lý',     "Đơn #{$order->order_code} đang được xử lý bởi nhân viên."],
             'cancelled' => ['Đơn bị hủy',              "Đơn #{$order->order_code} đã bị hủy. Liên hệ hỗ trợ nếu cần thêm thông tin."],
+            'refunded'  => ['Đơn đã được hoàn tiền',   "Đơn #{$order->order_code} đã được hoàn tiền. Liên hệ hỗ trợ nếu cần thêm thông tin."],
         ];
 
         if (isset($customerMessages[$newStatus])) {
@@ -282,13 +325,21 @@ class OrderObserver
         }
     }
 
+    /**
+     * CHỈ còn xử lý phòng theo NGÀY (styles=2, kênh 'daily.*' riêng) — phòng theo KHUNG GIỜ
+     * (styles=1) đã được broadcastSlotStatusChanged() xử lý cho MỌI transition (gồm cả huỷ/hết
+     * hạn), gọi thêm ở đây sẽ bắn trùng 2 event cho cùng 1 ô.
+     */
     private function broadcastSlotRelease(Order $order): void
     {
-        $order->loadMissing('items');
+        $order->loadMissing('items.product');
         $service = app(SlotRealtimeService::class);
 
         foreach ($order->items as $item) {
             if (! $item->checkin_date || ! $item->product_id) {
+                continue;
+            }
+            if ((int) ($item->product->styles ?? 1) !== 2) {
                 continue;
             }
             $service->broadcastReleased(
@@ -296,6 +347,60 @@ class OrderObserver
                 $item->checkin_date->format('Y-m-d'),
             );
         }
+    }
+
+    /**
+     * Phản ánh đúng field `status` mà GET /api/admin/rooms/{id}/time-slots trả cho mỗi ô khung giờ
+     * x ngày (xem RoomController::buildSlotStatus()) — CHỈ pending/paid coi là chiếm chỗ, mọi trạng
+     * thái khác (kể cả deposit, theo đúng quyết định nghiệp vụ ở đó — đặt cọc KHÔNG hiện là đã đặt)
+     * hiển thị 'available'. Bắn cho MỌI lần đổi trạng thái đơn (gọi từ updated(), đã đảm bảo status
+     * thực sự thay đổi). CHỈ áp dụng phòng theo KHUNG GIỜ (styles=1 hoặc null) — phòng theo NGÀY
+     * (styles=2) dùng kênh 'daily.*' riêng, xem broadcastSlotRelease().
+     */
+    private function broadcastSlotStatusChanged(Order $order): void
+    {
+        $order->loadMissing([
+            'items.product.roomTimeSlots' => fn ($q) => $q->whereNull('date'),
+            'items.product.roomTimeSlots.timeSlot',
+        ]);
+
+        $service = app(SlotRealtimeService::class);
+        $status  = in_array($order->status, ['pending', 'paid'], true) ? $order->status : 'available';
+
+        $order->items
+            ->filter(fn ($item) => $item->checkin_date && $item->product && (int) ($item->product->styles ?? 1) !== 2)
+            ->groupBy(fn ($item) => $item->product_id . '|' . $item->checkin_date->format('Y-m-d'))
+            ->each(function ($items) use ($service, $status) {
+                $first   = $items->first();
+                $slotIds = $items
+                    ->map(fn ($item) => $this->resolveItemTimeslotId($item))
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->toArray();
+
+                $service->broadcastStatusChanged(
+                    (string) $first->product_id,
+                    $first->checkin_date->format('Y-m-d'),
+                    $slotIds,
+                    $status,
+                );
+            });
+    }
+
+    /**
+     * Suy timeslot_id của 1 order_item (đơn theo giờ) — order_items không lưu timeslot_id trực
+     * tiếp, khớp ngược qua giờ bắt đầu (checkin_date, HH:mm:ss) với RoomTimeSlot lặp lại (date IS
+     * NULL) của phòng — CÙNG cách làm với Api\Admin\OrderController::resolveItemTimeslotId() (tách
+     * riêng bản sao ở đây vì đó là method private của Controller, Observer không gọi được).
+     */
+    private function resolveItemTimeslotId($item): ?int
+    {
+        $startTime = \Carbon\Carbon::parse($item->checkin_date)->format('H:i:s');
+        $rts = $item->product->roomTimeSlots
+            ->first(fn ($rts) => $rts->timeSlot && $rts->timeSlot->start_time === $startTime);
+
+        return $rts?->timeslot_id;
     }
 
     public function deleted(Order $order): void
@@ -308,11 +413,17 @@ class OrderObserver
             label: "#{$order->order_code} — {$order->buyer_name}",
         );
 
-        // Realtime: app ẩn đơn ngay khi admin xóa
-        app(OrderRealtimeService::class)->broadcastOrderDeleted(
-            $order->order_code,
-            $order->customer_id ? (int) $order->customer_id : null,
-        );
+        // Realtime: app ẩn đơn ngay khi admin xóa — chỉ bắn khi có order_code (1 số đơn cũ/lỗi dữ
+        // liệu có order_code null; broadcastOrderDeleted() ép kiểu string không nullable nên gọi
+        // với null sẽ ném TypeError, làm toàn bộ luồng xoá đơn thất bại dù items/order đã xoá xong
+        // — phát hiện được khi test luồng xoá đơn, không liên quan broadcast khung giờ realtime).
+        if ($order->order_code) {
+            app(OrderRealtimeService::class)->broadcastOrderDeleted(
+                $order->order_code,
+                $order->customer_id ? (int) $order->customer_id : null,
+            );
+            app(OrderRealtimeService::class)->broadcastAdminListChanged($order->order_code, 'deleted');
+        }
 
         // Trừ lại chi tiêu khi xóa đơn đã thanh toán
         if ($order->status === 'paid' && $order->customer_id && ! $order->exclude_from_stats) {
@@ -350,6 +461,29 @@ class OrderObserver
         }
 
         return implode(' ', $parts);
+    }
+
+    /**
+     * Khách vãng lai tự đăng ký thành viên qua app (ZaloOtpController::register()) không được gán
+     * customer_categories nào lúc tạo tài khoản — chỉ CustomerController::store() (admin/nhân viên
+     * tạo hộ) mới tự gán chi nhánh gốc của người tạo. Bù lại: đơn ĐẦU TIÊN của khách hàng có
+     * category_id (chi nhánh gốc, xem CreateOrder.php) sẽ tự động gán làm customer_categories, để
+     * khách tự đăng ký cũng thuộc về đúng chi nhánh họ đặt phòng đầu tiên — chỉ áp dụng khi khách
+     * CHƯA có chi nhánh nào (tránh ghi đè chi nhánh đã gán trước đó, kể cả trường hợp không phải
+     * đơn đầu tiên thực sự nhưng category_id của các đơn trước null).
+     */
+    private function maybeAssignCustomerBranch(Order $order): void
+    {
+        if (! $order->customer_id || ! $order->category_id) {
+            return;
+        }
+
+        $customer = Customer::find($order->customer_id);
+        if (! $customer || $customer->categories()->exists()) {
+            return;
+        }
+
+        $customer->categories()->sync([$order->category_id]);
     }
 
     private function accumulateMembershipSpending(Order $order): void

@@ -23,6 +23,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
+use App\Filament\Support\PartnerTableHelpers;
 use Illuminate\Database\Eloquent\Builder;
 use Modules\Category\Entities\Category;
 use Modules\Category\Entities\Categorizable;
@@ -73,8 +74,10 @@ class ManualLockPasswordResource extends Resource
 
         $allowedIds = $user->allowedCategoryIds();
 
+        // Chưa gán quyền chi nhánh cụ thể thì mặc định thấy các bộ mật khẩu gắn với chi nhánh của
+        // đối tác mình (category.partner_id), không chặn hết.
         if (empty($allowedIds)) {
-            return $query->whereRaw('1 = 0');
+            return $query->whereHas('category', fn (Builder $q) => $q->where('partner_id', $user->partner_id));
         }
 
         return $query->whereIn('category_id', $allowedIds);
@@ -103,8 +106,11 @@ class ManualLockPasswordResource extends Resource
                                     ->orderBy('name');
                                 if ($user && ! $user->isSuperAdmin()) {
                                     $allowedIds = $user->allowedCategoryIds();
-                                    if (empty($allowedIds)) return [];
-                                    $query->whereIn('id', $allowedIds);
+                                    if (! empty($allowedIds)) {
+                                        $query->whereIn('id', $allowedIds);
+                                    } else {
+                                        $query->where('partner_id', $user->partner_id);
+                                    }
                                 }
                                 return $query->pluck('name', 'id');
                             })
@@ -189,7 +195,8 @@ class ManualLockPasswordResource extends Resource
 
                                 $allowedIds = $user->allowedCategoryIds();
                                 if (empty($allowedIds)) {
-                                    return $query->whereRaw('1 = 0');
+                                    // Product đã tự lọc theo partner_id (BelongsToPartner) — không cần thu hẹp thêm.
+                                    return $query;
                                 }
 
                                 $productIds = Categorizable::where('categorizable_type', Product::class)
@@ -282,6 +289,7 @@ class ManualLockPasswordResource extends Resource
                     ->dateTime('d/m/Y H:i')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
+                PartnerTableHelpers::column('category.partner.name'),
             ])
             ->filters([
                 TernaryFilter::make('is_active')
@@ -294,6 +302,8 @@ class ManualLockPasswordResource extends Resource
                     ->label('Chi nhánh')
                     ->options(fn () => Category::where('category_type', 'product')->pluck('name', 'id'))
                     ->native(false),
+
+                PartnerTableHelpers::filterThroughRelation('category'),
             ])
             ->actions([
                 Action::make('deactivate')

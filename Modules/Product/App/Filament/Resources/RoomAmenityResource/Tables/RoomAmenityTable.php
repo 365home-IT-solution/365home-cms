@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Product\App\Filament\Resources\RoomAmenityResource\Tables;
 
+use App\Filament\Support\PartnerTableHelpers;
 use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
@@ -52,11 +53,13 @@ class RoomAmenityTable
                     ->dateTime('d/m/Y')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
+                PartnerTableHelpers::column(),
             ])
             ->filters([
                 SelectFilter::make('amenity_type')
                     ->label('Nhóm tiện ích')
                     ->options(fn () => \Modules\Product\App\Models\RoomAmenity::distinct()->pluck('amenity_type', 'amenity_type')->toArray()),
+                PartnerTableHelpers::filter(),
             ])
             ->defaultSort('amenity_type')
             ->actions([

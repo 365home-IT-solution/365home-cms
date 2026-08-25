@@ -16,14 +16,21 @@ class WishlistController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        $branchLookup = $this->globalBranchLookup();
+
         $rooms = $request->user()
             ->wishlists()
-            ->with(['product.roomTimeSlots.timeSlot', 'product.mainImage', 'product.roomType'])
+            ->with(['product.roomTimeSlots.timeSlot', 'product.mainImage', 'product.roomType', 'product.categories'])
             ->get()
             ->pluck('product')
             ->filter()
             ->values()
-            ->map(fn ($room) => $this->mapRoom($room, true));
+            ->map(function ($room) use ($branchLookup) {
+                $card = $this->mapRoom($room, true);
+                $card['branch'] = $this->resolveBranch($room, $branchLookup['cats'], $branchLookup['childMap']);
+
+                return $card;
+            });
 
         return response()->json(['data' => $rooms]);
     }

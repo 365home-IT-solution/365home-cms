@@ -53,10 +53,12 @@ class ProductForm
 
                         $user = auth()->user();
                         if ($user && ! $user->isSuperAdmin()) {
+                            // Mặc định thấy toàn bộ chi nhánh của đối tác mình (đã lọc theo
+                            // partner_id); nếu được gán quyền chi nhánh cụ thể thì thu hẹp thêm.
+                            $query->where('partner_id', $user->partner_id);
+
                             $allowedIds = $user->allowedCategoryIds();
-                            if (empty($allowedIds)) {
-                                $query->whereRaw('1 = 0');
-                            } else {
+                            if (! empty($allowedIds)) {
                                 $query->whereIn('id', $allowedIds);
                             }
                         }
@@ -94,22 +96,9 @@ class ProductForm
                             return $query;
                         }
 
-                        $allowedIds = $user->allowedCategoryIds();
-                        if (empty($allowedIds)) {
-                            return $query->whereRaw('1 = 0');
-                        }
-
-                        $productTable = (new Product())->getTable();
-                        $roomIds = \Illuminate\Support\Facades\DB::table('categorizables')
-                            ->where('categorizable_type', Product::class)
-                            ->whereIn('category_id', $allowedIds)
-                            ->pluck('categorizable_id');
-
-                        // Dịch vụ trong chi nhánh được phép HOẶC chưa gán cho phòng nào
-                        return $query->where(function ($q) use ($productTable, $roomIds) {
-                            $q->whereHas('products', fn ($sq) => $sq->whereIn("{$productTable}.id", $roomIds))
-                              ->orDoesntHave('products');
-                        });
+                        // Dịch vụ bổ sung là của riêng từng đối tác (partner_id) — mỗi đối tác tự
+                        // tạo dịch vụ của mình, không dùng chung với đối tác khác.
+                        return $query->where('partner_id', $user->partner_id);
                     }
                 )
                 ->getOptionLabelFromRecordUsing(fn ($record) => $record->name . ' — ' . number_format($record->price) . '₫')
@@ -260,6 +249,7 @@ class ProductForm
             MediaManagerInput::make('Ảnh bìa')
                 ->label(__('product::product.form.label.image_main'))
                 ->required()
+                ->maxSize(3072)
                 ->schema([])
                 ->defaultItems(1)
                 ->minItems(1)

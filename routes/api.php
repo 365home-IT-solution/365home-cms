@@ -1,10 +1,12 @@
 <?php
 
 use App\Http\Controllers\Api\Auth\ZaloOtpController;
+use App\Http\Controllers\Api\BranchController;
 use App\Http\Controllers\Api\ConfigController;
+use App\Http\Controllers\Api\EventController;
+use App\Http\Controllers\Api\GraphQLController;
 use App\Http\Controllers\Api\MembershipController;
 use App\Http\Controllers\Api\ChatController;
-use App\Http\Controllers\Api\Admin\ChatController as AdminChatController;
 use App\Http\Controllers\Api\BookingController;
 use App\Http\Controllers\Api\GuestBookingController;
 use App\Http\Controllers\Api\GuestNotificationController;
@@ -22,6 +24,7 @@ use App\Http\Controllers\Api\DailyRoomController;
 use App\Http\Controllers\Api\DailyRoomHoldController;
 use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\RoomTypeController;
+use App\Http\Controllers\Api\TimeSlotHoldController;
 use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\RatingController;
@@ -59,6 +62,16 @@ Route::get('v1/room-types/{id}', [RoomTypeController::class, 'show'])->name('api
 
 /*
 |--------------------------------------------------------------------------
+| Branches (Chi nhánh)
+| GET /api/v1/branches              → Danh sách chi nhánh (?province_id= để lọc theo tỉnh)
+| GET /api/v1/branches/{id}         → Chi tiết 1 chi nhánh
+|--------------------------------------------------------------------------
+*/
+Route::get('v1/branches',      [BranchController::class, 'index'])->name('api.v1.branches.index');
+Route::get('v1/branches/{id}', [BranchController::class, 'show'])->name('api.v1.branches.show')->whereNumber('id');
+
+/*
+|--------------------------------------------------------------------------
 | V1 — Home
 | GET /api/v1/home                          → Full sections (banner + room_list)
 | GET /api/v1/home?tab={id}                 → Banner + room_list lọc theo tab
@@ -70,10 +83,24 @@ Route::get('v1/room-types/{id}', [RoomTypeController::class, 'show'])->name('api
 | GET /api/v1/provinces/{slug}              → Chi tiết tỉnh + chi nhánh (slug)
 |
 | GET /api/v1/ask-user/{id}                 → Nội dung thông báo khi vào app
+|
+| GET /api/v1/branches/{slug}/time-slots?days=15 → Lịch đặt phòng đầy đủ 1 chi nhánh (mọi phòng
+|                                                    theo khung giờ x ngày, kèm giá/khuyến mãi/
+|                                                    trạng thái đã đặt) — days tối đa 31.
+| GET /api/v1/branches/{branch}/daily-rooms      → Danh sách phòng THEO NGÀY (styles=2) thuộc 1
+|                                                    chi nhánh — {branch} nhận id, slug, hoặc tên.
 |--------------------------------------------------------------------------
 */
 Route::prefix('v1')->name('api.v1.')->group(function () {
-    Route::get('home', HomeController::class)->name('home');
+    Route::get('home', HomeController::class)->name('home')->middleware('throttle:public-api');
+
+    Route::get('branches/{slug}/time-slots', [BranchController::class, 'timeSlots'])
+        ->name('branches.time-slots')
+        ->middleware('throttle:public-api');
+
+    Route::get('branches/{branch}/daily-rooms', [BranchController::class, 'dailyRooms'])
+        ->name('branches.daily-rooms')
+        ->middleware('throttle:public-api');
 
     Route::prefix('provinces')->name('provinces.')->group(function () {
         Route::get('/',       [ProvinceController::class, 'index'])->name('index');
@@ -92,6 +119,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     Route::get('config',     ConfigController::class)->name('config')->middleware('throttle:config');
     Route::get('config/map', [ConfigController::class, 'map'])->name('config.map')->middleware('throttle:config');
 
+    // GET /api/v1/events → danh sách sự kiện đang bật (is_active=true), public — quản lý CRUD ở
+    // POST/PUT/DELETE /api/admin/events (Api\Admin\EventController).
+    Route::get('events', [EventController::class, 'index'])->name('events.index')->middleware('throttle:public-api');
+
     /*
     |--------------------------------------------------------------------------
     | Search
@@ -100,12 +131,21 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     | GET /api/v1/search/locations   → Autocomplete địa điểm khi gõ
     |--------------------------------------------------------------------------
     */
-    Route::prefix('search')->name('search.')->group(function () {
+    Route::prefix('search')->name('search.')->middleware('throttle:public-api')->group(function () {
         Route::get('suggestions', [SearchController::class, 'suggestions'])->name('suggestions');
         Route::get('locations',   [SearchController::class, 'locations'])->name('locations');
+        Route::get('branches',    [SearchController::class, 'branches'])->name('branches');
         Route::get('/',           [SearchController::class, 'index'])->name('index');
     });
 });
+
+/*
+|--------------------------------------------------------------------------
+| GraphQL (pilot — chỉ phục vụ trang kết quả tìm kiếm)
+| POST /api/graphql — xem App\Http\Controllers\Api\GraphQLController
+|--------------------------------------------------------------------------
+*/
+Route::post('graphql', [GraphQLController::class, 'handle'])->name('graphql')->middleware('throttle:public-api');
 
 /*
 |--------------------------------------------------------------------------
@@ -154,6 +194,28 @@ Route::get('rooms/{id}/dates',         [DailyRoomController::class, 'dates'])->n
 Route::get('rooms/{id}/price-preview', [DailyRoomController::class, 'pricePreview'])->name('api.rooms.daily.price-preview');
 Route::post('rooms/{id}/hold',         [DailyRoomHoldController::class, 'hold'])->name('api.rooms.daily.hold');
 Route::delete('rooms/{id}/hold',       [DailyRoomHoldController::class, 'release'])->name('api.rooms.daily.hold.release');
+
+/*
+|--------------------------------------------------------------------------
+| Time-slot Hold (KHÁCH VÃNG LAI) — MỞ LẠI với 2 lớp chặn DoS mới.
+| POST   /api/rooms/{id}/time-slot-hold
+| DELETE /api/rooms/{id}/time-slot-hold
+|
+| Trước đây 2 route này từng bị GỠ vì lỗ hổng DoS thật sự: throttle request/phút/IP KHÔNG đủ chặn
+| kẻ cố ý đổi/rotate nhiều IP để spam giữ HẾT mọi ô khung giờ còn trống của 1 phòng, khiến khách
+| thật không đặt được dù phòng còn trống.
+|
+| Mở lại với 2 trần MỚI, độc lập với IP (đổi bao nhiêu IP/session cũng không né được) — xem chi
+| tiết + con số cụ thể trong docblock TimeSlotHoldController::hold():
+|   1. MAX_HOLDS_PER_ROOM (40)    — 1 phòng không bao giờ bị giữ hết sạch dù bị spam.
+|   2. MAX_HOLDS_PER_SESSION (8)  — 1 session không tự chiếm gần hết ngân sách của phòng.
+| Throttle IP (hold-slot, 15/phút) vẫn giữ làm lớp phòng thủ PHỤ, không phải chốt chặn chính.
+|--------------------------------------------------------------------------
+*/
+Route::middleware('throttle:hold-slot')->group(function () {
+    Route::post('rooms/{id}/time-slot-hold',   [TimeSlotHoldController::class, 'hold'])->name('api.rooms.time-slot-hold');
+    Route::delete('rooms/{id}/time-slot-hold', [TimeSlotHoldController::class, 'release'])->name('api.rooms.time-slot-hold.release');
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -207,6 +269,7 @@ Route::prefix('auth')->name('api.auth.')->group(function () {
             Route::post('change-password', [ZaloOtpController::class, 'changePassword'])->name('change-password');
             Route::post('deactivate',      [ZaloOtpController::class, 'deactivate'])->name('deactivate');
             Route::delete('account',       [ZaloOtpController::class, 'deleteAccount'])->name('delete-account');
+            Route::delete('companions/{id}', [ZaloOtpController::class, 'deleteCompanion'])->name('companions.destroy')->whereNumber('id');
         });
     });
 
@@ -243,6 +306,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('orders/{order_code}/retry-payment',    [OrderController::class, 'retryPayment'])->name('api.orders.retry-payment');
         Route::post('orders/{order_code}/remaining-payment',[OrderController::class, 'remainingPayment'])->name('api.orders.remaining-payment');
         Route::post('orders/{order}/services',              [OrderServiceController::class,'store'])->name('api.orders.services.store');
+        Route::post('orders/{order_code}/extra',             [OrderController::class,       'addExtra'])->name('api.orders.extra');
+        Route::post('orders/{order_code}/extra-charge-qr',   [OrderController::class,       'extraChargeQr'])->name('api.orders.extra-charge-qr');
         Route::post('orders/{order_code}/unlock',           [UnlockController::class,      'unlock'])->name('api.orders.unlock')->middleware('throttle:10,1');
         Route::get('coupons/mine',             [CouponController::class,     'mine'])->name('api.coupons.mine');
         Route::post('coupons/validate',        [CouponController::class,     'check'])->name('api.coupons.validate');
@@ -268,6 +333,8 @@ Route::prefix('guest')->name('api.guest.')->group(function () {
     Route::get('orders',                                         [GuestBookingController::class, 'lookup'])->name('orders.lookup');
     Route::get('orders/{order_code}',                            [GuestBookingController::class, 'show'])->name('orders.show');
     Route::post('orders/{order_code}/remaining-payment',         [GuestBookingController::class, 'remainingPayment'])->name('orders.remaining-payment');
+    Route::post('orders/{order_code}/extra',                     [GuestBookingController::class, 'addExtra'])->name('orders.extra');
+    Route::post('orders/{order_code}/extra-charge-qr',           [GuestBookingController::class, 'extraChargeQr'])->name('orders.extra-charge-qr');
     Route::get('orders/{order_code}/payment-status',             [GuestBookingController::class, 'paymentStatus'])->name('orders.payment-status');
     Route::post('orders/{order_code}/unlock',                    [UnlockController::class,       'unlockGuest'])->name('orders.unlock')->middleware('throttle:10,1');
 
@@ -320,13 +387,6 @@ Route::middleware(['auth:sanctum', 'customer.active'])->prefix('chat')->name('ap
     Route::get('/messages',                [ChatController::class, 'messages'])->name('messages');
     Route::post('/messages',               [ChatController::class, 'send'])->name('send');
     Route::post('/read',                   [ChatController::class, 'read'])->name('read');
-});
-
-Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/chat')->name('api.admin.chat.')->group(function () {
-    Route::get('/',                       [AdminChatController::class, 'index'])->name('index');
-    Route::get('/{id}',                   [AdminChatController::class, 'show'])->name('show');
-    Route::post('/{id}/messages',         [AdminChatController::class, 'send'])->name('send');
-    Route::post('/{id}/read',             [AdminChatController::class, 'read'])->name('read');
 });
 
 /*

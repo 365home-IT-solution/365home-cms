@@ -2,6 +2,48 @@
     {{-- Nút "Tô đen khung giờ" + modal tích hợp --}}
     <livewire:book::block-timeslot-modal />
 
+    {{-- Lọc theo chi nhánh + phân trang — trước đây trang này build form cho TOÀN BỘ phòng cùng
+         lúc (mỗi phòng 1 Tab + TableRepeater khung giờ/khuyến mãi), đối tác nhiều phòng làm server
+         tốn RAM rất lớn. Giờ chỉ build {{ $this->perPage }} phòng/trang, dùng link GET thường
+         (không phải wire:click) để tải lại trang với query string mới — tránh phải giữ toàn bộ
+         state phân trang qua Livewire. --}}
+    <div class="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-3 dark:border-white/10 dark:bg-white/5">
+        <form method="GET" class="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+            <label class="text-sm font-medium text-gray-700 dark:text-gray-200">Chi nhánh:</label>
+            <select name="branch_id" onchange="this.form.submit()"
+                    class="w-full min-w-0 rounded-lg border-gray-300 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white sm:w-auto">
+                <option value="">Tất cả chi nhánh</option>
+                @foreach($this->branchOptions() as $branchOptId => $branchOptName)
+                    <option value="{{ $branchOptId }}" @selected($this->branchId === (string) $branchOptId)>{{ $branchOptName }}</option>
+                @endforeach
+            </select>
+        </form>
+
+        <div class="flex w-full flex-wrap items-center gap-3 text-sm text-gray-600 dark:text-gray-300 sm:w-auto">
+            <span class="w-full sm:w-auto">
+                Trang {{ $this->paginatorMeta['current_page'] }}/{{ $this->paginatorMeta['last_page'] }}
+                &middot; {{ $this->paginatorMeta['total'] }} phòng
+            </span>
+            @php
+                $bookQueryBase = request()->except('page');
+                $bookPrevPage  = max(1, $this->paginatorMeta['current_page'] - 1);
+                $bookNextPage  = min($this->paginatorMeta['last_page'], $this->paginatorMeta['current_page'] + 1);
+            @endphp
+            <a href="?{{ http_build_query(array_merge($bookQueryBase, ['page' => $bookPrevPage])) }}"
+               @class([
+                   'flex-1 text-center rounded-lg border px-3 py-1.5 font-medium sm:flex-none',
+                   'pointer-events-none opacity-40' => $this->paginatorMeta['current_page'] <= 1,
+                   'border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-white/5' => $this->paginatorMeta['current_page'] > 1,
+               ])>&lsaquo; Trước</a>
+            <a href="?{{ http_build_query(array_merge($bookQueryBase, ['page' => $bookNextPage])) }}"
+               @class([
+                   'flex-1 text-center rounded-lg border px-3 py-1.5 font-medium sm:flex-none',
+                   'pointer-events-none opacity-40' => $this->paginatorMeta['current_page'] >= $this->paginatorMeta['last_page'],
+                   'border-gray-300 hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-white/5' => $this->paginatorMeta['current_page'] < $this->paginatorMeta['last_page'],
+               ])>Sau &rsaquo;</a>
+        </div>
+    </div>
+
     <form wire:submit="save">
         {{ $this->form }}
 

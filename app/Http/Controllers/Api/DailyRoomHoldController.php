@@ -43,7 +43,7 @@ class DailyRoomHoldController extends Controller
         ];
 
         Cache::put("daily_holds:{$id}", $holds, self::MAX_TTL);
-        app(SlotRealtimeService::class)->broadcastDailyHold($id, $holds);
+        app(SlotRealtimeService::class)->broadcastDailyHold($id, $this->stripHolderId($holds));
 
         return response()->json(['ok' => true, 'expires_at' => $expiresAt]);
     }
@@ -64,7 +64,7 @@ class DailyRoomHoldController extends Controller
             Cache::put("daily_holds:{$id}", $holds, self::MAX_TTL);
         }
 
-        app(SlotRealtimeService::class)->broadcastDailyHold($id, $holds);
+        app(SlotRealtimeService::class)->broadcastDailyHold($id, $this->stripHolderId($holds));
 
         return response()->json(['ok' => true]);
     }
@@ -78,5 +78,15 @@ class DailyRoomHoldController extends Controller
             if (($h['session_id'] ?? '') === $excludeSession) return false;
             return Carbon::parse($h['expires_at'] ?? now()->subSecond())->isFuture();
         }));
+    }
+
+    /**
+     * Không phát session_id ra ngoài qua broadcast — cùng lý do/cùng fix đã áp dụng cho
+     * TimeSlotHoldController (phòng khung giờ): để lộ session_id cho mọi client khác đang xem cùng
+     * phòng sẽ cho phép giả mạo release() hộ người khác mà không cần xác thực gì.
+     */
+    private function stripHolderId(array $holds): array
+    {
+        return array_map(fn ($h) => ['checkin' => $h['checkin'], 'checkout' => $h['checkout']], $holds);
     }
 }

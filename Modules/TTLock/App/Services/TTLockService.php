@@ -70,6 +70,29 @@ class TTLockService
         );
     }
 
+    // Kiểm tra NHANH chi nhánh có tài khoản TTLock đang hoạt động hay không, không cần dựng cả
+    // instance service (khỏi tạo object thừa khi chỉ dùng để quyết định ẩn/hiện UI theo chi nhánh
+    // — vd cột Khóa ngoài/Khóa trong, action "Gán khóa TTLock", "Tình trạng phòng" ở Thiết lập
+    // Phòng, và "Mã cổng"/"Mở cổng tự do" ở đơn đặt phòng).
+    // Cache tĩnh trong 1 request — hàm này được gọi LẶP LẠI nhiều lần cho ĐÚNG 1 chi nhánh (mỗi
+    // cột × mỗi dòng trong bảng "Thiết lập Phòng"/"Kiểm tra dọn phòng"), không cache sẽ query DB
+    // thừa nhiều lần cho cùng 1 câu trả lời không đổi trong suốt request.
+    private static array $accountExistsCache = [];
+
+    public static function hasAccountForCategory(?int $categoryId): bool
+    {
+        if (!$categoryId) {
+            return false;
+        }
+
+        return self::$accountExistsCache[$categoryId] ??= TtlockAccount::whereHas(
+                'categories',
+                fn ($q) => $q->where('categories.id', $categoryId)
+            )
+            ->where('is_active', true)
+            ->exists();
+    }
+
     // =========================================================
     // PUBLIC: Lấy access token (tự động refresh nếu hết hạn)
     // =========================================================

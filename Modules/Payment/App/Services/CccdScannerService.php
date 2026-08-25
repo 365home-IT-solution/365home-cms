@@ -17,8 +17,17 @@ use Modules\Payment\Entities\Order;
  */
 class CccdScannerService
 {
-    /** Giới hạn tổng thời gian scan để tránh 504 Gateway Timeout */
-    private const MAX_SCAN_SECONDS = 25;
+    // Giới hạn tổng thời gian scan để không vượt quá max_execution_time của PHP web SAPI
+    // (đã thấy trong log thực tế = 30s) khi được gọi ĐỒNG BỘ ngay lúc tạo/sửa đơn — phải
+    // để dư ít nhất ~10s cho phần còn lại của afterCreate()/afterSave() (PayOS, gán mã cổng...).
+    private const MAX_SCAN_SECONDS = 18;
+
+    // Timeout riêng cho từng bước con — CỘNG DỒN các bước có thể vượt MAX_SCAN_SECONDS nếu
+    // không được canh theo thời gian còn lại thực tế, nên mỗi bước còn phải tự co lại theo
+    // remainingSeconds() chứ không chỉ dùng đúng hằng số này.
+    private const NODE_QR_TIMEOUT_SECONDS = 8;
+    private const ZBAR_TIMEOUT_SECONDS    = 4;
+    private const OCR_TIMEOUT_SECONDS     = 8;
 
     private float $scanDeadline = 0;
 
@@ -30,6 +39,65 @@ class CccdScannerService
     private function isTimedOut(): bool
     {
         return $this->scanDeadline > 0 && microtime(true) >= $this->scanDeadline;
+    }
+
+    // Số giây còn lại trước khi hết ngân sách quét — dùng để mỗi bước con tự giới hạn timeout
+    // của CHÍNH NÓ, tránh trường hợp bước trước ăn gần hết thời gian nhưng bước sau vẫn cứ chờ
+    // đủ timeout riêng của nó, khiến tổng thời gian thực tế vượt xa MAX_SCAN_SECONDS.
+    private function remainingSeconds(): float
+    {
+        if ($this->scanDeadline <= 0) {
+            return (float) self::MAX_SCAN_SECONDS;
+        }
+
+        return max(0.0, $this->scanDeadline - microtime(true));
+    }
+
+    /**
+     * Chạy 1 tiến trình con (proc_open) với timeout THẬT SỰ hoạt động trên mọi hệ điều hành.
+     *
+     * QUAN TRỌNG: stream_set_blocking() trên pipe của proc_open KHÔNG đáng tin cậy trên
+     * Windows (giới hạn đã biết của PHP) — gọi stream_get_contents() trong lúc tiến trình
+     * còn chạy vẫn có thể bị chặn (blocking) dù đã set non-blocking. Vì vậy KHÔNG được đụng
+     * vào pipe khi đang poll — chỉ kiểm tra proc_get_status(), chỉ đọc pipe SAU KHI tiến
+     * trình đã dừng hẳn (lúc đó đọc luôn trả về ngay, không còn rủi ro treo).
+     *
+     * @return array{stdout: string, stderr: string, exitCode: int, timedOut: bool}
+     */
+    private function runProcessWithTimeout(array $argv, float $timeoutSeconds): array
+    {
+        $timeoutSeconds = max(0.5, $timeoutSeconds);
+
+        $process = @proc_open($argv, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        if (! is_resource($process)) {
+            return ['stdout' => '', 'stderr' => '', 'exitCode' => -1, 'timedOut' => false];
+        }
+
+        $deadline = microtime(true) + $timeoutSeconds;
+        $timedOut = false;
+
+        while (true) {
+            $status = proc_get_status($process);
+            if (! $status['running']) {
+                break;
+            }
+
+            if (microtime(true) >= $deadline) {
+                $timedOut = true;
+                proc_terminate($process, 9);
+                break;
+            }
+
+            usleep(50_000);
+        }
+
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $exitCode = proc_close($process);
+
+        return ['stdout' => (string) $stdout, 'stderr' => (string) $stderr, 'exitCode' => $exitCode, 'timedOut' => $timedOut];
     }
 
     /**
@@ -128,7 +196,11 @@ class CccdScannerService
                 }
             }
 
-            // Bước 3: OCR.space — luôn chạy kể cả khi timeout, đây là fallback cuối cùng
+            // Bước 3: OCR.space — fallback cuối cùng. TRƯỚC ĐÂY luôn chạy kể cả khi đã hết
+            // ngân sách thời gian (dùng Http::timeout(30) cố định) — đây chính là 1 trong các
+            // nguyên nhân có thể khiến tổng thời gian quét vượt xa MAX_SCAN_SECONDS. Giờ
+            // tryOcrFrontside() tự co timeout theo remainingSeconds() và tự bỏ qua nếu ngân
+            // sách còn lại quá ít để gọi API có ý nghĩa.
             $ocrTarget = $frontNorm && file_exists($frontNorm) ? $frontNorm : $frontPath;
             if ($ocrTarget && file_exists($ocrTarget)) {
                 $data = $this->tryOcrFrontside($ocrTarget);
@@ -147,6 +219,95 @@ class CccdScannerService
                 }
             }
         }
+    }
+
+    /**
+     * Quét ĐỘC LẬP 1 ảnh CCCD (không gộp chung với ảnh còn lại) — dùng để so sánh chéo giữa
+     * mặt trước và mặt sau (xem sidesConflict()). Khác với scanBothSides()/scanPaths(): những
+     * hàm đó coi 2 ảnh là 1 "pool" và dừng lại ở lần decode QR đầu tiên, không phân biệt ảnh
+     * nào là ảnh nào — nên không thể phát hiện trường hợp upload nhầm ảnh của 2 người khác nhau.
+     */
+    public function scanImage(?string $imagePath): ?array
+    {
+        if (! $imagePath || ! file_exists($imagePath)) {
+            return null;
+        }
+
+        ini_set('memory_limit', '256M');
+        $this->startTimer();
+
+        $norm = $this->normalizeExifOrientation($imagePath) ?? $imagePath;
+
+        try {
+            $data = $this->tryQrScan($norm);
+            if ($data) {
+                return $data;
+            }
+
+            if ($this->isTimedOut()) {
+                return null;
+            }
+
+            return $this->tryOcrFrontside($norm);
+        } finally {
+            if ($norm !== $imagePath && file_exists($norm)) {
+                @unlink($norm);
+            }
+        }
+    }
+
+    /**
+     * So sánh CHÉO thông tin quét được từ mặt trước và mặt sau — phát hiện trường hợp khách
+     * upload nhầm 2 ảnh CCCD của 2 người khác nhau (VD: mặt trước là CCCD người A, mặt sau lại
+     * là CCCD người B). So sánh trước theo số CCCD (đáng tin cậy nhất); nếu 1 trong 2 mặt
+     * không đọc được số thì fallback so sánh họ tên (đã chuẩn hoá bỏ dấu/hoa-thường).
+     *
+     * Trả về true nếu phát hiện xung đột. Trả về false nếu khớp hoặc không đủ dữ liệu ở 1
+     * trong 2 mặt để so sánh (tránh false positive khi ảnh mờ/không đọc được).
+     */
+    public function sidesConflict(?string $frontPath, ?string $backPath): bool
+    {
+        if (! $frontPath || ! $backPath) {
+            return false;
+        }
+
+        $front = $this->scanImage($frontPath);
+        $back  = $this->scanImage($backPath);
+
+        if (! $front || ! $back) {
+            return false;
+        }
+
+        $frontCccd = trim($front['cccd'] ?? '');
+        $backCccd  = trim($back['cccd'] ?? '');
+        if ($frontCccd !== '' && $backCccd !== '') {
+            return $frontCccd !== $backCccd;
+        }
+
+        $frontName = $this->normalizeNameForCompare($front['full_name'] ?? '');
+        $backName  = $this->normalizeNameForCompare($back['full_name'] ?? '');
+        if ($frontName !== '' && $backName !== '') {
+            return $frontName !== $backName;
+        }
+
+        return false;
+    }
+
+    /**
+     * Chuẩn hoá họ tên để so sánh: bỏ dấu tiếng Việt, viết hoa, gộp khoảng trắng thừa — tránh
+     * báo xung đột sai chỉ vì OCR/QR khác cách viết hoa hoặc khoảng trắng.
+     */
+    private function normalizeNameForCompare(string $name): string
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return '';
+        }
+
+        $ascii = \Illuminate\Support\Str::ascii($name);
+        $ascii = preg_replace('/\s+/', ' ', $ascii);
+
+        return mb_strtoupper(trim((string) $ascii));
     }
 
     /**
@@ -347,25 +508,26 @@ class CccdScannerService
         try {
             $argv = array_merge([$nodeBin, $scriptPath], $realPaths);
 
-            if (PHP_OS_FAMILY !== 'Windows') {
-                array_unshift($argv, 'timeout', '12');
-            }
+            // Timeout co giãn theo ngân sách CÒN LẠI của toàn bộ lượt quét (không chỉ 1 hằng
+            // số cố định) — nếu các bước trước đó (vd normalize EXIF nhiều ảnh) đã ăn bớt thời
+            // gian, bước này cũng phải tự rút ngắn theo, tránh cộng dồn vượt MAX_SCAN_SECONDS.
+            $timeoutSeconds = min(self::NODE_QR_TIMEOUT_SECONDS, $this->remainingSeconds());
 
-            $process = proc_open($argv, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
-            if (! is_resource($process)) {
+            if ($timeoutSeconds <= 0) {
+                Log::warning('[CccdScanner] jsQR bỏ qua — đã hết ngân sách thời gian quét');
                 return null;
             }
 
-            $stdout   = stream_get_contents($pipes[1]);
-            $stderr   = stream_get_contents($pipes[2]);
-            fclose($pipes[1]);
-            fclose($pipes[2]);
-            $exitCode = proc_close($process);
+            $result = $this->runProcessWithTimeout($argv, $timeoutSeconds);
 
-            if ($exitCode === 124) {
-                Log::warning('[CccdScanner] jsQR timeout (>12s)');
+            if ($result['timedOut']) {
+                Log::warning('[CccdScanner] jsQR timeout (>' . round($timeoutSeconds, 1) . 's)');
                 return null;
             }
+
+            $stdout   = $result['stdout'];
+            $stderr   = $result['stderr'];
+            $exitCode = $result['exitCode'];
 
             $text = $stdout ? trim($stdout) : null;
 
@@ -538,15 +700,27 @@ class CccdScannerService
             ];
 
             foreach ($argSets as $argv) {
-                try {
-                    $process = proc_open($argv, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
-                    if (! is_resource($process)) { continue; }
+                // Có tới 4 tổ hợp (2 ảnh x 2 argSets) mỗi lần gọi — mỗi tổ hợp phải tự canh
+                // theo ngân sách thời gian CÒN LẠI (không phải hằng số cố định), nếu không tổng
+                // thời gian của riêng bước zbarimg có thể vượt xa MAX_SCAN_SECONDS.
+                $timeoutSeconds = min(self::ZBAR_TIMEOUT_SECONDS, $this->remainingSeconds());
+                if ($timeoutSeconds <= 0) {
+                    Log::debug('[CccdScanner] zbarimg bỏ qua — đã hết ngân sách thời gian quét');
+                    if ($prePath && file_exists($prePath)) { @unlink($prePath); }
+                    return null;
+                }
 
-                    $stdout   = stream_get_contents($pipes[1]);
-                    $stderr   = stream_get_contents($pipes[2]);
-                    fclose($pipes[1]);
-                    fclose($pipes[2]);
-                    $exitCode = proc_close($process);
+                try {
+                    $result = $this->runProcessWithTimeout($argv, $timeoutSeconds);
+
+                    if ($result['timedOut']) {
+                        Log::debug('[CccdScanner] zbarimg timeout (>' . round($timeoutSeconds, 1) . 's)', ['img' => basename($tryPath)]);
+                        continue;
+                    }
+
+                    $stdout   = $result['stdout'];
+                    $stderr   = $result['stderr'];
+                    $exitCode = $result['exitCode'];
 
                     $text = $stdout ? trim($stdout) : null;
                     Log::debug('[CccdScanner] zbarimg result', [
@@ -719,7 +893,17 @@ class CccdScannerService
                 return null;
             }
 
-            $text = $ocr->extractTextFromImage($imagePath);
+            // Co timeout theo ngân sách CÒN LẠI (tối đa OCR_TIMEOUT_SECONDS) — nếu các bước
+            // trước đã ăn gần hết ngân sách, gọi API dài (Http::timeout cố định 30s trước đây)
+            // sẽ đẩy tổng thời gian vượt xa MAX_SCAN_SECONDS. Còn quá ít thời gian thì bỏ luôn,
+            // không đáng gọi (API cần vài giây để xử lý ảnh CCCD thật).
+            $timeoutSeconds = min(self::OCR_TIMEOUT_SECONDS, $this->remainingSeconds());
+            if ($timeoutSeconds < 2.0) {
+                Log::debug('[CccdScanner] OCR.space bỏ qua — đã hết ngân sách thời gian quét');
+                return null;
+            }
+
+            $text = $ocr->extractTextFromImage($imagePath, (int) round($timeoutSeconds));
             if (empty($text)) {
                 return null;
             }

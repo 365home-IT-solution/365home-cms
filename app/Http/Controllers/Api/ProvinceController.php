@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Models\GuestCustomer;
 use App\Models\Province;
+use App\Models\ProvinceBranch;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -17,9 +18,51 @@ class ProvinceController extends Controller
 {
     // ─── GET /api/v1/provinces ───────────────────────────────────────────────
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $provinces = Province::orderByRaw('code IS NULL, code ASC')
+        // ?filter=all → trả về tất cả tỉnh/thành, bỏ qua điều kiện "có phòng".
+        if ($request->query('filter') === 'all') {
+            $provinces = Province::orderByRaw('code IS NULL, code ASC')
+                ->orderBy('name')
+                ->get();
+
+            return response()->json([
+                'provinces' => $provinces->map(fn ($p) => [
+                    'id'            => $p->id,
+                    'name'          => $p->name,
+                    'slug'          => $p->slug,
+                    'code'          => $p->code,
+                    'division_type' => $p->division_type,
+                    'codename'      => $p->codename,
+                ])->values(),
+            ]);
+        }
+
+        // Chỉ hiển thị tỉnh/thành có ít nhất 1 chi nhánh đang hoạt động (province_branches.status)
+        // và chi nhánh đó có ít nhất 1 phòng đang bán (is_activated + is_in_stock) — cùng logic
+        // lọc "chi nhánh có phòng" đang dùng ở RoomSearchService/RoomTypeController.
+        $activeBranches = ProvinceBranch::where('status', true)->get(['province_id', 'categorie_id']);
+
+        $branchCategoryIds = $activeBranches->pluck('categorie_id')->unique()->values();
+        $childCategoriesByParent = Category::whereIn('parent_id', $branchCategoryIds)
+            ->get(['id', 'parent_id'])
+            ->groupBy('parent_id');
+
+        $provinceIdsWithRooms = $activeBranches
+            ->filter(function (ProvinceBranch $branch) use ($childCategoriesByParent) {
+                $categoryIds = collect([$branch->categorie_id])
+                    ->merge($childCategoriesByParent->get($branch->categorie_id, collect())->pluck('id'));
+
+                return Product::where('is_activated', true)
+                    ->where('is_in_stock', true)
+                    ->whereHas('categories', fn ($q) => $q->whereIn('category_id', $categoryIds))
+                    ->exists();
+            })
+            ->pluck('province_id')
+            ->unique();
+
+        $provinces = Province::whereIn('id', $provinceIdsWithRooms)
+            ->orderByRaw('code IS NULL, code ASC')
             ->orderBy('name')
             ->get();
 
@@ -138,6 +181,7 @@ class ProvinceController extends Controller
                 'image_url' => $nearest->image
                     ? Storage::disk('public')->url($nearest->image)
                     : null,
+                'thumbnail' => $nearest->thumbnail,
             ],
         ]);
     }

@@ -48,6 +48,35 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping()
             ->appendOutputTo(storage_path('logs/link-registered-guests.log'));
+
+        $schedule->command('housekeeping:mark-cleaning')
+            ->everyFiveMinutes()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/housekeeping-mark-cleaning.log'));
+
+        // Hold khung giờ (xem TimeslotHoldService) hết hạn TTL (5 phút) mà không ai chủ động bỏ
+        // chọn/lưu đơn — dọn + báo real-time "released" định kỳ, tránh khách hàng kẹt mãi ở trạng
+        // thái "đang khóa" (xem resources/js/echo-client.js, cập nhật DOM trực tiếp không tự làm
+        // mới nếu không có sự kiện released).
+        $schedule->command('timeslot-holds:release-expired')
+            ->everyMinute()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping();
+
+        // Khung giờ khoá dài hạn (BlockTimeslotModal/Dashboard "Lịch" — settings['blocked_dates'])
+        // đã qua giờ kết thúc thì tự gỡ khoá — không cần admin tự tay dọn ngày đã qua.
+        $schedule->command('timeslot-blocks:prune-expired')
+            ->everyFiveMinutes()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping();
+
+        // Safety-net: tự trả phòng khi khách quá giờ checkout mà không tự mở khoá lần 2.
+        $schedule->command('orders:sync-lifecycle')
+            ->everyMinute()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping(1)
+            ->appendOutputTo(storage_path('logs/sync-order-lifecycle.log'));
     }
 
     /**

@@ -4,19 +4,26 @@ namespace App\Http\Controllers\Api\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
+use App\Models\CustomerCompanion;
 use App\Models\GuestCustomer;
 use App\Models\MembershipTier;
+use App\Services\MembershipService;
 use App\Services\ZaloOtpService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Promotion\App\Models\Coupon;
 
 class ZaloOtpController extends Controller
 {
-    public function __construct(protected ZaloOtpService $otp) {}
+    public function __construct(
+        protected ZaloOtpService $otp,
+        protected MembershipService $membershipService,
+    ) {}
 
     /**
      * Gửi OTP về Zalo của khách hàng.
@@ -88,6 +95,8 @@ class ZaloOtpController extends Controller
             $expiresAt = now()->addDays(30);
             $token     = $customer->createToken('mobile', ['*'], $expiresAt)->plainTextToken;
 
+            $this->grantLoginRewardSafely($customer);
+
             return response()->json([
                 'is_new_user' => false,
                 'token'       => $token,
@@ -141,12 +150,30 @@ class ZaloOtpController extends Controller
         $expiresAt = now()->addDays(30);
         $token     = $customer->createToken('mobile', ['*'], $expiresAt)->plainTextToken;
 
+        $this->grantLoginRewardSafely($customer);
+
         return response()->json([
             'is_new_user' => false,
             'token'       => $token,
             'expires_at'  => $expiresAt->toIso8601String(),
             'user'        => $this->customerResource($customer),
         ]);
+    }
+
+    /**
+     * Cấp thưởng đăng nhập định kỳ (MembershipService::grantLoginReward) nếu khách đủ điều kiện —
+     * bọc try/catch vì lỗi ở tính năng phụ này TUYỆT ĐỐI không được làm hỏng luồng đăng nhập chính.
+     */
+    private function grantLoginRewardSafely(Customer $customer): void
+    {
+        try {
+            $this->membershipService->grantLoginReward($customer);
+        } catch (\Throwable $e) {
+            Log::warning('MembershipService::grantLoginReward failed', [
+                'customer_id' => $customer->id,
+                'error'       => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -223,7 +250,17 @@ class ZaloOtpController extends Controller
      */
     public function me(Request $request): JsonResponse
     {
-        return response()->json($this->customerResource($request->user()));
+        // Route này KHÔNG có middleware customer.active (cố ý — khách bị vô hiệu hóa vẫn phải xem
+        // được chính hồ sơ mình để biết trạng thái), nên tự kiểm tra type ở đây thay vì middleware —
+        // token của App\Models\User (admin) lỡ gọi nhầm route customer sẽ bị chặn rõ ràng bằng 401
+        // thay vì crash TypeError ở customerResource() (đòi Customer, nhận User).
+        $user = $request->user();
+
+        if (! $user instanceof Customer) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        return response()->json($this->customerResource($user));
     }
 
     /**
@@ -292,15 +329,22 @@ class ZaloOtpController extends Controller
 
     /**
      * Cập nhật thông tin khách hàng (yêu cầu token).
-     * Body (multipart/form-data): fullname?, date_of_birth?, cccd_front?, cccd_back?
+     * Body (multipart/form-data): fullname?, date_of_birth?, cccd_front?, cccd_back?,
+     * companions[i][cccd_front]?, companions[i][cccd_back]?, companions[i][full_name]?
+     * (companions = CCCD người đi cùng lưu vào hồ sơ, tái sử dụng cho các lần đặt phòng
+     * qua đêm sau này — xem customer_companions).
      */
     public function update(Request $request): JsonResponse
     {
         $request->validate([
-            'fullname'      => 'sometimes|string|max:255',
-            'date_of_birth' => 'sometimes|date_format:d-m-Y|before:today',
-            'cccd_front'    => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
-            'cccd_back'     => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'fullname'                => 'sometimes|string|max:255',
+            'date_of_birth'           => 'sometimes|date_format:d-m-Y|before:today',
+            'cccd_front'              => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'cccd_back'               => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'companions'              => 'sometimes|array',
+            'companions.*.cccd_front' => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'companions.*.cccd_back'  => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'companions.*.full_name'  => 'nullable|string|max:255',
         ]);
 
         $customer = $request->user();
@@ -364,6 +408,68 @@ class ZaloOtpController extends Controller
             $customer->update($data);
         }
 
+        // Thêm CCCD người đi cùng vào hồ sơ.
+        if ($request->has('companions')) {
+            $uploadedPaths = [];
+            $scanner       = app(CccdScannerService::class);
+
+            try {
+                DB::transaction(function () use ($request, $customer, $scanner, &$uploadedPaths) {
+                    foreach ($request->file('companions') as $index => $files) {
+                        $frontPath = $files['cccd_front']->store('cccd', 'public');
+                        $backPath  = $files['cccd_back']->store('cccd', 'public');
+                        $uploadedPaths[] = $frontPath;
+                        $uploadedPaths[] = $backPath;
+
+                        $cccdData = $scanner->scanPaths($frontPath, $backPath);
+
+                        if (! $cccdData) {
+                            throw new \RuntimeException(
+                                'Không đọc được QR trên CCCD người đi cùng thứ ' . ($index + 1) . '. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.'
+                            );
+                        }
+
+                        CustomerCompanion::create([
+                            'customer_id' => $customer->id,
+                            'full_name'   => $request->input("companions.$index.full_name") ?: ($cccdData['full_name'] ?? null),
+                            'cccd_front'  => $frontPath,
+                            'cccd_back'   => $backPath,
+                            'cccd_data'   => $cccdData,
+                        ]);
+                    }
+                });
+            } catch (\RuntimeException $e) {
+                foreach ($uploadedPaths as $path) {
+                    Storage::disk('public')->delete($path);
+                }
+
+                return response()->json(['message' => $e->getMessage()], 422);
+            }
+        }
+
+        return response()->json($this->customerResource(
+            Customer::find($customer->id) ?? $customer
+        ));
+    }
+
+    /**
+     * Xoá 1 CCCD người đi cùng khỏi hồ sơ (yêu cầu token).
+     * DELETE /api/auth/companions/{id}
+     */
+    public function deleteCompanion(Request $request, int $id): JsonResponse
+    {
+        $customer = $request->user();
+
+        $companion = $customer->companions()->find($id);
+
+        if (! $companion) {
+            return response()->json(['message' => 'Không tìm thấy người đi cùng.'], 404);
+        }
+
+        Storage::disk('public')->delete(array_filter([$companion->cccd_front, $companion->cccd_back]));
+
+        $companion->delete();
+
         return response()->json($this->customerResource(
             Customer::find($customer->id) ?? $customer
         ));
@@ -371,7 +477,7 @@ class ZaloOtpController extends Controller
 
     private function customerResource(Customer $customer): array
     {
-        $customer->loadMissing(['membershipTier']);
+        $customer->loadMissing(['membershipTier', 'companions']);
 
         $tier     = $customer->membershipTier;
         $spending = (float) $customer->total_spending;
@@ -390,7 +496,7 @@ class ZaloOtpController extends Controller
             ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', now()))
             ->where(fn ($q) => $q->whereNull('usage_limit')->orWhereColumn('used_count', '<', 'usage_limit'))
             ->orderByDesc('created_at')
-            ->get(['id', 'code', 'name', 'type', 'value', 'max_discount', 'min_order_value', 'end_at']);
+            ->get(['id', 'code', 'name', 'type', 'value', 'max_discount', 'min_order_value', 'end_at', 'is_exclusive']);
 
         return [
             'id'                => $customer->id,
@@ -406,6 +512,13 @@ class ZaloOtpController extends Controller
                 ? Storage::disk('public')->url($customer->cccd_back)
                 : null,
             'cccd_data'         => $customer->cccd_data,
+            'companions'        => $customer->companions->map(fn (CustomerCompanion $c) => [
+                'id'          => $c->id,
+                'full_name'   => $c->full_name,
+                'cccd_front'  => Storage::disk('public')->url($c->cccd_front),
+                'cccd_back'   => Storage::disk('public')->url($c->cccd_back),
+                'cccd_data'   => $c->cccd_data,
+            ]),
             'membership'        => [
                 'tier'           => $tier ? [
                     'id'                  => $tier->id,
@@ -428,6 +541,9 @@ class ZaloOtpController extends Controller
                     'max_discount'    => $c->max_discount ? (float) $c->max_discount : null,
                     'min_order_value' => $c->min_order_value ? (float) $c->min_order_value : null,
                     'expires_at'      => $c->end_at?->toDateString(),
+                    // FE dùng field này làm điều kiện: nếu true, mã không được áp chung với bất
+                    // kỳ mã nào khác (backend enforce ở BookingController::guardExclusiveCoupons()).
+                    'is_exclusive'    => (bool) $c->is_exclusive,
                 ]),
             ],
         ];

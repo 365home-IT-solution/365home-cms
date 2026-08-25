@@ -4,14 +4,20 @@ declare(strict_types=1);
 
 namespace Modules\Dashboard\App\Filament\Pages;
 
+use App\Services\ExtraChargeService;
 use Carbon\Carbon;
+use Filament\Notifications\Notification;
 use Filament\Pages\Dashboard as FilamentDashboard;
 use Illuminate\Database\Eloquent\Builder;
+use Modules\AuditLog\Services\AuditLogger;
+use Modules\Dashboard\App\Services\CommissionSummaryService;
+use Modules\Dashboard\App\Services\HousekeepingSummaryService;
 use Modules\Dashboard\App\Services\KpiService;
 use Modules\Dashboard\App\Services\RoomCardsService;
 use Illuminate\Support\Facades\DB;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
+use Modules\Product\App\Filament\Resources\ProductResource\Tables\Actions\RoomCleaningAction;
 use Modules\Product\App\Models\Product;
 
 class Dashboard extends FilamentDashboard
@@ -21,6 +27,16 @@ class Dashboard extends FilamentDashboard
     /** Chỉ dùng khi period === 'custom' */
     public ?string $customStart = null;
     public ?string $customEnd   = null;
+
+    /** Tháng/năm đang xem ở phần "Doanh thu hoa hồng" — mặc định tháng hiện tại */
+    public int $commissionMonth;
+    public int $commissionYear;
+
+    public function mount(): void
+    {
+        $this->commissionMonth = now()->month;
+        $this->commissionYear  = now()->year;
+    }
 
     public function getHeading(): string|\Illuminate\Contracts\Support\Htmlable
     {
@@ -64,6 +80,19 @@ class Dashboard extends FilamentDashboard
         $prevRevenue = static::sumOrderAmount((clone $previousQuery)->where('status', 'paid'))
                      + (clone $previousQuery)->where('status', 'deposit')->whereNotNull('money_deposit')->sum('money_deposit');
         $revenueDelta = $prevRevenue > 0 ? round((($revenue - $prevRevenue) / $prevRevenue) * 100, 1) : 0;
+
+        // 'Tổng giá gốc' (full_amount, tổng giá lúc đặt, KHÔNG đổi kể cả có phát sinh sau này) đặt
+        // cạnh 'Doanh thu' để dễ so sánh — CẢ 2 SỐ CÙNG PHẠM VI (chỉ đơn 'paid'), nếu 2 số khác
+        // nhau thì chênh lệch chính là tổng phụ phí phát sinh trong kỳ (thêm dịch vụ/số khách sau
+        // khi đã cọc/thanh toán).
+        $revenuePaidOnly     = static::sumOrderAmount((clone $currentQuery)->where('status', 'paid'));
+        $prevRevenuePaidOnly = static::sumOrderAmount((clone $previousQuery)->where('status', 'paid'));
+        $revenueOriginal     = (int) ((clone $currentQuery)->where('status', 'paid')->sum('full_amount'));
+        $prevRevenueOriginal = (int) ((clone $previousQuery)->where('status', 'paid')->sum('full_amount'));
+        $revenueOriginalDelta = $prevRevenueOriginal > 0
+            ? round((($revenueOriginal - $prevRevenueOriginal) / $prevRevenueOriginal) * 100, 1)
+            : 0;
+        $revenueExtraCharge = $revenuePaidOnly - $revenueOriginal;
 
         $revenuePayos = static::sumOrderAmount((clone $currentQuery)->where('status', 'paid')->where('payment_method', 'PayOS'));
         $prevRevenuePayos = static::sumOrderAmount((clone $previousQuery)->where('status', 'paid')->where('payment_method', 'PayOS'));
@@ -148,6 +177,24 @@ class Dashboard extends FilamentDashboard
         $roomCards      = static::getRoomCardsData();
         $roomRevenue    = static::getRoomRevenueData();
         $monthlyRevenue = static::getMonthlyRevenueData();
+        $housekeeping   = static::getHousekeepingData();
+        $commissionUser = auth()->user();
+        $commissionIsSuperAdmin = $commissionUser?->isSuperAdmin() ?? false;
+
+        if ($commissionIsSuperAdmin) {
+            // super_admin: thấy hoa hồng của TẤT CẢ đối tác.
+            $commission = $this->getCommissionData($this->commissionMonth, $this->commissionYear);
+        } elseif ($commissionUser?->isPartnerOwner() && $commissionUser->partner_id) {
+            // Chủ đối tác: chỉ thấy đúng số tiền đối tác MÌNH phải trả, không thấy của ai khác.
+            $commission = CommissionSummaryService::getDataForPartner(
+                $commissionUser->partner_id,
+                $this->commissionMonth,
+                $this->commissionYear
+            );
+        } else {
+            // Nhân viên: không liên quan tới tài chính đối tác.
+            $commission = null;
+        }
 
         $user            = auth()->user();
         $branchesQuery   = \Modules\Category\Entities\Category::whereNull('parent_id')
@@ -165,6 +212,7 @@ class Dashboard extends FilamentDashboard
         return compact(
             'total', 'totalDelta',
             'revenue', 'revenueDelta',
+            'revenueOriginal', 'revenueOriginalDelta', 'revenueExtraCharge',
             'revenuePayos', 'revenuePayosDelta',
             'revenueCod', 'revenueCodDelta',
             'revenueDepositPayos', 'revenueDepositPayosDelta',
@@ -174,7 +222,7 @@ class Dashboard extends FilamentDashboard
             'trendDays', 'trendPending', 'trendPaid', 'trendCancel',
             'barData', 'dateRange', 'prevDateRange',
             'roomCards', 'roomRevenue', 'monthlyRevenue',
-            'branches'
+            'branches', 'housekeeping', 'commission', 'commissionIsSuperAdmin'
         );
     }
 
@@ -236,10 +284,113 @@ class Dashboard extends FilamentDashboard
         return [$start, $end, $prevStart, $prevEnd, $dateRange, $prevDateRange];
     }
 
-    /** Proxy — dùng bởi routes/web.php và Livewire SSR */
-    public static function getRoomCardsData($user = null): array
+    /** Proxy — dùng bởi routes/web.php (JSON polling) và Livewire SSR (Blade lần đầu) — GẮN LUÔN
+     *  url menu thao tác nhanh ở đây để CẢ 2 nơi (Blade render lần đầu + JS tự làm mới định kỳ,
+     *  xem pollRoomCards()/renderRoomCards() trong _scripts.blade.php) dùng chung 1 nguồn, tránh
+     *  lặp lại logic build URL 2 nơi rồi lệch nhau. */
+    public static function getRoomCardsData($user = null, int $days = 10): array
     {
-        return RoomCardsService::getData($user);
+        $data = RoomCardsService::getData($user, $days);
+
+        $data['rooms'] = array_map(function (array $room) {
+            $room['edit_url']     = \Modules\Product\App\Filament\Resources\ProductResource::getUrl('edit', ['record' => $room['product_id']]);
+            $room['timeslot_url'] = \Modules\Book\App\Filament\Resources\BookResource\Pages\SettingBook::getUrl(['product_id' => $room['product_id']]);
+            $room['book_url']     = \Modules\Payment\App\Filament\Resources\OrderResource::getUrl('create', ['product_id' => $room['product_id']]);
+
+            return $room;
+        }, $data['rooms']);
+
+        return $data;
+    }
+
+    /** Tóm tắt phòng đang "đang dọn vệ sinh" — hiện ngay đầu Dashboard */
+    public static function getHousekeepingData($user = null): array
+    {
+        return HousekeepingSummaryService::getData($user);
+    }
+
+    // Xác nhận đã dọn xong 1 phòng NGAY từ menu thao tác nhanh trên thẻ phòng (Dashboard), không
+    // cần điều hướng sang trang Housekeeping — tái sử dụng ĐÚNG logic quyền hạn +
+    // Product::confirmCleaned() mà RoomCleaningAction::confirmCleaning() (trang quản lý phòng)
+    // đang dùng, tránh 2 nơi có 2 luật khác nhau. Livewire action bình thường — panel menu tuy
+    // do JS dựng động (innerHTML) nhưng Livewire v3 (chạy trên Alpine) tự quan sát DOM bằng
+    // MutationObserver nên directive wire:click gắn trong HTML chèn sau vẫn được nhận diện bình
+    // thường, không cần route JSON riêng.
+    public function confirmRoomCleaning(string $productId): void
+    {
+        $product = Product::find($productId);
+
+        if (! $product) {
+            return;
+        }
+
+        if ($product->housekeeping_status !== 'cleaning') {
+            Notification::make()->warning()->title('Phòng không ở trạng thái cần dọn')->send();
+            return;
+        }
+
+        if (! RoomCleaningAction::canManageCleaning($product)) {
+            Notification::make()->danger()->title('Bạn không có quyền xác nhận dọn phòng này')->send();
+            return;
+        }
+
+        $employee = auth()->user()?->employee;
+
+        if (! $employee) {
+            Notification::make()->danger()->title('Tài khoản này chưa có hồ sơ nhân viên liên kết — không thể xác nhận')->send();
+            return;
+        }
+
+        $product->confirmCleaned($employee);
+
+        Notification::make()->success()->title('Đã xác nhận dọn xong — phòng sẵn sàng nhận đặt mới')->send();
+    }
+
+    // Xác nhận hoàn tiền NGAY từ menu thao tác nhanh trên thẻ phòng — tái sử dụng ĐÚNG
+    // ExtraChargeService::markRefundAsDone() + cách ghi AuditLogger mà
+    // EditOrder::quickMarkRefundTransfer()/quickMarkRefundCash() (nút hoàn tiền ở trang sửa đơn)
+    // đang dùng, chỉ khác nơi gọi — không viết luật hoàn tiền riêng ở đây.
+    public function confirmRoomRefund(int $orderId, string $method): void
+    {
+        $order = Order::find($orderId);
+
+        if (! $order) {
+            return;
+        }
+
+        if (! auth()->user()?->can('update', $order)) {
+            Notification::make()->danger()->title('Bạn không có quyền xử lý đơn này')->send();
+            return;
+        }
+
+        $amount = (int) ($order->extra_refund_amount ?? 0);
+
+        if ($amount <= 0 || ! is_null($order->extra_refund_paid_at)) {
+            Notification::make()->warning()->title('Không có khoản hoàn tiền chờ xử lý')->send();
+            return;
+        }
+
+        $method = $method === 'bank_transfer' ? 'bank_transfer' : 'cash';
+
+        try {
+            app(ExtraChargeService::class)->markRefundAsDone($order, $amount, $method);
+
+            AuditLogger::log(
+                'update', 'Order', $order, [],
+                ['Đã hoàn tiền (' . ($method === 'cash' ? 'tiền mặt' : 'chuyển khoản') . ')' => number_format($amount, 0, ',', '.') . 'đ'],
+                'Đơn #' . $order->order_code,
+            );
+
+            Notification::make()->success()->title('Đã ghi nhận hoàn tiền')->body(number_format($amount, 0, ',', '.') . 'đ')->send();
+        } catch (\Throwable $e) {
+            Notification::make()->danger()->title('Lỗi: ' . $e->getMessage())->send();
+        }
+    }
+
+    /** Hoa hồng super_admin nhận từ các đối tác theo tháng/năm chọn — chỉ super_admin xem được */
+    public static function getCommissionData(?int $month = null, ?int $year = null): array
+    {
+        return CommissionSummaryService::getData($month, $year);
     }
 
     /** Proxy — dùng bởi routes/web.php */
@@ -270,25 +421,34 @@ class Dashboard extends FilamentDashboard
             ->where('o.exclude_from_stats', false)
             ->whereYear('o.created_at', $year)
             ->whereNotNull('oi.product_id')
-            ->selectRaw("{$prefix}oi.product_id, {$prefix}p.name as product_name, {$prefix}o.id as order_id, COALESCE({$prefix}o.full_amount, {$prefix}o.amount) as order_amount")
+            // 'amount' nay là tổng thực thu cuối cùng (gồm phụ phí phát sinh sau cọc nếu có),
+            // 'full_amount' chỉ là tổng giá gốc cố định lúc đặt — ưu tiên amount, fallback full_amount.
+            ->selectRaw("{$prefix}oi.product_id, {$prefix}p.name as product_name, {$prefix}o.id as order_id, COALESCE({$prefix}o.amount, {$prefix}o.full_amount) as order_amount")
             ->distinct();
 
         if ($user && ! $user->isSuperAdmin()) {
+            // Đây là raw query builder (DB::table), KHÔNG đi qua Eloquent nên global scope
+            // BelongsToPartner của Order không tự áp dụng — phải lọc partner_id thủ công ở đây.
+            $inner->where('o.partner_id', $user->partner_id);
+
             $categoryIds = $user->allowedCategoryIds() ?? [];
-            if (empty($categoryIds)) {
-                return ['rooms' => [], 'total' => 0, 'year' => $year, 'available_years' => [$year]];
+            if (! empty($categoryIds)) {
+                $allowedProductIds = Product::whereHas('categories', function ($q) use ($categoryIds) {
+                    $q->whereIn('categories.id', $categoryIds);
+                })->pluck('id')->toArray();
+                $inner->whereIn('oi.product_id', $allowedProductIds);
             }
-            $allowedProductIds = Product::whereHas('categories', function ($q) use ($categoryIds) {
-                $q->whereIn('categories.id', $categoryIds);
-            })->pluck('id')->toArray();
-            if (empty($allowedProductIds)) {
-                return ['rooms' => [], 'total' => 0, 'year' => $year, 'available_years' => [$year]];
-            }
-            $inner->whereIn('oi.product_id', $allowedProductIds);
         }
 
         if ($branchCategoryIds !== null) {
-            $inner->whereIn('o.category_id', $branchCategoryIds);
+            // KHÔNG lọc bằng o.category_id — cột này ghi nhận danh mục lúc TẠO đơn (có thể lệch
+            // chi nhánh thật của phòng do nhập liệu), dẫn tới lộ phòng của chi nhánh khác khi lọc.
+            // Phải lọc theo product thực sự thuộc chi nhánh (qua bảng pivot categories), giống
+            // cách allowedCategoryIds ở trên đã làm cho phân quyền nhân viên.
+            $branchProductIds = Product::whereHas('categories', function ($q) use ($branchCategoryIds) {
+                $q->whereIn('categories.id', $branchCategoryIds);
+            })->pluck('id')->toArray();
+            $inner->whereIn('oi.product_id', $branchProductIds);
         }
 
         $rooms = DB::table(DB::raw("({$inner->toSql()}) as sub"))
@@ -329,27 +489,32 @@ class Dashboard extends FilamentDashboard
             ->whereYear('created_at', $year);
 
         if ($user && ! $user->isSuperAdmin()) {
+            // Order (Eloquent) đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds
+            // chỉ thu hẹp thêm, không dùng để chặn hết khi rỗng.
             $categoryIds = $user->allowedCategoryIds() ?? [];
-            if (empty($categoryIds)) {
-                return ['months' => array_fill(0, 12, 0), 'year' => $year, 'available_years' => [$year]];
+            if (! empty($categoryIds)) {
+                $allowedProductIds = Product::whereHas('categories', function ($q) use ($categoryIds) {
+                    $q->whereIn('categories.id', $categoryIds);
+                })->pluck('id')->toArray();
+                $query->whereHas('items', function ($q) use ($allowedProductIds) {
+                    $q->whereIn('product_id', $allowedProductIds);
+                });
             }
-            $allowedProductIds = Product::whereHas('categories', function ($q) use ($categoryIds) {
-                $q->whereIn('categories.id', $categoryIds);
-            })->pluck('id')->toArray();
-            if (empty($allowedProductIds)) {
-                return ['months' => array_fill(0, 12, 0), 'year' => $year, 'available_years' => [$year]];
-            }
-            $query->whereHas('items', function ($q) use ($allowedProductIds) {
-                $q->whereIn('product_id', $allowedProductIds);
-            });
         }
 
         if ($branchCategoryIds !== null) {
-            $query->whereIn('category_id', $branchCategoryIds);
+            // Lọc theo product thực sự thuộc chi nhánh (qua pivot categories), không dùng
+            // category_id trên đơn — xem giải thích tại getRoomRevenueData().
+            $branchProductIds = Product::whereHas('categories', function ($q) use ($branchCategoryIds) {
+                $q->whereIn('categories.id', $branchCategoryIds);
+            })->pluck('id')->toArray();
+            $query->whereHas('items', function ($q) use ($branchProductIds) {
+                $q->whereIn('product_id', $branchProductIds);
+            });
         }
 
         $data = $query
-            ->selectRaw('MONTH(created_at) as month, SUM(COALESCE(full_amount, amount)) as revenue')
+            ->selectRaw('MONTH(created_at) as month, SUM(COALESCE(amount, full_amount)) as revenue')
             ->groupByRaw('MONTH(created_at)')
             ->pluck('revenue', 'month');
 
@@ -380,19 +545,17 @@ class Dashboard extends FilamentDashboard
             ->orderByRaw('YEAR(created_at) DESC');
 
         if ($user && ! $user->isSuperAdmin()) {
+            // Order (Eloquent) đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds
+            // chỉ thu hẹp thêm, không dùng để chặn hết khi rỗng.
             $categoryIds = $user->allowedCategoryIds() ?? [];
-            if (empty($categoryIds)) {
-                return [Carbon::now()->year];
+            if (! empty($categoryIds)) {
+                $allowedProductIds = Product::whereHas('categories', function ($q) use ($categoryIds) {
+                    $q->whereIn('categories.id', $categoryIds);
+                })->pluck('id')->toArray();
+                $query->whereHas('items', function ($q) use ($allowedProductIds) {
+                    $q->whereIn('product_id', $allowedProductIds);
+                });
             }
-            $allowedProductIds = Product::whereHas('categories', function ($q) use ($categoryIds) {
-                $q->whereIn('categories.id', $categoryIds);
-            })->pluck('id')->toArray();
-            if (empty($allowedProductIds)) {
-                return [Carbon::now()->year];
-            }
-            $query->whereHas('items', function ($q) use ($allowedProductIds) {
-                $q->whereIn('product_id', $allowedProductIds);
-            });
         }
 
         $years = $query->pluck('year')->map(fn ($y) => (int) $y)->toArray();
@@ -408,15 +571,16 @@ class Dashboard extends FilamentDashboard
             return $query;
         }
         $allCategoryIds = $user->allowedCategoryIds();
+        // Order đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds chỉ thu hẹp thêm.
         if (empty($allCategoryIds)) {
-            return $query->whereRaw('1 = 0');
+            return $query;
         }
         return $query->whereIn('category_id', $allCategoryIds);
     }
 
-    /** Tổng tiền đơn đã thanh toán: ưu tiên full_amount (tổng thực tế), fallback amount */
+    /** Tổng tiền đơn đã thanh toán: ưu tiên amount (tổng thực thu cuối cùng), fallback full_amount */
     private static function sumOrderAmount($query): int
     {
-        return (int) ($query->selectRaw('SUM(COALESCE(full_amount, amount)) as total')->value('total') ?? 0);
+        return (int) ($query->selectRaw('SUM(COALESCE(amount, full_amount)) as total')->value('total') ?? 0);
     }
 }

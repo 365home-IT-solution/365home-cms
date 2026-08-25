@@ -134,6 +134,57 @@
     display: block !important;
 }
 
+/* Mega menu — nhóm điều hướng nhiều mục, KHÔNG có tiêu đề phân cột (xem
+   resources/views/vendor/filament-panels/components/topbar/index.blade.php) được chia 2-3 cột
+   bằng CSS columns thay vì 1 danh sách dài xuống dưới. */
+.fi-mega-menu {
+    column-gap: 0;
+}
+.fi-mega-menu .fi-dropdown-list {
+    break-inside: avoid-column;
+}
+.fi-mega-menu .fi-dropdown-list-item {
+    break-inside: avoid-column;
+}
+
+/* Mega menu CÓ tiêu đề phân cột (kiểu "Resources"/"Company") — mỗi cột là 1 khối tiêu đề + danh
+   sách riêng, dùng CSS Grid thay vì columns để tiêu đề luôn đứng đầu đúng cột của nó. LUÔN tối đa
+   3 cột cố định (--fi-mega-menu-cols do Blade tính, đã kẹp <= 3) — quá 3 tiêu đề thì Grid tự xuống
+   hàng thay vì nới rộng thêm cột, nên không bao giờ cần cuộn ngang. */
+.fi-mega-menu-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--fi-mega-menu-cols, 2), minmax(0, 1fr));
+    gap: 0.25rem 1rem;
+}
+.fi-mega-menu-col {
+    min-width: 0;
+}
+
+/* Tiêu đề cột (VD "Giá & Khuyến mãi") — mặc định của Filament là chữ xám, đổi sang đen đậm để
+   nổi bật rõ ràng làm mốc phân nhóm, giống style "Resources"/"Company" tham khảo. Chỉ áp dụng ở
+   light mode — dark mode giữ nguyên màu sáng mặc định của Filament, vì đen tuyền sẽ mất chữ trên
+   nền tối. */
+.fi-mega-menu-grid .fi-dropdown-header-label {
+    font-weight: 600;
+}
+html:not(.dark) .fi-mega-menu-grid .fi-dropdown-header-label {
+    color: #000;
+}
+
+/* Chữ tiêu đề/mục trong mega menu phải hiện ĐẦY ĐỦ, không bị "..." cắt — component gốc của
+   Filament (dropdown.header, dropdown.list.item) mặc định "truncate" 1 dòng, ở đây cho phép xuống
+   dòng thay vì cắt chữ hoặc tràn ngang. */
+.fi-mega-menu-grid .fi-dropdown-header-label,
+.fi-mega-menu-grid .fi-dropdown-list-item-label,
+.fi-mega-menu .fi-dropdown-list-item-label {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+}
+.fi-mega-menu-grid .fi-dropdown-list-item {
+    white-space: normal;
+}
+
 /* Filament Actions */
 .fi-btn.fi-btn-color-primary {
     @apply text-secondary-50;
@@ -144,6 +195,20 @@
 
 .choices.is-disabled .choices__placeholder.choices__item:is(.dark *), .choices__placeholder.choices__item:is(.dark *) {
     @apply !text-white;
+}
+
+/* Placeholder text in Choices.js selects should remain readable in both light and dark mode. */
+.choices__placeholder.choices__item {
+    @apply !text-gray-400 dark:!text-gray-400;
+}
+
+/* Select đã CHỌN giá trị (vd "Chi nhánh"/"Phòng" khi disabled) đôi lúc vẫn được Choices.js gắn
+   chung class .choices__placeholder như ô để trống (chưa chọn), nên bị dính luôn rule "!text-white"
+   ở trên dù đang ở theme sáng — chữ trắng trên nền sáng gần như không đọc được. Ép lại màu chữ rõ
+   ràng cho MỌI item đã hiển thị giá trị thật (không phải placeholder rỗng) ở cả 2 theme.
+   Đặt SAU rule phía trên để có độ ưu tiên cao hơn, ghi đè đúng những item có value thật.*/
+.choices__item.choices__item--selectable:not(.choices__placeholder) {
+    @apply !text-gray-950 dark:!text-white;
 }
 .basis-one {
     flex-basis: 30%;

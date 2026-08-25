@@ -38,6 +38,16 @@ class GeneralSettings extends Settings
     public ?array $auth_header = null; // Lưu cài đặt Đăng nhập/Đăng ký header
 
     /**
+     * Holiday/seasonal theme settings — bật để đổi giao diện theo dịp lễ (ảnh chủ đề tại "Lịch
+     * đặt phòng trực tuyến" + slot lịch đặt phòng đỏ+sao) mà không đổi giao diện mặc định khi tắt.
+     *
+     * @var bool $holiday_theme_active Bật/tắt giao diện lễ hội.
+     * @var ?string $holiday_logo_image Ảnh chủ đề hiển thị cạnh "Lịch đặt phòng trực tuyến" khi bật.
+     */
+    public bool $holiday_theme_active = false;
+    public ?string $holiday_logo_image = null;
+
+    /**
      * Script injection properties
      *
      * @var ?string $header_scripts Scripts to inject into the header.

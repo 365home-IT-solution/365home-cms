@@ -15,6 +15,10 @@ class Footer extends Component
 {
     use HandleCalculateTrait, HandleSectionCfgTrait;
 
+    // Footer "style 2" (giao diện tĩnh, xem livewire/footer-v2.blade.php) đang là mặc định — footer
+    // cấu hình động qua ThemeSection (bên dưới) tạm ẩn, không xoá, đổi lại thành true để bật lại.
+    private const USE_LEGACY_FOOTER = false;
+
     public array $footerConfig = [];
     public array $footerBottomConfig = [];
     public $smColumns, $mdColumns, $lgColumns;
@@ -24,6 +28,13 @@ class Footer extends Component
 
     public function mount()
     {
+        // Footer style 2 (mặc định) không cần cấu hình ThemeSection — bỏ qua toàn bộ phần dựng
+        // $footerConfig/$footerBottomConfig bên dưới (giữ nguyên code để bật lại legacy footer
+        // sau này chỉ bằng cách đổi USE_LEGACY_FOOTER = true).
+        if (! self::USE_LEGACY_FOOTER) {
+            return;
+        }
+
         $this->generalSettings = ThemeCache::generalSettings();
 
         $this->section = $this->getFooterConfig();
@@ -167,8 +178,14 @@ class Footer extends Component
 
     public function render()
     {
-        return view('bladethemev1::livewire.footer', [
-            'footerConfig' => $this->footerConfig
+        if (self::USE_LEGACY_FOOTER) {
+            return view('bladethemev1::livewire.footer', [
+                'footerConfig' => $this->footerConfig
+            ]);
+        }
+
+        return view('bladethemev1::livewire.footer-v2', [
+            'business' => Business::first(),
         ]);
     }
 }

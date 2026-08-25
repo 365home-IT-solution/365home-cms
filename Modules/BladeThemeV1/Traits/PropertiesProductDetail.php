@@ -18,11 +18,20 @@ trait PropertiesProductDetail
     public $roomTimeSlots = [];
     public $buyerName = '';
     public $buyerPhone = '';
+    public $buyerEmail = '';
     public $guests = 2;
+    // Đồng bộ với ProductDetail::hasOvernightSlotSelected() — Alpine không đọc lại được method
+    // PHP do khối chọn khách có wire:ignore.
+    public bool $isOvernightBooking = false;
     public $startTime = '';
     public $endTime = '';
     public $cccd_front = '';
     public $cccd_back = '';
+    // CCCD người đi cùng — mảng, mỗi phần tử ứng với 1 khách từ khách thứ 2 trở đi (index 0 =
+    // khách #2, index 1 = khách #3...). Chỉ hiển thị/bắt buộc khi có khung giờ qua đêm được chọn
+    // (xem ProductDetail::hasOvernightSlotSelected()), số lượng = $guests - 1.
+    public array $cccdFrontExtra = [];
+    public array $cccdBackExtra = [];
     public $note = '';
     public $totalAmount = 0;
     public $accept1 = false;
@@ -45,6 +54,11 @@ trait PropertiesProductDetail
     public ?string $authUserId    = null; // UUID of authenticated customer
     public string  $authCccdFront = '';   // stored path from customer profile
     public string  $authCccdBack  = '';   // stored path from customer profile
+
+    // Lỗi phát sinh trong confirmBooking() (CCCD không hợp lệ, chưa đủ tuổi, v.v.) — hiển thị
+    // ngay trong modal xác nhận đặt phòng thay vì toast 'notify' (bị che khuất sau modal do
+    // z-index thấp hơn).
+    public string $bookingConfirmError = '';
 
     
     /** 

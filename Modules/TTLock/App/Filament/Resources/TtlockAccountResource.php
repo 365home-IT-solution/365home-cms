@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace Modules\TTLock\App\Filament\Resources;
 
+use App\Filament\Support\PartnerTableHelpers;
+use Illuminate\Database\Eloquent\Builder;
 use Modules\TTLock\App\Filament\Resources\TtlockAccountResource\Pages;
 use Modules\TTLock\Entities\TtlockAccount;
-use Illuminate\Database\Eloquent\Builder;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -30,6 +31,13 @@ class TtlockAccountResource extends Resource
     protected static ?string $pluralModelLabel = 'Tài khoản TTLock';
     protected static ?int    $navigationSort  = 90;
 
+    // Trùng với app/Filament/Resources/TtlockAccountResource.php (nhóm "Cấu hình web") — ẩn khỏi
+    // menu để đỡ rối, giữ nguyên code/route phòng khi cần dùng lại hoặc đối chiếu dữ liệu.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public static function canViewAny(): bool
     {
         $user = auth()->user();
@@ -39,7 +47,9 @@ class TtlockAccountResource extends Resource
         if ($user->isSuperAdmin()) {
             return true;
         }
-        return ! empty($user->allowedBranchIds());
+        // Không còn bắt buộc phải có quyền chi nhánh cụ thể mới thấy menu — TtlockAccount đã lọc
+        // theo partner_id qua BelongsToPartner, chỉ cần có quyền Shield thông thường.
+        return $user->can('view_any_ttlock::account');
     }
 
     public static function getEloquentQuery(): Builder
@@ -53,8 +63,9 @@ class TtlockAccountResource extends Resource
 
         $branchIds = $user->allowedBranchIds();
 
+        // TtlockAccount đã lọc theo partner_id qua BelongsToPartner; allowedBranchIds chỉ thu hẹp thêm.
         if (empty($branchIds)) {
-            return $query->whereRaw('1 = 0');
+            return $query;
         }
 
         return $query->whereHas(
@@ -132,17 +143,7 @@ class TtlockAccountResource extends Resource
                             ->relationship(
                                 'categories',
                                 'name',
-                                function ($query) {
-                                    $query->where('category_type', 'product')
-                                        ->orderBy('name');
-
-                                    $user = auth()->user();
-                                    if ($user && ! $user->isSuperAdmin()) {
-                                        $query->whereIn('id', $user->allowedBranchIds());
-                                    }
-
-                                    return $query;
-                                }
+                                fn ($query) => $query->where('category_type', 'product')->orderBy('name')
                             )
                             ->searchable()
                             ->preload(),
@@ -189,6 +190,10 @@ class TtlockAccountResource extends Resource
                     ->dateTime('d/m/Y H:i')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
+                PartnerTableHelpers::column(),
+            ])
+            ->filters([
+                PartnerTableHelpers::filter(),
             ])
             ->actions([
                 EditAction::make(),

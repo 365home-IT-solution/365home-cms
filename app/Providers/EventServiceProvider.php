@@ -2,14 +2,20 @@
 
 namespace App\Providers;
 
+use App\Listeners\ResizeOversizedMedia;
+use App\Listeners\StoreOriginalImageDimensions;
 use App\Models\Customer;
+use App\Models\Province;
 use App\Models\User;
+use App\Observers\BannerObserver;
 use App\Observers\BranchObserver;
+use App\Observers\CategoryObserver;
 use App\Observers\CouponObserver;
 use App\Observers\CustomerObserver;
 use App\Observers\OrderObserver;
 use App\Observers\PostObserver;
 use App\Observers\ProductObserver;
+use App\Observers\ProvinceObserver;
 use App\Observers\PromotionObserver;
 use App\Observers\RoleObserver;
 use App\Observers\UserBranchPermissionObserver;
@@ -20,11 +26,14 @@ use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvi
 use Modules\DataPermission\Entities\UserBranchPermission;
 use Modules\Payment\Entities\Order;
 use Modules\Post\Entities\Post;
+use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
 use Modules\Promotion\App\Models\Coupon;
 use Modules\Promotion\App\Models\Promotion;
 use Modules\SettingCompany\Entities\Branch;
+use Modules\AppPage\App\Models\Banner;
 use App\Models\Role;
+use Spatie\MediaLibrary\MediaCollections\Events\MediaHasBeenAddedEvent;
 
 class EventServiceProvider extends ServiceProvider
 {
@@ -36,6 +45,12 @@ class EventServiceProvider extends ServiceProvider
     protected $listen = [
         Registered::class => [
             SendEmailVerificationNotification::class,
+        ],
+        // Thứ tự QUAN TRỌNG: StoreOriginalImageDimensions phải chạy SAU ResizeOversizedMedia để
+        // lưu đúng kích thước đã hạ (xem ghi chú trong listener).
+        MediaHasBeenAddedEvent::class => [
+            ResizeOversizedMedia::class,
+            StoreOriginalImageDimensions::class,
         ],
     ];
 
@@ -54,6 +69,9 @@ class EventServiceProvider extends ServiceProvider
         Branch::observe(BranchObserver::class);
         Coupon::observe(CouponObserver::class);
         Promotion::observe(PromotionObserver::class);
+        Category::observe(CategoryObserver::class);
+        Banner::observe(BannerObserver::class);
+        Province::observe(ProvinceObserver::class);
     }
 
     /**

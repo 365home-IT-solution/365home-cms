@@ -8,7 +8,6 @@ use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
-use Filament\Forms\Components\Split;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -21,11 +20,12 @@ class CouponForm
     public static function form(Form $form): Form
     {
         return $form
+            ->columns(2)
             ->schema([
-                Split::make([
 
                     // ── CỘT 1: Thông tin cơ bản + Giá trị giảm giá ──────────
                     Section::make('Thông tin mã giảm giá')
+                        ->columnSpan(1)
                         ->schema([
                             Grid::make(2)
                                 ->schema([
@@ -82,45 +82,42 @@ class CouponForm
                                         ->minValue(0)
                                         ->suffix('VNĐ'),
                                 ]),
-                        ])
-                        ->grow(true),
+                        ]),
 
                     // ── CỘT 2: Phạm vi áp dụng + Giới hạn & Thời gian ───────
                     Section::make('Phạm vi áp dụng & Thời gian')
+                        ->columnSpan(1)
                         ->schema([
                             Select::make('apply_type')
                                 ->label('Áp dụng cho')
                                 ->required()
                                 ->options([
-                                    'all_rooms'     => 'Tất cả khung giờ của tất cả phòng',
-                                    'specific_room' => 'Tất cả khung giờ của 1 phòng cụ thể',
-                                    'specific_slot' => 'Các khung giờ cụ thể',
+                                    'all_rooms'      => 'Tất cả khung giờ của tất cả phòng',
+                                    'specific_room'  => 'Tất cả khung giờ của 1 phòng cụ thể',
+                                    'specific_rooms' => 'Tất cả khung giờ của NHIỀU phòng cụ thể',
+                                    'specific_slot'  => 'Các khung giờ cụ thể',
                                 ])
                                 ->default('all_rooms')
                                 ->live(),
 
                             Select::make('room_id')
                                 ->label('Chọn phòng')
-                                ->options(function () {
-                                    $user  = auth()->user();
-                                    $query = Product::where('is_activated', true)->orderBy('name');
-
-                                    if ($user && ! $user->isSuperAdmin()) {
-                                        $allowedIds = $user->allowedCategoryIds();
-                                        if (! empty($allowedIds)) {
-                                            $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedIds));
-                                        } else {
-                                            $query->whereRaw('1 = 0');
-                                        }
-                                    }
-
-                                    return $query->pluck('name', 'id');
-                                })
+                                ->options(fn () => self::roomOptions())
                                 ->searchable()
                                 ->preload()
                                 ->required()
                                 ->visible(fn (Get $get) => in_array($get('apply_type'), ['specific_room', 'specific_slot']))
                                 ->live(),
+
+                            Select::make('room_ids')
+                                ->label('Chọn phòng (nhiều)')
+                                ->multiple()
+                                ->options(fn () => self::roomOptions())
+                                ->searchable()
+                                ->preload()
+                                ->required()
+                                ->relationship(name: 'rooms', titleAttribute: 'name')
+                                ->visible(fn (Get $get) => $get('apply_type') === 'specific_rooms'),
 
                             Select::make('room_time_slot_ids')
                                 ->label('Chọn khung giờ')
@@ -155,6 +152,14 @@ class CouponForm
                                         ->dehydrated(false),
                                 ]),
 
+                            TextInput::make('validity_days')
+                                ->label('Hiệu lực khi làm mẫu voucher hạng thành viên (ngày)')
+                                ->numeric()
+                                ->minValue(1)
+                                ->maxValue(365)
+                                ->suffix('ngày')
+                                ->helperText('CHỈ có tác dụng khi mã này được gắn làm mẫu cho 1 Hạng thành viên (mục "Mã giảm giá gắn thêm cho hạng"). Khi đó mỗi khách lên hạng sẽ được cấp 1 bản sao riêng, hạn dùng = ngày lên hạng + số ngày này (thay vì mọi khách dùng chung hạn cố định ở trên).'),
+
                             Grid::make(2)
                                 ->schema([
                                     DateTimePicker::make('start_at')
@@ -178,12 +183,31 @@ class CouponForm
                             Toggle::make('is_active')
                                 ->label('Kích hoạt')
                                 ->default(true),
-                        ])
-                        ->grow(false),
 
-                ])
-                ->from('lg')
-                ->columnSpanFull(),
+                            Toggle::make('is_exclusive')
+                                ->label('Mã độc quyền')
+                                ->default(false)
+                                ->helperText('Bật lên: khách KHÔNG được dùng mã này chung với bất kỳ mã giảm giá nào khác trong cùng 1 đơn.'),
+                        ]),
+
             ]);
+    }
+
+    // Dùng chung cho cả room_id (số ít) và room_ids (số nhiều) — cùng phạm vi phòng được phép chọn.
+    private static function roomOptions()
+    {
+        $user  = auth()->user();
+        $query = Product::where('is_activated', true)->orderBy('name');
+
+        if ($user && ! $user->isSuperAdmin()) {
+            $allowedIds = $user->allowedCategoryIds();
+            if (! empty($allowedIds)) {
+                $query->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedIds));
+            }
+            // Chưa gán quyền chi nhánh cụ thể thì không thu hẹp thêm — Product đã tự lọc theo
+            // partner_id (BelongsToPartner).
+        }
+
+        return $query->pluck('name', 'id');
     }
 }

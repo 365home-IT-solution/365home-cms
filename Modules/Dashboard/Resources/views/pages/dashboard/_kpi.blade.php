@@ -19,7 +19,7 @@
         <div class="ta-kpi-hint">so với <span class="ta-kpi-hint-range">{{ $prevDateRange }}</span></div>
     </div>
     <div class="ta-kpi">
-        <div class="ta-kpi-label">Doanh thu</div>
+        <div class="ta-kpi-label">Doanh thu (thực thu)</div>
         <div class="ta-kpi-value" id="ta-kpi-revenue" style="font-size:22px;">
             {{ number_format($revenue, 0, ',', '.') }}<span class="unit">đ</span>
         </div>
@@ -29,6 +29,23 @@
         </div>
         <div class="ta-kpi-hint">Đã thanh toán + tiền cọc · so với <span class="ta-kpi-hint-range">{{ $prevDateRange }}</span></div>
     </div>
+    {{-- <div class="ta-kpi">
+        <div class="ta-kpi-label">Tổng giá gốc (lúc đặt)</div>
+        <div class="ta-kpi-value" id="ta-kpi-revenue-original" style="font-size:22px;">
+            {{ number_format($revenueOriginal, 0, ',', '.') }}<span class="unit">đ</span>
+        </div>
+        <div class="ta-kpi-delta {{ $revenueOriginalDelta >= 0 ? 'up' : 'down' }}" id="ta-kpi-revenue-original-delta">
+            {{ $revenueOriginalDelta >= 0 ? '↑' : '↓' }} {{ abs($revenueOriginalDelta) }}%
+            <span class="dbar" style="--w:{{ min(abs($revenueOriginalDelta) * 2, 100) }}%"></span>
+        </div>
+        <div class="ta-kpi-hint" id="ta-kpi-revenue-original-hint">
+            @if ($revenueExtraCharge != 0)
+                Chênh lệch (phụ phí phát sinh): <strong>{{ $revenueExtraCharge > 0 ? '+' : '' }}{{ number_format($revenueExtraCharge, 0, ',', '.') }}đ</strong>
+            @else
+                Đơn đã thanh toán · chưa có phụ phí phát sinh
+            @endif
+        </div>
+    </div> --}}
     <div class="ta-kpi">
         <div class="ta-kpi-label">Chuyển khoản</div>
         <div class="ta-kpi-value" id="ta-kpi-revenue-payos" style="font-size:22px;">

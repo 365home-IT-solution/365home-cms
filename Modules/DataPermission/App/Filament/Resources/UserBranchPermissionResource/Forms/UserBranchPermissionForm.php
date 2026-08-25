@@ -31,7 +31,10 @@ class UserBranchPermissionForm
                                         $query = User::query()->orderBy('fullname');
 
                                         if (! $actor?->hasRole(config('filament-shield.super_admin.name'))) {
-                                            $query->where('created_by', $actor->id);
+                                            // Đối tác gán quyền chi nhánh cho tài khoản thuộc
+                                            // đối tác mình (chủ + nhân viên), không phải chỉ
+                                            // các tài khoản do chính mình trực tiếp tạo.
+                                            $query->where('partner_id', $actor->partner_id);
                                         }
 
                                         return $query->get(['id', 'fullname', 'email'])
@@ -55,8 +58,15 @@ class UserBranchPermissionForm
                                             ->orderBy('name');
 
                                         if (! $actor?->hasRole(config('filament-shield.super_admin.name'))) {
+                                            // Category không có global scope partner_id riêng —
+                                            // mặc định thấy toàn bộ chi nhánh của đối tác mình;
+                                            // allowedBranchIds() chỉ thu hẹp thêm nếu có.
+                                            $query->where('partner_id', $actor->partner_id);
+
                                             $allowedIds = $actor->allowedBranchIds();
-                                            $query->whereIn('id', $allowedIds);
+                                            if (! empty($allowedIds)) {
+                                                $query->whereIn('id', $allowedIds);
+                                            }
                                         }
 
                                         return $query->pluck('name', 'id')->toArray();

@@ -4,6 +4,7 @@
             display: none !important
         }
     </style>
+    <div class="w-full max-w-11xl mx-auto px-4 sm:px-6">
     <!-- Search Section -->
     <div class="w-full text-center space-y-8 fade-in-up" style="animation-delay: 0.1s;">
         <div class="space-y-3">
@@ -24,25 +25,31 @@
         <!-- Search Form -->
         <div class="max-w-md mx-auto mt-5 relative group">
             <div
-                class="absolute -inset-0.5 bg-gradient-to-r from-gray-200 to-gray-300 rounded-xl blur opacity-30 group-hover:opacity-60 transition duration-500">
+                class="absolute -inset-0.5 bg-gradient-to-r from-gray-200 to-gray-300 rounded-2xl blur opacity-30 group-hover:opacity-60 transition duration-500">
             </div>
+            {{-- flex-col trên mobile (input và nút xếp dọc, nút rộng hết cỡ — tránh bị tràn/cắt chữ
+                 như thiết kế cũ), quay lại 1 hàng ngang từ sm trở lên. box-shadow inset tạo cảm
+                 giác ô nhập liệu hơi lõm vào, tách biệt rõ với nút bấm nổi lên phía trên nó. --}}
             <form wire:submit.prevent="getBooking" @submit="searched = true"
-                class="relative bg-white rounded-xl shadow-sm border border-gray-200 p-1.5 flex items-center transition-shadow focus-within:shadow-md focus-within:ring-1 focus-within:ring-gray-200">
-                <div class="pl-4 text-gray-400 flex items-center justify-center">
-                    <iconify-icon icon="lucide:smartphone" width="20" stroke-width="1.5"></iconify-icon>
+                class="relative bg-white rounded-2xl border border-gray-200 p-2 flex flex-col sm:flex-row gap-2 transition-shadow focus-within:ring-1 focus-within:ring-gray-200"
+                style="box-shadow: inset 0 2px 5px rgba(0,0,0,.05), inset 0 0 0 1px rgba(0,0,0,.02);">
+                <div class="flex items-center flex-1 min-w-0 rounded-xl">
+                    <div class="pl-3 text-gray-400 flex items-center justify-center shrink-0">
+                        <iconify-icon icon="lucide:smartphone" width="20" stroke-width="1.5"></iconify-icon>
+                    </div>
+                    <input
+                        id="phone_number"
+                        wire:model.live="sdt"
+                        @input="searched = $event.target.value.trim() !== '' ? searched : false"
+                        type="text"
+                        placeholder="Nhập số điện thoại"
+                        class="w-full min-w-0 bg-transparent border-none focus:ring-0 text-gray-900 placeholder-gray-400 text-base py-2.5 px-3 outline-none"
+                        required>
                 </div>
-                <input
-                    id="phone_number"
-                    wire:model.live="sdt"
-                    @input="searched = $event.target.value.trim() !== '' ? searched : false"
-                    type="text"
-                    placeholder="Nhập số điện thoại"
-                    class="w-full bg-transparent border-none focus:ring-0 text-gray-900 placeholder-gray-400 text-base py-3 px-3 outline-none"
-                    required>
                 <button
                     type="submit"
                     wire:loading.attr="disabled"
-                    class="bg-primary text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-all shadow-sm hover:shadow flex items-center gap-2 whitespace-nowrap">
+                    class="w-full sm:w-auto shrink-0 bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-medium transition-all shadow-sm hover:shadow flex items-center justify-center gap-2 whitespace-nowrap">
                     <span class="flex items-center gap-2">
                         <i wire:loading.remove class="fa fa-search"></i>
                         <span>Tra cứu</span>
@@ -74,8 +81,7 @@
     </div>
 
 
-    <div class="max-w-screen-xl md:px-8 px-4 mx-auto">
-        <div class="max-w-[700px] min-h-[500px] w-full pt-8 mx-auto">
+    <div class="w-full min-h-[500px] pt-8">
 
             {{-- FORM SEARCH --}}
 
@@ -95,6 +101,14 @@
                     </div>
                 </div>
                 @if(!empty($orders) && $orders->count())
+                {{-- Nền xám nhạt bao quanh để card trắng nổi lên, đồng thời làm màu "khoét" ở
+                     đường xé vé (perforation) khớp với nền xung quanh card. --}}
+                <div class="bg-gray-50 rounded-3xl p-4 sm:p-6">
+                {{-- Cố định số card/hàng theo breakpoint (không dùng auto-fill — số cột phụ thuộc
+                     bề rộng cửa sổ thực tế, ở màn hẹp vẫn có thể chỉ ra 1 cột dù còn dư chỗ). Lên
+                     hẳn 4 cột ở xl (≥1280px) — thử ở lg (1024px, card ~230px) bị chật: nhãn "Trả
+                     phòng" bị cắt, tên phòng/địa chỉ vỡ dòng xấu — nên giữ 3 cột tới hết lg. --}}
+                <div class="grid gap-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 @foreach($orders as $order)
                 @php
 
@@ -126,47 +140,47 @@
                 $firstItem = $order->items->first();
                 $firstProduct = $firstItem ? $firstItem->product : null;
                 $checkinDate = $firstItem && $firstItem->checkin_date ? \Carbon\Carbon::parse($firstItem->checkin_date) : null;
+                $pwdAnchorDate = $order->paid_at ?? $order->deposit_paid_at ?? $order->created_at;
                 $manualLockPassword = $firstProduct && $firstProduct->has_manual_lock
-                    ? \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($firstProduct, $checkinDate)
+                    ? \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($firstProduct, $pwdAnchorDate)
                     : null;
                 $branchAddress = $firstProduct ? $firstProduct->address : 'Địa chỉ chi nhánh không xác định';
                 $mapUrl = $firstProduct && $firstProduct->map_url ? $firstProduct->map_url : 'https://www.google.com/maps/search/?q=' . urlencode($branchAddress);
-                $hotline = $firstProduct ? $firstProduct->hotline : '';
                 $wifi = $firstProduct ? $firstProduct->wifi : '...';
                 @endphp
 
 
                 <div
-                    class="bg-white mb-10 rounded-2xl border border-black shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
+                    class="bg-white rounded-3xl border border-gray-100 shadow-[0_4px_24px_rgba(0,0,0,0.07)] overflow-hidden flex flex-col relative">
+                    {{-- Thanh màu primary của theme ở đỉnh card, ngay trên mã đặt phòng --}}
+                    <div class="h-1.5 w-full bg-primary"></div>
+
                     <!-- Card Header -->
-                    <div class="px-6 py-5 border-b border-gray-100 flex justify-between items-start bg-gray-50/50">
+                    <div class="px-5 pt-4 pb-3 flex justify-between items-start">
                         <div>
-                            <p class="text-xs font-medium text-gray-500 uppercase tracking-wider mb-1">Mã đặt phòng</p>
-                            <div class="flex items-center gap-2">
-                                <span class="text-xl font-semibold tracking-tight text-gray-900">{{ $order->order_code }}</span>
-                            </div>
-                            <span class="text-base font-normal italic tracking-tight text-gray-600">Dear: {{ $buyerName }}</span>
+                            <p class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-1">Mã đặt phòng</p>
+                            <span class="text-xl font-bold tracking-tight text-gray-900">{{ $order->order_code }}</span>
+                            <p class="text-xs text-gray-500 italic mt-0.5">Dear: {{ $buyerName }}</p>
                         </div>
-                        <div class="flex flex-col items-end">
+                        <div class="flex flex-col items-end shrink-0">
                             @if($isDepositPaid)
-                            <span class="inline-flex items-center gap-1 px-3 py-2 rounded-full text-amber-700 text-xs font-medium border border-amber-200" style="background-color: rgb(255 251 235);">
-                                    💰 Đã cọc {{ $depositPercent }}%
-                                </span>
+                            <span class="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700">
+                                <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> Đã cọc {{ $depositPercent }}%
+                            </span>
                             @elseif($isPendingDeposit)
-                            <span class="inline-flex items-center gap-1 px-3 py-2 rounded-full text-orange-700 text-xs font-medium border border-orange-200" style="background-color: rgb(255 247 237);">
-                                    ⏳ Chờ thanh toán cọc {{ $depositPercent }}%
-                                </span>
+                            <span class="inline-flex items-center gap-1 text-[11px] font-bold text-orange-700">
+                                <span class="w-1.5 h-1.5 rounded-full bg-orange-400"></span> Chờ cọc {{ $depositPercent }}%
+                            </span>
                             @else
-                            <span class="inline-flex items-center gap-1 px-3 py-2 rounded-full text-green-700 text-xs font-medium border border-green-100" style="background-color: rgba(243 250 247);">
-                                    <i class="fa fa-check-circle"></i>
-                                    {{ ucfirst($statusVietnamese) }}
-                                </span>
+                            <span class="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> {{ ucfirst($statusVietnamese) }}
+                            </span>
                             @endif
-                            <span class="text-sm text-gray-400 mt-1">Đặt ngày {{ $create_at }}</span>
+                            <span class="text-[11px] text-gray-400 mt-1 whitespace-nowrap">{{ $create_at }}</span>
                         </div>
                     </div>
 
-                    <div class="p-6">
+                    <div class="px-5">
                         @foreach($order->items as $item)
                         @php
                         $itemProduct = $item->product;
@@ -182,87 +196,66 @@
                         $itemGuestCount = $item->guest_count ?? 1;
                         @endphp
 
-                        <div class="@if(!$loop->first) mt-8 pt-8 border-t border-gray-100 @endif">
-                            <div class="sm:flex block justify-between items-center">
-                                <div class="flex gap-5 mb-4 md:mb-0">
+                        <div class="@if(!$loop->first) mt-4 pt-4 border-t border-gray-100 @endif">
+                            <div class="block">
+                                <div class="flex gap-3 items-center">
                                     <div
-                                        class="w-20 h-20 rounded-lg bg-gray-100 shrink-0 overflow-hidden border border-gray-100">
+                                        class="w-14 h-14 rounded-2xl bg-gray-100 shrink-0 overflow-hidden">
                                         <img src="{{ $thumbnailUrl }}" alt="Room" class="w-full h-full object-cover">
                                     </div>
                                     <div class="flex-1 min-w-0">
-                                        <h3 class="text-lg font-semibold text-gray-900 truncate">{{ $item->name }}</h3>
-                                        <p style="text-wrap: auto;" class="text-sm text-gray-500 truncate mt-0.5">Chi
-                                            nhánh: {{ $branchName }}</p>
-                                        <div class="flex items-center gap-4 mt-3">
-                                            <div
-                                                class="flex items-center gap-1 text-xs font-medium text-gray-600 bg-gray-100 px-2 py-1 rounded-md">
-                                                <i class="fa fa-users"></i>
-                                                {{ $itemGuestCount }} Người
-                                            </div>
-                                        </div>
+                                        <h3 class="text-base font-bold text-gray-900 truncate">{{ $item->name }}</h3>
+                                        <p style="text-wrap: auto;" class="text-xs text-gray-500 truncate mt-0.5">{{ $branchName }} · {{ $itemGuestCount }} khách</p>
                                     </div>
                                 </div>
 
                                 @if($loop->first)
-                                <div class="px-4 flex items-end md:justify-between sm:justify-start gap-3">
-                                    <div
-                                        class="w-10 h-10 bg-white rounded-lg border border-gray-200 flex items-center justify-center text-blue-600 shadow-sm shrink-0">
-                                        <i class="fa fa-wifi"></i>
-                                    </div>
-                                    <div class="min-w-0">
-                                        <div
-                                            class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                                            Wifi / Pass
-                                        </div>
-                                        <div class="flex items-center gap-1.5">
-                                            <span class="text-sm font-medium text-gray-900 truncate">365Home_5G</span>
-                                            <span class="text-gray-300">/</span>
-                                            <span class="text-base font-mono font-semibold text-gray-700">{{ $wifi }}</span>
-                                        </div>
-                                    </div>
+                                <div class="mt-3 flex items-center gap-2 text-xs text-gray-500">
+                                    <i class="fa fa-wifi text-blue-500"></i>
+                                    <span class="font-medium text-gray-700">365Home_5G</span>
+                                    <span class="text-gray-300">·</span>
+                                    <span class="font-mono font-semibold text-gray-700">{{ $wifi }}</span>
                                 </div>
                                 @endif
                             </div>
 
-                            <!-- Timeline -->
-                            <div class="mt-8 px-1 flex items-center justify-between relative">
-                                <div class="absolute top-1/2 left-0 w-full h-px bg-gray-100" style="z-index: -10;">
+                            <!-- Timeline kiểu vé máy bay: 2 mốc giờ nối bằng đường chấm -->
+                            <div class="mt-4 flex items-center gap-2">
+                                <div class="text-left">
+                                    <span class="block text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Nhận phòng</span>
+                                    <span class="block text-sm font-bold text-gray-900 whitespace-nowrap">{{ $checkIn }}</span>
+                                </div>
+                                <div class="flex-1 flex items-center gap-0.5 px-1">
+                                    <span class="w-1 h-1 rounded-full bg-gray-300"></span>
+                                    <span class="flex-1 border-t border-dotted border-gray-300"></span>
+                                    <i class="fa fa-key text-[10px] text-gray-400"></i>
+                                    <span class="flex-1 border-t border-dotted border-gray-300"></span>
+                                    <span class="w-1 h-1 rounded-full bg-gray-300"></span>
                                 </div>
 
-                                <!-- Check In -->
-                                <div class="flex flex-col gap-1 pr-4 bg-white">
-                                    <span class="text-xs font-medium text-gray-400 uppercase tracking-wide">Nhận phòng</span>
-                                    <div class="flex items-center gap-2">
-                                        <i class="fa fa-calendar-check text-gray-400"></i>
-                                        <span class="text-sm sm:text-base text-center sm:text-left font-semibold text-gray-900">{{ $checkIn }}</span>
-                                    </div>
-                                </div>
-
-                                <!-- Arrow -->
-                                <div
-                                    class="w-8 h-8 rounded-full bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-400 bg-white">
-                                    <i class="fas fa-arrow-right"></i>
-                                </div>
-
-                                <!-- Check Out -->
-                                <div class="flex flex-col gap-1 pl-4 items-end bg-white">
-                                    <span class="text-xs font-medium text-gray-400 uppercase tracking-wide">Trả phòng</span>
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-sm sm:text-base text-center sm:text-left font-semibold text-gray-900">{{ $checkOut }}</span>
-                                        <i class="fa fa-calendar-times text-gray-400"></i>
-                                    </div>
+                                <div class="text-right">
+                                    <span class="block text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Trả phòng</span>
+                                    <span class="block text-sm font-bold text-gray-900 whitespace-nowrap">{{ $checkOut }}</span>
                                 </div>
                             </div>
                         </div>
                         @endforeach
 
+                        {{-- Đường xé vé (perforation) — tách phần thông tin phòng khỏi "cuống vé"
+                             (mã mở khóa), 2 chấm tròn khoét ở mép card khớp màu nền bg-gray-50 bao
+                             ngoài để tạo ảo giác lỗ đục như vé giấy thật. --}}
+                        <div class="relative -mx-5 my-4">
+                            <div class="border-t border-dashed border-gray-200"></div>
+                            <span class="absolute -left-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-gray-50"></span>
+                            <span class="absolute -right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-gray-50"></span>
+                        </div>
+
                         <!-- Gate Unlock Code -->
                         @if($isDepositPaid || $isPendingDeposit)
                         {{-- Đơn cọc: chưa có mã, hiện thông báo chờ thanh toán --}}
-                        <div
-                            class="mt-6 bg-amber-50 rounded-xl border border-dashed border-amber-300 p-4 flex items-center gap-4">
+                        <div class="flex items-center gap-3">
                             <div
-                                class="w-10 h-10 bg-white rounded-lg border border-amber-200 flex items-center justify-center text-amber-500 shadow-sm shrink-0">
+                                class="w-9 h-9 bg-amber-50 rounded-full flex items-center justify-center text-amber-500 shrink-0">
                                 <i class="fa fa-lock"></i>
                             </div>
                             <div>
@@ -278,88 +271,46 @@
                         </div>
                         @elseif($firstProduct && $firstProduct->has_manual_lock)
                         {{-- Phòng khóa thủ công: hiển thị pass cổng + pass phòng --}}
-                        <div
-                            class="mt-6 bg-slate-50/80 rounded-xl border border-dashed border-gray-300 p-4 flex items-start gap-3 flex-wrap">
-                            <div
-                                class="w-10 h-10 bg-white rounded-lg border border-gray-200 flex items-center justify-center text-gray-700 shadow-sm shrink-0">
-                                <i class="fa fa-key"></i>
-                            </div>
+                        <div class="text-center">
                             @if($manualLockPassword)
-                            <div class="flex gap-6 flex-wrap">
+                            <div class="flex items-center justify-center gap-6 flex-wrap">
                                 <div>
-                                    <p class="text-xs font-semibold uppercase tracking-wider text-gray-400">Pass Cổng</p>
-                                    <span class="text-lg font-bold font-mono tracking-widest text-gray-900">{{ $manualLockPassword->gate_password }}</span>
+                                    <p class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Pass Cổng</p>
+                                    <span class="text-2xl font-mono font-black tracking-[0.2em] text-gray-900">{{ $manualLockPassword->gate_password }}</span>
                                 </div>
                                 @if($manualLockPassword->room_password)
-                                <div class="border-l border-dashed border-blue-400 pl-4">
-                                    <p class="text-xs font-semibold uppercase tracking-wider text-gray-400">Pass Phòng</p>
-                                    <span class="text-lg font-bold font-mono tracking-widest text-gray-900">{{ $manualLockPassword->room_password }}</span>
+                                <div>
+                                    <p class="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Pass Phòng</p>
+                                    <span class="text-2xl font-mono font-black tracking-[0.2em] text-gray-900">{{ $manualLockPassword->room_password }}</span>
                                 </div>
                                 @endif
                             </div>
                             @else
-                            <div>
-                                <p class="text-sm text-gray-500 mt-0.5">Vui lòng liên hệ để nhận mật khẩu phòng</p>
-                            </div>
+                            <p class="text-sm text-gray-500">Vui lòng liên hệ để nhận mật khẩu phòng</p>
                             @endif
                         </div>
                         @else
-                        {{-- TTLock: hiển thị mã cổng điện tử --}}
-                        <div
-                            class="mt-6 bg-slate-50/80 rounded-xl border border-dashed border-gray-300 p-4 flex sm:flex-col sm:flex-row gap-4 sm:items-center justify-between">
-                            <div class="flex items-center gap-3">
-                                <div
-                                    class="w-10 h-10 bg-white rounded-lg border border-gray-200 flex items-center justify-center text-gray-700 shadow-sm shrink-0">
-                                    <i class="fa fa-key"></i>
-                                </div>
-                                <div>
-                                    <div class="gap-2">
-                                        <p class="text-sm text-gray-500 truncate mt-0.5">Mã mở khóa</p>
-                                        <span class="text-lg font-bold font-mono tracking-widest text-gray-900">{{ $unlockCode }}#</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="border-l border-1 border-gray-300 border-dashed h-12"></div>
-                            <div class="flex items-center gap-3 pl-0 sm:pl-4 sm:border-l border-gray-200">
-                                <div>
-                                    <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Lượt
-                                        dùng
-                                    </div>
-                                    <div class="flex items-center gap-1.5 mt-0.5">
-                                        <span class="text-sm text-gray-900 font-normal">/ {{ $accessCode->max_uses ?? '3' }} lượt</span>
-                                    </div>
-                                </div>
-                                <div class="mx-auto sm:ml-0">
-                                    <span class="flex relative">
-                                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-75"></span>
-                                    <span style="width: 10px; height: 10px;" class="relative inline-flex rounded-full bg-green-500"></span>
-                                    </span>
-                                </div>
-                            </div>
+                        {{-- TTLock: mã cổng điện tử — hiển thị lớn, nổi bật kiểu số hiệu trên vé
+                             máy bay, đây là thông tin quan trọng nhất khách cần khi tra cứu. --}}
+                        <div class="text-center">
+                            <p class="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Mã mở khóa</p>
+                            <p class="text-3xl font-mono font-black tracking-[0.25em] text-gray-900 mt-1">{{ $unlockCode }}#</p>
                         </div>
                         @endif
 
                         <!-- Branch Address -->
-                        <div
-                            class="mt-4 bg-amber-50/60 rounded-xl border border-dashed border-amber-200 p-4 flex items-center gap-4">
-                            <div
-                                class="w-10 h-10 bg-white rounded-lg border border-gray-200 flex items-center justify-center text-amber-500 shadow-sm shrink-0">
-                                <i class="fa fa-map-marker-alt"></i>
-                            </div>
-                            <div class="flex-1 min-w-0">
-                                <p class="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-0.5">Địa
-                                    chỉ chi nhánh</p>
-                                <p class="text-sm font-medium text-gray-900 leading-snug">{{ $branchAddress }}</p>
-                            </div>
+                        <div class="mt-4 flex items-start gap-2.5 text-xs">
+                            <i class="fa fa-map-marker-alt text-amber-500 mt-0.5 shrink-0"></i>
+                            <p class="flex-1 min-w-0 text-gray-600 leading-snug">{{ $branchAddress }}</p>
                             <a href="{{ $mapUrl }}"
                                 target="_blank"
-                                class="shrink-0 text-xs font-semibold text-amber-600 underline whitespace-nowrap">
-                                Xem bản đồ
+                                class="shrink-0 font-semibold text-amber-600 underline whitespace-nowrap">
+                                Bản đồ
                             </a>
                         </div>
 
                         <!-- Payment Info -->
-                        <div style="padding-top: 1.5rem" class="mt-8 border-t border-gray-100 space-y-3">
+                        <div class="mt-5 pt-4 border-t border-gray-100 space-y-3">
                             <div class="flex justify-between text-sm">
                                 <span class="text-gray-500">Nội quy</span>
                                 <span class="font-medium text-gray-900">
@@ -481,33 +432,19 @@
                     </div>
 
                     <!-- Footer Actions -->
-                    <div class="bg-gray-50 px-6 py-4 flex gap-3 border-t border-gray-200">
+                    <div class="bg-gray-50 px-5 py-3 flex gap-3 border-t border-gray-200 mt-auto">
                         <a href="{{ $mapUrl }}" target="_blank"
                             class="flex-1 bg-white border border-gray-200 text-red-600 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-900 font-medium py-2.5 rounded-lg text-sm transition-all shadow-sm flex items-center justify-center gap-2">
-                            <i class="fa fa-map-pin"></i>
                             <button class="hover:underline font-semibold">
                                 Định vị Google Map
                             </button>
                         </a>
                     </div>
-                    @php
-                    $hotlineRaw = $hotline ?? '';
-                    $hotlineNumbers = array_filter(array_map('trim', explode('-', $hotlineRaw)));
-                    $hotlineLabels = ['Liên hệ Zalo', 'Liên hệ'];
-                    @endphp
-                    <div class="bg-gray-50 px-6 pb-4 block sm:flex gap-3">
-                        @foreach($hotlineNumbers as $idx => $number)
-                        <a href="tel:{{ $number }}"
-                            class="flex-1 bg-primary m-2 text-white font-medium py-2.5 rounded-lg text-sm transition-all shadow-sm flex items-center justify-center gap-2">
-                            <i class="fa fa-message"></i>
-                            {{ $hotlineLabels[$idx] ?? 'Liên hệ' }}
-                            <span class="text-white font-bold ml-2">{{ $number }}</span>
-                        </a>
-                        @endforeach
-                    </div>
                 </div>
 
                 @endforeach
+                </div>
+                </div>
                 @elseif($sdt)
                 <div x-show="searched" x-cloak class="mt-6 text-gray-500 text-center flex flex-col items-center">
                     <svg class="w-12 h-12 text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">

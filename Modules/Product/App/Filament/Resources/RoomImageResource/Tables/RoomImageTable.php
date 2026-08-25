@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Product\App\Filament\Resources\RoomImageResource\Tables;
 
+use App\Filament\Support\PartnerTableHelpers;
 use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Columns\ImageColumn;
@@ -55,6 +56,7 @@ class RoomImageTable
                     ->dateTime('d/m/Y')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
+                PartnerTableHelpers::column('room.partner.name'),
             ])
             ->filters([
                 SelectFilter::make('type')
@@ -67,6 +69,8 @@ class RoomImageTable
                 SelectFilter::make('room_id')
                     ->label('Phòng')
                     ->relationship('room', 'name'),
+
+                PartnerTableHelpers::filterThroughRelation('room'),
             ])
             ->defaultSort('sort_order')
             ->actions([

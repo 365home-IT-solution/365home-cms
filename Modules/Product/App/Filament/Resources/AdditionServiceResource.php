@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Product\App\Filament\Resources;
 
+use App\Filament\Support\PartnerTableHelpers;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -15,55 +16,14 @@ use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\DB;
 use Modules\BladeThemeV1\App\Models\AdditionService;
-use Modules\Category\Entities\Category;
-use Modules\DataPermission\Entities\UserBranchPermission;
 use Modules\Product\App\Filament\Resources\AdditionServiceResource\Pages;
-use Modules\Product\App\Models\Product;
 
+// Dịch vụ bổ sung được lọc theo partner_id qua BelongsToPartner (global scope trên
+// AdditionService model) — mỗi đối tác tự tạo dịch vụ của riêng mình, không dùng chung nữa.
 class AdditionServiceResource extends Resource
 {
     protected static ?string $model = AdditionService::class;
-
-    public static function getEloquentQuery(): Builder
-    {
-        $user = auth()->user();
-
-        if (! $user || $user->isSuperAdmin()) {
-            return parent::getEloquentQuery();
-        }
-
-        // Lấy parent category IDs mà user được phân quyền
-        $parentCategoryIds = UserBranchPermission::where('user_id', $user->id)
-            ->pluck('category_id');
-
-        if ($parentCategoryIds->isEmpty()) {
-            return parent::getEloquentQuery()->whereRaw('0 = 1');
-        }
-
-        // Lấy thêm child category IDs của những parent đó
-        $childCategoryIds = Category::whereIn('parent_id', $parentCategoryIds)->pluck('id');
-
-        $allCategoryIds = $parentCategoryIds->merge($childCategoryIds)->unique();
-
-        // Tìm room IDs thuộc những categories đó (qua bảng categorizables)
-        $roomIds = DB::table('categorizables')
-            ->where('categorizable_type', Product::class)
-            ->whereIn('category_id', $allCategoryIds)
-            ->pluck('categorizable_id');
-
-        // Chỉ hiển thị dịch vụ bổ sung được gán cho những phòng đó
-        $productTable = (new Product())->getTable();
-
-        return parent::getEloquentQuery()
-            ->where(function (Builder $q) use ($roomIds, $productTable) {
-                // Dịch vụ mới tạo chưa có phòng nào → vẫn phải hiện để edit được
-                $q->whereDoesntHave('products')
-                  ->orWhereHas('products', fn (Builder $q2) => $q2->whereIn("{$productTable}.id", $roomIds));
-            });
-    }
 
     public static function getNavigationIcon(): string
     {
@@ -167,6 +127,10 @@ class AdditionServiceResource extends Resource
                     ->dateTime('d/m/Y')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
+                PartnerTableHelpers::column(),
+            ])
+            ->filters([
+                PartnerTableHelpers::filter(),
             ])
             ->defaultSort('id')
             ->actions([

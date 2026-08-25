@@ -16,6 +16,12 @@ class ProcessResource extends Resource
 {
     protected static ?string $model = Process::class;
 
+    // Nhóm "Nội dung" đang ẩn tạm khỏi menu — bật lại bằng cách xoá method này.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public static function getNavigationIcon(): string
     {
         return __('process::process.resource.navigation_icon');

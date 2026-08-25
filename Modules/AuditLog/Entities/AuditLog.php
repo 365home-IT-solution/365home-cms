@@ -4,15 +4,19 @@ declare(strict_types=1);
 
 namespace Modules\AuditLog\Entities;
 
+use App\Models\Concerns\BelongsToPartner;
 use Illuminate\Database\Eloquent\Model;
 
 class AuditLog extends Model
 {
+    use BelongsToPartner;
+
     public $timestamps = false;
 
     protected $table = 'audit_logs';
 
     protected $fillable = [
+        'partner_id',
         'user_id',
         'user_name',
         'user_email',

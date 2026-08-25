@@ -2,6 +2,7 @@
 
 namespace App\Providers\Filament;
 
+use App\Http\Middleware\MarkAdminPanelContext;
 use App\Http\Middleware\RedirectUnauthorizedDashboard;
 use App\Livewire\MyProfileExtended;
 use App\Settings\GeneralSettings;
@@ -51,6 +52,7 @@ use App\Filament\Pages\Auth\Login;
 use App\Filament\Pages\Auth\RequestPasswordReset;
 use Modules\AccessCode\App\Filament\AccessCodePlugin;
 use Modules\TTLock\App\Filament\TTLockPlugin;
+use Modules\Warehouse\App\Filament\WarehousePlugin;
 use Modules\Zns\App\Filament\ZnsPlugin;
 use Modules\Payment\App\Filament\Resources\OrderResource\Widgets\OrderCalendarWidget;
 
@@ -61,7 +63,7 @@ class AdminPanelProvider extends PanelProvider
      */
     public function panel(Panel $panel): Panel
     {
-        return $panel
+        $panel = $panel
             ->default()
             ->id('admin')
             ->path('admin')
@@ -82,9 +84,7 @@ class AdminPanelProvider extends PanelProvider
             ->navigationGroups([
                 'Quản lý',
                 'Cấu hình web',
-                'Biểu mẫu',
                 'Phân quyền',
-                'Cấu hình thông tin',
             ])
             ->pages([
                 \Modules\Dashboard\App\Filament\Pages\Dashboard::class,
@@ -104,6 +104,11 @@ class AdminPanelProvider extends PanelProvider
                 DisableBladeIconComponents::class,
                 DispatchServingFilamentEvent::class,
             ])
+            // Đánh dấu request đang thực sự chạy trong panel admin — xem App\Support\AdminPanelContext,
+            // dùng bởi BelongsToPartner để không lọc partner_id trên các trang client. Đăng ký persistent
+            // (isPersistent: true) để Livewire replay đúng middleware này trên các request /livewire/update
+            // phát sinh từ panel admin (giống cách Filament tự làm với SetUpPanel).
+            ->middleware([MarkAdminPanelContext::class], isPersistent: true)
             ->authGuard('web')
             ->authMiddleware([
                 Authenticate::class,
@@ -162,6 +167,7 @@ class AdminPanelProvider extends PanelProvider
                 AppPagePlugin::make(),
                 AuditLogPlugin::make(),
                 TTLockPlugin::make(),
+                WarehousePlugin::make(),
             ])
             // ->spa()
             ->maxContentWidth('full')
@@ -172,11 +178,22 @@ class AdminPanelProvider extends PanelProvider
                 Platform::Mac => '⌘K',
                 default => null,
             });
+
+        return $panel;
     }
 
     public function register(): void
     {
         parent::register();
+
+        // Nạp Echo/Reverb CHỈ trong panel admin (xem resources/js/echo-admin.js) — cần có TRƯỚC
+        // khi Livewire boot để cơ chế lắng nghe "echo-private:kênh,.event" (dùng ở
+        // CreateOrder/EditOrder cho hold khung giờ real-time, xem TimeslotHoldService) nhận đúng
+        // window.Echo, nên đặt ở HEAD_END thay vì BODY_END như script polling bên dưới.
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::HEAD_END,
+            fn (): string => (string) app(\Illuminate\Foundation\Vite::class)(['resources/js/echo-admin.js']),
+        );
 
         // Inject polling script: tab title + notification sound + instant bell refresh
         FilamentView::registerRenderHook(
@@ -188,33 +205,45 @@ class AdminPanelProvider extends PanelProvider
     var _prevCount = null;  // null = chưa có baseline
 
     /* ── 1. AUDIO ─────────────────────────────────────────── */
+    // 2 file riêng: 'order-notification.mp3' cho đơn hàng/check-in/check-out, 'tin-nhan-moi.mp3'
+    // riêng cho tin nhắn khách (type='chat', xem route admin.notifications.unread-count) — phân
+    // biệt để nhân viên nghe tiếng là biết ngay cần vào đâu (tin nhắn cần trả lời gấp hơn).
 
-    var _audio  = null;
-    var _primed = false;
+    var _audioDefault = null;
+    var _audioChat    = null;
+    var _primed       = false;
 
     function initAudio() {
-        if (_audio) return;
+        if (_audioDefault) return;
         try {
-            _audio = new Audio('/sounds/order-notification.mp3');
-            _audio.volume = 0.8;
-            _audio.preload = 'auto';
+            _audioDefault = new Audio('/sounds/order-notification.mp3');
+            _audioDefault.volume = 0.8;
+            _audioDefault.preload = 'auto';
+
+            _audioChat = new Audio('/sounds/tin-nhan-moi.mp3');
+            _audioChat.volume = 0.8;
+            _audioChat.preload = 'auto';
         } catch (e) {}
     }
 
     function primeAudio() {
-        if (_primed || !_audio) return;
+        if (_primed) return;
         _primed = true;
-        var p = _audio.play();
-        if (p && p.then) {
-            p.then(function () { _audio.pause(); _audio.currentTime = 0; })
-             .catch(function () {});
-        }
+        [_audioDefault, _audioChat].forEach(function (a) {
+            if (!a) return;
+            var p = a.play();
+            if (p && p.then) {
+                p.then(function () { a.pause(); a.currentTime = 0; })
+                 .catch(function () {});
+            }
+        });
     }
 
-    function playDing() {
-        if (!_audio) return;
-        _audio.currentTime = 0;
-        var p = _audio.play();
+    function playDing(latestType) {
+        var audio = (latestType === 'chat' && _audioChat) ? _audioChat : _audioDefault;
+        if (!audio) return;
+        audio.currentTime = 0;
+        var p = audio.play();
         if (p && p.catch) p.catch(function () {});
     }
 
@@ -262,8 +291,8 @@ class AdminPanelProvider extends PanelProvider
             setTitle(n);
 
             if (_prevCount !== null && n > _prevCount) {
-                // Có thông báo mới → chuông + refresh bell + cập nhật dashboard
-                playDing();
+                // Có thông báo mới → chuông (đúng loại theo latest_type) + refresh bell + cập nhật dashboard
+                playDing(data.latest_type);
                 refreshBell();
                 if (typeof window.rcPollNow === 'function') window.rcPollNow();
             }

@@ -82,6 +82,7 @@ class AppPageController extends Controller
                 'title'       => $banner->title,
                 'description' => $banner->description,
                 'image_url'   => $banner->image ? Storage::disk($banner->disk ?? 'public')->url($banner->image) : null,
+                'thumbnail'   => $banner->thumbnail,
                 'url'         => $banner->url,
             ])
             ->values()
@@ -151,6 +152,7 @@ class AppPageController extends Controller
                 'image_url' => $province->image
                     ? Storage::disk('public')->url($province->image)
                     : null,
+                'thumbnail' => $province->thumbnail,
             ])
             ->values()
             ->toArray();

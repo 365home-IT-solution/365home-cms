@@ -305,6 +305,11 @@
     .ta-title { font-size: 28px; }
     .ta-chart-center { left: 50%; top: 50%; }
 }
+
+@media (max-width: 480px) {
+    .ta-kpi-grid { grid-template-columns: 1fr; }
+    .ta-kpi { padding: 14px 16px; }
+}
 </style>
 
 <div class="ta-wrap">

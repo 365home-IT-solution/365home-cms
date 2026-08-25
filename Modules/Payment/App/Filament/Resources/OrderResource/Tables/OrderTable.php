@@ -2,9 +2,13 @@
 
 namespace Modules\Payment\App\Filament\Resources\OrderResource\Tables;
 
+use App\Filament\Support\PartnerTableHelpers;
+use Modules\TTLock\App\Services\TTLockService;
 use Filament\Notifications\Notification;
 use Filament\Support\Enums\FontWeight;
 use Filament\Tables\Actions\Action;
+use Modules\Payment\App\Filament\Resources\OrderResource\Tables\Actions\AssignAccessCodeAction;
+use Modules\Payment\App\Filament\Resources\OrderResource\Tables\Actions\OpenGateAction;
 use PayOS\PayOS;
 use Filament\Tables\Columns\BadgeColumn;
 use Filament\Tables\Columns\IconColumn;
@@ -21,6 +25,7 @@ use Modules\Payment\Traits\GHTKServiceTrait;
 use Modules\Payment\App\Filament\Resources\OrderResource\Tables\Actions\OrderAction;
 use Modules\Payment\App\Filament\Resources\OrderResource\Tables\BulkActions\OrderBulkAction;
 use Modules\Payment\App\Filament\Resources\OrderResource\Tables\Filters\OrderFilter;
+use Modules\Payment\App\Filament\Resources\OrderResource\Forms\OrderForm;
 use Modules\Payment\Entities\Order;
 use Illuminate\Support\Str;
 use Filament\Tables\Enums\FiltersLayout;
@@ -44,20 +49,32 @@ class OrderTable
                     ->toggleable(isToggledHiddenByDefault: true)
                     ->sortable(),
 
-                TextColumn::make('category.name')
-                    ->label('Chi nhánh')
-                    ->searchable()
-                    ->sortable()
+                // Hiện TÊN PHÒNG thay vì tên chi nhánh (theo yêu cầu — nhiều đơn cùng 1 chi nhánh
+                // trùng địa chỉ nên khó tìm, tên phòng phân biệt rõ hơn). Lấy từ dòng order_item
+                // ĐẦU TIÊN — hệ thống hiện giới hạn 1 phòng/đơn nên mọi dòng cùng 1 phòng, không
+                // cần gộp nhiều tên. 'items.product' đã eager-load sẵn ở modifyQueryUsing() phía
+                // trên nên không phát sinh N+1.
+                TextColumn::make('room_name')
+                    ->label('Phòng')
+                    ->getStateUsing(fn ($record) => $record->items->first()?->product?->name
+                        ?: $record->items->first()?->name
+                        ?: '—')
+                    ->searchable(query: function ($query, string $search) {
+                        $query->orWhereHas(
+                            'items.product',
+                            fn ($q) => $q->where('name', 'like', "%{$search}%"),
+                        );
+                    })
                     ->badge()
-                    ->color('primary')
-                    ->icon('heroicon-m-building-office-2'),
+                    ->color('primary'),
 
-                TextColumn::make('computed_total')
+                PartnerTableHelpers::column(),
+
+                TextColumn::make('amount')
                     ->label('Tổng tiền')
                     ->weight(FontWeight::Bold)
-                    ->getStateUsing(fn ($record) => static::computeOrderTotal($record))
                     ->formatStateUsing(fn ($state) => number_format((int)$state, 0, ',', '.') . ' ₫')
-                    ->sortable(false),
+                    ->sortable(),
 
                 TextColumn::make('created_at')
                     ->label(__('payment::order.table.label.created_at'))
@@ -73,6 +90,7 @@ class OrderTable
                         'primary' => 'deposit',
                         'danger'  => 'failed',
                         'gray'    => 'cancelled_payment',
+                        'info'    => 'refunded',
                     ])
                     ->icons([
                         'heroicon-o-clock'            => 'pending',
@@ -80,10 +98,36 @@ class OrderTable
                         'heroicon-o-banknotes'        => 'deposit',
                         'heroicon-o-x-circle'         => 'failed',
                         'heroicon-o-no-symbol'        => 'cancelled_payment',
+                        'heroicon-o-arrow-uturn-left' => 'refunded',
                     ])
                     ->formatStateUsing(function ($state) {
                         return __("payment::order.table.status.$state");
                     }),
+
+                // Cạnh "Trạng thái" — đơn "paid" chỉ phản ánh giá phòng GỐC đã trả đủ, KHÔNG tự đổi
+                // khi có phát sinh/hoàn tiền phát sinh SAU đó (sửa đơn thêm khung giờ/dịch vụ) — nếu
+                // không có cột riêng, admin dễ bỏ sót đơn đang còn nợ/cần hoàn vì bảng chỉ hiện
+                // "Đã thanh toán" (xanh) như bình thường. Dùng lại ĐÚNG 2 điều kiện đã có sẵn ở
+                // OrderForm::hasUnpaidExtraCharge()/hasPendingRefund() (đang dùng cho Section "Phát
+                // sinh thêm"/"Hoàn tiền chưa xử lý" ở trang sửa đơn) để 2 nơi LUÔN khớp nhau.
+                TextColumn::make('extra_charge_status')
+                    ->label('Phát sinh')
+                    ->getStateUsing(function (Order $record) {
+                        if (OrderForm::hasUnpaidExtraCharge($record)) {
+                            return '+' . number_format((int) $record->extra_charge_amount, 0, ',', '.') . 'đ';
+                        }
+                        if (OrderForm::hasPendingRefund($record)) {
+                            return '-' . number_format((int) $record->extra_refund_amount, 0, ',', '.') . 'đ';
+                        }
+                        return null;
+                    })
+                    ->placeholder('')
+                    ->badge()
+                    ->color(fn (Order $record) => OrderForm::hasUnpaidExtraCharge($record) ? 'warning' : 'info')
+                    ->icon(fn (Order $record) => OrderForm::hasUnpaidExtraCharge($record) ? 'heroicon-o-exclamation-circle' : 'heroicon-o-arrow-uturn-left')
+                    ->tooltip(fn (Order $record) => OrderForm::hasUnpaidExtraCharge($record)
+                        ? 'Chưa thu khoản phát sinh'
+                        : (OrderForm::hasPendingRefund($record) ? 'Cần hoàn tiền cho khách' : null)),
 
                 TextColumn::make('buyer_name')
                     ->searchable()
@@ -110,13 +154,16 @@ class OrderTable
                         };
                     }),
                
+                // Ẩn theo mặc định theo yêu cầu — vẫn bật lại được qua nút tuỳ chỉnh cột (giống
+                // cách 2 cột "(người đi cùng)" bên dưới đã làm), không xoá hẳn khỏi bảng.
                 ImageColumn::make('cccd_front')
                     ->label('CCCD Trước')
                     ->disk('public')
                     ->height(40)
                     ->width(60)
                     ->defaultImageUrl('/images/no-image.png')
-                    ->tooltip('Click để xem chi tiết'),
+                    ->tooltip('Click để xem chi tiết')
+                    ->toggleable(isToggledHiddenByDefault: true),
 
                 ImageColumn::make('cccd_back')
                     ->label('CCCD Sau')
@@ -124,8 +171,29 @@ class OrderTable
                     ->height(40)
                     ->width(60)
                     ->defaultImageUrl('/images/no-image.png')
-                    ->tooltip('Click để xem chi tiết'),
-                
+                    ->tooltip('Click để xem chi tiết')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                // Chỉ đơn có khung giờ qua đêm (order_items.over_night) mới có CCCD người đi cùng —
+                // ẩn theo mặc định để không chiếm chỗ ở các đơn thường, admin tự bật cột khi cần.
+                ImageColumn::make('cccd_front_2')
+                    ->label('CCCD Trước (người đi cùng)')
+                    ->disk('public')
+                    ->height(40)
+                    ->width(60)
+                    ->defaultImageUrl('/images/no-image.png')
+                    ->tooltip('Click để xem chi tiết')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
+                ImageColumn::make('cccd_back_2')
+                    ->label('CCCD Sau (người đi cùng)')
+                    ->disk('public')
+                    ->height(40)
+                    ->width(60)
+                    ->defaultImageUrl('/images/no-image.png')
+                    ->tooltip('Click để xem chi tiết')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
                 TextColumn::make('stay_checkin')
                     ->label('Ngày nhận phòng')
                     ->getStateUsing(function ($record) {
@@ -168,6 +236,7 @@ class OrderTable
                     ->color(fn($state) => $state ? 'success' : 'gray')
                     ->toggleable(isToggledHiddenByDefault: false),
 
+                // Ẩn theo yêu cầu (giữ lại code, chỉ tắt hiển thị).
                 IconColumn::make('exclude_from_stats')
                     ->label('Thống kê')
                     ->boolean()
@@ -176,6 +245,7 @@ class OrderTable
                     ->trueColor('danger')
                     ->falseColor('success')
                     ->tooltip(fn ($record) => $record->exclude_from_stats ? 'Đang loại khỏi thống kê & xuất Excel' : 'Đang tính vào thống kê & xuất Excel')
+                    ->hidden()
                     ->visible(fn () => auth()->user()?->isSuperAdmin() ?? false)
                     ->toggleable(isToggledHiddenByDefault: false),
 
@@ -187,21 +257,27 @@ class OrderTable
                     ->trueColor('warning')
                     ->falseColor('gray')
                     ->tooltip(fn ($record) => $record->unlock_anytime ? 'Khách có thể mở cổng bất kỳ lúc nào' : 'Mở cổng giới hạn theo giờ đặt phòng')
+                    // Chi nhánh chưa có tài khoản TTLock kích hoạt thì trạng thái "mở cổng tự do"
+                    // không có ý nghĩa gì (không có khóa điện tử nào để mở) — ẩn hẳn cột.
+                    ->visible(fn ($record) => TTLockService::hasAccountForCategory($record?->category_id))
                     ->toggleable(isToggledHiddenByDefault: false),
             ])
             ->defaultSort('created_at', 'desc')
             ->filters(
-                OrderFilter::filter(), 
+                [
+                    ...OrderFilter::filter(),
+                    PartnerTableHelpers::filter(),
+                ],
                 layout: FiltersLayout::AboveContent
             )
             ->filtersFormColumns(['default' => 1, 'sm' => 2, 'lg' => 5])
             ->actions(array_merge(
                 [
-                    // Action Thông tin thanh toán — chỉ hiện với styles=2
+                    // Ẩn theo yêu cầu (giữ lại code, chỉ tắt hiển thị) — trước đây chỉ hiện với styles=2.
                     Action::make('payment_info')
                         ->label('Thanh toán')
                         ->color('success')
-                        ->hidden(fn ($record) => ($record->items->firstWhere('product_id', '!=', null)?->product?->styles ?? 1) != 2)
+                        ->hidden()
                         ->modalHeading(fn ($record) => 'Thông tin thanh toán — Đơn ' . $record->order_code)
                         ->modalSubmitAction(false)
                         ->modalCancelActionLabel('Đóng')
@@ -505,12 +581,12 @@ class OrderTable
                             return $actions;
                         }),
 
-                    // Nút xem danh sách khung giờ — đặt đầu tiên (ẩn với đơn style=2)
+                    // Nút xem danh sách khung giờ — ẩn theo yêu cầu (giữ lại code, chỉ tắt hiển thị).
                     Action::make('view_items')
                         ->label('Khung giờ')
                         ->color('info')
                         ->badge(fn ($record) => $record->items?->count() ?? 0)
-                        ->hidden(fn ($record) => ($record->items->firstWhere('product_id', '!=', null)?->product?->styles ?? 1) == 2)
+                        ->hidden()
                         ->modalHeading(fn ($record) => 'Danh sách khung giờ — Đơn ' . $record->order_code)
                         ->modalSubmitAction(false)
                         ->modalCancelActionLabel('Đóng')
@@ -627,6 +703,8 @@ class OrderTable
                     ->label(fn ($record) => $record->exclude_from_stats ? 'Bật thống kê' : 'Tắt thống kê')
                     ->icon(fn ($record) => $record->exclude_from_stats ? 'heroicon-o-chart-bar' : 'heroicon-o-eye-slash')
                     ->color(fn ($record) => $record->exclude_from_stats ? 'success' : 'danger')
+                    // Ẩn theo yêu cầu (giữ lại code, chỉ tắt hiển thị) — đè lên điều kiện superadmin cũ.
+                    ->hidden()
                     ->visible(fn () => auth()->user()?->isSuperAdmin() ?? false)
                     ->requiresConfirmation()
                     ->modalHeading(fn ($record) => $record->exclude_from_stats ? 'Bật lại thống kê cho đơn này?' : 'Loại đơn này khỏi thống kê?')
@@ -641,31 +719,11 @@ class OrderTable
                             ->send();
                     }),
 
-                Action::make('toggle_unlock_anytime')
-                    ->label(fn ($record) => $record->unlock_anytime ? 'Khoá giờ mở cổng' : 'Cho mở cổng tự do')
-                    ->icon(fn ($record) => $record->unlock_anytime ? 'heroicon-o-lock-closed' : 'heroicon-o-lock-open')
-                    ->color(fn ($record) => $record->unlock_anytime ? 'gray' : 'warning')
-                    ->requiresConfirmation()
-                    ->modalHeading(fn ($record) => $record->unlock_anytime
-                        ? 'Khoá lại giờ mở cổng?'
-                        : 'Cho phép khách mở cổng bất kỳ lúc nào?')
-                    ->modalDescription(fn ($record) => $record->unlock_anytime
-                        ? 'Khách sẽ chỉ được mở cổng trong khung giờ đặt phòng (±30 phút).'
-                        : 'Khách có thể nhấn mở cổng bất kỳ lúc nào, dù chưa đến hoặc đã quá giờ đặt phòng. Dùng khi khách đến sớm hoặc về muộn.')
-                    ->modalSubmitActionLabel(fn ($record) => $record->unlock_anytime ? 'Khoá lại' : 'Cho phép')
-                    ->action(function ($record) {
-                        $record->update(['unlock_anytime' => ! $record->unlock_anytime]);
-                        Notification::make()
-                            ->title($record->unlock_anytime
-                                ? 'Đã cho phép khách mở cổng tự do'
-                                : 'Đã khoá lại theo giờ đặt phòng')
-                            ->success()
-                            ->send();
-                    }),
-
+                // Ẩn theo yêu cầu (giữ lại code, chỉ tắt hiển thị).
                 Action::make('view_services')
     ->label('Dịch vụ')
     ->color('warning')
+    ->hidden()
     ->badge(fn ($record) => $record->services?->count() ?? 0)
     ->modalHeading(fn ($record) => 'Dịch vụ thêm — Đơn ' . $record->order_code)
     ->modalSubmitAction(false)
@@ -724,9 +782,53 @@ class OrderTable
         return new HtmlString($html);
     }),
                 ],
-                OrderAction::action()
+                OrderAction::action(static::gateActions())
             ), position: ActionsPosition::BeforeCells)
             ->bulkActions(OrderBulkAction::bulkActions());
+    }
+
+    // 3 action liên quan mã cổng/khoá cửa — gộp CHUNG vào đúng 1 ActionGroup "..." với "Xem chi
+    // tiết/Cập nhật/Xóa" (xem OrderAction::action($extraGroupActions)), KHÔNG tách riêng thành 1
+    // icon/ActionGroup khác nằm cạnh (theo yêu cầu — 1 dòng chỉ nên có 1 nút "..." duy nhất).
+    private static function gateActions(): array
+    {
+        return [
+            AssignAccessCodeAction::make(),
+            OpenGateAction::make(),
+            Action::make('toggle_unlock_anytime')
+                ->label(fn ($record) => $record->unlock_anytime ? 'Khoá giờ mở cổng' : 'Cho mở cổng tự do')
+                ->icon(fn ($record) => $record->unlock_anytime ? 'heroicon-o-lock-closed' : 'heroicon-o-lock-open')
+                ->color(fn ($record) => $record->unlock_anytime ? 'gray' : 'warning')
+                // Chi nhánh chưa có tài khoản TTLock kích hoạt thì không có khóa điện tử nào để
+                // "mở tự do" — ẩn hẳn nút này, giống điều kiện của OpenGateAction ("Mở cổng tự do").
+                ->visible(function ($record): bool {
+                    if (!in_array($record->status, ['paid', 'deposit'])) {
+                        return false;
+                    }
+                    $product = $record->items->first()?->product;
+                    if (!$product || !$product->lock_id) {
+                        return false;
+                    }
+                    return TTLockService::hasAccountForCategory($record->category_id);
+                })
+                ->requiresConfirmation()
+                ->modalHeading(fn ($record) => $record->unlock_anytime
+                    ? 'Khoá lại giờ mở cổng?'
+                    : 'Cho phép khách mở cổng bất kỳ lúc nào?')
+                ->modalDescription(fn ($record) => $record->unlock_anytime
+                    ? 'Khách sẽ chỉ được mở cổng trong khung giờ đặt phòng (±30 phút).'
+                    : 'Khách có thể nhấn mở cổng bất kỳ lúc nào, dù chưa đến hoặc đã quá giờ đặt phòng. Dùng khi khách đến sớm hoặc về muộn.')
+                ->modalSubmitActionLabel(fn ($record) => $record->unlock_anytime ? 'Khoá lại' : 'Cho phép')
+                ->action(function ($record) {
+                    $record->update(['unlock_anytime' => ! $record->unlock_anytime]);
+                    Notification::make()
+                        ->title($record->unlock_anytime
+                            ? 'Đã cho phép khách mở cổng tự do'
+                            : 'Đã khoá lại theo giờ đặt phòng')
+                        ->success()
+                        ->send();
+                }),
+        ];
     }
 
     /**
@@ -735,10 +837,19 @@ class OrderTable
      */
     private static function computeOrderTotal(Order $record): int
     {
-        // Đơn cọc và đơn thường: đều trả về full_amount
-        // - Đơn cọc: full_amount = số tiền cọc khách cần thanh toán ngay
-        // - Đơn thường: full_amount = tổng tiền thực sau discount
-        return (int)($record->full_amount ?? $record->amount ?? 0);
+        // Đơn cọc: full_amount = số tiền cọc khách cần thanh toán ngay — KHÔNG phải tổng đơn, giữ
+        // nguyên như cũ (khái niệm khác, không thuộc phạm vi sửa lần này).
+        if ($record->deposit_percent !== null) {
+            return (int) ($record->full_amount ?? $record->amount ?? 0);
+        }
+
+        // Đơn thường (paid/pending/...): full_amount CỐ ĐỊNH = giá LÚC ĐẶT, không tự cập nhật khi
+        // admin sửa đơn (thêm/bớt khung giờ/dịch vụ) SAU KHI đã thanh toán — cột "Tổng tiền" trước
+        // đây luôn hiện ĐÚNG số lúc đặt đầu tiên, không phản ánh giá THẬT SỰ hiện tại sau khi sửa.
+        // calculateRealTotal() tính lại TRỰC TIẾP từ order_items/services hiện có (cùng công thức
+        // với OrderForm::computeOrderTotal() và total-amount-card.blade.php), nên luôn là con số
+        // ĐÚNG NHẤT tại thời điểm xem, bất kể đã phát sinh/hoàn tiền bao nhiêu lần.
+        return app(\App\Services\ExtraChargeService::class)->calculateRealTotal($record);
     }
 
     /**

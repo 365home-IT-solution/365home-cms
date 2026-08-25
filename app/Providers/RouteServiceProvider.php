@@ -67,10 +67,30 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(10)->by($request->ip());
         });
 
+        // public-api: 40/phút/IP — siết chặt hơn mức mặc định 60/phút cho các endpoint
+        // public "nặng" (home, search) dễ bị scraper dò toàn bộ dữ liệu phòng/giá.
+        RateLimiter::for('public-api', function (Request $request) {
+            return Limit::perMinute(40)->by($request->user()?->id ?: $request->ip());
+        });
+
+        // hold-slot: 15/phút/IP — time-slot-hold không yêu cầu đăng nhập (khách vãng lai cũng gọi
+        // được). CHỈ là lớp phòng thủ PHỤ (rotate IP vẫn né được) — chặn DoS THẬT SỰ nằm ở trần
+        // MAX_HOLDS_PER_ROOM/MAX_HOLDS_PER_SESSION trong TimeSlotHoldController::hold(), độc lập
+        // với IP nên không né được bằng cách đổi IP.
+        RateLimiter::for('hold-slot', function (Request $request) {
+            return Limit::perMinute(15)->by($request->ip());
+        });
+
         $this->routes(function () {
             Route::middleware('api')
                 ->prefix('api')
                 ->group(base_path('routes/api.php'));
+
+            // API dành cho admin/nhân viên nội bộ (App\Models\User) — tách riêng khỏi
+            // routes/api.php vốn phục vụ app khách hàng (customer), để 2 phía không lẫn lộn.
+            Route::middleware('api')
+                ->prefix('api')
+                ->group(base_path('routes/api_admin.php'));
 
             Route::middleware('web')
                 ->group(base_path('routes/web.php'));

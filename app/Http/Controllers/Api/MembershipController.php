@@ -8,6 +8,7 @@ use App\Models\MembershipTier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Storage;
 use Modules\Promotion\App\Models\Coupon;
 
 class MembershipController extends Controller
@@ -48,6 +49,7 @@ class MembershipController extends Controller
                     'id'                  => $tier->id,
                     'name'                => $tier->name,
                     'slug'                => $tier->slug,
+                    'image'               => $tier->image ? Storage::disk('public')->url($tier->image) : null,
                     'welcome_coupon_value'=> (float) $tier->welcome_coupon_value,
                 ] : null,
                 'total_spending' => $spending,
@@ -79,7 +81,7 @@ class MembershipController extends Controller
     {
         $tiers = MembershipTier::where('is_active', true)
             ->orderBy('sort_order')
-            ->get(['id', 'name', 'slug', 'description', 'color', 'icon', 'min_spending',
+            ->get(['id', 'name', 'slug', 'description', 'color', 'icon', 'image', 'min_spending',
                    'welcome_coupon_type', 'welcome_coupon_value']);
 
         return response()->json([
@@ -90,6 +92,7 @@ class MembershipController extends Controller
                 'description'  => $t->description,
                 'color'        => $t->color,
                 'icon'         => $t->icon,
+                'image'        => $t->image ? Storage::disk('public')->url($t->image) : null,
                 'min_spending' => (float) $t->min_spending,
                 'coupon_reward'=> $t->welcome_coupon_value > 0 ? [
                     'type'  => $t->welcome_coupon_type,

@@ -13,12 +13,16 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Modules\Category\Entities\Category;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
+use App\Models\CustomerCompanion;
 use App\Services\PromotionCalculator;
+use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Promotion\App\Models\Coupon;
 use PayOS\PayOS;
 
@@ -69,6 +73,8 @@ class BookingController extends Controller
         }
         $couponCodes = array_values(array_unique(array_map('strtoupper', array_filter((array) ($couponInput ?? [])))));
 
+        $this->guardExclusiveCoupons($couponCodes);
+
 
         // ── 2. Khách hàng từ token ───────────────────────────────────────────
         /** @var \App\Models\Customer $customer */
@@ -108,6 +114,104 @@ class BookingController extends Controller
             [$basePrice, $summaryName, $itemsData, $rtsCollection, $slotSummary] = $this->buildDailyItems($request, $room);
         } else {
             [$basePrice, $summaryName, $itemsData] = $this->buildMonthlyItem($request, $room);
+        }
+
+        // ── 4.5 CCCD người đi cùng (bắt buộc khi có khung giờ qua đêm) ─────────
+        // Luật Cư trú (hiệu lực 01/07/2026) yêu cầu khai báo lưu trú ĐỦ TỪNG NGƯỜI khi lưu trú
+        // qua đêm — không chỉ người đặt phòng chính (CCCD lấy từ hồ sơ customer ở trên).
+        //
+        // Ưu tiên tái sử dụng CCCD người đi cùng đã lưu sẵn trong hồ sơ (customer_companions,
+        // theo thứ tự id). Nếu hồ sơ chưa đủ số người cần thiết, cho phép gửi kèm CCCD (mặt
+        // trước/sau) trực tiếp trong request tạo đơn này — giống luồng guest — qua key
+        // guests[{guest_index}][front]/guests[{guest_index}][back] (guest_index bắt đầu từ 2).
+        // Sau khi quét QR hợp lệ, lưu luôn vào customer_companions để các lần đặt phòng sau
+        // không cần upload lại.
+        //
+        // type != 'slot' (đặt theo ngày) LUÔN là qua đêm — xem over_night => true hardcode trong
+        // buildDailyItems(). $rtsCollection ở đó chỉ chứa RoomTimeSlot có type 'date' (giá đặc
+        // biệt theo ngày cụ thể) nên có thể rỗng dù đơn thực chất qua đêm — phải check type riêng.
+        $hasOvernight  = $request->input('type') === 'daily'
+            || $rtsCollection->contains(fn ($rts) => (bool) $rts->over_night);
+        $guestCccdRows      = [];
+        $newCompanionUploads = [];
+
+        if ($hasOvernight) {
+            $guestCount     = (int) $request->input('guest_count');
+            $companionCount = $guestCount - 1;
+
+            if ($companionCount > 0) {
+                $existingCompanions = $customer->companions()->orderBy('id')->get();
+
+                for ($i = 0; $i < $companionCount; $i++) {
+                    $guestIndex = $i + 2;
+
+                    if ($existingCompanions->has($i)) {
+                        $companion = $existingCompanions[$i];
+                        $guestCccdRows[] = [
+                            'guest_index' => $guestIndex,
+                            'front'       => $companion->cccd_front,
+                            'back'        => $companion->cccd_back,
+                            'data'        => $companion->cccd_data,
+                        ];
+                        continue;
+                    }
+
+                    // Chưa có sẵn trong hồ sơ — chấp nhận upload trực tiếp trong request này.
+                    $frontKey = "guests.{$guestIndex}.front";
+                    $backKey  = "guests.{$guestIndex}.back";
+
+                    if (! $request->hasFile($frontKey) || ! $request->hasFile($backKey)) {
+                        $this->cleanupNewCompanionUploads($newCompanionUploads);
+
+                        return response()->json([
+                            'message' => "Khung giờ qua đêm cần khai báo lưu trú cho khách thứ {$guestIndex} — vui lòng gửi kèm CCCD (mặt trước/sau) của khách này hoặc thêm vào hồ sơ trước.",
+                            'error'   => 'companion_cccd_required',
+                        ], 422);
+                    }
+
+                    $guestFront = $request->file($frontKey)->store('cccd', 'public');
+                    $guestBack  = $request->file($backKey)->store('cccd', 'public');
+
+                    $tempGuestOrder = new Order(['cccd_front' => $guestFront, 'cccd_back' => $guestBack]);
+                    $guestData      = app(CccdScannerService::class)->scanOrder($tempGuestOrder);
+
+                    if (! $guestData) {
+                        Storage::disk('public')->delete($guestFront);
+                        Storage::disk('public')->delete($guestBack);
+                        $this->cleanupNewCompanionUploads($newCompanionUploads);
+
+                        return response()->json([
+                            'message' => "Không đọc được mã QR trên CCCD khách thứ {$guestIndex}. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.",
+                        ], 422);
+                    }
+
+                    $guestCccdRows[] = [
+                        'guest_index' => $guestIndex,
+                        'front'       => $guestFront,
+                        'back'        => $guestBack,
+                        'data'        => $guestData,
+                    ];
+
+                    $newCompanionUploads[] = [
+                        'cccd_front' => $guestFront,
+                        'cccd_back'  => $guestBack,
+                        'cccd_data'  => $guestData,
+                    ];
+                }
+            }
+        }
+
+        // Lưu ngay các CCCD người đi cùng vừa upload vào hồ sơ (customer_companions) — độc lập
+        // với việc đơn có tạo thành công hay không, để lần đặt sau tái sử dụng được luôn, không
+        // bắt khách quét QR lại nếu đơn này bị conflict slot phải thử lại phòng khác.
+        foreach ($newCompanionUploads as $row) {
+            CustomerCompanion::create([
+                'customer_id' => $customer->id,
+                'full_name'   => $row['cccd_data']['full_name'] ?? null,
+                'cccd_front'  => $row['cccd_front'],
+                'cccd_back'   => $row['cccd_back'],
+                'cccd_data'   => $row['cccd_data'],
+            ]);
         }
 
         // ── 5. Dịch vụ bổ sung ───────────────────────────────────────────────
@@ -219,7 +323,20 @@ class BookingController extends Controller
             }
         }
 
+        // Dữ liệu đối tác cũ (vd 365home) tổ chức category 2 CẤP: chi nhánh thật (parent_id NULL)
+        // → danh mục phòng con CÙNG TÊN với phòng (parent_id = chi nhánh) — Product được gán
+        // categorizable vào danh mục CON đó, không phải thẳng vào chi nhánh. Nếu dùng thẳng kết
+        // quả categories()->first(), 'category_id' của đơn sẽ lưu NHẦM thành danh mục con (hiện
+        // tên phòng thay vì tên chi nhánh khi admin mở sửa đơn) — leo lên tới đúng cấp chi nhánh
+        // (parent_id NULL) trước khi lưu vào đơn.
         $category = $room->categories()->first();
+        for ($i = 0; $i < 5 && $category && $category->parent_id; $i++) {
+            $parent = Category::find($category->parent_id);
+            if (! $parent) {
+                break;
+            }
+            $category = $parent;
+        }
 
         $depositPercentToSave = $depositInfo !== null ? (int) ($depositInfo['percentage']) : null;
 
@@ -230,7 +347,8 @@ class BookingController extends Controller
         $order = DB::transaction(function () use (
             $room, $amountDue, $finalAmount, $subtotal, $buyerName, $buyerPhone,
             $customer, $category, $itemsData, $servicesData,
-            $paymentMethod, $request, $appliedCoupons, $appliedCouponCodes, $depositPercentToSave
+            $paymentMethod, $request, $appliedCoupons, $appliedCouponCodes, $depositPercentToSave,
+            $guestCccdRows
         ) {
             Product::where('id', $room->id)->lockForUpdate()->first();
 
@@ -243,7 +361,7 @@ class BookingController extends Controller
                     ->whereNotNull('checkout_date')
                     ->where('checkin_date', '<', $itemData['checkout_date'])
                     ->where('checkout_date', '>', $itemData['checkin_date'])
-                    ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped']))
+                    ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
                     ->exists();
 
                 if ($conflict) {
@@ -256,8 +374,12 @@ class BookingController extends Controller
             $firstCode = $appliedCouponCodes[0] ?? null;
 
             $order = Order::create([
-                'amount'          => $subtotal,
-                'full_amount'     => $amountDue,
+                // Cả 'amount' và 'full_amount' lưu ĐÚNG TỔNG GIÁ thật của đơn (không phải số tiền
+                // cọc cần trả ngay) — 'full_amount' CỐ ĐỊNH từ đây trở đi, 'amount' là nơi cập nhật
+                // khi giá thay đổi sau này. Số tiền cần thu qua PayOS (cọc hay đủ) tính riêng qua
+                // Order::depositDueAmount(), không lưu trực tiếp vào 2 cột này.
+                'amount'          => $finalAmount,
+                'full_amount'     => $finalAmount,
                 'deposit_percent' => $depositPercentToSave,
                 'coupon_code'     => $firstCode,           // backward compat
                 'coupon_codes'    => $appliedCouponCodes ?: null,
@@ -268,11 +390,26 @@ class BookingController extends Controller
                 'status'          => 'pending',
                 'guest_count'     => $request->guest_count,
                 'category_id'     => $category?->id,
+                // Đơn đặt qua API khách hàng đăng nhập (Customer, không phải App\Models\User) nên
+                // BelongsToPartner::creating() không tự gán được partner_id — gán thẳng theo đúng
+                // partner_id của phòng đang đặt (xem giải thích chi tiết ở GuestBookingController).
+                'partner_id'      => $room->partner_id,
                 'customer_id'     => $customer?->id,
                 'cccd_front'      => $customer?->cccd_front,
                 'cccd_back'       => $customer?->cccd_back,
                 'cccd_data'       => $customer?->cccd_data,
             ]);
+
+            // CCCD khách thứ 2 trở đi (khung giờ qua đêm) — snapshot từ customer_companions tại
+            // thời điểm đặt, xem bước 4.5.
+            foreach ($guestCccdRows as $guestRow) {
+                $order->guestCccds()->create([
+                    'guest_index' => $guestRow['guest_index'],
+                    'cccd_front'  => $guestRow['front'],
+                    'cccd_back'   => $guestRow['back'],
+                    'cccd_data'   => $guestRow['data'],
+                ]);
+            }
 
             foreach ($itemsData as $itemData) {
                 $order->items()->create($itemData);
@@ -323,11 +460,19 @@ class BookingController extends Controller
                 'id'             => $order->id,
                 'order_code'     => $order->order_code,
                 'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
                 'payment_method' => $order->payment_method,
                 'qr_code'        => $order->qr_code,
                 'expired_at'     => $order->expired_at,
                 'buyer_name'     => $order->buyer_name,
                 'buyer_phone'    => $order->buyer_phone,
+                'guests'         => $order->guestCccds->map(fn ($g) => [
+                    'guest_index' => $g->guest_index,
+                    'cccd_front'  => Storage::disk('public')->url($g->cccd_front),
+                    'cccd_back'   => Storage::disk('public')->url($g->cccd_back),
+                    'cccd_data'   => $g->cccd_data,
+                ])->values(),
             ],
             'room' => [
                 'id'   => $room->id,
@@ -355,6 +500,18 @@ class BookingController extends Controller
         ], 201);
     }
 
+    /**
+     * Xoá các file CCCD người đi cùng vừa upload trong request hiện tại (chưa kịp lưu vào
+     * customer_companions) khi phải huỷ ngang do lỗi ở người tiếp theo trong vòng lặp.
+     */
+    private function cleanupNewCompanionUploads(array $uploads): void
+    {
+        foreach ($uploads as $row) {
+            Storage::disk('public')->delete($row['cccd_front']);
+            Storage::disk('public')->delete($row['cccd_back']);
+        }
+    }
+
     // ── Slot (nhiều khung giờ) ────────────────────────────────────────────────
 
     private function buildSlotItems(Request $request, Product $room): array
@@ -365,15 +522,15 @@ class BookingController extends Controller
         $itemsData     = [];
         $slotSummary   = [];
         $rtsCollection = collect();
+        $errors        = [];
 
         foreach ($slots as $index => $slot) {
             $timeslotId = (int) $slot['timeslot_id'];
             $dateStr    = $slot['date'] ?? $defaultDate;
 
             if (! $dateStr) {
-                throw ValidationException::withMessages([
-                    "slots.{$index}.date" => ['Vui lòng cung cấp ngày đặt phòng.'],
-                ]);
+                $errors["slots.{$index}.date"] = ['Vui lòng cung cấp ngày đặt phòng.'];
+                continue;
             }
 
             $rts = $room->roomTimeSlots
@@ -382,15 +539,13 @@ class BookingController extends Controller
                 ->first();
 
             if (! $rts || ! $rts->timeSlot) {
-                throw ValidationException::withMessages([
-                    "slots.{$index}.timeslot_id" => ['Khung giờ không tồn tại cho phòng này.'],
-                ]);
+                $errors["slots.{$index}.timeslot_id"] = ['Khung giờ không tồn tại cho phòng này.'];
+                continue;
             }
 
             if ($rts->isBlockedOn($dateStr)) {
-                throw ValidationException::withMessages([
-                    "slots.{$index}.date" => ['Khung giờ này đã bị chặn vào ngày bạn chọn.'],
-                ]);
+                $errors["slots.{$index}.date"] = ['Khung giờ này đã bị chặn vào ngày bạn chọn.'];
+                continue;
             }
 
             $timeSlot = $rts->timeSlot;
@@ -405,13 +560,12 @@ class BookingController extends Controller
                 ->whereNotNull('checkout_date')
                 ->where('checkin_date', '<', $checkout)
                 ->where('checkout_date', '>', $checkin)
-                ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped']))
+                ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
                 ->exists();
 
             if ($conflict) {
-                throw ValidationException::withMessages([
-                    "slots.{$index}.timeslot_id" => ['Khung giờ này đã được đặt rồi.'],
-                ]);
+                $errors["slots.{$index}.timeslot_id"] = ['Khung giờ này đã được đặt rồi.'];
+                continue;
             }
 
             $startLabel  = substr($timeSlot->start_time, 0, 5);
@@ -431,6 +585,7 @@ class BookingController extends Controller
                 'checkout_date' => $checkout,
                 'extra_fee'     => 0,
                 'guest_count'   => $request->guest_count,
+                'over_night'    => $isOvernight,
             ];
 
             $slotSummary[] = [
@@ -441,6 +596,14 @@ class BookingController extends Controller
             ];
 
             $rtsCollection->push($rts);
+        }
+
+        // Gom lỗi của TẤT CẢ khung giờ bị trùng/không hợp lệ trong 1 lần request, thay vì chỉ báo
+        // đúng cái đầu tiên gặp phải rồi bắt khách sửa-gửi lại nhiều lần mới biết hết — mỗi lỗi vẫn
+        // gắn đúng "slots.{index}.field" để FE biết chính xác ô nào trong mảng slots[] đã gửi lên bị
+        // lỗi gì, tự đối chiếu ngược lại request của chính mình để bỏ tick đúng ô.
+        if (! empty($errors)) {
+            throw ValidationException::withMessages($errors);
         }
 
         $slotCount   = count($slots);
@@ -470,7 +633,7 @@ class BookingController extends Controller
             ->whereNotNull('checkout_date')
             ->where('checkin_date', '<', $checkout)
             ->where('checkout_date', '>', $checkin)
-            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped', 'confirmed']))
+            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'confirmed']))
             ->exists();
 
         if ($conflict) {
@@ -516,6 +679,8 @@ class BookingController extends Controller
                 'checkout_date' => $checkoutDt,
                 'extra_fee'     => 0,
                 'guest_count'   => $request->guest_count,
+                // Đặt theo ngày (daily) luôn ở qua đêm — checkin ngày này, checkout ngày sau.
+                'over_night'    => true,
             ];
 
             $nightSummary[] = [
@@ -579,7 +744,7 @@ class BookingController extends Controller
             ->whereNotNull('checkout_date')
             ->where('checkin_date', '<', $checkout)
             ->where('checkout_date', '>', $checkin)
-            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped']))
+            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
             ->exists();
 
         if ($conflict) {
@@ -781,6 +946,27 @@ class BookingController extends Controller
      * Trả về [totalDiscount, appliedList]
      * appliedList: mỗi phần tử có _model để gọi incrementUsage() trong transaction.
      */
+    /**
+     * Cho phép áp NHIỀU mã/đơn như bình thường, TRỪ mã nào được đánh dấu is_exclusive=true — mã đó
+     * không được dùng chung với BẤT KỲ mã nào khác trong cùng 1 lần gửi (không phân biệt mã còn
+     * lại có exclusive hay không). Dùng chung bởi BookingController/GuestBookingController/
+     * OrderController — cùng 1 quy tắc cho cả tạo đơn mới lẫn sửa coupon của đơn đang pending.
+     */
+    private function guardExclusiveCoupons(array $codes): void
+    {
+        if (count($codes) < 2) {
+            return;
+        }
+
+        $exclusiveCodes = Coupon::whereIn('code', $codes)->where('is_exclusive', true)->pluck('code');
+
+        if ($exclusiveCodes->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'coupon_codes' => ['Mã "' . $exclusiveCodes->implode('", "') . '" không thể dùng chung với mã giảm giá khác.'],
+            ]);
+        }
+    }
+
     private function applyMultipleCoupons(
         array $codes,
         float $orderAmount,
@@ -856,10 +1042,14 @@ class BookingController extends Controller
             ]);
         }
 
-        // Kiểm tra coupon cá nhân: customer_id trực tiếp hoặc gán qua coupon_customers pivot
-        if ($coupon->customer_id !== null && $coupon->customer_id !== $customer->id) {
-            $isAssigned = $coupon->customers()->where('customer_id', $customer->id)->exists();
-            if (! $isAssigned) {
+        // Kiểm tra coupon cá nhân: customer_id trực tiếp hoặc gán qua coupon_customers pivot.
+        // Coupon được coi là "cá nhân" nếu có customer_id hoặc đã từng gán cho ai đó qua pivot.
+        $isRestricted = $coupon->customer_id !== null || $coupon->customers()->exists();
+        if ($isRestricted) {
+            $owns = $coupon->customer_id === $customer->id
+                || $coupon->customers()->where('customer_id', $customer->id)->exists();
+
+            if (! $owns) {
                 throw ValidationException::withMessages([
                     $field => ["Mã \"{$code}\" không thuộc về tài khoản của bạn."],
                 ]);
@@ -879,8 +1069,7 @@ class BookingController extends Controller
         }
 
         $applicable = match ($coupon->apply_type) {
-            'all_rooms'     => true,
-            'specific_room' => $coupon->room_id === $room->id,
+            'all_rooms', 'specific_room', 'specific_rooms' => $coupon->appliesToRoom($room->id),
             'specific_slot' => $rtsCollection->some(fn (RoomTimeSlot $rts) => $coupon->isApplicableToSlot($rts)),
             default         => false,
         };
@@ -956,17 +1145,18 @@ class BookingController extends Controller
 
             $payOS     = new PayOS($clientId, $apiKey, $checksumKey);
             $expiredAt = now()->addMinutes(15);
+            $dueNow    = $order->depositDueAmount();
 
             $response = $payOS->createPaymentLink([
                 'orderCode'   => (int) $order->order_code,
-                'amount'      => (int) $order->full_amount,
+                'amount'      => $dueNow,
                 'description' => 'TT don ' . $order->order_code,
                 'returnUrl'   => $returnUrl ?? route('payment.success') . '?orderCode=' . $order->order_code,
                 'cancelUrl'   => $cancelUrl ?? route('payment.cancel') . '?orderCode=' . $order->order_code,
                 'buyerName'   => $order->buyer_name ?? '',
                 'buyerPhone'  => $order->buyer_phone ?? '',
                 'expiredAt'   => $expiredAt->timestamp,
-                'items'       => [['name' => $itemName, 'quantity' => 1, 'price' => (int) $order->full_amount]],
+                'items'       => [['name' => $itemName, 'quantity' => 1, 'price' => $dueNow]],
             ]);
 
             $updates = ['expired_at' => $expiredAt];

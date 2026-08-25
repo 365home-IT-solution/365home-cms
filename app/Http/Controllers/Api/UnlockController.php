@@ -73,7 +73,7 @@ class UnlockController extends Controller
     // PRIVATE
     // =========================================================
 
-    private function processUnlock(Order $order): JsonResponse
+    protected function processUnlock(Order $order, bool $bypassTimeWindow = false): JsonResponse
     {
         if (!in_array($order->status, ['paid', 'deposit'])) {
             return response()->json([
@@ -93,8 +93,10 @@ class UnlockController extends Controller
             ], 422);
         }
 
-        // Kiểm tra cửa sổ thời gian - hỗ trợ nhiều khung giờ (buffer 30 phút trước/sau)
-        if (!$order->unlock_anytime) {
+        // Kiểm tra cửa sổ thời gian - hỗ trợ nhiều khung giờ (buffer 30 phút trước/sau).
+        // $bypassTimeWindow: admin mở hộ được phép bỏ qua cửa sổ giờ (vd hỗ trợ khách vào sớm/muộn) —
+        // xem Admin\UnlockController::unlock().
+        if (!$order->unlock_anytime && !$bypassTimeWindow) {
             $now          = now();
             $activeItem   = null;
             $earliestItem = null;
@@ -182,31 +184,26 @@ class UnlockController extends Controller
             ]);
         }
 
-        $opened = $ttlock->remoteUnlock($lockId);
+        // Cửa gắn 2 ổ cần nhả CÙNG LÚC (Product::unlock_both_locks) — mở cả lock_id lẫn
+        // lock_id_checkout bất kể đang là phase check-in hay check-out, và chỉ coi là mở được khi
+        // CẢ 2 ổ đều thành công (xem TTLockService::remoteUnlockBoth()).
+        $bothLocksRequired = $product->unlock_both_locks && $product->lock_id && $product->lock_id_checkout;
+
+        $opened = $bothLocksRequired
+            ? $ttlock->remoteUnlockBoth((int) $product->lock_id, (int) $product->lock_id_checkout)['success']
+            : $ttlock->remoteUnlock($lockId);
 
         Log::info('Remote unlock attempt', [
-            'order_id'   => $order->id,
-            'order_code' => $order->order_code,
-            'lock_id'    => $lockId,
-            'is_checkin' => $isCheckin,
-            'success'    => $opened,
+            'order_id'    => $order->id,
+            'order_code'  => $order->order_code,
+            'lock_id'     => $lockId,
+            'both_locks'  => $bothLocksRequired,
+            'is_checkin'  => $isCheckin,
+            'success'     => $opened,
         ]);
 
         if ($opened) {
-            $checkedInAt = null;
-            if ($isCheckin) {
-                $checkedInAt = now()->toIso8601String();
-                $order->update(['checked_in_at' => now()]);
-            }
-
-            $this->realtime->broadcastCheckin(
-                $order->order_code,
-                $isCheckin ? 'checkin' : 'checkout',
-                $checkedInAt,
-                $order->customer_id ? (int) $order->customer_id : null,
-            );
-
-            $this->notifyUnlock($order, $product, $item, $accessCode, $isCheckin);
+            $this->finalizeCheckInOut($order, $product, $item, $accessCode, $isCheckin, 'app');
 
             $msg = $isCheckin
                 ? 'Cổng đã được mở. Chào mừng bạn!'
@@ -237,6 +234,66 @@ class UnlockController extends Controller
         ], 503);
     }
 
+    /**
+     * Ghi nhận check-in/check-out THẬT (cập nhật cột, broadcast realtime, báo Telegram + admin) —
+     * dùng chung cho CẢ 2 nguồn: khách tự mở qua TTLock (handleTTLockUnlock() ở trên) LẪN lễ tân xác
+     * nhận thủ công không qua khoá (Admin\UnlockController::manualCheckin()/manualCheckout()).
+     * $method chỉ ảnh hưởng nội dung tin nhắn Telegram ('app' | 'manual'), không đổi logic xử lý.
+     */
+    protected function finalizeCheckInOut(
+        Order       $order,
+        Product     $product,
+        OrderItem   $item,
+        ?AccessCode $accessCode,
+        bool        $isCheckin,
+        string      $method = 'app'
+    ): void {
+        if ($isCheckin) {
+            // "nhận phòng" và "bắt đầu ở" xảy ra cùng lúc (không có sự kiện nào tách 2 mốc này) → ghi thẳng order_status = staying.
+            $order->update(['checked_in_at' => now(), 'order_status' => 'staying']);
+        } else {
+            $order->update(['checked_out_at' => now(), 'order_status' => 'checked_out']);
+        }
+
+        $this->realtime->broadcastCheckin(
+            $order->order_code,
+            $isCheckin ? 'checkin' : 'checkout',
+            $isCheckin ? now()->toIso8601String() : null,
+            $order->customer_id ? (int) $order->customer_id : null,
+        );
+
+        $this->realtime->broadcastOrderUpdate(
+            $order->order_code,
+            ['order_status' => $order->order_status, 'payment_status' => $order->payment_status],
+            $order->customer_id ? (int) $order->customer_id : null,
+        );
+
+        $this->notifyUnlock($order, $product, $item, $accessCode, $isCheckin, $method);
+        $this->notifyAdminCheckinOrCheckout($order, $isCheckin);
+    }
+
+    /**
+     * Báo cho admin khi khách thực sự mở cổng check-in/check-out qua TTLock — CHỈ chi nhánh có đăng
+     * ký TTLock mới đi qua handleTTLockUnlock() (chi nhánh cấp mã thủ công không gọi hàm này), nên
+     * không cần kiểm tra thêm điều kiện "có TTLock" ở đây.
+     */
+    private function notifyAdminCheckinOrCheckout(Order $order, bool $isCheckin): void
+    {
+        $service = app(\App\Services\AdminNotificationService::class);
+        $title   = $isCheckin ? 'Khách đã check-in' : 'Khách đã check-out';
+        $body    = "#{$order->order_code} · {$order->buyer_name} · " . now()->format('H:i d/m');
+
+        $service->notify(
+            $service->recipientsForOrder($order),
+            $title,
+            $body,
+            ['type' => $isCheckin ? 'checkin' : 'checkout', 'order_code' => $order->order_code],
+            $isCheckin ? 'heroicon-o-arrow-right-on-rectangle' : 'heroicon-o-arrow-left-on-rectangle',
+            $isCheckin ? 'success' : 'info',
+            \Modules\Payment\App\Filament\Resources\OrderResource::getUrl('edit', ['record' => $order->id]),
+        );
+    }
+
     // =========================================================
     // TELEGRAM NOTIFICATIONS (format giống LockRecordCallbackController)
     // =========================================================
@@ -246,7 +303,8 @@ class UnlockController extends Controller
         Product     $product,
         OrderItem   $item,
         ?AccessCode $accessCode,
-        bool        $isCheckin
+        bool        $isCheckin,
+        string      $method = 'app'
     ): void {
         $prefix = $isCheckin ? 'CHECK-IN' : 'CHECK-OUT';
 
@@ -268,7 +326,7 @@ class UnlockController extends Controller
             $msg .= "Mã cổng: <code>{$accessCode->code}</code>\n";
         }
 
-        $msg .= "(Mở qua app)";
+        $msg .= $method === 'manual' ? '(Lễ tân xác nhận thủ công)' : '(Mở qua app)';
 
         try {
             $this->telegram->sendLockMessage(trim($msg));

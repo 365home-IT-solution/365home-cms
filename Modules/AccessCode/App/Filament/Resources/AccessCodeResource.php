@@ -60,8 +60,9 @@ class AccessCodeResource extends Resource
 
         $allCategoryIds = $user->allowedCategoryIds();
 
+        // AccessCode đã lọc theo partner_id qua BelongsToPartner; allowedCategoryIds chỉ thu hẹp thêm.
         if (empty($allCategoryIds)) {
-            return $query->whereRaw('1 = 0');
+            return $query;
         }
 
         return $query->whereIn('category_id', $allCategoryIds);

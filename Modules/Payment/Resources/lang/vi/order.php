@@ -18,7 +18,7 @@ return [
             'amount' => 'Tổng tiền',
             'buyer_name' => 'Tên người mua',
             'buyer_email' => 'Email người mua',
-            'buyer_phone' => 'Số điện thoại người mua',
+            'buyer_phone' => 'Số điện thoại',
             'buyer_address' => 'Địa chỉ người mua',
             'payment_method' => 'Phương thức thanh toán',
             'shipping_method' => 'Phương thức vận chuyển',
@@ -27,6 +27,7 @@ return [
             'note_for_admin' => 'Ghi chú dành cho admin',
             'items' => 'Sản phẩm',
             'description' => 'Ghi chú dành cho đơn hàng',
+            'short_description' => 'Mô tả ngắn',
             'created_at' => 'Ngày tạo',
             'updated_at' => 'Ngày cập nhật'
         ],
@@ -49,8 +50,8 @@ return [
                 'paid'              => 'Đã thanh toán',
                 'deposit'           => 'Đã đặt cọc',
                 'failed'            => 'Thất bại',
-                'shipped'           => 'Đã đăng đơn',
-                'cancelled_payment' => 'Hủy thanh toán'
+                'cancelled_payment' => 'Hủy thanh toán',
+                'refunded'          => 'Hoàn tiền'
             ]
         ],
         'icons' => [
@@ -82,8 +83,8 @@ return [
             'paid'              => 'Đã thanh toán',
             'deposit'           => 'Đã đặt cọc',
             'failed'            => 'Hủy thanh toán',
-            'shipped'           => 'Đã đăng đơn',
-            'cancelled_payment' => 'Hủy QR'
+            'cancelled_payment' => 'Hủy QR',
+            'refunded'          => 'Hoàn tiền'
         ],
         'shipping' => [
             'labels' => [

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\AppPage\App\Models;
 
+use App\Support\ImagePresetUrls;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
 
@@ -14,14 +15,18 @@ class Banner extends Model
         'url',
         'description',
         'image',
+        'image_width',
+        'image_height',
         'disk',
         'is_active',
         'sort_order',
     ];
 
     protected $casts = [
-        'is_active'  => 'boolean',
-        'sort_order' => 'integer',
+        'is_active'    => 'boolean',
+        'sort_order'   => 'integer',
+        'image_width'  => 'integer',
+        'image_height' => 'integer',
     ];
 
     public function getImageUrlAttribute(): ?string
@@ -31,5 +36,10 @@ class Banner extends Model
         }
 
         return Storage::disk($this->disk ?? 'public')->url($this->image);
+    }
+
+    public function getThumbnailAttribute(): ?array
+    {
+        return ImagePresetUrls::build($this->image, $this->disk ?? 'public', $this->image_width, $this->image_height);
     }
 }

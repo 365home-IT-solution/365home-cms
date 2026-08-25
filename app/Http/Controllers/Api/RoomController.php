@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Concerns\BuildsRoomCard;
+use App\Support\MediaThumbnailUrls;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -67,18 +68,15 @@ class RoomController extends Controller
             return response()->json(['message' => 'Phòng không tồn tại.'], 404);
         }
 
-        $dateStr = $request->query('date');
-        if (! $dateStr) {
-            return response()->json(['message' => 'Thiếu tham số date (YYYY-MM-DD).'], 422);
+        $dates = $this->resolveSlotsDates($request);
+        if ($dates instanceof JsonResponse) {
+            return $dates;
         }
 
-        try {
-            $date = Carbon::createFromFormat('Y-m-d', $dateStr)->startOfDay();
-        } catch (\Throwable) {
-            return response()->json(['message' => 'Định dạng date không hợp lệ. Dùng YYYY-MM-DD.'], 422);
-        }
+        $sessionId = $request->query('session_id');
 
-        // All template slots for this room (keep $rts reference for promotions/blocked check)
+        // All template slots for this room (keep $rts reference for promotions/blocked check) —
+        // tính 1 LẦN DUY NHẤT, dùng chung cho mọi ngày trong $dates (không phụ thuộc ngày).
         $templateSlots = $room->roomTimeSlots
             ->whereNull('date')
             ->map(function ($rts) {
@@ -97,6 +95,117 @@ class RoomController extends Controller
             ->filter()
             ->values();
 
+        $days = [];
+        foreach ($dates as $dateStr) {
+            $days[] = [
+                'date'  => $dateStr,
+                'slots' => $this->buildSlotsForDate($room, $templateSlots, $dateStr, $sessionId),
+            ];
+        }
+
+        // Giữ nguyên shape cũ {date, slots} khi gọi kiểu 1-ngày (?date=) — không phá client hiện có.
+        // Gọi kiểu nhiều ngày (from/to hoặc dates[]) trả {days: [{date, slots}, ...]}.
+        if (count($days) === 1 && $request->filled('date')) {
+            return response()->json($days[0]);
+        }
+
+        return response()->json(['days' => $days]);
+    }
+
+    /**
+     * Suy danh sách ngày cần tính slot từ query params — 3 cách, ưu tiên theo thứ tự:
+     *  - dates[]=2026-08-20&dates[]=2026-08-22  → đúng các ngày liệt kê (không cần liền kề)
+     *  - from=2026-08-20&to=2026-08-25          → cả khoảng, tối đa 31 ngày
+     *  - date=2026-08-20                        → 1 ngày (hành vi cũ, giữ tương thích ngược)
+     *
+     * @return array<int, string>|JsonResponse
+     */
+    private function resolveSlotsDates(Request $request)
+    {
+        if ($request->filled('dates')) {
+            $raw   = (array) $request->query('dates');
+            $dates = [];
+            foreach ($raw as $d) {
+                try {
+                    $dates[] = Carbon::createFromFormat('Y-m-d', (string) $d)->toDateString();
+                } catch (\Throwable) {
+                    return response()->json(['message' => "Định dạng ngày không hợp lệ trong dates[]: {$d}. Dùng YYYY-MM-DD."], 422);
+                }
+            }
+            $dates = array_values(array_unique($dates));
+            sort($dates);
+            if (count($dates) > 31) {
+                return response()->json(['message' => 'Tối đa 31 ngày mỗi lần gọi.'], 422);
+            }
+            return $dates;
+        }
+
+        if ($request->filled('from') || $request->filled('to')) {
+            if (! $request->filled('from') || ! $request->filled('to')) {
+                return response()->json(['message' => 'Cần truyền đủ cả from và to.'], 422);
+            }
+            try {
+                $start = Carbon::createFromFormat('Y-m-d', $request->query('from'))->startOfDay();
+                $end   = Carbon::createFromFormat('Y-m-d', $request->query('to'))->startOfDay();
+            } catch (\Throwable) {
+                return response()->json(['message' => 'Định dạng from/to không hợp lệ. Dùng YYYY-MM-DD.'], 422);
+            }
+            if ($end->lt($start)) {
+                return response()->json(['message' => 'to phải >= from.'], 422);
+            }
+            if ($start->diffInDays($end) > 30) {
+                return response()->json(['message' => 'Khoảng from-to tối đa 31 ngày.'], 422);
+            }
+            $dates   = [];
+            $cursor  = $start->copy();
+            while ($cursor->lte($end)) {
+                $dates[] = $cursor->toDateString();
+                $cursor->addDay();
+            }
+            return $dates;
+        }
+
+        $dateStr = $request->query('date');
+        if (! $dateStr) {
+            return response()->json(['message' => 'Thiếu tham số date (YYYY-MM-DD), hoặc dùng from/to hoặc dates[].'], 422);
+        }
+        try {
+            $dateStr = Carbon::createFromFormat('Y-m-d', $dateStr)->toDateString();
+        } catch (\Throwable) {
+            return response()->json(['message' => 'Định dạng date không hợp lệ. Dùng YYYY-MM-DD.'], 422);
+        }
+
+        return [$dateStr];
+    }
+
+    /**
+     * Tính danh sách slot (giá/khuyến mãi/trạng thái/hold) cho ĐÚNG 1 ngày — tách khỏi slots() để
+     * dùng chung được cho cả kiểu 1-ngày lẫn nhiều-ngày (xem resolveSlotsDates()), không tính 2 công
+     * thức lệch nhau.
+     *
+     * @param  \Illuminate\Support\Collection  $templateSlots
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildSlotsForDate(Product $room, $templateSlots, string $dateStr, ?string $sessionId): array
+    {
+        $date = Carbon::createFromFormat('Y-m-d', $dateStr)->startOfDay();
+
+        // Hold "đang chọn" tạm thời — hiện tại CHỈ admin tạo được (route hold()/release() public
+        // cho khách vãng lai đã bị gỡ vì lỗ hổng DoS, xem docblock routes/api.php), nên holding=true
+        // ở đây nghĩa là "1 admin đang thao tác tạo đơn cho khung này", không phải khách khác. Vẫn
+        // hữu ích để hiển thị cảnh báo "có thể sắp hết chỗ". session_id (tuỳ chọn) cho phép FE tự
+        // biết đây có phải hold CỦA CHÍNH MÌNH không — hiện luôn false với khách vì khách không tạo
+        // được hold nào để so khớp, giữ lại param cho tương lai (nếu mở lại hold khách vãng lai) mà
+        // không phải đổi lại response shape.
+        // getActiveHolds() lưu 'date' theo d-m-Y (khớp lưới admin) — phải đổi khớp định dạng trước
+        // khi so sánh với $dateStr (Y-m-d), KHÔNG đổi ở TimeSlotHoldController (nơi khác vẫn cần
+        // nguyên d-m-Y).
+        $dateDmy      = $date->format('d-m-Y');
+        $holdsForDate = array_values(array_filter(
+            TimeSlotHoldController::getActiveHolds((string) $room->id),
+            fn ($h) => $h['date'] === $dateDmy
+        ));
+
         // Active order items that could overlap with the given date
         $activeItems = OrderItem::query()
             ->where('product_id', $room->id)
@@ -104,7 +213,7 @@ class RoomController extends Controller
             ->whereNotNull('checkout_date')
             ->where('checkout_date', '>', $date)
             ->where('checkin_date', '<', $date->copy()->addDay())
-            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'shipped', 'confirmed']))
+            ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit', 'confirmed']))
             ->with('order:id,status')
             ->get(['id', 'order_id', 'checkin_date', 'checkout_date']);
 
@@ -126,12 +235,18 @@ class RoomController extends Controller
             }
         }
 
-        $slots = $templateSlots->map(function ($slot) use ($bookedMap, $dateStr) {
+        return $templateSlots->map(function ($slot) use ($bookedMap, $dateStr, $holdsForDate, $sessionId) {
             $rts       = $slot['rts'];
             $basePrice = $slot['price'];
 
             // Blocked date check (from roomTimeSlot settings)
             $isBlocked = $rts->isBlockedOn($dateStr);
+
+            $heldEntry = collect($holdsForDate)->first(
+                fn ($h) => (int) $h['timeslot_id'] === (int) $slot['timeslot_id']
+            );
+            $holding  = $heldEntry !== null;
+            $heldByMe = $holding && $sessionId !== null && ($heldEntry['session_id'] ?? null) === $sessionId;
 
             // Promotions applicable to this slot on this date
             $slotStart = Carbon::parse("{$dateStr} {$slot['start_time']}");
@@ -192,14 +307,11 @@ class RoomController extends Controller
                 'over_night'   => $slot['over_night'],
                 'is_blocked'   => $isBlocked,
                 'order_status' => $bookedMap[$slot['timeslot_id']] ?? null,
+                'holding'      => $holding,
+                'held_by_me'   => $heldByMe,
                 'promotions'   => $promotionData,
             ];
         })->values()->toArray();
-
-        return response()->json([
-            'date'  => $dateStr,
-            'slots' => $slots,
-        ]);
     }
 
     // GET /api/rooms/{id}/guest-surcharge-preview?guest_count=5&dates[]=2026-06-29&dates[]=2026-06-30
@@ -208,7 +320,7 @@ class RoomController extends Controller
     // Xem trước phụ thu khi chọn số lượng khách, áp dụng cho cả phòng theo
     // khung giờ (styles=1, truyền dates[]) và phòng theo ngày (styles=2,
     // truyền checkin/checkout). Cấu hình phụ thu lấy từ room_config
-    // (max_free_guests, extra_guest_fee) — set trong Hệ thống Giá & Ưu đãi.
+    // (max_free_guests, extra_guest_fee) — set trong Hệ thống giá.
     public function guestSurchargePreview(Request $request, string $id): JsonResponse
     {
         $room = Product::where('id', $id)
@@ -309,7 +421,9 @@ class RoomController extends Controller
             'latitude'          => $room->latitude,
             'longitude'         => $room->longitude,
             'main'              => $this->buildMainImages($room),
+            'main_thumbnails'   => $this->buildMainImageThumbnails($room),
             'gallery'           => $this->buildGallery($room),
+            'gallery_thumbnails' => $this->buildGalleryThumbnails($room),
             'wishlist_status'   => $wishlistStatus,
             'is_available'      => $room->is_in_stock,
             'room_type'         => $room->roomType?->slug,
@@ -354,6 +468,15 @@ class RoomController extends Controller
             ->toArray();
     }
 
+    // Index-matched với buildMainImages() — cùng thứ tự collection 'Ảnh bìa'.
+    private function buildMainImageThumbnails(Product $room): array
+    {
+        return $room->getMedia('Ảnh bìa')
+            ->map(fn ($m) => MediaThumbnailUrls::build($m))
+            ->values()
+            ->toArray();
+    }
+
     // ─────────────────────────────────────────────
     // GALLERY — sections: [{title, description, images:[url,...]}]
     // ─────────────────────────────────────────────
@@ -362,6 +485,15 @@ class RoomController extends Controller
     {
         return $room->getMedia('Thư viện')
             ->map(fn ($m) => $m->getUrl())
+            ->values()
+            ->toArray();
+    }
+
+    // Index-matched với buildGallery() — cùng thứ tự collection 'Thư viện'.
+    private function buildGalleryThumbnails(Product $room): array
+    {
+        return $room->getMedia('Thư viện')
+            ->map(fn ($m) => MediaThumbnailUrls::build($m))
             ->values()
             ->toArray();
     }

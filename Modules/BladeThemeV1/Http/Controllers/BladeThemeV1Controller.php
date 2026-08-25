@@ -9,8 +9,10 @@ use Modules\Category\Entities\Category;
 use Modules\Page\Entities\Page;
 use Modules\Page\Entities\PageComponent;
 use Modules\BladeThemeV1\Traits\HandleColorTrait;
+use Modules\BladeThemeV1\Support\BranchBookConfig;
 use Modules\Post\Entities\Post;
 use Modules\Product\App\Models\Product;
+use App\Models\Province;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Http\Controllers\PaymentController;
 use Illuminate\Support\Facades\Log;
@@ -264,6 +266,76 @@ class BladeThemeV1Controller extends Controller
 //        ]);
 //    }
 
+    public function favoritesPage(Request $request)
+    {
+        $seoData = [
+            'seo_title' => 'Yêu thích',
+            'seo_description' => 'Danh sách phòng đã lưu',
+            'seo_keywords' => 'yêu thích, phòng nghỉ, 365 home',
+            'og_type' => 'website',
+        ];
+
+        return view('bladethemev1::pages.favorites', [
+            'seoData' => $seoData,
+            'primaryColor' => $this->primaryColor,
+            'primaryColorRgb' => $this->primaryColorRgb,
+            'heavyPrimaryColor' => $this->heavyPrimaryColor,
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+        ]);
+    }
+
+    public function postsPage()
+    {
+        $seoData = [
+            'seo_title' => 'Tin tức',
+            'seo_description' => 'Tin tức và bài viết mới nhất',
+            'seo_keywords' => 'tin tức, bài viết, 365 home',
+            'og_type' => 'website',
+        ];
+
+        return view('bladethemev1::pages.posts', [
+            'seoData' => $seoData,
+            'primaryColor' => $this->primaryColor,
+            'primaryColorRgb' => $this->primaryColorRgb,
+            'heavyPrimaryColor' => $this->heavyPrimaryColor,
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+        ]);
+    }
+
+    // textOnPrimary: màu chữ tương phản đặt lên nền $primaryColor (nút CTA trong form đăng
+    // nhập/đăng ký) — cùng công thức luminance đang dùng ở Modules/BladeThemeV1/Livewire/AuthModal.php
+    // (giữ nguyên modal đó cho các nơi khác vẫn đang mở popup, xem components/auth/form.blade.php).
+    private function textOnPrimaryColor(): string
+    {
+        $hex = ltrim($this->primaryColor, '#');
+        $r = hexdec(substr($hex, 0, 2));
+        $g = hexdec(substr($hex, 2, 2));
+        $b = hexdec(substr($hex, 4, 2));
+        $luminance = (0.299 * $r + 0.587 * $g + 0.114 * $b) / 255;
+
+        return $luminance > 0.5 ? '#1a1e25' : '#ffffff';
+    }
+
+    public function loginPage()
+    {
+        $seoData = [
+            'seo_title' => 'Đăng nhập',
+            'seo_description' => 'Đăng nhập tài khoản 365 Home để đặt phòng nhanh hơn và nhận ưu đãi dành riêng cho thành viên.',
+            'seo_keywords' => 'đăng nhập, 365 home',
+            'og_type' => 'website',
+        ];
+
+        return view('bladethemev1::pages.login', [
+            'seoData' => $seoData,
+            'primaryColor' => $this->primaryColor,
+            'primaryColorRgb' => $this->primaryColorRgb,
+            'heavyPrimaryColor' => $this->heavyPrimaryColor,
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+            'textOnPrimary' => $this->textOnPrimaryColor(),
+        ]);
+    }
+
+
     public function productDetail($slug)
     {
         $product = Product::where([
@@ -397,23 +469,90 @@ class BladeThemeV1Controller extends Controller
         ]);
     }
 
-    public function searchProduct(Request $request)
+    public function home()
     {
-        $this->primaryColor = $this->getFilamentPrimaryColor();
-        $search = $request->input('tim-kiem', '');
+        $seoData = [
+            'seo_title'       => config('app.name', '365 HOME'),
+            'seo_description' => 'Đặt phòng nghỉ, coworking, phòng theo giờ chất lượng tại 365 HOME',
+            'seo_keywords'    => '365 home, đặt phòng, phòng theo giờ, coworking',
+            'og_type'         => 'website',
+        ];
+
+        return view('bladethemev1::pages.home', [
+            'primaryColor'     => $this->primaryColor,
+            'primaryColorRgb'  => $this->primaryColorRgb,
+            'heavyPrimaryColor' => $this->heavyPrimaryColor,
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+            'seoData'          => $seoData,
+        ]);
+    }
+
+    public function searchProduct(Request $request, string $location = '')
+    {
+        // Ưu tiên location trên path (kiểu /s/ho-chi-minh), fallback query string
+        // ?location=... để không phá các link cũ đã chia sẻ/bookmark trước khi đổi cấu trúc URL.
+        $location = $location ?: $request->query('location', '');
+
+        // Resolve province for map
+        $province = null;
+        $mapLat   = 16.0;
+        $mapLng   = 106.0;
+        $mapZoom  = 6;
+
+        if ($location) {
+            $province = Province::where('slug', $location)->first();
+            if ($province && $province->lat && $province->lng) {
+                $mapLat  = (float) $province->lat;
+                $mapLng  = (float) $province->lng;
+                $mapZoom = 13;
+            }
+        }
 
         $seoData = [
-            'seo_title' => 'Tìm kiếm sản phẩm' . ($search ? ': ' . $search : '') . ' | Goldenbeeltd',
-            'seo_description' => 'Trang tìm kiếm sản phẩm với đa dạng các mặt hàng chất lượng. Dễ dàng tìm kiếm và lọc sản phẩm theo danh mục, giá cả và nhiều tiêu chí khác.',
-            'seo_keywords' => 'tìm kiếm sản phẩm, tìm kiếm, mua sắm online, sản phẩm chất lượng, giá tốt, shop online'
+            'seo_title'       => 'Tìm kiếm phòng' . ($province ? ' tại ' . $province->name : '') . ' | 365 HOME',
+            'seo_description' => 'Tìm kiếm phòng nghỉ, coworking, phòng theo giờ chất lượng tại 365 HOME.',
+            'seo_keywords'    => 'tìm kiếm phòng, đặt phòng, phòng theo giờ, 365 home',
+            'og_type'         => 'website',
         ];
 
         return view('bladethemev1::pages.product.search', [
+            'seoData'          => $seoData,
+            'primaryColor'     => $this->primaryColor,
+            'primaryColorRgb'  => $this->primaryColorRgb,
+            'heavyPrimaryColor' => $this->heavyPrimaryColor,
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+            'province'         => $province,
+            'location'         => $location,
+            'mapLat'           => $mapLat,
+            'mapLng'           => $mapLng,
+            'mapZoom'          => $mapZoom,
+        ]);
+    }
+
+    public function bookingBoard(string $slug)
+    {
+        $result = BranchBookConfig::build($slug);
+
+        abort_unless($result, 404);
+
+        $branch = $result['branch'];
+        $bookConfig = $result['bookConfig'];
+
+        $seoData = [
+            'seo_title' => 'Đặt phòng ' . $branch->name . ' | 365 HOME',
+            'seo_description' => 'Bảng đặt phòng theo khung giờ tại chi nhánh ' . $branch->name . '.',
+            'seo_keywords' => 'đặt phòng, khung giờ, ' . $branch->name,
+            'og_type' => 'website',
+        ];
+
+        return view('bladethemev1::pages.booking-board', [
             'seoData' => $seoData,
             'primaryColor' => $this->primaryColor,
             'primaryColorRgb' => $this->primaryColorRgb,
             'heavyPrimaryColor' => $this->heavyPrimaryColor,
-            'lightPrimaryColor' => $this->lightPrimaryColor
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+            'branch' => $branch,
+            'bookConfig' => $bookConfig,
         ]);
     }
 

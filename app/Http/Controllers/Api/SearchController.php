@@ -4,21 +4,18 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
-use App\Http\Concerns\BuildsRoomCard;
 use App\Http\Concerns\ResolvesProvince;
-use App\Models\Province;
-use App\Models\ProvinceBranch;
+use App\Services\RoomSearchService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
-use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Storage;
 use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
-use Modules\Product\App\Models\RoomType;
 
 class SearchController extends Controller
 {
-    use BuildsRoomCard, ResolvesProvince;
+    use ResolvesProvince;
 
     // ─── GET /v1/search/suggestions ─────────────────────────────────────────
 
@@ -64,204 +61,122 @@ class SearchController extends Controller
         return response()->json(['data' => collect([$nearby])->merge($locations)->values()]);
     }
 
-    // ─── GET /v1/search ──────────────────────────────────────────────────────
-
-    public function index(Request $request): JsonResponse
+    // ─── GET /v1/search/branches ─────────────────────────────────────────────
+    // Dùng cho "Xem tất cả" của block Gợi ý điểm đến (loại Chi nhánh) trên mobile —
+    // trả về danh sách chi nhánh của khu vực thay vì danh sách phòng.
+    public function branches(Request $request): JsonResponse
     {
-        $validated = $request->validate([
-            'category'  => ['nullable', 'string'],
-            'q'         => ['nullable', 'string', 'max:255'],
-            'lat'       => ['nullable', 'numeric', 'between:-90,90'],
-            'lng'       => ['nullable', 'numeric', 'between:-180,180'],
-            'radius'    => ['nullable', 'numeric', 'min:0'],
-            'time_type' => ['nullable', Rule::in(['slot', 'day', 'month'])],
-            'date'      => ['nullable', 'date_format:Y-m-d', 'required_if:time_type,slot'],
-            'time_from' => ['nullable', 'date_format:H:i'],
-            'time_to'   => ['nullable', 'date_format:H:i'],
-            'from'      => ['nullable', 'date_format:Y-m-d', 'required_if:time_type,day'],
-            'to'        => ['nullable', 'date_format:Y-m-d', 'required_if:time_type,day', 'after_or_equal:from'],
-            'month'     => ['nullable', 'integer', 'between:1,12', 'required_if:time_type,month'],
-            'year'      => ['nullable', 'integer', 'min:2020', 'required_if:time_type,month'],
-            'guests'    => ['nullable', 'integer', 'min:1'],
-            'ward_code' => ['nullable', 'integer'],
-            'page'      => ['nullable', 'integer', 'min:1'],
-            'per_page'  => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
-
-        $query = Product::where('is_activated', true)
-            ->where('is_in_stock', true)
-            ->with(['roomTimeSlots.timeSlot', 'media', 'roomType']);
-
-        // Auto-filter theo khu vực đã lưu (customer hoặc guest ?province_id=)
         $province = $this->resolveProvince($request);
-        if ($province !== null) {
-            $provinceBranchIds = $province->branches()
-                ->where('status', true)
-                ->pluck('categorie_id')
-                ->toArray();
 
-            if (! empty($provinceBranchIds)) {
-                $childIds  = Category::whereIn('parent_id', $provinceBranchIds)->pluck('id');
-                $filterIds = collect($provinceBranchIds)->merge($childIds)->unique()->values();
-                $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
-            } else {
-                // Province tồn tại nhưng không có branch active → trả về rỗng
-                $query->whereRaw('1 = 0');
-            }
+        if ($province === null) {
+            return response()->json([
+                'data' => [],
+                'meta' => ['province_name' => null, 'total' => 0],
+            ]);
         }
 
-        // Filter theo ward — chi tiết hơn tỉnh, ghi đè filter tỉnh nếu có
-        if (! empty($validated['ward_code'])) {
-            $wardBranchIds = ProvinceBranch::where('ward_code', $validated['ward_code'])
-                ->where('status', true)
-                ->pluck('categorie_id')
-                ->toArray();
+        $branchRows = $province->branches()
+            ->where('status', true)
+            ->with('category')
+            ->get()
+            ->filter(fn ($branch) => $branch->category && $branch->category->status)
+            ->sortBy(fn ($branch) => $branch->category->sort_order)
+            ->values();
 
-            if (! empty($wardBranchIds)) {
-                $childIds  = Category::whereIn('parent_id', $wardBranchIds)->pluck('id');
-                $filterIds = collect($wardBranchIds)->merge($childIds)->unique()->values();
-                $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
-            } else {
-                $query->whereRaw('1 = 0');
-            }
+        // Đếm số phòng khả dụng theo từng chi nhánh (tính cả category con) — cùng pattern đã
+        // dùng ở ProvinceList::mount() (Modules/BladeThemeV1/Livewire/ProvinceList.php).
+        $branchCatIds = $branchRows->pluck('category.id')->filter()->values()->toArray();
+        $childToBranchMap = Category::whereIn('parent_id', $branchCatIds)->pluck('parent_id', 'id')->toArray();
+        $allCatIds = array_merge($branchCatIds, array_keys($childToBranchMap));
+        $roomCountByCatId = Category::whereIn('id', $allCatIds)
+            ->withCount(['products as room_count' => fn ($q) => $q->where('is_activated', true)->where('is_in_stock', true)])
+            ->pluck('room_count', 'id');
+        $roomCountByBranch = [];
+        foreach ($roomCountByCatId as $catId => $count) {
+            $branchCatId = $childToBranchMap[$catId] ?? $catId;
+            $roomCountByBranch[$branchCatId] = ($roomCountByBranch[$branchCatId] ?? 0) + $count;
         }
 
-        // Filter theo category slug
-        if (! empty($validated['category'])) {
-            match ($validated['category']) {
-                'theo_gio'  => $query->where('styles', 1),
-                'theo_ngay' => $query->where('styles', 2),
-                'qua_dem'   => $query->where('nights', true),
-                default     => (function () use ($query, $validated) {
-                    $roomType = RoomType::where('slug', $validated['category'])->first();
-                    $roomType
-                        ? $query->where('room_type_id', $roomType->id)
-                        : $query->whereRaw('1 = 0');
-                })(),
-            };
+        // Chi nhánh nào có phòng đang khuyến mãi giảm giá (percentage/fixed) hiệu lực ngay bây
+        // giờ thì đẩy lên đầu danh sách — cùng cách xác định "có khuyến mãi" như đã dùng cho icon
+        // flash-sale cạnh tên phòng (book/_mobile.blade.php, book/_desktop-grid.blade.php), chỉ
+        // khác là gộp theo TOÀN BỘ chi nhánh (branch + category con) thay vì từng phòng riêng lẻ.
+        $catIdsWithPromo = Product::whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allCatIds))
+            ->whereHas('roomTimeSlots.promotions', function ($q) {
+                $q->whereIn('type', ['percentage', 'fixed'])
+                    ->where('is_active', true)
+                    ->where('start_at', '<=', now())
+                    ->where('end_at', '>=', now());
+            })
+            ->with(['categories' => fn ($q) => $q->whereIn('categories.id', $allCatIds)])
+            ->get()
+            ->pluck('categories')
+            ->flatten()
+            ->pluck('id')
+            ->unique();
+
+        $branchHasPromoByBranch = [];
+        foreach ($catIdsWithPromo as $catId) {
+            $branchCatId = $childToBranchMap[$catId] ?? $catId;
+            $branchHasPromoByBranch[$branchCatId] = true;
         }
 
-        // Keyword search
-        if (! empty($validated['q'])) {
-            $q = $validated['q'];
-
-            // Khi province đã được auto-resolve thì không cần tìm theo tên tỉnh nữa
-            $provinceCategoryIds = $province === null
-                ? $this->getCategoryIdsByProvinceName($q)
-                : [];
-
-            $query->where(function ($sub) use ($q, $provinceCategoryIds) {
-                $sub->where('name', 'like', "%{$q}%")
-                    ->orWhere('address', 'like', "%{$q}%")
-                    ->orWhereHas('categories', fn ($cq) => $cq->where('name', 'like', "%{$q}%"));
-
-                if (! empty($provinceCategoryIds)) {
-                    $sub->orWhereHas('categories', fn ($cq) => $cq->whereIn('category_id', $provinceCategoryIds));
+        // Toạ độ để ghim trên bản đồ (?view=branches, search.blade.php) — Branch/Category không có
+        // cột lat/lng riêng, toạ độ nằm ở từng sản phẩm (products.latitude/longitude); lấy đại diện
+        // 1 sản phẩm có toạ độ của mỗi chi nhánh (gộp cả category con qua $childToBranchMap, cùng
+        // cách nhóm đã dùng cho room_count/has_promotion ở trên).
+        $coordsByBranch = [];
+        Product::whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allCatIds))
+            ->whereNotNull('latitude')->whereNotNull('longitude')
+            ->with(['categories' => fn ($q) => $q->whereIn('categories.id', $allCatIds)])
+            ->get()
+            ->each(function ($product) use (&$coordsByBranch, $childToBranchMap) {
+                foreach ($product->categories as $category) {
+                    $branchCatId = $childToBranchMap[$category->id] ?? $category->id;
+                    if (!isset($coordsByBranch[$branchCatId])) {
+                        $coordsByBranch[$branchCatId] = ['latitude' => $product->latitude, 'longitude' => $product->longitude];
+                    }
                 }
             });
-        }
 
-        // Filter rooms by available time slots khi tìm theo_gio có time_from & time_to
-        $timeFrom = null;
-        $timeTo   = null;
-        if (($validated['time_type'] ?? null) === 'slot'
-            && ! empty($validated['time_from'])
-            && ! empty($validated['time_to'])
-        ) {
-            $timeFrom = $validated['time_from'];
-            $timeTo   = $validated['time_to'];
-
-            $query->whereHas('roomTimeSlots', function ($sub) use ($timeFrom, $timeTo) {
-                $sub->whereNull('date')
-                    ->whereNotIn('status', ['booked'])
-                    ->where('over_night', false)
-                    ->whereHas('timeSlot', function ($slotSub) use ($timeFrom, $timeTo) {
-                        $slotSub->where('start_time', '>=', $timeFrom)
-                                ->where('end_time', '<=', $timeTo);
-                    });
-            });
-        }
-
-        // Geo search (Haversine — requires lat & lng together)
-        $geoActive = isset($validated['lat'], $validated['lng']);
-
-        if ($geoActive) {
-            $lat    = (float) $validated['lat'];
-            $lng    = (float) $validated['lng'];
-            $radius = (float) ($validated['radius'] ?? 3);
-
-            // LEAST(1.0, ...) tránh lỗi acos khi toạ độ trùng khớp chính xác
-            $haversine = '( 6371 * acos( LEAST(1.0, '
-                . 'cos( radians(?) ) * cos( radians(latitude) ) '
-                . '* cos( radians(longitude) - radians(?) ) '
-                . '+ sin( radians(?) ) * sin( radians(latitude) ) '
-                . ') ) )';
-
-            $query->whereNotNull('latitude')
-                ->whereNotNull('longitude')
-                // whereRaw hoạt động đúng trong cả data query lẫn COUNT query của paginate()
-                ->whereRaw("{$haversine} <= ?", [$lat, $lng, $lat, $radius])
-                ->selectRaw("*, {$haversine} AS distance", [$lat, $lng, $lat])
-                ->orderBy('distance');
-        } else {
-            $query->latest();
-        }
-
-        $perPage = (int) ($validated['per_page'] ?? 20);
-        $rooms   = $query->paginate($perPage);
-
-        $authUser      = auth('sanctum')->user();
-        $wishlistedIds = $authUser
-            ? $authUser->wishlists()->pluck('product_id')->toArray()
-            : null;
-
-        $data = collect($rooms->items())->map(function ($room) use ($wishlistedIds, $geoActive, $timeFrom, $timeTo) {
-            $status = $wishlistedIds === null ? null : in_array($room->id, $wishlistedIds);
-            $card   = $this->mapRoom($room, $status, $timeFrom, $timeTo);
-
-            if ($geoActive) {
-                $card['distance'] = round((float) ($room->distance ?? 0), 2);
-            }
-
-            return $card;
-        });
+        $branches = $branchRows
+            ->map(fn ($branch) => [
+                'id'            => $branch->category->id,
+                'name'          => $branch->category->name,
+                'slug'          => $branch->category->slug,
+                'image_url'     => $branch->category->image
+                    ? Storage::disk('public')->url($branch->category->image)
+                    : null,
+                'thumbnail'     => $branch->category->thumbnail,
+                'room_count'    => $roomCountByBranch[$branch->category->id] ?? 0,
+                'has_promotion' => $branchHasPromoByBranch[$branch->category->id] ?? false,
+                'latitude'      => $coordsByBranch[$branch->category->id]['latitude'] ?? null,
+                'longitude'     => $coordsByBranch[$branch->category->id]['longitude'] ?? null,
+            ])
+            ->sortByDesc('has_promotion')
+            ->values();
 
         return response()->json([
-            'data' => $data,
-            'meta' => [
-                'current_page' => $rooms->currentPage(),
-                'last_page'    => $rooms->lastPage(),
-                'per_page'     => $rooms->perPage(),
-                'total'        => $rooms->total(),
-            ],
+            'data' => $branches,
+            'meta' => ['province_name' => $province->name, 'total' => $branches->count()],
         ]);
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
+    // ─── GET /v1/search ──────────────────────────────────────────────────────
+    // Có từ khoá "q" (tìm kiếm tự do, vd màn tìm kiếm chính trên app) → trả về card CHI
+    // NHÁNH (RoomSearchService::searchBranches()) để client nhóm kết quả theo chi nhánh.
+    // Không có "q" (đã ở 1 khu vực/chi nhánh cụ thể, vd lịch đặt phòng theo tháng) → giữ
+    // nguyên hành vi cũ, trả về danh sách PHÒNG (RoomSearchService::search()).
 
-    // Tìm tỉnh khớp tên → trả về category IDs (branch + child) để filter phòng
-    private function getCategoryIdsByProvinceName(string $q): array
+    public function index(Request $request, RoomSearchService $searchService): JsonResponse
     {
-        $provinceIds = Province::where('name', 'like', "%{$q}%")->pluck('id');
+        $hasKeyword = trim((string) $request->query('q', '')) !== '';
 
-        if ($provinceIds->isEmpty()) {
-            return [];
-        }
+        $result = $hasKeyword
+            ? $searchService->searchBranches($request->all(), auth('sanctum')->user())
+            : $searchService->search($request->all(), auth('sanctum')->user());
 
-        $branchCategoryIds = ProvinceBranch::whereIn('province_id', $provinceIds)
-            ->where('status', true)
-            ->pluck('categorie_id')
-            ->toArray();
-
-        if (empty($branchCategoryIds)) {
-            return [];
-        }
-
-        $childIds = Category::whereIn('parent_id', $branchCategoryIds)
-            ->pluck('id')
-            ->toArray();
-
-        return array_unique(array_merge($branchCategoryIds, $childIds));
+        return response()->json($result);
     }
 
     // ─── GET /v1/search/locations ────────────────────────────────────────────

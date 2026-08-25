@@ -3,6 +3,12 @@ services:
         build:
             context: .
             dockerfile: Dockerfile
+            args:
+                VITE_REVERB_APP_KEY: ${REVERB_APP_KEY}
+                VITE_REVERB_HOST: ${VITE_REVERB_HOST}
+                VITE_REVERB_PORT: ${VITE_REVERB_PORT}
+                VITE_REVERB_SCHEME: ${VITE_REVERB_SCHEME}
+                VITE_REVERB_PATH: ${VITE_REVERB_PATH}
         image: '365home/app:latest'
         restart: unless-stopped
         extra_hosts:
@@ -26,6 +32,19 @@ services:
         restart: unless-stopped
         networks:
             - app
+
+    reverb:
+        image: '365home/app:latest'
+        restart: unless-stopped
+        command: php artisan reverb:start --host=0.0.0.0 --port=6001
+        ports:
+            - '6001:6001'
+        env_file: .env
+        networks:
+            - app
+            - mariadb_default
+        depends_on:
+            - redis
 
 networks:
     app:

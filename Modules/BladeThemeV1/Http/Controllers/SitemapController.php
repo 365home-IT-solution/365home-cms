@@ -14,7 +14,7 @@ class SitemapController extends Controller
         'gio-hang',
         'thanh-toan',
         'thong-tin-dat-phong',
-        'san-pham/tim-kiem',
+        '/s/',
         'kiem-tra-ten-mien',
         'trang-test',
         'admin',
@@ -83,7 +83,7 @@ class SitemapController extends Controller
             'Disallow: /gio-hang',
             'Disallow: /thanh-toan',
             'Disallow: /thong-tin-dat-phong',
-            'Disallow: /san-pham/tim-kiem',
+            'Disallow: /s/',
             'Disallow: /kiem-tra-ten-mien',
             'Disallow: /trang-test',
             'Disallow: /cancel',
@@ -93,6 +93,38 @@ class SitemapController extends Controller
         ]);
 
         return response($content, 200)
+            ->header('Content-Type', 'text/plain; charset=utf-8')
+            ->header('Cache-Control', 'public, max-age=86400');
+    }
+
+    // llms.txt (llmstxt.org) — plain-language site summary for AI crawlers (ChatGPT, Perplexity...),
+    // separate from robots.txt/sitemap.xml which are built for traditional search engine crawlers.
+    public function llmsTxt()
+    {
+        $gs   = app(\App\Settings\GeneralSettings::class);
+        $name = $gs->brand_name ?: ($gs->og_title ?: config('app.name'));
+        $desc = $gs->og_description ?: '';
+
+        $lines = ["# {$name}", ''];
+
+        if ($desc !== '') {
+            $lines[] = "> {$desc}";
+            $lines[] = '';
+        }
+
+        $lines = array_merge($lines, [
+            '## Sitemap',
+            '',
+            '- [Sitemap](' . url('/sitemap.xml') . ')',
+            '',
+            '## Pages',
+            '',
+            '- [Tìm phòng](' . route('product.search') . ')',
+            '- [Tin tức](' . url('/tin-tuc') . ')',
+            '- [Tra cứu booking](' . url('/ticket-booking') . ')',
+        ]);
+
+        return response(implode("\n", $lines), 200)
             ->header('Content-Type', 'text/plain; charset=utf-8')
             ->header('Cache-Control', 'public, max-age=86400');
     }

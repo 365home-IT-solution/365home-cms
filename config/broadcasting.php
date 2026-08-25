@@ -30,6 +30,30 @@ return [
 
     'connections' => [
 
+        'reverb' => [
+            'driver' => 'reverb',
+            'key' => env('REVERB_APP_KEY'),
+            'secret' => env('REVERB_APP_SECRET'),
+            'app_id' => env('REVERB_APP_ID'),
+            'options' => [
+                'host' => env('REVERB_HOST'),
+                'port' => env('REVERB_PORT', 443),
+                'scheme' => env('REVERB_SCHEME', 'https'),
+                'useTLS' => env('REVERB_SCHEME', 'https') === 'https',
+            ],
+            // Ở local dev, chứng chỉ TLS của domain .test (Herd/Valet) là chứng chỉ tự ký — cURL
+            // của PHP phía SERVER (không phải trình duyệt) không có sẵn CA đó trong trust store nên
+            // luôn báo lỗi "SSL certificate problem: unable to get local issuer certificate", khiến
+            // broadcast() từ server tới Reverb thất bại 100% (đây là nguyên nhân THẬT của việc
+            // real-time không bao giờ chạy, không liên quan gì tới thứ tự nạp script phía trình
+            // duyệt). Cho phép tắt xác thực SSL RIÊNG cho cuộc gọi server→Reverb này qua
+            // REVERB_VERIFY_SSL=false (chỉ set false ở .env local, KHÔNG set ở production — ở đó
+            // domain có chứng chỉ CA thật, không cần và không nên tắt xác thực).
+            'client_options' => [
+                'verify' => filter_var(env('REVERB_VERIFY_SSL', true), FILTER_VALIDATE_BOOLEAN),
+            ],
+        ],
+
         'pusher' => [
             'driver' => 'pusher',
             'key' => env('PUSHER_APP_KEY'),

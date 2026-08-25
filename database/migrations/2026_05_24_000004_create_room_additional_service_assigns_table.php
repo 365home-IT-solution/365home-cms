@@ -19,12 +19,12 @@ return new class extends Migration
 
             $table->unique(['room_id', 'additional_service_id'], 'room_service_unique');
 
-            $table->foreign('room_id')
+            $table->foreign('room_id', 'room_svc_assign_room_id_fk')
                 ->references('id')
                 ->on('products')
                 ->onDelete('cascade');
 
-            $table->foreign('additional_service_id')
+            $table->foreign('additional_service_id', 'room_svc_assign_service_id_fk')
                 ->references('id')
                 ->on('additional_services')
                 ->onDelete('cascade');

@@ -10,7 +10,9 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Payment\Entities\Order;
 use Modules\Promotion\App\Models\Coupon;
 use PayOS\PayOS;
@@ -81,6 +83,7 @@ class OrderController extends Controller
             'items.product.roomTimeSlots.timeSlot',
             'items.product.roomTimeSlots.promotions' => fn ($q) => $q->where('is_active', true),
             'services',
+            'guestCccds',
         ])
             ->where('order_code', $orderCode)
             ->where('customer_id', $customer->id)
@@ -103,6 +106,11 @@ class OrderController extends Controller
             'coupon_codes'            => 'sometimes|nullable|array',
             'coupon_codes.*'          => 'string',
             'coupon_code'             => 'sometimes|nullable',
+            // CCCD khách thứ 2 trở đi, gửi khi tăng guest_count cho đơn có khung giờ qua đêm —
+            // cùng key guests[{index}][front/back] như bên guest (GuestBookingController::update).
+            'guests'                  => 'sometimes|array',
+            'guests.*.front'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'guests.*.back'           => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
 
         $updates            = [];
@@ -117,6 +125,62 @@ class OrderController extends Controller
         // ── Phụ thu khách ─────────────────────────────────────────────────────
         if ($request->has('guest_count')) {
             $newGuestCount = (int) $request->input('guest_count');
+            $hasOvernight  = $order->items->contains('over_night', true);
+
+            // Tăng số khách cho đơn qua đêm — khách mới (guest_index vượt số đã khai báo) phải
+            // có CCCD kèm theo trong chính request này (guests[{index}][front/back]), giống hệt
+            // GuestBookingController::update() — không còn giới hạn cứng tối đa 2 khách.
+            if ($hasOvernight) {
+                $declaredMax  = max(1, (int) $order->guestCccds->max('guest_index'));
+                $newGuestRows = [];
+
+                for ($guestIndex = $declaredMax + 1; $guestIndex <= $newGuestCount; $guestIndex++) {
+                    $frontKey = "guests.{$guestIndex}.front";
+                    $backKey  = "guests.{$guestIndex}.back";
+
+                    if (! $request->hasFile($frontKey) || ! $request->hasFile($backKey)) {
+                        return response()->json([
+                            'message' => "Tăng số khách cho đơn qua đêm cần khai báo lưu trú cho khách thứ {$guestIndex} — vui lòng gửi kèm CCCD (mặt trước/sau) của khách này.",
+                        ], 422);
+                    }
+
+                    $guestFront = $request->file($frontKey)->store('cccd', 'public');
+                    $guestBack  = $request->file($backKey)->store('cccd', 'public');
+
+                    $tempGuestOrder = new Order(['cccd_front' => $guestFront, 'cccd_back' => $guestBack]);
+                    $guestData      = app(CccdScannerService::class)->scanOrder($tempGuestOrder);
+
+                    if (! $guestData) {
+                        Storage::disk('public')->delete($guestFront);
+                        Storage::disk('public')->delete($guestBack);
+                        foreach ($newGuestRows as $row) {
+                            Storage::disk('public')->delete($row['front']);
+                            Storage::disk('public')->delete($row['back']);
+                        }
+
+                        return response()->json([
+                            'message' => "Không đọc được QR trên ảnh CCCD của khách thứ {$guestIndex}. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.",
+                        ], 422);
+                    }
+
+                    $newGuestRows[] = [
+                        'guest_index' => $guestIndex,
+                        'front'       => $guestFront,
+                        'back'        => $guestBack,
+                        'data'        => $guestData,
+                    ];
+                }
+
+                foreach ($newGuestRows as $row) {
+                    $order->guestCccds()->create([
+                        'guest_index' => $row['guest_index'],
+                        'cccd_front'  => $row['front'],
+                        'cccd_back'   => $row['back'],
+                        'cccd_data'   => $row['data'],
+                    ]);
+                }
+            }
+
             $order->items()->update(['guest_count' => $newGuestCount]);
 
             $guestRoom      = $order->items->first()?->product;
@@ -184,6 +248,8 @@ class OrderController extends Controller
                 'strtoupper',
                 array_filter((array) ($couponInput ?? []))
             )));
+
+            $this->guardExclusiveCoupons($newCodes);
 
             // Giải phóng lượt dùng của coupon cũ
             $this->releaseCouponUsage($order);
@@ -435,6 +501,8 @@ class OrderController extends Controller
                 'id'             => $order->id,
                 'order_code'     => $order->order_code,
                 'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
                 'payment_method' => $order->payment_method,
                 'qr_code'        => $order->qr_code,
                 'expired_at'     => $order->expired_at,
@@ -520,10 +588,12 @@ class OrderController extends Controller
         }
 
         return response()->json([
-            'order_code' => $order->order_code,
-            'status'     => $order->status,
-            'qr_code'    => $order->qr_code,
-            'expired_at' => $order->expired_at,
+            'order_code'     => $order->order_code,
+            'status'         => $order->status,
+            'payment_status' => $order->payment_status,
+            'order_status'   => $order->order_status,
+            'qr_code'        => $order->qr_code,
+            'expired_at'     => $order->expired_at,
         ]);
     }
 
@@ -569,10 +639,12 @@ class OrderController extends Controller
         $order->refresh();
 
         return response()->json([
-            'order_code' => $order->order_code,
-            'status'     => $order->status,
-            'qr_code'    => $order->qr_code,
-            'expired_at' => $order->expired_at,
+            'order_code'     => $order->order_code,
+            'status'         => $order->status,
+            'payment_status' => $order->payment_status,
+            'order_status'   => $order->order_status,
+            'qr_code'        => $order->qr_code,
+            'expired_at'     => $order->expired_at,
         ]);
     }
 
@@ -671,6 +743,106 @@ class OrderController extends Controller
     }
 
     /**
+     * POST /api/orders/{order_code}/extra
+     * Khách tự đặt thêm dịch vụ/số khách trên đơn ĐÃ paid/deposit — trả QR
+     * thanh toán khoản phát sinh ngay trong response nếu có chênh lệch dương.
+     */
+    public function addExtra(Request $request, string $orderCode, \App\Services\OrderExtraBookingService $service): JsonResponse
+    {
+        /** @var \App\Models\Customer $customer */
+        $customer = auth('sanctum')->user();
+
+        $order = Order::with(['items.product.additionalServices', 'services'])
+            ->where('order_code', $orderCode)
+            ->where('customer_id', $customer->id)
+            ->first();
+
+        if (! $order) {
+            return response()->json(['message' => 'Đơn hàng không tồn tại.'], 404);
+        }
+
+        $request->validate([
+            'services'                          => 'sometimes|array',
+            'services.*.service_id'             => 'required_with:services|integer',
+            'services.*.quantity'               => 'required_with:services|integer|min:1',
+            // guest_count ở đây là SỐ KHÁCH THÊM (cộng dồn vào guest_count hiện có), không phải tổng mới.
+            'guest_count'                       => 'sometimes|integer|min:1|max:50',
+            'room_addition'                     => 'sometimes|array',
+            'room_addition.type'                => 'required_with:room_addition|in:slot,daily',
+            'room_addition.product_id'          => 'sometimes|string',
+            'room_addition.slots'               => 'required_if:room_addition.type,slot|array|min:1',
+            'room_addition.slots.*.timeslot_id' => 'required_with:room_addition.slots|integer',
+            'room_addition.slots.*.date'        => 'required_with:room_addition.slots|date_format:d-m-Y|after_or_equal:today',
+            'room_addition.checkin_date'        => 'required_if:room_addition.type,daily|date_format:d-m-Y|after_or_equal:today',
+            'room_addition.checkout_date'       => 'required_if:room_addition.type,daily|date_format:d-m-Y|after:room_addition.checkin_date',
+            // CCCD khách đi cùng — chỉ bắt buộc khi phần đặt thêm có khung giờ qua đêm (check ở Service).
+            'guests'                             => 'sometimes|array',
+            'guests.*.front'                     => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'guests.*.back'                      => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+        ]);
+
+        $result = $service->addExtra(
+            $order,
+            $request->input('services', []),
+            $request->has('guest_count') ? (int) $request->input('guest_count') : null,
+            $request->input('room_addition'),
+            $this->extractGuestFiles($request),
+        );
+
+        if (isset($result['error'])) {
+            return response()->json(['message' => $result['error']], 422);
+        }
+
+        return response()->json($result);
+    }
+
+    /**
+     * Trích UploadedFile theo guest_index từ multipart 'guests[{n}][front/back]'.
+     *
+     * @return array<int, array{front?:\Illuminate\Http\UploadedFile, back?:\Illuminate\Http\UploadedFile}>
+     */
+    private function extractGuestFiles(Request $request): array
+    {
+        $guestFiles = [];
+
+        foreach ((array) $request->file('guests', []) as $guestIndex => $files) {
+            $guestFiles[(int) $guestIndex] = [
+                'front' => $files['front'] ?? null,
+                'back'  => $files['back'] ?? null,
+            ];
+        }
+
+        return $guestFiles;
+    }
+
+    /**
+     * POST /api/orders/{order_code}/extra-charge-qr
+     * Tạo lại QR PayOS cho khoản phát sinh (đặt thêm) đang chờ thanh toán — dùng khi
+     * khách bận không thanh toán kịp, QR cũ hết hạn, cần lấy QR mới để thanh toán tiếp.
+     */
+    public function extraChargeQr(string $orderCode, \App\Services\OrderExtraBookingService $service): JsonResponse
+    {
+        /** @var \App\Models\Customer $customer */
+        $customer = auth('sanctum')->user();
+
+        $order = Order::where('order_code', $orderCode)
+            ->where('customer_id', $customer->id)
+            ->first();
+
+        if (! $order) {
+            return response()->json(['message' => 'Đơn hàng không tồn tại.'], 404);
+        }
+
+        $result = $service->regenerateExtraChargeQr($order);
+
+        if (isset($result['error'])) {
+            return response()->json(['message' => $result['error']], 422);
+        }
+
+        return response()->json($result);
+    }
+
+    /**
      * GET /api/orders/{order_code}/payment-status
      */
     public function paymentStatus(string $orderCode): JsonResponse
@@ -689,15 +861,19 @@ class OrderController extends Controller
 
         if (in_array($order->status, ['paid', 'failed', 'cancelled'])) {
             return response()->json([
-                'order_code' => $order->order_code,
-                'status'     => $order->status,
+                'order_code'     => $order->order_code,
+                'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
             ]);
         }
 
         if ($order->payment_method !== 'PayOS') {
             return response()->json([
-                'order_code' => $order->order_code,
-                'status'     => $order->status,
+                'order_code'     => $order->order_code,
+                'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
             ]);
         }
 
@@ -707,7 +883,12 @@ class OrderController extends Controller
             $checksumKey = Config::get('payos.checksum_key');
 
             if (! $clientId || ! $apiKey || ! $checksumKey) {
-                return response()->json(['order_code' => $order->order_code, 'status' => $order->status]);
+                return response()->json([
+                    'order_code'     => $order->order_code,
+                    'status'         => $order->status,
+                    'payment_status' => $order->payment_status,
+                    'order_status'   => $order->order_status,
+                ]);
             }
 
             $isRemaining = $order->status === 'deposit' && $order->remaining_payos_code;
@@ -777,10 +958,12 @@ class OrderController extends Controller
             $order->refresh();
 
             return response()->json([
-                'order_code'   => $order->order_code,
-                'status'       => $order->status,
-                'payos_status' => $status,
-                'expired_at'   => $order->expired_at,
+                'order_code'     => $order->order_code,
+                'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
+                'payos_status'   => $status,
+                'expired_at'     => $order->expired_at,
             ]);
 
         } catch (\Throwable $e) {
@@ -789,8 +972,10 @@ class OrderController extends Controller
                 'error'      => $e->getMessage(),
             ]);
             return response()->json([
-                'order_code' => $order->order_code,
-                'status'     => $order->status,
+                'order_code'     => $order->order_code,
+                'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
             ]);
         }
     }
@@ -871,6 +1056,8 @@ class OrderController extends Controller
             'order_code'                => $order->order_code,
             'created_at'                => $order->created_at->format('Y-m-d H:i:s'),
             'status'                    => $order->status,
+            'payment_status'            => $order->payment_status,
+            'order_status'              => $order->order_status,
             'room_id'                   => $firstItem?->product?->id,
             'room_slug'                 => $firstItem?->product?->slug,
             'room_name'                 => $roomName,
@@ -970,6 +1157,8 @@ class OrderController extends Controller
                 'id'             => $order->id,
                 'order_code'     => $order->order_code,
                 'status'         => $order->status,
+                'payment_status' => $order->payment_status,
+                'order_status'   => $order->order_status,
                 'payment_method' => $order->payment_method,
                 'expired_at'     => $order->expired_at,
                 'buyer_name'     => $order->buyer_name,
@@ -1210,6 +1399,24 @@ class OrderController extends Controller
     }
 
     /**
+     * Cho phép áp nhiều mã/đơn, TRỪ mã is_exclusive=true — cùng quy tắc BookingController::guardExclusiveCoupons().
+     */
+    private function guardExclusiveCoupons(array $codes): void
+    {
+        if (count($codes) < 2) {
+            return;
+        }
+
+        $exclusiveCodes = Coupon::whereIn('code', $codes)->where('is_exclusive', true)->pluck('code');
+
+        if ($exclusiveCodes->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'coupon_codes' => ['Mã "' . $exclusiveCodes->implode('", "') . '" không thể dùng chung với mã giảm giá khác.'],
+            ]);
+        }
+    }
+
+    /**
      * Validate + apply nhiều coupon khi cập nhật đơn.
      * Trả về [totalDiscount, appliedList (có _model)].
      */
@@ -1241,10 +1448,18 @@ class OrderController extends Controller
                 ]);
             }
 
-            if ($coupon->customer_id !== null && $coupon->customer_id !== $customer->id) {
-                throw ValidationException::withMessages([
-                    $field => ["Mã \"{$code}\" không thuộc về tài khoản của bạn."],
-                ]);
+            // Coupon được coi là "cá nhân" nếu có customer_id hoặc đã từng gán cho ai đó qua
+            // bảng coupon_customers (vd: coupon gắn theo hạng thành viên).
+            $isRestricted = $coupon->customer_id !== null || $coupon->customers()->exists();
+            if ($isRestricted) {
+                $owns = $coupon->customer_id === $customer->id
+                    || $coupon->customers()->where('customer_id', $customer->id)->exists();
+
+                if (! $owns) {
+                    throw ValidationException::withMessages([
+                        $field => ["Mã \"{$code}\" không thuộc về tài khoản của bạn."],
+                    ]);
+                }
             }
 
             if ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {
@@ -1255,9 +1470,8 @@ class OrderController extends Controller
 
             if ($product) {
                 $applicable = match ($coupon->apply_type) {
-                    'all_rooms'     => true,
-                    'specific_room' => $coupon->room_id === $product->id,
-                    default         => true, // specific_slot: cho qua khi update
+                    'all_rooms', 'specific_room', 'specific_rooms' => $coupon->appliesToRoom($product->id),
+                    default => true, // specific_slot: cho qua khi update
                 };
 
                 if (! $applicable) {
@@ -1302,10 +1516,10 @@ class OrderController extends Controller
             return null;
         }
 
-        $checkinDate = $order->items->where('extra_fee', 0)->first()?->checkin_date;
+        $pwdAnchorDate = $order->paid_at ?? $order->deposit_paid_at ?? $order->created_at;
 
         // Case 1: Mật khẩu thủ công (gate_password / room_password)
-        $manualPwd = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($product, $checkinDate);
+        $manualPwd = \Modules\Product\App\Models\ManualLockPassword::getForProductAndDate($product, $pwdAnchorDate);
         if ($manualPwd) {
             return [
                 'type'          => 'manual',

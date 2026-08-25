@@ -125,7 +125,7 @@
                                 if ($status === 'pending') {
                                 $classes .= ' pending';
                                 $isSelectable = false;
-                                } elseif (in_array($status, ['paid', 'shipped', 'confirmed'])) {
+                                } elseif (in_array($status, ['paid', 'confirmed'])) {
                                 $classes .= ' booked';
                                 $isSelectable = false;
                                 }
@@ -133,7 +133,7 @@
                                 
                                 $orderColor = null;
                                 if ($matchedItem) {
-                                    if (in_array($status, ['paid', 'shipped', 'confirmed'])) {
+                                    if (in_array($status, ['paid', 'confirmed'])) {
                                     $orderColor = '#4e6b4c';
                                     } elseif ($status === 'deposit') {
                                     $orderColor = '#3b82f6';
@@ -185,6 +185,20 @@
                                 if (in_array($slotDateYmd, $blockedDates)) {
                                 $isSelectable = false;
                                 $classes .= ' blocked';
+                                }
+
+                                // --- Đang bị ADMIN giữ chỗ real-time (xem TimeslotHoldService) ---
+                                // hiển thị MỜ giống style_1.blade.php/product-detail.blade.php, KHÔNG
+                                // ẩn hoàn toàn — bảng lịch trang chủ tái dùng Livewire Book.php nhưng
+                                // trước đây chưa được nối vào phần kiểm tra hold này.
+                                $heldByName = null;
+                                if ($isSelectable) {
+                                    $activeHold = app(\App\Services\TimeslotHoldService::class)->isHeldByAdmin($roomTimeSlot->id, $slotDateYmd);
+                                    if ($activeHold) {
+                                        $isSelectable = false;
+                                        $classes .= ' held';
+                                        $heldByName = $activeHold->user->fullname ?? $activeHold->user->email ?? 'nhân viên';
+                                    }
                                 }
 
                                 // --- 3. Tính giá với promotion ---
@@ -270,6 +284,9 @@
                                     style="background-color: {{ $bgColor }}; color: {{ $textColor }};">
                                     <div class="selectable {{ $classes }}"
                                         style="{{ !$isSelectable ? 'pointer-events:none;opacity:0.6;' : 'cursor:pointer;' }}{{ $orderColor ? '--order-color:' . $orderColor . ';' : '' }}"
+                                        data-room-id="{{ $room->id }}"
+                                        data-timeslot-id="{{ $roomTimeSlot->timeSlot->id }}"
+                                        data-iso-date="{{ \Carbon\Carbon::createFromFormat('d-m-Y', $date['date'])->format('Y-m-d') }}"
                                         @click="toggleSlot($el, {
                                                         date: '{{ $date['date'] }}',
                                                         startTime: '{{ $roomTimeSlot->timeSlot->start_time }}',
@@ -329,6 +346,16 @@
                                         <span class="font-bold text-[11px] leading-tight relative z-20 text-red-600">
                                                             <!-- {{ number_format($finalPrice / 1000, 0, ',', '.') }}K -->
                                                         </span>
+                                        @endif
+
+                                        @if (str_contains($classes, 'held'))
+                                        <div class="lock-icon" title="Đang được {{ $heldByName }} xử lý cho 1 đơn khác">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                                stroke-linecap="round" stroke-linejoin="round">
+                                                <rect x="4" y="11" width="16" height="9" rx="2" />
+                                                <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                                            </svg>
+                                        </div>
                                         @endif
                                     </div>
                                 </td>

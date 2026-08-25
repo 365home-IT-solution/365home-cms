@@ -17,7 +17,7 @@
         }
     }
 </style>
-<div x-data="{ open: false }" x-on:amenities-modal-open.window="$el.classList.add('hide-for-modal')"
+<div x-cloak x-data="{ open: false }" x-on:amenities-modal-open.window="$el.classList.add('hide-for-modal')"
     x-on:amenities-modal-close.window="$el.classList.remove('hide-for-modal')"
     class="custom-floating-contact fixed right-4 bottom-5 z-50 flex flex-col items-end gap-3">
     <!-- Contact Menu -->

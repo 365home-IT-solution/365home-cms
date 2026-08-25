@@ -78,17 +78,32 @@ class OrderResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery();
-        $user  = auth()->user();
+        $user = auth()->user();
 
-        if (! $user || $user->isSuperAdmin()) {
-            return $query;
+        if ($user && $user->isSuperAdmin()) {
+            return parent::getEloquentQuery();
         }
+
+        // Nhân viên đối tác NỀN TẢNG (vd 365home) đặt phòng hộ mọi đối tác khác — họ cần xem lại
+        // đúng những đơn CHÍNH HỌ đã tạo (created_by), CỘNG với đơn của đối tác mình, nhưng KHÔNG
+        // được thấy đơn của đối tác khác do NHÂN VIÊN CỦA ĐỐI TÁC ĐÓ tự tạo. Phải gỡ hẳn global
+        // scope 'partner' của Order để tự viết lại điều kiện lọc (partner_id CỦA MÌNH OR
+        // created_by CỦA MÌNH), vì scope mặc định sẽ chỉ giữ đúng 1 vế partner_id.
+        if ($user && $user->belongsToPlatformPartner()) {
+            return Order::withoutGlobalScope('partner')
+                ->where(function (Builder $q) use ($user) {
+                    $q->where('partner_id', $user->partner_id)
+                        ->orWhere('created_by', $user->id);
+                });
+        }
+
+        $query = parent::getEloquentQuery();
 
         $allCategoryIds = $user->allowedCategoryIds();
 
+        // Order đã lọc theo partner_id qua BelongsToPartner; allowedCategoryIds chỉ thu hẹp thêm.
         if (empty($allCategoryIds)) {
-            return $query->whereRaw('1 = 0');
+            return $query;
         }
 
         return $query->whereIn('category_id', $allCategoryIds);

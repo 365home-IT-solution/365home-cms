@@ -61,36 +61,30 @@ class PromotionResource extends Resource
 
         $allowedCategoryIds = $user->allowedCategoryIds();
 
-        if (empty($allowedCategoryIds)) {
-            return $query->whereRaw('1 = 0');
-        }
-
         // Tìm product_id thuộc các chi nhánh được phép
-        $productIds = Categorizable::where('categorizable_type', Product::class)
-            ->whereIn('category_id', $allowedCategoryIds)
-            ->distinct()
-            ->pluck('categorizable_id');
-
-        if ($productIds->isEmpty()) {
-            return $query->whereRaw('1 = 0');
-        }
+        $productIds = empty($allowedCategoryIds)
+            ? collect()
+            : Categorizable::where('categorizable_type', Product::class)
+                ->whereIn('category_id', $allowedCategoryIds)
+                ->distinct()
+                ->pluck('categorizable_id');
 
         // Tìm room_time_slot_id của các phòng đó
-        $roomTimeSlotIds = RoomTimeSlot::whereIn('room_id', $productIds)
-            ->distinct()
-            ->pluck('id');
-
-        if ($roomTimeSlotIds->isEmpty()) {
-            return $query->whereRaw('1 = 0');
-        }
+        $roomTimeSlotIds = $productIds->isEmpty()
+            ? collect()
+            : RoomTimeSlot::whereIn('room_id', $productIds)
+                ->distinct()
+                ->pluck('id');
 
         // Tìm promotion_id gắn với các room_time_slot đó
-        $promotionIds = DB::table('promotion_room_time_slot')
-            ->whereIn('room_time_slot_id', $roomTimeSlotIds)
-            ->distinct()
-            ->pluck('promotion_id');
+        $promotionIds = $roomTimeSlotIds->isEmpty()
+            ? collect()
+            : DB::table('promotion_room_time_slot')
+                ->whereIn('room_time_slot_id', $roomTimeSlotIds)
+                ->distinct()
+                ->pluck('promotion_id');
 
-        // Hiển thị: promotion gắn với chi nhánh được phép HOẶC do chính user tạo (chưa gắn room)
+        // Hiển thị: promotion gắn với chi nhánh được phép HOẶC do chính user tạo
         return $query->where(function (Builder $q) use ($promotionIds, $user) {
             $q->whereIn('id', $promotionIds)
                 ->orWhere('created_by', $user->id);

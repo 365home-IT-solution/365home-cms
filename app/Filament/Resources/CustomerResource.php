@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\CustomerResource\Pages;
+use App\Filament\Resources\CustomerResource\RelationManagers\AssignedCouponsRelationManager;
 use App\Filament\Resources\CustomerResource\RelationManagers\MembershipLogsRelationManager;
 use App\Filament\Resources\CustomerResource\RelationManagers\PersonalCouponsRelationManager;
 use App\Models\Customer;
@@ -49,9 +50,11 @@ class CustomerResource extends Resource
     protected static ?string $pluralModelLabel = 'Khách hàng';
     protected static ?int    $navigationSort   = 20;
 
+    // Trước đây hardcode isSuperAdmin() — bỏ qua CustomerPolicy (đã đúng, kiểm tra
+    // view_any_customer), khiến tick/bỏ tick quyền này ở Roles & Permissions vô tác dụng.
     public static function canViewAny(): bool
     {
-        return auth()->user()?->isSuperAdmin() ?? false;
+        return auth()->user()?->can('view_any_customer') ?? false;
     }
 
     public static function form(Form $form): Form
@@ -458,6 +461,7 @@ class CustomerResource extends Resource
         return [
             MembershipLogsRelationManager::class,
             PersonalCouponsRelationManager::class,
+            AssignedCouponsRelationManager::class,
         ];
     }
 

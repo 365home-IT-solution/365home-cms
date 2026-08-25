@@ -2,16 +2,19 @@
 
 namespace Modules\Promotion\App\Models;
 
+use App\Models\Concerns\BelongsToPartner;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Modules\Category\Traits\Categorizable;
 use Modules\Product\App\Models\RoomTimeSlot;
 
 class Promotion extends Model
 {
-    use HasFactory;
+    use HasFactory, BelongsToPartner, Categorizable;
 
     protected $fillable = [
+        'partner_id',
         'name',
         'description',
         'type',
@@ -44,7 +47,7 @@ class Promotion extends Model
             'promotion_room_time_slot',
             'promotion_id',
             'room_time_slot_id'
-        );
+        )->withPivot(['min_quantity', 'custom_value'])->withTimestamps();
     }
 
 }

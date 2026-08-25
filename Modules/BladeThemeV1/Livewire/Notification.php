@@ -12,11 +12,26 @@ class Notification extends Component
 
     protected $listeners = ['notify' => 'show'];
 
-    public function show($data)
+    /**
+     * Nhận thông báo từ 2 nguồn khác nhau:
+     * - Livewire dispatch('notify', ['message' => ..., 'type' => ...]) => $message là mảng.
+     * - Trình duyệt phát CustomEvent('notify', { detail: { message, type } }) khiến Livewire
+     *   gọi hàm này với named parameters ($message, $type).
+     */
+    public function show($message = null, $type = null, $data = null)
     {
+        if (is_array($message)) {
+            $data = $message;
+            $message = $data['message'] ?? '';
+            $type = $data['type'] ?? '';
+        } elseif (is_array($data)) {
+            $message = $data['message'] ?? $message;
+            $type = $data['type'] ?? $type;
+        }
+
         $this->showMessage = true;
-        $this->message = $data['message'];
-        $this->type = $data['type'];
+        $this->message = $message ?? '';
+        $this->type = $type ?? '';
 
         dispatch(function() {
             $this->hide();

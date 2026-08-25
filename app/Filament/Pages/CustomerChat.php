@@ -34,9 +34,12 @@ class CustomerChat extends Page
     public ?array  $selectedOrderInfo    = null;
     public string  $draft                = '';
 
+    // Trước đây hardcode hasRole('super_admin') — bỏ qua hệ thống phân quyền, permission
+    // 'page_CustomerChat' đã được Filament Shield sinh sẵn nhưng chưa từng được đọc, nên tick/bỏ
+    // tick ở Roles & Permissions không có tác dụng gì. super_admin vẫn luôn qua được nhờ Gate::before.
     public static function canAccess(): bool
     {
-        return \Filament\Facades\Filament::auth()->user()?->hasRole('super_admin') ?? false;
+        return \Filament\Facades\Filament::auth()->user()?->can('page_CustomerChat') ?? false;
     }
 
     public function mount(): void

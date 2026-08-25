@@ -39,6 +39,13 @@ class ProvinceResource extends Resource
     protected static ?string $pluralModelLabel = 'Tỉnh/Thành phố';
     protected static ?int    $navigationSort   = 10;
 
+    // Trước đây hardcode isSuperAdmin() — bỏ qua ProvincePolicy (đã đúng, kiểm tra
+    // view_any_province), khiến tick/bỏ tick quyền này ở Roles & Permissions vô tác dụng.
+    public static function canViewAny(): bool
+    {
+        return auth()->user()?->can('view_any_province') ?? false;
+    }
+
     public static function form(Form $form): Form
     {
         return $form->schema([

@@ -90,43 +90,87 @@
     <div class="bottom-nav-1">
         <a href="/" class="nav-item-1 {{ $currentUrl === '/' ? 'active' : '' }}">
             <div class="nav-icon-1">
-                <svg viewBox="0 0 24 24" fill="none">
-                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-                    <polyline points="9,22 9,12 15,12 15,22"/>
-                </svg>
+                <x-heroicon-o-map />
             </div>
-            <span class="nav-label-1">365HOME</span>
+            <span class="nav-label-1">Khám phá</span>
         </a>
 
-        <a data-drawer-toggle="drawer-navigation" class="nav-item-1 {{ $currentUrl === '/danh-muc' ? 'active' : '' }}">
+        <a href="/yeu-thich" class="nav-item-1 {{ $currentUrl === '/yeu-thich' ? 'active' : '' }}">
             <div class="nav-icon-1">
-                <svg viewBox="0 0 24 24" fill="none">
-                    <line x1="3" y1="6" x2="21" y2="6"/>
-                    <line x1="3" y1="12" x2="21" y2="12"/>
-                    <line x1="3" y1="18" x2="21" y2="18"/>
-                </svg>
+                <x-heroicon-o-heart />
             </div>
-            <span class="nav-label-1">Danh mục</span>
+            <span class="nav-label-1">Yêu thích</span>
         </a>
 
-        <a href="/ticket-booking" class="nav-item-1 {{ $currentUrl === '/ticket-booking' ? 'active' : '' }}">
+        <a href="/tin-tuc" class="nav-item-1 {{ $currentUrl === '/tin-tuc' ? 'active' : '' }}">
             <div class="nav-icon-1">
-                <svg viewBox="0 0 24 24" fill="none">
-                    <circle cx="11" cy="11" r="8"/>
-                    <path d="m21 21-4.35-4.35"/>
-                </svg>
+                <x-heroicon-o-newspaper />
             </div>
-            <span class="nav-label-1">Tra cứu</span>
+            <span class="nav-label-1">Tin tức</span>
         </a>
 
-        <a href="tel:+84939174365" class="nav-item-1 {{ $currentUrl === '/hotline' ? 'active' : '' }}">
+        {{-- Chọn khu vực — bản mobile của nút cùng tên ở header desktop (header-main.blade.php).
+             Bắn sự kiện 'open-location-modal' mà location-modal.blade.php đang lắng nghe để mở lại
+             popup chọn khu vực, kể cả sau khi khách đã đóng popup lúc mới vào site (đóng thì không
+             tự mở lại — xem closePopup() — nhưng bấm nút này ở đây thì luôn mở được). Không dùng
+             <a href>: đây là hành động mở popup tại chỗ, không điều hướng trang. --}}
+        <button
+            type="button"
+            x-data="{}"
+            @click="window.dispatchEvent(new CustomEvent('open-location-modal'))"
+            class="nav-item-1"
+            style="background:none; border:none; font-family:inherit;"
+        >
             <div class="nav-icon-1">
-                <svg viewBox="0 0 24 24" fill="none">
-                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
-                </svg>
+                <x-heroicon-o-map-pin />
             </div>
-            <span class="nav-label-1">Hotline</span>
-        </a>
+            <span class="nav-label-1">Khu vực</span>
+        </button>
+
+        <div
+            x-data="{
+                isLoggedIn: false,
+                init() {
+                    this.check();
+                    window.addEventListener('auth-state-changed', () => this.check());
+                },
+                check() {
+                    this.isLoggedIn = !!(localStorage.getItem('auth_token') && localStorage.getItem('auth_user'));
+                },
+            }"
+            class="contents"
+        >
+            <a :href="isLoggedIn ? '/tai-khoan#orders-section' : '/ticket-booking'"
+               class="nav-item-1 {{ $currentUrl === '/ticket-booking' ? 'active' : '' }}">
+                <div class="nav-icon-1">
+                    <x-heroicon-o-ticket />
+                </div>
+                <span class="nav-label-1" x-text="isLoggedIn ? 'Đơn hàng' : 'Tra cứu đơn'"></span>
+            </a>
+        </div>
+
+        {{-- Chưa đăng nhập: điều hướng sang trang /dang-nhap riêng (không còn mở modal popup —
+             xem components/header/actions/auth-button.blade.php, đổi song song ở header desktop). --}}
+        <div
+            x-data="{
+                isLoggedIn: false,
+                init() {
+                    this.check();
+                    window.addEventListener('auth-state-changed', () => this.check());
+                },
+                check() {
+                    this.isLoggedIn = !!(localStorage.getItem('auth_token') && localStorage.getItem('auth_user'));
+                },
+            }"
+            class="contents"
+        >
+            <a :href="isLoggedIn ? '/tai-khoan' : '{{ route('login.page') }}'" class="nav-item-1 {{ $currentUrl === '/tai-khoan' ? 'active' : '' }}">
+                <div class="nav-icon-1">
+                    <x-heroicon-o-user-circle />
+                </div>
+                <span class="nav-label-1" x-text="isLoggedIn ? 'Tài khoản' : 'Đăng nhập'"></span>
+            </a>
+        </div>
     </div>
 </div>
 

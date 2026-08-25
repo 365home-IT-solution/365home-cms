@@ -16,7 +16,7 @@
                                     search: '',
                                     handleSearch() {
                                         if (this.search.trim()) {
-                                            window.location.href = '/san-pham/tim-kiem?s=' + encodeURIComponent(this.search);
+                                            window.location.href = '/s?s=' + encodeURIComponent(this.search);
                                         }
                                     }
                                  }"

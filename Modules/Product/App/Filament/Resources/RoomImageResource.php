@@ -16,16 +16,13 @@ class RoomImageResource extends Resource
 {
     protected static ?string $model = RoomImage::class;
 
-    private static function isSuperAdmin(): bool
-    {
-        return auth()->user()?->hasRole('super_admin') ?? false;
-    }
-
-    public static function canViewAny(): bool { return static::isSuperAdmin(); }
-    public static function canCreate(): bool { return static::isSuperAdmin(); }
-    public static function canEdit(\Illuminate\Database\Eloquent\Model $record): bool { return static::isSuperAdmin(); }
-    public static function canDelete(\Illuminate\Database\Eloquent\Model $record): bool { return static::isSuperAdmin(); }
-    public static function canDeleteAny(): bool { return static::isSuperAdmin(); }
+    // Trước đây isSuperAdmin() hardcode ở cả 5 hàm — bỏ qua RoomImagePolicy (đã đúng, kiểm tra
+    // *_room::image), khiến tick/bỏ tick quyền này ở Roles & Permissions vô tác dụng.
+    public static function canViewAny(): bool { return auth()->user()?->can('view_any_room::image') ?? false; }
+    public static function canCreate(): bool { return auth()->user()?->can('create_room::image') ?? false; }
+    public static function canEdit(\Illuminate\Database\Eloquent\Model $record): bool { return auth()->user()?->can('update_room::image') ?? false; }
+    public static function canDelete(\Illuminate\Database\Eloquent\Model $record): bool { return auth()->user()?->can('delete_room::image') ?? false; }
+    public static function canDeleteAny(): bool { return auth()->user()?->can('delete_any_room::image') ?? false; }
 
     public static function getNavigationIcon(): string
     {

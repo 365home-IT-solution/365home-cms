@@ -15,6 +15,12 @@ class FormResource extends Resource
 {
     protected static ?string $model = Form::class;
 
+    // Nhóm "Biểu mẫu" đang ẩn tạm khỏi menu — bật lại bằng cách xoá method này.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public static function getNavigationIcon(): string
     {
         return __('form::form.resource.navigation_icon');
