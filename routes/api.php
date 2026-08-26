@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Auth\ZaloOtpController;
 use App\Http\Controllers\Api\BranchController;
+use App\Http\Controllers\Api\CheckinController;
 use App\Http\Controllers\Api\ConfigController;
 use App\Http\Controllers\Api\EventController;
 use App\Http\Controllers\Api\GraphQLController;
@@ -407,6 +408,18 @@ Route::get('membership/tiers', [MembershipController::class, 'tiers'])->name('ap
 
 Route::middleware(['auth:sanctum', 'customer.active'])->group(function () {
     Route::get('membership', [MembershipController::class, 'show'])->name('api.membership.show');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Điểm danh hằng ngày (nhận mã khuyến mãi định kỳ hạng thành viên)
+| GET  /api/checkin → Lịch điểm danh chu kỳ hiện tại (popup khi mở app)
+| POST /api/checkin → Điểm danh hôm nay (idempotent trong ngày)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'customer.active'])->prefix('checkin')->name('api.checkin.')->group(function () {
+    Route::get('/', [CheckinController::class, 'calendar'])->name('calendar');
+    Route::post('/', [CheckinController::class, 'store'])->name('store');
 });
 
 /*

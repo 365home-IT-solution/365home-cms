@@ -7,13 +7,11 @@ use App\Models\Customer;
 use App\Models\CustomerCompanion;
 use App\Models\GuestCustomer;
 use App\Models\MembershipTier;
-use App\Services\MembershipService;
 use App\Services\ZaloOtpService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Promotion\App\Models\Coupon;
@@ -22,7 +20,6 @@ class ZaloOtpController extends Controller
 {
     public function __construct(
         protected ZaloOtpService $otp,
-        protected MembershipService $membershipService,
     ) {}
 
     /**
@@ -95,8 +92,6 @@ class ZaloOtpController extends Controller
             $expiresAt = now()->addDays(30);
             $token     = $customer->createToken('mobile', ['*'], $expiresAt)->plainTextToken;
 
-            $this->grantLoginRewardSafely($customer);
-
             return response()->json([
                 'is_new_user' => false,
                 'token'       => $token,
@@ -150,30 +145,12 @@ class ZaloOtpController extends Controller
         $expiresAt = now()->addDays(30);
         $token     = $customer->createToken('mobile', ['*'], $expiresAt)->plainTextToken;
 
-        $this->grantLoginRewardSafely($customer);
-
         return response()->json([
             'is_new_user' => false,
             'token'       => $token,
             'expires_at'  => $expiresAt->toIso8601String(),
             'user'        => $this->customerResource($customer),
         ]);
-    }
-
-    /**
-     * Cấp thưởng đăng nhập định kỳ (MembershipService::grantLoginReward) nếu khách đủ điều kiện —
-     * bọc try/catch vì lỗi ở tính năng phụ này TUYỆT ĐỐI không được làm hỏng luồng đăng nhập chính.
-     */
-    private function grantLoginRewardSafely(Customer $customer): void
-    {
-        try {
-            $this->membershipService->grantLoginReward($customer);
-        } catch (\Throwable $e) {
-            Log::warning('MembershipService::grantLoginReward failed', [
-                'customer_id' => $customer->id,
-                'error'       => $e->getMessage(),
-            ]);
-        }
     }
 
     /**
