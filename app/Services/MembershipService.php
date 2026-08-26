@@ -504,6 +504,8 @@ class MembershipService
             $tier->auto_issue_notify_title ?: 'Ưu đãi dành cho hạng ' . $tier->name,
             $tier->auto_issue_notify_body ?: 'Bạn vừa nhận được một mã khuyến mãi mới dành riêng cho hạng thành viên của bạn. Kiểm tra ngay!',
             'membership_auto_coupon',
+            [],
+            $tier->auto_issue_notify_url,
         );
 
         return $coupon;
