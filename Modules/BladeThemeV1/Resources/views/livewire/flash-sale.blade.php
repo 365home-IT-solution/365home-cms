@@ -396,18 +396,23 @@
         .hs-skel-img { padding-top: 72%; border-radius: 14px; }
 
         /* Khung skeleton (2 khối carousel giả) chỉ cao ~860px, nhưng nội dung thật sau khi
-           /api/v1/home trả về cao tới ~2100-2700px (đo trực tiếp trên production, không phải ước
-           lượng) — chênh lệch đó là nguyên nhân chính của CLS lớn khi skeleton bị thay bằng nội
-           dung thật (mọi thứ bên dưới, kể cả footer, nhảy xuống một lần). Đặt trước min-height gần
-           đúng bằng chiều cao thật để khoảng trống đã được "giữ chỗ" ngay từ đầu, content load vào
-           vừa khít thay vì đẩy trang giãn ra đột ngột. Không cần khớp chính xác tuyệt đối — hụt một
-           chút vẫn còn shift nhỏ, dư một chút chỉ tạo khoảng trắng tạm thời (không phải shift). */
+           /api/v1/home trả về cao tới ~3100-3700px (đo trực tiếp trên production ngày 26/08/2026).
+           Đặt trước min-height để giữ chỗ, tránh trang giãn đột ngột khi data load xong.
+
+           Số liệu bên dưới CỐ Ý đặt CAO HƠN nhiều so với số đo thật (~3100-3700px) — dùng làm
+           khoảng đệm an toàn (buffer), để CMS có thể thêm vài banner/section nữa (ví dụ đợt khuyến
+           mãi mới) mà KHÔNG cần đo lại/sửa code mỗi lần. Đây KHÔNG phải giải pháp tuyệt đối — nếu
+           nội dung trang chủ tăng RẤT NHIỀU (vượt xa mức đệm này), CLS vẫn có thể tái phát, lúc đó
+           mới cần đo lại. Cách đo: mở DevTools Console tại 365home.vn, chạy
+           document.querySelector('[x-data="homeSections()"]').getBoundingClientRect().height ngay
+           sau khi trang load xong hoàn toàn — nếu số đo được vượt quá 2 giá trị bên dưới, cần tăng
+           thêm. */
         .hs-skeleton-wrap {
-            min-height: 2100px;
+            min-height: 5500px;
         }
         @media (min-width: 768px) {
             .hs-skeleton-wrap {
-                min-height: 2650px;
+                min-height: 6000px;
             }
         }
 
