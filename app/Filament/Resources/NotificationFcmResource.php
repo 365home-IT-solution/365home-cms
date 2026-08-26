@@ -8,6 +8,7 @@ use App\Filament\Resources\NotificationFcmResource\Pages;
 use App\Filament\Resources\NotificationFcmResource\RelationManagers;
 use App\Models\Customer;
 use App\Models\NotificationFcm;
+use App\Services\NotificationFcmService;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Radio;
@@ -22,7 +23,12 @@ use Filament\Infolists\Components\Grid;
 use Filament\Infolists\Components\Section as InfoSection;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Infolists\Infolist;
+use Filament\Notifications\Notification as FilamentNotification;
 use Filament\Resources\Resource;
+use Filament\Tables\Actions\Action;
+use Filament\Tables\Actions\DeleteAction;
+use Filament\Tables\Actions\DeleteBulkAction;
+use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
@@ -304,6 +310,28 @@ class NotificationFcmResource extends Resource
             ->defaultSort('created_at', 'desc')
             ->actions([
                 ViewAction::make()->label('Chi tiết'),
+                EditAction::make()->label('Sửa'),
+                Action::make('resend')
+                    ->label('Gửi lại')
+                    ->icon('heroicon-o-paper-airplane')
+                    ->color('warning')
+                    ->visible(fn (NotificationFcm $record): bool => ! $record->isPending()
+                        && (auth()->user()?->can('update_notification::fcm') ?? false))
+                    ->requiresConfirmation()
+                    ->modalDescription('Gửi lại thông báo này cho đúng nhóm người nhận ban đầu?')
+                    ->action(function (NotificationFcm $record): void {
+                        app(NotificationFcmService::class)->resend($record);
+                        $record->refresh();
+
+                        FilamentNotification::make()
+                            ->success()
+                            ->title("Đã gửi lại — tổng {$record->sent_count} thành công, {$record->fail_count} thất bại")
+                            ->send();
+                    }),
+                DeleteAction::make()->label('Xóa'),
+            ])
+            ->bulkActions([
+                DeleteBulkAction::make(),
             ])
             ->paginated([10, 25, 50]);
     }
@@ -369,6 +397,7 @@ class NotificationFcmResource extends Resource
             'index'  => Pages\ListNotificationFcm::route('/'),
             'create' => Pages\CreateNotificationFcm::route('/create'),
             'view'   => Pages\ViewNotificationFcm::route('/{record}'),
+            'edit'   => Pages\EditNotificationFcm::route('/{record}/edit'),
         ];
     }
 }

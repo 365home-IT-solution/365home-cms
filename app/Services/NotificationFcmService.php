@@ -9,6 +9,7 @@ use App\Models\NotificationFcm;
 use App\Models\NotificationFcmRecipient;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Modules\Payment\Entities\Order;
 
 /**
  * Gửi push notification cho customer VÀ lưu vào DB
@@ -312,6 +313,46 @@ class NotificationFcmService
         $notification->update([
             'sent_count' => $status === 'sent' ? 1 : 0,
             'fail_count' => $status === 'failed' ? 1 : 0,
+        ]);
+    }
+
+    /**
+     * Gửi lại 1 notification đã tạo cho đúng nhóm người nhận ban đầu (suy ra từ sent_for +
+     * các recipient đã lưu, vì form tạo mới không lưu lại danh sách customer_id đã chọn).
+     * Mỗi lần gọi tạo thêm bản ghi recipient mới (không xoá lịch sử lần gửi trước), rồi tính
+     * lại sent_count/fail_count theo TỔNG toàn bộ recipient để số liệu hiển thị luôn khớp với
+     * "Danh sách người nhận" dù đã gửi lại bao nhiêu lần.
+     */
+    public function resend(NotificationFcm $notification): void
+    {
+        if ($notification->sent_for === 'order') {
+            $orderId = $notification->recipient_ids['order_id'] ?? null;
+            $order   = $orderId ? Order::with('customer')->find($orderId) : null;
+
+            if ($order?->customer_id && $order->customer?->token_device) {
+                $this->sendToExisting($notification, collect([$order->customer]));
+            } elseif ($order?->device_token) {
+                $this->sendGuestToExisting($notification, $order->device_token);
+            }
+        } else {
+            $customerIds = $notification->recipients()
+                ->whereNotNull('customer_id')
+                ->distinct()
+                ->pluck('customer_id');
+
+            $customers = Customer::whereIn('id', $customerIds)
+                ->whereNotNull('token_device')
+                ->where('status', Customer::STATUS_ACTIVE)
+                ->get();
+
+            if ($customers->isNotEmpty()) {
+                $this->sendToExisting($notification, $customers);
+            }
+        }
+
+        $notification->update([
+            'sent_count' => $notification->recipients()->where('status', 'sent')->count(),
+            'fail_count' => $notification->recipients()->where('status', 'failed')->count(),
         ]);
     }
 
