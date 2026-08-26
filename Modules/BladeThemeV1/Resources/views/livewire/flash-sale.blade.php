@@ -8,7 +8,7 @@
      paints immediately in its default visible state, so the page has real content on screen from
      first paint instead of a blank hole, and it fills in incrementally instead of jumping once. --}}
 <div
-    x-data="homeSections()"
+    x-data="homeSections(@js($criticalHome))"
     x-init="init()"
 >
     {{-- Skeleton toàn trang chủ trong lúc load() (public/js/home-sections.js) đang gọi
@@ -18,7 +18,7 @@
          trắng trơn 1 khoảng. Không biết trước CMS sẽ trả về bao nhiêu/loại section nào nên dùng 2
          khối carousel thẻ chung chung (giống hình dạng Flash Sale/Danh sách phòng thật) làm
          placeholder, đủ để người dùng thấy trang "đang có nội dung" thay vì trống trơn. --}}
-    <div x-show="loading" x-cloak class="hs-skeleton-wrap">
+    <div x-show="loading && !bannerSection" x-cloak class="hs-skeleton-wrap">
         <template x-for="i in 2" :key="'hs-skel-' + i">
             <section class="py-4 bg-white">
                 <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
@@ -55,10 +55,34 @@
                         <div>
                             <div class="swiper center-carousel" x-ref="bannerSwiperEl">
                                 <div class="swiper-wrapper">
-                                    <template x-for="banner in bannerSection.items" :key="'banner-' + (banner.url || banner.image_url)">
+                                    @php($criticalBanner = data_get($criticalHome, 'banner.items.0'))
+                                    @php($criticalBannerSrcset = collect([
+                                        data_get($criticalBanner, 'thumbnail.card') ? data_get($criticalBanner, 'thumbnail.card').' 480w' : null,
+                                        data_get($criticalBanner, 'thumbnail.wide') ? data_get($criticalBanner, 'thumbnail.wide').' 1080w' : null,
+                                    ])->filter()->implode(', '))
+                                    @if ($criticalBanner)
+                                        <div class="swiper-slide">
+                                            <a href="{{ $criticalBanner['url'] ?: '#' }}" class="banner-card"
+                                               @unless($criticalBanner['url']) style="pointer-events:none" @endunless>
+                                                <img
+                                                    src="{{ data_get($criticalBanner, 'thumbnail.wide') ?? $criticalBanner['image_url'] }}"
+                                                    @if($criticalBannerSrcset) srcset="{{ $criticalBannerSrcset }}" @endif
+                                                    sizes="(max-width: 1023px) 100vw, 768px"
+                                                    alt="{{ $criticalBanner['title'] ?? '' }}"
+                                                    width="1000"
+                                                    height="300"
+                                                    loading="eager"
+                                                    fetchpriority="high">
+                                            </a>
+                                        </div>
+                                    @endif
+                                    <template x-for="banner in bannerSection.items.slice({{ $criticalBanner ? 1 : 0 }})" :key="'banner-' + (banner.url || banner.image_url)">
                                         <div class="swiper-slide">
                                             <a :href="banner.url || '#'" class="banner-card" :style="{ pointerEvents: banner.url ? 'auto' : 'none' }">
-                                                <img :src="banner.thumbnail?.wide || banner.image_url" :alt="banner.title || ''">
+                                                <img :src="banner.thumbnail?.wide || banner.image_url"
+                                                     :srcset="[banner.thumbnail?.card && (banner.thumbnail.card + ' 480w'), banner.thumbnail?.wide && (banner.thumbnail.wide + ' 1080w')].filter(Boolean).join(', ')"
+                                                     sizes="(max-width: 1023px) 100vw, 768px"
+                                                     :alt="banner.title || ''" width="1000" height="300" loading="lazy">
                                             </a>
                                         </div>
                                     </template>
@@ -85,6 +109,33 @@
                      thêm lại px-4/sm:px-6 — GIỮ NGUYÊN ở desktop (không lg:px-0) để thẳng hàng với
                      các section khác (Lần đầu khám phá, Lịch đặt phòng trực tuyến...) đều dùng
                      đúng pattern px-4 sm:px-6 này, không riêng gì banner mới cần full-bleed. --}}
+                @if (count(data_get($criticalHome, 'room_types', [])))
+                    <div class="min-w-0 px-4 sm:px-6 hs-roomtype-col-spacing">
+                        <div x-data="carouselNav()" x-init="init()">
+                            <div class="hs-roomtype-heading" style="margin-bottom:14px;">
+                                <h2 class="text-xl font-bold text-gray-900">Loại hình dịch vụ</h2>
+                            </div>
+                            <div style="position:relative;">
+                                <button type="button" class="roomtype-nav roomtype-nav-prev roomtype-nav-desktop-always" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
+                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                                </button>
+                                <button type="button" class="roomtype-nav roomtype-nav-next roomtype-nav-desktop-always" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
+                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                </button>
+                                <div x-ref="track" class="flex gap-6 py-2 px-1 overflow-x-hidden" style="scroll-snap-type:x mandatory;">
+                                    @foreach (data_get($criticalHome, 'room_types', []) as $type)
+                                        @php($typeUrlSlug = \Modules\BladeThemeV1\Support\BranchBookConfig::urlSlugFromTypeDbSlug($type['slug'] ?? ''))
+                                        <a href="{{ $typeUrlSlug ? url('/'.$typeUrlSlug) : route('product.search', ['type' => $type['slug'] ?? '']) }}" class="roomtype-card" style="scroll-snap-align:start;">
+                                            <img src="{{ asset('images/'.match ($type['slug'] ?? '') { 'hotel' => 'hotel.webp', 'motel' => 'motel.webp', 'villa' => 'villa.webp', 'apartment' => 'apartment.webp', 'mini_house' => 'minihouse.webp', default => 'homestay.webp' }) }}"
+                                                 alt="" class="roomtype-card-icon" width="88" height="88" loading="eager">
+                                            <span class="roomtype-card-label">{{ $type['name'] ?? '' }}</span>
+                                        </a>
+                                    @endforeach
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                @else
                 <template x-if="roomTypes && roomTypes.length">
                     <div class="min-w-0 px-4 sm:px-6 hs-roomtype-col-spacing">
                         {{-- Thẻ nền xám nhạt, icon lớn TRÊN tên (giống nhau mọi kích thước màn
@@ -123,6 +174,7 @@
                         </div>
                     </div>
                 </template>
+                @endif
 
             </div>
     </section>
@@ -137,7 +189,8 @@
                  dùng background-image (bg-cover + chiều cao cố định qua .explore-card) thay vì thẻ
                  <img> để 2 cột LUÔN bằng chiều cao nhau, ảnh tự crop cho vừa khung. --}}
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div class="explore-card" style="background-image: url('{{ asset('images/welcome_joyer_1.svg') }}');">
+                <div class="explore-card">
+                    <img src="{{ asset('images/welcome_joyer_1.svg') }}" alt="" class="explore-card-bg" width="720" height="478" loading="lazy">
                     <div class="explore-card-content">
                         <p class="explore-card-title" style="color:#0e3a5c;">Thành viên mới? Quà chất đang đợi!</p>
                         <p class="explore-card-subtitle" style="color:#0e3a5c;">Nhận coupon giảm 200.000đ với người dùng mới</p>
@@ -146,7 +199,9 @@
                 </div>
                 {{-- background-position lệch sang phải: chữ + nội dung nằm bên trái, phần đồ hoạ
                      (thẻ giá/coupon) của ảnh nền dồn về bên phải, tránh đè lên chữ. --}}
-                <div class="explore-card" style="background-image: url('{{ asset('images/banner-guest-mobile.webp') }}'); background-position: right center;">
+                <div class="explore-card">
+                    <img src="{{ asset('images/banner-guest-mobile.webp') }}" alt="" class="explore-card-bg explore-card-bg-right"
+                         width="750" height="336" loading="eager" fetchpriority="high">
                     <div class="explore-card-content">
                         <p class="explore-card-title" style="color:#fff;">Nhận ưu đãi liền tay khi tải app!</p>
                         <p class="explore-card-subtitle" style="color:rgba(255,255,255,.88);">Sử dụng ứng dụng để săn deals mỗi ngày</p>
@@ -169,7 +224,7 @@
          component riêng) — tự quản lý state qua Alpine homeBookingBoard() (định nghĩa trong
          public/js/home-sections.js), bên trong nhúng lại đúng Livewire\Book component đã dùng ở
          trang /branch/{slug} và panel ?view=branches của trang tìm kiếm. --}}
-    @include('bladethemev1::livewire.home-booking-board')
+    @include('bladethemev1::livewire.home-booking-board', ['criticalHome' => $criticalHome])
 
     {{-- "Các chi nhánh tại..." — đặt ngay dưới "Lịch đặt phòng trực tuyến".
          Livewire component riêng (BranchSuggestion) — query thẳng DB, không còn qua API
@@ -178,6 +233,7 @@
          đang chọn qua sự kiện 'province-selected' (xem branch-suggestion.blade.php). --}}
     @livewire('bladethemev1::branch-suggestion')
 
+    <div data-home-sections-boundary aria-hidden="true"></div>
     <template x-for="section in sections" :key="section.type + '-' + section.id">
         <div>
             {{-- ============== BANNER (chỉ hiện nếu CMS cấu hình >1 block banner — block đầu
@@ -407,13 +463,9 @@
            document.querySelector('[x-data="homeSections()"]').getBoundingClientRect().height ngay
            sau khi trang load xong hoàn toàn — nếu số đo được vượt quá 2 giá trị bên dưới, cần tăng
            thêm. */
-        .hs-skeleton-wrap {
-            min-height: 5500px;
-        }
+        .hs-skeleton-wrap { min-height: 680px; }
         @media (min-width: 768px) {
-            .hs-skeleton-wrap {
-                min-height: 6000px;
-            }
+            .hs-skeleton-wrap { min-height: 760px; }
         }
 
         /* Hàng gộp loại hình dịch vụ + banner: 1 cột trên mobile, 2 cột không đều (banner rộng
@@ -681,6 +733,8 @@
            background-size:cover) dù ảnh gốc có tỉ lệ khác nhau (svg minh hoạ dạng đứng vs png
            banner dạng ngang) — thấp hơn bản trước, chỉ đủ cho tiêu đề + phụ đề + nút. */
         .explore-card {
+            position: relative;
+            overflow: hidden;
             width: 100%;
             height: 150px;
             border-radius: 16px;
@@ -691,10 +745,21 @@
             display: flex;
             align-items: center;
         }
+        .explore-card-bg {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: center;
+        }
+        .explore-card-bg-right { object-position: right center; }
         @media (min-width: 1024px) {
             .explore-card { height: 190px; }
         }
         .explore-card-content {
+            position: relative;
+            z-index: 1;
             max-width: 62%;
             padding: 0 20px;
             display: flex;
@@ -837,5 +902,5 @@
         }
     </style>
 
-    <script src="{{ asset('js/home-sections.js') }}?v={{ filemtime(public_path('js/home-sections.js')) }}"></script>
+    {{-- On the home page this source is bundled/minified by Resources/assets/js/home.js. --}}
 </div>
