@@ -84,7 +84,14 @@ class WardController extends Controller
             ->with('category')
             ->get()
             ->map(function ($branch) {
-                $category   = $branch->category;
+                $category = $branch->category;
+
+                // ProvinceBranch.status chỉ nói ward này có bật chi nhánh không — chi nhánh (Category
+                // gốc) còn phải tự nó đang active thì mới cho hiển thị.
+                if (! $category || ! $category->status) {
+                    return null;
+                }
+
                 $categoryId = $category->id;
                 $childIds   = Category::where('parent_id', $categoryId)->pluck('id')->toArray();
                 $allIds     = array_merge([$categoryId], $childIds);
@@ -109,6 +116,7 @@ class WardController extends Controller
                     'items'       => $rooms,
                 ];
             })
+            ->filter()
             ->values();
 
         return response()->json([

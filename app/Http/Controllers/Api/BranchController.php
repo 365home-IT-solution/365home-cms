@@ -39,7 +39,11 @@ class BranchController extends Controller
      */
     public function timeSlots(Request $request, string $slug): JsonResponse
     {
-        $branch = Category::where('slug', $slug)->first();
+        $branch = Category::whereNull('parent_id')
+            ->where('category_type', 'product')
+            ->where('status', true)
+            ->where('slug', $slug)
+            ->first();
 
         if (! $branch) {
             return response()->json(['message' => 'Chi nhánh không tồn tại.'], 404);
@@ -64,6 +68,7 @@ class BranchController extends Controller
 
         $rooms = Product::where('is_activated', true)
             ->where('is_in_stock', true)
+            ->activeBranch()
             ->where(fn ($q) => $q->where('styles', 1)->orWhereNull('styles'))
             ->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $categoryIds))
             ->whereHas('roomTimeSlots.timeSlot')
@@ -285,6 +290,7 @@ class BranchController extends Controller
 
         $rooms = Product::where('is_activated', true)
             ->where('is_in_stock', true)
+            ->activeBranch()
             ->where('styles', 2)
             ->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $categoryIds))
             ->with('media')
@@ -315,7 +321,7 @@ class BranchController extends Controller
     // {branch} linh hoạt thay vì bắt buộc đúng 1 định dạng.
     private function resolveBranchIdentifier(string $branch): ?Category
     {
-        $query = Category::whereNull('parent_id')->where('category_type', 'product');
+        $query = Category::whereNull('parent_id')->where('category_type', 'product')->where('status', true);
 
         if (is_numeric($branch)) {
             return (clone $query)->where('id', (int) $branch)->first();
@@ -355,6 +361,7 @@ class BranchController extends Controller
         $branch = Category::where('id', $id)
             ->whereNull('parent_id')
             ->where('category_type', 'product')
+            ->where('status', true)
             ->first();
 
         if (! $branch) {

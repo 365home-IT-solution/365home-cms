@@ -44,7 +44,18 @@ class ProvinceController extends Controller
         $activeBranches = ProvinceBranch::where('status', true)->get(['province_id', 'categorie_id']);
 
         $branchCategoryIds = $activeBranches->pluck('categorie_id')->unique()->values();
-        $childCategoriesByParent = Category::whereIn('parent_id', $branchCategoryIds)
+
+        // ProvinceBranch.status chỉ nói tỉnh này có bật chi nhánh không — chi nhánh (Category gốc)
+        // còn phải tự nó đang active thì mới cho hiển thị.
+        $activeBranchCategoryIds = Category::whereIn('id', $branchCategoryIds)
+            ->where('status', true)
+            ->pluck('id');
+
+        $activeBranches = $activeBranches->filter(
+            fn (ProvinceBranch $branch) => $activeBranchCategoryIds->contains($branch->categorie_id)
+        );
+
+        $childCategoriesByParent = Category::whereIn('parent_id', $activeBranchCategoryIds)
             ->get(['id', 'parent_id'])
             ->groupBy('parent_id');
 
@@ -199,8 +210,9 @@ class ProvinceController extends Controller
         $wards = $province->branches()
             ->where('status', true)
             ->whereNotNull('ward_code')
-            ->with('ward')
+            ->with(['ward', 'category'])
             ->get()
+            ->filter(fn ($branch) => $branch->category && $branch->category->status)
             ->groupBy('ward_code')
             ->map(fn ($items, $wardCode) => [
                 'code'           => (int) $wardCode,

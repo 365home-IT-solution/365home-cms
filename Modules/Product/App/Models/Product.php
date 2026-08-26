@@ -110,19 +110,11 @@ class Product extends Model implements HasMedia, Resourceable
     // giữ nguyên hiển thị như trước (không phải điều được yêu cầu ở đây).
     public function scopeActiveBranch($query)
     {
-        $inactiveBranchIds = Category::whereNull('parent_id')
-            ->where('category_type', 'product')
-            ->where('status', false)
-            ->pluck('id');
+        $inactiveCatIds = Category::inactiveBranchCategoryIds();
 
-        if ($inactiveBranchIds->isEmpty()) {
+        if ($inactiveCatIds->isEmpty()) {
             return $query;
         }
-
-        $inactiveCatIds = $inactiveBranchIds
-            ->merge(Category::whereIn('parent_id', $inactiveBranchIds)->pluck('id'))
-            ->unique()
-            ->values();
 
         return $query->whereDoesntHave('categories', fn ($q) => $q->whereIn('categories.id', $inactiveCatIds));
     }
