@@ -190,7 +190,8 @@
                  <img> để 2 cột LUÔN bằng chiều cao nhau, ảnh tự crop cho vừa khung. --}}
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div class="explore-card">
-                    <img src="{{ asset('images/welcome_joyer_1.svg') }}" alt="" class="explore-card-bg" width="720" height="478" loading="lazy">
+                    <img src="{{ asset('images/welcome_joyer_1.svg') }}" alt="" class="explore-card-bg" width="720" height="478"
+                         loading="eager" fetchpriority="high">
                     <div class="explore-card-content">
                         <p class="explore-card-title" style="color:#0e3a5c;">Thành viên mới? Quà chất đang đợi!</p>
                         <p class="explore-card-subtitle" style="color:#0e3a5c;">Nhận coupon giảm 200.000đ với người dùng mới</p>
