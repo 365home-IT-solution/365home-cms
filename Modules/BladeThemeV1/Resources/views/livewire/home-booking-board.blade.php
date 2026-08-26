@@ -84,7 +84,11 @@
              riêng khung lịch mobile (.book-panel) tự bù margin âm để tràn sát mép, xem CSS
              `.home-book-scope .book-panel` trong book/_styles.blade.php. --}}
         <div class="px-4 sm:px-6 home-book-scope">
-            @livewire('bladethemev1::book', ['config' => \Modules\BladeThemeV1\Support\BranchBookConfig::empty()])
+            @php
+                $initialBookConfig = data_get($criticalHome ?? [], 'booking.default_book_config')
+                    ?: \Modules\BladeThemeV1\Support\BranchBookConfig::empty();
+            @endphp
+            @livewire('bladethemev1::book', ['config' => $initialBookConfig])
         </div>
     </div>
 </section>

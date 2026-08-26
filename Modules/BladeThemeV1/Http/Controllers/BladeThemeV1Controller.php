@@ -206,13 +206,19 @@ class BladeThemeV1Controller extends Controller
                 ->get(['id', 'name', 'slug'])
                 ->values();
             $defaultProvince = $provinces->first();
+            $defaultBranches = $defaultProvince
+                ? SearchController::branchesDataForProvince($defaultProvince)['data']
+                : [];
+            $defaultBranchSlug = data_get($defaultBranches, '0.slug');
 
             return [
                 'provinces' => $provinces->all(),
                 'active_province_id' => $defaultProvince ? (string) $defaultProvince->id : null,
-                'default_branches' => $defaultProvince
-                    ? SearchController::branchesDataForProvince($defaultProvince)['data']
-                    : [],
+                'default_branches' => $defaultBranches,
+                // Render the initial grid without waiting for a Livewire update request.
+                'default_book_config' => $defaultBranchSlug
+                    ? data_get(BranchBookConfig::build($defaultBranchSlug), 'bookConfig')
+                    : null,
             ];
         };
 
