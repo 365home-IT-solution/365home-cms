@@ -225,12 +225,7 @@ class MembershipTierResource extends Resource
                     ->helperText('Mỗi dòng là 1 lần nhắc trong ngày cho khách chưa điểm danh hôm nay — số dòng = số lần nhắc/ngày.')
                     ->reorderable(false)
                     ->defaultItems(1)
-                    ->visible(fn (Get $get) => $get('auto_issue_enabled') && $get('checkin_reminder_enabled'))
-                    ->dehydrateStateUsing(fn (?array $state) => collect($state ?? [])
-                        ->filter()
-                        ->map(fn ($time) => substr((string) $time, 0, 5))
-                        ->values()
-                        ->all()),
+                    ->visible(fn (Get $get) => $get('auto_issue_enabled') && $get('checkin_reminder_enabled')),
             ])->columnSpanFull(),
             ])->columnSpan(1),
 
