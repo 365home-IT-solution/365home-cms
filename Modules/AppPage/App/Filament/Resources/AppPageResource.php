@@ -28,7 +28,7 @@ class AppPageResource extends Resource
 
     public static function getNavigationLabel(): string
     {
-        return 'Trang App';
+        return 'APP';
     }
 
     public static function getModelLabel(): string

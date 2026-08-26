@@ -18,6 +18,13 @@ class RoomAmenityAssignResource extends Resource
 
     protected static ?string $navigationLabel = 'Gán Tiện Ích Phòng';
 
+    // Gộp vào mục "Thông tin & Cấu hình Phòng" đã bỏ khỏi menu — ẩn tạm, giữ nguyên route/API.
+    // Bật lại bằng cách xoá method này.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     // BẮT BUỘC khai báo riêng — dùng chung model Product với ProductResource, không khai báo thì
     // Filament tự suy nhãn trang phân quyền (Shield) từ tên model thành "Product", trùng tên với
     // mục khác, không phân biệt được trên trang chọn quyền.

@@ -17,6 +17,11 @@ use App\Models\Province;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Http\Controllers\PaymentController;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Modules\AppPage\App\Models\AppPage;
+use Modules\AppPage\App\Models\Banner;
+use App\Http\Controllers\Api\SearchController;
+use Illuminate\Support\Facades\Cache;
 
 class BladeThemeV1Controller extends Controller
 {
@@ -125,7 +130,97 @@ class BladeThemeV1Controller extends Controller
             'lightPrimaryColor' => $this->lightPrimaryColor,
             'seoData' => $seoData,
             'page' => $page,
+            // Only the small, above-the-fold subset is embedded in the initial HTML. The full
+            // home payload still loads through /api/v1/home, so CMS behaviour remains unchanged.
+            'criticalHome' => request()->path() === '/' ? $this->criticalHomeData() : [],
         ]);
+    }
+
+    /**
+     * Return enough CMS data to paint the first home banner before Alpine and the home API load.
+     * Any data/configuration problem deliberately falls back to the existing client-side flow.
+     */
+    private function criticalHomeData(): array
+    {
+        try {
+            $page = AppPage::query()
+                ->where('slug', 'home')
+                ->where('is_active', true)
+                ->first();
+
+            $bannerBlock = collect($page?->content ?? [])
+                ->first(fn (array $block) => ($block['type'] ?? null) === 'banner');
+            $bannerIds = collect($bannerBlock['data']['items'] ?? [])
+                ->pluck('banner_id')
+                ->filter()
+                ->values();
+            $banners = Banner::query()
+                ->whereIn('id', $bannerIds)
+                ->where('is_active', true)
+                ->get()
+                ->keyBy('id');
+            $items = $bannerIds
+                ->map(fn ($id) => $banners->get($id))
+                ->filter()
+                ->map(fn (Banner $banner) => [
+                    'title' => $banner->title,
+                    'image_url' => $banner->image
+                        ? Storage::disk($banner->disk ?? 'public')->url($banner->image)
+                        : null,
+                    'thumbnail' => $banner->thumbnail,
+                    'url' => $banner->url,
+                ])
+                ->filter(fn (array $banner) => filled(data_get($banner, 'thumbnail.wide') ?? $banner['image_url']))
+                ->values()
+                ->all();
+
+            return [
+                'banner' => empty($items) ? null : [
+                    'type' => 'banner',
+                    'id' => 1,
+                    'sort_order' => 1,
+                    'items' => $items,
+                ],
+                'room_types' => RoomType::query()
+                    ->where('is_active', true)
+                    ->orderBy('sort_order')
+                    ->get(['id', 'slug', 'name', 'icon', 'icon_url'])
+                    ->toArray(),
+                'booking' => $this->criticalBookingData(),
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('Unable to prepare critical home data; using the existing API fallback.', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+    }
+
+    private function criticalBookingData(): array
+    {
+        $resolve = function (): array {
+            $provinces = Province::query()
+                ->whereHas('branches', fn ($query) => $query->where('status', true))
+                ->orderBy('name')
+                ->get(['id', 'name', 'slug'])
+                ->values();
+            $defaultProvince = $provinces->first();
+
+            return [
+                'provinces' => $provinces->all(),
+                'active_province_id' => $defaultProvince ? (string) $defaultProvince->id : null,
+                'default_branches' => $defaultProvince
+                    ? SearchController::branchesDataForProvince($defaultProvince)['data']
+                    : [],
+            ];
+        };
+
+        try {
+            return Cache::store('file')->remember('bladethemev1:home:critical-booking', now()->addMinutes(5), $resolve);
+        } catch (\Throwable) {
+            return $resolve();
+        }
     }
 
     public function postDetail($slug)

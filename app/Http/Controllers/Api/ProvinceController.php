@@ -13,6 +13,7 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Storage;
 use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
+use App\Http\Controllers\Api\SearchController;
 
 class ProvinceController extends Controller
 {
@@ -77,7 +78,7 @@ class ProvinceController extends Controller
             ->orderBy('name')
             ->get();
 
-        return response()->json([
+        $response = [
             'provinces' => $provinces->map(fn ($p) => [
                 'id'            => $p->id,
                 'name'          => $p->name,
@@ -86,7 +87,20 @@ class ProvinceController extends Controller
                 'division_type' => $p->division_type,
                 'codename'      => $p->codename,
             ])->values(),
-        ]);
+        ];
+
+        // ?with_default_branches=1 — gộp thêm chi nhánh của tỉnh ĐẦU TIÊN vào cùng response này,
+        // để trang chủ (home-sections.js homeBookingBoard()) khi CHƯA biết tỉnh đã chọn (khách lần
+        // đầu ghé, không có localStorage) chỉ cần gọi 1 API thay vì 2 lần nối tiếp (trước đó phải
+        // đợi /api/v1/provinces trả về mới gọi tiếp /api/v1/search/branches — đo được mất thêm
+        // ~400-1000ms trong "network dependency tree" của PageSpeed). Khách ĐÃ biết tỉnh (có
+        // localStorage) không cần cờ này — JS đã tự gọi thẳng branches song song từ trước, xem
+        // homeBookingBoard.init() trong home-sections.js.
+        if ($request->boolean('with_default_branches') && $provinces->isNotEmpty()) {
+            $response['default_branches'] = SearchController::branchesDataForProvince($provinces->first());
+        }
+
+        return response()->json($response);
     }
 
     // ─── POST /api/v1/provinces/select ──────────────────────────────────────

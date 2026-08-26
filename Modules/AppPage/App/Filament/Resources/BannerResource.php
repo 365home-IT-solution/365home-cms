@@ -31,7 +31,7 @@ class BannerResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-photo';
 
-    protected static ?string $navigationGroup = 'Quản lý API';
+    protected static ?string $navigationGroup = 'Cấu hình web';
 
     protected static ?string $navigationLabel = 'Banner';
 

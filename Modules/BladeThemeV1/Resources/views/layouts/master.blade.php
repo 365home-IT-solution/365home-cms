@@ -1,5 +1,7 @@
 @php
     $generalSettings = new \App\Settings\GeneralSettings();
+    $siteTheme = $generalSettings->site_theme ?? [];
+    $isHomePage = request()->path() === '/';
 
     $metaTags = [
         'canonical' => $generalSettings->canonical,
@@ -69,27 +71,52 @@
          throws "Cannot read properties of undefined (reading 'fn')". Keeping jQuery's tag first
          here (still deferred, still non-blocking) preserves the same execution order as before,
          just without pausing HTML parsing. --}}
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js" integrity="sha512-v2CJ7UaYy4JwqLDIrZUI/4hqeoQieOmAZNXBeQyjo21dadnwR+8ZaIJVT8EE2iyI61OV8e6M8PP2/4hpQINQ/g==" crossorigin="anonymous" referrerpolicy="no-referrer" defer></script>
+    @unless ($isHomePage)
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js" integrity="sha512-v2CJ7UaYy4JwqLDIrZUI/4hqeoQieOmAZNXBeQyjo21dadnwR+8ZaIJVT8EE2iyI61OV8e6M8PP2/4hpQINQ/g==" crossorigin="anonymous" referrerpolicy="no-referrer" defer></script>
+    @endunless
 
     <!-- Styles -->
-    @vite(['Resources/assets/sass/app.scss', 'Resources/assets/js/app.js'], 'build-bladethemev1')
+    @if ($isHomePage)
+        @vite(['Resources/assets/sass/home.scss', 'Resources/assets/js/home.js'], 'build-bladethemev1')
+    @else
+        @vite(['Resources/assets/sass/app.scss', 'Resources/assets/js/app.js'], 'build-bladethemev1')
+    @endif
     {{-- Real-time "khung giờ đang bị admin giữ chỗ" (xem App\Services\TimeslotHoldService) — nhúng
          Ở LAYOUT DÙNG CHUNG (không riêng product-detail) để hoạt động trên MỌI trang có bảng chọn
          khung giờ (trang chủ, trang chi nhánh, trang chi tiết phòng...), dùng build Vite CHÍNH
          (public/build), khác với build-bladethemev1 ở dòng trên — 2 pipeline độc lập, không xung đột. --}}
-    @vite(['resources/js/echo-client.js'])
+    @unless ($isHomePage)
+        @vite(['resources/js/echo-client.js'])
+    @endunless
     {{-- Real-time "khung giờ vừa đổi giá/khuyến mãi" (xem App\Services\SlotRealtimeService) — dùng
          Node WS service riêng (websocket/server.js), KHÁC kênh Reverb ở echo-client.js phía trên.
          window.__WS_PUBLIC_URL để trống (route "services.websocket.public_url" chưa cấu hình) thì
          ws-client.js tự bỏ qua, không lỗi gì. --}}
     <script>window.__WS_PUBLIC_URL = @js(config('services.websocket.public_url'));</script>
-    @vite(['resources/js/ws-client.js'])
+    @unless ($isHomePage)
+        @vite(['resources/js/ws-client.js'])
+    @endunless
     <link rel="shortcut icon" href="{{ asset('/storage/' . $favicon) }}" type="image/x-icon">
     <style>
         :root {
             --color-primary: {{ $primaryColor }};
             --color-primary-rgb: {{ $primaryColorRgb }};
             --color-primary-light: {{ $lightPrimaryColor }};
+            --color-text-secondary: {{ data_get($siteTheme, 'Secondary', '#6b7280') }};
+            --color-secondary: {{ data_get($siteTheme, 'secondary', '#6b7280') }};
+            --color-gray: {{ data_get($siteTheme, 'gray', '#6b7280') }};
+            --color-success: {{ data_get($siteTheme, 'success', '#22c55e') }};
+            --color-danger: {{ data_get($siteTheme, 'danger', '#ef4444') }};
+            --color-info: {{ data_get($siteTheme, 'info', '#3b82f6') }};
+            --color-warning: {{ data_get($siteTheme, 'warning', '#f59e0b') }};
+            --color-background: {{ data_get($siteTheme, 'background', '#ffffff') }};
+            --color-bgDark: {{ data_get($siteTheme, 'bg_dark', '#111827') }};
+            --color-textDark: {{ data_get($siteTheme, 'text_dark', '#111827') }};
+            --color-red9C: {{ data_get($siteTheme, 'red_9c', '#9c0000') }};
+            --color-borderGray: {{ data_get($siteTheme, 'border_gray', '#e5e7eb') }};
+            --color-tickGreen: {{ data_get($siteTheme, 'tick_green', '#22c55e') }};
+            --color-tickYellow: {{ data_get($siteTheme, 'tick_yellow', '#eab308') }};
+            --color-tickGray: {{ data_get($siteTheme, 'tick_gray', '#9ca3af') }};
         }
         * {
             font-family: 'Inter', sans-serif;
@@ -169,7 +196,6 @@
     </style>
     <meta name="google-site-verification" content="0ZBswrf5iWy88w6bO01M5Ug3fzaHQYSVopJfACzmioc" />
     <meta name="google-site-verification" content="JxaNDMFwsnjNqpiMuX2dNb9xgCObK0fzixMaom0QD4I" />
-    <link rel="stylesheet" href="{{ route('theme.css') }}">
     @livewireStyles
 </head>
 
@@ -181,6 +207,28 @@
     @livewire('bladethemev1::auth-modal')
     @stack('scripts')
     @livewireScripts
+    @if ($isHomePage)
+        <script type="module">
+            let homeRealtimeLoaded = false;
+            const loadHomeRealtime = () => {
+                if (homeRealtimeLoaded) return;
+                homeRealtimeLoaded = true;
+                import(@js(Vite::asset('resources/js/echo-client.js')));
+                import(@js(Vite::asset('resources/js/ws-client.js')));
+            };
+            const boundary = document.querySelector('[data-home-realtime-boundary]');
+            if (boundary && 'IntersectionObserver' in window) {
+                const observer = new IntersectionObserver((entries) => {
+                    if (!entries.some(entry => entry.isIntersecting)) return;
+                    observer.disconnect();
+                    loadHomeRealtime();
+                });
+                observer.observe(boundary);
+            } else if (boundary) {
+                boundary.addEventListener('pointerdown', loadHomeRealtime, { once: true, passive: true });
+            }
+        </script>
+    @endif
 </body>
 
 </html>

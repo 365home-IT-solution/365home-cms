@@ -31,6 +31,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // Never expose debug assets or stack traces in production, even if an old deployment
+        // accidentally leaves APP_DEBUG enabled. Livewire uses this value to select its minified
+        // bundle, which removes ~50KB from the initial page and is also the secure default.
+        if ($this->app->environment('production')) {
+            config(['app.debug' => false]);
+        }
+
         KnowledgeBasePanel::configureUsing(
             fn(KnowledgeBasePanel $panel) => $panel
                 ->viteTheme('resources/css/filament/admin/theme.css')
@@ -112,7 +119,10 @@ class AppServiceProvider extends ServiceProvider
         // Scoped to build-bladethemev1 only — Filament admin's own Vite build (public/build) is
         // untouched, so this can't affect the admin panel's CSS loading.
         Vite::useStyleTagAttributes(function (string $src, string $url, ?array $chunk, ?array $manifest) {
-            if (str_contains($url, 'build-bladethemev1')) {
+            // The dedicated home CSS is small and contains the above-the-fold layout. Applying it
+            // immediately prevents the large CLS caused by painting unstyled HTML and restyling it
+            // after the file finishes. Larger legacy bundles remain non-blocking on other pages.
+            if (str_contains($url, 'build-bladethemev1') && ! str_contains($src, 'home')) {
                 return [
                     'media' => 'print',
                     'onload' => "this.media='all'",

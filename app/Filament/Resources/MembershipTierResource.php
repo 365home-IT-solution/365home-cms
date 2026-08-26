@@ -35,7 +35,7 @@ class MembershipTierResource extends Resource
     protected static ?string $model = MembershipTier::class;
 
     protected static ?string $navigationIcon   = 'heroicon-o-trophy';
-    protected static ?string $navigationGroup  = 'Phân quyền';
+    protected static ?string $navigationGroup  = 'Quản lý';
     protected static ?string $navigationLabel  = 'Hạng thành viên';
     protected static ?string $modelLabel       = 'Hạng thành viên';
     protected static ?string $pluralModelLabel = 'Hạng thành viên';

@@ -3,7 +3,7 @@
 return [
     'resource' => [
         'navigation_icon' => 'heroicon-o-archive-box',
-        'navigation_label' => 'BOOKING',
+        'navigation_label' => 'Đơn phòng',
         'model_label' => 'BOOKING',
         'plural_model_label' => 'BOOKING',
     ],

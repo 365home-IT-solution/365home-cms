@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import "mixin";
+@import "button";
+@import "custom";
+@import "menu-item";
+
+html { font-size: .8rem; }
+@media (min-width: 768px) { html { font-size: .9rem; } }
+
+.swiper-wrapper {
+    width: 100%;
+    height: max-content !important;
+    position: relative;
+}
+
+.custom-lheight { line-height: 1.2rem; }
+.text-md { font-size: 1rem; line-height: 1.25rem; }

@@ -24,6 +24,13 @@ class RoomImageResource extends Resource
     public static function canDelete(\Illuminate\Database\Eloquent\Model $record): bool { return auth()->user()?->can('delete_room::image') ?? false; }
     public static function canDeleteAny(): bool { return auth()->user()?->can('delete_any_room::image') ?? false; }
 
+    // Gộp vào mục "Thông tin & Cấu hình Phòng" đã bỏ khỏi menu — ẩn tạm, giữ nguyên route/API.
+    // Bật lại bằng cách xoá method này.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public static function getNavigationIcon(): string
     {
         return 'heroicon-o-photo';

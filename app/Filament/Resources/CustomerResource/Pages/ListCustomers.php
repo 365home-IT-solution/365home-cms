@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Filament\Resources\CustomerResource\Pages;
 
+use App\Filament\Resources\CustomerCheckinResource;
 use App\Filament\Resources\CustomerResource;
 use App\Models\MembershipTier;
+use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Resources\Components\Tab;
@@ -18,6 +20,11 @@ class ListCustomers extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('customerCheckin')
+                ->label('Điểm danh khách hàng')
+                ->icon('heroicon-o-calendar-days')
+                ->color('gray')
+                ->url(CustomerCheckinResource::getUrl('index')),
             CreateAction::make(),
         ];
     }

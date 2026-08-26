@@ -44,7 +44,7 @@ class CustomerResource extends Resource
     protected static ?string $model = Customer::class;
 
     protected static ?string $navigationIcon   = 'heroicon-o-users';
-    protected static ?string $navigationGroup  = 'Phân quyền';
+    protected static ?string $navigationGroup  = 'Quản lý';
     protected static ?string $navigationLabel  = 'Khách hàng';
     protected static ?string $modelLabel       = 'Khách hàng';
     protected static ?string $pluralModelLabel = 'Khách hàng';

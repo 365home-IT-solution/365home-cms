@@ -24,7 +24,7 @@ class PostCategoryResource extends Resource
 
     public static function getNavigationGroup(): ?string
     {
-        return 'Nội dung & Marketing';
+        return 'Quản lý';
     }
 
     public static function getNavigationSort(): ?int
