@@ -59,7 +59,8 @@ class SendScheduledNotificationsCommand extends Command
             $status = 'sent';
 
             try {
-                $fcmService->sendToCustomer($customer, $notification->title, $notification->body);
+                $extra = $notification->url ? ['url' => $notification->url] : [];
+                $fcmService->sendToCustomer($customer, $notification->title, $notification->body, $extra);
             } catch (\Throwable $e) {
                 $status = 'failed';
                 Log::error('FCM scheduled send failed', [

@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\OrderServiceController;
 use App\Http\Controllers\Api\AskUserController;
 use App\Http\Controllers\Api\HomeController;
+use App\Http\Controllers\Api\PopupController;
 use App\Http\Controllers\Api\ProvinceController;
 use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\WardController;
@@ -83,6 +84,8 @@ Route::get('v1/branches/{id}', [BranchController::class, 'show'])->name('api.v1.
 | GET /api/v1/provinces/{slug}              → Chi tiết tỉnh + chi nhánh (slug)
 |
 | GET /api/v1/ask-user/{id}                 → Nội dung thông báo khi vào app
+| GET /api/v1/popups                        → Danh sách ảnh popup (ảnh + url điều hướng), dùng
+|                                                cho cả app và website
 |
 | GET /api/v1/branches/{slug}/time-slots?days=15 → Lịch đặt phòng đầy đủ 1 chi nhánh (mọi phòng
 |                                                    theo khung giờ x ngày, kèm giá/khuyến mãi/
@@ -115,6 +118,10 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     Route::get('wards/{code}', [WardController::class, 'showByCode'])->name('wards.show')->whereNumber('code');
 
     Route::get('ask-user/{id}', [AskUserController::class, 'show'])->name('ask-user.show')->whereNumber('id');
+
+    // GET /api/v1/popups → danh sách ảnh popup đang cấu hình (ảnh + url điều hướng), đúng thứ tự
+    // sắp xếp trên admin — dùng cho cả app và website. Quản lý ở Admin > Quản lý API > Popup.
+    Route::get('popups', [PopupController::class, 'index'])->name('popups.index')->middleware('throttle:public-api');
 
     Route::get('config',     ConfigController::class)->name('config')->middleware('throttle:config');
     Route::get('config/map', [ConfigController::class, 'map'])->name('config.map')->middleware('throttle:config');

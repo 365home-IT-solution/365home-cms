@@ -65,6 +65,12 @@ class NotificationFcmResource extends Resource
                     ->rows(4)
                     ->maxLength(1000)
                     ->placeholder('Nhập nội dung thông báo gửi đến khách hàng...'),
+
+                TextInput::make('url')
+                    ->label('URL điều hướng')
+                    ->helperText('Đường dẫn app/website sẽ mở khi khách bấm vào thông báo (không bắt buộc).')
+                    ->placeholder('VD: /orders/123 hoặc myapp://order/123')
+                    ->maxLength(500),
             ]),
 
             Section::make('Người nhận')->schema([
@@ -231,6 +237,12 @@ class NotificationFcmResource extends Resource
                     ->tooltip(fn ($record) => $record->body)
                     ->color('gray'),
 
+                TextColumn::make('url')
+                    ->label('URL điều hướng')
+                    ->limit(40)
+                    ->placeholder('—')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
                 TextColumn::make('delivery_status')
                     ->label('Trạng thái')
                     ->badge()
@@ -306,6 +318,7 @@ class NotificationFcmResource extends Resource
             InfoSection::make('Nội dung thông báo')->schema([
                 TextEntry::make('title')->label('Tiêu đề')->weight('bold'),
                 TextEntry::make('body')->label('Nội dung'),
+                TextEntry::make('url')->label('URL điều hướng')->placeholder('—'),
             ]),
 
             InfoSection::make('Kết quả gửi')->schema([

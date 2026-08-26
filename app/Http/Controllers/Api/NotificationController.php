@@ -29,6 +29,7 @@ class NotificationController extends Controller
                 'id'      => $r->notification->id,
                 'title'   => $r->notification->title,
                 'body'    => $r->notification->body,
+                'url'     => $r->notification->url,
                 'type'    => $r->notification->type,
                 'is_read' => $r->read_at !== null,
                 'read_at' => $r->read_at?->toIso8601String(),

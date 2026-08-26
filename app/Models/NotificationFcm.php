@@ -13,6 +13,7 @@ class NotificationFcm extends Model
     protected $fillable = [
         'title',
         'body',
+        'url',
         'type',
         'sent_for',
         'scheduled_at',
