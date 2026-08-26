@@ -25,8 +25,8 @@
                   @if($criticalBannerSrcset) imagesrcset="{{ $criticalBannerSrcset }}" @endif
                   imagesizes="(max-width: 1023px) 100vw, 768px" fetchpriority="high">
         @endif
-        {{-- This static card can become LCP on mobile after the CMS banner paints. --}}
-        <link rel="preload" as="image" href="{{ asset('images/banner-guest-mobile.webp') }}" fetchpriority="high">
+        {{-- Measured as LCP on the responsive home layout; discover it from the document head. --}}
+        <link rel="preload" as="image" href="{{ asset('images/welcome-joyer-1140.webp') }}" fetchpriority="high">
     @endpush
 @endif
 

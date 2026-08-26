@@ -126,7 +126,7 @@
                                     @foreach (data_get($criticalHome, 'room_types', []) as $type)
                                         @php($typeUrlSlug = \Modules\BladeThemeV1\Support\BranchBookConfig::urlSlugFromTypeDbSlug($type['slug'] ?? ''))
                                         <a href="{{ $typeUrlSlug ? url('/'.$typeUrlSlug) : route('product.search', ['type' => $type['slug'] ?? '']) }}" class="roomtype-card" style="scroll-snap-align:start;">
-                                            <img src="{{ asset('images/'.match ($type['slug'] ?? '') { 'hotel' => 'hotel.webp', 'motel' => 'motel.webp', 'villa' => 'villa.webp', 'apartment' => 'apartment.webp', 'mini_house' => 'minihouse.webp', default => 'homestay.webp' }) }}"
+                                            <img src="{{ asset('images/'.match ($type['slug'] ?? '') { 'hotel' => 'hotel-176.webp', 'motel' => 'motel-176.webp', 'villa' => 'villa-176.webp', 'apartment' => 'apartment-176.webp', 'mini_house' => 'minihouse-176.webp', default => 'homestay-176.webp' }) }}"
                                                  alt="" class="roomtype-card-icon" width="88" height="88" loading="eager">
                                             <span class="roomtype-card-label">{{ $type['name'] ?? '' }}</span>
                                         </a>
@@ -190,7 +190,7 @@
                  <img> để 2 cột LUÔN bằng chiều cao nhau, ảnh tự crop cho vừa khung. --}}
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div class="explore-card">
-                    <img src="{{ asset('images/welcome_joyer_1.svg') }}" alt="" class="explore-card-bg" width="720" height="478"
+                    <img src="{{ asset('images/welcome-joyer-1140.webp') }}" alt="" class="explore-card-bg" width="1140" height="360"
                          loading="eager" fetchpriority="high">
                     <div class="explore-card-content">
                         <p class="explore-card-title" style="color:#0e3a5c;">Thành viên mới? Quà chất đang đợi!</p>
