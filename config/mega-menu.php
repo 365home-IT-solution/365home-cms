@@ -13,29 +13,28 @@ declare(strict_types=1);
 // cột "khác" ở cuối, không bị mất khỏi menu.
 return [
     'Quản lý' => [
-        'Quản lý vận hành / Booking' => ['BOOKING', 'Chi nhánh và khu vực', 'Thiết lập Phòng', 'Mật khẩu khóa thủ công', 'Khai báo lưu trú'],
-        'Giá & Khuyến mãi' => ['Hệ thống giá', 'Ưu đãi', 'Mã giảm giá', 'Pass Cổng'],
-        'Nội dung & Marketing' => ['Bài viết', 'Dịch vụ Bổ sung'],
-        'Chăm sóc khách hàng' => ['Tư vấn khách hàng', 'Tin nhắn khách hàng'],
+        'Quản lý vận hành' => ['Đơn phòng', 'Chi nhánh', 'Phòng', 'Dịch vụ', 'Tiện ích', 'Tỉnh/Thành phố'],
+        'Quản lý giá & khuyến mãi' => ['Hệ thống giá', 'Mã giảm giá', 'Ưu đãi khung giờ'],
+        'Nội dung & Marketing' => ['Bài viết', 'Danh mục bài viết'],
+        'Quản lý khách hàng' => ['Tin nhắn', 'Khách hàng', 'Hạng thành viên', 'Tư vấn khách hàng'],
+        'Quản lý kho' => ['Danh mục vật tư', 'Phiếu nhập kho', 'Phiếu xuất kho', 'Phiếu kiểm kê', 'Nhóm vật tư', 'Đơn vị tính'],
+        'Thông báo' => ['Gửi thông báo đến khách'],
         'Đối tác & Báo cáo' => ['Đối tác', 'Thống kê lương'],
     ],
 
     'Cấu hình web' => [
-        'Cấu hình chung' => ['Chung', 'Chi nhánh', 'Thông tin công ty'],
-        'Giao diện & Nội dung Website' => ['Thành phần', 'Menu', 'Trang', 'Theme', 'Thư viện'],
+        'Cấu hình chung' => ['Chung', 'Ẩn chi nhánh', 'Thông tin công ty'],
+        'Pass cổng' => ['Khóa thủ công', 'Pass Cổng'],
+        'Giao diện website' => ['Thành phần', 'Menu', 'Trang', 'Theme', 'Thư viện', 'Banner'],
         'Thanh toán & Tích hợp bên thứ ba' => ['Thanh toán online', 'Tài khoản TTLock', 'Email'],
     ],
 
     'Phân quyền' => [
-        'Vai trò & Phân quyền' => ['Vai trò', 'Phân quyền dữ liệu', 'Phân quyền Chi nhánh'],
+        'Vai trò & Phân quyền' => ['Vai trò', 'Phân quyền Chi nhánh'],
         'Thành viên nội bộ' => ['Thành viên', 'Lịch sử thao tác'],
-        'Khách hàng bên ngoài' => ['Khách hàng', 'Hạng thành viên'],
     ],
 
     'Quản lý API' => [
-        'Thông tin & Cấu hình Phòng' => ['Danh mục Phòng', 'Ảnh Phòng', 'Điểm Đặc Biệt', 'Tiện ích Phòng', 'Gán Tiện Ích Phòng', 'Dịch vụ Phòng'],
-        'Vận hành Phòng' => ['Kiểm tra dọn phòng', 'Khách vãng lai'],
-        'Nội dung & Giao diện App' => ['Trang App', 'Banner'],
-        'Thông báo & Dữ liệu hệ thống' => ['Push Notification', 'Thông báo vào app', 'Tỉnh/Thành phố'],
+        'Nội dung app' => ['APP', 'POPUP'],
     ],
 ];

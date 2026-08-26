@@ -37,9 +37,9 @@ class ManualLockPasswordResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-key';
 
-    protected static ?string $navigationGroup = 'Quản lý';
+    protected static ?string $navigationGroup = 'Cấu hình web';
 
-    protected static ?string $navigationLabel = 'Mật khẩu khóa thủ công';
+    protected static ?string $navigationLabel = 'Khóa thủ công';
 
     protected static ?string $modelLabel = 'Mật khẩu khóa thủ công';
 

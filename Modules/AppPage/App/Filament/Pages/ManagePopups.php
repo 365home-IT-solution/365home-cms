@@ -25,7 +25,7 @@ class ManagePopups extends Page implements HasForms
 
     protected static ?string $navigationGroup = 'Quản lý API';
 
-    protected static ?string $navigationLabel = 'Popup';
+    protected static ?string $navigationLabel = 'POPUP';
 
     protected static ?string $title = 'Quản lý Popup';
 

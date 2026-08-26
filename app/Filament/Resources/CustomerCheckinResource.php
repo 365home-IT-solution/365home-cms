@@ -26,6 +26,13 @@ class CustomerCheckinResource extends Resource
     protected static ?string $pluralModelLabel = 'Điểm danh khách hàng';
     protected static ?int    $navigationSort   = 26;
 
+    // Không hiện ở menu nữa — chuyển thành nút action ở header trang danh sách Khách hàng
+    // (xem CustomerResource\Pages\ListCustomers::getHeaderActions()). Giữ nguyên route/API.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public static function canViewAny(): bool
     {
         return auth()->user()?->can('view_any_customer::checkin') ?? false;

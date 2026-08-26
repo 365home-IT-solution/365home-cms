@@ -32,8 +32,8 @@ class NotificationFcmResource extends Resource
     protected static ?string $model = NotificationFcm::class;
 
     protected static ?string $navigationIcon   = 'heroicon-o-bell-alert';
-    protected static ?string $navigationGroup  = 'Quản lý API';
-    protected static ?string $navigationLabel  = 'Push Notification';
+    protected static ?string $navigationGroup  = 'Quản lý';
+    protected static ?string $navigationLabel  = 'Gửi thông báo đến khách';
     protected static ?string $modelLabel       = 'Thông báo';
     protected static ?string $pluralModelLabel = 'Push Notifications';
     protected static ?int    $navigationSort   = 10;

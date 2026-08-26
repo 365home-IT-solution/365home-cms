@@ -37,7 +37,7 @@ class AdditionServiceResource extends Resource
 
     public static function getNavigationLabel(): string
     {
-        return 'Dịch vụ Bổ sung';
+        return 'Dịch vụ';
     }
 
     public static function getModelLabel(): string

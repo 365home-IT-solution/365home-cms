@@ -2,7 +2,7 @@
 
 return [
     'resource' => [
-        'navigation_label' => 'Ưu đãi',
+        'navigation_label' => 'Ưu đãi khung giờ',
         'model_label' => 'Ưu đãi',
         'plural_model_label' => 'Ưu đãi',
         'navigation_group' => 'Quản lý',

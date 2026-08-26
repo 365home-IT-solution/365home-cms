@@ -25,12 +25,12 @@ class RoomAmenityResource extends Resource
 
     public static function getNavigationGroup(): ?string
     {
-        return 'Quản lý API';
+        return 'Quản lý';
     }
 
     public static function getNavigationLabel(): string
     {
-        return 'Tiện ích Phòng';
+        return 'Tiện ích';
     }
 
     public static function getModelLabel(): string

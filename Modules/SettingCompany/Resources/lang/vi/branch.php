@@ -4,7 +4,7 @@ return [
     'resource' => [
         'navigation_icon' => 'heroicon-o-building-office-2',
         'navigation_group' => 'Cấu hình web',
-        'navigation_label' => 'Chi nhánh',
+        'navigation_label' => 'Ẩn chi nhánh',
         'model_label' => 'Chi nhánh',
         'plural_label' => 'Chi nhánh',
     ],

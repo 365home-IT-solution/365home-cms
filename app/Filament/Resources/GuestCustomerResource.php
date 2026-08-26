@@ -29,6 +29,12 @@ class GuestCustomerResource extends Resource
     protected static ?string $modelLabel      = 'Khách vãng lai';
     protected static ?string $pluralModelLabel = 'Khách vãng lai';
 
+    // Tạm thời ẩn khỏi menu — bật lại bằng cách xoá method này.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public static function canCreate(): bool
     {
         return false;

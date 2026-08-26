@@ -2,7 +2,7 @@
 
 return [
     'resource' => [
-        'navigation_label' => 'Thiết lập Phòng',
+        'navigation_label' => 'Phòng',
         'model_label' => 'Thiết lập Phòng',
         'plural_model_label' => 'Thiết lập Phòng',
         'navigation_group' => 'Quản lý',

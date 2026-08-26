@@ -21,7 +21,7 @@ class AccessCodeResource extends Resource
 
     public static function getNavigationGroup(): ?string
     {
-        return 'Quản lý';
+        return 'Cấu hình web';
     }
 
     public static function getNavigationLabel(): string
