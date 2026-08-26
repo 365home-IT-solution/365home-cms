@@ -323,17 +323,49 @@ if (typeof window.__dedupeFetch === 'undefined') {
     };
 }
 
+if (typeof window.__afterPageIdle === 'undefined') {
+    window.__afterPageIdle = function (callback) {
+        const run = () => {
+            if ('requestIdleCallback' in window) {
+                requestIdleCallback(callback, { timeout: 2500 });
+            } else {
+                setTimeout(callback, 500);
+            }
+        };
+        if (document.readyState === 'complete') run();
+        else window.addEventListener('load', run, { once: true });
+    };
+}
+
 if (typeof window.homeSections === 'undefined') {
-    window.homeSections = function () {
+    window.homeSections = function (initialHome) {
+        initialHome = initialHome || {};
+        const initialBanner = initialHome.banner || null;
         return {
-            sections: [],
-            roomTypes: [],
-            bannerSection: null,
+            sections: initialBanner ? [initialBanner] : [],
+            roomTypes: initialHome.room_types || [],
+            bannerSection: initialBanner,
             loading: true,
             provinceName: localStorage.getItem('home_province_name') || '',
 
             init() {
-                this.load();
+                // Banner + room types are already in the initial HTML. Keep the full home API off
+                // the critical path; it only fills sections below the fold.
+                if (initialBanner && 'IntersectionObserver' in window) {
+                    const boundary = document.querySelector('[data-home-sections-boundary]');
+                    if (boundary) {
+                        const observer = new IntersectionObserver((entries) => {
+                            if (!entries.some(entry => entry.isIntersecting)) return;
+                            observer.disconnect();
+                            this.load();
+                        });
+                        observer.observe(boundary);
+                    } else {
+                        window.__afterPageIdle(() => this.load());
+                    }
+                } else if (initialBanner) {
+                    window.__afterPageIdle(() => this.load());
+                } else this.load();
                 window.addEventListener('auth-state-changed', () => this.load());
                 window.addEventListener('province-selected', (e) => {
                     this.provinceName = e.detail?.name || localStorage.getItem('home_province_name') || '';
@@ -439,25 +471,26 @@ if (typeof window.homeSections === 'undefined') {
 }
 
 if (typeof window.homeBookingBoard === 'undefined') {
-    window.homeBookingBoard = function () {
+    window.homeBookingBoard = function (initialBooking) {
+        initialBooking = initialBooking || {};
         return {
-            provinces: [],
-            branches: [],
-            activeProvinceId: null,
-            activeBranchSlug: null,
+            provinces: initialBooking.provinces || [],
+            branches: initialBooking.default_branches || [],
+            activeProvinceId: initialBooking.active_province_id || null,
+            activeBranchSlug: initialBooking.default_branches?.[0]?.slug || null,
             loadingBranches: false,
 
             init() {
-                this.activeProvinceId = localStorage.getItem('home_province_id') || null;
-                this.loadProvinces();
-                // Nếu đã biết tỉnh từ lần trước (localStorage), gọi thẳng /api/v1/search/branches
-                // song song với /api/v1/provinces thay vì đợi provinces trả về rồi mới gọi — 2 API
-                // này không phụ thuộc nhau khi đã có sẵn provinceId (chỉ cần đợi khi CHƯA biết
-                // tỉnh, lúc đó phải lấy tỉnh mặc định từ response provinces trước — xem nhánh còn
-                // lại trong loadProvinces() bên dưới). Rút ngắn được 1 vòng round-trip nối tiếp
-                // trong network-dependency chain cho khách quay lại.
-                if (this.activeProvinceId) {
-                    this.loadBranches();
+                this.activeProvinceId = localStorage.getItem('home_province_id') || this.activeProvinceId;
+                if ('IntersectionObserver' in window) {
+                    const observer = new IntersectionObserver((entries) => {
+                        if (!entries.some(entry => entry.isIntersecting)) return;
+                        observer.disconnect();
+                        this.loadInitialData();
+                    });
+                    observer.observe(this.$root);
+                } else {
+                    window.__afterPageIdle(() => this.loadInitialData());
                 }
                 window.addEventListener('province-selected', (e) => {
                     const id = String(e.detail?.id || localStorage.getItem('home_province_id') || '');
@@ -468,17 +501,51 @@ if (typeof window.homeBookingBoard === 'undefined') {
                 });
             },
 
-            loadProvinces() {
-                window.__dedupeFetch('/api/v1/provinces')
+            loadInitialData() {
+                // Nếu đã biết tỉnh từ lần trước (localStorage), gọi thẳng /api/v1/search/branches
+                // song song với /api/v1/provinces thay vì đợi provinces trả về rồi mới gọi — 2 API
+                // này không phụ thuộc nhau khi đã có sẵn provinceId. Chưa biết tỉnh (khách lần đầu,
+                // không có localStorage) thì gọi /api/v1/provinces kèm cờ with_default_branches=1
+                // — API gộp luôn chi nhánh của tỉnh mặc định vào CÙNG response, thay vì phải đợi
+                // xong rồi mới gọi tiếp branches riêng (bớt 1 vòng round-trip nối tiếp trong
+                // network-dependency chain — xem ProvinceController::index()).
+                if (this.activeProvinceId) {
+                    this.loadProvinces();
+                    const seededProvince = String(initialBooking.active_province_id || '');
+                    if (!this.branches.length || String(this.activeProvinceId) !== seededProvince) {
+                        this.loadBranches();
+                    } else if (this.branches[0]) {
+                        this.selectBranch(this.branches[0]);
+                    }
+                } else {
+                    this.loadProvinces(true);
+                }
+            },
+
+            loadProvinces(withDefaultBranches) {
+                const url = '/api/v1/provinces' + (withDefaultBranches ? '?with_default_branches=1' : '');
+                window.__dedupeFetch(url)
                     .then(res => res.json())
                     .then(data => {
                         this.provinces = data.provinces || [];
-                        // Chỉ tự gọi loadBranches() ở đây khi lúc init() CHƯA có activeProvinceId
-                        // (khách lần đầu, không có localStorage) — nếu đã gọi rồi ở nhánh trên thì
-                        // bỏ qua để tránh gọi trùng /api/v1/search/branches 2 lần.
+                        // Chỉ tự set tỉnh mặc định + nạp chi nhánh ở đây khi lúc init() CHƯA có
+                        // activeProvinceId (khách lần đầu) — nếu đã gọi loadBranches() ở nhánh
+                        // "đã biết tỉnh" trong init() thì bỏ qua, tránh gọi trùng.
                         if (!this.activeProvinceId && this.provinces.length) {
                             this.activeProvinceId = String(this.provinces[0].id);
-                            this.loadBranches();
+                            if (data.default_branches) {
+                                // Server đã gộp sẵn chi nhánh của tỉnh mặc định vào response này —
+                                // dùng thẳng, không cần gọi thêm /api/v1/search/branches nữa.
+                                this.branches = data.default_branches.data || [];
+                                if (this.branches.length) {
+                                    this.selectBranch(this.branches[0]);
+                                }
+                            } else {
+                                // Fallback an toàn — phòng trường hợp with_default_branches không
+                                // được gửi kèm hoặc server không trả default_branches vì lý do nào
+                                // đó, vẫn nạp được chi nhánh theo cách cũ (thêm 1 round-trip).
+                                this.loadBranches();
+                            }
                         }
                     })
                     .catch(() => { this.provinces = []; });

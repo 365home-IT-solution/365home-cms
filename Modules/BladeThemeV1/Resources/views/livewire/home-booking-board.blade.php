@@ -5,7 +5,8 @@
  * kiện 'load-branch' (cơ chế có sẵn từ Book::loadBranch()).
 --}}
 @inject('generalSettings', 'App\Settings\GeneralSettings')
-<section class="py-6 bg-white" x-data="homeBookingBoard()" x-init="init()" x-cloak>
+<section class="py-6 bg-white" data-home-realtime-boundary
+         x-data="homeBookingBoard(@js(data_get($criticalHome ?? [], 'booking', [])))" x-init="init()">
     <div class="w-full max-w-7xl mx-auto" x-show="provinces.length > 0">
 
         <div class="px-4 sm:px-6">

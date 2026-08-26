@@ -10,6 +10,22 @@
              as "resource load delay". Preloading it here lets the browser fetch it immediately, in
              parallel with everything else, cutting straight into that delay without changing how
              the section renders. --}}
+        @php
+            $criticalBannerImage = data_get($criticalHome ?? [], 'banner.items.0.thumbnail.wide')
+                ?? data_get($criticalHome ?? [], 'banner.items.0.image_url');
+            $criticalBannerSrcset = collect([
+                data_get($criticalHome ?? [], 'banner.items.0.thumbnail.card')
+                    ? data_get($criticalHome, 'banner.items.0.thumbnail.card').' 480w' : null,
+                data_get($criticalHome ?? [], 'banner.items.0.thumbnail.wide')
+                    ? data_get($criticalHome, 'banner.items.0.thumbnail.wide').' 1080w' : null,
+            ])->filter()->implode(', ');
+        @endphp
+        @if ($criticalBannerImage)
+            <link rel="preload" as="image" href="{{ $criticalBannerImage }}"
+                  @if($criticalBannerSrcset) imagesrcset="{{ $criticalBannerSrcset }}" @endif
+                  imagesizes="(max-width: 1023px) 100vw, 768px" fetchpriority="high">
+        @endif
+        {{-- This static card can become LCP on mobile after the CMS banner paints. --}}
         <link rel="preload" as="image" href="{{ asset('images/banner-guest-mobile.webp') }}" fetchpriority="high">
     @endpush
 @endif
@@ -22,7 +38,7 @@
     @if (request()->path() === '/')
         {{-- Trang chủ: chỉ render hero-section + các section tùy chỉnh --}}
         @livewire('bladethemev1::hero-section')
-        @livewire('bladethemev1::flash-sale')
+        @livewire('bladethemev1::flash-sale', ['criticalHome' => $criticalHome ?? []])
         @livewire('bladethemev1::voucher')
 
     @else
