@@ -126,6 +126,7 @@ class MembershipTierController extends Controller
             'auto_issue_coupon_usage_limit' => $data['auto_issue_coupon_usage_limit'] ?? null,
             'auto_issue_notify_title'       => $data['auto_issue_notify_title'] ?? null,
             'auto_issue_notify_body'        => $data['auto_issue_notify_body'] ?? null,
+            'auto_issue_notify_url'         => $data['auto_issue_notify_url'] ?? null,
             'checkin_reminder_enabled'      => $data['checkin_reminder_enabled'] ?? false,
             'checkin_reminder_times'        => $data['checkin_reminder_times'] ?? null,
         ]);
@@ -159,7 +160,7 @@ class MembershipTierController extends Controller
             'auto_issue_enabled', 'auto_issue_interval_days', 'auto_issue_coupon_type',
             'auto_issue_coupon_value', 'auto_issue_coupon_value_max', 'auto_issue_coupon_days',
             'auto_issue_coupon_usage_limit', 'auto_issue_notify_title', 'auto_issue_notify_body',
-            'checkin_reminder_enabled', 'checkin_reminder_times',
+            'auto_issue_notify_url', 'checkin_reminder_enabled', 'checkin_reminder_times',
         ])->toArray());
 
         if ($request->hasFile('image')) {
@@ -292,6 +293,10 @@ class MembershipTierController extends Controller
             'auto_issue_coupon_usage_limit' => 'nullable|integer|min:1',
             'auto_issue_notify_title'       => 'nullable|string|max:255',
             'auto_issue_notify_body'        => 'nullable|string|max:500',
+            // URL/deep-link app mở khi khách bấm vào thông báo mã khuyến mãi tự động — cùng field
+            // 'url' đã dùng ở NotificationFcmService::sendToCustomer()/NotificationFcmResource (CMS
+            // gửi tay), để trống thì thông báo không có điều hướng (giữ hành vi cũ).
+            'auto_issue_notify_url'         => 'nullable|string|max:500',
             'checkin_reminder_enabled'      => 'nullable|boolean',
             // Mỗi phần tử = 1 giờ nhắc/ngày, định dạng "HH:mm" (khớp TimePicker Filament, seconds tắt).
             'checkin_reminder_times'        => 'nullable|array',
@@ -361,6 +366,7 @@ class MembershipTierController extends Controller
             'auto_issue_coupon_usage_limit' => $tier->auto_issue_coupon_usage_limit,
             'auto_issue_notify_title'       => $tier->auto_issue_notify_title,
             'auto_issue_notify_body'        => $tier->auto_issue_notify_body,
+            'auto_issue_notify_url'         => $tier->auto_issue_notify_url,
             'checkin_reminder_enabled'      => (bool) $tier->checkin_reminder_enabled,
             'checkin_reminder_times'        => $tier->checkin_reminder_times ?? [],
             // Voucher CHÍNH THỨC của hạng (nguồn 'auto') — shape khớp với body 'voucher_templates'

@@ -38,6 +38,7 @@ class MembershipTier extends Model
         'auto_issue_coupon_usage_limit',
         'auto_issue_notify_title',
         'auto_issue_notify_body',
+        'auto_issue_notify_url',
         'checkin_reminder_enabled',
         'checkin_reminder_times',
     ];

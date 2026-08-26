@@ -207,6 +207,13 @@ class MembershipTierResource extends Resource
                     ->helperText('Để trống sẽ dùng nội dung mặc định.')
                     ->visible(fn (Get $get) => $get('auto_issue_enabled')),
 
+                TextInput::make('auto_issue_notify_url')
+                    ->label('URL điều hướng')
+                    ->maxLength(500)
+                    ->placeholder('VD: /coupons hoặc myapp://coupons')
+                    ->helperText('Đường dẫn app sẽ mở khi khách bấm vào thông báo (không bắt buộc) — để trống thì thông báo không điều hướng đi đâu.')
+                    ->visible(fn (Get $get) => $get('auto_issue_enabled')),
+
                 Toggle::make('checkin_reminder_enabled')
                     ->label('Bật nhắc điểm danh hằng ngày')
                     ->helperText('Nhắc khách chưa điểm danh hôm nay vào các giờ đã cấu hình bên dưới.')

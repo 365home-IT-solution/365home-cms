@@ -77,7 +77,28 @@
 
     <!-- Styles -->
     @if ($isHomePage)
-        @vite(['Resources/assets/sass/home.scss', 'Resources/assets/js/home.js'], 'build-bladethemev1')
+        @php
+            $inlineHomeCss = null;
+            $homeManifestPath = public_path('build-bladethemev1/manifest.json');
+            if (app()->environment('production') && is_file($homeManifestPath)) {
+                $homeManifest = json_decode(file_get_contents($homeManifestPath), true);
+                $homeCssFile = data_get($homeManifest, 'Resources/assets/sass/home.scss.file');
+                $homeCssPath = $homeCssFile
+                    ? public_path('build-bladethemev1/'.$homeCssFile)
+                    : null;
+                if ($homeCssPath && is_file($homeCssPath)) {
+                    $inlineHomeCss = file_get_contents($homeCssPath);
+                }
+            }
+        @endphp
+        @if ($inlineHomeCss)
+            {{-- Exact production bundle, inlined to remove its render-blocking network round-trip. --}}
+            <style data-home-critical-css>{!! $inlineHomeCss !!}</style>
+            @vite(['Resources/assets/js/home.js'], 'build-bladethemev1')
+        @else
+            {{-- Safe local/missing-manifest fallback: keep the normal Vite stylesheet link. --}}
+            @vite(['Resources/assets/sass/home.scss', 'Resources/assets/js/home.js'], 'build-bladethemev1')
+        @endif
     @else
         @vite(['Resources/assets/sass/app.scss', 'Resources/assets/js/app.js'], 'build-bladethemev1')
     @endif

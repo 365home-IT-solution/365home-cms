@@ -201,21 +201,30 @@ if (typeof window.carouselNav === 'undefined') {
         return {
             canScrollPrev: false,
             canScrollNext: false,
+            checkFrame: null,
 
             init() {
                 this.$nextTick(() => {
                     const el = this.$refs.track;
                     if (!el) return;
-                    this.check();
-                    el.addEventListener('scroll', () => this.check(), { passive: true });
-                    window.addEventListener('resize', () => this.check());
-                    new MutationObserver(() => this.check()).observe(el, { childList: true });
+                    this.scheduleCheck();
+                    el.addEventListener('scroll', () => this.scheduleCheck(), { passive: true });
+                    window.addEventListener('resize', () => this.scheduleCheck(), { passive: true });
+                    new MutationObserver(() => this.scheduleCheck()).observe(el, { childList: true });
                     // ResizeObserver bắt luôn trường hợp track đổi từ display:none (x-show="false"
                     // lúc chưa có dữ liệu) sang hiện thật — lúc đó childList có thể đã đổi trước khi
                     // box thật sự hiện ra nên MutationObserver một mình đo hụt (ra 0x0).
                     if (typeof ResizeObserver !== 'undefined') {
-                        new ResizeObserver(() => this.check()).observe(el);
+                        new ResizeObserver(() => this.scheduleCheck()).observe(el);
                     }
+                });
+            },
+
+            scheduleCheck() {
+                if (this.checkFrame !== null) return;
+                this.checkFrame = requestAnimationFrame(() => {
+                    this.checkFrame = null;
+                    this.check();
                 });
             },
 
@@ -260,12 +269,12 @@ if (typeof window.__roomTypeImage === 'undefined') {
 // Icon đứng cạnh/trên tên loại hình dịch vụ ở hàng nút "Loại hình dịch vụ" (xem flash-sale.blade.php).
 if (typeof window.__roomTypeIconMap === 'undefined') {
     window.__roomTypeIconMap = {
-        homestay: '/images/homestay.webp',
-        hotel: '/images/hotel.webp',
-        motel: '/images/motel.webp',
-        villa: '/images/villa.webp',
-        apartment: '/images/apartment.webp',
-        mini_house: '/images/minihouse.webp',
+        homestay: '/images/homestay-176.webp',
+        hotel: '/images/hotel-176.webp',
+        motel: '/images/motel-176.webp',
+        villa: '/images/villa-176.webp',
+        apartment: '/images/apartment-176.webp',
+        mini_house: '/images/minihouse-176.webp',
     };
 }
 
@@ -478,7 +487,9 @@ if (typeof window.homeBookingBoard === 'undefined') {
             branches: initialBooking.default_branches || [],
             activeProvinceId: initialBooking.active_province_id || null,
             activeBranchSlug: initialBooking.default_branches?.[0]?.slug || null,
-            loadedBranchSlug: null,
+            loadedBranchSlug: initialBooking.default_book_config
+                ? (initialBooking.default_branches?.[0]?.slug || null)
+                : null,
             loadingBranches: false,
 
             init() {
@@ -504,7 +515,9 @@ if (typeof window.homeBookingBoard === 'undefined') {
                 // xong rồi mới gọi tiếp branches riêng (bớt 1 vòng round-trip nối tiếp trong
                 // network-dependency chain — xem ProvinceController::index()).
                 if (this.activeProvinceId) {
-                    this.loadProvinces();
+                    // Dữ liệu tỉnh đã được nhúng trong HTML; chỉ gọi API khi cache/response cũ
+                    // không có seed để giữ nguyên fallback an toàn.
+                    if (!this.provinces.length) this.loadProvinces();
                     const seededProvince = String(initialBooking.active_province_id || '');
                     if (!this.branches.length || String(this.activeProvinceId) !== seededProvince) {
                         this.loadBranches();
