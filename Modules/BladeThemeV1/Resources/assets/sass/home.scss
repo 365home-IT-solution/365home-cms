@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+// Keep Swiper styles in the home stylesheet so the initial render needs one CSS request.
+@import "swiper/css";
+@import "swiper/css/navigation";
+@import "swiper/css/pagination";
+
 @import "mixin";
 @import "button";
 @import "custom";
