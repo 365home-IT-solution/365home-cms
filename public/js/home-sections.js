@@ -478,20 +478,14 @@ if (typeof window.homeBookingBoard === 'undefined') {
             branches: initialBooking.default_branches || [],
             activeProvinceId: initialBooking.active_province_id || null,
             activeBranchSlug: initialBooking.default_branches?.[0]?.slug || null,
+            loadedBranchSlug: null,
             loadingBranches: false,
 
             init() {
                 this.activeProvinceId = localStorage.getItem('home_province_id') || this.activeProvinceId;
-                if ('IntersectionObserver' in window) {
-                    const observer = new IntersectionObserver((entries) => {
-                        if (!entries.some(entry => entry.isIntersecting)) return;
-                        observer.disconnect();
-                        this.loadInitialData();
-                    });
-                    observer.observe(this.$root);
-                } else {
-                    window.__afterPageIdle(() => this.loadInitialData());
-                }
+                // Bảng lịch là chức năng chính: phải dispatch chi nhánh mặc định ngay khi Alpine
+                // khởi tạo để Livewire nạp lưới khung giờ, không chờ người dùng cuộn/chọn lại.
+                this.loadInitialData();
                 window.addEventListener('province-selected', (e) => {
                     const id = String(e.detail?.id || localStorage.getItem('home_province_id') || '');
                     if (id && id !== this.activeProvinceId) {
@@ -585,8 +579,9 @@ if (typeof window.homeBookingBoard === 'undefined') {
             // Không có guard này, 2 lần dispatch gần như đồng thời làm Book morph lại 2 lần liên
             // tiếp, gây giật/nhảy chiều cao khung lịch (và cả trang) trong chốc lát lúc mới vào trang.
             selectBranch(b) {
-                if (this.activeBranchSlug === b.slug) return;
                 this.activeBranchSlug = b.slug;
+                if (this.loadedBranchSlug === b.slug) return;
+                this.loadedBranchSlug = b.slug;
                 window.Livewire.dispatch('load-branch', { slug: b.slug });
             },
 
