@@ -15,6 +15,11 @@ return [
 
     'default' => env('MAIL_MAILER', 'smtp'),
 
+    // Nơi nhận thông báo đơn hàng mới (PaymentController::sendAdminNotification) — đọc qua
+    // config() thay vì env() trực tiếp trong controller để không bị trả về null khi chạy
+    // `php artisan config:cache` (env() ngoài file config/ luôn null sau khi cache config).
+    'admin_email' => env('ADMIN_EMAIL', '365home.cantho@gmail.com'),
+
     /*
     |--------------------------------------------------------------------------
     | Mailer Configurations

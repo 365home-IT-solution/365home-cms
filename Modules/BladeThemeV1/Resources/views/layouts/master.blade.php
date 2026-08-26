@@ -28,7 +28,7 @@
 @endphp
 
 <!DOCTYPE html>
-<html lang="{{ env('APP_LOCALE', 'vi') }}">
+<html lang="{{ config('app.locale', 'vi') }}">
 
 <head>
     <!-- Basic Meta Tags -->

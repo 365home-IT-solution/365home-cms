@@ -234,7 +234,8 @@ class HomeController extends Controller
             // Phòng được chọn tay — fixed: lấy hết; by_region: lọc theo tỉnh
             $query = Product::whereIn('id', $productIds)
                 ->where('is_activated', true)
-                ->where('is_in_stock', true);
+                ->where('is_in_stock', true)
+                ->activeBranch();
 
             if ($displayMode === 'by_region' && $province !== null) {
                 $provinceBranchIds = $province->branches()
@@ -252,7 +253,8 @@ class HomeController extends Controller
             }
         } else {
             $query = Product::where('is_activated', true)
-                ->where('is_in_stock', true);
+                ->where('is_in_stock', true)
+                ->activeBranch();
 
             $branchIds = array_filter((array) ($data['branch_ids'] ?? []));
 
@@ -360,6 +362,7 @@ class HomeController extends Controller
         $rooms = Product::whereIn('id', $productIds)
             ->where('is_activated', true)
             ->where('is_in_stock', true)
+            ->activeBranch()
             ->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds))
             ->with(['roomTimeSlots.timeSlot', 'media', 'roomType', 'categories'])
             ->get()

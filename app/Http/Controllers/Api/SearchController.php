@@ -37,6 +37,7 @@ class SearchController extends Controller
 
         $locations = Product::where('is_activated', true)
             ->where('is_in_stock', true)
+            ->activeBranch()
             ->whereNotNull('address')
             ->whereNotNull('latitude')
             ->whereNotNull('longitude')
@@ -233,6 +234,7 @@ class SearchController extends Controller
 
         $results = Product::where('is_activated', true)
             ->where('is_in_stock', true)
+            ->activeBranch()
             ->whereNotNull('address')
             ->where('address', 'like', "%{$q}%")
             ->orderBy('name')

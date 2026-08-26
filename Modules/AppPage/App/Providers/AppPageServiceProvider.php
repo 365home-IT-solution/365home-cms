@@ -13,6 +13,7 @@ class AppPageServiceProvider extends ServiceProvider
     {
         $this->registerTranslations();
         $this->registerConfig();
+        $this->registerViews();
         $this->loadMigrationsFrom(module_path($this->moduleName, 'Database/migrations'));
     }
 
@@ -26,6 +27,15 @@ class AppPageServiceProvider extends ServiceProvider
         $configPath = module_path($this->moduleName, 'config/config.php');
         if (file_exists($configPath)) {
             $this->mergeConfigFrom($configPath, $this->moduleNameLower);
+        }
+    }
+
+    protected function registerViews(): void
+    {
+        $sourcePath = module_path($this->moduleName, 'Resources/views');
+
+        if (is_dir($sourcePath)) {
+            $this->loadViewsFrom($sourcePath, $this->moduleNameLower);
         }
     }
 

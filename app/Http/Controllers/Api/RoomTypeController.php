@@ -70,6 +70,14 @@ class RoomTypeController extends Controller
             ->get()
             ->map(function ($branch) use ($roomTypeId, $wishlistedIds) {
                 $category = $branch->category;
+
+                // ProvinceBranch.status chỉ nói tỉnh này có bật chi nhánh không — chi nhánh (Category
+                // gốc) còn phải tự nó đang active thì mới cho hiển thị (yêu cầu: chi nhánh cha status
+                // false thì ẩn toàn bộ, kể cả khi vẫn được gán vào tỉnh).
+                if (! $category || ! $category->status) {
+                    return null;
+                }
+
                 $childIds = Category::where('parent_id', $category->id)->pluck('id')->toArray();
                 $allIds   = array_merge([$category->id], $childIds);
 
@@ -113,6 +121,7 @@ class RoomTypeController extends Controller
         $products = Product::where('room_type_id', $roomTypeId)
             ->where('is_activated', true)
             ->where('is_in_stock', true)
+            ->activeBranch()
             ->with([
                 'roomType',
                 'media',

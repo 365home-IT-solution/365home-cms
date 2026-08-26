@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Category\Entities\Category;
 use Modules\Payment\Entities\Order;
@@ -144,5 +145,19 @@ class Customer extends Authenticatable
     public function companions(): HasMany
     {
         return $this->hasMany(CustomerCompanion::class);
+    }
+
+    public function checkinCycles(): HasMany
+    {
+        return $this->hasMany(CustomerCheckinCycle::class, 'customer_id');
+    }
+
+    // Chu kỳ điểm danh đang mở (chưa đủ ngày) — mỗi khách chỉ có tối đa 1 chu kỳ đang mở tại
+    // 1 thời điểm, xem CustomerCheckinService::getOrCreateActiveCycle().
+    public function activeCheckinCycle(): HasOne
+    {
+        return $this->hasOne(CustomerCheckinCycle::class, 'customer_id')
+            ->whereNull('completed_at')
+            ->latestOfMany();
     }
 }

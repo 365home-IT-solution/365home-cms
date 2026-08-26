@@ -13,6 +13,7 @@ use App\Observers\CategoryObserver;
 use App\Observers\CouponObserver;
 use App\Observers\CustomerObserver;
 use App\Observers\OrderObserver;
+use App\Observers\PopupImageObserver;
 use App\Observers\PostObserver;
 use App\Observers\ProductObserver;
 use App\Observers\ProvinceObserver;
@@ -32,6 +33,7 @@ use Modules\Promotion\App\Models\Coupon;
 use Modules\Promotion\App\Models\Promotion;
 use Modules\SettingCompany\Entities\Branch;
 use Modules\AppPage\App\Models\Banner;
+use Modules\AppPage\App\Models\PopupImage;
 use App\Models\Role;
 use Spatie\MediaLibrary\MediaCollections\Events\MediaHasBeenAddedEvent;
 
@@ -71,6 +73,7 @@ class EventServiceProvider extends ServiceProvider
         Promotion::observe(PromotionObserver::class);
         Category::observe(CategoryObserver::class);
         Banner::observe(BannerObserver::class);
+        PopupImage::observe(PopupImageObserver::class);
         Province::observe(ProvinceObserver::class);
     }
 

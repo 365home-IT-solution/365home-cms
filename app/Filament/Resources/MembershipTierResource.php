@@ -16,6 +16,7 @@ use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\TimePicker;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
@@ -133,18 +134,18 @@ class MembershipTierResource extends Resource
 
             Section::make('Tự động tạo mã khuyến mãi định kỳ')->schema([
                 Toggle::make('auto_issue_enabled')
-                    ->label('Bật thưởng đăng nhập định kỳ')
-                    ->helperText('Mỗi khi khách đăng nhập vào app, nếu đã đủ chu kỳ (xem "Lặp lại mỗi") kể từ lần được tặng gần nhất, hệ thống tự tạo 1 mã khuyến mãi riêng cho khách đó và gửi thông báo ngay lúc đăng nhập — không chạy theo giờ cố định, không cấp hàng loạt cho cả hạng cùng lúc.')
+                    ->label('Bật thưởng điểm danh định kỳ')
+                    ->helperText('Khách điểm danh mỗi ngày qua nút "Điểm danh" trong app. Khi điểm danh đủ chu kỳ (xem "Lặp lại mỗi") tính từ ngày bắt đầu chu kỳ hiện tại, hệ thống tự tạo 1 mã khuyến mãi riêng cho khách đó và gửi thông báo ngay — không cấp hàng loạt cho cả hạng cùng lúc.')
                     ->live()
                     ->default(false),
 
-                TextInput::make('auto_issue_interval_weeks')
-                    ->label('Lặp lại mỗi (tuần)')
+                TextInput::make('auto_issue_interval_days')
+                    ->label('Lặp lại mỗi (ngày)')
                     ->numeric()
                     ->minValue(1)
-                    ->default(1)
-                    ->suffix('tuần')
-                    ->helperText('Khách chỉ được tặng lại sau đúng N tuần kể từ lần được tặng gần nhất (tính từ lúc đăng nhập, không phải theo lịch cố định). VD: 1 = mỗi tuần, 2 = 2 tuần/lần.')
+                    ->default(7)
+                    ->suffix('ngày')
+                    ->helperText('Khách cần điểm danh đủ N ngày (không cần liên tiếp) mới được cấp mã, rồi bắt đầu chu kỳ mới. VD: 5 = 5 ngày, 7 = 1 tuần, 14 = 2 tuần.')
                     ->required(fn (Get $get) => $get('auto_issue_enabled'))
                     ->visible(fn (Get $get) => $get('auto_issue_enabled')),
 
@@ -205,6 +206,31 @@ class MembershipTierResource extends Resource
                     ->maxLength(500)
                     ->helperText('Để trống sẽ dùng nội dung mặc định.')
                     ->visible(fn (Get $get) => $get('auto_issue_enabled')),
+
+                Toggle::make('checkin_reminder_enabled')
+                    ->label('Bật nhắc điểm danh hằng ngày')
+                    ->helperText('Nhắc khách chưa điểm danh hôm nay vào các giờ đã cấu hình bên dưới.')
+                    ->live()
+                    ->default(false)
+                    ->visible(fn (Get $get) => $get('auto_issue_enabled')),
+
+                Repeater::make('checkin_reminder_times')
+                    ->label('Giờ nhắc trong ngày')
+                    ->addActionLabel('+ Thêm giờ nhắc')
+                    ->simple(
+                        TimePicker::make('time')
+                            ->seconds(false)
+                            ->required(),
+                    )
+                    ->helperText('Mỗi dòng là 1 lần nhắc trong ngày cho khách chưa điểm danh hôm nay — số dòng = số lần nhắc/ngày.')
+                    ->reorderable(false)
+                    ->defaultItems(1)
+                    ->visible(fn (Get $get) => $get('auto_issue_enabled') && $get('checkin_reminder_enabled'))
+                    ->dehydrateStateUsing(fn (?array $state) => collect($state ?? [])
+                        ->filter()
+                        ->map(fn ($time) => substr((string) $time, 0, 5))
+                        ->values()
+                        ->all()),
             ])->columnSpanFull(),
             ])->columnSpan(1),
 
@@ -323,7 +349,7 @@ class MembershipTierResource extends Resource
                     ->sortable(),
 
                 TextColumn::make('auto_issue_schedule')
-                    ->label('Thưởng đăng nhập định kỳ')
+                    ->label('Thưởng điểm danh định kỳ')
                     ->state(function (MembershipTier $record): string {
                         if (! $record->auto_issue_enabled || ! $record->auto_issue_coupon_value || $record->auto_issue_coupon_value <= 0) {
                             return '—';
@@ -335,7 +361,12 @@ class MembershipTierResource extends Resource
                             ? $min . '–' . number_format((float) $record->auto_issue_coupon_value_max, 0, ',', '.')
                             : $min;
 
-                        return "Mỗi {$record->auto_issue_interval_weeks} tuần ({$value}{$unit})";
+                        $days = (int) $record->auto_issue_interval_days;
+                        $period = $days > 0 && $days % 7 === 0
+                            ? ($days / 7) . ' tuần'
+                            : "{$days} ngày";
+
+                        return "Mỗi {$period} ({$value}{$unit})";
                     })
                     ->toggleable(isToggledHiddenByDefault: true),
 

@@ -174,10 +174,12 @@ class AppPageController extends Controller
         if (! empty($productIds)) {
             $query = Product::whereIn('id', $productIds)
                 ->where('is_activated', true)
-                ->where('is_in_stock', true);
+                ->where('is_in_stock', true)
+                ->activeBranch();
         } else {
             $query = Product::where('is_activated', true)
-                ->where('is_in_stock', true);
+                ->where('is_in_stock', true)
+                ->activeBranch();
 
             $branchIds = array_filter((array) ($data['branch_ids'] ?? []));
             if (! empty($branchIds)) {

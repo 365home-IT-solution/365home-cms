@@ -18,7 +18,7 @@
          trắng trơn 1 khoảng. Không biết trước CMS sẽ trả về bao nhiêu/loại section nào nên dùng 2
          khối carousel thẻ chung chung (giống hình dạng Flash Sale/Danh sách phòng thật) làm
          placeholder, đủ để người dùng thấy trang "đang có nội dung" thay vì trống trơn. --}}
-    <div x-show="loading" x-cloak>
+    <div x-show="loading" x-cloak class="hs-skeleton-wrap">
         <template x-for="i in 2" :key="'hs-skel-' + i">
             <section class="py-4 bg-white">
                 <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
@@ -394,6 +394,22 @@
         }
         .hs-skel-title { border-radius: 6px; }
         .hs-skel-img { padding-top: 72%; border-radius: 14px; }
+
+        /* Khung skeleton (2 khối carousel giả) chỉ cao ~860px, nhưng nội dung thật sau khi
+           /api/v1/home trả về cao tới ~2100-2700px (đo trực tiếp trên production, không phải ước
+           lượng) — chênh lệch đó là nguyên nhân chính của CLS lớn khi skeleton bị thay bằng nội
+           dung thật (mọi thứ bên dưới, kể cả footer, nhảy xuống một lần). Đặt trước min-height gần
+           đúng bằng chiều cao thật để khoảng trống đã được "giữ chỗ" ngay từ đầu, content load vào
+           vừa khít thay vì đẩy trang giãn ra đột ngột. Không cần khớp chính xác tuyệt đối — hụt một
+           chút vẫn còn shift nhỏ, dư một chút chỉ tạo khoảng trắng tạm thời (không phải shift). */
+        .hs-skeleton-wrap {
+            min-height: 2100px;
+        }
+        @media (min-width: 768px) {
+            .hs-skeleton-wrap {
+                min-height: 2650px;
+            }
+        }
 
         /* Hàng gộp loại hình dịch vụ + banner: 1 cột trên mobile, 2 cột không đều (banner rộng
            hơn) từ lg trở lên. Dùng CSS thuần thay vì Tailwind grid-cols-[2fr_3fr] vì class tuỳ ý

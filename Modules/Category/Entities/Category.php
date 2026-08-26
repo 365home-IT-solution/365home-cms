@@ -93,4 +93,28 @@ class Category extends Model
     {
         return $this->branchPermissions()->exists();
     }
+
+    /**
+     * ID của chi nhánh (category gốc, parent_id null, category_type=product) đang KHÔNG active
+     * (status=false), gộp cả category con của các chi nhánh đó — dùng để loại phòng/chi nhánh
+     * khỏi mọi danh sách/tìm kiếm công khai. Nguồn dùng chung cho Product::scopeActiveBranch()
+     * và các nơi liệt kê/xem chi tiết chi nhánh (BranchController, ProvinceController...), tránh
+     * lặp lại truy vấn root+children ở nhiều nơi.
+     */
+    public static function inactiveBranchCategoryIds(): \Illuminate\Support\Collection
+    {
+        $inactiveBranchIds = static::whereNull('parent_id')
+            ->where('category_type', 'product')
+            ->where('status', false)
+            ->pluck('id');
+
+        if ($inactiveBranchIds->isEmpty()) {
+            return $inactiveBranchIds;
+        }
+
+        return $inactiveBranchIds
+            ->merge(static::whereIn('parent_id', $inactiveBranchIds)->pluck('id'))
+            ->unique()
+            ->values();
+    }
 }

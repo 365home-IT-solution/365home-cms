@@ -57,6 +57,7 @@ class SitemapController extends Controller
             'is_activated' => true,
             'type'         => 'simple',
         ])
+            ->activeBranch()
             ->with(['categories:id,slug,parent_id', 'roomType:id,slug'])
             ->select(['id', 'slug', 'updated_at', 'room_type_id'])
             ->latest('updated_at')
