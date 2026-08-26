@@ -86,7 +86,7 @@
                     <h3 class="book-room-name">
                         {{ $roomTitle->name }}
                         @if($roomHasDiscount)
-                            <img src="{{ asset('images/flash-sale.gif') }}" alt="" class="book-room-flash-icon">
+                            <img src="{{ asset('images/flash-sale.webp') }}" alt="" class="book-room-flash-icon" width="28" height="28">
                         @endif
                     </h3>
                 </div>
