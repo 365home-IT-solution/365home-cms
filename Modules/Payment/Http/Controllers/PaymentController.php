@@ -826,7 +826,7 @@ private function buildTelegramMessage(Order $order, string $status): string
     private function sendAdminNotification(Order $order)
     {
         try {
-            $adminEmail = env('ADMIN_EMAIL', '365home.cantho@gmail.com');
+            $adminEmail = config('mail.admin_email');
             Mail::to($adminEmail)->send(new OrderNotificationMail($order));
             Log::info('Admin notification email sent', [
                 'order_id'    => $order->id,
