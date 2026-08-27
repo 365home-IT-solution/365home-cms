@@ -65,7 +65,8 @@ class PushNotificationController extends Controller
     /**
      * POST /api/admin/push-notification
      * Body: title, body, sent_for (all|users), customer_ids[] (bắt buộc nếu sent_for=users),
-     * scheduled_at (tuỳ chọn — để trống hoặc quá khứ = gửi ngay).
+     * scheduled_at (tuỳ chọn — để trống hoặc quá khứ = gửi ngay), url (tuỳ chọn — đường dẫn/deep-link
+     * app mở khi khách bấm vào thông báo, xem NotificationFcmResource của CMS để cùng convention).
      */
     public function store(Request $request): JsonResponse
     {
@@ -78,6 +79,7 @@ class PushNotificationController extends Controller
         $notification = NotificationFcm::create([
             'title'         => $data['title'],
             'body'          => $data['body'],
+            'url'           => $data['url'] ?? null,
             'type'          => 'manual',
             'sent_for'      => $data['sent_for'],
             'scheduled_at'  => $scheduledAt,
@@ -118,6 +120,7 @@ class PushNotificationController extends Controller
         $notification->update([
             'title'         => $data['title'],
             'body'          => $data['body'],
+            'url'           => $data['url'] ?? null,
             'sent_for'      => $data['sent_for'],
             'scheduled_at'  => $scheduledAt,
             'recipient_ids' => $isScheduled ? $customerIds : null,
@@ -132,7 +135,7 @@ class PushNotificationController extends Controller
      * POST /api/admin/push-notification/{id}/resend
      * Gửi lại 1 thông báo (đã gửi hoặc đang chờ) — tạo BẢN GHI MỚI, giữ nguyên lịch sử bản gốc.
      * Body (tất cả tuỳ chọn, bỏ trống = giữ nguyên như bản gốc): title, body, sent_for,
-     * customer_ids[], scheduled_at.
+     * customer_ids[], scheduled_at, url.
      */
     public function resend(Request $request, string $id): JsonResponse
     {
@@ -149,6 +152,7 @@ class PushNotificationController extends Controller
             'customer_ids'    => 'sometimes|array|min:1',
             'customer_ids.*'  => 'string|exists:customers,id',
             'scheduled_at'    => 'nullable|date',
+            'url'             => 'sometimes|nullable|string|max:500',
         ]);
 
         $sentFor = $data['sent_for'] ?? $source->sent_for;
@@ -176,6 +180,7 @@ class PushNotificationController extends Controller
         $notification = NotificationFcm::create([
             'title'         => $data['title'] ?? $source->title,
             'body'          => $data['body'] ?? $source->body,
+            'url'           => array_key_exists('url', $data) ? $data['url'] : $source->url,
             'type'          => 'manual',
             'sent_for'      => $sentFor,
             'scheduled_at'  => $scheduledAt,
@@ -206,6 +211,10 @@ class PushNotificationController extends Controller
             'customer_ids'    => 'required_if:sent_for,users|array|min:1',
             'customer_ids.*'  => 'string|exists:customers,id',
             'scheduled_at'    => 'nullable|date',
+            // URL/deep-link app mở khi khách bấm vào thông báo — không bắt buộc, cùng field 'url'
+            // đã dùng ở NotificationFcmResource (CMS) và NotificationFcmService::sendToCustomer/
+            // sendToMany. Không gửi -> lưu null, thông báo không điều hướng đi đâu.
+            'url'             => 'sometimes|nullable|string|max:500',
         ];
     }
 
@@ -255,6 +264,7 @@ class PushNotificationController extends Controller
             'id'            => $n->id,
             'title'         => $n->title,
             'body'          => $n->body,
+            'url'           => $n->url,
             'sent_for'      => $n->sent_for,
             'is_scheduled'  => $n->isPending(),
             'scheduled_at'  => optional($n->scheduled_at)->toIso8601String(),
