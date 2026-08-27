@@ -63,6 +63,7 @@
                                     @if ($criticalBanner)
                                         <div class="swiper-slide">
                                             <a href="{{ $criticalBanner['url'] ?: '#' }}" class="banner-card"
+                                               aria-label="{{ filled($criticalBanner['title'] ?? null) ? $criticalBanner['title'] : 'Banner ưu đãi 365Home' }}"
                                                @unless($criticalBanner['url']) style="pointer-events:none" @endunless>
                                                 <img
                                                     src="{{ data_get($criticalBanner, 'thumbnail.wide') ?? $criticalBanner['image_url'] }}"
@@ -78,7 +79,9 @@
                                     @endif
                                     <template x-for="banner in bannerSection.items.slice({{ $criticalBanner ? 1 : 0 }})" :key="'banner-' + (banner.url || banner.image_url)">
                                         <div class="swiper-slide">
-                                            <a :href="banner.url || '#'" class="banner-card" :style="{ pointerEvents: banner.url ? 'auto' : 'none' }">
+                                            <a :href="banner.url || '#'" class="banner-card"
+                                               :aria-label="banner.title || 'Banner ưu đãi 365Home'"
+                                               :style="{ pointerEvents: banner.url ? 'auto' : 'none' }">
                                                 <img :src="banner.thumbnail?.wide || banner.image_url"
                                                      :srcset="[banner.thumbnail?.card && (banner.thumbnail.card + ' 480w'), banner.thumbnail?.wide && (banner.thumbnail.wide + ' 1080w')].filter(Boolean).join(', ')"
                                                      sizes="(max-width: 1023px) 100vw, 768px"
@@ -182,13 +185,13 @@
     {{-- ============== LẦN ĐẦU KHÁM PHÁ (2 cột tĩnh: ảnh chào mừng + banner giới thiệu app) ==============
          Section tĩnh, không phụ thuộc dữ liệu CMS/sections — đặt ngay dưới "Các chi nhánh tại..."
          phía trên, luôn hiện (không có x-if/x-show) vì nội dung cố định, không cần chờ dữ liệu. --}}
-    <section class="py-6 bg-white">
-        <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
-            <h2 class="text-2xl font-bold text-gray-900 mb-4">Lần đầu khám phá</h2>
+    <section class="home-explore-section py-6 bg-white">
+        <div class="home-explore-container w-full max-w-7xl mx-auto px-4 sm:px-6">
+            <h2 class="home-explore-title text-2xl font-bold text-gray-900 mb-4">Lần đầu khám phá</h2>
             {{-- 2 ảnh có tỉ lệ gốc khác hẳn nhau (svg minh hoạ dạng đứng, png banner dạng ngang) —
                  dùng background-image (bg-cover + chiều cao cố định qua .explore-card) thay vì thẻ
                  <img> để 2 cột LUÔN bằng chiều cao nhau, ảnh tự crop cho vừa khung. --}}
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="home-explore-grid grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div class="explore-card">
                     <img src="{{ asset('images/welcome-joyer-1140.webp') }}" alt="" class="explore-card-bg" width="1140" height="360"
                          loading="eager" fetchpriority="high">
@@ -245,6 +248,7 @@
                         <div x-ref="track" style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none;" class="hide-scrollbar">
                             <template x-for="banner in section.items" :key="'banner-' + (banner.url || banner.image_url)">
                                 <a :href="banner.url || '#'" class="banner-card legacy-banner-card"
+                                    :aria-label="banner.title || 'Banner ưu đãi 365Home'"
                                     :style="{ pointerEvents: banner.url ? 'auto' : 'none', scrollSnapAlign: 'start', flexShrink: 0 }">
                                     <img :src="banner.thumbnail?.wide || banner.image_url" :alt="banner.title || ''">
                                 </a>

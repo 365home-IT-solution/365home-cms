@@ -4,16 +4,14 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\SearchController;
 use App\Models\GuestCustomer;
 use App\Models\Province;
-use App\Models\ProvinceBranch;
+use App\Services\AvailableProvinceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Storage;
-use Modules\Category\Entities\Category;
-use Modules\Product\App\Models\Product;
-use App\Http\Controllers\Api\SearchController;
 
 class ProvinceController extends Controller
 {
@@ -39,55 +37,9 @@ class ProvinceController extends Controller
             ]);
         }
 
-        // Chỉ hiển thị tỉnh/thành có ít nhất 1 chi nhánh đang hoạt động (province_branches.status)
-        // và chi nhánh đó có ít nhất 1 phòng đang bán (is_activated + is_in_stock) — cùng logic
-        // lọc "chi nhánh có phòng" đang dùng ở RoomSearchService/RoomTypeController.
-        $activeBranches = ProvinceBranch::where('status', true)->get(['province_id', 'categorie_id']);
-
-        $branchCategoryIds = $activeBranches->pluck('categorie_id')->unique()->values();
-
-        // ProvinceBranch.status chỉ nói tỉnh này có bật chi nhánh không — chi nhánh (Category gốc)
-        // còn phải tự nó đang active thì mới cho hiển thị.
-        $activeBranchCategoryIds = Category::whereIn('id', $branchCategoryIds)
-            ->where('status', true)
-            ->pluck('id');
-
-        $activeBranches = $activeBranches->filter(
-            fn (ProvinceBranch $branch) => $activeBranchCategoryIds->contains($branch->categorie_id)
-        );
-
-        $childCategoriesByParent = Category::whereIn('parent_id', $activeBranchCategoryIds)
-            ->get(['id', 'parent_id'])
-            ->groupBy('parent_id');
-
-        $provinceIdsWithRooms = $activeBranches
-            ->filter(function (ProvinceBranch $branch) use ($childCategoriesByParent) {
-                $categoryIds = collect([$branch->categorie_id])
-                    ->merge($childCategoriesByParent->get($branch->categorie_id, collect())->pluck('id'));
-
-                return Product::where('is_activated', true)
-                    ->where('is_in_stock', true)
-                    ->whereHas('categories', fn ($q) => $q->whereIn('category_id', $categoryIds))
-                    ->exists();
-            })
-            ->pluck('province_id')
-            ->unique();
-
-        $provinces = Province::whereIn('id', $provinceIdsWithRooms)
-            ->orderByRaw('code IS NULL, code ASC')
-            ->orderBy('name')
-            ->get();
-
-        $response = [
-            'provinces' => $provinces->map(fn ($p) => [
-                'id'            => $p->id,
-                'name'          => $p->name,
-                'slug'          => $p->slug,
-                'code'          => $p->code,
-                'division_type' => $p->division_type,
-                'codename'      => $p->codename,
-            ])->values(),
-        ];
+        // Nguồn dữ liệu chung cho API và web (BladeThemeV1) — xem AvailableProvinceService.
+        $provinceData = app(AvailableProvinceService::class)->get();
+        $response     = ['provinces' => $provinceData];
 
         // ?with_default_branches=1 — gộp thêm chi nhánh của tỉnh ĐẦU TIÊN vào cùng response này,
         // để trang chủ (home-sections.js homeBookingBoard()) khi CHƯA biết tỉnh đã chọn (khách lần
@@ -96,8 +48,11 @@ class ProvinceController extends Controller
         // ~400-1000ms trong "network dependency tree" của PageSpeed). Khách ĐÃ biết tỉnh (có
         // localStorage) không cần cờ này — JS đã tự gọi thẳng branches song song từ trước, xem
         // homeBookingBoard.init() trong home-sections.js.
-        if ($request->boolean('with_default_branches') && $provinces->isNotEmpty()) {
-            $response['default_branches'] = SearchController::branchesDataForProvince($provinces->first());
+        if ($request->boolean('with_default_branches') && ! empty($provinceData)) {
+            $defaultProvince = Province::find($provinceData[0]['id']);
+            if ($defaultProvince) {
+                $response['default_branches'] = SearchController::branchesDataForProvince($defaultProvince);
+            }
         }
 
         return response()->json($response);

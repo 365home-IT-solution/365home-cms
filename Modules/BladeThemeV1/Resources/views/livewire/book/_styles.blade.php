@@ -884,8 +884,8 @@
 
     .book-date-day {
         font-size: 0.62rem;
-        color: #6b7280;
-        opacity: 0.85;
+        color: #4b5563;
+        opacity: 1;
         font-weight: 500;
         line-height: 1;
     }
@@ -899,7 +899,7 @@
 
     .book-date-row.is-today .book-date-day,
     .book-date-row.is-today .book-date-num {
-        color: var(--color-primary, #0f766e);
+        color: #374151;
         font-weight: 800;
         opacity: 1;
     }

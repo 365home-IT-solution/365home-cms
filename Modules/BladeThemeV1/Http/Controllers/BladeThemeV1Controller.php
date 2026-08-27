@@ -22,6 +22,7 @@ use Modules\AppPage\App\Models\AppPage;
 use Modules\AppPage\App\Models\Banner;
 use App\Http\Controllers\Api\SearchController;
 use Illuminate\Support\Facades\Cache;
+use App\Services\AvailableProvinceService;
 
 class BladeThemeV1Controller extends Controller
 {
@@ -200,19 +201,17 @@ class BladeThemeV1Controller extends Controller
     private function criticalBookingData(): array
     {
         $resolve = function (): array {
-            $provinces = Province::query()
-                ->whereHas('branches', fn ($query) => $query->where('status', true))
-                ->orderBy('name')
-                ->get(['id', 'name', 'slug'])
-                ->values();
-            $defaultProvince = $provinces->first();
+            $provinces = app(AvailableProvinceService::class)->get();
+            $defaultProvince = ! empty($provinces)
+                ? Province::find($provinces[0]['id'])
+                : null;
             $defaultBranches = $defaultProvince
                 ? SearchController::branchesDataForProvince($defaultProvince)['data']
                 : [];
             $defaultBranchSlug = data_get($defaultBranches, '0.slug');
 
             return [
-                'provinces' => $provinces->all(),
+                'provinces' => $provinces,
                 'active_province_id' => $defaultProvince ? (string) $defaultProvince->id : null,
                 'default_branches' => $defaultBranches,
                 // Render the initial grid without waiting for a Livewire update request.
