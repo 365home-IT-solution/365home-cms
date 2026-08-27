@@ -15,9 +15,12 @@
                     </a>
                     <!-- Nút Toggle Menu -->
                     <button
+                            type="button"
                             data-drawer-target="drawer-navigation"
                             data-drawer-show="drawer-navigation"
                             data-drawer-placement="left"
+                            aria-controls="drawer-navigation"
+                            aria-label="Mở menu điều hướng"
                             class="inline-flex border border-primary text-primary hover:text-white hover:bg-primary p-3 rounded-md m-2 text-center text-smfocus:outline-none focus:ring-2 focus:ring-gray-200 transition duration-300 ease-in-out"
                     >
                         <i class="fas fa-bars"></i>

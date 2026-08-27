@@ -2,6 +2,7 @@
 
 namespace Modules\BladeThemeV1\Livewire;
 
+use App\Services\AvailableProvinceService;
 use App\Settings\GeneralSettings;
 use Illuminate\View\View;
 use Livewire\Component;
@@ -10,9 +11,11 @@ class LocationModal extends Component
 {
     public string $primaryHex = '#FBCB1C';
     public string $textOnPrimary = '#1a1e25';
+    public array $provinces = [];
 
     public function mount(): void
     {
+        $this->provinces = app(AvailableProvinceService::class)->get();
         $settings = new GeneralSettings();
         $this->primaryHex = $settings->site_theme['primary'] ?? '#FBCB1C';
 
