@@ -83,6 +83,24 @@ class AppServiceProvider extends ServiceProvider
         );
         FilamentView::registerRenderHook(
             PanelsRenderHook::USER_MENU_BEFORE,
+            function (): string {
+                $user = auth()->user();
+
+                // Chỉ hiện nút chuyển đổi chi nhánh khi có từ 2 chi nhánh trở lên để chọn — 1 chi
+                // nhánh thì không có gì để chuyển đổi.
+                if (! $user instanceof \App\Models\User || count($user->rootProductCategoryIds()) <= 1) {
+                    return '';
+                }
+
+                return \Livewire\Livewire::mount('branch-switcher');
+            },
+        );
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::USER_MENU_BEFORE,
+            fn (): string => \Livewire\Livewire::mount('account-switcher'),
+        );
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::USER_MENU_BEFORE,
             fn(): View => view('filament.components.button-website'),
         );
 
