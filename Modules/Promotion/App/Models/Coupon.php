@@ -86,6 +86,11 @@ class Coupon extends Model
             ->withTimestamps();
     }
 
+    public function usages(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(CouponUsage::class);
+    }
+
     public function isPersonal(): bool
     {
         return $this->customer_id !== null;
@@ -264,10 +269,27 @@ class Coupon extends Model
     }
 
     /**
-     * Tăng số lần sử dụng
+     * Tăng số lần sử dụng. Truyền orderId để đồng thời ghi lại 1 dòng lịch sử sử dụng
+     * (coupon_usages) — dùng cho trang quản lý khách hàng/dashboard/export voucher đã dùng.
+     * Không truyền orderId khi chỉ cần tăng đếm thô (giữ tương thích các nơi gọi cũ).
      */
-    public function incrementUsage(): void
-    {
+    public function incrementUsage(
+        ?string $orderId = null,
+        ?string $customerId = null,
+        ?int $categoryId = null,
+        ?int $discountAmount = null
+    ): void {
         $this->increment('used_count');
+
+        if ($orderId !== null) {
+            $this->usages()->create([
+                'customer_id'     => $customerId,
+                'order_id'        => $orderId,
+                'category_id'     => $categoryId,
+                'code'            => $this->code,
+                'discount_amount' => $discountAmount,
+                'used_at'         => now(),
+            ]);
+        }
     }
 }

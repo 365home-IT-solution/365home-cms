@@ -386,7 +386,8 @@ class GuestBookingController extends Controller
 
             foreach ($appliedCoupons as $couponInfo) {
                 if (isset($couponInfo['_model'])) {
-                    $couponInfo['_model']->incrementUsage();
+                    // Khách vãng lai — không có Customer đăng nhập nên customer_id luôn null.
+                    $couponInfo['_model']->incrementUsage($order->id, null, $order->category_id, $couponInfo['discount_amount'] ?? null);
                 }
             }
 

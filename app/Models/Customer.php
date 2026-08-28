@@ -130,6 +130,11 @@ class Customer extends Authenticatable
             ->withTimestamps();
     }
 
+    public function couponUsages(): HasMany
+    {
+        return $this->hasMany(\Modules\Promotion\App\Models\CouponUsage::class, 'customer_id');
+    }
+
     public function wishlists(): HasMany
     {
         return $this->hasMany(Wishlist::class, 'customer_id');

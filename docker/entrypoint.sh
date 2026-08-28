@@ -34,6 +34,7 @@ php artisan migrate --force --no-interaction
 # Seed idempotent data (insertOrIgnore — safe to run on every deploy)
 php artisan db:seed --class=RoomAdditionalServiceSeeder --force --no-interaction
 php artisan db:seed --class=AuditLogPermissionSeeder --force --no-interaction
+php artisan db:seed --class=CustomerVoucherUsagePermissionSeeder --force --no-interaction
 
 # Đồng bộ lại policies/permissions Filament Shield theo đúng Resource/Page/Widget hiện có trong
 # code — idempotent (an toàn chạy lại mỗi lần deploy), --all bỏ qua hết các câu hỏi tương tác nên
