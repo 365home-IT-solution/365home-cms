@@ -1966,10 +1966,9 @@ class GuestBookingController extends Controller
             ],
         ];
 
-        $lockInfo = $this->buildLockInfo($order, $product);
-        if ($lockInfo) {
-            $result['lock_info'] = $lockInfo;
-        }
+        // Luôn trả key 'lock_info' (kể cả null khi chưa cấu hình mật khẩu thủ công lẫn TTLock) —
+        // để client khỏi phải tự xử lý trường hợp thiếu key, chỉ cần check null.
+        $result['lock_info'] = $this->buildLockInfo($order, $product);
 
         // Extra charge (phát sinh thêm sau khi đã thanh toán)
         if ($order->extra_charge_amount) {
