@@ -83,6 +83,14 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping(1)
             ->appendOutputTo(storage_path('logs/sync-order-lifecycle.log'));
+
+        // Bắt các mốc chuyển ngày của bảng giá (Tết, khuyến mãi, đối tác...) — áp bảng đang hiệu
+        // lực hôm nay xuống products/room_time_slots, hoặc khôi phục về bảng mặc định khi hết hạn.
+        $schedule->command('price-boards:sync-due')
+            ->dailyAt('00:05')
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/price-boards-sync.log'));
     }
 
     /**

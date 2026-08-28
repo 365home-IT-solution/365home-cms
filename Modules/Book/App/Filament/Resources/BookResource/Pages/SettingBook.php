@@ -4,6 +4,7 @@ namespace Modules\Book\App\Filament\Resources\BookResource\Pages;
 
 use Modules\Book\App\Filament\Resources\BookResource;
 use Modules\Book\App\Filament\Traits\HasBookingHeaderActions;
+use Modules\Book\App\Filament\Traits\HasRoomPricingFormFields;
 use Filament\Resources\Pages\Page;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -11,15 +12,9 @@ use Filament\Forms\Form;
 use Filament\Forms\Components\Tabs;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\Hidden;
-use Filament\Forms\Components\Select;
-use Filament\Forms\Components\TimePicker;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\Repeater;
 use Modules\Book\App\Filament\Forms\Components\DatePriceCalendarField;
-use Awcodes\TableRepeater\Components\TableRepeater;
-use Awcodes\TableRepeater\Header;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
 use Modules\Product\App\Models\TimeSlot;
@@ -28,10 +23,12 @@ use Filament\Notifications\Notification;
 use Modules\Promotion\App\Models\Coupon;
 use Modules\DataPermission\Entities\UserBranchPermission;
 use App\Services\SlotRealtimeService;
+use App\Services\PriceBoardSyncService;
 
 class SettingBook extends Page implements HasForms
 {
     use InteractsWithForms;
+    use HasRoomPricingFormFields;
     use HasBookingHeaderActions {
         getHeaderActions as private traitGetHeaderActions;
     }
@@ -374,138 +371,21 @@ class SettingBook extends Page implements HasForms
         $isSuperAdmin = (bool) auth()->user()?->isSuperAdmin();
 
         $buildSlotRoomTab = function ($product) use ($isSuperAdmin) {
-            $schema = [
-                Section::make('Thông tin Phòng')
-                        ->schema([
-                            Hidden::make('room_' . $product->id . '.product_id')
-                                ->default($product->id),
-                            TextInput::make('room_' . $product->id . '.product_name')
-                                ->label('Tên Phòng')
-                                ->default($product->name)
-                                ->disabled()
-                                ->dehydrated(false),
+            $prefix = 'room_' . $product->id . '.';
 
-                            TextInput::make('room_' . $product->id . '.full_booking_discount')
-                                ->label('Giảm giá khi đặt Full phòng')
-                                ->placeholder('VD: 10% hoặc 50000')
-                                ->helperText('Nhập % (VD: 10%) hoặc số tiền cố định (VD: 50000)')
-                                ->maxLength(50),
-
-                            TextInput::make('room_' . $product->id . '.room_config_max_free_guests')
-                                ->label('Số khách tối đa không phụ thu')
-                                ->numeric()
-                                ->default(2)
-                                ->minValue(1)
-                                ->suffix('người')
-                                ->helperText('Từ người thứ (N+1) trở đi sẽ tính phụ thu.')
-                                ->extraInputAttributes(['inputmode' => 'numeric']),
-
-                            TextInput::make('room_' . $product->id . '.room_config_extra_guest_fee')
-                                ->label('Phụ thu mỗi người vượt ngưỡng')
-                                ->numeric()
-                                ->default(0)
-                                ->minValue(0)
-                                ->suffix('đ/người')
-                                ->helperText('0 = không phụ thu. Chỉ áp dụng cho đặt theo giờ.')
-                                ->extraInputAttributes(['inputmode' => 'numeric']),
-
-                            Repeater::make('room_' . $product->id . '.bulk_discount_rules')
-                                ->label('Giảm giá theo số khung giờ')
-                                ->helperText('Cấu hình % giảm khi khách chọn nhiều khung giờ. Ví dụ: 2 khung → 5%, 3 khung → 10%.')
-                                ->schema([
-                                    TextInput::make('slots')
-                                        ->label('Số khung giờ')
-                                        ->numeric()
-                                        ->minValue(2)
-                                        ->maxValue(99)
-                                        ->required()
-                                        ->suffix('khung')
-                                        ->extraInputAttributes(['inputmode' => 'numeric']),
-                                    TextInput::make('discount')
-                                        ->label('Giảm')
-                                        ->numeric()
-                                        ->minValue(0)
-                                        ->maxValue(100)
-                                        ->required()
-                                        ->suffix('%')
-                                        ->extraInputAttributes(['inputmode' => 'numeric']),
-                                ])
-                                ->columns(2)
-                                ->defaultItems(0)
-                                ->addActionLabel('Thêm mức giảm')
-                                ->reorderableWithButtons()
-                                ->orderColumn('slots')
-                                ->columnSpanFull(),
-                        ])->columns(2),
-            ];
-
-            if ($isSuperAdmin) {
-                $schema[] = Section::make('Khung giờ, giá, Thiết lập khuyến mãi')
-                    ->description('Thiết lập khung giờ, giá và khuyến mãi cho phòng ' . $product->name)
-                    ->schema([
-                        TableRepeater::make('room_' . $product->id . '.roomTimeSlots')
-                            ->headers([
-                                Header::make('timeslot_id')->label('Khung giờ')->width('200px'),
-                                Header::make('price')->label('Giá')->width('150px'),
-                                Header::make('promotions')->label('Khuyến mãi')->width('250px'),
-                                Header::make('over_night')->label('Qua đêm')->width('100px'),
-                            ])
-                            ->schema([
-                                Hidden::make('id'),
-
-                                Select::make('timeslot_id')
-                                    ->label('Khung giờ')
-                                    ->options(TimeSlot::all()->pluck('label', 'id'))
-                                    ->preload()
-                                    ->searchable()
-                                    ->createOptionForm([
-                                        TextInput::make('label')->required(),
-                                        TextInput::make('start_time')
-                                            ->label('Giờ bắt đầu')
-                                            ->required()
-                                            ->placeholder('07:50')
-                                            ->helperText('Định dạng HH:MM (VD: 07:50)')
-                                            ->rules(['regex:/^\d{1,2}:\d{2}$/']),
-                                        TextInput::make('end_time')
-                                            ->label('Giờ kết thúc')
-                                            ->required()
-                                            ->placeholder('10:40')
-                                            ->helperText('Định dạng HH:MM (VD: 10:40)')
-                                            ->rules(['regex:/^\d{1,2}:\d{2}$/']),
-                                    ])
-                                    ->createOptionUsing(fn (array $data) => TimeSlot::create(array_merge($data, ['type' => 'time']))->id)
-                                    ->required(),
-
-                                TextInput::make('price')
-                                    ->label('Giá')
-                                    ->required()
-                                    ->suffix('VNĐ')
-                                    ->extraInputAttributes(['inputmode' => 'numeric']),
-
-                                Select::make('promotions')
-                                    ->label('Khuyến mãi')
-                                    ->options(fn () => $this->allowedPromotionOptions())
-                                    ->multiple()
-                                    ->preload()
-                                    ->searchable(),
-
-                                Toggle::make('over_night')
-                                    ->label('Qua đêm')
-                                    ->default(false),
-
-                                Hidden::make('status')->default('available'),
-                            ])
-                            ->defaultItems(0)
-                            ->columns(4)
-                            ->label('')
-                            ->emptyLabel('Chưa thiết lập cấu hình giá')
-                            ->reorderableWithButtons()
-                            ->reorderable(true)
-                            ->createItemButtonLabel('Thêm khung giờ')
-                            ->columnSpan('full')
-                            ->collapsible()
-                    ]);
-            }
+            $schema = $this->slotPricingSchema(
+                $prefix,
+                $isSuperAdmin,
+                fn () => $this->allowedPromotionOptions(),
+                [
+                    Hidden::make($prefix . 'product_id')->default($product->id),
+                    TextInput::make($prefix . 'product_name')
+                        ->label('Tên Phòng')
+                        ->default($product->name)
+                        ->disabled()
+                        ->dehydrated(false),
+                ]
+            );
 
             return Tabs\Tab::make($product->name)
                 ->icon('heroicon-o-home')
@@ -513,91 +393,25 @@ class SettingBook extends Page implements HasForms
         };
 
         $buildDayRoomTab = function ($product) use ($isSuperAdmin) {
-            $schema = [
-                Section::make('Thiết lập chung')
-                        ->schema([
-                            Hidden::make('room_' . $product->id . '.product_id')
-                                ->default($product->id),
-                            TextInput::make('room_' . $product->id . '.product_name')
-                                ->label('Tên Phòng')
-                                ->default($product->name)
-                                ->disabled()
-                                ->dehydrated(false),
-                            TextInput::make('room_' . $product->id . '.price')
-                                ->label('Giá mỗi đêm')
-                                ->placeholder('VD: 500000')
-                                ->suffix('VNĐ')
-                                ->extraInputAttributes(['inputmode' => 'numeric']),
-                            TimePicker::make('room_' . $product->id . '.default_checkin')
-                                ->label('Giờ nhận phòng mặc định')
-                                ->seconds(false)
-                                ->native(false)
-                                ->locale('vi')
-                                ->helperText('Giờ check-in hiển thị trên form đặt theo ngày (VD: 14:00)')
-                                ->timezone('Asia/Ho_Chi_Minh')
-                                ->default('14:00'),
-                            TimePicker::make('room_' . $product->id . '.default_checkout')
-                                ->label('Giờ trả phòng mặc định')
-                                ->seconds(false)
-                                ->native(false)
-                                ->locale('vi')
-                                ->helperText('Giờ check-out hiển thị trên form đặt theo ngày (VD: 12:00)')
-                                ->timezone('Asia/Ho_Chi_Minh')  
-                                ->seconds(false)
-                                ->default('12:00'),
-                        ])->columns(2),
+            $prefix = 'room_' . $product->id . '.';
 
-                    Section::make('Thiết lập cọc')
-                        ->description('Cấu hình điều kiện và % tiền cọc khách phải thanh toán khi đặt phòng.')
-                        ->schema([
-                            TextInput::make('room_' . $product->id . '.deposit_min_nights')
-                                ->label('Đặt từ X đêm mới cọc')
-                                ->numeric()
-                                ->minValue(0)
-                                ->maxValue(30)
-                                ->default(2)
-                                ->suffix('đêm')
-                                ->helperText('0 = luôn thanh toán 100%. 1 = đặt 1 đêm trở lên có cọc. 2 = từ 2 đêm mới cọc.')
-                                ->extraInputAttributes(['inputmode' => 'numeric']),
-                            TextInput::make('room_' . $product->id . '.deposit_multi_night')
-                                ->label('Phần trăm cọc (%)')
-                                ->numeric()
-                                ->minValue(1)
-                                ->maxValue(100)
-                                ->default(50)
-                                ->suffix('%')
-                                ->helperText('Ví dụ: 50 → khách cọc 50%, mã cổng gửi sau khi thanh toán phần còn lại.')
-                                ->extraInputAttributes(['inputmode' => 'numeric']),
-                        ])->columns(2),
-
-                    Section::make('Cấu hình phòng')
-                        ->description('Quy định số khách tối đa miễn phí và phụ thu khi có thêm người.')
-                        ->schema([
-                            TextInput::make('room_' . $product->id . '.room_config_max_free_guests')
-                                ->label('Số khách tối đa (miễn phụ thu)')
-                                ->numeric()
-                                ->minValue(1)
-                                ->maxValue(10)
-                                ->default(2)
-                                ->suffix('người')
-                                ->helperText('Ví dụ: 2 → từ khách thứ 3 trở đi mới tính phụ thu.')
-                                ->extraInputAttributes(['inputmode' => 'numeric']),
-                            TextInput::make('room_' . $product->id . '.room_config_extra_guest_fee')
-                                ->label('Phụ thu mỗi người thêm')
-                                ->inputMode('numeric')
-                                ->default(50000)
-                                ->suffix('VNĐ')
-                                ->helperText('Số tiền phụ thu cho mỗi người vượt quá số tối đa miễn phí.')
-                                ->dehydrateStateUsing(fn ($state) => (int) preg_replace('/[^0-9]/', '', (string)($state ?? '0'))),
-                        ])->columns(2),
-
-            ];
+            $schema = $this->dayPricingSchema(
+                $prefix,
+                [
+                    Hidden::make($prefix . 'product_id')->default($product->id),
+                    TextInput::make($prefix . 'product_name')
+                        ->label('Tên Phòng')
+                        ->default($product->name)
+                        ->disabled()
+                        ->dehydrated(false),
+                ]
+            );
 
             if ($isSuperAdmin) {
                 $schema[] = Section::make('Ngày đặc biệt & Khuyến mãi')
                     ->description('Nhấn vào ô ngày để thiết lập giá và khuyến mãi. Ưu tiên cao hơn giá gốc của phòng.')
                     ->schema([
-                        DatePriceCalendarField::make('room_' . $product->id . '.dateTimeSlots')
+                        DatePriceCalendarField::make($prefix . 'dateTimeSlots')
                             ->roomId($product->id)
                             ->basePrice((int) ($product->price ?? 0))
                             ->label('')
@@ -821,6 +635,11 @@ class SettingBook extends Page implements HasForms
                             }
                         }
                     }
+
+                    // Giữ "Bảng giá mặc định" luôn khớp với giá vừa lưu ở trang này — dùng làm
+                    // điểm khôi phục khi 1 bảng giá đặt tên (Tết, khuyến mãi, đối tác...) hết hạn.
+                    app(PriceBoardSyncService::class)->seedDefaultBoard($product->fresh());
+
                     $updated = true;
                 }
             }

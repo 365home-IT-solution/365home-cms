@@ -143,6 +143,21 @@ class Product extends Model implements HasMedia, Resourceable
         return $this->hasMany(RoomTimeSlot::class, 'room_id');
     }
 
+    public function priceBoardItems()
+    {
+        return $this->hasMany(PriceBoardItem::class);
+    }
+
+    public function priceBoards()
+    {
+        return $this->belongsToMany(PriceBoard::class, 'price_board_items', 'product_id', 'price_board_id');
+    }
+
+    public function defaultPriceBoard()
+    {
+        return $this->priceBoards()->where('is_default', true);
+    }
+
     public function amenities()
     {
         return $this->belongsToMany(RoomAmenity::class, 'room_amenity_assigns', 'room_id', 'amenity_id')

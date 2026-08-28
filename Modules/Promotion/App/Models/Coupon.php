@@ -20,6 +20,7 @@ class Coupon extends Model
 
     protected $fillable = [
         'partner_id',
+        'price_board_id',
         'code',
         'name',
         'description',
@@ -71,6 +72,11 @@ class Coupon extends Model
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function priceBoard()
+    {
+        return $this->belongsTo(\Modules\Product\App\Models\PriceBoard::class);
     }
 
     public function customer()

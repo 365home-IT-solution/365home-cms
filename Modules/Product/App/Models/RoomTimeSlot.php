@@ -19,6 +19,7 @@ class RoomTimeSlot extends Model
         'status',
         'over_night',
         'settings',
+        'synced_from_price_board_id',
     ];
 
     protected $casts = [
