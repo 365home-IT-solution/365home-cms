@@ -28,7 +28,7 @@ class EditMembershipTier extends EditRecord
                 ->color('gray')
                 ->requiresConfirmation()
                 ->modalHeading('Đồng bộ voucher cho khách đang giữ hạng này')
-                ->modalDescription('Rà lại từng khách đang giữ hạng này theo đúng cấu hình hiện tại ở "Coupon tự động cấp" (KHÔNG tính mã gắn tay ở "Mã giảm giá gắn thêm cho hạng"). Khách nào thiếu voucher nào so với cấu hình (vd dữ liệu cũ từ trước khi hạng có đủ số voucher như bây giờ) sẽ được cấp bù đúng phần còn thiếu — voucher khách đã có giữ nguyên, không cấp trùng. Đồng thời cập nhật lại GIỚI HẠN CHI NHÁNH của các voucher đã cấp trước đó theo đúng cấu hình hiện tại — chỉ áp dụng cho voucher khách CHƯA sử dụng lần nào; voucher đã dùng rồi giữ nguyên điều khoản cũ.')
+                ->modalDescription('Rà lại từng khách đang giữ hạng này theo đúng cấu hình hiện tại ở "Coupon tự động cấp" (KHÔNG tính mã gắn tay ở "Mã giảm giá gắn thêm cho hạng"). Khách nào thiếu voucher nào so với cấu hình (vd dữ liệu cũ từ trước khi hạng có đủ số voucher như bây giờ) sẽ được cấp bù đúng phần còn thiếu — voucher khách đã có giữ nguyên, không cấp trùng. Đồng thời cập nhật lại ĐIỀU KHOẢN (giới hạn chi nhánh, giá trị giảm, đơn hàng tối thiểu, giảm tối đa, số lượt dùng) của các voucher đã cấp trước đó theo đúng cấu hình hiện tại — chỉ áp dụng cho voucher khách CHƯA sử dụng lần nào; voucher đã dùng rồi giữ nguyên điều khoản cũ.')
                 ->modalSubmitActionLabel('Đồng bộ ngay')
                 ->form(fn () => [
                     Select::make('remove_coupon_keys')
@@ -44,7 +44,7 @@ class EditMembershipTier extends EditRecord
                     $removed = $service->removeOrphanCouponsFromTierMembers($this->record, $data['remove_coupon_keys'] ?? []);
                     $result  = $service->syncAutoVouchersForTierMembers($this->record);
 
-                    $body = "Đã kiểm tra {$result['customers_checked']} khách hàng — {$result['customers_updated']} khách được cấp bù (tổng {$result['vouchers_granted']} voucher), {$result['vouchers_branch_synced']} voucher chưa dùng được cập nhật lại giới hạn chi nhánh.";
+                    $body = "Đã kiểm tra {$result['customers_checked']} khách hàng — {$result['customers_updated']} khách được cấp bù (tổng {$result['vouchers_granted']} voucher), {$result['vouchers_terms_synced']} voucher chưa dùng được cập nhật lại điều khoản (chi nhánh, đơn hàng tối thiểu, giá trị giảm...).";
                     if ($removed > 0) {
                         $body .= " Đã gỡ {$removed} mã khuyến mãi mồ côi khỏi khách hàng.";
                     }

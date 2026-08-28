@@ -137,24 +137,28 @@ class MembershipService
      * "Mã giảm giá gắn thêm cho hạng"). Làm 2 việc:
      *  1. Khách nào THIẾU voucher nào (vd dữ liệu cũ trước khi hạng có đủ N voucher, khách chỉ mới
      *     được cấp 1) thì cấp bù đúng phần còn thiếu — hành vi gốc, không đổi.
-     *  2. Đồng bộ lại GIỚI HẠN CHI NHÁNH (category_ids) cho các bản sao ĐÃ CẤP TỪ TRƯỚC theo đúng
-     *     cấu hình HIỆN TẠI của từng coupon mẫu — CHỈ áp dụng cho bản sao khách CHƯA sử dụng lần nào
-     *     (used_count = 0, xem Coupon::incrementUsage() — chỉ tăng khi mã thực sự được áp vào 1 đơn).
-     *     Bản sao ĐÃ dùng (dù chỉ 1 lần) giữ nguyên điều khoản cũ, không đụng vào — tránh đổi phạm vi
-     *     áp dụng giữa chừng lúc khách đang/đã dùng dở mã đó.
+     *  2. Đồng bộ lại ĐIỀU KHOẢN (category_ids giới hạn chi nhánh, type/value, min_order_value,
+     *     max_discount, usage_limit) cho các bản sao ĐÃ CẤP TỪ TRƯỚC theo đúng cấu hình HIỆN TẠI của
+     *     từng coupon mẫu — CHỈ áp dụng cho bản sao khách CHƯA sử dụng lần nào (used_count = 0, xem
+     *     Coupon::incrementUsage() — chỉ tăng khi mã thực sự được áp vào 1 đơn). Bản sao ĐÃ dùng (dù
+     *     chỉ 1 lần) giữ nguyên điều khoản cũ, không đụng vào — tránh đổi điều kiện áp dụng giữa
+     *     chừng lúc khách đang/đã dùng dở mã đó. Trước đây chỉ đồng bộ category_ids — min_order_value
+     *     (điều kiện đơn hàng tối thiểu) và các field khác bị bỏ sót, khiến admin sửa min_order_value
+     *     của coupon mẫu SAU KHI khách đã có bản sao thì bản sao đó vẫn áp theo giá trị min_order_value
+     *     CŨ, dẫn tới CouponController::check() báo lỗi/cho qua sai so với cấu hình mới nhất.
      * Trả về số liệu để hiển thị lên Notification cho admin biết kết quả.
      *
-     * @return array{customers_checked: int, customers_updated: int, vouchers_granted: int, vouchers_branch_synced: int}
+     * @return array{customers_checked: int, customers_updated: int, vouchers_granted: int, vouchers_terms_synced: int}
      */
     public function syncAutoVouchersForTierMembers(MembershipTier $tier): array
     {
         $templates = $tier->coupons()->wherePivot('source', 'auto')->get();
 
         $result = [
-            'customers_checked'      => 0,
-            'customers_updated'      => 0,
-            'vouchers_granted'       => 0,
-            'vouchers_branch_synced' => 0,
+            'customers_checked'     => 0,
+            'customers_updated'     => 0,
+            'vouchers_granted'      => 0,
+            'vouchers_terms_synced' => 0,
         ];
 
         if ($templates->isEmpty()) {
@@ -180,7 +184,7 @@ class MembershipService
             });
 
         foreach ($templates as $template) {
-            $result['vouchers_branch_synced'] += $this->syncBranchRestrictionToUnusedClones($template);
+            $result['vouchers_terms_synced'] += $this->syncTermsToUnusedClones($template);
         }
 
         return $result;
@@ -253,11 +257,12 @@ class MembershipService
     }
 
     /**
-     * Ghi đè lại category_ids (giới hạn chi nhánh) của MỌI bản sao cá nhân đã cấp từ $template —
-     * theo đúng category_ids HIỆN TẠI của $template — nhưng CHỈ cho bản sao có used_count = 0 (chưa
-     * từng được áp vào đơn nào). Trả về số bản sao vừa được đồng bộ.
+     * Ghi đè lại điều khoản của MỌI bản sao cá nhân đã cấp từ $template theo đúng cấu hình HIỆN TẠI
+     * của $template — category_ids (giới hạn chi nhánh) và các field điều kiện áp dụng
+     * (type/value/min_order_value/max_discount/usage_limit) — nhưng CHỈ cho bản sao có
+     * used_count = 0 (chưa từng được áp vào đơn nào). Trả về số bản sao vừa được đồng bộ.
      */
-    private function syncBranchRestrictionToUnusedClones(Coupon $template): int
+    private function syncTermsToUnusedClones(Coupon $template): int
     {
         $templateCategoryIds = $template->categories()->pluck('categories.id')->all();
 
@@ -267,6 +272,13 @@ class MembershipService
 
         foreach ($unusedClones as $clone) {
             $clone->categories()->sync($templateCategoryIds);
+            $clone->update([
+                'type'            => $template->type,
+                'value'           => $template->value,
+                'min_order_value' => $template->min_order_value,
+                'max_discount'    => $template->max_discount,
+                'usage_limit'     => $template->usage_limit,
+            ]);
         }
 
         return $unusedClones->count();

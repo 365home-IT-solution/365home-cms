@@ -44,11 +44,12 @@ use Illuminate\Support\Facades\Storage;
  *  - POST .../{id}/sync-vouchers : rà lại khách ĐANG giữ hạng, cấp bù voucher_templates (nguồn
  *    'auto') nào khách đang thiếu so với cấu hình hiện tại — dùng khi cấu hình hạng thay đổi SAU
  *    khi khách đã lên hạng từ trước (dữ liệu cũ), hoặc muốn backfill mà không cần sửa lại hạng.
- *    Đồng thời cập nhật lại 'category_ids' (giới hạn chi nhánh) của các voucher ĐÃ CẤP TRƯỚC ĐÓ theo
- *    đúng cấu hình category_ids HIỆN TẠI của từng coupon mẫu — CHỈ áp dụng cho voucher khách CHƯA
- *    dùng lần nào (used_count=0); voucher đã dùng rồi giữ nguyên, không đụng vào (xem
- *    MembershipService::syncBranchRestrictionToUnusedClones()). Response trả kèm
- *    'vouchers_branch_synced' = số voucher vừa được cập nhật lại chi nhánh.
+ *    Đồng thời cập nhật lại điều khoản (category_ids giới hạn chi nhánh, type/value,
+ *    min_order_value, max_discount, usage_limit) của các voucher ĐÃ CẤP TRƯỚC ĐÓ theo đúng cấu hình
+ *    HIỆN TẠI của từng coupon mẫu — CHỈ áp dụng cho voucher khách CHƯA dùng lần nào (used_count=0);
+ *    voucher đã dùng rồi giữ nguyên, không đụng vào (xem
+ *    MembershipService::syncTermsToUnusedClones()). Response trả kèm
+ *    'vouchers_terms_synced' = số voucher vừa được cập nhật lại điều khoản.
  */
 class MembershipTierController extends Controller
 {
