@@ -276,7 +276,7 @@ class OrderController extends Controller
 
             // Increment usage cho coupon mới
             foreach ($appliedCoupons as $info) {
-                $info['_model']->incrementUsage($order->id, $customer->id ?? null, $order->category_id, $info['discount_amount']);
+                $info['_model']->incrementUsage((string) $order->id, $customer->id ?? null, $order->category_id, $info['discount_amount']);
             }
 
             $appliedCodes = collect($appliedCoupons)->pluck('code')->values()->all();
