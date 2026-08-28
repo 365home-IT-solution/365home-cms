@@ -117,7 +117,7 @@
     </div>
 
     <!-- Back To Top -->
-    <button x-data="{ show: false }" x-init="window.addEventListener('scroll', () => { show = window.scrollY > 300 })" x-show="show"
+    <button type="button" aria-label="Cuộn lên đầu trang" x-data="{ show: false }" x-init="window.addEventListener('scroll', () => { show = window.scrollY > 300 })" x-show="show"
         @click="window.scrollTo({top: 0, behavior: 'smooth'})"
         class="md:w-14 md:h-14 h-10 w-10 bg-white rounded-full shadow-lg hover:shadow-xl transition-all flex items-center justify-center text-gray-600 hover:text-primary">
         <svg xmlns="http://www.w3.org/2000/svg" class="md:h-6 md:w-6 w-5 h-5" fill="none" viewBox="0 0 24 24"
@@ -127,7 +127,8 @@
     </button>
 
     <!-- Toggle Button -->
-    <button @click="open = !open"
+    <button type="button" @click="open = !open" aria-label="Mở các kênh liên hệ"
+        :aria-expanded="open.toString()"
         class="md:w-14 md:h-14 w-10 h-10 bg-primary rounded-full shadow-xl flex items-center justify-center text-white relative transition-all duration-300 hover:scale-105">
         <!-- Icon khi đóng -->
         <div x-show="!open" class="flex items-center justify-center relative">

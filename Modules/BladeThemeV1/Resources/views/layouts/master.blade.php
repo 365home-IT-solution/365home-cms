@@ -77,28 +77,23 @@
 
     <!-- Styles -->
     @if ($isHomePage)
-        @php
-            $inlineHomeCss = null;
-            $homeManifestPath = public_path('build-bladethemev1/manifest.json');
-            if (app()->environment('production') && is_file($homeManifestPath)) {
-                $homeManifest = json_decode(file_get_contents($homeManifestPath), true);
-                $homeCssFile = data_get($homeManifest, 'Resources/assets/sass/home.scss.file');
-                $homeCssPath = $homeCssFile
-                    ? public_path('build-bladethemev1/'.$homeCssFile)
-                    : null;
-                if ($homeCssPath && is_file($homeCssPath)) {
-                    $inlineHomeCss = file_get_contents($homeCssPath);
-                }
-            }
-        @endphp
-        @if ($inlineHomeCss)
-            {{-- Exact production bundle, inlined to remove its render-blocking network round-trip. --}}
-            <style data-home-critical-css>{!! $inlineHomeCss !!}</style>
-            @vite(['Resources/assets/js/home.js'], 'build-bladethemev1')
-        @else
-            {{-- Safe local/missing-manifest fallback: keep the normal Vite stylesheet link. --}}
-            @vite(['Resources/assets/sass/home.scss', 'Resources/assets/js/home.js'], 'build-bladethemev1')
-        @endif
+        {{-- Reserve the measured LCP section before its component-local styles are encountered
+             later in the large HTML document. This prevents the 0.413 mobile layout shift while
+             keeping the exact same 150px/190px responsive design. --}}
+        <style data-home-layout-critical>
+            .home-explore-section{padding-top:1.5rem;padding-bottom:1.5rem;background:#fff}
+            .home-explore-container{width:100%;max-width:80rem;margin-left:auto;margin-right:auto;padding-left:1rem;padding-right:1rem}
+            .home-explore-title{margin:0 0 1rem;font-size:1.5rem;line-height:2rem;font-weight:700;color:#111827}
+            .home-explore-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:1rem}
+            .explore-card{position:relative;overflow:hidden;width:100%;height:150px;border-radius:16px;background:#f3f4f6;display:flex;align-items:center}
+            .explore-card-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center}
+            .explore-card-bg-right{object-position:right center}
+            .explore-card-content{position:relative;z-index:1;max-width:62%;padding:0 20px;display:flex;flex-direction:column;gap:6px}
+            .explore-card-badge{height:26px;width:auto;aspect-ratio:149/48;display:block}
+            @media(min-width:640px){.home-explore-container{padding-left:1.5rem;padding-right:1.5rem}}
+            @media(min-width:1024px){.home-explore-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.explore-card{height:190px}.explore-card-content{padding:0 28px}.explore-card-badge{height:42px}}
+        </style>
+        @vite(['Resources/assets/sass/home.scss', 'Resources/assets/js/home.js'], 'build-bladethemev1')
     @else
         @vite(['Resources/assets/sass/app.scss', 'Resources/assets/js/app.js'], 'build-bladethemev1')
     @endif

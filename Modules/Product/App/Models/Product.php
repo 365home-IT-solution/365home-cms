@@ -2,6 +2,7 @@
 
 namespace Modules\Product\App\Models;
 
+use App\Models\Concerns\BelongsToActiveBranchCategories;
 use App\Models\Concerns\BelongsToPartner;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -25,7 +26,8 @@ class Product extends Model implements HasMedia, Resourceable
         InteractsWithMedia,
         HasTags,
         HasUlids,
-        BelongsToPartner;
+        BelongsToPartner,
+        BelongsToActiveBranchCategories;
 
     protected $fillable = [
         'partner_id',

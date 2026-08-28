@@ -2,6 +2,24 @@
 
 use Illuminate\Support\Facades\Route;
 
+// Fallback cho route tên "login" — KHÔNG có trang đăng nhập thật ở đây. App này không có route
+// tên "login" nào khác (chỉ có "api.auth.login" — tên khác, không tính); Laravel mặc định fallback
+// về route('login') bất cứ khi nào 1 AuthenticationException không tự xác định được URL redirect
+// (Illuminate\Foundation\Exceptions\Handler::unauthenticated(): redirect()->guest($exception->
+// redirectTo() ?? route('login'))). Thiếu route này khiến bất kỳ request nào tới /admin/api/* (dùng
+// middleware 'auth' thường, không phải middleware riêng của Filament) bị mất phiên đăng nhập giữa
+// chừng sẽ crash 500 "Route [login] not defined" thay vì chuyển hướng nhẹ nhàng về trang đăng nhập
+// admin — thay vì phải sửa từng route/middleware, chặn đứng lỗi tại điểm chung này.
+Route::get('/login', fn () => redirect(\Filament\Facades\Filament::getLoginUrl()))->name('login');
+
+// "Chuyển đổi tài khoản" — bước commit thật sự, xem giải thích trong AccountSwitchController.
+Route::middleware('web')->group(function () {
+    Route::get('/admin/account-switch/commit', [\App\Http\Controllers\AccountSwitchController::class, 'commit'])
+        ->name('admin.account-switch.commit');
+    Route::get('/admin/account-switch/back', [\App\Http\Controllers\AccountSwitchController::class, 'back'])
+        ->name('admin.account-switch.back');
+});
+
 // Admin: unread notification count (for tab-title polling)
 // Cached per-user for 2s — supports many concurrent admins without hammering the DB
 Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group(function () {
@@ -1030,6 +1048,13 @@ Route::middleware(['web', 'throttle:30,1'])->prefix('hop-dong')->group(function 
     Route::post('ky/{token}/xac-nhan', [\App\Http\Controllers\ContractSignController::class, 'sign'])
         ->name('contract.sign.submit');
 });
+
+// Xoá tài khoản — trang CÔNG KHAI theo yêu cầu Data Safety của Google Play (xem
+// DeleteAccountController). Đăng ký ở đây (routes/web.php gốc) để route này được resolve TRƯỚC
+// route catch-all '/{type}/{location?}' của module BladeThemeV1 (đăng ký sau, xem
+// Modules\BladeThemeV1\Routes\web.php) — nếu không sẽ bị route đó nuốt mất và trả 404.
+Route::get('/delete-account', [\App\Http\Controllers\DeleteAccountController::class, 'show'])
+    ->name('delete-account');
 
 // Block paths that should not be accessible
 Route::get('/local', fn() => abort(404));

@@ -3,8 +3,8 @@
         open: false,
         loading: false,
         detecting: false,
-        provinces: [],
-        loaded: false,
+        provinces: window.__PROVINCES__ || [],
+        loaded: Array.isArray(window.__PROVINCES__) && window.__PROVINCES__.length > 0,
         search: '',
         error: '',
 
@@ -75,6 +75,7 @@
         },
 
         loadProvinces() {
+            if (this.loaded) return;
             this.loading = true;
             this.error = '';
             fetch('/api/v1/provinces', { headers: { 'Accept': 'application/json' } })
@@ -150,6 +151,9 @@
     @keydown.escape.window="closePopup()"
     x-cloak
 >
+    <script>
+        window.__PROVINCES__ = @json($provinces);
+    </script>
     <template x-teleport="body">
         <div
             x-show="open"

@@ -15,7 +15,8 @@
         </div>
 
         <!-- Nút đóng (icon SVG X đơn giản) -->
-        <button data-drawer-hide="drawer-navigation" aria-controls="drawer-navigation"
+        <button type="button" data-drawer-hide="drawer-navigation" aria-controls="drawer-navigation"
+                aria-label="Đóng menu điều hướng"
                 class="inline-flex border border-info text-info p-2 rounded-md text-center focus:outline-none focus:ring-2 focus:ring-gray-200 transition duration-300 ease-in-out min-w-[30px] min-h-[30px]">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24"
                  stroke="currentColor" stroke-width="2">
