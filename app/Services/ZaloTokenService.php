@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Settings\ZaloSettings;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -13,6 +14,12 @@ use Illuminate\Support\Facades\Log;
  * xong bị Zalo thu hồi, cấp token mới) nên bắt buộc phải khoá khi refresh — nếu để
  * 2 service tự refresh độc lập như trước, 2 tiến trình có thể cùng đọc 1
  * refresh_token cũ và một bên sẽ bị Zalo từ chối.
+ *
+ * Cache (Redis/file) là nơi đọc NHANH cho mọi request, nhưng KHÔNG bền vững — nếu cache bị mất
+ * (Redis container bị tạo lại, VPS restart...) mà refresh_token chỉ sống ở đó thì mất luôn, vì
+ * refresh_token của Zalo dùng 1 lần nên .env không tự phục hồi được. ZaloSettings (bảng `settings`,
+ * mã hoá — cùng cơ chế MailSettings đang dùng) là lớp lưu BỀN VỮNG phía sau Cache: mọi lần refresh
+ * thành công đều ghi xuống đây, và khi Cache trống sẽ đọc lại từ đây trước khi phải tự refresh mới.
  */
 class ZaloTokenService
 {
@@ -31,13 +38,46 @@ class ZaloTokenService
                 return $cached;
             }
 
-            return $this->refresh();
+            // Cache trống nhưng DB vẫn còn access_token chưa hết hạn (vd Redis vừa mất dữ liệu
+            // ngay sau deploy) — dùng lại luôn, không cần gọi Zalo, đồng thời nạp lại vào Cache.
+            $settings = $this->loadSettingsSafely();
+            if (
+                $settings
+                && $settings->access_token
+                && $settings->access_token_expires_at
+                && $settings->access_token_expires_at > now()->timestamp
+            ) {
+                $ttl = $settings->access_token_expires_at - now()->timestamp;
+                Cache::put('zalo_access_token', $settings->access_token, now()->addSeconds($ttl));
+
+                return $settings->access_token;
+            }
+
+            return $this->refresh($settings);
         });
     }
 
-    private function refresh(): string
+    // ZaloSettings đọc/giải mã từ bảng `settings` — nếu APP_KEY hiện tại không khớp với lúc mã hoá
+    // (từng gặp đúng lỗi này với MailSettings, xem ManageMail.php) sẽ ném DecryptException. KHÔNG
+    // được để lỗi đó làm sập luôn cả luồng gửi OTP — chỉ log rồi coi như không có dữ liệu bền vững,
+    // để service tự rơi về Cache/refresh_token trong .env như hành vi cũ.
+    private function loadSettingsSafely(): ?ZaloSettings
     {
-        $refreshToken = Cache::get('zalo_refresh_token') ?? config('zalo.refresh_token');
+        try {
+            return app(ZaloSettings::class);
+        } catch (\Throwable $e) {
+            Log::error('ZaloTokenService: không đọc được ZaloSettings, bỏ qua lớp lưu bền vững', [
+                'message' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    private function refresh(?ZaloSettings $settings = null): string
+    {
+        $settings ??= $this->loadSettingsSafely();
+        $refreshToken = Cache::get('zalo_refresh_token') ?? $settings?->refresh_token ?? config('zalo.refresh_token');
 
         if (! $refreshToken) {
             throw new \RuntimeException('Zalo refresh_token chưa được cấu hình.');
@@ -63,6 +103,21 @@ class ZaloTokenService
 
         if (isset($data['refresh_token'])) {
             Cache::put('zalo_refresh_token', $data['refresh_token'], now()->addMonths(3));
+        }
+
+        if ($settings) {
+            try {
+                $settings->access_token = $data['access_token'];
+                $settings->access_token_expires_at = now()->addSeconds($expiresIn)->timestamp;
+                if (isset($data['refresh_token'])) {
+                    $settings->refresh_token = $data['refresh_token'];
+                }
+                $settings->save();
+            } catch (\Throwable $e) {
+                // Token vẫn dùng được ngay (đã cache ở trên) — chỉ mất lớp lưu bền vững lần này,
+                // không được để lỗi ghi DB làm hỏng cả request đang gửi OTP.
+                Log::error('ZaloTokenService: không lưu được ZaloSettings', ['message' => $e->getMessage()]);
+            }
         }
 
         return $data['access_token'];

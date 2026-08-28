@@ -449,6 +449,18 @@
         font-weight: 600;
     }
 
+    a.ta-kpi-link {
+        display: block;
+        text-decoration: none;
+        color: inherit;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    a.ta-kpi-link:hover {
+        border-color: var(--ta-accent, #6366f1);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    }
+
     /* ROOM CARDS */
     .ta-room-section {}
 

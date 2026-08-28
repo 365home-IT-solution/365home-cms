@@ -114,6 +114,41 @@ class Dashboard extends FilamentDashboard
         $prevPaid  = (clone $previousQuery)->whereIn('status', ['paid', 'completed'])->count();
         $paidDelta = $prevPaid > 0 ? round((($paidCount - $prevPaid) / $prevPaid) * 100, 1) : 0;
 
+        // Voucher đã sử dụng trong kỳ — chỉ tính/hiện cho vai trò có quyền xem (cùng permission
+        // đang gate cột/filter/tab voucher ở CustomerResource), tránh lộ số liệu + link dẫn tới
+        // trang mà vai trò đó không xem được. Cùng quy ước lọc chi nhánh (category_id) như
+        // baseQuery() ở trên, KHÔNG join qua product (chỉ dùng cho báo cáo doanh thu phòng cần độ
+        // chính xác cao hơn).
+        $canViewVoucherUsage = auth()->user()?->can('view_customer_voucher_usage') ?? false;
+        $voucherUsageCount   = 0;
+        $voucherUsageDelta   = 0;
+        $voucherUsageUrl     = null;
+
+        if ($canViewVoucherUsage) {
+            $voucherUsageQuery = \Modules\Promotion\App\Models\CouponUsage::query();
+            $vUser             = auth()->user();
+            if ($vUser && ! $vUser->isSuperAdmin()) {
+                $vCategoryIds = $vUser->allowedCategoryIds() ?? [];
+                if (! empty($vCategoryIds)) {
+                    $voucherUsageQuery->whereIn('category_id', $vCategoryIds);
+                }
+            }
+            $voucherUsageCount     = (clone $voucherUsageQuery)->whereBetween('used_at', [$startDate, $endDate])->count();
+            $prevVoucherUsageCount = (clone $voucherUsageQuery)->whereBetween('used_at', [$prevStart, $prevEnd])->count();
+            $voucherUsageDelta     = $prevVoucherUsageCount > 0
+                ? round((($voucherUsageCount - $prevVoucherUsageCount) / $prevVoucherUsageCount) * 100, 1)
+                : 0;
+            $voucherUsageUrl = \App\Filament\Resources\CustomerResource::getUrl('index', [
+                'tableFilters' => [
+                    'used_voucher' => [
+                        'is_active'  => true,
+                        'used_from'  => $startDate->toDateString(),
+                        'used_until' => $endDate->toDateString(),
+                    ],
+                ],
+            ]);
+        }
+
         $statusLabels = [
             'pending'   => 'Chờ xác nhận',
             'deposit'   => 'Đặt cọc',
@@ -218,6 +253,7 @@ class Dashboard extends FilamentDashboard
             'revenueDepositPayos', 'revenueDepositPayosDelta',
             'revenueDepositCod', 'revenueDepositCodDelta',
             'paidCount', 'paidDelta',
+            'canViewVoucherUsage', 'voucherUsageCount', 'voucherUsageDelta', 'voucherUsageUrl',
             'sources', 'donutData',
             'trendDays', 'trendPending', 'trendPaid', 'trendCancel',
             'barData', 'dateRange', 'prevDateRange',

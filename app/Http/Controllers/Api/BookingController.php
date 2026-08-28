@@ -437,7 +437,7 @@ class BookingController extends Controller
             // Tăng lượt dùng cho tất cả coupon đã áp dụng
             foreach ($appliedCoupons as $couponInfo) {
                 if (isset($couponInfo['_model'])) {
-                    $couponInfo['_model']->incrementUsage();
+                    $couponInfo['_model']->incrementUsage($order->id, $customer?->id, $order->category_id, $couponInfo['discount_amount'] ?? null);
                 }
             }
 

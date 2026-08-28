@@ -18,6 +18,17 @@
         </div>
         <div class="ta-kpi-hint">so với <span class="ta-kpi-hint-range">{{ $prevDateRange }}</span></div>
     </div>
+    @if ($canViewVoucherUsage)
+    <a class="ta-kpi ta-kpi-link" href="{{ $voucherUsageUrl }}">
+        <div class="ta-kpi-label">Voucher đã sử dụng</div>
+        <div class="ta-kpi-value" id="ta-kpi-voucher-usage">{{ number_format($voucherUsageCount) }}</div>
+        <div class="ta-kpi-delta {{ $voucherUsageDelta >= 0 ? 'up' : 'down' }}" id="ta-kpi-voucher-usage-delta">
+            {{ $voucherUsageDelta >= 0 ? '↑' : '↓' }} {{ abs($voucherUsageDelta) }}%
+            <span class="dbar" style="--w:{{ min(abs($voucherUsageDelta) * 2, 100) }}%"></span>
+        </div>
+        <div class="ta-kpi-hint">so với <span class="ta-kpi-hint-range">{{ $prevDateRange }}</span> · xem khách hàng →</div>
+    </a>
+    @endif
     <div class="ta-kpi">
         <div class="ta-kpi-label">Doanh thu (thực thu)</div>
         <div class="ta-kpi-value" id="ta-kpi-revenue" style="font-size:22px;">

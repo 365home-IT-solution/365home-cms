@@ -64,7 +64,11 @@ return [
         'pages' => true,
         'widgets' => true,
         'resources' => true,
-        'custom_permissions' => false,
+        // Bật để các permission tự tạo tay (vd view_customer_voucher_usage, view_audit_logs,
+        // access_log_viewer — xem AuditLogPermissionSeeder/RolesAndPermissionsSeeder) hiện ra thành
+        // checkbox chọn được ở tab "Custom" trên trang Roles & Permissions, thay vì chỉ gán được
+        // qua code/tinker.
+        'custom_permissions' => true,
     ],
 
     'generator' => [

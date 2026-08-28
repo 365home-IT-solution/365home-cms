@@ -6,6 +6,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\CustomerResource\Pages;
 use App\Filament\Resources\CustomerResource\RelationManagers\AssignedCouponsRelationManager;
+use App\Filament\Resources\CustomerResource\RelationManagers\CouponUsagesRelationManager;
 use App\Filament\Resources\CustomerResource\RelationManagers\MembershipLogsRelationManager;
 use App\Filament\Resources\CustomerResource\RelationManagers\PersonalCouponsRelationManager;
 use App\Models\Customer;
@@ -31,6 +32,7 @@ use Filament\Tables\Actions\ViewAction;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ToggleColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -350,6 +352,12 @@ class CustomerResource extends Resource
                     ->money('VND')
                     ->sortable(),
 
+                TextColumn::make('coupon_usages_count')
+                    ->label('Số lượt dùng voucher')
+                    ->counts('couponUsages')
+                    ->sortable()
+                    ->visible(fn () => auth()->user()?->can('view_customer_voucher_usage') ?? false),
+
                 TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
                     ->dateTime('d/m/Y H:i')
@@ -364,6 +372,47 @@ class CustomerResource extends Resource
             ->defaultSort('created_at', 'desc')
             ->filters([
                 TrashedFilter::make(),
+                Filter::make('used_voucher')
+                    ->label('Đã sử dụng voucher')
+                    ->visible(fn () => auth()->user()?->can('view_customer_voucher_usage') ?? false)
+                    ->form([
+                        Toggle::make('is_active')
+                            ->label('Chỉ khách đã dùng voucher'),
+                        DatePicker::make('used_from')
+                            ->label('Từ ngày')
+                            ->native(false)
+                            ->displayFormat('d/m/Y'),
+                        DatePicker::make('used_until')
+                            ->label('Đến ngày')
+                            ->native(false)
+                            ->displayFormat('d/m/Y'),
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        if (empty($data['is_active'])) {
+                            return $query;
+                        }
+
+                        return $query->whereHas('couponUsages', function (Builder $q) use ($data) {
+                            $q->when($data['used_from'] ?? null, fn (Builder $qq, $date) => $qq->whereDate('used_at', '>=', $date))
+                              ->when($data['used_until'] ?? null, fn (Builder $qq, $date) => $qq->whereDate('used_at', '<=', $date));
+                        });
+                    })
+                    ->indicateUsing(function (array $data): array {
+                        if (empty($data['is_active'])) {
+                            return [];
+                        }
+
+                        $indicators = ['is_active' => 'Đã sử dụng voucher'];
+
+                        if (! empty($data['used_from'])) {
+                            $indicators['used_from'] = 'Từ ' . \Carbon\Carbon::parse($data['used_from'])->format('d/m/Y');
+                        }
+                        if (! empty($data['used_until'])) {
+                            $indicators['used_until'] = 'Đến ' . \Carbon\Carbon::parse($data['used_until'])->format('d/m/Y');
+                        }
+
+                        return $indicators;
+                    }),
             ])
             ->actions([
                 ViewAction::make()->label('Chi tiết'),
@@ -452,6 +501,7 @@ class CustomerResource extends Resource
             MembershipLogsRelationManager::class,
             PersonalCouponsRelationManager::class,
             AssignedCouponsRelationManager::class,
+            CouponUsagesRelationManager::class,
         ];
     }
 
