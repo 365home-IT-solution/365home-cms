@@ -36,6 +36,12 @@ class BranchController extends Controller
      * khoá lại trên giao diện, tránh 2 người cùng chọn trùng 1 ô rồi 1 người bị từ chối lúc thanh
      * toán. Không truyền session_id thì vẫn hoạt động bình thường, chỉ không phân biệt được
      * held_by_me (mọi hold coi như "của người khác").
+     *
+     * Mỗi room còn trả full_booking_discount ({type,value} hoặc null) và bulk_discount_rules
+     * ([{slots,discount}]) — cấu hình giảm giá đặt full ngày / đặt nhiều khung giờ (xem
+     * SettingBook) để client tự tính preview theo lựa chọn của khách, giống logic
+     * checkFullBooking()/discountRate ở book.blade.php (Alpine). Số tiền chính thức vẫn do
+     * BookingController/GuestBookingController tính lại lúc tạo đơn.
      */
     public function timeSlots(Request $request, string $slug): JsonResponse
     {
@@ -134,6 +140,13 @@ class BranchController extends Controller
                             && Carbon::parse($p->end_at)->gte(now())
                     )
                 ),
+                // Cấu hình giảm giá đặt full khung giờ trong ngày / đặt nhiều khung giờ (xem
+                // SettingBook) — trả kèm để client (app) tự tính preview giống hệt logic
+                // checkFullBooking()/discountRate ở book.blade.php (Alpine), KHÔNG round-trip API
+                // mỗi lần khách tick chọn slot. Số tiền cuối cùng vẫn do BookingController/
+                // GuestBookingController tính lại từ DB lúc tạo đơn — field này chỉ để hiển thị.
+                'full_booking_discount' => $this->parseDiscountRule($room->full_booking_discount),
+                'bulk_discount_rules'   => $room->bulk_discount_rules ?? [],
                 'time_slots' => $room->roomTimeSlots->map(fn ($rts) => [
                     'timeslot_id' => $rts->timeslot_id,
                     'time'        => substr($rts->timeSlot->start_time, 0, 5) . ' - ' . substr($rts->timeSlot->end_time, 0, 5),
@@ -261,6 +274,24 @@ class BranchController extends Controller
                 'label' => $p->lable_client,
             ])->values(),
         ];
+    }
+
+    /**
+     * Parse chuỗi cấu hình full_booking_discount ("20%" hoặc "500.000") thành dạng đã tách sẵn
+     * type/value cho client — tránh app phải tự parse chuỗi (đỡ lệch công thức so với
+     * RoomDiscountCalculator::parseDiscountRule() / Book::calculateFullBookingDiscount()).
+     */
+    private function parseDiscountRule(?string $rule): ?array
+    {
+        if (empty($rule)) {
+            return null;
+        }
+
+        if (str_contains($rule, '%')) {
+            return ['type' => 'percentage', 'value' => (float) str_replace('%', '', $rule)];
+        }
+
+        return ['type' => 'fixed', 'value' => (float) str_replace(['.', ','], '', $rule)];
     }
 
     /**
