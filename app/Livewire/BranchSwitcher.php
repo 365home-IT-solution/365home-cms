@@ -18,8 +18,6 @@ class BranchSwitcher extends Component
 {
     public array $selected = [];
 
-    public bool $open = false;
-
     public function mount(): void
     {
         $permitted = $this->permittedBranchIds();
@@ -51,11 +49,6 @@ class BranchSwitcher extends Component
             ->get(['id', 'name']);
     }
 
-    public function toggle(): void
-    {
-        $this->open = ! $this->open;
-    }
-
     public function selectAll(): void
     {
         $this->selected = $this->permittedBranchIds();
@@ -74,7 +67,6 @@ class BranchSwitcher extends Component
 
         session(['active_branch_ids' => $safe]);
         $this->selected = $safe;
-        $this->open     = false;
 
         $this->redirect(Filament::getUrl(), navigate: false);
     }

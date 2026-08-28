@@ -5,10 +5,8 @@ declare(strict_types=1);
 namespace App\Livewire;
 
 use App\Models\User;
-use Filament\Facades\Filament;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Livewire\Component;
@@ -19,8 +17,6 @@ use Livewire\Component;
 // xác nhận — không phải mật khẩu của người đang thao tác.
 class AccountSwitcher extends Component
 {
-    public bool $open = false;
-
     public string $step = 'list';
 
     public string $search = '';
@@ -30,11 +26,6 @@ class AccountSwitcher extends Component
     public string $password = '';
 
     public ?string $passwordError = null;
-
-    public function toggle(): void
-    {
-        $this->open = ! $this->open;
-    }
 
     public function candidates(): Collection
     {
@@ -130,44 +121,24 @@ class AccountSwitcher extends Component
 
         RateLimiter::clear($key);
 
-        $panel = Filament::getCurrentPanel();
+        // KHÔNG gọi Auth::login() ngay tại đây — Auth::login() làm session()->migrate(true) bên
+        // trong (đổi hẳn session id giữa chừng), và làm việc này bên trong 1 request AJAX
+        // /livewire/update từng gây lỗi 419 CSRF / mất đăng nhập không ổn định trên trình duyệt
+        // thật. Chỉ lưu 1 "vé" ngắn hạn (10 giây) rồi điều hướng TRANG THƯỜNG (navigate: false —
+        // window.location, không phải AJAX) sang AccountSwitchController::commit(), nơi
+        // Auth::login() chạy trong 1 vòng đời request HTTP bình thường, giống hệt 1 form đăng nhập
+        // chuẩn.
+        session(['pending_account_switch' => [
+            'target_id'  => $target->id,
+            'expires_at' => time() + 10,
+        ]]);
 
-        if ($panel && ! $target->canAccessPanel($panel)) {
-            abort(403);
-        }
-
-        // Chỉ lưu id gốc THẬT lần đầu tiên — nếu đang switch nối tiếp (A -> B -> C), nút "Quay lại"
-        // luôn đưa về A, không phải B.
-        if (! session()->has('impersonate.original_id')) {
-            session(['impersonate.original_id' => $me->id]);
-        }
-
-        Auth::guard('web')->login($target);
-        session()->regenerate();
-
-        $this->redirect(Filament::getUrl(), navigate: false);
+        $this->redirect(route('admin.account-switch.commit'), navigate: false);
     }
 
     public function switchBack(): void
     {
-        $originalId = session('impersonate.original_id');
-
-        if (! $originalId) {
-            return;
-        }
-
-        $original = User::find($originalId);
-
-        session()->forget('impersonate.original_id');
-
-        if (! $original) {
-            return;
-        }
-
-        Auth::guard('web')->login($original);
-        session()->regenerate();
-
-        $this->redirect(Filament::getUrl(), navigate: false);
+        $this->redirect(route('admin.account-switch.back'), navigate: false);
     }
 
     public function render(): View

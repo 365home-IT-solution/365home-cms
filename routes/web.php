@@ -12,6 +12,14 @@ use Illuminate\Support\Facades\Route;
 // admin — thay vì phải sửa từng route/middleware, chặn đứng lỗi tại điểm chung này.
 Route::get('/login', fn () => redirect(\Filament\Facades\Filament::getLoginUrl()))->name('login');
 
+// "Chuyển đổi tài khoản" — bước commit thật sự, xem giải thích trong AccountSwitchController.
+Route::middleware('web')->group(function () {
+    Route::get('/admin/account-switch/commit', [\App\Http\Controllers\AccountSwitchController::class, 'commit'])
+        ->name('admin.account-switch.commit');
+    Route::get('/admin/account-switch/back', [\App\Http\Controllers\AccountSwitchController::class, 'back'])
+        ->name('admin.account-switch.back');
+});
+
 // Admin: unread notification count (for tab-title polling)
 // Cached per-user for 2s — supports many concurrent admins without hammering the DB
 Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group(function () {
