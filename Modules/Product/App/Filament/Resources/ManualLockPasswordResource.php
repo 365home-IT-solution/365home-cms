@@ -47,6 +47,13 @@ class ManualLockPasswordResource extends Resource
 
     protected static ?int $navigationSort = 10;
 
+    // Đã gộp vào 1 mục menu "Khóa cổng" cùng Pass Cổng — xem App\Filament\Pages\GateLockManagement
+    // (App\Filament\Widgets\ManualLockPasswordTableWidget). Ẩn khỏi menu, giữ nguyên route/permission.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public static function getNavigationBadge(): ?string
     {
         return (string) static::getEloquentQuery()->count();

@@ -21,28 +21,42 @@ use Illuminate\Validation\Rule;
 
 class CategoryForm
 {
+    // Layout 2 cột: cột 1 (rộng hơn) chứa toàn bộ thông tin cơ bản, cột 2 chỉ chứa hình ảnh — thu
+    // gọn lại so với layout 3 phần trước đây (ảnh nằm riêng 1 hàng bên dưới, tốn chiều cao).
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
-                Grid::make(4)
+                Grid::make(['default' => 1, 'lg' => 3])
                     ->schema([
-                        self::basicInfoSection()->columnSpan(3),
-                        self::categoryDetailsSection()->columnSpan(1),
-                        self::Image()->columnSpan(3),
+                        self::mainInfoSection()->columnSpan(['default' => 1, 'lg' => 2]),
+                        self::imageSection()->columnSpan(['default' => 1, 'lg' => 1]),
                     ]),
             ]);
     }
 
-    private static function basicInfoSection(): Section
+    private static function mainInfoSection(): Section
     {
         return Section::make()
             ->schema([
+                self::categoryTypeHidden(),
                 self::nameInput(),
                 self::slugInput(),
+                self::parentCategoryInput(),
+                self::partnerInput(),
+                self::sortOrderInput(),
+                self::statusToggle(),
                 self::descriptionInput(),
             ])
             ->columns(2);
+    }
+
+    private static function imageSection(): Section
+    {
+        return Section::make()
+            ->schema([
+                self::Image(),
+            ]);
     }
 
     private static function nameInput(): TextInput
@@ -59,7 +73,7 @@ class CategoryForm
                 }
                 $set('slug', Str::slug($state));
             })
-            ->columnSpan(1);
+            ->columnSpan(2);
     }
 
     private static function slugInput(): TextInput
@@ -74,7 +88,7 @@ class CategoryForm
                     ? Rule::unique('categories', 'slug')->ignore($categoryId)
                     : Rule::unique('categories', 'slug');
             }])
-            ->columnSpan(1);
+            ->columnSpan(2);
     }
 
     private static function descriptionInput(): Textarea
@@ -84,19 +98,6 @@ class CategoryForm
             ->placeholder(__('category::category.form.placeholder.description'))
             ->rows(3)
             ->columnSpan(2);
-    }
-
-    private static function categoryDetailsSection(): Section
-    {
-        return Section::make()
-            ->schema([
-                self::categoryTypeHidden(),
-                self::parentCategoryInput(),
-                self::sortOrderInput(),
-                self::partnerInput(),
-                self::statusToggle(),
-            ])
-            ->columnSpan(1);
     }
 
     // Resource này chỉ quản lý chi nhánh/khu vực — không còn cho chọn "Kiểu hiển thị" (danh mục
@@ -222,7 +223,7 @@ class CategoryForm
             ->image()
             ->imageEditor()
             ->directory('categories')
-            ->imagePreviewHeight('100')
+            ->imagePreviewHeight('150')
             ->nullable()
             ->hint('Tải lên hình ảnh địa điểm');
     }

@@ -6,6 +6,7 @@ namespace Modules\Category\App\Filament\Resources;
 
 use Illuminate\Database\Eloquent\Builder;
 use Modules\Category\App\Filament\Resources\CategoryResource\Forms\CategoryForm;
+use Modules\Category\App\Filament\Resources\CategoryResource\RelationManagers\ChildrenRelationManager;
 use Modules\Category\App\Filament\Resources\CategoryResource\RelationManagers\ProductsRelationManager;
 use Modules\Category\App\Filament\Resources\CategoryResource\Tables\CategoryTable;
 use Modules\Category\App\Filament\Resources\CategoryResource\Pages;
@@ -129,6 +130,7 @@ class CategoryResource extends Resource implements HasKnowledgeBase
     public static function getRelationManagers(): array
     {
         return [
+            ChildrenRelationManager::class,
             ProductsRelationManager::class,
         ];
     }

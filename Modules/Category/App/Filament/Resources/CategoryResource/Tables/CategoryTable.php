@@ -81,7 +81,15 @@ class CategoryTable
             ])
             ->actions(CategoryAction::action())
             ->bulkActions(CategoryBulkAction::bulkActions())
-            ->modifyQueryUsing(function (Builder $query) {
+            ->modifyQueryUsing(function (Builder $query, $livewire) {
+                // Mặc định chỉ hiện chi nhánh GỐC (parent_id null) — khu vực/chi nhánh con chỉ xem
+                // được qua tab "Chi nhánh con" ở trang Sửa chi nhánh cha, hoặc khi filter "Lọc theo
+                // chi nhánh" (CategoryFilter::filter(), field parent_id) đang được chọn (filter đó tự
+                // hiện cả cha lẫn con khi chọn 1 chi nhánh gốc — xem CategoryFilter.php).
+                if (blank(data_get($livewire, 'tableFilters.parent_id.value'))) {
+                    $query->whereNull('parent_id');
+                }
+
                 return $query->select('categories.*')
                     ->selectRaw('
                         (

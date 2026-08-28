@@ -220,31 +220,17 @@ class CustomerResource extends Resource
                                     $html .= '<p class="text-gray-600 dark:text-gray-300">' . e($tier->description) . '</p>';
                                 }
 
-                                $html .= '<div class="grid grid-cols-2 gap-2">';
-
-                                // Ngưỡng chi tiêu
+                                // Ngưỡng chi tiêu — khối "Coupon chào mừng" trước đây hiển thị ở đây đã bị bỏ:
+                                // welcome_coupon_* là cơ chế CŨ đã ngưng dùng (không sửa được qua form hạng,
+                                // không dùng để cấp coupon thật — xem MembershipService::grantTemplateCoupon()),
+                                // dữ liệu hiển thị chỉ là rác còn sót lại. Điều kiện/quyền lợi hạng thật sự nên
+                                // điền vào $tier->description (đã hiển thị ngay phía trên, qua trang Sửa hạng).
                                 $html .= '<div class="rounded-lg bg-gray-50 dark:bg-white/5 p-3">';
                                 $html .= '<div class="text-xs uppercase tracking-wide text-gray-400 mb-1">Ngưỡng chi tiêu</div>';
                                 $html .= '<div class="font-semibold text-gray-800 dark:text-gray-100">'
                                     . number_format((float) $tier->min_spending, 0, ',', '.') . ' VNĐ'
                                     . '</div>';
                                 $html .= '</div>';
-
-                                // Coupon chào mừng
-                                if ((float) $tier->welcome_coupon_value > 0) {
-                                    $val = $tier->welcome_coupon_type === 'percentage'
-                                        ? $tier->welcome_coupon_value . '%'
-                                        : number_format((float) $tier->welcome_coupon_value, 0, ',', '.') . ' VNĐ';
-
-                                    $html .= '<div class="rounded-lg bg-emerald-50 dark:bg-emerald-900/20 p-3">';
-                                    $html .= '<div class="text-xs uppercase tracking-wide text-emerald-600 dark:text-emerald-400 mb-1">Coupon chào mừng</div>';
-                                    $html .= '<div class="font-semibold text-emerald-700 dark:text-emerald-300">'
-                                        . e($val) . ' · ' . $tier->welcome_coupon_days . ' ngày'
-                                        . '</div>';
-                                    $html .= '</div>';
-                                }
-
-                                $html .= '</div>'; // end grid
 
                                 // Hạng tiếp theo
                                 $nextTier = MembershipTier::where('is_active', true)
