@@ -277,24 +277,6 @@ class BranchController extends Controller
     }
 
     /**
-     * Parse chuỗi cấu hình full_booking_discount ("20%" hoặc "500.000") thành dạng đã tách sẵn
-     * type/value cho client — tránh app phải tự parse chuỗi (đỡ lệch công thức so với
-     * RoomDiscountCalculator::parseDiscountRule() / Book::calculateFullBookingDiscount()).
-     */
-    private function parseDiscountRule(?string $rule): ?array
-    {
-        if (empty($rule)) {
-            return null;
-        }
-
-        if (str_contains($rule, '%')) {
-            return ['type' => 'percentage', 'value' => (float) str_replace('%', '', $rule)];
-        }
-
-        return ['type' => 'fixed', 'value' => (float) str_replace(['.', ','], '', $rule)];
-    }
-
-    /**
      * GET /api/v1/branches/{branch}/daily-rooms
      *
      * Danh sách phòng THEO NGÀY (styles=2 — khách đặt theo đêm/ngày, khác với phòng theo khung
