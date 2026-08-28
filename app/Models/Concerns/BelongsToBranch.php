@@ -32,11 +32,14 @@ trait BelongsToBranch
 
             $user = auth()->user();
 
-            if (! $user instanceof User || $user->isSuperAdmin()) {
+            if (! $user instanceof User) {
                 return;
             }
 
-            $branchIds = $user->rootProductCategoryIds();
+            // effectiveBranchIds() = rootProductCategoryIds() (mọi chi nhánh được phép, kể cả
+            // super_admin) trừ khi user đang thu hẹp qua nút "Chuyển đổi chi nhánh" — nhờ vậy
+            // super_admin mặc định vẫn thấy hết như trước, chỉ bị lọc khi chủ động chọn.
+            $branchIds = $user->effectiveBranchIds();
 
             // Không xác định được chi nhánh nào (vd tài khoản chưa gán đối tác) — không lọc thêm
             // để tránh vô tình ẩn hết dữ liệu; scope partner_id (BelongsToPartner) vẫn áp dụng
@@ -54,14 +57,15 @@ trait BelongsToBranch
             }
 
             $user = auth()->user();
-            if (! $user instanceof User || $user->isSuperAdmin()) {
+            if (! $user instanceof User) {
                 return;
             }
 
-            // Chỉ tự gán khi tài khoản CHỈ quản lý ĐÚNG 1 chi nhánh — nếu quản lý nhiều hơn 1,
-            // bắt buộc phải tự chọn qua field trên form (xem WarehouseItemForm::branchInput() và
-            // tương tự ở 3 form phiếu), không đoán bừa 1 trong nhiều chi nhánh.
-            $branchIds = $user->rootProductCategoryIds();
+            // Chỉ tự gán khi tài khoản CHỈ quản lý (hoặc đang thu hẹp còn) ĐÚNG 1 chi nhánh — nếu
+            // quản lý nhiều hơn 1, bắt buộc phải tự chọn qua field trên form (xem
+            // WarehouseItemForm::branchInput() và tương tự ở 3 form phiếu), không đoán bừa 1 trong
+            // nhiều chi nhánh.
+            $branchIds = $user->effectiveBranchIds();
             if (count($branchIds) === 1) {
                 $model->branch_id = $branchIds[0];
             }

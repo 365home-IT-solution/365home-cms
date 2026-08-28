@@ -60,6 +60,7 @@ class NotifyCheckinStreakReminderCommand extends Command
                 'checkin_streak_reminder',
                 'users',
                 ['tier_id' => (string) $tier->id],
+                $tier->auto_issue_notify_url,
             );
 
             $total += $customers->count();

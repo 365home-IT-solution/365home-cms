@@ -121,6 +121,29 @@ public function getFilamentAvatarUrl(): ?string
         return $this->hasRole(config('filament-shield.super_admin.name'));
     }
 
+    /**
+     * Dùng cho tính năng "Chuyển đổi tài khoản" ở topbar admin: super_admin chuyển được sang bất
+     * kỳ ai; user thường chỉ chuyển được sang tài khoản cùng role VÀ có ít nhất 1 chi nhánh chung
+     * (rootProductCategoryIds() giao nhau) — dùng lại để re-validate ngay lúc switch (không chỉ lúc
+     * build danh sách), tránh trường hợp props Livewire bị can thiệp trỏ tới 1 id không hợp lệ.
+     */
+    public function isEligibleSwitchTarget(User $target): bool
+    {
+        if ($target->is($this)) {
+            return false;
+        }
+
+        if ($this->isSuperAdmin()) {
+            return true;
+        }
+
+        if ($this->roles->pluck('id')->intersect($target->roles->pluck('id'))->isEmpty()) {
+            return false;
+        }
+
+        return array_intersect($target->rootProductCategoryIds(), $this->rootProductCategoryIds()) !== [];
+    }
+
     // Trước đây check hasRole('partner') — nhưng hệ thống thực tế tạo 1 ROLE RIÊNG cho mỗi đối
     // tác (vd "monaco_super_admin", "Quản lý Monaco", "Quyền 1.1"...), KHÔNG có tài khoản nào thực
     // sự mang đúng role tên "partner", nên hasRole('partner') LUÔN LUÔN false. Hậu quả: chủ đối tác
@@ -241,15 +264,36 @@ public function getFilamentAvatarUrl(): ?string
     }
 
     /**
+     * Chi nhánh đang thực sự áp dụng cho request hiện tại: mặc định = toàn bộ chi nhánh được phép
+     * xem (rootProductCategoryIds()), thu hẹp lại theo lựa chọn ở nút "Chuyển đổi chi nhánh"
+     * (session('active_branch_ids')) nếu có. Luôn intersect với quyền thật — session dù có bị can
+     * thiệp cũng không thể mở rộng quyền xem vượt quá rootProductCategoryIds().
+     */
+    public function effectiveBranchIds(): array
+    {
+        $permitted = $this->rootProductCategoryIds();
+        $selected  = session('active_branch_ids');
+
+        if (empty($selected)) {
+            return $permitted;
+        }
+
+        return array_values(array_intersect($permitted, $selected));
+    }
+
+    /**
      * Toàn bộ category_id loại 'product' (chi nhánh gốc — rootProductCategoryIds() — VÀ khu vực
      * con mọi cấp) mà user được phép CHỌN/GÁN — nguồn xác thực dùng chung cho mọi API cần validate
      * 1 category_id do FE gửi lên nằm đúng phạm vi quyền.
+     *
+     * @param  array|null  $branchIds  Tập chi nhánh gốc để mở rộng — mặc định rootProductCategoryIds(),
+     *                                 truyền effectiveBranchIds() khi cần thu hẹp theo chi nhánh đang chọn.
      */
-    public function visibleProductCategoryIds(): array
+    public function visibleProductCategoryIds(?array $branchIds = null): array
     {
         $categoryModel = \Modules\Category\Entities\Category::class;
 
-        $branchIds = $this->rootProductCategoryIds();
+        $branchIds = $branchIds ?? $this->rootProductCategoryIds();
 
         if (empty($branchIds)) {
             return [];

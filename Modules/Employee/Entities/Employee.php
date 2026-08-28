@@ -8,6 +8,8 @@ use App\Models\Concerns\BelongsToPartner;
 use App\Models\Province;
 use App\Models\User;
 use App\Models\Ward;
+use App\Support\AdminPanelContext;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -72,6 +74,38 @@ class Employee extends Model implements HasMedia
     protected static function boot(): void
     {
         parent::boot();
+
+        // Lọc theo chi nhánh đang chọn ở nút "Chuyển đổi chi nhánh" (xem
+        // App\Models\Concerns\BelongsToBranch cho cùng khung điều kiện). Employee không có cột
+        // branch_id trực tiếp — 1 nhân viên "thuộc" chi nhánh qua pay_branch_id, workBranches(),
+        // hoặc cờ works_all_branches (bỏ qua danh sách workBranches). Cộng thêm (AND) với scope
+        // 'partner' của BelongsToPartner, không thay thế.
+        static::addGlobalScope('active_branch', function (Builder $builder) {
+            if (! AdminPanelContext::isActive()) {
+                return;
+            }
+
+            $user = auth()->user();
+
+            if (! $user instanceof User) {
+                return;
+            }
+
+            $branchIds = $user->effectiveBranchIds();
+
+            if (empty($branchIds)) {
+                return;
+            }
+
+            $builder->where(function (Builder $query) use ($branchIds) {
+                $query->where('employees.works_all_branches', true)
+                    ->orWhereIn('employees.pay_branch_id', $branchIds)
+                    ->orWhereHas(
+                        'workBranches',
+                        fn ($q) => $q->whereIn('categories.id', $branchIds)
+                    );
+            });
+        });
 
         static::creating(function (Employee $employee) {
             if (empty($employee->employee_code)) {

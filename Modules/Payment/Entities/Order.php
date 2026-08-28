@@ -5,6 +5,8 @@ namespace Modules\Payment\Entities;
 use App\Models\Concerns\BelongsToPartner;
 use App\Models\Customer;
 use App\Models\User;
+use App\Support\AdminPanelContext;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Modules\AccessCode\Entities\AccessCode;
@@ -164,6 +166,30 @@ class Order extends Model implements Eventable
 
     protected static function booted(): void
     {
+        // Lọc theo chi nhánh đang chọn ở nút "Chuyển đổi chi nhánh" (xem
+        // App\Models\Concerns\BelongsToBranch cho cùng khung điều kiện). category_id trỏ thẳng
+        // chi nhánh gốc của đơn (cùng nguồn với OrderFilter.php ở Filament) — cộng thêm (AND) với
+        // scope 'partner' của BelongsToPartner, không thay thế.
+        static::addGlobalScope('active_branch', function (Builder $builder) {
+            if (! AdminPanelContext::isActive()) {
+                return;
+            }
+
+            $user = auth()->user();
+
+            if (! $user instanceof User) {
+                return;
+            }
+
+            $branchIds = $user->effectiveBranchIds();
+
+            if (empty($branchIds)) {
+                return;
+            }
+
+            $builder->whereIn('orders.category_id', $branchIds);
+        });
+
         static::creating(function (self $order): void {
             if (empty($order->order_code)) {
                 do {
