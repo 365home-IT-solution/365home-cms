@@ -10,24 +10,6 @@ class Handler extends ExceptionHandler
 {
     protected $dontReport = [];
 
-    public function render($request, Throwable $exception)
-    {
-        if ($request->is('api/guest/orders')) {
-            \Illuminate\Support\Facades\Log::error('Exception in guest booking API', [
-                'path' => $request->path(),
-                'method' => $request->method(),
-                'exception' => get_class($exception),
-                'message' => $exception->getMessage(),
-                'file' => $exception->getFile(),
-                'line' => $exception->getLine(),
-                'trace' => $exception->getTraceAsString(),
-                'coupon_codes' => $request->input('coupon_codes'),
-            ]);
-        }
-
-        return parent::render($request, $exception);
-    }
-
     // *** Khi nào cần debug điều chỉnh
     // public function render($request, Throwable $exception)
     // {

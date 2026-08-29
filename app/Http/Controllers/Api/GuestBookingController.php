@@ -34,16 +34,8 @@ class GuestBookingController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        try {
-            Log::info('GuestBookingController.store started', [
-                'type' => $request->input('type'),
-                'room_id' => $request->input('room_id'),
-                'applied_coupons' => $request->input('coupon_codes'),
-                'guest_count' => $request->input('guest_count'),
-            ]);
-
-            // ── 1. Validate ──────────────────────────────────────────────────────
-            $baseRules = [
+        // ── 1. Validate ──────────────────────────────────────────────────────
+        $baseRules = [
             'type'                    => 'required|in:slot,daily',
             'room_id'                 => 'required|string',
             'buyer_name'              => 'required|string|max:100',
@@ -394,18 +386,8 @@ class GuestBookingController extends Controller
 
             foreach ($appliedCoupons as $couponInfo) {
                 if (isset($couponInfo['_model'])) {
-                    try {
-                        // Khách vãng lai — không có Customer đăng nhập nên customer_id luôn null.
-                        $couponInfo['_model']->incrementUsage((string) $order->id, null, $order->category_id, $couponInfo['discount_amount'] ?? null);
-                    } catch (\Exception $e) {
-                        Log::error('incrementUsage error', [
-                            'coupon_code' => $couponInfo['code'] ?? null,
-                            'order_id' => $order->id,
-                            'error' => $e->getMessage(),
-                            'exception' => get_class($e),
-                        ]);
-                        throw $e;
-                    }
+                    // Khách vãng lai — không có Customer đăng nhập nên customer_id luôn null.
+                    $couponInfo['_model']->incrementUsage((string) $order->id, null, $order->category_id, $couponInfo['discount_amount'] ?? null);
                 }
             }
 
@@ -487,17 +469,6 @@ class GuestBookingController extends Controller
                 'final_amount'         => (int) $order->full_amount,
             ],
         ], 201);
-        } catch (\Exception $e) {
-            Log::error('GuestBookingController.store error', [
-                'error' => $e->getMessage(),
-                'exception' => get_class($e),
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString(),
-                'coupon_codes' => $request->input('coupon_codes'),
-            ]);
-            throw $e;
-        }
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -1600,8 +1571,7 @@ class GuestBookingController extends Controller
 
         $coupons = [];
         foreach ($codes as $index => $code) {
-            try {
-                $coupon = Coupon::where('code', $code)
+            $coupon = Coupon::where('code', $code)
                     ->where('is_active', true)
                     ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', now()))
                     ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', now()))
@@ -1648,17 +1618,6 @@ class GuestBookingController extends Controller
                 }
 
                 $coupons[] = $coupon;
-            } catch (\Exception $e) {
-                Log::error('applyGuestCoupons error', [
-                    'coupon_code' => $code,
-                    'order_amount' => $orderAmount,
-                    'room_id' => $room->id,
-                    'error' => $e->getMessage(),
-                    'exception' => get_class($e),
-                    'trace' => $e->getTraceAsString(),
-                ]);
-                throw $e;
-            }
         }
 
         usort($coupons, fn ($a, $b) => ($b->type === 'percentage' ? 1 : 0) - ($a->type === 'percentage' ? 1 : 0));
