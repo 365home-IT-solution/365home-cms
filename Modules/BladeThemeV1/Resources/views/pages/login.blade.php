@@ -20,6 +20,8 @@
         @livewire('bladethemev1::drawer-menu')
     </div>
 
+    <h1 class="sr-only">Đăng nhập - 365 HOME</h1>
+
     {{-- 2 cột theo bố cục tham khảo Go2Joy: trái là ảnh (cột RỘNG HƠN, 3fr so với 2fr), phải là
          form không có padding ngang (chỉ padding dọc). max-w-7xl mx-auto: bọc cả khối trong khung
          giới hạn chiều rộng, canh giữa trang — trước đó 2 cột kéo full-bleed hết chiều rộng màn
