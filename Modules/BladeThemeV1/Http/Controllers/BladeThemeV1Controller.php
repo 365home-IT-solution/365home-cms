@@ -661,10 +661,24 @@ class BladeThemeV1Controller extends Controller
             $typeName   = $typeDbSlug ? RoomType::where('slug', $typeDbSlug)->value('name') : null;
         }
 
+        // Generate unique description based on type and location
+        $locName = $province ? $province->name : 'Cần Thơ';
+        $typeLower = $typeName ? strtolower($typeName) : 'phòng';
+
+        if ($typeName && $province) {
+            $seoDesc = 'Đặt ' . $typeLower . ' tại ' . $locName . ' theo giờ, ngày. Giá tốt, linh hoạt, chất lượng cao tại 365 HOME.';
+        } elseif ($typeName) {
+            $seoDesc = 'Đặt ' . $typeLower . ' theo giờ, ngày tại Cần Thơ. Giá tốt, linh hoạt, chất lượng cao tại 365 HOME.';
+        } elseif ($province) {
+            $seoDesc = 'Tìm kiếm phòng tại ' . $locName . ' theo giờ, ngày. Homestay, villa, mini-house, khách sạn - giá tốt, chất lượng tại 365 HOME.';
+        } else {
+            $seoDesc = 'Tìm kiếm phòng theo giờ, ngày tại Cần Thơ. Homestay, villa, mini-house, khách sạn - chất lượng, giá tốt tại 365 HOME.';
+        }
+
         $seoData = [
             'seo_title'       => trim(($typeName ?: 'Tìm kiếm phòng') . ($province ? ' tại ' . $province->name : '')) . ' | 365 HOME',
-            'seo_description' => 'Tìm kiếm phòng nghỉ, coworking, phòng theo giờ chất lượng tại 365 HOME.',
-            'seo_keywords'    => 'tìm kiếm phòng, đặt phòng, phòng theo giờ, 365 home',
+            'seo_description' => $seoDesc,
+            'seo_keywords'    => 'đặt ' . $typeLower . ', ' . $locName . ', 365 home, tìm kiếm phòng',
             'og_type'         => 'website',
         ];
 
