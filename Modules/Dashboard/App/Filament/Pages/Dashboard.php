@@ -133,8 +133,8 @@ class Dashboard extends FilamentDashboard
                     $voucherUsageQuery->whereIn('category_id', $vCategoryIds);
                 }
             }
-            $voucherUsageCount     = (clone $voucherUsageQuery)->whereBetween('used_at', [$startDate, $endDate])->count();
-            $prevVoucherUsageCount = (clone $voucherUsageQuery)->whereBetween('used_at', [$prevStart, $prevEnd])->count();
+            $voucherUsageCount     = (clone $voucherUsageQuery)->whereBetween('used_at', [$startDate, $endDate])->sum('discount_amount');
+            $prevVoucherUsageCount = (clone $voucherUsageQuery)->whereBetween('used_at', [$prevStart, $prevEnd])->sum('discount_amount');
             $voucherUsageDelta     = $prevVoucherUsageCount > 0
                 ? round((($voucherUsageCount - $prevVoucherUsageCount) / $prevVoucherUsageCount) * 100, 1)
                 : 0;
