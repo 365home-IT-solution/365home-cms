@@ -51,9 +51,11 @@ class EditPriceBoard extends EditRecord
 
                     Notification::make()->title('Đã áp dụng bảng giá')->success()->send();
                 }),
-            // Cố ý KHÔNG khôi phục giá khi xoá — bảng giá ở đây chỉ dùng để đổi giá, xoá bảng chỉ
-            // dọn bản ghi, giá đã áp giữ nguyên cho tới khi admin tự sửa lại (yêu cầu người dùng).
-            Actions\DeleteAction::make(),
+            // Khôi phục giá gốc cho mọi phòng trong bảng TRƯỚC khi thực sự xoá (yêu cầu người dùng —
+            // trước đây cố ý không khôi phục, nay đổi lại: xoá bảng cũng phải trả giá về như trước
+            // khi tạo bảng, giống hệt hành vi khi bảng tự hết hạn).
+            Actions\DeleteAction::make()
+                ->before(fn () => app(PriceBoardSyncService::class)->revertBoardBeforeDelete($this->record)),
         ];
     }
 

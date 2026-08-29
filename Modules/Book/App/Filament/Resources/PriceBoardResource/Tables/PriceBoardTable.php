@@ -122,9 +122,10 @@ class PriceBoardTable
                             ->send();
                     }),
                 EditAction::make(),
-                // Cố ý KHÔNG khôi phục giá khi xoá — bảng giá ở đây chỉ dùng để đổi giá, xoá bảng
-                // chỉ dọn bản ghi, giá đã áp giữ nguyên cho tới khi admin tự sửa lại (yêu cầu người dùng).
-                DeleteAction::make(),
+                // Khôi phục giá gốc cho mọi phòng trong bảng TRƯỚC khi thực sự xoá — giống hệt hành
+                // vi khi bảng tự hết hạn (yêu cầu người dùng).
+                DeleteAction::make()
+                    ->before(fn (PriceBoard $record) => app(PriceBoardSyncService::class)->revertBoardBeforeDelete($record)),
             ]);
     }
 }

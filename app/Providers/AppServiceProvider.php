@@ -63,6 +63,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // livewire.min.js được chèn ở cuối <body> nên không chặn hiển thị ban đầu, nhưng vẫn chặn
+        // trình duyệt "hoàn tất" trang (ảnh hưởng TTI) vì mặc định là <script> đồng bộ, không có
+        // defer — Lighthouse xếp nó vào chuỗi phụ thuộc quan trọng. defer=true chỉ đổi THỜI ĐIỂM
+        // fetch/chạy (chờ HTML parse xong), không đổi thứ tự khởi tạo Alpine/Livewire vì Livewire tự
+        // quản lý việc đó bên trong bundle của nó — an toàn, không ảnh hưởng hành vi component nào.
+        Livewire::useScriptTagAttributes(['defer' => true]);
+
         Table::configureUsing(function (Table $table): void {
             $table
                 ->emptyStateHeading('Không có dữ liệu')

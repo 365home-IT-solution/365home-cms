@@ -168,7 +168,7 @@
                                 <div x-ref="track" class="flex gap-6 py-2 px-1 overflow-x-hidden" style="scroll-snap-type:x mandatory;">
                                     <template x-for="type in roomTypes" :key="'roomtype-mobile-' + type.id">
                                         <a :href="window.__typeUrlSlug(type.slug) ? ('/' + window.__typeUrlSlug(type.slug)) : ('{{ route('product.search') }}?type=' + type.slug)" class="roomtype-card" style="scroll-snap-align:start;">
-                                            <img :src="window.__roomTypeIcon(type)" alt="" class="roomtype-card-icon" loading="lazy" onerror="this.style.display='none'">
+                                            <img :src="window.__roomTypeIcon(type)" alt="" class="roomtype-card-icon" width="88" height="88" loading="lazy" onerror="this.style.display='none'">
                                             <span class="roomtype-card-label" x-text="type.name"></span>
                                         </a>
                                     </template>
@@ -250,7 +250,10 @@
                                 <a :href="banner.url || '#'" class="banner-card legacy-banner-card"
                                     :aria-label="banner.title || 'Banner ưu đãi 365Home'"
                                     :style="{ pointerEvents: banner.url ? 'auto' : 'none', scrollSnapAlign: 'start', flexShrink: 0 }">
-                                    <img :src="banner.thumbnail?.wide || banner.image_url" :alt="banner.title || ''">
+                                    <img :src="banner.thumbnail?.wide || banner.image_url"
+                                         :srcset="[banner.thumbnail?.card && (banner.thumbnail.card + ' 480w'), banner.thumbnail?.wide && (banner.thumbnail.wide + ' 1080w')].filter(Boolean).join(', ')"
+                                         sizes="(max-width: 639px) 100vw, (max-width: 1023px) 50vw, 33vw"
+                                         :alt="banner.title || ''" width="1000" height="300" loading="lazy">
                                 </a>
                             </template>
                         </div>
