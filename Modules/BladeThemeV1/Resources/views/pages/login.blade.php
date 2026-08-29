@@ -78,6 +78,110 @@
         </div>
     </div>
 
+    {{-- Benefits Section --}}
+    <section class="bg-white py-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-4xl mx-auto">
+            <div class="mb-8">
+                <h2 class="text-2xl font-bold text-gray-900 mb-4">Lợi ích của việc đăng nhập 365 HOME</h2>
+                <p class="text-gray-600">Đăng nhập để truy cập đầy đủ các tính năng và nhận những ưu đãi độc quyền</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div class="flex gap-4">
+                    <div class="flex-shrink-0">
+                        <div class="flex items-center justify-center h-10 w-10 rounded-md bg-teal-600 text-white">
+                            <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-medium text-gray-900">Lưu danh sách yêu thích</h3>
+                        <p class="mt-2 text-sm text-gray-600">Lưu các phòng bạn thích để so sánh, theo dõi giá và đặt phòng nhanh hơn.</p>
+                    </div>
+                </div>
+
+                <div class="flex gap-4">
+                    <div class="flex-shrink-0">
+                        <div class="flex items-center justify-center h-10 w-10 rounded-md bg-teal-600 text-white">
+                            <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-medium text-gray-900">Quản lý đơn đặt phòng</h3>
+                        <p class="mt-2 text-sm text-gray-600">Xem lịch sử đặt phòng, cập nhật chi tiết đặt phòng, và quản lý hóa đơn dễ dàng.</p>
+                    </div>
+                </div>
+
+                <div class="flex gap-4">
+                    <div class="flex-shrink-0">
+                        <div class="flex items-center justify-center h-10 w-10 rounded-md bg-teal-600 text-white">
+                            <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-medium text-gray-900">Nhận ưu đãi đặc biệt</h3>
+                        <p class="mt-2 text-sm text-gray-600">Tự động nhận khuyến mãi, coupon giảm giá và chương trình thành viên VIP độc quyền.</p>
+                    </div>
+                </div>
+
+                <div class="flex gap-4">
+                    <div class="flex-shrink-0">
+                        <div class="flex items-center justify-center h-10 w-10 rounded-md bg-teal-600 text-white">
+                            <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-lg font-medium text-gray-900">Đặt phòng nhanh chóng</h3>
+                        <p class="mt-2 text-sm text-gray-600">Sử dụng thông tin cá nhân đã lưu để đặt phòng chỉ trong vài giây mà không cần nhập lại.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {{-- FAQ Section --}}
+    <section class="bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-4xl mx-auto">
+            <h2 class="text-2xl font-bold text-gray-900 mb-8">Câu hỏi thường gặp</h2>
+
+            <div class="space-y-4">
+                <details class="bg-white rounded-lg shadow">
+                    <summary class="p-6 cursor-pointer font-medium text-gray-900 hover:bg-gray-50">
+                        Làm thế nào để tạo tài khoản 365 HOME?
+                    </summary>
+                    <div class="px-6 pb-6 text-gray-600">
+                        Bạn có thể đăng ký tài khoản mới bằng email hoặc số điện thoại. Điền thông tin cá nhân và xác nhận qua email/SMS để hoàn tất đăng ký.
+                    </div>
+                </details>
+
+                <details class="bg-white rounded-lg shadow">
+                    <summary class="p-6 cursor-pointer font-medium text-gray-900 hover:bg-gray-50">
+                        Tài khoản của tôi có an toàn không?
+                    </summary>
+                    <div class="px-6 pb-6 text-gray-600">
+                        Chúng tôi sử dụng các công nghệ bảo mật tiên tiến để bảo vệ thông tin cá nhân của bạn. Mật khẩu được mã hóa và không bao giờ được lưu trữ dưới dạng văn bản thô.
+                    </div>
+                </details>
+
+                <details class="bg-white rounded-lg shadow">
+                    <summary class="p-6 cursor-pointer font-medium text-gray-900 hover:bg-gray-50">
+                        Quên mật khẩu phải làm sao?
+                    </summary>
+                    <div class="px-6 pb-6 text-gray-600">
+                        Nhấp vào "Quên mật khẩu" trên trang đăng nhập, nhập email hoặc số điện thoại của bạn, và chúng tôi sẽ gửi hướng dẫn đặt lại mật khẩu.
+                    </div>
+                </details>
+            </div>
+        </div>
+    </section>
+
     @livewire('bladethemev1::contact-link')
     @livewire('bladethemev1::notification')
 @endsection

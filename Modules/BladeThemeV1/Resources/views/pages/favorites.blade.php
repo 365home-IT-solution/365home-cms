@@ -6,18 +6,103 @@
     @livewire('bladethemev1::header')
     @livewire('bladethemev1::drawer-menu')
 
-    <div class="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
-        <div class="mx-auto max-w-11xl">
-            <div class="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+    {{-- Info Banner --}}
+    <section class="bg-blue-50 border-b border-blue-200 px-4 py-6 sm:px-6 lg:px-8">
+        <div class="mx-auto max-w-7xl">
+            <div class="flex items-start gap-4">
+                <svg class="h-6 w-6 text-blue-600 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M18 5v8a2 2 0 01-2 2h-5l-5 4v-4H4a2 2 0 01-2-2V5a2 2 0 012-2h12a2 2 0 012 2zm-11-1a1 1 0 11-2 0 1 1 0 012 0zM10 7a1 1 0 100-2 1 1 0 000 2zm3 1a1 1 0 110-2 1 1 0 010 2z" clip-rule="evenodd"/>
+                </svg>
                 <div>
-                    <h1 class="text-2xl font-bold text-gray-900">Danh sách yêu thích</h1>
-                    <p class="text-sm text-gray-500">Lưu các phòng bạn thích để xem lại sau.</p>
+                    <h3 class="font-semibold text-blue-900">Mẹo: Sử dụng danh sách yêu thích hiệu quả</h3>
+                    <p class="text-sm text-blue-800 mt-1">Lưu các phòng bạn thích vào danh sách yêu thích để dễ dàng so sánh, theo dõi giá cả và đặt phòng nhanh chóng mà không cần tìm kiếm lại.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
+        <div class="mx-auto max-w-7xl">
+            <div class="mb-8 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900">Danh sách yêu thích</h1>
+                    <p class="text-base text-gray-600 mt-2">Lưu các phòng bạn thích để xem lại sau, so sánh và đặt phòng một cách dễ dàng.</p>
                 </div>
             </div>
 
             <div id="favorites-root" class="min-h-[240px]"></div>
         </div>
     </div>
+
+    {{-- Benefits Section --}}
+    <section class="bg-white py-12 px-4 sm:px-6 lg:px-8">
+        <div class="mx-auto max-w-7xl">
+            <h2 class="text-2xl font-bold text-gray-900 mb-8">Tại sao nên lưu danh sách yêu thích?</h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div class="text-center">
+                    <div class="flex justify-center mb-4">
+                        <svg class="h-12 w-12 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold text-gray-900 mb-2">Dễ dàng so sánh</h3>
+                    <p class="text-gray-600">So sánh các phòng yêu thích, giá cả, tiện nghi và vị trí để chọn phòng phù hợp nhất cho bạn.</p>
+                </div>
+
+                <div class="text-center">
+                    <div class="flex justify-center mb-4">
+                        <svg class="h-12 w-12 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold text-gray-900 mb-2">Theo dõi giá</h3>
+                    <p class="text-gray-600">Nhận thông báo khi giá các phòng yêu thích thay đổi hoặc có khuyến mãi mới.</p>
+                </div>
+
+                <div class="text-center">
+                    <div class="flex justify-center mb-4">
+                        <svg class="h-12 w-12 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold text-gray-900 mb-2">Đặt phòng nhanh</h3>
+                    <p class="text-gray-600">Tiếp cận danh sách yêu thích nhanh chóng và đặt phòng chỉ trong vài cú nhấp chuột.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {{-- Tips Section --}}
+    <section class="bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+        <div class="mx-auto max-w-7xl">
+            <h2 class="text-2xl font-bold text-gray-900 mb-8">Mẹo quản lý danh sách yêu thích</h2>
+
+            <div class="bg-white rounded-lg shadow overflow-hidden">
+                <div class="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-200">
+                    <div class="p-6">
+                        <h3 class="font-semibold text-gray-900 mb-3">Tìm phòng theo điều kiện</h3>
+                        <p class="text-gray-600 text-sm">Sử dụng bộ lọc trên trang tìm kiếm để tìm phòng phù hợp với ngân sách, vị trí và tiện nghi bạn mong muốn, sau đó lưu vào danh sách yêu thích.</p>
+                    </div>
+
+                    <div class="p-6">
+                        <h3 class="font-semibold text-gray-900 mb-3">Theo dõi các chi nhánh yêu thích</h3>
+                        <p class="text-gray-600 text-sm">Lưu các phòng từ các chi nhánh mà bạn thường đến để theo dõi và so sánh dễ dàng theo từng khu vực.</p>
+                    </div>
+
+                    <div class="p-6">
+                        <h3 class="font-semibold text-gray-900 mb-3">Kiểm tra thường xuyên</h3>
+                        <p class="text-gray-600 text-sm">Ghé thăm danh sách yêu thích của bạn định kỳ để kiểm tra các thay đổi giá, khuyến mãi mới và tính khả dụng.</p>
+                    </div>
+
+                    <div class="p-6">
+                        <h3 class="font-semibold text-gray-900 mb-3">Chia sẻ với bạn bè</h3>
+                        <p class="text-gray-600 text-sm">Chia sẻ link phòng yêu thích với bạn bè để cùng so sánh, thảo luận và quyết định đặt phòng chung.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
 
     <style>
         /* Mỗi chi nhánh 1 dòng riêng, bên dưới là các phòng của chi nhánh đó — giống trang kết
