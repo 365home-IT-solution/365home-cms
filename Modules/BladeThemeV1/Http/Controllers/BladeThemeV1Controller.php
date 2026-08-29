@@ -241,8 +241,23 @@ class BladeThemeV1Controller extends Controller
             $seoOgImage = $post->getFirstMedia('Ảnh chính')->getUrl();
         }
 
+        // H1 luôn là $post->title (post-detail.blade.php). Nếu seo_title bỏ trống hoặc được
+        // nhập y hệt title, title tag sẽ trùng H1 từng ký tự — SEO tool flag "duplicate H1/title
+        // tag". Thêm hậu tố "| 365Home" cho trường hợp đó để 2 thẻ luôn khác nhau, không cần
+        // sửa tay từng bài; seo_title đã được tùy biến thật sự thì giữ nguyên.
+        $postTitle = $post->title ?? '';
+        $seoTitle = trim((string) ($post->seo_title ?? ''));
+        if ($seoTitle === '' || $seoTitle === trim($postTitle)) {
+            // Toàn bộ title hiện có đều đã tự mở đầu bằng "365Home" (dưới nhiều dạng phân cách
+            // khác nhau: |, –, -, hoặc không có) — bỏ tiền tố này trước khi thêm hậu tố, tránh
+            // lặp thương hiệu 2 lần kiểu "365Home | X | 365Home" (vừa xấu vừa tốn ký tự hiển thị
+            // trên SERP). Title không mở đầu bằng "365Home" thì giữ nguyên, chỉ thêm hậu tố.
+            $core = trim((string) preg_replace('/^365\s*home\s*[|–—-]?\s*/iu', '', trim($postTitle)));
+            $seoTitle = trim(($core !== '' ? $core : trim($postTitle)) . ' | 365Home');
+        }
+
         $seoData = [
-            'seo_title'              => $post->seo_title ?? $post->title ?? '',
+            'seo_title'              => $seoTitle,
             'seo_description'        => $post->seo_description ?? '',
             'seo_keywords'           => $post->seo_keywords ?? '',
             'og_image'               => $seoOgImage,
