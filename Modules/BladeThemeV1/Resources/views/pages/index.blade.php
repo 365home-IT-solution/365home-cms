@@ -32,6 +32,8 @@
 
 @section('content')
 
+    <h1 class="sr-only">{{ $page->name ?? config('app.name', '365 HOME') }}</h1>
+
     @livewire('bladethemev1::header')
     @livewire('bladethemev1::drawer-menu')
 

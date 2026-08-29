@@ -4,6 +4,8 @@
 
 @section('content')
 
+    <h1 class="sr-only">{{ config('app.name', '365 HOME') }} - Đặt phòng nghỉ, coworking, phòng theo giờ</h1>
+
     {{-- @livewire('bladethemev1::header') --}}
     @livewire('bladethemev1::drawer-menu')
 

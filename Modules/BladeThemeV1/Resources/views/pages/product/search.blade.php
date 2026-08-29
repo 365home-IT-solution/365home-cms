@@ -29,6 +29,8 @@
     @livewire('bladethemev1::header')
     @livewire('bladethemev1::drawer-menu')
 
+    <h1 class="sr-only">Tìm kiếm phòng</h1>
+
     <style>
         /* Mobile (< md): bản đồ full màn hình phía sau, phía trên là bottom-sheet chứa danh sách chi
            nhánh có thể kéo lên/xuống. Kéo xuống (peek) → chi nhánh dạng slide ngang. Kéo lên hết
