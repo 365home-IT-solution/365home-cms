@@ -1081,6 +1081,13 @@ class BookingController extends Controller
         // Coupon được coi là "cá nhân" nếu có customer_id hoặc đã từng gán cho ai đó qua pivot.
         $isRestricted = $coupon->customer_id !== null || $coupon->customers()->exists();
         if ($isRestricted) {
+            \Illuminate\Support\Facades\Log::info('Coupon ownership check', [
+                'coupon_code' => $code,
+                'coupon_customer_id' => $coupon->customer_id,
+                'auth_customer_id' => $customer->id,
+                'match' => $coupon->customer_id === $customer->id,
+            ]);
+
             $owns = $coupon->customer_id === $customer->id
                 || $coupon->customers()->where('customer_id', $customer->id)->exists();
 
