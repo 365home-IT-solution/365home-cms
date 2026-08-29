@@ -612,7 +612,7 @@
         .carousel-nav-btn svg { width: 16px; height: 16px; color: #374151; }
     </style>
 
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.min.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 
     <div id="search-layout" class="md:max-w-11xl md:mx-auto md:px-6">
 
@@ -651,7 +651,7 @@
         </div>
     </div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
         var __searchMapConfig = {
