@@ -34,8 +34,16 @@ class GuestBookingController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        // ── 1. Validate ──────────────────────────────────────────────────────
-        $baseRules = [
+        try {
+            Log::info('GuestBookingController.store started', [
+                'type' => $request->input('type'),
+                'room_id' => $request->input('room_id'),
+                'applied_coupons' => $request->input('coupon_codes'),
+                'guest_count' => $request->input('guest_count'),
+            ]);
+
+            // ── 1. Validate ──────────────────────────────────────────────────────
+            $baseRules = [
             'type'                    => 'required|in:slot,daily',
             'room_id'                 => 'required|string',
             'buyer_name'              => 'required|string|max:100',
@@ -479,6 +487,17 @@ class GuestBookingController extends Controller
                 'final_amount'         => (int) $order->full_amount,
             ],
         ], 201);
+        } catch (\Exception $e) {
+            Log::error('GuestBookingController.store error', [
+                'error' => $e->getMessage(),
+                'exception' => get_class($e),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+                'coupon_codes' => $request->input('coupon_codes'),
+            ]);
+            throw $e;
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════
