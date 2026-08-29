@@ -504,7 +504,7 @@ class BladeThemeV1Controller extends Controller
         $videoIds = array_unique($ytMatches[1]);
 
         $seoData = [
-            'seo_title'          => $product->name,
+            'seo_title'          => $product->name . ' - Đặt phòng tại 365 HOME',
             'seo_description'    => $seoDescription,
             'seo_keywords'       => $seoKeywords,
             'og_image'           => $seoOgImage,
@@ -572,7 +572,7 @@ class BladeThemeV1Controller extends Controller
         $videoIds = array_unique($ytMatches[1]);
 
         $seoData = [
-            'seo_title'          => $template->name,
+            'seo_title'          => $template->name . ' - Dịch vụ tại 365 HOME',
             'seo_description'    => $seoDescription,
             'seo_keywords'       => $seoKeywords,
             'og_image'           => $seoOgImage,
