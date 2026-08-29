@@ -49,10 +49,42 @@ class PriceBoardResource extends Resource
         return parent::getEloquentQuery()->where('is_default', false);
     }
 
-    // Dùng chung quyền với trang "Hệ thống giá" (BookResource) vì cùng phạm vi nghiệp vụ giá phòng.
+    // Mặc định CHỈ super_admin — cùng mức hạn chế với "Sửa giá hàng loạt" (xem
+    // SettingBook::getHeaderActions(), đã ẩn bulk_price_update với non-super-admin từ trước) vì bản
+    // chất là 2 công cụ đổi giá hàng loạt rủi ro tương đương nhau (ghi thẳng xuống hệ thống, không xem
+    // trước). Trước đây Bảng giá chỉ check quyền chung `view_any_book` (dùng chung với "Hệ thống
+    // giá") nên đối tác có quyền đó vẫn vào được — không nhất quán với việc bulk_price_update đã bị
+    // khoá.
+    //
+    // Vẫn OR thêm quyền Shield riêng của chính resource này (view_any_price::board...,
+    // `php artisan shield:generate --resource=PriceBoardResource` đã tạo sẵn) — để sau này muốn mở
+    // cho 1 vài tài khoản đối tác cụ thể thì chỉ cần vào "Vai trò" tick quyền đó, KHÔNG cần sửa code.
     public static function canViewAny(): bool
     {
-        return auth()->user()?->can('view_any_book') ?? false;
+        $user = auth()->user();
+
+        return $user?->isSuperAdmin() || ($user?->can('view_any_price::board') ?? false);
+    }
+
+    public static function canCreate(): bool
+    {
+        $user = auth()->user();
+
+        return $user?->isSuperAdmin() || ($user?->can('create_price::board') ?? false);
+    }
+
+    public static function canEdit($record): bool
+    {
+        $user = auth()->user();
+
+        return $user?->isSuperAdmin() || ($user?->can('update_price::board') ?? false);
+    }
+
+    public static function canDelete($record): bool
+    {
+        $user = auth()->user();
+
+        return $user?->isSuperAdmin() || ($user?->can('delete_price::board') ?? false);
     }
 
     public static function form(Form $form): Form

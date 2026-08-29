@@ -40,12 +40,16 @@ class PriceBoardItem extends Model
         'deposit_min_nights',
         'default_checkin',
         'default_checkout',
+        'baseline_fields',
+        'baseline_time_slots',
     ];
 
     protected $casts = [
         'price'               => 'decimal:2',
         'bulk_discount_rules' => 'array',
         'room_config'         => 'array',
+        'baseline_fields'     => 'array',
+        'baseline_time_slots' => 'array',
     ];
 
     public function priceBoard()
