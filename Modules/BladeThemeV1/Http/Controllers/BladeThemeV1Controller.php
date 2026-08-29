@@ -618,6 +618,7 @@ class BladeThemeV1Controller extends Controller
             'seo_description' => 'Đặt phòng nghỉ, coworking, phòng theo giờ chất lượng tại 365 HOME',
             'seo_keywords'    => '365 home, đặt phòng, phòng theo giờ, coworking',
             'og_type'         => 'website',
+            'canonical_url'   => url('/'),
         ];
 
         return view('bladethemev1::pages.home', [
