@@ -370,7 +370,7 @@ class BladeThemeV1Controller extends Controller
     public function favoritesPage(Request $request)
     {
         $seoData = [
-            'seo_title' => 'Yêu thích',
+            'seo_title' => 'Danh sách phòng yêu thích - Lưu và quản lý phòng đã thích tại 365 HOME',
             'seo_description' => 'Danh sách phòng đã lưu',
             'seo_keywords' => 'yêu thích, phòng nghỉ, 365 home',
             'og_type' => 'website',
@@ -388,7 +388,7 @@ class BladeThemeV1Controller extends Controller
     public function postsPage()
     {
         $seoData = [
-            'seo_title' => 'Tin tức',
+            'seo_title' => 'Tin tức và bài viết mới nhất về đặt phòng tại 365 HOME',
             'seo_description' => 'Tin tức và bài viết mới nhất',
             'seo_keywords' => 'tin tức, bài viết, 365 home',
             'og_type' => 'website',
@@ -420,7 +420,7 @@ class BladeThemeV1Controller extends Controller
     public function loginPage()
     {
         $seoData = [
-            'seo_title' => 'Đăng nhập',
+            'seo_title' => 'Đăng nhập tài khoản 365 HOME - Đặt phòng nhanh chóng',
             'seo_description' => 'Đăng nhập tài khoản 365 Home để đặt phòng nhanh hơn và nhận ưu đãi dành riêng cho thành viên.',
             'seo_keywords' => 'đăng nhập, 365 home',
             'og_type' => 'website',
@@ -614,7 +614,7 @@ class BladeThemeV1Controller extends Controller
     public function home()
     {
         $seoData = [
-            'seo_title'       => config('app.name', '365 HOME'),
+            'seo_title'       => 'Đặt phòng nghỉ, coworking, phòng theo giờ tại 365 HOME',
             'seo_description' => 'Đặt phòng nghỉ, coworking, phòng theo giờ chất lượng tại 365 HOME',
             'seo_keywords'    => '365 home, đặt phòng, phòng theo giờ, coworking',
             'og_type'         => 'website',
