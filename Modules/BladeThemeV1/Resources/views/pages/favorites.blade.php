@@ -228,7 +228,7 @@
         .fav-skel-img { padding-top: 72%; border-radius: 14px; }
     </style>
 
-    <script src="{{ asset('js/home-sections.js') }}?v={{ filemtime(public_path('js/home-sections.js')) }}"></script>
+    <script src="{{ asset('js/home-sections.min.js') }}?v={{ filemtime(public_path('js/home-sections.min.js')) }}"></script>
 
     <script>
         (function () {

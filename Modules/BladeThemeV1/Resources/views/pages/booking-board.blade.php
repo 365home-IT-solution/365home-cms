@@ -292,7 +292,7 @@
     @livewire('bladethemev1::contact-link')
     @livewire('bladethemev1::notification')
 
-    <script src="{{ asset('js/home-sections.js') }}?v={{ filemtime(public_path('js/home-sections.js')) }}"></script>
+    <script src="{{ asset('js/home-sections.min.js') }}?v={{ filemtime(public_path('js/home-sections.min.js')) }}"></script>
     <script>
         (function () {
             const root = document.getElementById('branch-rooms-root');

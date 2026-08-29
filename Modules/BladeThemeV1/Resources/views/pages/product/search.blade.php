@@ -1217,8 +1217,8 @@
         };
     </script>
 
-    <script src="{{ asset('js/home-sections.js') }}?v={{ filemtime(public_path('js/home-sections.js')) }}"></script>
-    <script src="{{ asset('js/search-results.js') }}?v={{ filemtime(public_path('js/search-results.js')) }}"></script>
+    <script src="{{ asset('js/home-sections.min.js') }}?v={{ filemtime(public_path('js/home-sections.min.js')) }}"></script>
+    <script src="{{ asset('js/search-results.min.js') }}?v={{ filemtime(public_path('js/search-results.min.js')) }}"></script>
  @livewire('bladethemev1::footer')
     @livewire('bladethemev1::contact-link')
     @livewire('bladethemev1::notification')
