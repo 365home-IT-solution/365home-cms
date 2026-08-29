@@ -136,11 +136,15 @@ class AppServiceProvider extends ServiceProvider
         // way), it only stops the browser from APPLYING it until onload flips media back to "all".
         // Scoped to build-bladethemev1 only — Filament admin's own Vite build (public/build) is
         // untouched, so this can't affect the admin panel's CSS loading.
-        Vite::useStyleTagAttributes(function (string $src, string $url, ?array $chunk, ?array $manifest) {
+        Vite::useStyleTagAttributes(function (?string $src, string $url, ?array $chunk, ?array $manifest) {
             // The dedicated home CSS is small and contains the above-the-fold layout. Applying it
             // immediately prevents the large CLS caused by painting unstyled HTML and restyling it
             // after the file finishes. Larger legacy bundles remain non-blocking on other pages.
-            if (str_contains($url, 'build-bladethemev1') && ! str_contains($src, 'home')) {
+            // $src is null for a CSS chunk that a JS entry pulls in via static `import '*.css'`
+            // (e.g. app.js's owl.carousel/fancybox/aos imports) — Vite doesn't give that chunk its
+            // own manifest key, so Vite.php's manifest lookup by `file` comes up empty. Treat that
+            // the same as the legacy (non-"home") bundle rather than crashing on the type hint.
+            if (str_contains($url, 'build-bladethemev1') && ($src === null || ! str_contains($src, 'home'))) {
                 return [
                     'media' => 'print',
                     'onload' => "this.media='all'",
