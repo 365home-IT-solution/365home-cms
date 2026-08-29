@@ -20,8 +20,8 @@
     </div>
     @if ($canViewVoucherUsage)
     <a class="ta-kpi ta-kpi-link" href="{{ $voucherUsageUrl }}">
-        <div class="ta-kpi-label">Voucher đã sử dụng</div>
-        <div class="ta-kpi-value" id="ta-kpi-voucher-usage">{{ number_format($voucherUsageCount) }}</div>
+        <div class="ta-kpi-label">Tổng tiền voucher đã sử dụng</div>
+        <div class="ta-kpi-value" id="ta-kpi-voucher-usage" style="font-size:22px;">{{ number_format($voucherUsageCount, 0, ',', '.') }}<span class="unit">đ</span></div>
         <div class="ta-kpi-delta {{ $voucherUsageDelta >= 0 ? 'up' : 'down' }}" id="ta-kpi-voucher-usage-delta">
             {{ $voucherUsageDelta >= 0 ? '↑' : '↓' }} {{ abs($voucherUsageDelta) }}%
             <span class="dbar" style="--w:{{ min(abs($voucherUsageDelta) * 2, 100) }}%"></span>

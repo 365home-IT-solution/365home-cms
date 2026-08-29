@@ -1076,9 +1076,16 @@ class OrderController extends Controller
         }
 
         if ($product->lock_id && \Modules\TTLock\App\Services\TTLockService::forCategory($order->category_id)) {
+            $accessCode = $order->accessCodes()->first();
+
             return [
-                'type'       => 'ttlock',
-                'can_unlock' => true,
+                'type'           => 'ttlock',
+                'can_unlock'     => true,
+                'gate_password'  => $accessCode?->code,
+                'status'         => $accessCode?->status,
+                'valid_from'     => $accessCode?->valid_from?->toIso8601String(),
+                'valid_until'    => $accessCode?->valid_until?->toIso8601String(),
+                'gate_location'  => $accessCode?->gate_location,
             ];
         }
 
