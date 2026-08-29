@@ -2,6 +2,7 @@
 
 namespace App\Observers;
 
+use App\Models\Partner;
 use App\Support\GeneratesImagePresets;
 use App\Support\ResizesOversizedImage;
 use Illuminate\Support\Facades\Storage;
@@ -86,7 +87,7 @@ class CategoryObserver
                 module: 'Category',
                 record: $category,
                 new: [
-                    'partner_id_moi'        => $partnerId,
+                    'partner_id_moi'        => Partner::find($partnerId)?->name ?? $partnerId,
                     'so_phong_bi_anh_huong' => $productCount,
                     'so_booking_bi_anh_huong' => $orderCount,
                     'so_ma_khoa_bi_anh_huong' => $accessCodeCount,

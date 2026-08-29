@@ -156,6 +156,15 @@ trait LogsAuditTrail
             'warehouse_category_id'  => [\Modules\Warehouse\App\Models\WarehouseCategory::class, ['name']],
             'warehouse_unit_id'      => [\Modules\Warehouse\App\Models\WarehouseUnit::class, ['name']],
             'warehouse_item_id'      => [\Modules\Warehouse\App\Models\WarehouseItem::class, ['name']],
+            'order_id'               => [\Modules\Payment\Entities\Order::class, ['order_code']],
+            'province_id'            => [\App\Models\Province::class, ['name']],
+            'coupon_id'              => [\Modules\Promotion\App\Models\Coupon::class, ['name', 'code']],
+            'employee_id'            => [\Modules\Employee\Entities\Employee::class, ['name']],
+            'form_id'                => [\Modules\Form\Entities\Form::class, ['name']],
+            'component_id'           => [\Modules\Page\Entities\Component::class, ['label', 'name']],
+            'page_id'                => [\Modules\Page\Entities\Page::class, ['title']],
+            'parent_id'              => [\Modules\Category\Entities\Category::class, ['name']],
+            'access_code_id'         => [\Modules\AccessCode\Entities\AccessCode::class, ['code']],
         ];
     }
 

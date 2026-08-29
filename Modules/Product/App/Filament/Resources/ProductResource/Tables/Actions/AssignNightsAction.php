@@ -8,6 +8,7 @@ use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Support\Enums\MaxWidth;
+use Modules\AuditLog\Services\AuditLogger;
 use Modules\Product\App\Models\Product;
 
 class AssignNightsAction
@@ -43,6 +44,11 @@ class AssignNightsAction
             ->action(function (array $data): void {
                 $selectedIds = $data['product_ids'] ?? [];
 
+                // ::where()->update() hàng loạt KHÔNG bắn Eloquent event nên ProductObserver không
+                // thấy được — chụp trước/sau rồi tự ghi 1 dòng log tóm tắt phòng nào được thêm/bỏ
+                // khỏi danh sách "qua đêm".
+                $oldIds = Product::where('nights', true)->pluck('id')->map(fn ($id) => (string) $id)->all();
+
                 Product::where('nights', true)
                     ->whereNotIn('id', $selectedIds)
                     ->update(['nights' => false]);
@@ -50,6 +56,27 @@ class AssignNightsAction
                 if (! empty($selectedIds)) {
                     Product::whereIn('id', $selectedIds)
                         ->update(['nights' => true]);
+                }
+
+                $newIds  = array_map('strval', $selectedIds);
+                $added   = array_diff($newIds, $oldIds);
+                $removed = array_diff($oldIds, $newIds);
+
+                if (! empty($added) || ! empty($removed)) {
+                    $affectedIds = array_merge($added, $removed);
+                    $names       = Product::whereIn('id', $affectedIds)->pluck('name', 'id');
+                    $anchor      = Product::find($affectedIds[array_key_first($affectedIds)]);
+
+                    if ($anchor) {
+                        AuditLogger::log(
+                            action: 'update',
+                            module: 'Product',
+                            record: $anchor,
+                            old: $removed ? ['phong_qua_dem_da_bo' => collect($removed)->map(fn ($id) => $names[$id] ?? $id)->implode(', ')] : [],
+                            new: $added ? ['phong_qua_dem_da_them' => collect($added)->map(fn ($id) => $names[$id] ?? $id)->implode(', ')] : [],
+                            label: 'Cập nhật danh sách phòng qua đêm',
+                        );
+                    }
                 }
 
                 Notification::make()

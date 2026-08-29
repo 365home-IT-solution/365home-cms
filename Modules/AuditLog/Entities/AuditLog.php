@@ -44,6 +44,7 @@ class AuditLog extends Model
         return [
             'Role'                 => 'Vai trò',
             'User'                 => 'Nhân viên',
+            'Customer'             => 'Khách hàng',
             'UserBranchPermission' => 'Phân quyền chi nhánh',
             'Post'                 => 'Bài viết',
             'Product'              => 'Phòng',

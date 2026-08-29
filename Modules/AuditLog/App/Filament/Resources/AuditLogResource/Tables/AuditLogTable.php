@@ -157,12 +157,12 @@ class AuditLogTable
 
         // Bảng giá trị thay đổi
         if ($record->action === 'create' && ! empty($record->new_values)) {
-            $html .= static::buildValueTable('Giá trị đã tạo', $record->new_values, '#dcfce7', '#166534');
+            $html .= static::buildValueTable('Giá trị đã tạo', $record->new_values, '#dcfce7', '#166534', $record->module);
         } elseif ($record->action === 'delete' && ! empty($record->old_values)) {
-            $html .= static::buildValueTable('Giá trị đã xóa', $record->old_values, '#fee2e2', '#991b1b');
+            $html .= static::buildValueTable('Giá trị đã xóa', $record->old_values, '#fee2e2', '#991b1b', $record->module);
         } elseif ($record->action === 'update') {
             if (! empty($record->old_values) || ! empty($record->new_values)) {
-                $html .= static::buildCompareTable($record->old_values ?? [], $record->new_values ?? []);
+                $html .= static::buildCompareTable($record->old_values ?? [], $record->new_values ?? [], $record->module);
             }
         }
 
@@ -197,6 +197,9 @@ class AuditLogTable
         'change_summary'   => 'Chi tiết thay đổi',
         'dich_vu_da_them'  => 'Dịch vụ đã thêm',
         'dich_vu_da_bo'    => 'Dịch vụ đã bỏ',
+        'phong_qua_dem_da_them' => 'Phòng qua đêm đã thêm',
+        'phong_qua_dem_da_bo'   => 'Phòng qua đêm đã bỏ',
+        'danh_sach_section'     => 'Danh sách section',
         'phong_da_them'       => 'Phòng đã thêm',
         'phong_da_bo'         => 'Phòng đã bỏ',
         'khung_gio_da_them'   => 'Khung giờ đã thêm',
@@ -207,6 +210,52 @@ class AuditLogTable
         'vai_tro_da_bo'       => 'Vai trò đã bỏ',
         'ma_giam_gia_da_them' => 'Mã giảm giá đã thêm',
         'ma_giam_gia_da_bo'   => 'Mã giảm giá đã bỏ',
+        'partner_id_moi'          => 'Đối tác mới',
+        'so_phong_bi_anh_huong'   => 'Số phòng bị ảnh hưởng',
+        'so_booking_bi_anh_huong' => 'Số booking bị ảnh hưởng',
+        'so_ma_khoa_bi_anh_huong' => 'Số mã khoá bị ảnh hưởng',
+
+        // Field phổ biến dùng chung ở nhiều module (khảo sát fillable() của toàn bộ model đang gắn
+        // LogsAuditTrail) — thêm 1 lần ở đây để áp dụng chung, không phải sửa từng nơi ghi log.
+        'sort_order'      => 'Thứ tự',
+        'slug'            => 'Đường dẫn',
+        'image'           => 'Hình ảnh',
+        'image_width'     => 'Chiều rộng ảnh',
+        'image_height'    => 'Chiều cao ảnh',
+        'title'           => 'Tiêu đề',
+        'icon'            => 'Biểu tượng',
+        'note'            => 'Ghi chú',
+        'notes'           => 'Ghi chú',
+        'phone'           => 'Số điện thoại',
+        'phone_number'    => 'Số điện thoại',
+        'url'             => 'Đường dẫn',
+        'disk'            => 'Ổ lưu trữ',
+        'date_of_birth'   => 'Ngày sinh',
+        'fullname'        => 'Họ tên',
+        'email'           => 'Email',
+        'address'         => 'Địa chỉ',
+        'username'        => 'Tên đăng nhập',
+        'tax_code'        => 'Mã số thuế',
+        'valid_from'      => 'Hiệu lực từ',
+        'valid_until'     => 'Hiệu lực đến',
+        'sent_at'         => 'Đã gửi lúc',
+        'received_at'     => 'Ngày nhận hàng',
+        'total_amount'    => 'Tổng tiền',
+        'error_message'   => 'Lỗi',
+        'order_code'      => 'Mã đơn hàng',
+        'buyer_name'      => 'Tên người mua',
+        'buyer_email'     => 'Email người mua',
+        'buyer_phone'     => 'Số điện thoại người mua',
+        'amount'          => 'Số tiền',
+    ];
+
+    // Các field lưu dạng boolean/tinyint (true/false, 1/0) trên nhiều model khác nhau (Category,
+    // Partner, Product, Coupon, Promotion, TtlockAccount, WarehouseItem...) — hiển thị RAW "1"/"0"
+    // (hoặc rỗng khi giá trị là false, vì (string) false === '') gây khó hiểu, phải đổi thành nhãn
+    // tiếng Việt rõ nghĩa thay vì hiện đúng giá trị thô trong DB.
+    private const BOOLEAN_FLAG_FIELDS = [
+        'status', 'is_active', 'is_activated', 'is_enabled', 'active',
+        'is_default', 'is_published',
     ];
 
     private static function fieldLabel(string $field): string
@@ -214,11 +263,70 @@ class AuditLogTable
         return self::FIELD_LABELS[$field] ?? $field;
     }
 
-    private static function buildValueTable(string $title, array $values, string $bg, string $color): string
+    private static function isBooleanFlagValue(string $field, mixed $value): bool
+    {
+        if (! in_array($field, self::BOOLEAN_FLAG_FIELDS, true)) {
+            return false;
+        }
+
+        return is_bool($value) || in_array($value, [0, 1, '0', '1'], true);
+    }
+
+    private static function booleanFlagLabel(string $field, mixed $value): string
+    {
+        $isTrue = filter_var($value, FILTER_VALIDATE_BOOLEAN);
+
+        [$onLabel, $offLabel] = match ($field) {
+            'is_default'   => ['Mặc định', 'Không phải mặc định'],
+            'is_published' => ['Đã xuất bản', 'Chưa xuất bản'],
+            default        => ['Đang hoạt động', 'Ngừng hoạt động'],
+        };
+
+        return $isTrue ? $onLabel : $offLabel;
+    }
+
+    // Nhãn tiếng Việt cho các field lưu dạng chuỗi enum (không phải boolean) — khoá theo
+    // "Module.field", tái dùng ĐÚNG nhãn đã có sẵn trong file lang của module đó (order.php) để nhất
+    // quán với chữ hiển thị trên các trang khác của admin, không tự bịa nhãn mới.
+    private static function moduleEnumLabel(?string $module, string $field, mixed $value): ?string
+    {
+        if ($module === 'Order' && $field === 'status') {
+            $key   = 'payment::order.table.status.' . $value;
+            $label = __($key);
+
+            return $label !== $key ? $label : null;
+        }
+
+        return null;
+    }
+
+    private static function formatFieldValue(string $field, mixed $value, ?string $module = null): string
+    {
+        if ($value === null) {
+            return '—';
+        }
+
+        if (is_array($value)) {
+            return implode(', ', $value);
+        }
+
+        if (static::isBooleanFlagValue($field, $value)) {
+            return static::booleanFlagLabel($field, $value);
+        }
+
+        $enumLabel = static::moduleEnumLabel($module, $field, $value);
+        if ($enumLabel !== null) {
+            return $enumLabel;
+        }
+
+        return (string) $value;
+    }
+
+    private static function buildValueTable(string $title, array $values, string $bg, string $color, ?string $module = null): string
     {
         $rows = '';
         foreach ($values as $field => $value) {
-            $displayValue = is_array($value) ? implode(', ', $value) : (string) ($value ?? '—');
+            $displayValue = static::formatFieldValue($field, $value, $module);
             $rows .= '
                 <tr style="border-bottom:1px solid #f3f4f6;">
                     <td style="padding:8px 12px;font-size:13px;color:#6b7280;white-space:nowrap;">' . e(static::fieldLabel($field)) . '</td>
@@ -235,14 +343,17 @@ class AuditLogTable
         </div>';
     }
 
-    private static function buildCompareTable(array $old, array $new): string
+    private static function buildCompareTable(array $old, array $new, ?string $module = null): string
     {
         $fields = array_unique(array_merge(array_keys($old), array_keys($new)));
         $rows   = '';
 
         foreach ($fields as $field) {
-            $oldVal = isset($old[$field]) ? (is_array($old[$field]) ? implode(', ', $old[$field]) : (string) $old[$field]) : '—';
-            $newVal = isset($new[$field]) ? (is_array($new[$field]) ? implode(', ', $new[$field]) : (string) $new[$field]) : '—';
+            // array_key_exists (không phải isset) — false/0/null vẫn là 1 giá trị THẬT SỰ đã ghi
+            // nhận, không phải "không có dữ liệu". isset() coi null là "không có", khiến field đổi
+            // TỪ có giá trị SANG null hiện nhầm thành "—" ở cả 2 cột thay vì thấy được đã xoá giá trị.
+            $oldVal = array_key_exists($field, $old) ? static::formatFieldValue($field, $old[$field], $module) : '—';
+            $newVal = array_key_exists($field, $new) ? static::formatFieldValue($field, $new[$field], $module) : '—';
 
             $rows .= '
                 <tr style="border-bottom:1px solid #f3f4f6;">

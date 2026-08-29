@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsAuditTrail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -19,7 +20,11 @@ use Laravel\Sanctum\HasApiTokens;
 
 class Customer extends Authenticatable
 {
-    use HasApiTokens, HasFactory, SoftDeletes;
+    // CustomerObserver (app/Observers/CustomerObserver.php) chỉ xử lý gán hạng thành viên chào
+    // mừng lúc tạo mới — KHÔNG hề ghi audit log — nên trước đây sửa/xoá khách hàng qua
+    // CustomerResource hoàn toàn không có log nào. Thêm LogsAuditTrail (độc lập, không xung đột
+    // với Observer đang có).
+    use HasApiTokens, HasFactory, SoftDeletes, LogsAuditTrail;
 
     public const STATUS_ACTIVE   = 'active';
     public const STATUS_INACTIVE = 'inactive';

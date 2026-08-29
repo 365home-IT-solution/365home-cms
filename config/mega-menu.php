@@ -25,7 +25,7 @@ return [
     'Cấu hình web' => [
         'Cấu hình chung' => ['Chung', 'Ẩn chi nhánh', 'Thông tin công ty'],
         'Pass cổng' => ['Khóa thủ công', 'Pass Cổng'],
-        'Giao diện website' => ['Thành phần', 'Menu', 'Trang', 'Theme', 'Thư viện', 'Banner'],
+        'Giao diện website' => ['Menu', 'Trang', 'Thư viện', 'Banner'],
         'Thanh toán & Tích hợp bên thứ ba' => ['Thanh toán online', 'Tài khoản TTLock', 'Email'],
     ],
 

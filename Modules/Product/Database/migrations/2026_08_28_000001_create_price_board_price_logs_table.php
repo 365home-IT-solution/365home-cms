@@ -14,7 +14,9 @@ return new class extends Migration
 
         Schema::create('price_board_price_logs', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('price_board_id')->constrained('price_boards')->cascadeOnDelete();
+            // nullOnDelete (không phải cascade): xoá 1 bảng giá không được kéo theo xoá luôn lịch sử
+            // đổi giá của nó — lịch sử phải tồn tại độc lập với vật được nó ghi lại.
+            $table->foreignId('price_board_id')->nullable()->constrained('price_boards')->nullOnDelete();
             $table->char('product_id', 36);
             $table->foreign('product_id')->references('id')->on('products')->cascadeOnDelete();
 

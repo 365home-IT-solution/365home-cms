@@ -2,30 +2,30 @@
 
 namespace App\Observers;
 
+use App\Support\AuditFieldFilter;
 use Modules\AuditLog\Services\AuditLogger;
 use Modules\Post\Entities\Post;
 
 class PostObserver
 {
-    private const TRACKED_FIELDS = ['title', 'status', 'published_at', 'author_id'];
-
     public function created(Post $post): void
     {
         AuditLogger::log(
             action: 'create',
             module: 'Post',
             record: $post,
-            new: $post->only(['title', 'status', 'published_at']),
+            new: AuditFieldFilter::filter($post->getAttributes()),
             label: $post->title,
         );
     }
 
+    // Trước đây chỉ theo dõi title/status/published_at/author_id — sửa NỘI DUNG bài viết (field
+    // quan trọng nhất) hoàn toàn không có log. Bỏ whitelist, ghi lại toàn bộ field thay đổi.
     public function updated(Post $post): void
     {
-        $changed = array_keys($post->getChanges());
-        $tracked = array_intersect($changed, self::TRACKED_FIELDS);
+        $changed = AuditFieldFilter::filter($post->getChanges());
 
-        if (empty($tracked)) {
+        if (empty($changed)) {
             return;
         }
 
@@ -33,8 +33,8 @@ class PostObserver
             action: 'update',
             module: 'Post',
             record: $post,
-            old: array_intersect_key($post->getOriginal(), array_flip($tracked)),
-            new: array_intersect_key($post->getChanges(), array_flip($tracked)),
+            old: array_intersect_key($post->getOriginal(), $changed),
+            new: $changed,
             label: $post->title,
         );
     }
@@ -45,7 +45,7 @@ class PostObserver
             action: 'delete',
             module: 'Post',
             record: $post,
-            old: $post->only(['title', 'status']),
+            old: AuditFieldFilter::filter($post->getAttributes()),
             label: $post->title,
         );
     }

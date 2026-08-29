@@ -79,22 +79,20 @@ class AuditLogResource extends Resource
 
     /**
      * Lọc dữ liệu theo người xem:
-     *  - super_admin: thấy tất cả log
-     *  - nhân viên có permission: chỉ thấy log của những user mà họ đã tạo ra
-     *    (không thấy log của chính mình, không thấy log super_admin)
+     *  - super_admin: thấy tất cả log (mọi đối tác).
+     *  - Tài khoản có quyền xem (chủ đối tác/nhân viên được cấp quyền): thấy TOÀN BỘ log TRONG
+     *    PHẠM VI ĐỐI TÁC CỦA HỌ — kể cả log do chính họ tạo ra và log của bất kỳ nhân viên nào
+     *    khác cùng đối tác (không chỉ những ai họ tự tay tạo tài khoản). AuditLog đã `use
+     *    BelongsToPartner` nên global scope + creating() đã tự lọc/gán đúng partner_id — parent::
+     *    getEloquentQuery() ở đây ĐÃ áp dụng đúng phạm vi đối tác rồi, không cần lọc thêm gì nữa.
+     *    (Trước đây có thu hẹp thêm theo whereIn('user_id', $subordinateIds) — chỉ hiện log của
+     *    những user do chính người xem tạo ra — khiến chủ đối tác không thấy được cả log của
+     *    chính mình lẫn log của nhân viên do người khác tạo, sai với yêu cầu "xem log trong phạm
+     *    vi đối tác của họ".)
      */
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery();
-        $user  = auth()->user();
-
-        if ($user?->hasRole(config('filament-shield.super_admin.name'))) {
-            return $query;
-        }
-
-        $subordinateIds = \App\Models\User::where('created_by', $user->id)->pluck('id');
-
-        return $query->whereIn('user_id', $subordinateIds);
+        return parent::getEloquentQuery();
     }
 
     public static function form(Form $form): Form

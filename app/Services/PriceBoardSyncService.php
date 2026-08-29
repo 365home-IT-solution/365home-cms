@@ -184,6 +184,10 @@ class PriceBoardSyncService
     {
         $date = ($date ?? now())->copy()->startOfDay();
 
+        // assertNoOverlap() phải chặn 2 bảng active trùng ngày cho cùng phòng ngay từ lúc lưu/kích
+        // hoạt, nhưng vẫn lấy hết các item khớp (không ->first() ngay trên query) rồi tự chọn 1 bảng
+        // theo tiêu chí ổn định — phòng khi có sai sót lọt qua (dữ liệu cũ, sửa tay DB...) thì kết quả
+        // "bảng nào thắng" luôn nhất quán giữa các lần chạy, không phụ thuộc thứ tự ngẫu nhiên của DB.
         $item = PriceBoardItem::where('product_id', $product->id)
             ->whereHas('priceBoard', function ($q) use ($date) {
                 $q->where('is_active', true)
@@ -191,7 +195,13 @@ class PriceBoardSyncService
                     ->where(fn ($q2) => $q2->whereNull('start_date')->orWhereDate('start_date', '<=', $date))
                     ->where(fn ($q2) => $q2->whereNull('end_date')->orWhereDate('end_date', '>=', $date));
             })
-            ->with('timeSlots')
+            ->with(['timeSlots', 'priceBoard'])
+            ->get()
+            ->sortByDesc(fn (PriceBoardItem $i) => sprintf(
+                '%s-%010d',
+                $i->priceBoard?->start_date ? Carbon::parse($i->priceBoard->start_date)->format('Y-m-d') : '9999-12-31',
+                $i->priceBoard?->id ?? 0
+            ))
             ->first();
 
         if (! $item) {
@@ -289,27 +299,32 @@ class PriceBoardSyncService
 
         $product->update($fields);
 
-        $recurringSlotIds = RoomTimeSlot::where('room_id', $product->id)
-            ->whereHas('timeSlot', fn ($q) => $this->scopeRecurring($q))
-            ->pluck('id');
+        // Nếu item không có khung giờ nào (chưa từng được seed, hoặc bảng "override" lưu rỗng), TUYỆT
+        // ĐỐI không xoá khung giờ đang có của phòng — xoá xong không tạo lại gì sẽ làm phòng mất hết
+        // khung giờ đặt phòng. Giữ nguyên khung giờ hiện tại, chỉ áp các field giá chung ở trên.
+        if ($timeSlots->isNotEmpty()) {
+            $recurringSlotIds = RoomTimeSlot::where('room_id', $product->id)
+                ->whereHas('timeSlot', fn ($q) => $this->scopeRecurring($q))
+                ->pluck('id');
 
-        RoomTimeSlot::whereIn('id', $recurringSlotIds)->get()->each(function (RoomTimeSlot $slot) {
-            $slot->promotions()->detach();
-            $slot->coupons()->detach();
-            $slot->delete();
-        });
+            RoomTimeSlot::whereIn('id', $recurringSlotIds)->get()->each(function (RoomTimeSlot $slot) {
+                $slot->promotions()->detach();
+                $slot->coupons()->detach();
+                $slot->delete();
+            });
 
-        foreach ($timeSlots as $boardSlot) {
-            RoomTimeSlot::create([
-                'room_id'                    => $product->id,
-                'timeslot_id'                => $boardSlot->timeslot_id,
-                'price'                      => $boardSlot->price,
-                'checkin'                    => $boardSlot->checkin,
-                'checkout'                   => $boardSlot->checkout,
-                'over_night'                 => $boardSlot->over_night,
-                'status'                     => $boardSlot->status,
-                'synced_from_price_board_id' => $item->price_board_id,
-            ]);
+            foreach ($timeSlots as $boardSlot) {
+                RoomTimeSlot::create([
+                    'room_id'                    => $product->id,
+                    'timeslot_id'                => $boardSlot->timeslot_id,
+                    'price'                      => $boardSlot->price,
+                    'checkin'                    => $boardSlot->checkin,
+                    'checkout'                   => $boardSlot->checkout,
+                    'over_night'                 => $boardSlot->over_night,
+                    'status'                     => $boardSlot->status,
+                    'synced_from_price_board_id' => $item->price_board_id,
+                ]);
+            }
         }
 
         $after = $this->snapshotPricing($product->fresh());

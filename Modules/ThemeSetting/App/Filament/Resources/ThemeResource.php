@@ -22,9 +22,23 @@ class ThemeResource extends Resource
 
     protected static ?string $navigationGroup = 'Cấu hình web';
 
+    // Ẩn hẳn khỏi admin — xác nhận "Theme" (cả resource này lẫn ThemeStudioResource, dùng chung 1
+    // bảng dữ liệu) KHÔNG được dùng để hiển thị web thật: trang chủ hard-code cứng sẵn 3 section,
+    // màu sắc web đọc từ GeneralSettings riêng — Theme chỉ là tính năng dở dang, chưa từng nối vào
+    // luồng render nào. Ẩn an toàn tuyệt đối, không đụng dữ liệu/logic đang chạy.
     public static function canViewAny(): bool
     {
-        return auth()->user()?->can('view_any_theme') ?? false;
+        return false;
+    }
+
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
+    public static function canAccess(): bool
+    {
+        return false;
     }
 
     public static function canCreate(): bool
@@ -33,6 +47,11 @@ class ThemeResource extends Resource
     }
 
     public static function canDelete(Model $record): bool
+    {
+        return false;
+    }
+
+    public static function canEdit(Model $record): bool
     {
         return false;
     }

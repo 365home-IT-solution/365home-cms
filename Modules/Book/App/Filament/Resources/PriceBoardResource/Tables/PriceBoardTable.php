@@ -60,9 +60,30 @@ class PriceBoardTable
                 ToggleColumn::make('is_active')
                     ->label('Kích hoạt')
                     ->afterStateUpdated(function (PriceBoard $record) {
+                        $service = app(PriceBoardSyncService::class);
+
+                        // Bật lại phải qua đúng kiểm tra trùng ngày như khi Tạo/Sửa — nếu không, có
+                        // thể bật 1 bảng trùng khoảng ngày hiệu lực với bảng khác đang active cho
+                        // cùng phòng, khiến việc "bảng nào thắng" không xác định được.
+                        if ($record->is_active) {
+                            try {
+                                $service->assertNoOverlap($record);
+                            } catch (\RuntimeException $e) {
+                                $record->update(['is_active' => false]);
+
+                                Notification::make()
+                                    ->title('Không thể kích hoạt')
+                                    ->body($e->getMessage())
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+                        }
+
                         // Bật/tắt phải có hiệu lực NGAY — không chờ job price-boards:sync-due chạy
                         // lúc nửa đêm mới thấy giá đổi.
-                        app(PriceBoardSyncService::class)->resyncBoardProducts($record);
+                        $service->resyncBoardProducts($record);
 
                         Notification::make()
                             ->title($record->is_active ? 'Đã kích hoạt, giá đã được áp dụng ngay' : 'Đã tắt, giá đã được khôi phục')

@@ -2,6 +2,7 @@
 
 namespace App\Observers;
 
+use App\Support\AuditFieldFilter;
 use Modules\AuditLog\Services\AuditLogger;
 use Modules\SettingCompany\Entities\Branch;
 
@@ -13,14 +14,14 @@ class BranchObserver
             action: 'create',
             module: 'Branch',
             record: $branch,
-            new: $branch->only(['name', 'address', 'phone', 'email', 'status']),
+            new: AuditFieldFilter::filter($branch->getAttributes()),
             label: $branch->name,
         );
     }
 
     public function updated(Branch $branch): void
     {
-        $changed = array_keys($branch->getChanges());
+        $changed = AuditFieldFilter::filter($branch->getChanges());
 
         if (empty($changed)) {
             return;
@@ -30,8 +31,8 @@ class BranchObserver
             action: 'update',
             module: 'Branch',
             record: $branch,
-            old: array_intersect_key($branch->getOriginal(), array_flip($changed)),
-            new: array_intersect_key($branch->getChanges(), array_flip($changed)),
+            old: array_intersect_key($branch->getOriginal(), $changed),
+            new: $changed,
             label: $branch->name,
         );
     }
@@ -42,7 +43,7 @@ class BranchObserver
             action: 'delete',
             module: 'Branch',
             record: $branch,
-            old: $branch->only(['name', 'address', 'phone']),
+            old: AuditFieldFilter::filter($branch->getAttributes()),
             label: $branch->name,
         );
     }
