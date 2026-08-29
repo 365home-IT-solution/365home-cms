@@ -11,6 +11,8 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\TimePicker;
 use Filament\Forms\Components\Toggle;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
 use Modules\Product\App\Models\TimeSlot;
 
 /**
@@ -26,8 +28,15 @@ use Modules\Product\App\Models\TimeSlot;
  */
 trait HasRoomPricingFormFields
 {
-    /** "Theo Khung Giờ" (styles=1): thông tin phòng + khung giờ/giá/khuyến mãi. */
-    protected static function slotPricingSchema(string $prefix, bool $isSuperAdmin, callable $promotionOptions, array $extraInfoFields = []): array
+    /** "Theo Khung Giờ" (styles=1): thông tin phòng + khung giờ/giá/khuyến mãi.
+     *
+     *  $baselinePriceResolver: khi truyền vào, thêm cột "Giá gốc" (chỉ đọc) ngay cạnh cột "Giá" —
+     *  CHỈ dùng ở PriceBoardForm (đang sửa 1 bảng giá đặt tên) để admin thấy giá đang chạy thật/giá ở
+     *  "Bảng giá mặc định" khi cân nhắc đổi giá mới, KHÔNG truyền ở SettingBook (trang "Hệ thống giá"
+     *  = chính đang sửa bảng mặc định, không có "gốc" nào khác để so sánh) — giữ nguyên giao diện
+     *  trang đó như cũ. Callable nhận (?string $productId, ?string $timeslotId): ?int.
+     */
+    protected static function slotPricingSchema(string $prefix, bool $isSuperAdmin, callable $promotionOptions, array $extraInfoFields = [], ?\Closure $baselinePriceResolver = null): array
     {
         $schema = [
             Section::make('Thông tin Phòng')
@@ -94,6 +103,7 @@ trait HasRoomPricingFormFields
                     TableRepeater::make($prefix . 'roomTimeSlots')
                         ->headers([
                             Header::make('timeslot_id')->label('Khung giờ')->width('200px'),
+                            ...($baselinePriceResolver ? [Header::make('_baseline_price')->label('Giá gốc')->width('150px')] : []),
                             Header::make('price')->label('Giá')->width('150px'),
                             Header::make('promotions')->label('Khuyến mãi')->width('250px'),
                             Header::make('over_night')->label('Qua đêm')->width('100px'),
@@ -122,7 +132,24 @@ trait HasRoomPricingFormFields
                                         ->rules(['regex:/^\d{1,2}:\d{2}$/']),
                                 ])
                                 ->createOptionUsing(fn (array $data) => TimeSlot::create(array_merge($data, ['type' => 'time']))->id)
-                                ->required(),
+                                ->required()
+                                ->live()
+                                ->afterStateUpdated(function ($state, Set $set, Get $get) use ($baselinePriceResolver) {
+                                    if (! $baselinePriceResolver) {
+                                        return;
+                                    }
+
+                                    $set('_baseline_price', $baselinePriceResolver($get('../../product_id'), $state));
+                                }),
+
+                            ...($baselinePriceResolver ? [
+                                TextInput::make('_baseline_price')
+                                    ->label('Giá gốc')
+                                    ->disabled()
+                                    ->dehydrated(false)
+                                    ->suffix('VNĐ')
+                                    ->helperText('Giá đang lưu ở Bảng giá mặc định'),
+                            ] : []),
 
                             TextInput::make('price')
                                 ->label('Giá')
@@ -144,7 +171,7 @@ trait HasRoomPricingFormFields
                             Hidden::make('status')->default('available'),
                         ])
                         ->defaultItems(0)
-                        ->columns(4)
+                        ->columns($baselinePriceResolver ? 5 : 4)
                         ->label('')
                         ->emptyLabel('Chưa thiết lập cấu hình giá')
                         ->reorderableWithButtons()
