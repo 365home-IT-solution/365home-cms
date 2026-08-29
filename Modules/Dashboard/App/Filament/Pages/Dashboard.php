@@ -138,7 +138,11 @@ class Dashboard extends FilamentDashboard
             $voucherUsageDelta     = $prevVoucherUsageCount > 0
                 ? round((($voucherUsageCount - $prevVoucherUsageCount) / $prevVoucherUsageCount) * 100, 1)
                 : 0;
-            $voucherUsageUrl = \App\Filament\Resources\CustomerResource::getUrl('index', [
+            // Trỏ tới danh sách ĐƠN (không phải khách hàng) — theo yêu cầu, click vào thẻ KPI phải
+            // ra được danh sách đơn được áp mã kèm cột "Mã giảm giá"/"Tiền giảm" (xem cột
+            // coupon_codes_display/coupon_discount_total + filter "used_voucher" ở OrderTable.php/
+            // OrderFilter.php).
+            $voucherUsageUrl = \Modules\Payment\App\Filament\Resources\OrderResource::getUrl('index', [
                 'tableFilters' => [
                     'used_voucher' => [
                         'is_active'  => true,

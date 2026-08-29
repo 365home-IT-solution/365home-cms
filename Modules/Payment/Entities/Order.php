@@ -353,6 +353,14 @@ class Order extends Model implements Eventable
         return $this->belongsTo(User::class, 'created_by');
     }
 
+    // Lịch sử áp mã giảm giá của đơn — nguồn dữ liệu DUY NHẤT có discount_amount thực tế (orders
+    // chỉ lưu coupon_code/coupon_codes, KHÔNG lưu số tiền đã giảm). Dùng cho cột "Mã giảm giá"/
+    // "Tiền giảm" ở OrderTable và filter "used_voucher" (xem OrderFilter::filter()).
+    public function couponUsages()
+    {
+        return $this->hasMany(\Modules\Promotion\App\Models\CouponUsage::class);
+    }
+
     /**
      * Order có thể dùng nhiều access codes
      */
