@@ -1063,39 +1063,50 @@ class BookingController extends Controller
         \App\Models\Customer $customer,
         float $orderAmount = 0
     ): Coupon {
-        $coupon = Coupon::where('code', $code)
-            ->where('is_active', true)
-            ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', now()))
-            ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', now()))
-            ->first();
+        try {
+            $coupon = Coupon::where('code', $code)
+                ->where('is_active', true)
+                ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', now()))
+                ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', now()))
+                ->first();
 
-        $field = "coupon_codes.{$index}";
+            $field = "coupon_codes.{$index}";
 
-        if (! $coupon) {
-            throw ValidationException::withMessages([
-                $field => ["Mã \"{$code}\" không tồn tại hoặc đã hết hạn."],
-            ]);
-        }
-
-        // Kiểm tra coupon cá nhân: customer_id trực tiếp hoặc gán qua coupon_customers pivot.
-        // Coupon được coi là "cá nhân" nếu có customer_id hoặc đã từng gán cho ai đó qua pivot.
-        $isRestricted = $coupon->customer_id !== null || $coupon->customers()->exists();
-        if ($isRestricted) {
-            \Illuminate\Support\Facades\Log::info('Coupon ownership check', [
-                'coupon_code' => $code,
-                'coupon_customer_id' => $coupon->customer_id,
-                'auth_customer_id' => $customer->id,
-                'match' => $coupon->customer_id === $customer->id,
-            ]);
-
-            $owns = $coupon->customer_id === $customer->id
-                || $coupon->customers()->where('customer_id', $customer->id)->exists();
-
-            if (! $owns) {
+            if (! $coupon) {
                 throw ValidationException::withMessages([
-                    $field => ["Mã \"{$code}\" không thuộc về tài khoản của bạn."],
+                    $field => ["Mã \"{$code}\" không tồn tại hoặc đã hết hạn."],
                 ]);
             }
+
+            // Kiểm tra coupon cá nhân: customer_id trực tiếp hoặc gán qua coupon_customers pivot.
+            // Coupon được coi là "cá nhân" nếu có customer_id hoặc đã từng gán cho ai đó qua pivot.
+            $isRestricted = $coupon->customer_id !== null || $coupon->customers()->exists();
+            if ($isRestricted) {
+                \Illuminate\Support\Facades\Log::info('Coupon ownership check', [
+                    'coupon_code' => $code,
+                    'coupon_customer_id' => $coupon->customer_id,
+                    'auth_customer_id' => $customer->id,
+                    'match' => $coupon->customer_id === $customer->id,
+                ]);
+
+                $owns = $coupon->customer_id === $customer->id
+                    || $coupon->customers()->where('customer_id', $customer->id)->exists();
+
+                if (! $owns) {
+                    throw ValidationException::withMessages([
+                        $field => ["Mã \"{$code}\" không thuộc về tài khoản của bạn."],
+                    ]);
+                }
+            }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('validateOneCoupon error', [
+                'coupon_code' => $code,
+                'error' => $e->getMessage(),
+                'exception' => get_class($e),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+            throw $e;
         }
 
         if ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {
