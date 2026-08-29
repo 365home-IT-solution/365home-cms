@@ -18,7 +18,7 @@ class CategoryAction
         return [
             ActionGroup::make([
                 ViewAction::make()->label('Xem chi tiết')
-                    ->modalWidth(MaxWidth::Full),
+                    ->modalWidth(MaxWidth::FourExtraLarge),
                 EditAction::make()->label('Cập nhật')
                     ->url(fn (Model $record): string => route('filament.admin.resources.categories.edit', $record)),
                 DeleteAction::make()->label('Xóa')

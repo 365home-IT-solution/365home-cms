@@ -9,13 +9,9 @@ import "perfect-scrollbar/css/perfect-scrollbar.css";
 import "flowbite";
 import AOS from 'aos';
 import 'aos/dist/aos.css';
-import Scrollbar from 'smooth-scrollbar';
-import { CountUp } from "countup.js";
 import { initTooltips } from 'flowbite';
 
 // Gán các thư viện vào window để sử dụng toàn cục
-window.CountUp = CountUp;
-window.Scrollbar = Scrollbar;
 window.Swiper = Swiper;
 window.Fancybox = Fancybox;
 window.initTooltips = initTooltips;

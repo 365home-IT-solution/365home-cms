@@ -18,7 +18,9 @@ export default defineConfig({
             buildDirectory: 'build-bladethemev1',
             input: [
                 __dirname + '/Resources/assets/sass/app.scss',
+                __dirname + '/Resources/assets/sass/home.scss',
                 __dirname + '/Resources/assets/js/app.js',
+                __dirname + '/Resources/assets/js/home.js',
             ],
             refresh: false,
         }),

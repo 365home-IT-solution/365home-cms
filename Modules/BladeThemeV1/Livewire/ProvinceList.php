@@ -13,8 +13,12 @@ class ProvinceList extends Component
 
     public function mount(): void
     {
-        $provinceModels = Province::whereHas('branches', fn ($q) => $q->where('status', true))
-            ->with(['branches' => fn ($q) => $q->where('status', true)->select('id', 'province_id', 'categorie_id')])
+        // ProvinceBranch.status chỉ nói tỉnh này có bật chi nhánh không — chi nhánh (Category gốc)
+        // còn phải tự nó đang active (status=true) thì mới cho hiển thị/tính vào room_count.
+        $activeBranch = fn ($q) => $q->where('status', true)->whereHas('category', fn ($cq) => $cq->where('status', true));
+
+        $provinceModels = Province::whereHas('branches', $activeBranch)
+            ->with(['branches' => fn ($q) => $activeBranch($q)->select('id', 'province_id', 'categorie_id')])
             ->orderBy('name')
             ->get(['id', 'name', 'slug', 'lat', 'lng']);
 

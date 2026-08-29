@@ -44,11 +44,12 @@ use Illuminate\Support\Facades\Storage;
  *  - POST .../{id}/sync-vouchers : rà lại khách ĐANG giữ hạng, cấp bù voucher_templates (nguồn
  *    'auto') nào khách đang thiếu so với cấu hình hiện tại — dùng khi cấu hình hạng thay đổi SAU
  *    khi khách đã lên hạng từ trước (dữ liệu cũ), hoặc muốn backfill mà không cần sửa lại hạng.
- *    Đồng thời cập nhật lại 'category_ids' (giới hạn chi nhánh) của các voucher ĐÃ CẤP TRƯỚC ĐÓ theo
- *    đúng cấu hình category_ids HIỆN TẠI của từng coupon mẫu — CHỈ áp dụng cho voucher khách CHƯA
- *    dùng lần nào (used_count=0); voucher đã dùng rồi giữ nguyên, không đụng vào (xem
- *    MembershipService::syncBranchRestrictionToUnusedClones()). Response trả kèm
- *    'vouchers_branch_synced' = số voucher vừa được cập nhật lại chi nhánh.
+ *    Đồng thời cập nhật lại điều khoản (category_ids giới hạn chi nhánh, type/value,
+ *    min_order_value, max_discount, usage_limit) của các voucher ĐÃ CẤP TRƯỚC ĐÓ theo đúng cấu hình
+ *    HIỆN TẠI của từng coupon mẫu — CHỈ áp dụng cho voucher khách CHƯA dùng lần nào (used_count=0);
+ *    voucher đã dùng rồi giữ nguyên, không đụng vào (xem
+ *    MembershipService::syncTermsToUnusedClones()). Response trả kèm
+ *    'vouchers_terms_synced' = số voucher vừa được cập nhật lại điều khoản.
  */
 class MembershipTierController extends Controller
 {
@@ -117,6 +118,18 @@ class MembershipTierController extends Controller
             'welcome_coupon_days'        => $data['welcome_coupon_days'] ?? 30,
             'welcome_coupon_usage_limit' => $data['welcome_coupon_usage_limit'] ?? null,
             'is_active'                  => $data['is_active'] ?? true,
+            'auto_issue_enabled'            => $data['auto_issue_enabled'] ?? false,
+            'auto_issue_interval_days'      => $data['auto_issue_interval_days'] ?? 7,
+            'auto_issue_coupon_type'        => $data['auto_issue_coupon_type'] ?? 'fixed',
+            'auto_issue_coupon_value'       => $data['auto_issue_coupon_value'] ?? 0,
+            'auto_issue_coupon_value_max'   => $data['auto_issue_coupon_value_max'] ?? null,
+            'auto_issue_coupon_days'        => $data['auto_issue_coupon_days'] ?? 7,
+            'auto_issue_coupon_usage_limit' => $data['auto_issue_coupon_usage_limit'] ?? null,
+            'auto_issue_notify_title'       => $data['auto_issue_notify_title'] ?? null,
+            'auto_issue_notify_body'        => $data['auto_issue_notify_body'] ?? null,
+            'auto_issue_notify_url'         => $data['auto_issue_notify_url'] ?? null,
+            'checkin_reminder_enabled'      => $data['checkin_reminder_enabled'] ?? false,
+            'checkin_reminder_times'        => $data['checkin_reminder_times'] ?? null,
         ]);
 
         if ($request->hasFile('image')) {
@@ -145,6 +158,10 @@ class MembershipTierController extends Controller
             'name', 'slug', 'description', 'color', 'icon', 'sort_order', 'min_spending',
             'welcome_coupon_prefix', 'welcome_coupon_type', 'welcome_coupon_value',
             'welcome_coupon_days', 'welcome_coupon_usage_limit', 'is_active',
+            'auto_issue_enabled', 'auto_issue_interval_days', 'auto_issue_coupon_type',
+            'auto_issue_coupon_value', 'auto_issue_coupon_value_max', 'auto_issue_coupon_days',
+            'auto_issue_coupon_usage_limit', 'auto_issue_notify_title', 'auto_issue_notify_body',
+            'auto_issue_notify_url', 'checkin_reminder_enabled', 'checkin_reminder_times',
         ])->toArray());
 
         if ($request->hasFile('image')) {
@@ -263,6 +280,29 @@ class MembershipTierController extends Controller
             'welcome_coupon_days'        => 'nullable|integer|min:0',
             'welcome_coupon_usage_limit' => 'nullable|integer|min:1',
 
+            // Thưởng điểm danh định kỳ (xem docblock App\Filament\Resources\MembershipTierResource,
+            // Section "Tự động tạo mã khuyến mãi định kỳ") — khách điểm danh đủ chu kỳ
+            // ('auto_issue_interval_days' ngày) thì được tự tạo 1 coupon riêng + gửi thông báo, xử
+            // lý ở App\Services\CustomerCheckinService. 'checkin_reminder_*' cấu hình nhắc khách
+            // chưa điểm danh hôm nay (App\Console\Commands\NotifyCheckinStreakReminderCommand).
+            'auto_issue_enabled'            => 'nullable|boolean',
+            'auto_issue_interval_days'      => 'nullable|integer|min:1',
+            'auto_issue_coupon_type'        => 'nullable|in:percentage,fixed',
+            'auto_issue_coupon_value'       => 'nullable|numeric|min:0',
+            'auto_issue_coupon_value_max'   => 'nullable|numeric|min:0|gte:auto_issue_coupon_value',
+            'auto_issue_coupon_days'        => 'nullable|integer|min:1',
+            'auto_issue_coupon_usage_limit' => 'nullable|integer|min:1',
+            'auto_issue_notify_title'       => 'nullable|string|max:255',
+            'auto_issue_notify_body'        => 'nullable|string|max:500',
+            // URL/deep-link app mở khi khách bấm vào thông báo mã khuyến mãi tự động — cùng field
+            // 'url' đã dùng ở NotificationFcmService::sendToCustomer()/NotificationFcmResource (CMS
+            // gửi tay), để trống thì thông báo không có điều hướng (giữ hành vi cũ).
+            'auto_issue_notify_url'         => 'nullable|string|max:500',
+            'checkin_reminder_enabled'      => 'nullable|boolean',
+            // Mỗi phần tử = 1 giờ nhắc/ngày, định dạng "HH:mm" (khớp TimePicker Filament, seconds tắt).
+            'checkin_reminder_times'        => 'nullable|array',
+            'checkin_reminder_times.*'      => 'string|date_format:H:i',
+
             // Voucher CHÍNH THỨC của hạng (nguồn pivot 'auto') — mỗi phần tử = 1 voucher, hệ thống
             // tự tạo coupon mẫu, không cần tạo trước ở /api/admin/coupons. 'template_id' chỉ cần
             // truyền khi SỬA 1 voucher đã có (lấy từ GET .../{id} → voucher_templates[].template_id)
@@ -318,6 +358,18 @@ class MembershipTierController extends Controller
             'welcome_coupon_value'       => $tier->welcome_coupon_value,
             'welcome_coupon_days'        => $tier->welcome_coupon_days,
             'welcome_coupon_usage_limit' => $tier->welcome_coupon_usage_limit,
+            'auto_issue_enabled'            => (bool) $tier->auto_issue_enabled,
+            'auto_issue_interval_days'      => $tier->auto_issue_interval_days,
+            'auto_issue_coupon_type'        => $tier->auto_issue_coupon_type,
+            'auto_issue_coupon_value'       => $tier->auto_issue_coupon_value,
+            'auto_issue_coupon_value_max'   => $tier->auto_issue_coupon_value_max,
+            'auto_issue_coupon_days'        => $tier->auto_issue_coupon_days,
+            'auto_issue_coupon_usage_limit' => $tier->auto_issue_coupon_usage_limit,
+            'auto_issue_notify_title'       => $tier->auto_issue_notify_title,
+            'auto_issue_notify_body'        => $tier->auto_issue_notify_body,
+            'auto_issue_notify_url'         => $tier->auto_issue_notify_url,
+            'checkin_reminder_enabled'      => (bool) $tier->checkin_reminder_enabled,
+            'checkin_reminder_times'        => $tier->checkin_reminder_times ?? [],
             // Voucher CHÍNH THỨC của hạng (nguồn 'auto') — shape khớp với body 'voucher_templates'
             // nhận ở store()/update(), sửa 1 voucher thì gửi lại đúng 'template_id' của nó.
             'voucher_templates'          => $service->voucherTemplatesToFormState($tier),

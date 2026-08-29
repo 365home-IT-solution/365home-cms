@@ -14,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Modules\AuditLog\Services\AuditLogger;
 use Modules\BladeThemeV1\App\Models\AdditionService;
 use Modules\Category\Entities\Category;
 use Modules\Product\App\Filament\Resources\ProductResource\Tables\Actions\RoomCleaningAction;
@@ -605,7 +606,26 @@ class ProductController extends Controller
         $skipped  = array_values(array_diff($data['room_ids'], $foundIds));
 
         if (! empty($foundIds)) {
+            // ::whereIn()->update() là query builder, KHÔNG bắn Eloquent event — LogsAuditTrail gắn
+            // trên Product hoàn toàn không thấy được thay đổi hàng loạt này. Ghi 1 dòng log thủ
+            // công tóm tắt, neo vào phòng đầu tiên trong danh sách (bảng audit_logs chỉ có 1
+            // target_id/dòng), liệt kê đủ toàn bộ room_ids đã áp dụng trong new_values.
+            $anchor = Product::whereKey($foundIds[0])->first();
+
             Product::whereIn('id', $foundIds)->update($update);
+
+            if ($anchor) {
+                AuditLogger::log(
+                    action: 'update',
+                    module: 'Product',
+                    record: $anchor,
+                    new: array_merge($update, [
+                        'so_phong_ap_dung' => count($foundIds),
+                        'room_ids'         => $foundIds,
+                    ]),
+                    label: 'Cập nhật hàng loạt điều kiện giảm giá — ' . count($foundIds) . ' phòng',
+                );
+            }
         }
 
         return response()->json([

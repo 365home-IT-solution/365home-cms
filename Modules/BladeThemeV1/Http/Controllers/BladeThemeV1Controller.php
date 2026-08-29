@@ -17,6 +17,12 @@ use App\Models\Province;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Http\Controllers\PaymentController;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Modules\AppPage\App\Models\AppPage;
+use Modules\AppPage\App\Models\Banner;
+use App\Http\Controllers\Api\SearchController;
+use Illuminate\Support\Facades\Cache;
+use App\Services\AvailableProvinceService;
 
 class BladeThemeV1Controller extends Controller
 {
@@ -125,7 +131,101 @@ class BladeThemeV1Controller extends Controller
             'lightPrimaryColor' => $this->lightPrimaryColor,
             'seoData' => $seoData,
             'page' => $page,
+            // Only the small, above-the-fold subset is embedded in the initial HTML. The full
+            // home payload still loads through /api/v1/home, so CMS behaviour remains unchanged.
+            'criticalHome' => request()->path() === '/' ? $this->criticalHomeData() : [],
         ]);
+    }
+
+    /**
+     * Return enough CMS data to paint the first home banner before Alpine and the home API load.
+     * Any data/configuration problem deliberately falls back to the existing client-side flow.
+     */
+    private function criticalHomeData(): array
+    {
+        try {
+            $page = AppPage::query()
+                ->where('slug', 'home')
+                ->where('is_active', true)
+                ->first();
+
+            $bannerBlock = collect($page?->content ?? [])
+                ->first(fn (array $block) => ($block['type'] ?? null) === 'banner');
+            $bannerIds = collect($bannerBlock['data']['items'] ?? [])
+                ->pluck('banner_id')
+                ->filter()
+                ->values();
+            $banners = Banner::query()
+                ->whereIn('id', $bannerIds)
+                ->where('is_active', true)
+                ->get()
+                ->keyBy('id');
+            $items = $bannerIds
+                ->map(fn ($id) => $banners->get($id))
+                ->filter()
+                ->map(fn (Banner $banner) => [
+                    'title' => $banner->title,
+                    'image_url' => $banner->image
+                        ? Storage::disk($banner->disk ?? 'public')->url($banner->image)
+                        : null,
+                    'thumbnail' => $banner->thumbnail,
+                    'url' => $banner->url,
+                ])
+                ->filter(fn (array $banner) => filled(data_get($banner, 'thumbnail.wide') ?? $banner['image_url']))
+                ->values()
+                ->all();
+
+            return [
+                'banner' => empty($items) ? null : [
+                    'type' => 'banner',
+                    'id' => 1,
+                    'sort_order' => 1,
+                    'items' => $items,
+                ],
+                'room_types' => RoomType::query()
+                    ->where('is_active', true)
+                    ->orderBy('sort_order')
+                    ->get(['id', 'slug', 'name', 'icon', 'icon_url'])
+                    ->toArray(),
+                'booking' => $this->criticalBookingData(),
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('Unable to prepare critical home data; using the existing API fallback.', [
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+    }
+
+    private function criticalBookingData(): array
+    {
+        $resolve = function (): array {
+            $provinces = app(AvailableProvinceService::class)->get();
+            $defaultProvince = ! empty($provinces)
+                ? Province::find($provinces[0]['id'])
+                : null;
+            $defaultBranches = $defaultProvince
+                ? SearchController::branchesDataForProvince($defaultProvince)['data']
+                : [];
+            $defaultBranchSlug = data_get($defaultBranches, '0.slug');
+
+            return [
+                'provinces' => $provinces,
+                'active_province_id' => $defaultProvince ? (string) $defaultProvince->id : null,
+                'default_branches' => $defaultBranches,
+                // Render the initial grid without waiting for a Livewire update request.
+                'default_book_config' => $defaultBranchSlug
+                    ? data_get(BranchBookConfig::build($defaultBranchSlug), 'bookConfig')
+                    : null,
+            ];
+        };
+
+        try {
+            return Cache::store('file')->remember('bladethemev1:home:critical-booking', now()->addMinutes(5), $resolve);
+        } catch (\Throwable) {
+            return $resolve();
+        }
     }
 
     public function postDetail($slug)
@@ -141,8 +241,23 @@ class BladeThemeV1Controller extends Controller
             $seoOgImage = $post->getFirstMedia('Ảnh chính')->getUrl();
         }
 
+        // H1 luôn là $post->title (post-detail.blade.php). Nếu seo_title bỏ trống hoặc được
+        // nhập y hệt title, title tag sẽ trùng H1 từng ký tự — SEO tool flag "duplicate H1/title
+        // tag". Thêm hậu tố "| 365Home" cho trường hợp đó để 2 thẻ luôn khác nhau, không cần
+        // sửa tay từng bài; seo_title đã được tùy biến thật sự thì giữ nguyên.
+        $postTitle = $post->title ?? '';
+        $seoTitle = trim((string) ($post->seo_title ?? ''));
+        if ($seoTitle === '' || $seoTitle === trim($postTitle)) {
+            // Toàn bộ title hiện có đều đã tự mở đầu bằng "365Home" (dưới nhiều dạng phân cách
+            // khác nhau: |, –, -, hoặc không có) — bỏ tiền tố này trước khi thêm hậu tố, tránh
+            // lặp thương hiệu 2 lần kiểu "365Home | X | 365Home" (vừa xấu vừa tốn ký tự hiển thị
+            // trên SERP). Title không mở đầu bằng "365Home" thì giữ nguyên, chỉ thêm hậu tố.
+            $core = trim((string) preg_replace('/^365\s*home\s*[|–—-]?\s*/iu', '', trim($postTitle)));
+            $seoTitle = trim(($core !== '' ? $core : trim($postTitle)) . ' | 365Home');
+        }
+
         $seoData = [
-            'seo_title'              => $post->seo_title ?? $post->title ?? '',
+            'seo_title'              => $seoTitle,
             'seo_description'        => $post->seo_description ?? '',
             'seo_keywords'           => $post->seo_keywords ?? '',
             'og_image'               => $seoOgImage,
@@ -270,7 +385,7 @@ class BladeThemeV1Controller extends Controller
     public function favoritesPage(Request $request)
     {
         $seoData = [
-            'seo_title' => 'Yêu thích',
+            'seo_title' => 'Danh sách phòng yêu thích - Lưu và quản lý phòng đã thích tại 365 HOME',
             'seo_description' => 'Danh sách phòng đã lưu',
             'seo_keywords' => 'yêu thích, phòng nghỉ, 365 home',
             'og_type' => 'website',
@@ -288,7 +403,7 @@ class BladeThemeV1Controller extends Controller
     public function postsPage()
     {
         $seoData = [
-            'seo_title' => 'Tin tức',
+            'seo_title' => 'Tin tức và bài viết mới nhất về đặt phòng tại 365 HOME',
             'seo_description' => 'Tin tức và bài viết mới nhất',
             'seo_keywords' => 'tin tức, bài viết, 365 home',
             'og_type' => 'website',
@@ -320,7 +435,7 @@ class BladeThemeV1Controller extends Controller
     public function loginPage()
     {
         $seoData = [
-            'seo_title' => 'Đăng nhập',
+            'seo_title' => 'Đăng nhập tài khoản 365 HOME - Đặt phòng nhanh chóng',
             'seo_description' => 'Đăng nhập tài khoản 365 Home để đặt phòng nhanh hơn và nhận ưu đãi dành riêng cho thành viên.',
             'seo_keywords' => 'đăng nhập, 365 home',
             'og_type' => 'website',
@@ -404,7 +519,7 @@ class BladeThemeV1Controller extends Controller
         $videoIds = array_unique($ytMatches[1]);
 
         $seoData = [
-            'seo_title'          => $product->name,
+            'seo_title'          => $product->name . ' - Đặt phòng tại 365 HOME',
             'seo_description'    => $seoDescription,
             'seo_keywords'       => $seoKeywords,
             'og_image'           => $seoOgImage,
@@ -472,7 +587,7 @@ class BladeThemeV1Controller extends Controller
         $videoIds = array_unique($ytMatches[1]);
 
         $seoData = [
-            'seo_title'          => $template->name,
+            'seo_title'          => $template->name . ' - Dịch vụ tại 365 HOME',
             'seo_description'    => $seoDescription,
             'seo_keywords'       => $seoKeywords,
             'og_image'           => $seoOgImage,
@@ -514,10 +629,11 @@ class BladeThemeV1Controller extends Controller
     public function home()
     {
         $seoData = [
-            'seo_title'       => config('app.name', '365 HOME'),
+            'seo_title'       => 'Đặt phòng nghỉ, coworking, phòng theo giờ tại 365 HOME',
             'seo_description' => 'Đặt phòng nghỉ, coworking, phòng theo giờ chất lượng tại 365 HOME',
             'seo_keywords'    => '365 home, đặt phòng, phòng theo giờ, coworking',
             'og_type'         => 'website',
+            'canonical_url'   => url('/'),
         ];
 
         return view('bladethemev1::pages.home', [
@@ -561,10 +677,24 @@ class BladeThemeV1Controller extends Controller
             $typeName   = $typeDbSlug ? RoomType::where('slug', $typeDbSlug)->value('name') : null;
         }
 
+        // Generate unique description based on type and location
+        $locName = $province ? $province->name : 'Cần Thơ';
+        $typeLower = $typeName ? strtolower($typeName) : 'phòng';
+
+        if ($typeName && $province) {
+            $seoDesc = 'Đặt ' . $typeLower . ' tại ' . $locName . ' theo giờ, ngày. Giá tốt, linh hoạt, chất lượng cao tại 365 HOME.';
+        } elseif ($typeName) {
+            $seoDesc = 'Đặt ' . $typeLower . ' theo giờ, ngày tại Cần Thơ. Giá tốt, linh hoạt, chất lượng cao tại 365 HOME.';
+        } elseif ($province) {
+            $seoDesc = 'Tìm kiếm phòng tại ' . $locName . ' theo giờ, ngày. Homestay, villa, mini-house, khách sạn - giá tốt, chất lượng tại 365 HOME.';
+        } else {
+            $seoDesc = 'Tìm kiếm phòng theo giờ, ngày tại Cần Thơ. Homestay, villa, mini-house, khách sạn - chất lượng, giá tốt tại 365 HOME.';
+        }
+
         $seoData = [
             'seo_title'       => trim(($typeName ?: 'Tìm kiếm phòng') . ($province ? ' tại ' . $province->name : '')) . ' | 365 HOME',
-            'seo_description' => 'Tìm kiếm phòng nghỉ, coworking, phòng theo giờ chất lượng tại 365 HOME.',
-            'seo_keywords'    => 'tìm kiếm phòng, đặt phòng, phòng theo giờ, 365 home',
+            'seo_description' => $seoDesc,
+            'seo_keywords'    => 'đặt ' . $typeLower . ', ' . $locName . ', 365 home, tìm kiếm phòng',
             'og_type'         => 'website',
         ];
 

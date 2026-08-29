@@ -4,15 +4,14 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Controllers\Api\SearchController;
 use App\Models\GuestCustomer;
 use App\Models\Province;
-use App\Models\ProvinceBranch;
+use App\Services\AvailableProvinceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Storage;
-use Modules\Category\Entities\Category;
-use Modules\Product\App\Models\Product;
 
 class ProvinceController extends Controller
 {
@@ -38,44 +37,25 @@ class ProvinceController extends Controller
             ]);
         }
 
-        // Chỉ hiển thị tỉnh/thành có ít nhất 1 chi nhánh đang hoạt động (province_branches.status)
-        // và chi nhánh đó có ít nhất 1 phòng đang bán (is_activated + is_in_stock) — cùng logic
-        // lọc "chi nhánh có phòng" đang dùng ở RoomSearchService/RoomTypeController.
-        $activeBranches = ProvinceBranch::where('status', true)->get(['province_id', 'categorie_id']);
+        // Nguồn dữ liệu chung cho API và web (BladeThemeV1) — xem AvailableProvinceService.
+        $provinceData = app(AvailableProvinceService::class)->get();
+        $response     = ['provinces' => $provinceData];
 
-        $branchCategoryIds = $activeBranches->pluck('categorie_id')->unique()->values();
-        $childCategoriesByParent = Category::whereIn('parent_id', $branchCategoryIds)
-            ->get(['id', 'parent_id'])
-            ->groupBy('parent_id');
+        // ?with_default_branches=1 — gộp thêm chi nhánh của tỉnh ĐẦU TIÊN vào cùng response này,
+        // để trang chủ (home-sections.js homeBookingBoard()) khi CHƯA biết tỉnh đã chọn (khách lần
+        // đầu ghé, không có localStorage) chỉ cần gọi 1 API thay vì 2 lần nối tiếp (trước đó phải
+        // đợi /api/v1/provinces trả về mới gọi tiếp /api/v1/search/branches — đo được mất thêm
+        // ~400-1000ms trong "network dependency tree" của PageSpeed). Khách ĐÃ biết tỉnh (có
+        // localStorage) không cần cờ này — JS đã tự gọi thẳng branches song song từ trước, xem
+        // homeBookingBoard.init() trong home-sections.js.
+        if ($request->boolean('with_default_branches') && ! empty($provinceData)) {
+            $defaultProvince = Province::find($provinceData[0]['id']);
+            if ($defaultProvince) {
+                $response['default_branches'] = SearchController::branchesDataForProvince($defaultProvince);
+            }
+        }
 
-        $provinceIdsWithRooms = $activeBranches
-            ->filter(function (ProvinceBranch $branch) use ($childCategoriesByParent) {
-                $categoryIds = collect([$branch->categorie_id])
-                    ->merge($childCategoriesByParent->get($branch->categorie_id, collect())->pluck('id'));
-
-                return Product::where('is_activated', true)
-                    ->where('is_in_stock', true)
-                    ->whereHas('categories', fn ($q) => $q->whereIn('category_id', $categoryIds))
-                    ->exists();
-            })
-            ->pluck('province_id')
-            ->unique();
-
-        $provinces = Province::whereIn('id', $provinceIdsWithRooms)
-            ->orderByRaw('code IS NULL, code ASC')
-            ->orderBy('name')
-            ->get();
-
-        return response()->json([
-            'provinces' => $provinces->map(fn ($p) => [
-                'id'            => $p->id,
-                'name'          => $p->name,
-                'slug'          => $p->slug,
-                'code'          => $p->code,
-                'division_type' => $p->division_type,
-                'codename'      => $p->codename,
-            ])->values(),
-        ]);
+        return response()->json($response);
     }
 
     // ─── POST /api/v1/provinces/select ──────────────────────────────────────
@@ -199,8 +179,9 @@ class ProvinceController extends Controller
         $wards = $province->branches()
             ->where('status', true)
             ->whereNotNull('ward_code')
-            ->with('ward')
+            ->with(['ward', 'category'])
             ->get()
+            ->filter(fn ($branch) => $branch->category && $branch->category->status)
             ->groupBy('ward_code')
             ->map(fn ($items, $wardCode) => [
                 'code'           => (int) $wardCode,

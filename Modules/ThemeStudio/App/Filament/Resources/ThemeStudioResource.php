@@ -40,6 +40,38 @@ class ThemeStudioResource extends Resource
         return (string) static::getModel()::count();
     }
 
+    // Ẩn hẳn khỏi admin — cùng lý do ThemeResource (Modules/ThemeSetting): dùng chung 1 bảng dữ
+    // liệu, KHÔNG được nối vào luồng render web thật, chỉ là tính năng dở dang.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
+    public static function canAccess(): bool
+    {
+        return false;
+    }
+
+    public static function canViewAny(): bool
+    {
+        return false;
+    }
+
+    public static function canCreate(): bool
+    {
+        return false;
+    }
+
+    public static function canEdit($record): bool
+    {
+        return false;
+    }
+
+    public static function canDelete($record): bool
+    {
+        return false;
+    }
+
     public static function form(Form $form): Form
     {
         return ThemeStudioForm::form($form);

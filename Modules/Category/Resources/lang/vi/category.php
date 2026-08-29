@@ -4,9 +4,9 @@ return [
     'resource' => [
         'navigation_icon' => 'heroicon-o-map-pin',
         'navigation_group' => 'Quản lý',
-        'navigation_label' => 'Chi nhánh và khu vực',
-        'model_label' => 'Chi nhánh và khu vực',
-        'plural_model_label' => 'Chi nhánh và khu vực',
+        'navigation_label' => 'Chi nhánh',
+        'model_label' => 'Chi nhánh',
+        'plural_model_label' => 'Chi nhánh',
     ],
     'form' => [
         'label' => [

@@ -49,6 +49,8 @@ class RoomController extends Controller
     }
 
     // GET /api/slots?room_id=...&date=2026-06-04
+    // Response kèm `room: {id, full_booking_discount, bulk_discount_rules, total_slots}` — xem
+    // chi tiết ở comment trước return response()->json() bên dưới.
     public function slots(Request $request): JsonResponse
     {
         $roomId = $request->query('room_id');
@@ -103,13 +105,27 @@ class RoomController extends Controller
             ];
         }
 
+        // Cấu hình giảm giá đặt full khung giờ trong ngày / đặt nhiều khung giờ (xem SettingBook) —
+        // trả kèm để trang chi tiết phòng tự tính preview theo lựa chọn của khách, giống logic
+        // checkFullBooking()/discountRate ở book.blade.php (Alpine) và field cùng tên đã thêm ở
+        // BranchController::timeSlots(). total_slots = số khung giờ/ngày của phòng — so với số
+        // slot khách đã chọn trong 1 ngày để biết có "full ngày" hay chưa. Số tiền chính thức vẫn
+        // do BookingController/GuestBookingController tính lại lúc tạo đơn.
+        $roomMeta = [
+            'id'                     => $room->id,
+            'full_booking_discount'  => $this->parseDiscountRule($room->full_booking_discount),
+            'bulk_discount_rules'    => $room->bulk_discount_rules ?? [],
+            'total_slots'            => $templateSlots->count(),
+        ];
+
         // Giữ nguyên shape cũ {date, slots} khi gọi kiểu 1-ngày (?date=) — không phá client hiện có.
-        // Gọi kiểu nhiều ngày (from/to hoặc dates[]) trả {days: [{date, slots}, ...]}.
+        // Gọi kiểu nhiều ngày (from/to hoặc dates[]) trả {days: [{date, slots}, ...]}. Cả 2 kiểu đều
+        // thêm mới key `room` — additive, không đổi field cũ nào.
         if (count($days) === 1 && $request->filled('date')) {
-            return response()->json($days[0]);
+            return response()->json($days[0] + ['room' => $roomMeta]);
         }
 
-        return response()->json(['days' => $days]);
+        return response()->json(['days' => $days, 'room' => $roomMeta]);
     }
 
     /**

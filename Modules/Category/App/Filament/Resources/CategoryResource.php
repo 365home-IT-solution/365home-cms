@@ -6,6 +6,7 @@ namespace Modules\Category\App\Filament\Resources;
 
 use Illuminate\Database\Eloquent\Builder;
 use Modules\Category\App\Filament\Resources\CategoryResource\Forms\CategoryForm;
+use Modules\Category\App\Filament\Resources\CategoryResource\RelationManagers\ChildrenRelationManager;
 use Modules\Category\App\Filament\Resources\CategoryResource\RelationManagers\ProductsRelationManager;
 use Modules\Category\App\Filament\Resources\CategoryResource\Tables\CategoryTable;
 use Modules\Category\App\Filament\Resources\CategoryResource\Pages;
@@ -61,9 +62,11 @@ class CategoryResource extends Resource implements HasKnowledgeBase
         return (string) static::getEloquentQuery()->count();
     }
 
+    // Resource này chỉ còn quản lý chi nhánh/khu vực (category_type=product) — danh mục bài viết
+    // (category_type=post) đã tách sang PostCategoryResource riêng, không còn lẫn ở đây nữa.
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery();
+        $query = parent::getEloquentQuery()->where('category_type', 'product');
         $user  = auth()->user();
 
         if (! $user || $user->isSuperAdmin()) {
@@ -71,23 +74,14 @@ class CategoryResource extends Resource implements HasKnowledgeBase
         }
 
         $allowedProductCategoryIds = $user->allowedCategoryIds();
-        $allowedPostCategoryIds    = $user->allowedPostCategoryIds();
         $visibleProductIds         = static::visibleProductCategoryIds($user, $allowedProductCategoryIds);
 
-        return $query->where(function (Builder $q) use ($visibleProductIds, $allowedPostCategoryIds) {
-            // Chi nhánh (category_type='product') + khu vực con: mặc định thấy TOÀN BỘ chi nhánh
-            // của đối tác mình — không còn bắt buộc phải được cấp quyền chi nhánh cụ thể qua
-            // user_branch_permissions như trước (đó là nguyên nhân đối tác mới tạo không thấy
-            // chi nhánh/phòng nào). Nếu user được gán quyền chi nhánh cụ thể thì thu hẹp thêm
-            // theo đó (dùng để giới hạn 1 nhân viên chỉ thấy 1/vài chi nhánh trong số của đối tác).
-            $q->where('category_type', 'product')->whereIn('id', $visibleProductIds);
-
-            // Category loại 'post' vẫn dùng chung, giữ nguyên yêu cầu quyền chi nhánh cụ thể
-            // như trước (không liên quan tới partner_id).
-            if (! empty($allowedPostCategoryIds)) {
-                $q->orWhereIn('id', $allowedPostCategoryIds);
-            }
-        });
+        // Chi nhánh (category_type='product') + khu vực con: mặc định thấy TOÀN BỘ chi nhánh
+        // của đối tác mình — không còn bắt buộc phải được cấp quyền chi nhánh cụ thể qua
+        // user_branch_permissions như trước (đó là nguyên nhân đối tác mới tạo không thấy
+        // chi nhánh/phòng nào). Nếu user được gán quyền chi nhánh cụ thể thì thu hẹp thêm
+        // theo đó (dùng để giới hạn 1 nhân viên chỉ thấy 1/vài chi nhánh trong số của đối tác).
+        return $query->whereIn('id', $visibleProductIds);
     }
 
     /**
@@ -136,6 +130,7 @@ class CategoryResource extends Resource implements HasKnowledgeBase
     public static function getRelationManagers(): array
     {
         return [
+            ChildrenRelationManager::class,
             ProductsRelationManager::class,
         ];
     }

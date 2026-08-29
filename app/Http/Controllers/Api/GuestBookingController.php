@@ -386,7 +386,18 @@ class GuestBookingController extends Controller
 
             foreach ($appliedCoupons as $couponInfo) {
                 if (isset($couponInfo['_model'])) {
-                    $couponInfo['_model']->incrementUsage();
+                    try {
+                        // Khách vãng lai — không có Customer đăng nhập nên customer_id luôn null.
+                        $couponInfo['_model']->incrementUsage((string) $order->id, null, $order->category_id, $couponInfo['discount_amount'] ?? null);
+                    } catch (\Exception $e) {
+                        Log::error('incrementUsage error', [
+                            'coupon_code' => $couponInfo['code'] ?? null,
+                            'order_id' => $order->id,
+                            'error' => $e->getMessage(),
+                            'exception' => get_class($e),
+                        ]);
+                        throw $e;
+                    }
                 }
             }
 
@@ -1570,53 +1581,65 @@ class GuestBookingController extends Controller
 
         $coupons = [];
         foreach ($codes as $index => $code) {
-            $coupon = Coupon::where('code', $code)
-                ->where('is_active', true)
-                ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', now()))
-                ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', now()))
-                ->first();
+            try {
+                $coupon = Coupon::where('code', $code)
+                    ->where('is_active', true)
+                    ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', now()))
+                    ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', now()))
+                    ->first();
 
-            $field = "coupon_codes.{$index}";
+                $field = "coupon_codes.{$index}";
 
-            if (! $coupon) {
-                throw ValidationException::withMessages([
-                    $field => ["Mã \"{$code}\" không tồn tại, đã hết hạn, hoặc không áp dụng cho đơn không đăng nhập."],
+                if (! $coupon) {
+                    throw ValidationException::withMessages([
+                        $field => ["Mã \"{$code}\" không tồn tại, đã hết hạn, hoặc không áp dụng cho đơn không đăng nhập."],
+                    ]);
+                }
+
+                // Coupon cá nhân (customer_id trực tiếp hoặc gán qua coupon_customers pivot,
+                // vd: coupon gắn theo hạng thành viên) không áp dụng được cho đơn khách vãng lai.
+                if ($coupon->customer_id !== null || $coupon->customers()->exists()) {
+                    throw ValidationException::withMessages([
+                        $field => ["Mã \"{$code}\" không tồn tại, đã hết hạn, hoặc không áp dụng cho đơn không đăng nhập."],
+                    ]);
+                }
+
+                if ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {
+                    throw ValidationException::withMessages([
+                        $field => ["Mã \"{$code}\" đã hết lượt sử dụng."],
+                    ]);
+                }
+
+                if ($coupon->min_order_value && $orderAmount < (float) $coupon->min_order_value) {
+                    throw ValidationException::withMessages([
+                        $field => ['Mã "' . $code . '" yêu cầu đơn hàng tối thiểu ' . number_format((float) $coupon->min_order_value) . 'đ.'],
+                    ]);
+                }
+
+                $applicable = match ($coupon->apply_type) {
+                    'all_rooms', 'specific_room', 'specific_rooms' => $coupon->appliesToRoom($room->id),
+                    'specific_slot' => $rtsCollection->some(fn (RoomTimeSlot $rts) => $coupon->isApplicableToSlot($rts)),
+                    default         => false,
+                };
+
+                if (! $applicable) {
+                    throw ValidationException::withMessages([
+                        $field => ["Mã \"{$code}\" không áp dụng cho phòng hoặc khung giờ này."],
+                    ]);
+                }
+
+                $coupons[] = $coupon;
+            } catch (\Exception $e) {
+                Log::error('applyGuestCoupons error', [
+                    'coupon_code' => $code,
+                    'order_amount' => $orderAmount,
+                    'room_id' => $room->id,
+                    'error' => $e->getMessage(),
+                    'exception' => get_class($e),
+                    'trace' => $e->getTraceAsString(),
                 ]);
+                throw $e;
             }
-
-            // Coupon cá nhân (customer_id trực tiếp hoặc gán qua coupon_customers pivot,
-            // vd: coupon gắn theo hạng thành viên) không áp dụng được cho đơn khách vãng lai.
-            if ($coupon->customer_id !== null || $coupon->customers()->exists()) {
-                throw ValidationException::withMessages([
-                    $field => ["Mã \"{$code}\" không tồn tại, đã hết hạn, hoặc không áp dụng cho đơn không đăng nhập."],
-                ]);
-            }
-
-            if ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {
-                throw ValidationException::withMessages([
-                    $field => ["Mã \"{$code}\" đã hết lượt sử dụng."],
-                ]);
-            }
-
-            if ($coupon->min_order_value && $orderAmount < (float) $coupon->min_order_value) {
-                throw ValidationException::withMessages([
-                    $field => ['Mã "' . $code . '" yêu cầu đơn hàng tối thiểu ' . number_format((float) $coupon->min_order_value) . 'đ.'],
-                ]);
-            }
-
-            $applicable = match ($coupon->apply_type) {
-                'all_rooms', 'specific_room', 'specific_rooms' => $coupon->appliesToRoom($room->id),
-                'specific_slot' => $rtsCollection->some(fn (RoomTimeSlot $rts) => $coupon->isApplicableToSlot($rts)),
-                default         => false,
-            };
-
-            if (! $applicable) {
-                throw ValidationException::withMessages([
-                    $field => ["Mã \"{$code}\" không áp dụng cho phòng hoặc khung giờ này."],
-                ]);
-            }
-
-            $coupons[] = $coupon;
         }
 
         usort($coupons, fn ($a, $b) => ($b->type === 'percentage' ? 1 : 0) - ($a->type === 'percentage' ? 1 : 0));
@@ -1965,10 +1988,9 @@ class GuestBookingController extends Controller
             ],
         ];
 
-        $lockInfo = $this->buildLockInfo($order, $product);
-        if ($lockInfo) {
-            $result['lock_info'] = $lockInfo;
-        }
+        // Luôn trả key 'lock_info' (kể cả null khi chưa cấu hình mật khẩu thủ công lẫn TTLock) —
+        // để client khỏi phải tự xử lý trường hợp thiếu key, chỉ cần check null.
+        $result['lock_info'] = $this->buildLockInfo($order, $product);
 
         // Extra charge (phát sinh thêm sau khi đã thanh toán)
         if ($order->extra_charge_amount) {

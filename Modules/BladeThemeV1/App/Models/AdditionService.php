@@ -3,13 +3,14 @@
 namespace Modules\BladeThemeV1\App\Models;
 
 use App\Models\Concerns\BelongsToPartner;
+use App\Models\Concerns\LogsAuditTrail;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 
 class AdditionService extends Model
 {
-    use HasFactory, BelongsToPartner;
+    use HasFactory, BelongsToPartner, LogsAuditTrail;
 
     protected $table = 'additional_services';
 

@@ -251,7 +251,7 @@ class RoleResource extends Resource implements HasShieldPermissions
             })
             ->map(function ($entity) use ($allowedPerms) {
                 $labelOverrides = [
-                    'AdditionService' => 'Dịch vụ Bổ sung',
+                    'AdditionService' => 'Dịch vụ',
                 ];
 
                 $sectionLabel = $labelOverrides[$entity['model']] ?? strval(

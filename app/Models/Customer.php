@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsAuditTrail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Category\Entities\Category;
 use Modules\Payment\Entities\Order;
@@ -18,7 +20,11 @@ use Laravel\Sanctum\HasApiTokens;
 
 class Customer extends Authenticatable
 {
-    use HasApiTokens, HasFactory, SoftDeletes;
+    // CustomerObserver (app/Observers/CustomerObserver.php) chỉ xử lý gán hạng thành viên chào
+    // mừng lúc tạo mới — KHÔNG hề ghi audit log — nên trước đây sửa/xoá khách hàng qua
+    // CustomerResource hoàn toàn không có log nào. Thêm LogsAuditTrail (độc lập, không xung đột
+    // với Observer đang có).
+    use HasApiTokens, HasFactory, SoftDeletes, LogsAuditTrail;
 
     public const STATUS_ACTIVE   = 'active';
     public const STATUS_INACTIVE = 'inactive';
@@ -129,6 +135,11 @@ class Customer extends Authenticatable
             ->withTimestamps();
     }
 
+    public function couponUsages(): HasMany
+    {
+        return $this->hasMany(\Modules\Promotion\App\Models\CouponUsage::class, 'customer_id');
+    }
+
     public function wishlists(): HasMany
     {
         return $this->hasMany(Wishlist::class, 'customer_id');
@@ -144,5 +155,19 @@ class Customer extends Authenticatable
     public function companions(): HasMany
     {
         return $this->hasMany(CustomerCompanion::class);
+    }
+
+    public function checkinCycles(): HasMany
+    {
+        return $this->hasMany(CustomerCheckinCycle::class, 'customer_id');
+    }
+
+    // Chu kỳ điểm danh đang mở (chưa đủ ngày) — mỗi khách chỉ có tối đa 1 chu kỳ đang mở tại
+    // 1 thời điểm, xem CustomerCheckinService::getOrCreateActiveCycle().
+    public function activeCheckinCycle(): HasOne
+    {
+        return $this->hasOne(CustomerCheckinCycle::class, 'customer_id')
+            ->whereNull('completed_at')
+            ->latestOfMany();
     }
 }

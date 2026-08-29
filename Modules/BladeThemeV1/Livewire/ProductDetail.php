@@ -1682,8 +1682,8 @@ public function confirmBooking()
                 }
             }
 
-            foreach ($this->appliedCoupons as $appliedCoupon) {
-                $appliedCoupon->incrementUsage();
+            foreach ($this->appliedCoupons as $couponId => $appliedCoupon) {
+                $appliedCoupon->incrementUsage($order->id, $verifiedUserId, $order->category_id, (int) ($this->couponDiscounts[$couponId] ?? 0));
             }
 
             return $order;

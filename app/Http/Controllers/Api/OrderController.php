@@ -276,7 +276,7 @@ class OrderController extends Controller
 
             // Increment usage cho coupon mới
             foreach ($appliedCoupons as $info) {
-                $info['_model']->incrementUsage();
+                $info['_model']->incrementUsage((string) $order->id, $customer->id ?? null, $order->category_id, $info['discount_amount']);
             }
 
             $appliedCodes = collect($appliedCoupons)->pluck('code')->values()->all();
@@ -1200,10 +1200,9 @@ class OrderController extends Controller
             ],
         ];
 
-        $lockInfo = $this->buildLockInfo($order, $product);
-        if ($lockInfo) {
-            $result['lock_info'] = $lockInfo;
-        }
+        // Luôn trả key 'lock_info' (kể cả null khi chưa cấu hình mật khẩu thủ công lẫn TTLock) —
+        // để client khỏi phải tự xử lý trường hợp thiếu key, chỉ cần check null.
+        $result['lock_info'] = $this->buildLockInfo($order, $product);
 
         // Extra charge (phát sinh thêm sau khi đã thanh toán)
         if ($order->extra_charge_amount) {
@@ -1396,6 +1395,9 @@ class OrderController extends Controller
         Coupon::whereIn('code', $codes)
             ->where('used_count', '>', 0)
             ->decrement('used_count');
+
+        // Giải phóng lịch sử sử dụng gắn với đơn này — sẽ được ghi lại mới nếu áp mã khác ngay sau.
+        \Modules\Promotion\App\Models\CouponUsage::where('order_id', $order->id)->delete();
     }
 
     /**
@@ -1530,9 +1532,16 @@ class OrderController extends Controller
 
         // Case 2: TTLock — chi nhánh có tài khoản TTLock + product có lock_id
         if ($product->lock_id && \Modules\TTLock\App\Services\TTLockService::forCategory($order->category_id)) {
+            $accessCode = $order->accessCodes()->first();
+
             return [
-                'type'       => 'ttlock',
-                'can_unlock' => true,
+                'type'           => 'ttlock',
+                'can_unlock'     => true,
+                'gate_password'  => $accessCode?->code,
+                'status'         => $accessCode?->status,
+                'valid_from'     => $accessCode?->valid_from?->toIso8601String(),
+                'valid_until'    => $accessCode?->valid_until?->toIso8601String(),
+                'gate_location'  => $accessCode?->gate_location,
             ];
         }
 

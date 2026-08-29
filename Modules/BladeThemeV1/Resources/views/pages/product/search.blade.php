@@ -29,6 +29,8 @@
     @livewire('bladethemev1::header')
     @livewire('bladethemev1::drawer-menu')
 
+    <h1 class="sr-only">Tìm kiếm phòng</h1>
+
     <style>
         /* Mobile (< md): bản đồ full màn hình phía sau, phía trên là bottom-sheet chứa danh sách chi
            nhánh có thể kéo lên/xuống. Kéo xuống (peek) → chi nhánh dạng slide ngang. Kéo lên hết
@@ -1215,8 +1217,8 @@
         };
     </script>
 
-    <script src="{{ asset('js/home-sections.js') }}?v={{ filemtime(public_path('js/home-sections.js')) }}"></script>
-    <script src="{{ asset('js/search-results.js') }}?v={{ filemtime(public_path('js/search-results.js')) }}"></script>
+    <script src="{{ asset('js/home-sections.min.js') }}?v={{ filemtime(public_path('js/home-sections.min.js')) }}"></script>
+    <script src="{{ asset('js/search-results.min.js') }}?v={{ filemtime(public_path('js/search-results.min.js')) }}"></script>
  @livewire('bladethemev1::footer')
     @livewire('bladethemev1::contact-link')
     @livewire('bladethemev1::notification')

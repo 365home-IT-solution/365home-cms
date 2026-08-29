@@ -205,4 +205,23 @@ trait BuildsRoomCard
         };
     }
 
+    /**
+     * Parse chuỗi cấu hình full_booking_discount ("20%" hoặc "500.000", xem SettingBook) thành
+     * dạng đã tách sẵn type/value cho client — dùng chung giữa BranchController::timeSlots() và
+     * RoomController::slots() để tránh lệch công thức so với RoomDiscountCalculator::
+     * parseDiscountRule() / Book::calculateFullBookingDiscount() (nơi tính tiền chính thức).
+     */
+    private function parseDiscountRule(?string $rule): ?array
+    {
+        if (empty($rule)) {
+            return null;
+        }
+
+        if (str_contains($rule, '%')) {
+            return ['type' => 'percentage', 'value' => (float) str_replace('%', '', $rule)];
+        }
+
+        return ['type' => 'fixed', 'value' => (float) str_replace(['.', ','], '', $rule)];
+    }
+
 }

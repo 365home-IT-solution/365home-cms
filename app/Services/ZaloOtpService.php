@@ -9,6 +9,10 @@ use Illuminate\Support\Str;
 
 class ZaloOtpService
 {
+    public function __construct(private ZaloTokenService $tokenService)
+    {
+    }
+
     public function hasCooldown(string $phone): bool
     {
         return Cache::has($this->cooldownKey($this->normalizePhone($phone)));
@@ -99,7 +103,12 @@ class ZaloOtpService
             return false;
         }
 
-        $accessToken = $this->getAccessToken();
+        try {
+            $accessToken = $this->tokenService->getAccessToken();
+        } catch (\Throwable $e) {
+            Log::critical('Zalo OTP: không lấy được access token', ['message' => $e->getMessage()]);
+            return false;
+        }
 
         $response = Http::withHeaders([
             'access_token' => $accessToken,
@@ -121,39 +130,6 @@ class ZaloOtpService
         }
 
         return true;
-    }
-
-    private function getAccessToken(): string
-    {
-        $cached = Cache::get('zalo_access_token');
-        if ($cached) {
-            return $cached;
-        }
-
-        $refreshToken = Cache::get('zalo_refresh_token') ?? config('zalo.refresh_token');
-
-        $response = Http::asForm()
-            ->withHeaders(['secret_key' => config('zalo.app_secret')])
-            ->post(config('zalo.oauth_url'), [
-                'app_id'        => config('zalo.app_id'),
-                'grant_type'    => 'refresh_token',
-                'refresh_token' => $refreshToken,
-            ]);
-
-        $data = $response->json();
-
-        if (! isset($data['access_token'])) {
-            Log::warning('Zalo token refresh failed, using static token', ['response' => $data]);
-            return config('zalo.access_token');
-        }
-
-        $expiresIn = $data['expires_in'] ?? 3600;
-        Cache::put('zalo_access_token', $data['access_token'], now()->addSeconds($expiresIn));
-        if (isset($data['refresh_token'])) {
-            Cache::put('zalo_refresh_token', $data['refresh_token'], now()->addMonths(3));
-        }
-
-        return $data['access_token'];
     }
 
     private function otpKey(string $phone): string

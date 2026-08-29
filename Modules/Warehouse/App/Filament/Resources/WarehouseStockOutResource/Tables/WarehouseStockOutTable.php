@@ -12,7 +12,6 @@ use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use Modules\Category\Entities\Category;
 use Modules\Warehouse\App\Filament\Support\CurrentUserDisplay;
 use Modules\Warehouse\App\Filament\Support\WarehousePrinter;
 use Modules\Warehouse\App\Models\WarehouseStockOut;
@@ -89,31 +88,11 @@ class WarehouseStockOutTable
                         ? $query->whereHas('items', fn ($q) => $q->where('reason', $data['value']))
                         : $query),
 
-                PartnerTableHelpers::filter(),
-
-                // Xem giải thích ở WarehouseItemTable — chỉ hiện khi tài khoản quản lý > 1 chi
-                // nhánh (super_admin luôn hiện; quản lý đúng 1 thì không có gì để lọc thêm).
-                SelectFilter::make('branch_id')
-                    ->label('Chi nhánh')
-                    ->options(function () {
-                        $user = auth()->user();
-
-                        if ($user?->isSuperAdmin()) {
-                            return Category::query()
-                                ->where('category_type', 'product')
-                                ->whereNull('parent_id')
-                                ->orderBy('name')
-                                ->pluck('name', 'id');
-                        }
-
-                        return Category::query()
-                            ->whereIn('id', $user?->rootProductCategoryIds() ?? [])
-                            ->orderBy('name')
-                            ->pluck('name', 'id');
-                    })
-                    ->searchable()
-                    ->preload()
-                    ->visible(fn () => (auth()->user()?->isSuperAdmin() ?? false) || count(auth()->user()?->rootProductCategoryIds() ?? []) > 1),
+                // Không còn filter "Đối tác"/"Chi nhánh" thủ công ở đây nữa — model WarehouseStockOut
+                // đã có global scope 'branch' (BelongsToBranch, xem app/Models/Concerns/BelongsToBranch.php)
+                // tự lọc theo User::effectiveBranchIds() (đúng chi nhánh đang active ở header
+                // "Chuyển đổi chi nhánh"), nên danh sách hiện ra ĐÃ đúng phạm vi rồi — filter thêm ở
+                // đây chỉ là lọc lại 1 lần nữa trên dữ liệu vốn đã được lọc sẵn, thừa.
             ])
             ->defaultSort('issued_at', 'desc')
             ->actions([

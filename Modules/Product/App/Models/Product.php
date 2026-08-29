@@ -2,6 +2,7 @@
 
 namespace Modules\Product\App\Models;
 
+use App\Models\Concerns\BelongsToActiveBranchCategories;
 use App\Models\Concerns\BelongsToPartner;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -25,7 +26,8 @@ class Product extends Model implements HasMedia, Resourceable
         InteractsWithMedia,
         HasTags,
         HasUlids,
-        BelongsToPartner;
+        BelongsToPartner,
+        BelongsToActiveBranchCategories;
 
     protected $fillable = [
         'partner_id',
@@ -110,19 +112,11 @@ class Product extends Model implements HasMedia, Resourceable
     // giữ nguyên hiển thị như trước (không phải điều được yêu cầu ở đây).
     public function scopeActiveBranch($query)
     {
-        $inactiveBranchIds = Category::whereNull('parent_id')
-            ->where('category_type', 'product')
-            ->where('status', false)
-            ->pluck('id');
+        $inactiveCatIds = Category::inactiveBranchCategoryIds();
 
-        if ($inactiveBranchIds->isEmpty()) {
+        if ($inactiveCatIds->isEmpty()) {
             return $query;
         }
-
-        $inactiveCatIds = $inactiveBranchIds
-            ->merge(Category::whereIn('parent_id', $inactiveBranchIds)->pluck('id'))
-            ->unique()
-            ->values();
 
         return $query->whereDoesntHave('categories', fn ($q) => $q->whereIn('categories.id', $inactiveCatIds));
     }
@@ -149,6 +143,21 @@ class Product extends Model implements HasMedia, Resourceable
     public function roomTimeSlots()
     {
         return $this->hasMany(RoomTimeSlot::class, 'room_id');
+    }
+
+    public function priceBoardItems()
+    {
+        return $this->hasMany(PriceBoardItem::class);
+    }
+
+    public function priceBoards()
+    {
+        return $this->belongsToMany(PriceBoard::class, 'price_board_items', 'product_id', 'price_board_id');
+    }
+
+    public function defaultPriceBoard()
+    {
+        return $this->priceBoards()->where('is_default', true);
     }
 
     public function amenities()

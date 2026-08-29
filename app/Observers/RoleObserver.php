@@ -2,6 +2,7 @@
 
 namespace App\Observers;
 
+use App\Support\AuditFieldFilter;
 use Modules\AuditLog\Services\AuditLogger;
 use Spatie\Permission\Models\Role;
 
@@ -13,17 +14,16 @@ class RoleObserver
             action: 'create',
             module: 'Role',
             record: $role,
-            new: $role->only(['name', 'guard_name']),
+            new: AuditFieldFilter::filter($role->getAttributes()),
             label: $role->name,
         );
     }
 
     public function updated(Role $role): void
     {
-        $changed = array_keys($role->getChanges());
-        $tracked = array_intersect($changed, ['name', 'guard_name']);
+        $changed = AuditFieldFilter::filter($role->getChanges());
 
-        if (empty($tracked)) {
+        if (empty($changed)) {
             return;
         }
 
@@ -31,8 +31,8 @@ class RoleObserver
             action: 'update',
             module: 'Role',
             record: $role,
-            old: array_intersect_key($role->getOriginal(), array_flip($tracked)),
-            new: array_intersect_key($role->getChanges(), array_flip($tracked)),
+            old: array_intersect_key($role->getOriginal(), $changed),
+            new: $changed,
             label: $role->name,
         );
     }
@@ -43,7 +43,7 @@ class RoleObserver
             action: 'delete',
             module: 'Role',
             record: $role,
-            old: $role->only(['name', 'guard_name']),
+            old: AuditFieldFilter::filter($role->getAttributes()),
             label: $role->name,
         );
     }

@@ -2,17 +2,21 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsAuditTrail;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class NotificationFcm extends Model
 {
+    use LogsAuditTrail;
+
     protected $table = 'notification_fcm';
 
     protected $fillable = [
         'title',
         'body',
+        'url',
         'type',
         'sent_for',
         'scheduled_at',

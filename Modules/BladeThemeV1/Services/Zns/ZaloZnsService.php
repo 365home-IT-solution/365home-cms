@@ -3,9 +3,8 @@
 namespace Modules\BladeThemeV1\Services\Zns;
 
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\Cache;
+use App\Services\ZaloTokenService;
 use Modules\Zns\App\Models\ZnsNotification;
 
 class ZaloZnsService
@@ -15,7 +14,7 @@ class ZaloZnsService
     protected $oauthUrl;
     protected $apiUrl;
 
-    public function __construct()
+    public function __construct(protected ZaloTokenService $tokenService)
     {
         $this->appId = Config::get('services.zalo.app_id');
         $this->appSecret = Config::get('services.zalo.app_secret');
@@ -24,65 +23,13 @@ class ZaloZnsService
     }
 
     /**
-     * Lấy access token (tự động refresh nếu hết hạn)
+     * Lấy access token (tự động refresh nếu hết hạn) — dùng chung ZaloTokenService
+     * với ZaloOtpService vì cùng 1 Zalo OA, tránh 2 nơi refresh độc lập đụng độ
+     * refresh_token (Zalo chỉ cho dùng refresh_token 1 lần).
      */
     protected function getAccessToken()
     {
-        // Kiểm tra token trong cache
-        $accessToken = Cache::get('zalo_access_token');
-        $expiresAt = Cache::get('zalo_access_token_expires_at');
-
-        // Nếu token còn hiệu lực (còn > 1 giờ), return luôn
-        if ($accessToken && $expiresAt && now()->timestamp < ($expiresAt - 3600)) {
-            return $accessToken;
-        }
-
-        // Token hết hạn hoặc sắp hết, refresh token mới
-        return $this->refreshAccessToken();
-    }
-
-    /**
-     * Refresh access token từ refresh token
-     */
-    protected function refreshAccessToken()
-    {
-        $refreshToken = Cache::get('zalo_refresh_token') ?? Config::get('services.zalo.refresh_token');
-
-        if (!$refreshToken) {
-            throw new \Exception('Refresh token not found. Please re-authorize the Zalo application.');
-        }
-
-        try {
-            $response = Http::asForm()
-                ->withHeaders([
-                    'secret_key' => $this->appSecret,
-                ])
-                ->post($this->oauthUrl, [
-                    'app_id' => $this->appId,
-                    'grant_type' => 'refresh_token',
-                    'refresh_token' => $refreshToken,
-                ]);
-
-            $result = $response->json();
-
-            if (isset($result['access_token'])) {
-                $accessToken = $result['access_token'];
-                $newRefreshToken = $result['refresh_token'];
-                $expiresIn = $result['expires_in']; // seconds (90000 = 25 giờ)
-
-                // Lưu vào cache
-                $expiresAt = now()->addSeconds($expiresIn)->timestamp;
-
-                Cache::put('zalo_access_token', $accessToken, now()->addSeconds($expiresIn));
-                Cache::put('zalo_refresh_token', $newRefreshToken, now()->addMonths(3));
-                Cache::put('zalo_access_token_expires_at', $expiresAt, now()->addSeconds($expiresIn));
-                return $accessToken;
-            }
-
-            throw new \Exception('Failed to refresh access token: ' . ($result['message'] ?? json_encode($result)));
-        } catch (\Exception $e) {
-            throw new \Exception('Không thể kết nối với Zalo. Vui lòng thử lại sau.');
-        }
+        return $this->tokenService->getAccessToken();
     }
 
     /**
@@ -340,12 +287,11 @@ class ZaloZnsService
     public function checkConnection()
     {
         try {
-            $accessToken = $this->getAccessToken();
+            $this->getAccessToken();
 
             return [
                 'success' => true,
                 'message' => 'Kết nối Zalo thành công',
-                'token_expires_at' => Cache::get('zalo_access_token_expires_at'),
             ];
         } catch (\Exception $e) {
             return [

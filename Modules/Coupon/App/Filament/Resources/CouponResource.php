@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Modules\DataPermission\Entities\UserBranchPermission;
 use Modules\Product\App\Models\Product;
 use Modules\Promotion\App\Models\Coupon;
+use App\Filament\Clusters\DiscountsCluster;
 
 class CouponResource extends Resource
 {
@@ -21,6 +22,9 @@ class CouponResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-qr-code';
     protected static ?string $navigationGroup = 'Quản lý';
+
+    // Gộp chung 1 mục menu với PromotionResource — xem DiscountsCluster.
+    protected static ?string $cluster = DiscountsCluster::class;
 
     public static function getNavigationLabel(): string
     {

@@ -6,6 +6,7 @@ namespace Modules\User\App\Filament\Resources\UserResource\Pages;
 
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
+use Modules\AuditLog\Services\AuditLogger;
 use Modules\Employee\Entities\Employee;
 use Modules\User\App\Filament\Resources\UserResource;
 use Filament\Resources\Pages\CreateRecord;
@@ -94,12 +95,34 @@ class CreateUser extends CreateRecord
     // trong danh sách tài khoản.
     protected function afterCreate(): void
     {
-        if ($this->isEmployeeAccount) {
+        if (! $this->isEmployeeAccount) {
+            $this->record->roles()->syncWithoutDetaching(
+                Role::where('name', 'partner')->where('guard_name', 'web')->pluck('id')
+            );
+        }
+
+        $this->logAssignedRoles();
+    }
+
+    // 'roles' là Select ->relationship()->multiple() — pivot được Filament tự đồng bộ ở
+    // saveRelationships(), sau khi record đã tồn tại, nên UserObserver::created() (chỉ log
+    // fullname/email/phone) không thấy được vai trò vừa gán. Ghi thêm 1 dòng log riêng.
+    private function logAssignedRoles(): void
+    {
+        $record  = $this->record->fresh(['roles']);
+        $roleIds = $record->roles->pluck('id')->all();
+
+        if (empty($roleIds)) {
             return;
         }
 
-        $this->record->roles()->syncWithoutDetaching(
-            Role::where('name', 'partner')->where('guard_name', 'web')->pluck('id')
+        AuditLogger::log(
+            action: 'update',
+            module: 'User',
+            record: $record,
+            old: [],
+            new: ['vai_tro_da_them' => Role::whereIn('id', $roleIds)->pluck('name')->implode(', ')],
+            label: $record->fullname ?? $record->email,
         );
     }
 }

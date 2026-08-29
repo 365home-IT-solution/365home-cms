@@ -1,5 +1,7 @@
 @php
     $generalSettings = new \App\Settings\GeneralSettings();
+    $siteTheme = $generalSettings->site_theme ?? [];
+    $isHomePage = request()->path() === '/';
 
     $metaTags = [
         'canonical' => $generalSettings->canonical,
@@ -28,7 +30,7 @@
 @endphp
 
 <!DOCTYPE html>
-<html lang="{{ env('APP_LOCALE', 'vi') }}">
+<html lang="{{ config('app.locale', 'vi') }}">
 
 <head>
     <!-- Basic Meta Tags -->
@@ -69,27 +71,68 @@
          throws "Cannot read properties of undefined (reading 'fn')". Keeping jQuery's tag first
          here (still deferred, still non-blocking) preserves the same execution order as before,
          just without pausing HTML parsing. --}}
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js" integrity="sha512-v2CJ7UaYy4JwqLDIrZUI/4hqeoQieOmAZNXBeQyjo21dadnwR+8ZaIJVT8EE2iyI61OV8e6M8PP2/4hpQINQ/g==" crossorigin="anonymous" referrerpolicy="no-referrer" defer></script>
+    @unless ($isHomePage)
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js" integrity="sha512-v2CJ7UaYy4JwqLDIrZUI/4hqeoQieOmAZNXBeQyjo21dadnwR+8ZaIJVT8EE2iyI61OV8e6M8PP2/4hpQINQ/g==" crossorigin="anonymous" referrerpolicy="no-referrer" defer></script>
+    @endunless
 
     <!-- Styles -->
-    @vite(['Resources/assets/sass/app.scss', 'Resources/assets/js/app.js'], 'build-bladethemev1')
+    @if ($isHomePage)
+        {{-- Reserve the measured LCP section before its component-local styles are encountered
+             later in the large HTML document. This prevents the 0.413 mobile layout shift while
+             keeping the exact same 150px/190px responsive design. --}}
+        <style data-home-layout-critical>
+            .home-explore-section{padding-top:1.5rem;padding-bottom:1.5rem;background:#fff}
+            .home-explore-container{width:100%;max-width:80rem;margin-left:auto;margin-right:auto;padding-left:1rem;padding-right:1rem}
+            .home-explore-title{margin:0 0 1rem;font-size:1.5rem;line-height:2rem;font-weight:700;color:#111827}
+            .home-explore-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:1rem}
+            .explore-card{position:relative;overflow:hidden;width:100%;height:150px;border-radius:16px;background:#f3f4f6;display:flex;align-items:center}
+            .explore-card-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center}
+            .explore-card-bg-right{object-position:right center}
+            .explore-card-content{position:relative;z-index:1;max-width:62%;padding:0 20px;display:flex;flex-direction:column;gap:6px}
+            .explore-card-badge{height:26px;width:auto;aspect-ratio:149/48;display:block}
+            @media(min-width:640px){.home-explore-container{padding-left:1.5rem;padding-right:1.5rem}}
+            @media(min-width:1024px){.home-explore-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.explore-card{height:190px}.explore-card-content{padding:0 28px}.explore-card-badge{height:42px}}
+        </style>
+        @vite(['Resources/assets/sass/home.scss', 'Resources/assets/js/home.js'], 'build-bladethemev1')
+    @else
+        @vite(['Resources/assets/sass/app.scss', 'Resources/assets/js/app.js'], 'build-bladethemev1')
+    @endif
     {{-- Real-time "khung giờ đang bị admin giữ chỗ" (xem App\Services\TimeslotHoldService) — nhúng
          Ở LAYOUT DÙNG CHUNG (không riêng product-detail) để hoạt động trên MỌI trang có bảng chọn
          khung giờ (trang chủ, trang chi nhánh, trang chi tiết phòng...), dùng build Vite CHÍNH
          (public/build), khác với build-bladethemev1 ở dòng trên — 2 pipeline độc lập, không xung đột. --}}
-    @vite(['resources/js/echo-client.js'])
+    @unless ($isHomePage)
+        @vite(['resources/js/echo-client.js'])
+    @endunless
     {{-- Real-time "khung giờ vừa đổi giá/khuyến mãi" (xem App\Services\SlotRealtimeService) — dùng
          Node WS service riêng (websocket/server.js), KHÁC kênh Reverb ở echo-client.js phía trên.
          window.__WS_PUBLIC_URL để trống (route "services.websocket.public_url" chưa cấu hình) thì
          ws-client.js tự bỏ qua, không lỗi gì. --}}
     <script>window.__WS_PUBLIC_URL = @js(config('services.websocket.public_url'));</script>
-    @vite(['resources/js/ws-client.js'])
+    @unless ($isHomePage)
+        @vite(['resources/js/ws-client.js'])
+    @endunless
     <link rel="shortcut icon" href="{{ asset('/storage/' . $favicon) }}" type="image/x-icon">
     <style>
         :root {
             --color-primary: {{ $primaryColor }};
             --color-primary-rgb: {{ $primaryColorRgb }};
             --color-primary-light: {{ $lightPrimaryColor }};
+            --color-text-secondary: {{ data_get($siteTheme, 'Secondary', '#6b7280') }};
+            --color-secondary: {{ data_get($siteTheme, 'secondary', '#6b7280') }};
+            --color-gray: {{ data_get($siteTheme, 'gray', '#6b7280') }};
+            --color-success: {{ data_get($siteTheme, 'success', '#22c55e') }};
+            --color-danger: {{ data_get($siteTheme, 'danger', '#ef4444') }};
+            --color-info: {{ data_get($siteTheme, 'info', '#3b82f6') }};
+            --color-warning: {{ data_get($siteTheme, 'warning', '#f59e0b') }};
+            --color-background: {{ data_get($siteTheme, 'background', '#ffffff') }};
+            --color-bgDark: {{ data_get($siteTheme, 'bg_dark', '#111827') }};
+            --color-textDark: {{ data_get($siteTheme, 'text_dark', '#111827') }};
+            --color-red9C: {{ data_get($siteTheme, 'red_9c', '#9c0000') }};
+            --color-borderGray: {{ data_get($siteTheme, 'border_gray', '#e5e7eb') }};
+            --color-tickGreen: {{ data_get($siteTheme, 'tick_green', '#22c55e') }};
+            --color-tickYellow: {{ data_get($siteTheme, 'tick_yellow', '#eab308') }};
+            --color-tickGray: {{ data_get($siteTheme, 'tick_gray', '#9ca3af') }};
         }
         * {
             font-family: 'Inter', sans-serif;
@@ -169,7 +212,6 @@
     </style>
     <meta name="google-site-verification" content="0ZBswrf5iWy88w6bO01M5Ug3fzaHQYSVopJfACzmioc" />
     <meta name="google-site-verification" content="JxaNDMFwsnjNqpiMuX2dNb9xgCObK0fzixMaom0QD4I" />
-    <link rel="stylesheet" href="{{ route('theme.css') }}">
     @livewireStyles
 </head>
 
@@ -181,6 +223,28 @@
     @livewire('bladethemev1::auth-modal')
     @stack('scripts')
     @livewireScripts
+    @if ($isHomePage)
+        <script type="module">
+            let homeRealtimeLoaded = false;
+            const loadHomeRealtime = () => {
+                if (homeRealtimeLoaded) return;
+                homeRealtimeLoaded = true;
+                import(@js(Vite::asset('resources/js/echo-client.js')));
+                import(@js(Vite::asset('resources/js/ws-client.js')));
+            };
+            const boundary = document.querySelector('[data-home-realtime-boundary]');
+            if (boundary && 'IntersectionObserver' in window) {
+                const observer = new IntersectionObserver((entries) => {
+                    if (!entries.some(entry => entry.isIntersecting)) return;
+                    observer.disconnect();
+                    loadHomeRealtime();
+                });
+                observer.observe(boundary);
+            } else if (boundary) {
+                boundary.addEventListener('pointerdown', loadHomeRealtime, { once: true, passive: true });
+            }
+        </script>
+    @endif
 </body>
 
 </html>

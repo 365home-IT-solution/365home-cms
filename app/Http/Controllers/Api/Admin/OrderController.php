@@ -18,6 +18,7 @@ use Illuminate\Validation\ValidationException;
 use Modules\Category\Entities\Category;
 use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Payment\Entities\Order;
+use Modules\Product\App\Models\ManualLockPassword;
 use Modules\Product\App\Models\Product;
 
 class OrderController extends Controller
@@ -187,8 +188,8 @@ class OrderController extends Controller
         $order = Order::query()
             ->with([
                 // room_config: nguồn tính guest_surcharge (extra_guest_fee/max_free_guests) — xem
-                // toDetailItem()/buildGuestSurchargeInfo().
-                'items.product:id,name,styles,room_config',
+                // toDetailItem()/buildGuestSurchargeInfo(). lock_id: cần cho buildLockInfo() (case TTLock).
+                'items.product:id,name,styles,room_config,lock_id',
                 'items.product.media',
                 // Suy timeslot_id cho từng item (đơn theo giờ) — order_items không lưu timeslot_id
                 // trực tiếp, phải khớp ngược qua giờ bắt đầu (checkin_date) với RoomTimeSlot lặp
@@ -997,6 +998,7 @@ class OrderController extends Controller
     private function toDetailItem(Order $order): array
     {
         return $this->toListItem($order) + [
+            'lock_info'         => $this->buildLockInfo($order, $order->items->first()?->product),
             'note_for_admin'    => $order->note_for_admin,
             'surcharge'         => (int) $order->surcharge,
             'guest_surcharge'   => $this->buildGuestSurchargeInfo($order),
@@ -1052,6 +1054,42 @@ class OrderController extends Controller
                 'cccd_data'   => $g->cccd_data,
             ])->values(),
         ];
+    }
+
+    // Pass cổng/pass phòng để admin xem lại khi tra cứu đơn — cùng logic + mốc thời gian chốt đơn
+    // với OrderController (client)::buildLockInfo(), để 2 nơi luôn khớp mật khẩu hiển thị cho 1 đơn.
+    private function buildLockInfo(Order $order, ?Product $product): ?array
+    {
+        if (! $product || ! in_array($order->status, ['paid', 'deposit'])) {
+            return null;
+        }
+
+        $pwdAnchorDate = $order->paid_at ?? $order->deposit_paid_at ?? $order->created_at;
+
+        $manualPwd = ManualLockPassword::getForProductAndDate($product, $pwdAnchorDate);
+        if ($manualPwd) {
+            return [
+                'type'          => 'manual',
+                'gate_password' => $manualPwd->gate_password,
+                'room_password' => $manualPwd->room_password,
+            ];
+        }
+
+        if ($product->lock_id && \Modules\TTLock\App\Services\TTLockService::forCategory($order->category_id)) {
+            $accessCode = $order->accessCodes()->first();
+
+            return [
+                'type'           => 'ttlock',
+                'can_unlock'     => true,
+                'gate_password'  => $accessCode?->code,
+                'status'         => $accessCode?->status,
+                'valid_from'     => $accessCode?->valid_from?->toIso8601String(),
+                'valid_until'    => $accessCode?->valid_until?->toIso8601String(),
+                'gate_location'  => $accessCode?->gate_location,
+            ];
+        }
+
+        return null;
     }
 
     // Phụ thu khách vượt ngưỡng miễn phí của phòng (products.room_config: extra_guest_fee/

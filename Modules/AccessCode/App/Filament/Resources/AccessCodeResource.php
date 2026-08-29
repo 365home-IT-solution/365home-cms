@@ -21,7 +21,7 @@ class AccessCodeResource extends Resource
 
     public static function getNavigationGroup(): ?string
     {
-        return 'Quản lý';
+        return 'Cấu hình web';
     }
 
     public static function getNavigationLabel(): string
@@ -42,6 +42,13 @@ class AccessCodeResource extends Resource
     public static function canViewAny(): bool
     {
         return auth()->user()?->can('view_any_access::code') ?? false;
+    }
+
+    // Đã gộp vào 1 mục menu "Khóa cổng" cùng Khóa thủ công — xem App\Filament\Pages\GateLockManagement
+    // (App\Filament\Widgets\AccessCodeTableWidget). Ẩn khỏi menu, giữ nguyên route/permission/Excel.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
     }
 
     public static function getNavigationBadge(): ?string

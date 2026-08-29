@@ -10,11 +10,29 @@
              as "resource load delay". Preloading it here lets the browser fetch it immediately, in
              parallel with everything else, cutting straight into that delay without changing how
              the section renders. --}}
-        <link rel="preload" as="image" href="{{ asset('images/banner-guest-mobile.webp') }}" fetchpriority="high">
+        @php
+            $criticalBannerImage = data_get($criticalHome ?? [], 'banner.items.0.thumbnail.wide')
+                ?? data_get($criticalHome ?? [], 'banner.items.0.image_url');
+            $criticalBannerSrcset = collect([
+                data_get($criticalHome ?? [], 'banner.items.0.thumbnail.card')
+                    ? data_get($criticalHome, 'banner.items.0.thumbnail.card').' 480w' : null,
+                data_get($criticalHome ?? [], 'banner.items.0.thumbnail.wide')
+                    ? data_get($criticalHome, 'banner.items.0.thumbnail.wide').' 1080w' : null,
+            ])->filter()->implode(', ');
+        @endphp
+        @if ($criticalBannerImage)
+            <link rel="preload" as="image" href="{{ $criticalBannerImage }}"
+                  @if($criticalBannerSrcset) imagesrcset="{{ $criticalBannerSrcset }}" @endif
+                  imagesizes="(max-width: 1023px) 100vw, 768px" fetchpriority="high">
+        @endif
+        {{-- Measured as LCP on the responsive home layout; discover it from the document head. --}}
+        <link rel="preload" as="image" href="{{ asset('images/welcome-joyer-1140.webp') }}" fetchpriority="high">
     @endpush
 @endif
 
 @section('content')
+
+    <h1 class="sr-only">{{ $page->name ?? config('app.name', '365 HOME') }}</h1>
 
     @livewire('bladethemev1::header')
     @livewire('bladethemev1::drawer-menu')
@@ -22,7 +40,7 @@
     @if (request()->path() === '/')
         {{-- Trang chủ: chỉ render hero-section + các section tùy chỉnh --}}
         @livewire('bladethemev1::hero-section')
-        @livewire('bladethemev1::flash-sale')
+        @livewire('bladethemev1::flash-sale', ['criticalHome' => $criticalHome ?? []])
         @livewire('bladethemev1::voucher')
 
     @else

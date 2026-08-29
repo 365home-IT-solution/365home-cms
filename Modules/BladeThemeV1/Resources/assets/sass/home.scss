@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+// Keep Swiper styles in the home stylesheet so the initial render needs one CSS request.
+@import "swiper/css";
+@import "swiper/css/navigation";
+@import "swiper/css/pagination";
+
+@import "mixin";
+@import "button";
+@import "custom";
+@import "menu-item";
+
+html { font-size: .8rem; }
+@media (min-width: 768px) { html { font-size: .9rem; } }
+
+.swiper-wrapper {
+    width: 100%;
+    height: max-content !important;
+    position: relative;
+}
+
+.custom-lheight { line-height: 1.2rem; }
+.text-md { font-size: 1rem; line-height: 1.25rem; }

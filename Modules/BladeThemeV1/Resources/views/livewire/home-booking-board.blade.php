@@ -5,7 +5,8 @@
  * kiện 'load-branch' (cơ chế có sẵn từ Book::loadBranch()).
 --}}
 @inject('generalSettings', 'App\Settings\GeneralSettings')
-<section class="py-6 bg-white" x-data="homeBookingBoard()" x-init="init()" x-cloak>
+<section class="py-6 bg-white" data-home-realtime-boundary
+         x-data="homeBookingBoard(@js(data_get($criticalHome ?? [], 'booking', [])))" x-init="init()">
     <div class="w-full max-w-7xl mx-auto" x-show="provinces.length > 0">
 
         <div class="px-4 sm:px-6">
@@ -83,7 +84,11 @@
              riêng khung lịch mobile (.book-panel) tự bù margin âm để tràn sát mép, xem CSS
              `.home-book-scope .book-panel` trong book/_styles.blade.php. --}}
         <div class="px-4 sm:px-6 home-book-scope">
-            @livewire('bladethemev1::book', ['config' => \Modules\BladeThemeV1\Support\BranchBookConfig::empty()])
+            @php
+                $initialBookConfig = data_get($criticalHome ?? [], 'booking.default_book_config')
+                    ?: \Modules\BladeThemeV1\Support\BranchBookConfig::empty();
+            @endphp
+            @livewire('bladethemev1::book', ['config' => $initialBookConfig])
         </div>
     </div>
 </section>

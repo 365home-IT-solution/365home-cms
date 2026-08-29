@@ -30,6 +30,13 @@ services:
     redis:
         image: redis:7-alpine
         restart: unless-stopped
+        # Lưu bền vững (AOF) + volume đặt tên riêng: nếu không có, dữ liệu Redis (cache, session,
+        # access_token/refresh_token Zalo OA...) chỉ sống trong writable layer của container và mất
+        # sạch mỗi khi container này bị tạo lại (vd VPS restart, docker compose down/up lại toàn bộ
+        # stack) — đây là nguyên nhân gây mất token Zalo dẫn tới gửi OTP lỗi liên tục sau sự cố đó.
+        command: redis-server --appendonly yes
+        volumes:
+            - 'redis-data:/data'
         networks:
             - app
 
@@ -51,3 +58,6 @@ networks:
         driver: bridge
     mariadb_default:
         external: true
+
+volumes:
+    redis-data:

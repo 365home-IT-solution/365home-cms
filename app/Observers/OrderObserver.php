@@ -3,6 +3,7 @@
 namespace App\Observers;
 
 use App\Models\Customer;
+use App\Support\AuditFieldFilter;
 use App\Services\AdminNotificationService;
 use App\Services\MembershipService;
 use App\Services\NotificationFcmService;
@@ -14,13 +15,6 @@ use Modules\Payment\Entities\Order;
 
 class OrderObserver
 {
-    private const TRACKED_FIELDS = [
-        'status', 'amount', 'full_amount', 'deposit_percent',
-        'buyer_name', 'buyer_phone', 'buyer_email',
-        'payment_method', 'note_for_admin', 'guest_count',
-        'checkin_date', 'checkout_date',
-    ];
-
     private function send(Order $order, string $title, string $icon, string $color): void
     {
         $body    = "#{$order->order_code} · {$order->buyer_name} · " . number_format($order->full_amount) . ' VNĐ';
@@ -118,7 +112,7 @@ class OrderObserver
                 action: 'create',
                 module: 'Order',
                 record: $order,
-                new: $order->only(['order_code', 'buyer_name', 'buyer_phone', 'amount', 'status']),
+                new: AuditFieldFilter::filter($order->getAttributes()),
                 label: "#{$order->order_code} — {$order->buyer_name}",
             );
         }
@@ -172,20 +166,33 @@ class OrderObserver
             $this->maybeAssignCustomerBranch($order);
         }
 
-        $changed = array_keys($order->getChanges());
-        $tracked = array_intersect($changed, self::TRACKED_FIELDS);
+        // Trước đây chỉ log khi field đổi nằm trong TRACKED_FIELDS (status/amount/buyer.../
+        // checkin/checkout) — sửa note nội bộ khác, hay field mới thêm sau này không nằm trong
+        // whitelist sẽ không có log. Bỏ whitelist, ghi lại toàn bộ field thay đổi.
+        $changed = AuditFieldFilter::filter($order->getChanges());
 
-        if (! empty($tracked)) {
+        if (! empty($changed)) {
             $referer = request()->headers->get('referer', '');
             if (str_contains($referer, '/admin/')) {
-                AuditLogger::log(
-                    action: 'update',
-                    module: 'Order',
-                    record: $order,
-                    old: array_intersect_key($order->getOriginal(), array_flip($tracked)),
-                    new: array_intersect_key($order->getChanges(), array_flip($tracked)),
-                    label: "#{$order->order_code} — {$order->buyer_name}",
-                );
+                $old = array_intersect_key($order->getOriginal(), $changed);
+                $new = $changed;
+
+                // EditOrder::handleRecordUpdate() bật cờ suppress() trước khi gọi $record->update()
+                // để gom dòng log này CHUNG với chi tiết phòng/khung giờ/dịch vụ (xem
+                // EditOrder::afterSave()) thành 1 dòng duy nhất thay vì 2 dòng rời rạc mỗi lần Lưu.
+                // Nơi khác gọi update() không bật cờ này thì vẫn ghi log ngay như cũ.
+                if (\App\Support\OrderAuditBuffer::isSuppressed((string) $order->id)) {
+                    \App\Support\OrderAuditBuffer::note((string) $order->id, $old, $new);
+                } else {
+                    AuditLogger::log(
+                        action: 'update',
+                        module: 'Order',
+                        record: $order,
+                        old: $old,
+                        new: $new,
+                        label: "#{$order->order_code} — {$order->buyer_name}",
+                    );
+                }
             }
         }
 
@@ -409,7 +416,7 @@ class OrderObserver
             action: 'delete',
             module: 'Order',
             record: $order,
-            old: $order->only(['order_code', 'buyer_name', 'buyer_phone', 'amount', 'status']),
+            old: AuditFieldFilter::filter($order->getAttributes()),
             label: "#{$order->order_code} — {$order->buyer_name}",
         );
 

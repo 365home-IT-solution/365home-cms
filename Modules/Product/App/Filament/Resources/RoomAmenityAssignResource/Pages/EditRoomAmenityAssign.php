@@ -11,6 +11,7 @@ use Filament\Forms\Form;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use Modules\AuditLog\Services\AuditLogger;
 use Modules\Product\App\Filament\Resources\RoomAmenityAssignResource;
 use Modules\Product\App\Models\RoomAmenity;
 use Modules\Product\App\Models\RoomAmenityAssign;
@@ -89,6 +90,17 @@ class EditRoomAmenityAssign extends EditRecord
             $selectedIds = array_merge($selectedIds, $data[$key] ?? []);
         }
 
+        // RoomAmenityAssign không có model event nào bắn ra khi lưu — xoá bằng query builder
+        // (::delete()) và các dòng ::create() bên dưới đều tác động vào Product CỦA NÓ chứ không
+        // phải bản thân $record (Product), nên Eloquent event 'updated' của Product không hề fires.
+        // Ghi thủ công 1 dòng log duy nhất tóm tắt tiện ích đã thêm/bỏ, tránh mất dấu vết hoàn toàn
+        // (đã xác nhận qua thực tế: bỏ 1 tiện ích không để lại log nào).
+        $beforeIds = RoomAmenityAssign::where('room_id', $record->id)
+            ->pluck('amenity_id')
+            ->map(fn ($id) => (string) $id)
+            ->all();
+        $afterIds = array_map('strval', $selectedIds);
+
         RoomAmenityAssign::where('room_id', $record->id)->delete();
 
         foreach ($selectedIds as $amenityId) {
@@ -96,6 +108,22 @@ class EditRoomAmenityAssign extends EditRecord
                 'room_id'    => $record->id,
                 'amenity_id' => $amenityId,
             ]);
+        }
+
+        $added   = array_diff($afterIds, $beforeIds);
+        $removed = array_diff($beforeIds, $afterIds);
+
+        if (! empty($added) || ! empty($removed)) {
+            $names = RoomAmenity::whereIn('id', array_merge($added, $removed))->pluck('name', 'id');
+
+            AuditLogger::log(
+                action: 'update',
+                module: 'Product',
+                record: $record,
+                old: $removed ? ['tien_ich_da_bo' => collect($removed)->map(fn ($id) => $names[$id] ?? $id)->implode(', ')] : [],
+                new: $added ? ['tien_ich_da_them' => collect($added)->map(fn ($id) => $names[$id] ?? $id)->implode(', ')] : [],
+                label: ($record->name ?? '#' . $record->id) . ' — Cập nhật tiện ích',
+            );
         }
 
         return $record;

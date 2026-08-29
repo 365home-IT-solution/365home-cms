@@ -34,6 +34,13 @@ class ConsultationLogResource extends Resource
 
     protected static ?string $pluralModelLabel = 'Tư vấn khách hàng';
 
+    // Ẩn khỏi menu theo yêu cầu — giữ nguyên route/data/API (lương piece_rate vẫn tính được nếu có
+    // dữ liệu cũ). Bật lại bằng cách xoá method này.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
+
     public static function form(Form $form): Form
     {
         $currentEmployee = auth()->user()?->employee;

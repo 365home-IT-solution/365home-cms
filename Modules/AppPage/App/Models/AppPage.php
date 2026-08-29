@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace Modules\AppPage\App\Models;
 
+use App\Models\Concerns\LogsAuditTrail;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class AppPage extends Model
 {
+    use LogsAuditTrail;
+
     protected $fillable = [
         'slug',
         'name',

@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Storage;
+use App\Models\Province;
 use Modules\BladeThemeV1\Support\BranchBookConfig;
 use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
@@ -37,6 +38,7 @@ class SearchController extends Controller
 
         $locations = Product::where('is_activated', true)
             ->where('is_in_stock', true)
+            ->activeBranch()
             ->whereNotNull('address')
             ->whereNotNull('latitude')
             ->whereNotNull('longitude')
@@ -76,6 +78,17 @@ class SearchController extends Controller
             ]);
         }
 
+        return response()->json(
+            static::branchesDataForProvince($province, $request->query('type'))
+        );
+    }
+
+    // Logic gốc của branches() ở trên, tách ra thành hàm dùng chung — cho phép nơi khác (vd
+    // ProvinceController::index() với ?with_default_branches=1) build cùng cấu trúc dữ liệu này
+    // mà không gọi lại qua HTTP (gộp API cho lần tải trang chủ đầu tiên, xem home-sections.js
+    // homeBookingBoard()). HÀNH VI GIỮ NGUYÊN 100% so với trước khi tách — chỉ di chuyển code.
+    public static function branchesDataForProvince(Province $province, ?string $requestedType = null): array
+    {
         $branchRows = $province->branches()
             ->where('status', true)
             ->with('category')
@@ -173,7 +186,6 @@ class SearchController extends Controller
         // URL canonical của riêng chi nhánh đó) vì 1 chi nhánh có thể có vài phòng khác loại hình
         // chính — vẫn nên xuất hiện khi khách đang duyệt đúng loại hình đó. Không có ?type= → giữ
         // hành vi cũ (liệt kê mọi chi nhánh, mọi loại hình).
-        $requestedType = $request->query('type');
         if ($requestedType) {
             $branchRows = $branchRows->filter(
                 fn ($branch) => ($typeCountsByBranch[$branch->category->id][$requestedType] ?? 0) > 0
@@ -198,10 +210,10 @@ class SearchController extends Controller
             ->sortByDesc('has_promotion')
             ->values();
 
-        return response()->json([
+        return [
             'data' => $branches,
             'meta' => ['province_name' => $province->name, 'total' => $branches->count()],
-        ]);
+        ];
     }
 
     // ─── GET /v1/search ──────────────────────────────────────────────────────
@@ -233,6 +245,7 @@ class SearchController extends Controller
 
         $results = Product::where('is_activated', true)
             ->where('is_in_stock', true)
+            ->activeBranch()
             ->whereNotNull('address')
             ->where('address', 'like', "%{$q}%")
             ->orderBy('name')

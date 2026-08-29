@@ -2,6 +2,7 @@
 
 namespace Modules\Promotion\App\Models;
 
+use App\Models\Concerns\BelongsToActiveBranchCategories;
 use App\Models\Concerns\BelongsToPartner;
 use App\Models\Customer;
 use App\Models\MembershipTier;
@@ -16,10 +17,11 @@ use Modules\Product\App\Models\Product;
 
 class Coupon extends Model
 {
-    use HasFactory, BelongsToPartner, Categorizable;
+    use HasFactory, BelongsToPartner, Categorizable, BelongsToActiveBranchCategories;
 
     protected $fillable = [
         'partner_id',
+        'price_board_id',
         'code',
         'name',
         'description',
@@ -73,6 +75,11 @@ class Coupon extends Model
         return $this->belongsTo(User::class, 'created_by');
     }
 
+    public function priceBoard()
+    {
+        return $this->belongsTo(\Modules\Product\App\Models\PriceBoard::class);
+    }
+
     public function customer()
     {
         return $this->belongsTo(Customer::class, 'customer_id');
@@ -83,6 +90,11 @@ class Coupon extends Model
         return $this->belongsToMany(Customer::class, 'coupon_customers', 'coupon_id', 'customer_id')
             ->withPivot('assigned_at')
             ->withTimestamps();
+    }
+
+    public function usages(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(CouponUsage::class);
     }
 
     public function isPersonal(): bool
@@ -263,10 +275,27 @@ class Coupon extends Model
     }
 
     /**
-     * Tăng số lần sử dụng
+     * Tăng số lần sử dụng. Truyền orderId để đồng thời ghi lại 1 dòng lịch sử sử dụng
+     * (coupon_usages) — dùng cho trang quản lý khách hàng/dashboard/export voucher đã dùng.
+     * Không truyền orderId khi chỉ cần tăng đếm thô (giữ tương thích các nơi gọi cũ).
      */
-    public function incrementUsage(): void
-    {
+    public function incrementUsage(
+        ?string $orderId = null,
+        ?string $customerId = null,
+        ?int $categoryId = null,
+        ?int $discountAmount = null
+    ): void {
         $this->increment('used_count');
+
+        if ($orderId !== null) {
+            $this->usages()->create([
+                'customer_id'     => $customerId,
+                'order_id'        => $orderId,
+                'category_id'     => $categoryId,
+                'code'            => $this->code,
+                'discount_amount' => $discountAmount,
+                'used_at'         => now(),
+            ]);
+        }
     }
 }

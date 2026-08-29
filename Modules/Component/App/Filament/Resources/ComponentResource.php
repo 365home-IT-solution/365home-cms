@@ -64,8 +64,37 @@ class ComponentResource extends Resource
         ];
     }
 
+    // Ẩn hẳn khỏi admin — "Thành phần" (Component) là schema kỹ thuật để phát triển tính năng
+    // (tự đặt tên field, chọn 1 trong ~45 kiểu input), không phải nội dung admin cần tự tạo mới.
+    // 10 component sẵn có vẫn dùng bình thường trong "Trang" (Page) — chỉ chặn tạo/sửa/xoá qua UI,
+    // không đụng gì đến dữ liệu/logic render đang chạy trên web thật.
     public static function shouldRegisterNavigation(): bool
     {
-        return true;
+        return false;
+    }
+
+    public static function canAccess(): bool
+    {
+        return false;
+    }
+
+    public static function canViewAny(): bool
+    {
+        return false;
+    }
+
+    public static function canCreate(): bool
+    {
+        return false;
+    }
+
+    public static function canEdit($record): bool
+    {
+        return false;
+    }
+
+    public static function canDelete($record): bool
+    {
+        return false;
     }
 }

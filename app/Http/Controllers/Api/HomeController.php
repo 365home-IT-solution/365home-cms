@@ -10,6 +10,7 @@ use App\Models\Province;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Modules\AppPage\App\Models\AppPage;
 use Modules\AppPage\App\Models\Banner;
@@ -228,13 +229,40 @@ class HomeController extends Controller
 
     private function getRooms(array $data, string $displayMode, ?array $wishlistedIds, ?int $tabRoomTypeId, ?Province $province = null): array
     {
+        // Cache phần dữ liệu phòng (ảnh/giá/tên...) dùng chung cho mọi user — KHÔNG cache
+        // wishlist_status vì đó là dữ liệu riêng theo từng user, gắn lại ngay bên dưới sau khi lấy
+        // từ cache/DB để tránh lộ/lẫn trạng thái yêu thích giữa các user.
+        $cacheKey = 'home:room_list:' . md5(json_encode([
+            'data'         => $data,
+            'display_mode' => $displayMode,
+            'tab'          => $tabRoomTypeId,
+            'province'     => $province?->id,
+        ]));
+
+        $rooms = Cache::remember($cacheKey, now()->addMinutes(5), function () use ($data, $displayMode, $tabRoomTypeId, $province) {
+            return $this->fetchRooms($data, $displayMode, $tabRoomTypeId, $province);
+        });
+
+        if ($wishlistedIds !== null) {
+            foreach ($rooms as &$room) {
+                $room['wishlist_status'] = \in_array($room['id'], $wishlistedIds);
+            }
+            unset($room);
+        }
+
+        return $rooms;
+    }
+
+    private function fetchRooms(array $data, string $displayMode, ?int $tabRoomTypeId, ?Province $province = null): array
+    {
         $productIds = $data['product_ids'] ?? [];
 
         if (! empty($productIds)) {
             // Phòng được chọn tay — fixed: lấy hết; by_region: lọc theo tỉnh
             $query = Product::whereIn('id', $productIds)
                 ->where('is_activated', true)
-                ->where('is_in_stock', true);
+                ->where('is_in_stock', true)
+                ->activeBranch();
 
             if ($displayMode === 'by_region' && $province !== null) {
                 $provinceBranchIds = $province->branches()
@@ -252,7 +280,8 @@ class HomeController extends Controller
             }
         } else {
             $query = Product::where('is_activated', true)
-                ->where('is_in_stock', true);
+                ->where('is_in_stock', true)
+                ->activeBranch();
 
             $branchIds = array_filter((array) ($data['branch_ids'] ?? []));
 
@@ -306,12 +335,14 @@ class HomeController extends Controller
 
         $branchLookup = $this->globalBranchLookup();
 
+        // wishlist_status luôn null ở đây — kết quả hàm này bị cache dùng chung cho mọi user
+        // (xem getRooms() gọi hàm này), trạng thái yêu thích theo từng user được gắn lại sau khi
+        // lấy từ cache, không được "đóng băng" theo cache.
         return $query
             ->with(['roomTimeSlots.timeSlot', 'media', 'roomType', 'categories'])
             ->get()
-            ->map(function ($room) use ($wishlistedIds, $branchLookup) {
-                $status = $wishlistedIds === null ? null : \in_array($room->id, $wishlistedIds);
-                $card   = $this->mapRoom($room, $status);
+            ->map(function ($room) use ($branchLookup) {
+                $card = $this->mapRoom($room, null);
                 $card['branch'] = $this->resolveBranch($room, $branchLookup['cats'], $branchLookup['childMap']);
 
                 return $card;
@@ -360,6 +391,7 @@ class HomeController extends Controller
         $rooms = Product::whereIn('id', $productIds)
             ->where('is_activated', true)
             ->where('is_in_stock', true)
+            ->activeBranch()
             ->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds))
             ->with(['roomTimeSlots.timeSlot', 'media', 'roomType', 'categories'])
             ->get()
@@ -443,6 +475,26 @@ class HomeController extends Controller
 
     private function getSuggestionRooms(Province $province, ?array $wishlistedIds = null): array
     {
+        // Cùng nguyên tắc như getRooms(): cache phần dữ liệu phòng dùng chung theo khu vực, gắn
+        // wishlist_status theo user sau khi lấy từ cache (không cache dữ liệu riêng theo user).
+        $cacheKey = 'home:suggestion_rooms:' . $province->id;
+
+        $rooms = Cache::remember($cacheKey, now()->addMinutes(5), function () use ($province) {
+            return $this->fetchSuggestionRooms($province);
+        });
+
+        if ($wishlistedIds !== null) {
+            foreach ($rooms as &$room) {
+                $room['wishlist_status'] = \in_array($room['id'], $wishlistedIds);
+            }
+            unset($room);
+        }
+
+        return $rooms;
+    }
+
+    private function fetchSuggestionRooms(Province $province): array
+    {
         $branchCategoryIds = $province->branches()
             ->where('status', true)
             ->pluck('categorie_id')
@@ -463,9 +515,8 @@ class HomeController extends Controller
             ->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds))
             ->with(['roomTimeSlots.timeSlot', 'media', 'roomType', 'categories'])
             ->get()
-            ->map(function ($room) use ($wishlistedIds, $branchLookup) {
-                $status = $wishlistedIds === null ? null : \in_array($room->id, $wishlistedIds);
-                $card   = $this->mapRoom($room, $status);
+            ->map(function ($room) use ($branchLookup) {
+                $card = $this->mapRoom($room, null);
                 $card['branch'] = $this->resolveBranch($room, $branchLookup['cats'], $branchLookup['childMap']);
 
                 $card['image_url'] = $card['thumbnail_url'];

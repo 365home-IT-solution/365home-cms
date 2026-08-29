@@ -33,8 +33,10 @@ class CreateUserBranchPermission extends CreateRecord
 
         $createdBy = auth()->id();
 
-        // Xóa quyền cũ rồi gán lại
-        UserBranchPermission::where('user_id', $userId)->delete();
+        // Xóa quyền cũ rồi gán lại — xoá TỪNG bản ghi (không dùng ::where()->delete() hàng loạt)
+        // để UserBranchPermissionObserver::deleted() vẫn bắn đúng, ghi lại audit log (trước đây
+        // xoá hàng loạt bằng query builder không bắn Eloquent event nên hoàn toàn không có log).
+        UserBranchPermission::where('user_id', $userId)->get()->each->delete();
 
         foreach ($categoryIds as $categoryId) {
             UserBranchPermission::create([

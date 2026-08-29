@@ -2,12 +2,13 @@
 
 namespace Modules\QA\App\Models;
 
+use App\Models\Concerns\LogsAuditTrail;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class QA extends Model
 {
-    use HasFactory;
+    use HasFactory, LogsAuditTrail;
 
     protected $table = 'qa';
     

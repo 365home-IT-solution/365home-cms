@@ -17,6 +17,9 @@ class BookResource extends Resource
     protected static ?string $model = RoomTimeSlot::class;
     protected static ?string $navigationIcon = 'heroicon-o-wrench-screwdriver';
     protected static ?string $navigationGroup = 'Quản lý';
+    // Ghim lên đầu nhóm "Quản lý" và đứng sát "Bảng giá" (xem PriceBoardResource, sort=-2) — mặc
+    // định Filament sắp theo alphabet nên "Hệ thống giá"/"Bảng giá" bị tách rời các mục khác nhau.
+    protected static ?int $navigationSort = -3;
 
     public static function getNavigationLabel(): string
     {

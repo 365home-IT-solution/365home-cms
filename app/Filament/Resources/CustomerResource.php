@@ -6,6 +6,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\CustomerResource\Pages;
 use App\Filament\Resources\CustomerResource\RelationManagers\AssignedCouponsRelationManager;
+use App\Filament\Resources\CustomerResource\RelationManagers\CouponUsagesRelationManager;
 use App\Filament\Resources\CustomerResource\RelationManagers\MembershipLogsRelationManager;
 use App\Filament\Resources\CustomerResource\RelationManagers\PersonalCouponsRelationManager;
 use App\Models\Customer;
@@ -31,6 +32,7 @@ use Filament\Tables\Actions\ViewAction;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ToggleColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -44,7 +46,7 @@ class CustomerResource extends Resource
     protected static ?string $model = Customer::class;
 
     protected static ?string $navigationIcon   = 'heroicon-o-users';
-    protected static ?string $navigationGroup  = 'Phân quyền';
+    protected static ?string $navigationGroup  = 'Quản lý';
     protected static ?string $navigationLabel  = 'Khách hàng';
     protected static ?string $modelLabel       = 'Khách hàng';
     protected static ?string $pluralModelLabel = 'Khách hàng';
@@ -218,31 +220,17 @@ class CustomerResource extends Resource
                                     $html .= '<p class="text-gray-600 dark:text-gray-300">' . e($tier->description) . '</p>';
                                 }
 
-                                $html .= '<div class="grid grid-cols-2 gap-2">';
-
-                                // Ngưỡng chi tiêu
+                                // Ngưỡng chi tiêu — khối "Coupon chào mừng" trước đây hiển thị ở đây đã bị bỏ:
+                                // welcome_coupon_* là cơ chế CŨ đã ngưng dùng (không sửa được qua form hạng,
+                                // không dùng để cấp coupon thật — xem MembershipService::grantTemplateCoupon()),
+                                // dữ liệu hiển thị chỉ là rác còn sót lại. Điều kiện/quyền lợi hạng thật sự nên
+                                // điền vào $tier->description (đã hiển thị ngay phía trên, qua trang Sửa hạng).
                                 $html .= '<div class="rounded-lg bg-gray-50 dark:bg-white/5 p-3">';
                                 $html .= '<div class="text-xs uppercase tracking-wide text-gray-400 mb-1">Ngưỡng chi tiêu</div>';
                                 $html .= '<div class="font-semibold text-gray-800 dark:text-gray-100">'
                                     . number_format((float) $tier->min_spending, 0, ',', '.') . ' VNĐ'
                                     . '</div>';
                                 $html .= '</div>';
-
-                                // Coupon chào mừng
-                                if ((float) $tier->welcome_coupon_value > 0) {
-                                    $val = $tier->welcome_coupon_type === 'percentage'
-                                        ? $tier->welcome_coupon_value . '%'
-                                        : number_format((float) $tier->welcome_coupon_value, 0, ',', '.') . ' VNĐ';
-
-                                    $html .= '<div class="rounded-lg bg-emerald-50 dark:bg-emerald-900/20 p-3">';
-                                    $html .= '<div class="text-xs uppercase tracking-wide text-emerald-600 dark:text-emerald-400 mb-1">Coupon chào mừng</div>';
-                                    $html .= '<div class="font-semibold text-emerald-700 dark:text-emerald-300">'
-                                        . e($val) . ' · ' . $tier->welcome_coupon_days . ' ngày'
-                                        . '</div>';
-                                    $html .= '</div>';
-                                }
-
-                                $html .= '</div>'; // end grid
 
                                 // Hạng tiếp theo
                                 $nextTier = MembershipTier::where('is_active', true)
@@ -350,6 +338,12 @@ class CustomerResource extends Resource
                     ->money('VND')
                     ->sortable(),
 
+                TextColumn::make('coupon_usages_count')
+                    ->label('Số lượt dùng voucher')
+                    ->counts('couponUsages')
+                    ->sortable()
+                    ->visible(fn () => auth()->user()?->can('view_customer_voucher_usage') ?? false),
+
                 TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
                     ->dateTime('d/m/Y H:i')
@@ -364,6 +358,47 @@ class CustomerResource extends Resource
             ->defaultSort('created_at', 'desc')
             ->filters([
                 TrashedFilter::make(),
+                Filter::make('used_voucher')
+                    ->label('Đã sử dụng voucher')
+                    ->visible(fn () => auth()->user()?->can('view_customer_voucher_usage') ?? false)
+                    ->form([
+                        Toggle::make('is_active')
+                            ->label('Chỉ khách đã dùng voucher'),
+                        DatePicker::make('used_from')
+                            ->label('Từ ngày')
+                            ->native(false)
+                            ->displayFormat('d/m/Y'),
+                        DatePicker::make('used_until')
+                            ->label('Đến ngày')
+                            ->native(false)
+                            ->displayFormat('d/m/Y'),
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        if (empty($data['is_active'])) {
+                            return $query;
+                        }
+
+                        return $query->whereHas('couponUsages', function (Builder $q) use ($data) {
+                            $q->when($data['used_from'] ?? null, fn (Builder $qq, $date) => $qq->whereDate('used_at', '>=', $date))
+                              ->when($data['used_until'] ?? null, fn (Builder $qq, $date) => $qq->whereDate('used_at', '<=', $date));
+                        });
+                    })
+                    ->indicateUsing(function (array $data): array {
+                        if (empty($data['is_active'])) {
+                            return [];
+                        }
+
+                        $indicators = ['is_active' => 'Đã sử dụng voucher'];
+
+                        if (! empty($data['used_from'])) {
+                            $indicators['used_from'] = 'Từ ' . \Carbon\Carbon::parse($data['used_from'])->format('d/m/Y');
+                        }
+                        if (! empty($data['used_until'])) {
+                            $indicators['used_until'] = 'Đến ' . \Carbon\Carbon::parse($data['used_until'])->format('d/m/Y');
+                        }
+
+                        return $indicators;
+                    }),
             ])
             ->actions([
                 ViewAction::make()->label('Chi tiết'),
@@ -452,6 +487,7 @@ class CustomerResource extends Resource
             MembershipLogsRelationManager::class,
             PersonalCouponsRelationManager::class,
             AssignedCouponsRelationManager::class,
+            CouponUsagesRelationManager::class,
         ];
     }
 

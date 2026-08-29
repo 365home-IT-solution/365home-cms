@@ -25,7 +25,7 @@ class WarehouseStockCheckResource extends Resource
 
     public static function getNavigationGroup(): ?string
     {
-        return 'Quản lý kho';
+        return 'Quản lý';
     }
 
     public static function getNavigationLabel(): string

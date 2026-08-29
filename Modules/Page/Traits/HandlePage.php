@@ -74,20 +74,44 @@ trait HandlePage
             ];
         })->values()->all();
 
-        $this->record->pageComponents()->delete();
+        // Mỗi lần Lưu trang, TOÀN BỘ component bị xoá-tạo lại (kể cả khi nội dung không đổi gì) —
+        // nếu để PageComponent::LogsAuditTrail tự log từng create()/delete() sẽ ra rất nhiều dòng
+        // vụn (1 dòng/section) mỗi lần Lưu, kể cả khi chỉ sửa 1 chữ. Tạm tắt log tự động, tự ghi 1
+        // dòng TÓM TẮT duy nhất bên dưới — trước đây hoàn toàn KHÔNG có log nào cho việc này.
+        $oldLabels = $this->record->pageComponents()->with('component')
+            ->get()
+            ->map(fn ($pc) => $pc->component?->label ?? ('#' . $pc->component_id))
+            ->all();
 
-        foreach ($componentsData as $componentData) {
-            $pageComponent = $this->record->pageComponents()->create([
-                'component_id' => $componentData['component_id'],
-                self::ORDER => $componentData[self::ORDER],
-                'instance_id' => $componentData['instance_id'],
-            ]);
+        \Modules\Page\Entities\PageComponent::withoutAuditLog(function () use ($componentsData) {
+            $this->record->pageComponents()->get()->each->delete();
 
-            if (!empty($componentData[self::CONFIG_VALUES])) {
-                $syncData = $this->prepareSyncData($componentData[self::CONFIG_VALUES]);
-                $pageComponent->pageComponentConfigurationValues()->sync($syncData);
+            foreach ($componentsData as $componentData) {
+                $pageComponent = $this->record->pageComponents()->create([
+                    'component_id' => $componentData['component_id'],
+                    self::ORDER => $componentData[self::ORDER],
+                    'instance_id' => $componentData['instance_id'],
+                ]);
+
+                if (!empty($componentData[self::CONFIG_VALUES])) {
+                    $syncData = $this->prepareSyncData($componentData[self::CONFIG_VALUES]);
+                    $pageComponent->pageComponentConfigurationValues()->sync($syncData);
+                }
             }
-        }
+        });
+
+        $newLabels = collect($componentsData)
+            ->map(fn ($c) => \Modules\Page\Entities\Component::find($c['component_id'])?->label ?? ('#' . $c['component_id']))
+            ->all();
+
+        \Modules\AuditLog\Services\AuditLogger::log(
+            action: 'update',
+            module: 'Page',
+            record: $this->record,
+            old: ['danh_sach_section' => implode(', ', $oldLabels)],
+            new: ['danh_sach_section' => implode(', ', $newLabels)],
+            label: 'Trang ' . ($this->record->title ?? '#' . $this->record->id) . ' — Cập nhật nội dung',
+        );
     }
 
     public function prepareSyncData(array $data): array

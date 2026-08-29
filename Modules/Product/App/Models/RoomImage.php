@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace Modules\Product\App\Models;
 
+use App\Models\Concerns\LogsAuditTrail;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
 
 class RoomImage extends Model
 {
+    use LogsAuditTrail;
+
     protected $fillable = [
         'room_id',
         'type',

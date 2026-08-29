@@ -20,7 +20,7 @@ class CustomerChat extends Page
     protected static string  $view             = 'filament.pages.customer-chat';
     protected static ?string $navigationGroup  = 'Quản lý';
     protected static ?string $navigationIcon   = 'heroicon-o-chat-bubble-left-right';
-    protected static ?string $navigationLabel  = 'Tin nhắn khách hàng';
+    protected static ?string $navigationLabel  = 'Tin nhắn';
     protected static ?string $title            = 'Tin nhắn khách hàng';
     protected static ?int    $navigationSort   = 98;
 

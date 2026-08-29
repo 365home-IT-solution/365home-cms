@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Modules\Warehouse\App\Filament\Resources\WarehouseStockCheckResource\Forms;
 
-use App\Models\Partner;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Hidden;
@@ -31,7 +30,7 @@ class WarehouseStockCheckForm
         return $form->schema([
             Section::make('Thông tin phiếu')
                 ->schema([
-                    self::partnerInput(),
+                    self::partnerHidden(),
                     self::branchInput(),
 
                     // Xem giải thích 'default' => 1 ở WarehouseItemForm — Grid::make(N)/->columns(N)/
@@ -228,62 +227,74 @@ class WarehouseStockCheckForm
             ->toArray();
     }
 
-    // Chỉ super_admin thấy field này — nhân viên đối tác tạo phiếu thì partner_id tự động lấy theo
-    // tài khoản đang đăng nhập (BelongsToPartner::creating()), không cần tự chọn. Nếu super_admin
-    // KHÔNG chọn, phiếu lưu với partner_id RỖNG, không đối tác nào thấy được — cùng pattern với
-    // CategoryResource\Forms\CategoryForm::partnerInput() và WarehouseStockInForm::partnerInput().
-    private static function partnerInput(): Select
+    // Chi nhánh đang ACTIVE ở header "Chuyển đổi chi nhánh" — CHỈ tính khi admin đã chủ động thu
+    // hẹp qua switcher (session('active_branch_ids') không rỗng); nếu switcher đang để "Chọn tất
+    // cả" (session rỗng), coi như CHƯA thu hẹp gì, trả về [].
+    private static function headerActiveBranchIds(): array
     {
-        return Select::make('partner_id')
-            ->label('Đối tác sở hữu')
-            ->options(fn () => Partner::withTrashed()
-                ->orderBy('name')
-                ->get()
-                ->mapWithKeys(fn (Partner $partner) => [
-                    $partner->id => $partner->name . ($partner->trashed() ? ' (đã xoá)' : ''),
-                ])
-                ->all())
-            ->getOptionLabelUsing(fn ($value) => $value
-                ? Partner::withTrashed()->find($value)?->name
-                : null)
-            ->dehydrated()
-            ->searchable()
-            ->preload()
-            ->required()
-            ->live()
-            // Đổi đối tác thì danh sách chi nhánh (branchInput) đổi theo — chi nhánh đã chọn trước
-            // đó (nếu có) không còn hợp lệ nữa, và danh sách "TOÀN BỘ vật tư" đang liệt kê sẵn cũng
-            // thuộc đối tác CŨ — phải xoá hết, chờ chọn lại chi nhánh mới rồi mới nạp lại đúng.
-            ->afterStateUpdated(function (Set $set) {
-                $set('branch_id', null);
-                $set('items', []);
-            })
-            ->visible(fn () => auth()->user()?->isSuperAdmin() ?? false)
-            ->helperText('Bắt buộc chọn — nếu không, phiếu sẽ không hiện với bất kỳ tài khoản đối tác nào.');
+        if (empty(session('active_branch_ids'))) {
+            return [];
+        }
+
+        return auth()->user()?->effectiveBranchIds() ?? [];
     }
 
-    // Chỉ super_admin thấy — nhân viên đối tác tạo phiếu thì branch_id tự động lấy theo tài khoản
-    // đang đăng nhập (users.branch_id, qua BelongsToBranch::creating()). Danh sách chi nhánh phụ
-    // thuộc đối tác đã chọn ở partnerInput() — chưa chọn đối tác thì chưa có gì để chọn.
+    // Header đã thu hẹp còn ĐÚNG 1 chi nhánh — coi như xác định xong, tự suy luôn cả Đối tác lẫn
+    // Chi nhánh, ẩn field Chi nhánh.
+    private static function singleActiveBranch(): ?Category
+    {
+        $ids = self::headerActiveBranchIds();
+
+        return count($ids) === 1 ? Category::find($ids[0]) : null;
+    }
+
+    // Không còn Select "Đối tác" cho super_admin nữa (theo yêu cầu: chỉ cần chọn Chi nhánh, dù
+    // header đang "Chọn tất cả" hay đã thu hẹp) — nhưng bảng dữ liệu vẫn cần cột partner_id để lọc
+    // đúng theo BelongsToPartner, nên vẫn phải GỬI giá trị này lên, chỉ là không hỏi tay nữa: luôn
+    // suy ngầm từ chi nhánh đã/đang chọn ở branchInput() (default khi có sẵn 1 chi nhánh active,
+    // hoặc gán lại qua afterStateUpdated() ngay khi super_admin chọn 1 chi nhánh bất kỳ). Nhân viên
+    // đối tác tạo phiếu thì partner_id tự động lấy theo tài khoản đang đăng nhập
+    // (BelongsToPartner::creating()) nếu field này chưa có giá trị.
+    private static function partnerHidden(): Hidden
+    {
+        return Hidden::make('partner_id')
+            ->default(fn () => self::singleActiveBranch()?->partner_id)
+            ->dehydrated();
+    }
+
+    // super_admin: liệt kê THẲNG danh sách chi nhánh để chọn — không còn hỏi Đối tác trước nữa.
+    // Nếu header đã thu hẹp (1 hoặc nhiều chi nhánh cụ thể), chỉ liệt kê đúng các chi nhánh đó; nếu
+    // header đang "Chọn tất cả" thì liệt kê toàn bộ chi nhánh của mọi đối tác (searchable). Chọn
+    // xong thì tự gán partner_id ngầm theo chi nhánh vừa chọn VÀ nạp lại danh sách vật tư (đúng yêu
+    // cầu: đổi chi nhánh PHẢI nạp lại danh sách vật tư theo chi nhánh MỚI ngay lập tức, không đợi
+    // tải lại trang — trước đây chỉ đọc branch_id đúng 1 LẦN lúc mở trang (afterFill()), đổi chi
+    // nhánh sau đó không cập nhật lại, dẫn tới hiện lẫn vật tư của NHIỀU chi nhánh khác nhau cùng
+    // lúc, đã xác nhận qua ảnh chụp thực tế). Nhân viên đối tác tạo phiếu thì branch_id tự động lấy
+    // theo tài khoản đang đăng nhập (users.branch_id, qua BelongsToBranch::creating()). Field tự
+    // ẩn khi phạm vi active co về đúng 1 chi nhánh.
     private static function branchInput(): Select
     {
         return Select::make('branch_id')
             ->label('Chi nhánh')
-            ->options(function (Get $get) {
+            ->options(function () {
                 $user = auth()->user();
 
                 if ($user?->isSuperAdmin()) {
-                    return Category::query()
+                    $narrowedIds = self::headerActiveBranchIds();
+
+                    $query = Category::query()
                         ->where('category_type', 'product')
-                        ->whereNull('parent_id')
-                        ->where('partner_id', $get('partner_id'))
-                        ->orderBy('name')
-                        ->pluck('name', 'id')
-                        ->all();
+                        ->whereNull('parent_id');
+
+                    if (! empty($narrowedIds)) {
+                        $query->whereIn('id', $narrowedIds);
+                    }
+
+                    return $query->orderBy('name')->pluck('name', 'id')->all();
                 }
 
                 return Category::query()
-                    ->whereIn('id', $user?->rootProductCategoryIds() ?? [])
+                    ->whereIn('id', $user?->effectiveBranchIds() ?? [])
                     ->orderBy('name')
                     ->pluck('name', 'id')
                     ->all();
@@ -291,9 +302,9 @@ class WarehouseStockCheckForm
             ->default(function () {
                 $user = auth()->user();
                 if ($user?->isSuperAdmin()) {
-                    return null;
+                    return self::singleActiveBranch()?->id;
                 }
-                $branchIds = $user?->rootProductCategoryIds() ?? [];
+                $branchIds = $user?->effectiveBranchIds() ?? [];
 
                 return count($branchIds) === 1 ? $branchIds[0] : null;
             })
@@ -301,12 +312,14 @@ class WarehouseStockCheckForm
             ->preload()
             ->required()
             ->live()
-            // Đúng yêu cầu: đổi chi nhánh PHẢI nạp lại danh sách vật tư theo chi nhánh MỚI ngay lập
-            // tức, không đợi tải lại trang — trước đây chỉ đọc branch_id đúng 1 LẦN lúc mở trang
-            // (afterFill()), đổi chi nhánh sau đó không cập nhật lại, dẫn tới hiện lẫn vật tư của
-            // NHIỀU chi nhánh khác nhau cùng lúc (đã xác nhận qua ảnh chụp thực tế).
-            ->afterStateUpdated(function (Set $set, Get $get, $state) {
-                $partnerId = auth()->user()?->isSuperAdmin() ? $get('partner_id') : null;
+            ->afterStateUpdated(function (Set $set, $state) {
+                $isSuperAdmin = auth()->user()?->isSuperAdmin() ?? false;
+                $partnerId    = null;
+
+                if ($isSuperAdmin && $state) {
+                    $partnerId = Category::find($state)?->partner_id;
+                    $set('partner_id', $partnerId);
+                }
 
                 $items = [];
                 foreach (WarehouseStockCheckForm::allActiveItemsAsRows($partnerId, $state) as $row) {
@@ -314,8 +327,14 @@ class WarehouseStockCheckForm
                 }
                 $set('items', $items);
             })
-            ->disabled(fn (Get $get) => (auth()->user()?->isSuperAdmin() ?? false) && blank($get('partner_id')))
-            ->visible(fn () => (auth()->user()?->isSuperAdmin() ?? false) || count(auth()->user()?->rootProductCategoryIds() ?? []) > 1)
+            ->visible(function () {
+                $user = auth()->user();
+                if ($user?->isSuperAdmin()) {
+                    return ! self::singleActiveBranch();
+                }
+
+                return count($user?->effectiveBranchIds() ?? []) > 1;
+            })
             ->helperText('Bắt buộc chọn — nếu không, phiếu sẽ không hiện với bất kỳ tài khoản đối tác nào.');
     }
 }

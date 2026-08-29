@@ -37,15 +37,22 @@ class ManualLockPasswordResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-key';
 
-    protected static ?string $navigationGroup = 'Quản lý';
+    protected static ?string $navigationGroup = 'Cấu hình web';
 
-    protected static ?string $navigationLabel = 'Mật khẩu khóa thủ công';
+    protected static ?string $navigationLabel = 'Khóa thủ công';
 
     protected static ?string $modelLabel = 'Mật khẩu khóa thủ công';
 
     protected static ?string $pluralModelLabel = 'Mật khẩu khóa thủ công';
 
     protected static ?int $navigationSort = 10;
+
+    // Đã gộp vào 1 mục menu "Khóa cổng" cùng Pass Cổng — xem App\Filament\Pages\GateLockManagement
+    // (App\Filament\Widgets\ManualLockPasswordTableWidget). Ẩn khỏi menu, giữ nguyên route/permission.
+    public static function shouldRegisterNavigation(): bool
+    {
+        return false;
+    }
 
     public static function getNavigationBadge(): ?string
     {

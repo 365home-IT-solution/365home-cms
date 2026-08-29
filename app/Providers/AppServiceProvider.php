@@ -17,6 +17,7 @@ use Guava\FilamentKnowledgeBase\Filament\Panels\KnowledgeBasePanel;
 use Illuminate\Support\Facades\View as ViewFacade;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Vite;
 use Jeffgreco13\FilamentBreezy\Livewire\PersonalInfo;
 use Jeffgreco13\FilamentBreezy\Livewire\UpdatePassword;
 use Livewire\Livewire;
@@ -30,6 +31,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // Never expose debug assets or stack traces in production, even if an old deployment
+        // accidentally leaves APP_DEBUG enabled. Livewire uses this value to select its minified
+        // bundle, which removes ~50KB from the initial page and is also the secure default.
+        if ($this->app->environment('production')) {
+            config(['app.debug' => false]);
+        }
+
         KnowledgeBasePanel::configureUsing(
             fn(KnowledgeBasePanel $panel) => $panel
                 ->viteTheme('resources/css/filament/admin/theme.css')
@@ -75,6 +83,24 @@ class AppServiceProvider extends ServiceProvider
         );
         FilamentView::registerRenderHook(
             PanelsRenderHook::USER_MENU_BEFORE,
+            function (): string {
+                $user = auth()->user();
+
+                // Chỉ hiện nút chuyển đổi chi nhánh khi có từ 2 chi nhánh trở lên để chọn — 1 chi
+                // nhánh thì không có gì để chuyển đổi.
+                if (! $user instanceof \App\Models\User || count($user->rootProductCategoryIds()) <= 1) {
+                    return '';
+                }
+
+                return \Livewire\Livewire::mount('branch-switcher');
+            },
+        );
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::USER_MENU_BEFORE,
+            fn (): string => \Livewire\Livewire::mount('account-switcher'),
+        );
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::USER_MENU_BEFORE,
             fn(): View => view('filament.components.button-website'),
         );
 
@@ -100,6 +126,31 @@ class AppServiceProvider extends ServiceProvider
                 }
                 return null;
             }
+        });
+
+        // build-bladethemev1's app.scss/app.js CSS (~83KB combined) render-blocks every frontend
+        // page — measured as the dominant contributor to FCP/LCP under throttled mobile (PageSpeed
+        // "Render-blocking requests"). Load it the same non-blocking way as the Google Fonts
+        // stylesheet in master.blade.php: media="print" doesn't stop the browser from downloading
+        // the file (the <link rel="preload"> Vite already emits starts that immediately either
+        // way), it only stops the browser from APPLYING it until onload flips media back to "all".
+        // Scoped to build-bladethemev1 only — Filament admin's own Vite build (public/build) is
+        // untouched, so this can't affect the admin panel's CSS loading.
+        Vite::useStyleTagAttributes(function (?string $src, string $url, ?array $chunk, ?array $manifest) {
+            // The dedicated home CSS is small and contains the above-the-fold layout. Applying it
+            // immediately prevents the large CLS caused by painting unstyled HTML and restyling it
+            // after the file finishes. Larger legacy bundles remain non-blocking on other pages.
+            // $src is null for a CSS chunk that a JS entry pulls in via static `import '*.css'`
+            // (e.g. app.js's owl.carousel/fancybox/aos imports) — Vite doesn't give that chunk its
+            // own manifest key, so Vite.php's manifest lookup by `file` comes up empty. Treat that
+            // the same as the legacy (non-"home") bundle rather than crashing on the type hint.
+            if (str_contains($url, 'build-bladethemev1') && ($src === null || ! str_contains($src, 'home'))) {
+                return [
+                    'media' => 'print',
+                    'onload' => "this.media='all'",
+                ];
+            }
+            return [];
         });
 
         // Đảm bảo Breezy profile components luôn được đăng ký

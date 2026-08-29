@@ -53,26 +53,36 @@ function createRoutes(array $pages, string $prefix = ''): void
 }
 } // end if !function_exists('createRoutes')
 
-$menus = ThemeCache::menuForRoutes();
-
-if ($menus->isNotEmpty()) {
-    foreach ($menus as $menu) {
-        if ($menu->menuItems->isNotEmpty()) {
-            $pages = formatMenu($menu->menuItems);
-            createRoutes($pages);
-        }
-    }
-} else {
-    Route::get('/', [BladeThemeV1Controller::class, 'index'])->name('home');
-}
-
 // SEO
 Route::get('/sitemap.xml', [SitemapController::class, 'index'])->name('sitemap');
 Route::get('/robots.txt',  [SitemapController::class, 'robots'])->name('robots');
 Route::get('/llms.txt',    [SitemapController::class, 'llmsTxt'])->name('llms');
 
+// Static routes TRƯỚC dynamic routes để tránh conflict
 Route::get('/bai-viet/{slug}', [BladeThemeV1Controller::class, 'postDetail'])->name('post.detail');
 Route::get('/s/{location?}', [BladeThemeV1Controller::class, 'searchProduct'])->name('product.search');
+Route::get('/mau-giao-dien/{slug}', [BladeThemeV1Controller::class, 'templateDetail'])->name('template.detail');
+Route::get('/gio-hang', [BladeThemeV1Controller::class, 'cartPage'])->name('cart.page');
+Route::get('/thanh-toan', [BladeThemeV1Controller::class, 'paymentPage'])->name('payment.page');
+Route::get('/kiem-tra-ten-mien', [BladeThemeV1Controller::class, 'domainLookupDetail'])->name('domain-lookup.detail');
+Route::get('/api/check-domain', function (\Illuminate\Http\Request $request) {
+    $domain = $request->query('domain', '');
+
+    // Chỉ cho phép domain hợp lệ (chữ, số, dấu chấm, gạch ngang) — chặn SSRF
+    if (!$domain || !preg_match('/^[a-zA-Z0-9\-\.]{2,253}$/', $domain)) {
+        return response()->json(['error' => 'Invalid domain'], 422);
+    }
+
+    $response = \Illuminate\Support\Facades\Http::timeout(5)
+        ->get('https://tracking-domain.goldenbeeltd.vn/', ['domain' => $domain]);
+
+    return $response->json();
+});
+Route::get('/thong-tin-dat-phong/{code}', [BladeThemeV1Controller::class, 'bookingDetail'])->name('booking.detail');
+Route::get('/tai-khoan', [BladeThemeV1Controller::class, 'accountPage'])->name('account.page');
+Route::get('/yeu-thich', [BladeThemeV1Controller::class, 'favoritesPage'])->name('favorites.page');
+Route::get('/dang-nhap', [BladeThemeV1Controller::class, 'loginPage'])->name('login.page');
+Route::get('/tin-tuc', [BladeThemeV1Controller::class, 'postsPage'])->name('posts.page');
 
 // {type} — slug URL rút gọn theo LOẠI HÌNH (homestay/khach-san/mini-house/villa/nha-nghi/chung-cu
 // — xem BranchBookConfig::TYPE_URL_MAP, nguồn duy nhất của mapping này, PHẢI khớp
@@ -112,28 +122,19 @@ Route::get('/{type}/{location}/{branch}/{slug}', [BladeThemeV1Controller::class,
 // 2 URL không cùng sống song song (tránh duplicate content).
 Route::get('/room/{slug}/', [BladeThemeV1Controller::class, 'productDetail'])->name('product.detail');
 //Route::get('/local/home-{slug}/', [BladeThemeV1Controller::class, 'categoryDetail'])->name('category.detail');
-Route::get('/mau-giao-dien/{slug}', [BladeThemeV1Controller::class, 'templateDetail'])->name('template.detail');
-Route::get('/gio-hang', [BladeThemeV1Controller::class, 'cartPage'])->name('cart.page');
-Route::get('/thanh-toan', [BladeThemeV1Controller::class, 'paymentPage'])->name('payment.page');
-Route::get('/kiem-tra-ten-mien', [BladeThemeV1Controller::class, 'domainLookupDetail'])->name('domain-lookup.detail');
-Route::get('/api/check-domain', function (\Illuminate\Http\Request $request) {
-    $domain = $request->query('domain', '');
 
-    // Chỉ cho phép domain hợp lệ (chữ, số, dấu chấm, gạch ngang) — chặn SSRF
-    if (!$domain || !preg_match('/^[a-zA-Z0-9\-\.]{2,253}$/', $domain)) {
-        return response()->json(['error' => 'Invalid domain'], 422);
+$menus = ThemeCache::menuForRoutes();
+
+if ($menus->isNotEmpty()) {
+    foreach ($menus as $menu) {
+        if ($menu->menuItems->isNotEmpty()) {
+            $pages = formatMenu($menu->menuItems);
+            createRoutes($pages);
+        }
     }
-
-    $response = \Illuminate\Support\Facades\Http::timeout(5)
-        ->get('https://tracking-domain.goldenbeeltd.vn/', ['domain' => $domain]);
-
-    return $response->json();
-});
-Route::get('/thong-tin-dat-phong/{code}', [BladeThemeV1Controller::class, 'bookingDetail'])->name('booking.detail');
-Route::get('/tai-khoan', [BladeThemeV1Controller::class, 'accountPage'])->name('account.page');
-Route::get('/yeu-thich', [BladeThemeV1Controller::class, 'favoritesPage'])->name('favorites.page');
-Route::get('/dang-nhap', [BladeThemeV1Controller::class, 'loginPage'])->name('login.page');
-Route::get('/tin-tuc', [BladeThemeV1Controller::class, 'postsPage'])->name('posts.page');
+} else {
+    Route::get('/', [BladeThemeV1Controller::class, 'index'])->name('home');
+}
 // routes/web.php
 Route::get('/theme.css', function () {
     $theme = ThemeCache::generalSettings()->site_theme;

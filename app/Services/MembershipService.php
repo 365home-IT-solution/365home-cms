@@ -137,24 +137,28 @@ class MembershipService
      * "Mã giảm giá gắn thêm cho hạng"). Làm 2 việc:
      *  1. Khách nào THIẾU voucher nào (vd dữ liệu cũ trước khi hạng có đủ N voucher, khách chỉ mới
      *     được cấp 1) thì cấp bù đúng phần còn thiếu — hành vi gốc, không đổi.
-     *  2. Đồng bộ lại GIỚI HẠN CHI NHÁNH (category_ids) cho các bản sao ĐÃ CẤP TỪ TRƯỚC theo đúng
-     *     cấu hình HIỆN TẠI của từng coupon mẫu — CHỈ áp dụng cho bản sao khách CHƯA sử dụng lần nào
-     *     (used_count = 0, xem Coupon::incrementUsage() — chỉ tăng khi mã thực sự được áp vào 1 đơn).
-     *     Bản sao ĐÃ dùng (dù chỉ 1 lần) giữ nguyên điều khoản cũ, không đụng vào — tránh đổi phạm vi
-     *     áp dụng giữa chừng lúc khách đang/đã dùng dở mã đó.
+     *  2. Đồng bộ lại ĐIỀU KHOẢN (category_ids giới hạn chi nhánh, type/value, min_order_value,
+     *     max_discount, usage_limit) cho các bản sao ĐÃ CẤP TỪ TRƯỚC theo đúng cấu hình HIỆN TẠI của
+     *     từng coupon mẫu — CHỈ áp dụng cho bản sao khách CHƯA sử dụng lần nào (used_count = 0, xem
+     *     Coupon::incrementUsage() — chỉ tăng khi mã thực sự được áp vào 1 đơn). Bản sao ĐÃ dùng (dù
+     *     chỉ 1 lần) giữ nguyên điều khoản cũ, không đụng vào — tránh đổi điều kiện áp dụng giữa
+     *     chừng lúc khách đang/đã dùng dở mã đó. Trước đây chỉ đồng bộ category_ids — min_order_value
+     *     (điều kiện đơn hàng tối thiểu) và các field khác bị bỏ sót, khiến admin sửa min_order_value
+     *     của coupon mẫu SAU KHI khách đã có bản sao thì bản sao đó vẫn áp theo giá trị min_order_value
+     *     CŨ, dẫn tới CouponController::check() báo lỗi/cho qua sai so với cấu hình mới nhất.
      * Trả về số liệu để hiển thị lên Notification cho admin biết kết quả.
      *
-     * @return array{customers_checked: int, customers_updated: int, vouchers_granted: int, vouchers_branch_synced: int}
+     * @return array{customers_checked: int, customers_updated: int, vouchers_granted: int, vouchers_terms_synced: int}
      */
     public function syncAutoVouchersForTierMembers(MembershipTier $tier): array
     {
         $templates = $tier->coupons()->wherePivot('source', 'auto')->get();
 
         $result = [
-            'customers_checked'      => 0,
-            'customers_updated'      => 0,
-            'vouchers_granted'       => 0,
-            'vouchers_branch_synced' => 0,
+            'customers_checked'     => 0,
+            'customers_updated'     => 0,
+            'vouchers_granted'      => 0,
+            'vouchers_terms_synced' => 0,
         ];
 
         if ($templates->isEmpty()) {
@@ -180,7 +184,7 @@ class MembershipService
             });
 
         foreach ($templates as $template) {
-            $result['vouchers_branch_synced'] += $this->syncBranchRestrictionToUnusedClones($template);
+            $result['vouchers_terms_synced'] += $this->syncTermsToUnusedClones($template);
         }
 
         return $result;
@@ -253,11 +257,12 @@ class MembershipService
     }
 
     /**
-     * Ghi đè lại category_ids (giới hạn chi nhánh) của MỌI bản sao cá nhân đã cấp từ $template —
-     * theo đúng category_ids HIỆN TẠI của $template — nhưng CHỈ cho bản sao có used_count = 0 (chưa
-     * từng được áp vào đơn nào). Trả về số bản sao vừa được đồng bộ.
+     * Ghi đè lại điều khoản của MỌI bản sao cá nhân đã cấp từ $template theo đúng cấu hình HIỆN TẠI
+     * của $template — category_ids (giới hạn chi nhánh) và các field điều kiện áp dụng
+     * (type/value/min_order_value/max_discount/usage_limit) — nhưng CHỈ cho bản sao có
+     * used_count = 0 (chưa từng được áp vào đơn nào). Trả về số bản sao vừa được đồng bộ.
      */
-    private function syncBranchRestrictionToUnusedClones(Coupon $template): int
+    private function syncTermsToUnusedClones(Coupon $template): int
     {
         $templateCategoryIds = $template->categories()->pluck('categories.id')->all();
 
@@ -267,6 +272,13 @@ class MembershipService
 
         foreach ($unusedClones as $clone) {
             $clone->categories()->sync($templateCategoryIds);
+            $clone->update([
+                'type'            => $template->type,
+                'value'           => $template->value,
+                'min_order_value' => $template->min_order_value,
+                'max_discount'    => $template->max_discount,
+                'usage_limit'     => $template->usage_limit,
+            ]);
         }
 
         return $unusedClones->count();
@@ -472,45 +484,19 @@ class MembershipService
     }
 
     /**
-     * Cấp thưởng đăng nhập định kỳ cho 1 khách, nếu hạng hiện tại của khách bật auto_issue_enabled
-     * VÀ đã đủ auto_issue_interval_weeks tuần kể từ lần được cấp gần nhất (tra theo lịch sử coupon
-     * có auto_issue_tier_id = hạng này, KHÔNG phải theo giờ/lịch cố định — kích hoạt bởi hành động
-     * đăng nhập của khách). Gọi ngay khi khách đăng nhập thành công (xem
-     * ZaloOtpController::verifyOtp()/login()) — nơi gọi PHẢI bọc try/catch vì lỗi ở đây không được
-     * làm hỏng luồng đăng nhập.
+     * Cấp mã khuyến mãi định kỳ cho 1 khách vừa điểm danh đủ chu kỳ (xem
+     * CustomerCheckinService::checkin() — nơi duy nhất gọi hàm này, sau khi đã tự xác định khách
+     * đủ auto_issue_interval_days ngày điểm danh). Khác với cơ chế login-reward cũ, hàm này KHÔNG
+     * tự kiểm tra điều kiện thời gian — điều kiện đã được CustomerCheckinService quyết định.
      */
-    public function grantLoginReward(Customer $customer): void
+    public function grantCheckinReward(Customer $customer, MembershipTier $tier): Coupon
     {
-        if (! $customer->membership_tier_id) {
-            return;
-        }
-
-        $tier = MembershipTier::where('id', $customer->membership_tier_id)
-            ->where('is_active', true)
-            ->where('auto_issue_enabled', true)
-            ->first();
-
-        if (! $tier || ! $tier->auto_issue_coupon_value || $tier->auto_issue_coupon_value <= 0) {
-            return;
-        }
-
-        $intervalWeeks = max(1, (int) $tier->auto_issue_interval_weeks);
-
-        $lastGranted = Coupon::where('customer_id', $customer->id)
-            ->where('auto_issue_tier_id', $tier->id)
-            ->latest('created_at')
-            ->first();
-
-        if ($lastGranted && $lastGranted->created_at->gt(now()->subWeeks($intervalWeeks))) {
-            return;
-        }
-
         $prefix = strtoupper(Str::slug($tier->name, ''));
 
-        Coupon::create([
+        $coupon = Coupon::create([
             'code'               => Str::limit($prefix, 10, '') . strtoupper(Str::random(6)),
             'name'               => 'Ưu đãi định kỳ hạng ' . $tier->name . ' — ' . $customer->fullname,
-            'description'        => 'Coupon tự động cấp định kỳ cho hạng ' . $tier->name,
+            'description'        => 'Coupon tự động cấp khi điểm danh đủ chu kỳ hạng ' . $tier->name,
             'type'               => $tier->auto_issue_coupon_type ?: 'fixed',
             'value'              => $this->rollAutoIssueCouponValue($tier),
             'apply_type'         => 'all_rooms',
@@ -530,7 +516,11 @@ class MembershipService
             $tier->auto_issue_notify_title ?: 'Ưu đãi dành cho hạng ' . $tier->name,
             $tier->auto_issue_notify_body ?: 'Bạn vừa nhận được một mã khuyến mãi mới dành riêng cho hạng thành viên của bạn. Kiểm tra ngay!',
             'membership_auto_coupon',
+            [],
+            $tier->auto_issue_notify_url,
         );
+
+        return $coupon;
     }
 
     /**
@@ -538,7 +528,7 @@ class MembershipService
      * tròn về bội số 1.000đ. Nếu value_max trống hoặc <= value thì luôn trả về đúng value (không
      * random) — giữ đúng hành vi cố định 1 mức giá như trước khi có value_max.
      */
-    private function rollAutoIssueCouponValue(MembershipTier $tier): float
+    public function rollAutoIssueCouponValue(MembershipTier $tier): float
     {
         $min = (float) $tier->auto_issue_coupon_value;
         $max = (float) $tier->auto_issue_coupon_value_max;

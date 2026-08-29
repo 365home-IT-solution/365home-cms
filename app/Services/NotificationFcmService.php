@@ -9,6 +9,7 @@ use App\Models\NotificationFcm;
 use App\Models\NotificationFcmRecipient;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Modules\Payment\Entities\Order;
 
 /**
  * Gửi push notification cho customer VÀ lưu vào DB
@@ -28,10 +29,12 @@ class NotificationFcmService
         string $body,
         string $type = 'manual',
         array $extra = [],
+        ?string $url = null,
     ): void {
         $notification = NotificationFcm::create([
             'title'    => $title,
             'body'     => $body,
+            'url'      => $url,
             'type'     => $type,
             'sent_for' => 'users',
             'sent_at'  => now(),
@@ -43,7 +46,7 @@ class NotificationFcmService
         // FCM push (chỉ gửi nếu có token)
         if ($customer->token_device) {
             try {
-                $this->fcm->sendToCustomer($customer, $title, $body, array_merge($extra, [
+                $this->fcm->sendToCustomer($customer, $title, $body, array_merge($extra, $this->urlExtra($notification), [
                     'notification_id' => (string) $notification->id,
                     'type'            => $type,
                     'unread_count'    => (string) $unreadCount,
@@ -74,12 +77,22 @@ class NotificationFcmService
             'id'           => $notification->id,
             'title'        => $title,
             'body'         => $body,
+            'url'          => $notification->url,
             'type'         => $type,
             'is_read'      => false,
             'read_at'      => null,
             'sent_at'      => now()->toIso8601String(),
             'unread_count' => $unreadCount,
         ]);
+    }
+
+    /**
+     * Data payload bổ sung 'url' cho FCM — chỉ thêm key khi có giá trị, tránh gửi chuỗi rỗng
+     * xuống app (dễ bị hiểu nhầm là có link điều hướng).
+     */
+    private function urlExtra(NotificationFcm $notification): array
+    {
+        return $notification->url ? ['url' => $notification->url] : [];
     }
 
     /**
@@ -99,11 +112,11 @@ class NotificationFcmService
 
             if ($customer->token_device) {
                 try {
-                    $this->fcm->sendToCustomer($customer, $notification->title, $notification->body, [
+                    $this->fcm->sendToCustomer($customer, $notification->title, $notification->body, array_merge($this->urlExtra($notification), [
                         'notification_id' => (string) $notification->id,
                         'type'            => $notification->type,
                         'unread_count'    => (string) $unreadCount,
-                    ]);
+                    ]));
                 } catch (\Throwable $e) {
                     $status = 'failed';
                     Log::warning("NotificationFcmService: FCM failed [{$notification->type}]", [
@@ -124,6 +137,7 @@ class NotificationFcmService
                 'id'           => $notification->id,
                 'title'        => $notification->title,
                 'body'         => $notification->body,
+                'url'          => $notification->url,
                 'type'         => $notification->type,
                 'is_read'      => false,
                 'read_at'      => null,
@@ -153,10 +167,12 @@ class NotificationFcmService
         string $type = 'manual',
         string $sentFor = 'users',
         array $extra = [],
+        ?string $url = null,
     ): NotificationFcm {
         $notification = NotificationFcm::create([
             'title'    => $title,
             'body'     => $body,
+            'url'      => $url,
             'type'     => $type,
             'sent_for' => $sentFor,
             'sent_at'  => now(),
@@ -171,7 +187,7 @@ class NotificationFcmService
 
             if ($customer->token_device) {
                 try {
-                    $this->fcm->sendToCustomer($customer, $title, $body, array_merge($extra, [
+                    $this->fcm->sendToCustomer($customer, $title, $body, array_merge($extra, $this->urlExtra($notification), [
                         'notification_id' => (string) $notification->id,
                         'type'            => $type,
                         'unread_count'    => (string) $unreadCount,
@@ -197,6 +213,7 @@ class NotificationFcmService
                 'id'           => $notification->id,
                 'title'        => $title,
                 'body'         => $body,
+                'url'          => $url,
                 'type'         => $type,
                 'is_read'      => false,
                 'read_at'      => null,
@@ -223,10 +240,10 @@ class NotificationFcmService
         $status = 'sent';
 
         try {
-            $this->fcm->sendToToken($token, $notification->title, $notification->body, [
+            $this->fcm->sendToToken($token, $notification->title, $notification->body, array_merge($this->urlExtra($notification), [
                 'notification_id' => (string) $notification->id,
                 'type'            => $notification->type,
-            ]);
+            ]));
         } catch (\Throwable $e) {
             $status = 'failed';
             Log::warning('NotificationFcmService: guest FCM failed [order]', [
@@ -260,10 +277,12 @@ class NotificationFcmService
         string $body,
         string $type = 'manual',
         array $extra = [],
+        ?string $url = null,
     ): void {
         $notification = NotificationFcm::create([
             'title'    => $title,
             'body'     => $body,
+            'url'      => $url,
             'type'     => $type,
             'sent_for' => 'guests',
             'sent_at'  => now(),
@@ -272,7 +291,7 @@ class NotificationFcmService
         $status = 'sent';
 
         try {
-            $this->fcm->sendToToken($token, $title, $body, array_merge($extra, [
+            $this->fcm->sendToToken($token, $title, $body, array_merge($extra, $this->urlExtra($notification), [
                 'notification_id' => (string) $notification->id,
                 'type'            => $type,
             ]));
@@ -294,6 +313,46 @@ class NotificationFcmService
         $notification->update([
             'sent_count' => $status === 'sent' ? 1 : 0,
             'fail_count' => $status === 'failed' ? 1 : 0,
+        ]);
+    }
+
+    /**
+     * Gửi lại 1 notification đã tạo cho đúng nhóm người nhận ban đầu (suy ra từ sent_for +
+     * các recipient đã lưu, vì form tạo mới không lưu lại danh sách customer_id đã chọn).
+     * Mỗi lần gọi tạo thêm bản ghi recipient mới (không xoá lịch sử lần gửi trước), rồi tính
+     * lại sent_count/fail_count theo TỔNG toàn bộ recipient để số liệu hiển thị luôn khớp với
+     * "Danh sách người nhận" dù đã gửi lại bao nhiêu lần.
+     */
+    public function resend(NotificationFcm $notification): void
+    {
+        if ($notification->sent_for === 'order') {
+            $orderId = $notification->recipient_ids['order_id'] ?? null;
+            $order   = $orderId ? Order::with('customer')->find($orderId) : null;
+
+            if ($order?->customer_id && $order->customer?->token_device) {
+                $this->sendToExisting($notification, collect([$order->customer]));
+            } elseif ($order?->device_token) {
+                $this->sendGuestToExisting($notification, $order->device_token);
+            }
+        } else {
+            $customerIds = $notification->recipients()
+                ->whereNotNull('customer_id')
+                ->distinct()
+                ->pluck('customer_id');
+
+            $customers = Customer::whereIn('id', $customerIds)
+                ->whereNotNull('token_device')
+                ->where('status', Customer::STATUS_ACTIVE)
+                ->get();
+
+            if ($customers->isNotEmpty()) {
+                $this->sendToExisting($notification, $customers);
+            }
+        }
+
+        $notification->update([
+            'sent_count' => $notification->recipients()->where('status', 'sent')->count(),
+            'fail_count' => $notification->recipients()->where('status', 'failed')->count(),
         ]);
     }
 
