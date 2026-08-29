@@ -2,12 +2,15 @@
 
 namespace Modules\Product\App\Models;
 
+use App\Models\Concerns\LogsAuditTrail;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Modules\Category\Entities\Category;
 
 class ManualLockPassword extends Model
 {
+    use LogsAuditTrail;
+
     protected $fillable = [
         'name',
         'gate_password',

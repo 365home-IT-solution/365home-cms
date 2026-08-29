@@ -2,6 +2,7 @@
 
 namespace Modules\Page\Entities;
 
+use App\Models\Concerns\LogsAuditTrail;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -9,7 +10,7 @@ use Modules\Page\Entities\Page;
 
 class Component extends Model
 {
-    use HasFactory;
+    use HasFactory, LogsAuditTrail;
 
     protected $fillable = [
         'name',

@@ -8,7 +8,10 @@ use Modules\AuditLog\Services\AuditLogger;
 class UserObserver
 {
     // Các field nhạy cảm cần theo dõi khi update
-    private const TRACKED_FIELDS = ['fullname', 'email', 'phone', 'date_of_birth'];
+    // 'partner_id' thêm vào vì PartnerForm::syncAssignments() gán/gỡ user khỏi đối tác qua
+    // $user->update(['partner_id' => ...]) — trước đây không track nên đổi đối tác sở hữu của 1
+    // tài khoản (thay đổi quan trọng) hoàn toàn không để lại log nào.
+    private const TRACKED_FIELDS = ['fullname', 'email', 'phone', 'date_of_birth', 'partner_id'];
 
     public function created(User $user): void
     {

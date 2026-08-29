@@ -6,6 +6,7 @@ use App\Support\GeneratesImagePresets;
 use App\Support\ResizesOversizedImage;
 use Illuminate\Support\Facades\Storage;
 use Modules\AccessCode\Entities\AccessCode;
+use Modules\AuditLog\Services\AuditLogger;
 use Modules\Category\Entities\Category;
 use Modules\DataPermission\Entities\UserBranchPermission;
 use Modules\Payment\Entities\Order;
@@ -62,18 +63,37 @@ class CategoryObserver
 
         // Product gắn qua bảng pivot categorizables (morphToMany), không có cột category_id trực
         // tiếp — phải whereHas qua quan hệ categories().
-        Product::withoutGlobalScope('partner')
+        $productCount = Product::withoutGlobalScope('partner')
             ->whereHas('categories', fn ($query) => $query->whereIn('categories.id', $categoryIds))
             ->update(['partner_id' => $partnerId]);
 
         // Order và AccessCode có cột category_id trực tiếp (không qua pivot).
-        Order::withoutGlobalScope('partner')
+        $orderCount = Order::withoutGlobalScope('partner')
             ->whereIn('category_id', $categoryIds)
             ->update(['partner_id' => $partnerId]);
 
-        AccessCode::withoutGlobalScope('partner')
+        $accessCodeCount = AccessCode::withoutGlobalScope('partner')
             ->whereIn('category_id', $categoryIds)
             ->update(['partner_id' => $partnerId]);
+
+        // Các câu UPDATE hàng loạt ở trên dùng query builder (::whereIn()->update()) nên KHÔNG bắn
+        // Eloquent event — LogsAuditTrail gắn trên Product/Order/AccessCode hoàn toàn không thấy
+        // được thay đổi này. Ghi 1 dòng log thủ công tóm tắt cascade, CHỈ khi thực sự có bản ghi bị
+        // ảnh hưởng (tránh spam log mỗi lần admin mở chi nhánh lên bấm Lưu mà không có gì lệch).
+        if (($productCount + $orderCount + $accessCodeCount) > 0) {
+            AuditLogger::log(
+                action: 'update',
+                module: 'Category',
+                record: $category,
+                new: [
+                    'partner_id_moi'        => $partnerId,
+                    'so_phong_bi_anh_huong' => $productCount,
+                    'so_booking_bi_anh_huong' => $orderCount,
+                    'so_ma_khoa_bi_anh_huong' => $accessCodeCount,
+                ],
+                label: $category->name . ' — cascade đổi đối tác cho dữ liệu bên trong',
+            );
+        }
 
         // Dọn rác "quyền chi nhánh" (UserBranchPermission) của các tài khoản KHÔNG thuộc đối tác
         // MỚI này — thường phát sinh khi 1 chi nhánh đổi sang đối tác khác, nhưng quyền đã gán cho

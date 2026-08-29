@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace Modules\Product\App\Models;
 
 use App\Models\Concerns\BelongsToPartner;
+use App\Models\Concerns\LogsAuditTrail;
 use Illuminate\Database\Eloquent\Model;
 
 class RoomAmenity extends Model
 {
-    use BelongsToPartner;
+    use BelongsToPartner, LogsAuditTrail;
 
     protected $fillable = [
         'partner_id',

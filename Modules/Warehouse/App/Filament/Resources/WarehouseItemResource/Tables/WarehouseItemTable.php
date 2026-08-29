@@ -14,7 +14,6 @@ use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
-use Modules\Category\Entities\Category;
 use Modules\Warehouse\App\Models\WarehouseCategory;
 use Modules\Warehouse\App\Models\WarehouseItem;
 
@@ -116,33 +115,11 @@ class WarehouseItemTable
                         blank: fn ($query) => $query,
                     ),
 
-                PartnerTableHelpers::filter(),
-
-                // Cùng nguồn xác thực chi nhánh với branchInput() ở form — chỉ hiện bộ lọc này khi
-                // tài khoản đang xem thực sự có DỮ LIỆU CỦA NHIỀU HƠN 1 chi nhánh để lọc (super_admin
-                // luôn thấy; tài khoản khác chỉ thấy khi quản lý > 1 chi nhánh — quản lý đúng 1 thì
-                // toàn bộ danh sách vốn đã chỉ thuộc chi nhánh đó, không có gì để lọc thêm).
-                SelectFilter::make('branch_id')
-                    ->label('Chi nhánh')
-                    ->options(function () {
-                        $user = auth()->user();
-
-                        if ($user?->isSuperAdmin()) {
-                            return Category::query()
-                                ->where('category_type', 'product')
-                                ->whereNull('parent_id')
-                                ->orderBy('name')
-                                ->pluck('name', 'id');
-                        }
-
-                        return Category::query()
-                            ->whereIn('id', $user?->rootProductCategoryIds() ?? [])
-                            ->orderBy('name')
-                            ->pluck('name', 'id');
-                    })
-                    ->searchable()
-                    ->preload()
-                    ->visible(fn () => (auth()->user()?->isSuperAdmin() ?? false) || count(auth()->user()?->rootProductCategoryIds() ?? []) > 1),
+                // Không còn filter "Đối tác"/"Chi nhánh" thủ công ở đây nữa — model WarehouseItem
+                // đã có global scope 'branch' (BelongsToBranch, xem app/Models/Concerns/BelongsToBranch.php)
+                // tự lọc theo User::effectiveBranchIds() (đúng chi nhánh đang active ở header
+                // "Chuyển đổi chi nhánh"), nên danh sách hiện ra ĐÃ đúng phạm vi rồi — filter thêm ở
+                // đây chỉ là lọc lại 1 lần nữa trên dữ liệu vốn đã được lọc sẵn, thừa.
             ])
             ->defaultSort('name')
             ->actions([

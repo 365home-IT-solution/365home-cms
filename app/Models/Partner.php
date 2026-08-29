@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsAuditTrail;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -17,7 +18,7 @@ use Spatie\MediaLibrary\InteractsWithMedia;
 
 class Partner extends Model implements HasMedia
 {
-    use HasUuids, SoftDeletes, InteractsWithMedia;
+    use HasUuids, SoftDeletes, InteractsWithMedia, LogsAuditTrail;
 
     protected $fillable = [
         // Cơ bản

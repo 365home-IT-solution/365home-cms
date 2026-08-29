@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\LogsAuditTrail;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,6 +15,8 @@ use Modules\Payment\Entities\Order;
 // đến sau 23h) — tránh quên dẫn tới bị phạt 2-4 triệu đồng/lần.
 class CccdDeclaration extends Model
 {
+    use LogsAuditTrail;
+
     protected $fillable = [
         'order_id',
         // 1 = khách chính (người đặt phòng), 2 = khách thứ 2 cùng lưu trú qua đêm — Luật Cư trú

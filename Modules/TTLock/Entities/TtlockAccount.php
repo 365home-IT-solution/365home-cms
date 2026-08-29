@@ -3,13 +3,14 @@
 namespace Modules\TTLock\Entities;
 
 use App\Models\Concerns\BelongsToPartner;
+use App\Models\Concerns\LogsAuditTrail;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Modules\Category\Entities\Category;
 
 class TtlockAccount extends Model
 {
-    use BelongsToPartner;
+    use BelongsToPartner, LogsAuditTrail;
 
     protected $fillable = [
         'partner_id',

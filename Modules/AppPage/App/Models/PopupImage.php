@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace Modules\AppPage\App\Models;
 
+use App\Models\Concerns\LogsAuditTrail;
 use App\Support\ImagePresetUrls;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
 
 class PopupImage extends Model
 {
+    use LogsAuditTrail;
+
     protected $fillable = [
         'image',
         'disk',

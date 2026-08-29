@@ -22,6 +22,116 @@ use Modules\Product\App\Models\RoomTimeSlot;
  */
 class PriceBoardSyncService
 {
+    /** Ghi $data (mảng 'items' hoặc 'product_ids' lấy từ form PriceBoardResource) xuống
+     *  PriceBoardItem/PriceBoardTimeSlot — dùng chung cho Create/Edit VÀ cho các nút "Áp dụng hàng
+     *  loạt" trong form (ghi thẳng xuống DB ngay khi đang sửa 1 bảng đã tồn tại, không phụ thuộc vào
+     *  việc bấm "Lưu thay đổi" hay TableRepeater có tự vẽ lại đúng giá trị mới hay không — xem
+     *  PriceBoardForm::applyBulkByPosition()/applyBulkByTimeslot() để biết lý do). */
+    public function saveItems(PriceBoard $board, array $data): void
+    {
+        if ($board->isAdjustment()) {
+            $this->saveProductIds($board, $data['product_ids'] ?? []);
+
+            return;
+        }
+
+        $this->saveOverrideItems($board, $data['items'] ?? []);
+    }
+
+    public function saveProductIds(PriceBoard $board, array $productIds): void
+    {
+        $keepItemIds = [];
+
+        foreach (array_filter($productIds) as $productId) {
+            $item = PriceBoardItem::updateOrCreate(
+                ['price_board_id' => $board->id, 'product_id' => $productId],
+                []
+            );
+
+            $item->timeSlots()->delete();
+            $keepItemIds[] = $item->id;
+        }
+
+        $board->items()->whereNotIn('id', $keepItemIds ?: [0])->get()->each(function (PriceBoardItem $item) {
+            $item->timeSlots()->delete();
+            $item->delete();
+        });
+    }
+
+    public function saveOverrideItems(PriceBoard $board, array $items): void
+    {
+        $keepItemIds = [];
+
+        foreach ($items as $itemData) {
+            if (empty($itemData['product_id'])) {
+                continue;
+            }
+
+            $product = Product::find($itemData['product_id']);
+            if (! $product) {
+                continue;
+            }
+
+            $style = (int) ($product->styles ?? 1);
+
+            $rawRules  = $itemData['bulk_discount_rules'] ?? [];
+            $bulkRules = collect($rawRules)
+                ->filter(fn ($r) => isset($r['slots'], $r['discount']))
+                ->map(fn ($r) => ['slots' => (int) $r['slots'], 'discount' => (float) $r['discount']])
+                ->sortBy('slots')
+                ->values()
+                ->toArray();
+
+            $fields = [
+                'full_booking_discount' => $itemData['full_booking_discount'] ?? null,
+                'bulk_discount_rules'   => $bulkRules ?: null,
+                'room_config'           => [
+                    'max_free_guests' => (int) ($itemData['room_config_max_free_guests'] ?? 2),
+                    'extra_guest_fee' => (int) preg_replace('/[^0-9]/', '', (string) ($itemData['room_config_extra_guest_fee'] ?? '0')),
+                ],
+            ];
+
+            if ($style === 2) {
+                $fields['price']               = $itemData['price'] ?? null;
+                $fields['default_checkin']     = $itemData['default_checkin'] ?? '14:00';
+                $fields['default_checkout']    = $itemData['default_checkout'] ?? '12:00';
+                $fields['deposit_min_nights']  = (int) ($itemData['deposit_min_nights'] ?? 2);
+                $fields['deposit_multi_night'] = (int) ($itemData['deposit_multi_night'] ?? 50);
+                $fields['deposit_1_night']     = 100;
+            }
+
+            $item = PriceBoardItem::updateOrCreate(
+                ['price_board_id' => $board->id, 'product_id' => $product->id],
+                $fields
+            );
+
+            $keepItemIds[] = $item->id;
+
+            $item->timeSlots()->delete();
+
+            if ($style === 1) {
+                foreach ($itemData['roomTimeSlots'] ?? [] as $slot) {
+                    if (empty($slot['timeslot_id']) || $slot['price'] === null || $slot['price'] === '') {
+                        continue;
+                    }
+
+                    PriceBoardTimeSlot::create([
+                        'price_board_item_id' => $item->id,
+                        'timeslot_id'          => $slot['timeslot_id'],
+                        'price'                => (int) str_replace(['.', ','], '', (string) $slot['price']),
+                        'over_night'           => $slot['over_night'] ?? false,
+                        'status'               => $slot['status'] ?? 'available',
+                    ]);
+                }
+            }
+        }
+
+        $board->items()->whereNotIn('id', $keepItemIds ?: [0])->get()->each(function (PriceBoardItem $item) {
+            $item->timeSlots()->delete();
+            $item->delete();
+        });
+    }
+
     public function defaultBoard(): PriceBoard
     {
         return PriceBoard::firstOrCreate(
@@ -208,9 +318,11 @@ class PriceBoardSyncService
     }
 
     /** Chụp giá hiện tại của $product (giá/đêm + giá từng khung giờ tái sử dụng, theo tên khung
-     *  giờ) — so sánh trước/sau mỗi lần áp bảng giá để biết CÓ THẬT SỰ đổi gì không, dùng cho popup
-     *  "Lịch sử thay đổi giá" (không ghi log nếu áp lại y hệt giá cũ, tránh nhiễu mỗi lần cron chạy). */
-    private function snapshotPricing(Product $product): array
+     *  giờ) — so sánh trước/sau mỗi lần đổi giá để biết CÓ THẬT SỰ đổi gì không, dùng cho popup
+     *  "Lịch sử thay đổi giá" (không ghi log nếu giá không đổi, tránh nhiễu). Public để
+     *  SettingBook::save() và "Sửa giá hàng loạt" (HasBookingHeaderActions) cũng gọi được — không
+     *  chỉ riêng lúc áp bảng giá đặt tên. */
+    public function snapshotPricing(Product $product): array
     {
         $slots = RoomTimeSlot::where('room_id', $product->id)
             ->whereHas('timeSlot', fn ($q) => $this->scopeRecurring($q))
@@ -230,8 +342,10 @@ class PriceBoardSyncService
     /** Ghi 1 dòng lịch sử NẾU giá thật sự đổi — dùng bảng riêng price_board_price_logs (không dùng
      *  AuditLog chung của hệ thống) vì AuditLogger::log() chỉ ghi khi có auth()->user(), trong khi
      *  phần lớn thay đổi giá ở đây chạy tự động qua lịch (price-boards:sync-due), không có ai đăng
-     *  nhập — changed_by=null nghĩa là "hệ thống tự áp theo lịch". */
-    private function logPriceChange(int $priceBoardId, Product $product, array $before, array $after): void
+     *  nhập — changed_by=null nghĩa là "hệ thống tự áp theo lịch". Public để log được cả những lần
+     *  đổi giá KHÔNG qua bảng giá đặt tên (sửa tay ở "Hệ thống giá", "Sửa giá hàng loạt") — những lúc
+     *  đó truyền $priceBoardId = defaultBoard()->id, gắn vào "Bảng giá mặc định" cho thống nhất. */
+    public function logPriceChange(int $priceBoardId, Product $product, array $before, array $after): void
     {
         if ($before === $after) {
             return;

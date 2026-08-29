@@ -11,11 +11,57 @@ use Filament\Actions\ForceDeleteAction;
 use Filament\Actions\RestoreAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Modules\AuditLog\Services\AuditLogger;
 use Modules\Payment\App\Services\CccdScannerService;
+use Modules\Promotion\App\Models\Coupon;
 
 class EditCustomer extends EditRecord
 {
     protected static string $resource = CustomerResource::class;
+
+    protected array $oldCouponIds = [];
+
+    // Field 'coupons' là Select ->relationship()->multiple() — pivot (coupon_customers) được
+    // Filament tự đồng bộ ở saveRelationships(), KHÔNG đi qua $record->update() nên không có
+    // Eloquent event nào bắn ra để ghi log (cùng lỗi đã gặp ở Product tags/services). beforeSave()
+    // chạy TRƯỚC bước đó nên chụp lại state cũ ở đây, afterSave() so sánh với state mới rồi ghi
+    // log thủ công.
+    protected function beforeSave(): void
+    {
+        $this->oldCouponIds = $this->record->coupons()->pluck('coupon_customers.coupon_id')->map(fn ($id) => (string) $id)->all();
+    }
+
+    protected function afterSave(): void
+    {
+        $record = $this->record->fresh(['coupons']);
+
+        $newCouponIds = $record->coupons->pluck('id')->map(fn ($id) => (string) $id)->all();
+        $added        = array_diff($newCouponIds, $this->oldCouponIds);
+        $removed      = array_diff($this->oldCouponIds, $newCouponIds);
+
+        if (empty($added) && empty($removed)) {
+            return;
+        }
+
+        $old = [];
+        $new = [];
+
+        if (! empty($removed)) {
+            $old['ma_giam_gia_da_bo'] = Coupon::whereIn('id', $removed)->pluck('code')->implode(', ');
+        }
+        if (! empty($added)) {
+            $new['ma_giam_gia_da_them'] = Coupon::whereIn('id', $added)->pluck('code')->implode(', ');
+        }
+
+        AuditLogger::log(
+            action: 'update',
+            module: 'Customer',
+            record: $record,
+            old: $old,
+            new: $new,
+            label: ($record->fullname ?? $record->phone ?? '#' . $record->id) . ' — Cập nhật mã giảm giá',
+        );
+    }
 
     protected function getHeaderActions(): array
     {

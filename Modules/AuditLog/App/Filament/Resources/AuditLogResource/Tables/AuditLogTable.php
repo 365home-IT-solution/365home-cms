@@ -61,6 +61,24 @@ class AuditLogTable
             ->filters([
                 PartnerTableHelpers::filter(),
 
+                // Lọc theo ĐÚNG 1 tài khoản — danh sách lấy từ chính các tác giả đã từng xuất hiện
+                // trong audit_logs (query trên model AuditLog nên tự động thừa hưởng đúng scope
+                // hiện có: BelongsToPartner thu hẹp theo đối tác cho tài khoản không phải
+                // super_admin), tránh phải gõ tìm tên/email thủ công như trước.
+                SelectFilter::make('user_id')
+                    ->label('Tài khoản')
+                    ->options(fn () => AuditLog::query()
+                        ->select('user_id', 'user_name', 'user_email')
+                        ->distinct()
+                        ->orderBy('user_name')
+                        ->get()
+                        ->mapWithKeys(fn ($row) => [
+                            $row->user_id => $row->user_name . ' (' . $row->user_email . ')',
+                        ])
+                        ->all())
+                    ->searchable()
+                    ->placeholder('Tất cả'),
+
                 SelectFilter::make('module')
                     ->label('Module')
                     ->options(AuditLog::moduleLabels())
@@ -153,6 +171,49 @@ class AuditLogTable
         return $html;
     }
 
+    // Nhãn tiếng Việt cho các field kỹ thuật hay gặp — field nào không có trong danh sách thì hiện
+    // nguyên tên cột (còn hơn không hiện gì, và field đặc thù từng module quá nhiều để liệt kê hết).
+    private const FIELD_LABELS = [
+        'partner_id'   => 'Đối tác',
+        'branch_id'    => 'Chi nhánh',
+        'category_id'  => 'Danh mục',
+        'created_by'   => 'Người tạo',
+        'updated_by'   => 'Người sửa',
+        'user_id'      => 'Tài khoản',
+        'customer_id'  => 'Khách hàng',
+        'code'         => 'Mã',
+        'name'         => 'Tên',
+        'status'       => 'Trạng thái',
+        'is_active'    => 'Đang hoạt động',
+        'description'  => 'Mô tả',
+        'quantity'     => 'Số lượng',
+        'price'        => 'Giá',
+        'value'        => 'Giá trị',
+        'type'         => 'Loại',
+        'tien_ich_da_them' => 'Tiện ích đã thêm',
+        'tien_ich_da_bo'   => 'Tiện ích đã bỏ',
+        'thay_doi'         => 'Chi tiết thay đổi',
+        'diff'             => 'Chênh lệch tiền',
+        'change_summary'   => 'Chi tiết thay đổi',
+        'dich_vu_da_them'  => 'Dịch vụ đã thêm',
+        'dich_vu_da_bo'    => 'Dịch vụ đã bỏ',
+        'phong_da_them'       => 'Phòng đã thêm',
+        'phong_da_bo'         => 'Phòng đã bỏ',
+        'khung_gio_da_them'   => 'Khung giờ đã thêm',
+        'khung_gio_da_bo'     => 'Khung giờ đã bỏ',
+        'chi_nhanh_da_them'   => 'Chi nhánh đã thêm',
+        'chi_nhanh_da_bo'     => 'Chi nhánh đã bỏ',
+        'vai_tro_da_them'     => 'Vai trò đã thêm',
+        'vai_tro_da_bo'       => 'Vai trò đã bỏ',
+        'ma_giam_gia_da_them' => 'Mã giảm giá đã thêm',
+        'ma_giam_gia_da_bo'   => 'Mã giảm giá đã bỏ',
+    ];
+
+    private static function fieldLabel(string $field): string
+    {
+        return self::FIELD_LABELS[$field] ?? $field;
+    }
+
     private static function buildValueTable(string $title, array $values, string $bg, string $color): string
     {
         $rows = '';
@@ -160,7 +221,7 @@ class AuditLogTable
             $displayValue = is_array($value) ? implode(', ', $value) : (string) ($value ?? '—');
             $rows .= '
                 <tr style="border-bottom:1px solid #f3f4f6;">
-                    <td style="padding:8px 12px;font-size:13px;color:#6b7280;white-space:nowrap;">' . e($field) . '</td>
+                    <td style="padding:8px 12px;font-size:13px;color:#6b7280;white-space:nowrap;">' . e(static::fieldLabel($field)) . '</td>
                     <td style="padding:8px 12px;font-size:13px;color:#111827;">' . e($displayValue) . '</td>
                 </tr>';
         }
@@ -185,7 +246,7 @@ class AuditLogTable
 
             $rows .= '
                 <tr style="border-bottom:1px solid #f3f4f6;">
-                    <td style="padding:8px 12px;font-size:13px;color:#6b7280;white-space:nowrap;">' . e($field) . '</td>
+                    <td style="padding:8px 12px;font-size:13px;color:#6b7280;white-space:nowrap;">' . e(static::fieldLabel($field)) . '</td>
                     <td style="padding:8px 12px;font-size:13px;color:#991b1b;background:#fff5f5;">' . e($oldVal) . '</td>
                     <td style="padding:8px 12px;font-size:13px;color:#166534;background:#f0fdf4;">' . e($newVal) . '</td>
                 </tr>';

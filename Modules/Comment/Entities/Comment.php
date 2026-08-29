@@ -2,6 +2,7 @@
 
 namespace Modules\Comment\Entities;
 
+use App\Models\Concerns\LogsAuditTrail;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -11,7 +12,7 @@ use Modules\Product\App\Models\Product;
 
 class Comment extends Model
 {
-    use HasFactory;
+    use HasFactory, LogsAuditTrail;
 
     protected $fillable = ['text', 'account_id', 'name', 'show', 'pin', 'commentable_id', 'commentable_type'];
 

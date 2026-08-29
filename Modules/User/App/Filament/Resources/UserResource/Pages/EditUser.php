@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\HtmlString;
 use JoseEspinal\RecordNavigation\Traits\HasRecordNavigation;
+use Modules\AuditLog\Services\AuditLogger;
 use Modules\Employee\Entities\Employee;
 use Modules\User\App\Filament\Resources\UserResource\Forms\UserForm;
 use Spatie\Permission\Models\Role;
@@ -24,6 +25,17 @@ class EditUser extends EditRecord
     use HasRecordNavigation;
 
     protected static string $resource = UserResource::class;
+
+    protected array $oldRoleIds = [];
+
+    // Field 'roles' (tab "Phân quyền") là Select ->relationship()->multiple() — pivot
+    // (model_has_roles) được Filament tự đồng bộ ở saveRelationships(), KHÔNG đi qua
+    // $record->update() nên UserObserver::updated() không hề thấy được thay đổi này (cùng lỗi đã
+    // gặp ở Product tags/services). beforeSave() chạy TRƯỚC bước đó nên chụp lại state cũ ở đây.
+    protected function beforeSave(): void
+    {
+        $this->oldRoleIds = $this->record->roles()->pluck('roles.id')->map(fn ($id) => (string) $id)->all();
+    }
 
     // Nạp lại field hồ sơ nhân viên (bảng employees) liên kết với tài khoản này vào form —
     // UserForm đã gộp các field này vào tab "Thông tin"/"Thiết lập lương". 'account_type' phản
@@ -95,12 +107,44 @@ class EditUser extends EditRecord
     // tài khoản sẽ mất hết role, không đăng nhập được và bị xếp nhầm vào tab "Khách hàng".
     protected function afterSave(): void
     {
-        if ($this->record->employee) {
+        if (! $this->record->employee) {
+            $this->record->roles()->syncWithoutDetaching(
+                Role::where('name', 'partner')->where('guard_name', 'web')->pluck('id')
+            );
+        }
+
+        $this->logRoleChanges();
+    }
+
+    private function logRoleChanges(): void
+    {
+        $record = $this->record->fresh(['roles']);
+
+        $newRoleIds = $record->roles->pluck('id')->map(fn ($id) => (string) $id)->all();
+        $added      = array_diff($newRoleIds, $this->oldRoleIds);
+        $removed    = array_diff($this->oldRoleIds, $newRoleIds);
+
+        if (empty($added) && empty($removed)) {
             return;
         }
 
-        $this->record->roles()->syncWithoutDetaching(
-            Role::where('name', 'partner')->where('guard_name', 'web')->pluck('id')
+        $old = [];
+        $new = [];
+
+        if (! empty($removed)) {
+            $old['vai_tro_da_bo'] = Role::whereIn('id', $removed)->pluck('name')->implode(', ');
+        }
+        if (! empty($added)) {
+            $new['vai_tro_da_them'] = Role::whereIn('id', $added)->pluck('name')->implode(', ');
+        }
+
+        AuditLogger::log(
+            action: 'update',
+            module: 'User',
+            record: $record,
+            old: $old,
+            new: $new,
+            label: $record->fullname ?? $record->email,
         );
     }
 

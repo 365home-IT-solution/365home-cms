@@ -178,14 +178,25 @@ class OrderObserver
         if (! empty($tracked)) {
             $referer = request()->headers->get('referer', '');
             if (str_contains($referer, '/admin/')) {
-                AuditLogger::log(
-                    action: 'update',
-                    module: 'Order',
-                    record: $order,
-                    old: array_intersect_key($order->getOriginal(), array_flip($tracked)),
-                    new: array_intersect_key($order->getChanges(), array_flip($tracked)),
-                    label: "#{$order->order_code} — {$order->buyer_name}",
-                );
+                $old = array_intersect_key($order->getOriginal(), array_flip($tracked));
+                $new = array_intersect_key($order->getChanges(), array_flip($tracked));
+
+                // EditOrder::handleRecordUpdate() bật cờ suppress() trước khi gọi $record->update()
+                // để gom dòng log này CHUNG với chi tiết phòng/khung giờ/dịch vụ (xem
+                // EditOrder::afterSave()) thành 1 dòng duy nhất thay vì 2 dòng rời rạc mỗi lần Lưu.
+                // Nơi khác gọi update() không bật cờ này thì vẫn ghi log ngay như cũ.
+                if (\App\Support\OrderAuditBuffer::isSuppressed((string) $order->id)) {
+                    \App\Support\OrderAuditBuffer::note((string) $order->id, $old, $new);
+                } else {
+                    AuditLogger::log(
+                        action: 'update',
+                        module: 'Order',
+                        record: $order,
+                        old: $old,
+                        new: $new,
+                        label: "#{$order->order_code} — {$order->buyer_name}",
+                    );
+                }
             }
         }
 

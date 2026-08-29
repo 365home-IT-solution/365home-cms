@@ -174,7 +174,9 @@ class UserBranchPermissionTable
                             $data['post_category_ids']    ?? [],
                         );
 
-                        UserBranchPermission::where('user_id', $userId)->delete();
+                        // Xoá từng bản ghi (không dùng ::where()->delete() hàng loạt) để
+                        // UserBranchPermissionObserver::deleted() bắn đúng, ghi lại audit log.
+                        UserBranchPermission::where('user_id', $userId)->get()->each->delete();
 
                         foreach ($categoryIds as $categoryId) {
                             UserBranchPermission::create([
@@ -192,7 +194,7 @@ class UserBranchPermissionTable
                     ->label('Xóa tất cả')
                     ->requiresConfirmation()
                     ->action(function ($record): void {
-                        UserBranchPermission::where('user_id', $record->user_id)->delete();
+                        UserBranchPermission::where('user_id', $record->user_id)->get()->each->delete();
                     }),
             ])
             ->bulkActions([])

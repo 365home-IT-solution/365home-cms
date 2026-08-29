@@ -106,10 +106,6 @@ class CreateOrder extends CreateRecord
             ],
         ];
 
-        if ($user && ($user->isSuperAdmin() || $user->belongsToPlatformPartner())) {
-            $fill['booking_partner_id'] = $branchCategory->partner_id;
-        }
-
         $this->form->fill($fill);
 
         // recalculateItemFromSelectedSlots() (trait HasTimeslotGridSelection) tính checkin/checkout/

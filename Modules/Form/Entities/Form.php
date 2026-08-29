@@ -2,6 +2,7 @@
 
 namespace Modules\Form\Entities;
 
+use App\Models\Concerns\LogsAuditTrail;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
@@ -10,7 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
  */
 class Form extends Model
 {
-    use HasFactory;
+    use HasFactory, LogsAuditTrail;
 
     protected $fillable = [
         'name',

@@ -16,9 +16,13 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables\Table;
 use Modules\Promotion\App\Models\Promotion;
+use App\Filament\Clusters\DiscountsCluster;
 class PromotionResource extends Resource
 {
     protected static ?string $model = Promotion::class;
+
+    // Gộp chung 1 mục menu với CouponResource — xem DiscountsCluster.
+    protected static ?string $cluster = DiscountsCluster::class;
 
     public static function getNavigationIcon(): string
     {

@@ -1,7 +1,7 @@
 <div class="fi-price-board-history">
     @if ($logs->isEmpty())
         <p class="text-sm text-gray-500 dark:text-gray-400">
-            Chưa có thay đổi giá nào được ghi nhận cho bảng này.
+            Chưa có thay đổi giá nào được ghi nhận.
         </p>
     @else
         <div class="overflow-x-auto">
@@ -10,6 +10,7 @@
                     <tr class="text-left text-gray-500 dark:text-gray-400">
                         <th class="py-2 pr-4 font-medium">Thời gian</th>
                         <th class="py-2 pr-4 font-medium">Phòng</th>
+                        <th class="py-2 pr-4 font-medium">Bảng giá</th>
                         <th class="py-2 pr-4 font-medium">Thay đổi</th>
                         <th class="py-2 pr-4 font-medium">Thực hiện bởi</th>
                     </tr>
@@ -22,6 +23,9 @@
                             </td>
                             <td class="py-2 pr-4 whitespace-nowrap font-medium">
                                 {{ $log->product?->name ?? '(phòng đã xoá)' }}
+                            </td>
+                            <td class="py-2 pr-4 whitespace-nowrap text-gray-500 dark:text-gray-400">
+                                {{ $log->priceBoard?->name ?? '—' }}
                             </td>
                             <td class="py-2 pr-4">
                                 {{ $log->summary() }}

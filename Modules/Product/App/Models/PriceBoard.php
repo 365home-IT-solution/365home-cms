@@ -2,6 +2,7 @@
 
 namespace Modules\Product\App\Models;
 
+use App\Models\Concerns\LogsAuditTrail;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Modules\Promotion\App\Models\Promotion;
@@ -9,7 +10,7 @@ use Modules\Promotion\App\Models\Coupon;
 
 class PriceBoard extends Model
 {
-    use HasFactory;
+    use HasFactory, LogsAuditTrail;
 
     public const MODE_OVERRIDE   = 'override';
     public const MODE_ADJUSTMENT = 'adjustment';

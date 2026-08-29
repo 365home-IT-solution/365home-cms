@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Modules\Book\App\Filament\Resources\PriceBoardResource;
 use Modules\Book\App\Filament\Resources\PriceBoardResource\Concerns\SavesPriceBoardItems;
+use Modules\Book\App\Filament\Resources\PriceBoardResource\Forms\PriceBoardForm;
 use Modules\Product\App\Models\PriceBoard;
 use Modules\Product\App\Models\PriceBoardPriceLog;
 
@@ -50,6 +51,8 @@ class EditPriceBoard extends EditRecord
 
                     Notification::make()->title('Đã áp dụng bảng giá')->success()->send();
                 }),
+            // Cố ý KHÔNG khôi phục giá khi xoá — bảng giá ở đây chỉ dùng để đổi giá, xoá bảng chỉ
+            // dọn bản ghi, giá đã áp giữ nguyên cho tới khi admin tự sửa lại (yêu cầu người dùng).
             Actions\DeleteAction::make(),
         ];
     }
@@ -65,37 +68,7 @@ class EditPriceBoard extends EditRecord
             return $data;
         }
 
-        $data['items'] = $record->items()->with(['timeSlots', 'product'])->get()
-            ->map(function ($item) {
-                $style = (int) ($item->product->styles ?? 1);
-
-                $row = [
-                    'product_id'                  => $item->product_id,
-                    'full_booking_discount'       => $item->full_booking_discount,
-                    'bulk_discount_rules'         => $item->bulk_discount_rules ?? [],
-                    'room_config_max_free_guests' => (int) ($item->room_config['max_free_guests'] ?? 2),
-                    'room_config_extra_guest_fee' => (int) ($item->room_config['extra_guest_fee'] ?? 0),
-                ];
-
-                if ($style === 2) {
-                    $row['price']               = $item->price;
-                    $row['default_checkin']     = $item->default_checkin;
-                    $row['default_checkout']    = $item->default_checkout;
-                    $row['deposit_min_nights']  = $item->deposit_min_nights;
-                    $row['deposit_multi_night'] = $item->deposit_multi_night;
-                } else {
-                    $row['roomTimeSlots'] = $item->timeSlots->map(fn ($slot) => [
-                        'timeslot_id' => $slot->timeslot_id,
-                        'price'       => number_format((int) $slot->price, 0, ',', '.'),
-                        'over_night'  => $slot->over_night,
-                        'status'      => $slot->status,
-                    ])->toArray();
-                }
-
-                return $row;
-            })
-            ->toArray();
-
+        $data['items'] = PriceBoardForm::buildItemsFromBoard($record);
         $data['_room_checklist'] = collect($data['items'])->pluck('product_id')->toArray();
 
         return $data;

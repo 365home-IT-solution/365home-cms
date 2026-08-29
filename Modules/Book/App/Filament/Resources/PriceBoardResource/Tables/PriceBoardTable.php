@@ -101,6 +101,8 @@ class PriceBoardTable
                             ->send();
                     }),
                 EditAction::make(),
+                // Cố ý KHÔNG khôi phục giá khi xoá — bảng giá ở đây chỉ dùng để đổi giá, xoá bảng
+                // chỉ dọn bản ghi, giá đã áp giữ nguyên cho tới khi admin tự sửa lại (yêu cầu người dùng).
                 DeleteAction::make(),
             ]);
     }

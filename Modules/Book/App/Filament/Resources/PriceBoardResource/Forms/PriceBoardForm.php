@@ -9,6 +9,7 @@ use Filament\Forms\Components\Actions\Action;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Group;
+use Filament\Notifications\Notification;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Section;
@@ -20,14 +21,11 @@ use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
-use App\Models\Partner;
+use App\Services\PriceBoardSyncService;
 use Modules\Book\App\Filament\Traits\HasRoomPricingFormFields;
-use Modules\Category\Entities\Categorizable;
-use Modules\Category\Entities\Category;
 use Modules\DataPermission\Entities\UserBranchPermission;
 use Modules\Product\App\Models\PriceBoard;
 use Modules\Product\App\Models\Product;
-use Modules\Product\App\Models\RoomType;
 use Modules\Product\App\Models\TimeSlot;
 use Modules\Promotion\App\Models\Promotion;
 
@@ -104,32 +102,11 @@ class PriceBoardForm
                     ])->columns(2),
 
                 Section::make('Chọn phòng áp dụng')
-                    ->description('Lọc theo chi nhánh / đối tác / loại phòng (kết hợp được nhiều tiêu chí) để thu hẹp danh sách, rồi tích chọn đúng phòng cần áp dụng bảng giá.')
+                    ->description('Tích chọn phòng cần áp dụng bảng giá (gõ để tìm nhanh theo tên phòng).')
                     ->schema([
-                        Select::make('_branch_picker')
-                            ->label('Chi nhánh')
-                            ->options(fn () => static::branchOptions())
-                            ->searchable()
-                            ->live()
-                            ->dehydrated(false),
-
-                        Select::make('_partner_picker')
-                            ->label('Đối tác')
-                            ->options(fn () => Partner::orderBy('name')->pluck('name', 'id'))
-                            ->searchable()
-                            ->live()
-                            ->dehydrated(false),
-
-                        Select::make('_room_type_picker')
-                            ->label('Loại phòng')
-                            ->options(fn () => RoomType::orderBy('name')->pluck('name', 'id'))
-                            ->searchable()
-                            ->live()
-                            ->dehydrated(false),
-
                         CheckboxList::make('_room_checklist')
                             ->label('Phòng')
-                            ->options(fn (Get $get) => static::filteredRoomOptions($get('_branch_picker'), $get('_partner_picker'), $get('_room_type_picker')))
+                            ->options(fn () => static::allRoomOptions())
                             ->searchable()
                             ->bulkToggleable()
                             ->columns(3)
@@ -141,7 +118,7 @@ class PriceBoardForm
 
                         CheckboxList::make('product_ids')
                             ->label('Phòng')
-                            ->options(fn (Get $get) => static::filteredRoomOptions($get('_branch_picker'), $get('_partner_picker'), $get('_room_type_picker')))
+                            ->options(fn () => static::allRoomOptions())
                             ->searchable()
                             ->bulkToggleable()
                             ->columns(3)
@@ -149,49 +126,11 @@ class PriceBoardForm
                             ->columnSpanFull()
                             ->visible(fn (Get $get) => $get('pricing_mode') === PriceBoard::MODE_ADJUSTMENT),
                     ])
-                    ->columns(3)
                     ->columnSpanFull(),
 
-                Section::make('Sửa giá hàng loạt theo khung giờ')
-                    ->description('Áp 1 giá/mức % cho nhiều phòng cùng lúc mà không cần mở từng phòng — chọn đúng 1 khung giờ cụ thể (khi các phòng dùng chung khung giờ), hoặc theo VỊ TRÍ (khung đầu tiên/cuối/thứ N của mỗi phòng — dùng khi mỗi phòng có khung giờ khác nhau, ví dụ phòng 1 là 7h-9h, phòng 2 là 8h-9h, nhưng đều là "khung đầu tiên" của phòng đó).')
+                Section::make('Sửa giá hàng loạt')
+                    ->description('Điền ô nào thì áp dụng cho loại phòng đó (để trống = không đổi loại đó) — 1 lần bấm Áp dụng cho TẤT CẢ phòng đang có trong bảng, không cần mở từng phòng.')
                     ->schema([
-                        Select::make('_bulk_pick_mode')
-                            ->label('Chọn khung giờ theo')
-                            ->options([
-                                'specific' => 'Khung giờ cụ thể (giống nhau ở mọi phòng)',
-                                'position' => 'Vị trí (khung đầu/cuối/thứ N của mỗi phòng)',
-                            ])
-                            ->default('specific')
-                            ->live()
-                            ->dehydrated(false)
-                            ->columnSpanFull(),
-
-                        Select::make('_bulk_timeslot_id')
-                            ->label('Khung giờ')
-                            ->options(fn () => TimeSlot::where(fn ($q) => $q->whereNull('type')->orWhere('type', '!=', 'date'))->pluck('label', 'id'))
-                            ->searchable()
-                            ->dehydrated(false)
-                            ->visible(fn (Get $get) => $get('_bulk_pick_mode') !== 'position'),
-
-                        Select::make('_bulk_position')
-                            ->label('Vị trí khung giờ')
-                            ->options([
-                                'first' => 'Khung đầu tiên (giờ sớm nhất)',
-                                'last'  => 'Khung cuối cùng (giờ muộn nhất)',
-                                'nth'   => 'Khung thứ N',
-                            ])
-                            ->default('first')
-                            ->live()
-                            ->dehydrated(false)
-                            ->visible(fn (Get $get) => $get('_bulk_pick_mode') === 'position'),
-
-                        TextInput::make('_bulk_position_n')
-                            ->label('N = ?')
-                            ->numeric()
-                            ->minValue(1)
-                            ->dehydrated(false)
-                            ->visible(fn (Get $get) => $get('_bulk_pick_mode') === 'position' && $get('_bulk_position') === 'nth'),
-
                         Select::make('_bulk_mode')
                             ->label('Kiểu áp dụng')
                             ->options([
@@ -200,95 +139,111 @@ class PriceBoardForm
                             ])
                             ->default('price')
                             ->live()
-                            ->dehydrated(false),
+                            ->dehydrated(false)
+                            ->columnSpanFull(),
 
-                        TextInput::make('_bulk_value')
-                            ->label(fn (Get $get) => $get('_bulk_mode') === 'percent' ? 'Mức % (+/-)' : 'Giá mới (VNĐ)')
-                            ->numeric()
-                            ->dehydrated(false),
+                        Section::make('Theo Ngày')
+                            ->icon('heroicon-o-calendar-days')
+                            ->compact()
+                            ->schema([
+                                TextInput::make('_bulk_day_value')
+                                    ->label(fn (Get $get) => $get('_bulk_mode') === 'percent' ? 'Mức % (+/-)' : 'Giá/đêm mới (VNĐ)')
+                                    ->helperText('Áp cho tất cả phòng Theo Ngày đang có trong bảng. Để trống nếu không đổi.')
+                                    ->numeric()
+                                    ->dehydrated(false)
+                                    ->columnSpan(1),
+                            ])
+                            ->columns(3),
+
+                        Section::make('Theo Khung Giờ')
+                            ->icon('heroicon-o-clock')
+                            ->compact()
+                            ->schema([
+                                TextInput::make('_bulk_slot_value')
+                                    ->label(fn (Get $get) => $get('_bulk_mode') === 'percent' ? 'Mức % (+/-)' : 'Giá mới (VNĐ)')
+                                    ->helperText('Để trống nếu không đổi.')
+                                    ->numeric()
+                                    ->dehydrated(false)
+                                    ->columnSpan(1),
+
+                                Select::make('_bulk_pick_mode')
+                                    ->label('Chọn khung giờ theo')
+                                    ->options([
+                                        'position' => 'Vị trí (đầu/cuối/thứ N)',
+                                        'specific' => 'Khung giờ cụ thể',
+                                    ])
+                                    ->default('position')
+                                    ->live()
+                                    ->dehydrated(false)
+                                    ->columnSpan(1),
+
+                                Select::make('_bulk_timeslot_id')
+                                    ->label('Khung giờ')
+                                    ->options(fn () => TimeSlot::where(fn ($q) => $q->whereNull('type')->orWhere('type', '!=', 'date'))->pluck('label', 'id'))
+                                    ->searchable()
+                                    ->dehydrated(false)
+                                    ->columnSpan(1)
+                                    ->visible(fn (Get $get) => $get('_bulk_pick_mode') === 'specific'),
+
+                                Select::make('_bulk_position')
+                                    ->label('Vị trí khung giờ')
+                                    ->options([
+                                        'first' => 'Khung đầu tiên',
+                                        'last'  => 'Khung cuối cùng',
+                                        'nth'   => 'Khung thứ N',
+                                    ])
+                                    ->default('first')
+                                    ->live()
+                                    ->dehydrated(false)
+                                    ->columnSpan(1)
+                                    ->visible(fn (Get $get) => $get('_bulk_pick_mode') === 'position'),
+
+                                TextInput::make('_bulk_position_n')
+                                    ->label('N = ?')
+                                    ->numeric()
+                                    ->minValue(1)
+                                    ->dehydrated(false)
+                                    ->columnSpan(1)
+                                    ->visible(fn (Get $get) => $get('_bulk_pick_mode') === 'position' && $get('_bulk_position') === 'nth'),
+                            ])
+                            ->columns(4)
+                            ->description('Áp cho tất cả phòng Theo Khung Giờ đang có trong bảng, tại đúng khung giờ chọn bên dưới.'),
 
                         Actions::make([
-                            Action::make('apply_bulk_timeslot')
+                            Action::make('apply_bulk_price')
                                 ->label('Áp dụng cho mọi phòng đang có trong bảng')
                                 ->icon('heroicon-o-bolt')
                                 ->color('warning')
-                                ->action(function (Get $get, Set $set) {
-                                    $value = $get('_bulk_value');
-                                    if ($value === null || $value === '') {
+                                ->action(function (Get $get, Set $set, ?PriceBoard $record) {
+                                    $mode      = $get('_bulk_mode');
+                                    $dayValue  = $get('_bulk_day_value');
+                                    $slotValue = $get('_bulk_slot_value');
+
+                                    if (($dayValue === null || $dayValue === '') && ($slotValue === null || $slotValue === '')) {
                                         return;
                                     }
 
                                     $items = $get('items') ?? [];
 
-                                    $items = $get('_bulk_pick_mode') === 'position'
-                                        ? static::applyBulkByPosition($items, $get('_bulk_position'), (int) ($get('_bulk_position_n') ?? 1), $get('_bulk_mode'), (float) $value)
-                                        : static::applyBulkByTimeslot($items, $get('_bulk_timeslot_id'), $get('_bulk_mode'), (float) $value);
-
-                                    $set('items', $items);
-                                }),
-                        ])->columnSpanFull(),
-                    ])
-                    ->columns(3)
-                    ->columnSpanFull()
-                    // Chỉ hiện khi có ÍT NHẤT 1 phòng "Theo Khung Giờ" đang được chọn. Tra theo
-                    // styles của Product (styleOf) chứ KHÔNG dựa vào việc item có key 'roomTimeSlots'
-                    // hay không — Filament tự khởi tạo sẵn key này = [] cho MỌI item ngay cả khi
-                    // Group chứa TableRepeater đó đang ẩn (do Group của phòng Theo Ngày visible=false
-                    // nhưng field bên trong vẫn được hydrate mặc định), nên key luôn "tồn tại" dù
-                    // rỗng — kiểm tra bằng array_key_exists() sẽ luôn đúng, không phân biệt được.
-                    ->visible(function (Get $get) {
-                        if ($get('pricing_mode') === PriceBoard::MODE_ADJUSTMENT) {
-                            return false;
-                        }
-
-                        return collect($get('items') ?? [])->contains(fn ($item) => static::styleOf($item['product_id'] ?? null) === 1);
-                    }),
-
-                Section::make('Sửa giá hàng loạt cho phòng Theo Ngày')
-                    ->description('Nhập 1 giá mới hoặc mức % thay đổi — áp cho GIÁ MỖI ĐÊM của TẤT CẢ phòng Theo Ngày đang có trong bảng cùng lúc, không cần mở từng phòng.')
-                    ->schema([
-                        Select::make('_bulk_day_mode')
-                            ->label('Kiểu áp dụng')
-                            ->options([
-                                'price'   => 'Giá cụ thể (VNĐ)',
-                                'percent' => 'Điều chỉnh % trên giá đang có',
-                            ])
-                            ->default('price')
-                            ->live()
-                            ->dehydrated(false),
-
-                        TextInput::make('_bulk_day_value')
-                            ->label(fn (Get $get) => $get('_bulk_day_mode') === 'percent' ? 'Mức % (+/-)' : 'Giá mới (VNĐ)')
-                            ->numeric()
-                            ->dehydrated(false),
-
-                        Actions::make([
-                            Action::make('apply_bulk_day_price')
-                                ->label('Áp dụng cho mọi phòng Theo Ngày trong bảng')
-                                ->icon('heroicon-o-bolt')
-                                ->color('warning')
-                                ->action(function (Get $get, Set $set) {
-                                    $value = $get('_bulk_day_value');
-                                    if ($value === null || $value === '') {
-                                        return;
+                                    if ($dayValue !== null && $dayValue !== '') {
+                                        $items = static::applyBulkDayPrice($items, $mode, (float) $dayValue);
                                     }
 
-                                    $items = static::applyBulkDayPrice($get('items') ?? [], $get('_bulk_day_mode'), (float) $value);
+                                    if ($slotValue !== null && $slotValue !== '') {
+                                        $items = $get('_bulk_pick_mode') === 'position'
+                                            ? static::applyBulkByPosition($items, $get('_bulk_position'), (int) ($get('_bulk_position_n') ?? 1), $mode, (float) $slotValue)
+                                            : static::applyBulkByTimeslot($items, $get('_bulk_timeslot_id'), $mode, (float) $slotValue);
+                                    }
+
                                     $set('items', $items);
+
+                                    static::persistBulkItems($record, $items, $set);
                                 }),
                         ])->columnSpanFull(),
                     ])
-                    ->columns(3)
+                    ->columns(2)
                     ->columnSpanFull()
-                    // Chỉ hiện khi có ÍT NHẤT 1 phòng "Theo Ngày" — xem giải thích ở section "Sửa giá
-                    // hàng loạt theo khung giờ" phía trên vì sao dùng styleOf() thay vì key rỗng.
-                    ->visible(function (Get $get) {
-                        if ($get('pricing_mode') === PriceBoard::MODE_ADJUSTMENT) {
-                            return false;
-                        }
-
-                        return collect($get('items') ?? [])->contains(fn ($item) => static::styleOf($item['product_id'] ?? null) === 2);
-                    }),
+                    ->visible(fn (Get $get) => $get('pricing_mode') !== PriceBoard::MODE_ADJUSTMENT),
 
                 Repeater::make('items')
                     ->label('Chi tiết giá từng phòng đã chọn')
@@ -426,6 +381,81 @@ class PriceBoardForm
         ];
     }
 
+    /** Ghi $items xuống DB NGAY khi $record đã tồn tại (đang sửa 1 bảng có sẵn) — không đợi bấm
+     *  "Lưu thay đổi". Bắt buộc phải làm vậy vì TableRepeater (khung giờ) là widget bên thứ 3, khi
+     *  bị $set() giá trị mới từ 1 Action bên ngoài nó không tự vẽ lại input — nếu chỉ set vào state
+     *  rồi chờ người dùng bấm Lưu, trình duyệt vẫn gửi lên giá trị CŨ đang hiển thị trên màn hình,
+     *  khiến "Áp dụng" nhìn như chạy nhưng lưu xong giá không đổi. Ghi thẳng DB rồi nạp lại 'items'
+     *  từ chính dữ liệu vừa lưu để đảm bảo đúng, bất kể widget có vẽ lại trên UI hay không.
+     *
+     *  $record = null khi đang ở trang Tạo mới (bảng chưa tồn tại, chưa có gì để ghi xuống) — lúc đó
+     *  đành chấp nhận chỉ set vào state, nhắc admin lưu bảng trước rồi mới dùng nút áp dụng hàng loạt. */
+    private static function persistBulkItems(?PriceBoard $record, array $items, Set $set): void
+    {
+        if (! $record || ! $record->exists) {
+            Notification::make()
+                ->title('Đã áp lên form — hãy bấm "Lưu thay đổi" để tạo bảng trước, sau đó dùng lại nút áp dụng hàng loạt để chắc chắn lưu đúng.')
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $service = app(PriceBoardSyncService::class);
+        $service->saveOverrideItems($record, $items);
+        $service->resyncBoardProducts($record);
+
+        $set('items', static::buildItemsFromBoard($record));
+
+        Notification::make()
+            ->title('Đã lưu và áp dụng ngay xuống hệ thống')
+            ->success()
+            ->send();
+    }
+
+    /** Dựng lại state 'items' cho Repeater từ đúng dữ liệu ĐANG LƯU trong DB của $board — dùng khi
+     *  mở trang Sửa (EditPriceBoard::mutateFormDataBeforeFill) VÀ sau mỗi lần persistBulkItems() để
+     *  đảm bảo form luôn khớp với DB. */
+    public static function buildItemsFromBoard(PriceBoard $board): array
+    {
+        return $board->items()->with(['timeSlots.timeslot', 'product'])->get()
+            ->map(function ($item) {
+                $style = (int) ($item->product->styles ?? 1);
+
+                $row = [
+                    'product_id'                  => $item->product_id,
+                    'full_booking_discount'       => $item->full_booking_discount,
+                    'bulk_discount_rules'         => $item->bulk_discount_rules ?? [],
+                    'room_config_max_free_guests' => (int) ($item->room_config['max_free_guests'] ?? 2),
+                    'room_config_extra_guest_fee' => (int) ($item->room_config['extra_guest_fee'] ?? 0),
+                ];
+
+                if ($style === 2) {
+                    $row['price']               = $item->price;
+                    $row['default_checkin']     = $item->default_checkin;
+                    $row['default_checkout']    = $item->default_checkout;
+                    $row['deposit_min_nights']  = $item->deposit_min_nights;
+                    $row['deposit_multi_night'] = $item->deposit_multi_night;
+
+                    return $row;
+                }
+
+                $row['roomTimeSlots'] = $item->timeSlots
+                    ->sortBy(fn ($slot) => $slot->timeslot?->start_time ?? '99:99:99')
+                    ->values()
+                    ->map(fn ($slot) => [
+                        'timeslot_id' => $slot->timeslot_id,
+                        'price'       => number_format((int) $slot->price, 0, ',', '.'),
+                        'over_night'  => $slot->over_night,
+                        'status'      => $slot->status,
+                    ])
+                    ->toArray();
+
+                return $row;
+            })
+            ->toArray();
+    }
+
     private static function styleOf(?string $productId): int
     {
         if (! $productId) {
@@ -435,44 +465,16 @@ class PriceBoardForm
         return (int) (Product::find($productId)?->styles ?? 1);
     }
 
-    private static function branchOptions(): array
+    /** Toàn bộ phòng đang hoạt động — dùng làm options() cho 2 CheckboxList chọn phòng. Trang "Hệ
+     *  thống giá" (SettingBook) đã có bộ lọc chi nhánh riêng ở cấp trang, nên ở đây không lọc lại
+     *  theo chi nhánh/đối tác/loại phòng nữa — chỉ cần danh sách phòng để tích chọn (đã có tìm kiếm
+     *  theo tên qua ->searchable() trên CheckboxList). */
+    private static function allRoomOptions(): array
     {
-        return Category::where('category_type', 'product')
-            ->whereNull('parent_id')
+        return Product::where('is_activated', true)
             ->orderBy('name')
             ->pluck('name', 'id')
             ->toArray();
-    }
-
-    /** Tên phòng đang hoạt động thoả ĐỒNG THỜI các tiêu chí không rỗng được truyền vào — bỏ trống
-     *  tiêu chí nào thì không lọc theo tiêu chí đó (chọn chi nhánh + đối tác = giao của cả 2, không
-     *  phải hợp của từng cái riêng lẻ). Dùng làm options() cho 2 CheckboxList chọn phòng. */
-    private static function filteredRoomOptions(?string $branchId, ?string $partnerId, ?string $roomTypeId): array
-    {
-        $query = Product::where('is_activated', true);
-
-        if ($branchId) {
-            $categoryIds = array_merge(
-                [$branchId],
-                Category::where('parent_id', $branchId)->pluck('id')->toArray()
-            );
-
-            $productIds = Categorizable::where('categorizable_type', Product::class)
-                ->whereIn('category_id', $categoryIds)
-                ->pluck('categorizable_id');
-
-            $query->whereIn('id', $productIds);
-        }
-
-        if ($partnerId) {
-            $query->where('partner_id', $partnerId);
-        }
-
-        if ($roomTypeId) {
-            $query->where('room_type_id', $roomTypeId);
-        }
-
-        return $query->orderBy('name')->pluck('name', 'id')->toArray();
     }
 
     /** Đồng bộ Repeater 'items' theo đúng tập phòng đang tích trong CheckboxList — thêm dòng mới

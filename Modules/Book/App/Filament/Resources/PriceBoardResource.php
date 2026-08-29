@@ -23,6 +23,9 @@ class PriceBoardResource extends Resource
     protected static ?string $model = PriceBoard::class;
     protected static ?string $navigationIcon = 'heroicon-o-currency-dollar';
     protected static ?string $navigationGroup = 'Quản lý';
+    // Đứng ngay sau "Hệ thống giá" (BookResource, sort=-3) — mặc định Filament sắp theo alphabet
+    // nên "Bảng giá" (B) bị tách xa "Hệ thống giá" (H), trông như 2 mục không liên quan.
+    protected static ?int $navigationSort = -2;
 
     public static function getNavigationLabel(): string
     {

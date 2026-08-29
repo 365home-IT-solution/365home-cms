@@ -2,13 +2,14 @@
 
 namespace Modules\Product\App\Models;
 
+use App\Models\Concerns\LogsAuditTrail;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Modules\Promotion\App\Models\Promotion;
 
 class RoomTimeSlot extends Model
 {
-    use HasFactory;
+    use HasFactory, LogsAuditTrail;
 
     protected $fillable = [
         'room_id',
@@ -45,6 +46,18 @@ class RoomTimeSlot extends Model
     public function room()
     {
         return $this->belongsTo(Product::class, 'room_id');
+    }
+
+    // RoomTimeSlot không có field "name" nên auditLabel() mặc định của LogsAuditTrail chỉ ra được
+    // "#<id>" — không đủ để biết đang nói về khung giờ của phòng nào. Ghép rõ tên phòng + nhãn
+    // khung giờ (TimeSlot::label, vd "7h-9h") để trang "Lịch sử thao tác" đọc hiểu ngay không cần
+    // tra thêm.
+    protected function auditLabel(): string
+    {
+        $roomName  = $this->room?->name ?? ('#' . $this->room_id);
+        $slotLabel = $this->timeSlot?->label ?? ('#' . $this->timeslot_id);
+
+        return "Phòng {$roomName} — Khung giờ {$slotLabel}";
     }
 
     public function coupons()

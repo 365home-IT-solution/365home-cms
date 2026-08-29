@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Modules\Product\App\Models;
 
+use App\Models\Concerns\LogsAuditTrail;
 use Illuminate\Database\Eloquent\Model;
 
 class RoomType extends Model
 {
+    use LogsAuditTrail;
+
     protected $fillable = [
         'slug',
         'name',
