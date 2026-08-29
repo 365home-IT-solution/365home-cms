@@ -15,14 +15,24 @@
     @livewire('bladethemev1::hero-section')
 
     {{-- Flash Sale --}}
-    @livewire('bladethemev1::flash-sale')
+    <div wire:key="flash-sale-section">
+        @livewire('bladethemev1::flash-sale', [], key('flash-sale'))
+    </div>
 
     {{-- Voucher & Ưu đãi --}}
-    @livewire('bladethemev1::voucher')
+    <div wire:key="voucher-section">
+        @livewire('bladethemev1::voucher', [], key('voucher'))
+    </div>
 
-    @livewire('bladethemev1::footer')
-    @livewire('bladethemev1::contact-link')
-    @livewire('bladethemev1::notification')
+    <div wire:key="footer-section">
+        @livewire('bladethemev1::footer')
+    </div>
+    <div wire:key="contact-section">
+        @livewire('bladethemev1::contact-link')
+    </div>
+    <div wire:key="notification-section">
+        @livewire('bladethemev1::notification')
+    </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
