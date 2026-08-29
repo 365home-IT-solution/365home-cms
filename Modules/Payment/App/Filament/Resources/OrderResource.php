@@ -3,6 +3,7 @@
 namespace Modules\Payment\App\Filament\Resources;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Modules\Payment\App\Filament\Resources\OrderResource\Forms\OrderForm;
 use Modules\Payment\App\Filament\Resources\OrderResource\Tables\OrderTable;
 use Modules\Payment\App\Filament\Resources\OrderResource\Pages;
@@ -107,6 +108,27 @@ class OrderResource extends Resource
         }
 
         return $query->whereIn('category_id', $allCategoryIds);
+    }
+
+    // Ô search toàn cục (navbar) — trước đây Order không nằm trong global search nên admin
+    // không thể gõ tên/SĐT khách từ bất kỳ trang nào để nhảy thẳng tới đơn. getGlobalSearchEloquentQuery()
+    // mặc định gọi lại getEloquentQuery() ở trên nên vẫn tôn trọng đúng phạm vi phân quyền
+    // partner/category hiện có, không lộ đơn ngoài quyền xem.
+    public static function getGloballySearchableAttributes(): array
+    {
+        return ['order_code', 'buyer_name', 'buyer_phone'];
+    }
+
+    public static function getGlobalSearchResultTitle(Model $record): string
+    {
+        return $record->buyer_name ? "{$record->order_code} — {$record->buyer_name}" : $record->order_code;
+    }
+
+    public static function getGlobalSearchResultDetails(Model $record): array
+    {
+        return [
+            'Số điện thoại' => $record->buyer_phone,
+        ];
     }
 
     public static function form(Form $form): Form
