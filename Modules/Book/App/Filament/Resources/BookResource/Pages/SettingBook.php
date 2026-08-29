@@ -4,6 +4,7 @@ namespace Modules\Book\App\Filament\Resources\BookResource\Pages;
 
 use Modules\Book\App\Filament\Resources\BookResource;
 use Modules\Book\App\Filament\Traits\HasBookingHeaderActions;
+use Modules\Book\App\Filament\Traits\HasRoomPricingFormFields;
 use Filament\Resources\Pages\Page;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -11,15 +12,9 @@ use Filament\Forms\Form;
 use Filament\Forms\Components\Tabs;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\Hidden;
-use Filament\Forms\Components\Select;
-use Filament\Forms\Components\TimePicker;
 use Filament\Forms\Components\DatePicker;
-use Filament\Forms\Components\Repeater;
 use Modules\Book\App\Filament\Forms\Components\DatePriceCalendarField;
-use Awcodes\TableRepeater\Components\TableRepeater;
-use Awcodes\TableRepeater\Header;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
 use Modules\Product\App\Models\TimeSlot;
@@ -28,10 +23,15 @@ use Filament\Notifications\Notification;
 use Modules\Promotion\App\Models\Coupon;
 use Modules\DataPermission\Entities\UserBranchPermission;
 use App\Services\SlotRealtimeService;
+use App\Services\PriceBoardSyncService;
+use Modules\Product\App\Models\PriceBoardPriceLog;
+use Filament\Actions\Action;
+use Modules\AuditLog\Services\AuditLogger;
 
 class SettingBook extends Page implements HasForms
 {
     use InteractsWithForms;
+    use HasRoomPricingFormFields;
     use HasBookingHeaderActions {
         getHeaderActions as private traitGetHeaderActions;
     }
@@ -42,12 +42,30 @@ class SettingBook extends Page implements HasForms
 
         $hiddenActions = $isSuperAdmin
             ? ['block_calendar']
-            : ['block_calendar', 'create_coupon', 'create_promotion'];
+            : ['block_calendar', 'create_coupon', 'create_promotion', 'bulk_price_update'];
 
-        return array_values(array_filter(
+        $actions = array_values(array_filter(
             $this->traitGetHeaderActions(),
             fn ($action) => ! in_array($action->getName(), $hiddenActions, true),
         ));
+
+        if ($isSuperAdmin) {
+            $actions[] = Action::make('price_history')
+                ->label('Lịch sử')
+                ->icon('heroicon-o-clock')
+                ->color('gray')
+                ->modalHeading('Lịch sử thay đổi giá')
+                ->modalSubmitAction(false)
+                ->modalCancelActionLabel('Đóng')
+                ->modalContent(fn () => view('book::filament.resources.price-board-resource.history-modal', [
+                    'logs' => PriceBoardPriceLog::with(['product', 'changedByUser', 'priceBoard'])
+                        ->orderByDesc('created_at')
+                        ->limit(200)
+                        ->get(),
+                ]));
+        }
+
+        return $actions;
     }
 
     protected static string $resource = BookResource::class;
@@ -279,6 +297,48 @@ class SettingBook extends Page implements HasForms
         app(SlotRealtimeService::class)->broadcastBlockedRange($roomId, $dates, [], 'available');
     }
 
+    // So sánh danh sách khung giờ (RoomTimeSlot) của 1 phòng TRƯỚC/SAU khi save() xoá-tạo-lại, ghi
+    // 1 dòng audit log DUY NHẤT liệt kê khung giờ đã tăng/bớt — thay cho việc để mỗi khung giờ tự
+    // bắn 1 dòng log riêng (đã tắt qua RoomTimeSlot::withoutAuditLog() ở save()). $oldSlots là
+    // snapshot ĐẦY ĐỦ (kèm quan hệ timeSlot đã load) chụp TRƯỚC khi xoá — bắt buộc, vì RoomTimeSlot
+    // không soft-delete nên khung giờ bị bớt sẽ không còn truy vấn lại được sau khi đã delete().
+    private function logRoomTimeSlotChanges(Product $product, \Illuminate\Support\Collection $oldSlots): void
+    {
+        $newSlots = RoomTimeSlot::where('room_id', $product->id)
+            ->with('timeSlot')
+            ->get()
+            ->keyBy(fn ($slot) => (string) $slot->id);
+
+        $addedIds   = array_diff($newSlots->keys()->all(), $oldSlots->keys()->all());
+        $removedIds = array_diff($oldSlots->keys()->all(), $newSlots->keys()->all());
+
+        if (empty($addedIds) && empty($removedIds)) {
+            return;
+        }
+
+        $labelFor = fn (RoomTimeSlot $slot) => ($slot->timeSlot?->label ?? ('#' . $slot->timeslot_id))
+            . ($slot->price !== null ? ' (' . number_format((float) $slot->price, 0, ',', '.') . 'đ)' : '');
+
+        $old = [];
+        $new = [];
+
+        if (! empty($removedIds)) {
+            $old['khung_gio_da_bo'] = $oldSlots->only($removedIds)->map($labelFor)->implode(', ');
+        }
+        if (! empty($addedIds)) {
+            $new['khung_gio_da_them'] = $newSlots->only($addedIds)->map($labelFor)->implode(', ');
+        }
+
+        AuditLogger::log(
+            action: 'update',
+            module: 'RoomTimeSlot',
+            record: $product,
+            old: $old,
+            new: $new,
+            label: 'Phòng ' . ($product->name ?? '#' . $product->id) . ' — Cập nhật khung giờ',
+        );
+    }
+
     /** Danh sách ngày (Y-m-d) từ $start đến $end (bao gồm cả 2 đầu) — dùng để báo realtime cho các
      *  thao tác hàng loạt theo khoảng ngày (applyBulkOverride, removeBulkPromotion...). */
     private function dateRange(\Carbon\Carbon $start, \Carbon\Carbon $end): array
@@ -374,138 +434,21 @@ class SettingBook extends Page implements HasForms
         $isSuperAdmin = (bool) auth()->user()?->isSuperAdmin();
 
         $buildSlotRoomTab = function ($product) use ($isSuperAdmin) {
-            $schema = [
-                Section::make('Thông tin Phòng')
-                        ->schema([
-                            Hidden::make('room_' . $product->id . '.product_id')
-                                ->default($product->id),
-                            TextInput::make('room_' . $product->id . '.product_name')
-                                ->label('Tên Phòng')
-                                ->default($product->name)
-                                ->disabled()
-                                ->dehydrated(false),
+            $prefix = 'room_' . $product->id . '.';
 
-                            TextInput::make('room_' . $product->id . '.full_booking_discount')
-                                ->label('Giảm giá khi đặt Full phòng')
-                                ->placeholder('VD: 10% hoặc 50000')
-                                ->helperText('Nhập % (VD: 10%) hoặc số tiền cố định (VD: 50000)')
-                                ->maxLength(50),
-
-                            TextInput::make('room_' . $product->id . '.room_config_max_free_guests')
-                                ->label('Số khách tối đa không phụ thu')
-                                ->numeric()
-                                ->default(2)
-                                ->minValue(1)
-                                ->suffix('người')
-                                ->helperText('Từ người thứ (N+1) trở đi sẽ tính phụ thu.')
-                                ->extraInputAttributes(['inputmode' => 'numeric']),
-
-                            TextInput::make('room_' . $product->id . '.room_config_extra_guest_fee')
-                                ->label('Phụ thu mỗi người vượt ngưỡng')
-                                ->numeric()
-                                ->default(0)
-                                ->minValue(0)
-                                ->suffix('đ/người')
-                                ->helperText('0 = không phụ thu. Chỉ áp dụng cho đặt theo giờ.')
-                                ->extraInputAttributes(['inputmode' => 'numeric']),
-
-                            Repeater::make('room_' . $product->id . '.bulk_discount_rules')
-                                ->label('Giảm giá theo số khung giờ')
-                                ->helperText('Cấu hình % giảm khi khách chọn nhiều khung giờ. Ví dụ: 2 khung → 5%, 3 khung → 10%.')
-                                ->schema([
-                                    TextInput::make('slots')
-                                        ->label('Số khung giờ')
-                                        ->numeric()
-                                        ->minValue(2)
-                                        ->maxValue(99)
-                                        ->required()
-                                        ->suffix('khung')
-                                        ->extraInputAttributes(['inputmode' => 'numeric']),
-                                    TextInput::make('discount')
-                                        ->label('Giảm')
-                                        ->numeric()
-                                        ->minValue(0)
-                                        ->maxValue(100)
-                                        ->required()
-                                        ->suffix('%')
-                                        ->extraInputAttributes(['inputmode' => 'numeric']),
-                                ])
-                                ->columns(2)
-                                ->defaultItems(0)
-                                ->addActionLabel('Thêm mức giảm')
-                                ->reorderableWithButtons()
-                                ->orderColumn('slots')
-                                ->columnSpanFull(),
-                        ])->columns(2),
-            ];
-
-            if ($isSuperAdmin) {
-                $schema[] = Section::make('Khung giờ, giá, Thiết lập khuyến mãi')
-                    ->description('Thiết lập khung giờ, giá và khuyến mãi cho phòng ' . $product->name)
-                    ->schema([
-                        TableRepeater::make('room_' . $product->id . '.roomTimeSlots')
-                            ->headers([
-                                Header::make('timeslot_id')->label('Khung giờ')->width('200px'),
-                                Header::make('price')->label('Giá')->width('150px'),
-                                Header::make('promotions')->label('Khuyến mãi')->width('250px'),
-                                Header::make('over_night')->label('Qua đêm')->width('100px'),
-                            ])
-                            ->schema([
-                                Hidden::make('id'),
-
-                                Select::make('timeslot_id')
-                                    ->label('Khung giờ')
-                                    ->options(TimeSlot::all()->pluck('label', 'id'))
-                                    ->preload()
-                                    ->searchable()
-                                    ->createOptionForm([
-                                        TextInput::make('label')->required(),
-                                        TextInput::make('start_time')
-                                            ->label('Giờ bắt đầu')
-                                            ->required()
-                                            ->placeholder('07:50')
-                                            ->helperText('Định dạng HH:MM (VD: 07:50)')
-                                            ->rules(['regex:/^\d{1,2}:\d{2}$/']),
-                                        TextInput::make('end_time')
-                                            ->label('Giờ kết thúc')
-                                            ->required()
-                                            ->placeholder('10:40')
-                                            ->helperText('Định dạng HH:MM (VD: 10:40)')
-                                            ->rules(['regex:/^\d{1,2}:\d{2}$/']),
-                                    ])
-                                    ->createOptionUsing(fn (array $data) => TimeSlot::create(array_merge($data, ['type' => 'time']))->id)
-                                    ->required(),
-
-                                TextInput::make('price')
-                                    ->label('Giá')
-                                    ->required()
-                                    ->suffix('VNĐ')
-                                    ->extraInputAttributes(['inputmode' => 'numeric']),
-
-                                Select::make('promotions')
-                                    ->label('Khuyến mãi')
-                                    ->options(fn () => $this->allowedPromotionOptions())
-                                    ->multiple()
-                                    ->preload()
-                                    ->searchable(),
-
-                                Toggle::make('over_night')
-                                    ->label('Qua đêm')
-                                    ->default(false),
-
-                                Hidden::make('status')->default('available'),
-                            ])
-                            ->defaultItems(0)
-                            ->columns(4)
-                            ->label('')
-                            ->emptyLabel('Chưa thiết lập cấu hình giá')
-                            ->reorderableWithButtons()
-                            ->reorderable(true)
-                            ->createItemButtonLabel('Thêm khung giờ')
-                            ->columnSpan('full')
-                            ->collapsible()
-                    ]);
-            }
+            $schema = $this->slotPricingSchema(
+                $prefix,
+                $isSuperAdmin,
+                fn () => $this->allowedPromotionOptions(),
+                [
+                    Hidden::make($prefix . 'product_id')->default($product->id),
+                    TextInput::make($prefix . 'product_name')
+                        ->label('Tên Phòng')
+                        ->default($product->name)
+                        ->disabled()
+                        ->dehydrated(false),
+                ]
+            );
 
             return Tabs\Tab::make($product->name)
                 ->icon('heroicon-o-home')
@@ -513,91 +456,25 @@ class SettingBook extends Page implements HasForms
         };
 
         $buildDayRoomTab = function ($product) use ($isSuperAdmin) {
-            $schema = [
-                Section::make('Thiết lập chung')
-                        ->schema([
-                            Hidden::make('room_' . $product->id . '.product_id')
-                                ->default($product->id),
-                            TextInput::make('room_' . $product->id . '.product_name')
-                                ->label('Tên Phòng')
-                                ->default($product->name)
-                                ->disabled()
-                                ->dehydrated(false),
-                            TextInput::make('room_' . $product->id . '.price')
-                                ->label('Giá mỗi đêm')
-                                ->placeholder('VD: 500000')
-                                ->suffix('VNĐ')
-                                ->extraInputAttributes(['inputmode' => 'numeric']),
-                            TimePicker::make('room_' . $product->id . '.default_checkin')
-                                ->label('Giờ nhận phòng mặc định')
-                                ->seconds(false)
-                                ->native(false)
-                                ->locale('vi')
-                                ->helperText('Giờ check-in hiển thị trên form đặt theo ngày (VD: 14:00)')
-                                ->timezone('Asia/Ho_Chi_Minh')
-                                ->default('14:00'),
-                            TimePicker::make('room_' . $product->id . '.default_checkout')
-                                ->label('Giờ trả phòng mặc định')
-                                ->seconds(false)
-                                ->native(false)
-                                ->locale('vi')
-                                ->helperText('Giờ check-out hiển thị trên form đặt theo ngày (VD: 12:00)')
-                                ->timezone('Asia/Ho_Chi_Minh')  
-                                ->seconds(false)
-                                ->default('12:00'),
-                        ])->columns(2),
+            $prefix = 'room_' . $product->id . '.';
 
-                    Section::make('Thiết lập cọc')
-                        ->description('Cấu hình điều kiện và % tiền cọc khách phải thanh toán khi đặt phòng.')
-                        ->schema([
-                            TextInput::make('room_' . $product->id . '.deposit_min_nights')
-                                ->label('Đặt từ X đêm mới cọc')
-                                ->numeric()
-                                ->minValue(0)
-                                ->maxValue(30)
-                                ->default(2)
-                                ->suffix('đêm')
-                                ->helperText('0 = luôn thanh toán 100%. 1 = đặt 1 đêm trở lên có cọc. 2 = từ 2 đêm mới cọc.')
-                                ->extraInputAttributes(['inputmode' => 'numeric']),
-                            TextInput::make('room_' . $product->id . '.deposit_multi_night')
-                                ->label('Phần trăm cọc (%)')
-                                ->numeric()
-                                ->minValue(1)
-                                ->maxValue(100)
-                                ->default(50)
-                                ->suffix('%')
-                                ->helperText('Ví dụ: 50 → khách cọc 50%, mã cổng gửi sau khi thanh toán phần còn lại.')
-                                ->extraInputAttributes(['inputmode' => 'numeric']),
-                        ])->columns(2),
-
-                    Section::make('Cấu hình phòng')
-                        ->description('Quy định số khách tối đa miễn phí và phụ thu khi có thêm người.')
-                        ->schema([
-                            TextInput::make('room_' . $product->id . '.room_config_max_free_guests')
-                                ->label('Số khách tối đa (miễn phụ thu)')
-                                ->numeric()
-                                ->minValue(1)
-                                ->maxValue(10)
-                                ->default(2)
-                                ->suffix('người')
-                                ->helperText('Ví dụ: 2 → từ khách thứ 3 trở đi mới tính phụ thu.')
-                                ->extraInputAttributes(['inputmode' => 'numeric']),
-                            TextInput::make('room_' . $product->id . '.room_config_extra_guest_fee')
-                                ->label('Phụ thu mỗi người thêm')
-                                ->inputMode('numeric')
-                                ->default(50000)
-                                ->suffix('VNĐ')
-                                ->helperText('Số tiền phụ thu cho mỗi người vượt quá số tối đa miễn phí.')
-                                ->dehydrateStateUsing(fn ($state) => (int) preg_replace('/[^0-9]/', '', (string)($state ?? '0'))),
-                        ])->columns(2),
-
-            ];
+            $schema = $this->dayPricingSchema(
+                $prefix,
+                [
+                    Hidden::make($prefix . 'product_id')->default($product->id),
+                    TextInput::make($prefix . 'product_name')
+                        ->label('Tên Phòng')
+                        ->default($product->name)
+                        ->disabled()
+                        ->dehydrated(false),
+                ]
+            );
 
             if ($isSuperAdmin) {
                 $schema[] = Section::make('Ngày đặc biệt & Khuyến mãi')
                     ->description('Nhấn vào ô ngày để thiết lập giá và khuyến mãi. Ưu tiên cao hơn giá gốc của phòng.')
                     ->schema([
-                        DatePriceCalendarField::make('room_' . $product->id . '.dateTimeSlots')
+                        DatePriceCalendarField::make($prefix . 'dateTimeSlots')
                             ->roomId($product->id)
                             ->basePrice((int) ($product->price ?? 0))
                             ->label('')
@@ -685,6 +562,9 @@ class SettingBook extends Page implements HasForms
                     $product = Product::find($productId);
                     if (!$product) continue;
 
+                    $priceBoardService = app(PriceBoardSyncService::class);
+                    $priceBefore = $priceBoardService->snapshotPricing($product);
+
                     $productStyle = (int) ($product->styles ?? 1);
 
                     // Update product info
@@ -727,100 +607,132 @@ class SettingBook extends Page implements HasForms
 
                     $product->update($updateData);
 
+                    // RoomTimeSlot dùng LogsAuditTrail (tự động log create/update/delete) — nhưng 2
+                    // khối bên dưới xoá-tạo-lại TỪNG khung giờ của 1 phòng mỗi lần Lưu, nếu để tự
+                    // nhiên sẽ ra rất nhiều dòng log vụn (mỗi khung giờ 1 dòng) cho cùng 1 lần bấm
+                    // Lưu. Chụp lại danh sách id khung giờ TRƯỚC khi xoá/tạo, tạm tắt log tự động
+                    // qua RoomTimeSlot::withoutAuditLog(), rồi tự ghi 1 dòng TÓM TẮT duy nhất bên
+                    // dưới (đã tăng/bớt khung giờ nào, giá bao nhiêu).
+                    $oldSlots = RoomTimeSlot::where('room_id', $productId)
+                        ->with('timeSlot')
+                        ->get()
+                        ->keyBy(fn ($slot) => (string) $slot->id);
+
                     // Style=2: lưu dateTimeSlots → room_time_slots qua timeslot type=date
                     if ($productStyle === 2 && isset($roomData['dateTimeSlots']) && is_array($roomData['dateTimeSlots'])) {
-                        $existingDateIds = collect($roomData['dateTimeSlots'])->pluck('id')->filter()->toArray();
-                        $dateSlotsToDelete = RoomTimeSlot::where('room_id', $productId)
-                            ->whereHas('timeslot', fn($q) => $q->where('type', 'date'))
-                            ->when(!empty($existingDateIds), fn($q) => $q->whereNotIn('id', $existingDateIds))
-                            ->get();
+                        RoomTimeSlot::withoutAuditLog(function () use ($roomData, $productId) {
+                            $existingDateIds = collect($roomData['dateTimeSlots'])->pluck('id')->filter()->toArray();
+                            $dateSlotsToDelete = RoomTimeSlot::where('room_id', $productId)
+                                ->whereHas('timeslot', fn($q) => $q->where('type', 'date'))
+                                ->when(!empty($existingDateIds), fn($q) => $q->whereNotIn('id', $existingDateIds))
+                                ->get();
 
-                        foreach ($dateSlotsToDelete as $s) {
-                            $s->promotions()->detach();
-                            $s->delete();
-                        }
-
-                        $changedDates = [];
-
-                        foreach ($roomData['dateTimeSlots'] as $slot) {
-                            if (empty($slot['date'])) continue;
-
-                            $dateLabel = \Carbon\Carbon::parse($slot['date'])->format('Y-m-d');
-                            $changedDates[] = $dateLabel;
-                            $timeSlot  = TimeSlot::firstOrCreate(
-                                ['label' => $dateLabel, 'type' => 'date'],
-                                ['start_time' => null, 'end_time' => null]
-                            );
-
-                            $dateSlotData = [
-                                'room_id'     => $productId,
-                                'timeslot_id' => $timeSlot->id,
-                                'price'       => $slot['price'] !== null
-                                    ? (int) str_replace(['.', ','], '', $slot['price'])
-                                    : null,
-                                'status'      => 'available',
-                                'checkin'     => $slot['checkin'] ?? null,
-                                'checkout'    => $slot['checkout'] ?? null,
-                            ];
-
-                            $dateSlotModel = null;
-                            if (!empty($slot['id'])) {
-                                $dateSlotModel = RoomTimeSlot::find($slot['id']);
-                                if ($dateSlotModel) $dateSlotModel->update($dateSlotData);
-                            } else {
-                                $dateSlotModel = RoomTimeSlot::create($dateSlotData);
+                            foreach ($dateSlotsToDelete as $s) {
+                                $s->promotions()->detach();
+                                $s->delete();
                             }
 
-                            if ($dateSlotModel) {
-                                $allPromoIds = array_merge(
-                                    array_map('intval', $slot['promotions'] ?? []),
-                                    array_map('intval', $slot['surcharges'] ?? [])
+                            $changedDates = [];
+
+                            foreach ($roomData['dateTimeSlots'] as $slot) {
+                                if (empty($slot['date'])) continue;
+
+                                $dateLabel = \Carbon\Carbon::parse($slot['date'])->format('Y-m-d');
+                                $changedDates[] = $dateLabel;
+                                $timeSlot  = TimeSlot::firstOrCreate(
+                                    ['label' => $dateLabel, 'type' => 'date'],
+                                    ['start_time' => null, 'end_time' => null]
                                 );
-                                $dateSlotModel->promotions()->sync($allPromoIds);
-                                $dateSlotModel->coupons()->sync(array_map('intval', $slot['coupons'] ?? []));
-                            }
-                        }
 
-                        $this->broadcastDatesChanged($productId, $changedDates);
+                                $dateSlotData = [
+                                    'room_id'     => $productId,
+                                    'timeslot_id' => $timeSlot->id,
+                                    'price'       => $slot['price'] !== null
+                                        ? (int) str_replace(['.', ','], '', $slot['price'])
+                                        : null,
+                                    'status'      => 'available',
+                                    'checkin'     => $slot['checkin'] ?? null,
+                                    'checkout'    => $slot['checkout'] ?? null,
+                                ];
+
+                                $dateSlotModel = null;
+                                if (!empty($slot['id'])) {
+                                    $dateSlotModel = RoomTimeSlot::find($slot['id']);
+                                    if ($dateSlotModel) $dateSlotModel->update($dateSlotData);
+                                } else {
+                                    $dateSlotModel = RoomTimeSlot::create($dateSlotData);
+                                }
+
+                                if ($dateSlotModel) {
+                                    $allPromoIds = array_merge(
+                                        array_map('intval', $slot['promotions'] ?? []),
+                                        array_map('intval', $slot['surcharges'] ?? [])
+                                    );
+                                    $dateSlotModel->promotions()->sync($allPromoIds);
+                                    $dateSlotModel->coupons()->sync(array_map('intval', $slot['coupons'] ?? []));
+                                }
+                            }
+
+                            $this->broadcastDatesChanged($productId, $changedDates);
+                        });
                     }
 
                     // Style=1: lưu roomTimeSlots (timeslot_id NOT NULL)
                     if ($productStyle === 1 && isset($roomData['roomTimeSlots']) && is_array($roomData['roomTimeSlots'])) {
-                        $existingIds = collect($roomData['roomTimeSlots'])->pluck('id')->filter()->toArray();
-                        $slotsToDelete = RoomTimeSlot::where('room_id', $productId)
-                            ->when(!empty($existingIds), fn($q) => $q->whereNotIn('id', $existingIds))
-                            ->get();
+                        RoomTimeSlot::withoutAuditLog(function () use ($roomData, $productId) {
+                            $existingIds = collect($roomData['roomTimeSlots'])->pluck('id')->filter()->toArray();
+                            $slotsToDelete = RoomTimeSlot::where('room_id', $productId)
+                                ->when(!empty($existingIds), fn($q) => $q->whereNotIn('id', $existingIds))
+                                ->get();
 
-                        foreach($slotsToDelete as $slotToDelete) {
-                            $slotToDelete->promotions()->detach();
-                            $slotToDelete->delete();
-                        }
+                            foreach($slotsToDelete as $slotToDelete) {
+                                $slotToDelete->promotions()->detach();
+                                $slotToDelete->delete();
+                            }
 
-                        foreach ($roomData['roomTimeSlots'] as $slot) {
-                            $slotData = [
-                                'room_id' => $productId,
-                                'timeslot_id' => $slot['timeslot_id'],
-                                'price' => (int) str_replace(['.', ','], '', $slot['price']),
-                                'over_night' => $slot['over_night'] ?? false,
-                                'status' => $slot['status'] ?? 'available',
-                            ];
+                            foreach ($roomData['roomTimeSlots'] as $slot) {
+                                $slotData = [
+                                    'room_id' => $productId,
+                                    'timeslot_id' => $slot['timeslot_id'],
+                                    'price' => (int) str_replace(['.', ','], '', $slot['price']),
+                                    'over_night' => $slot['over_night'] ?? false,
+                                    'status' => $slot['status'] ?? 'available',
+                                ];
 
-                            $roomTimeSlotModel = null;
+                                $roomTimeSlotModel = null;
 
-                            if (!empty($slot['id'])) {
-                                $roomTimeSlotModel = RoomTimeSlot::find($slot['id']);
-                                if ($roomTimeSlotModel) {
-                                    $roomTimeSlotModel->update($slotData);
+                                if (!empty($slot['id'])) {
+                                    $roomTimeSlotModel = RoomTimeSlot::find($slot['id']);
+                                    if ($roomTimeSlotModel) {
+                                        $roomTimeSlotModel->update($slotData);
+                                    }
+                                } else {
+                                    $roomTimeSlotModel = RoomTimeSlot::create($slotData);
                                 }
-                            } else {
-                                $roomTimeSlotModel = RoomTimeSlot::create($slotData);
-                            }
 
-                            if ($roomTimeSlotModel) {
-                                $roomTimeSlotModel->promotions()->sync($slot['promotions'] ?? []);
+                                if ($roomTimeSlotModel) {
+                                    $roomTimeSlotModel->promotions()->sync($slot['promotions'] ?? []);
+                                }
                             }
-                        }
+                        });
                     }
+
+                    $this->logRoomTimeSlotChanges($product, $oldSlots);
+
+                    // Giữ "Bảng giá mặc định" luôn khớp với giá vừa lưu ở trang này — dùng làm
+                    // điểm khôi phục khi 1 bảng giá đặt tên (Tết, khuyến mãi, đối tác...) hết hạn.
+                    $freshProduct = $product->fresh();
+                    $priceBoardService->seedDefaultBoard($freshProduct);
+
+                    // Ghi lịch sử NẾU giá thật sự đổi — gắn vào "Bảng giá mặc định" vì đây là sửa
+                    // trực tiếp, không qua bảng giá đặt tên nào.
+                    $priceBoardService->logPriceChange(
+                        $priceBoardService->defaultBoard()->id,
+                        $freshProduct,
+                        $priceBefore,
+                        $priceBoardService->snapshotPricing($freshProduct)
+                    );
+
                     $updated = true;
                 }
             }

@@ -2,6 +2,7 @@
 
 namespace Modules\Category\Entities;
 
+use App\Models\Concerns\LogsAuditTrail;
 use App\Support\ImagePresetUrls;
 use Illuminate\Database\Eloquent\Model;
 use Modules\AccessCode\Entities\AccessCode;
@@ -12,6 +13,8 @@ use Modules\Payment\Entities\Order;
 
 class Category extends Model
 {
+    use LogsAuditTrail;
+
     protected $fillable = [
         'name',
         'slug',

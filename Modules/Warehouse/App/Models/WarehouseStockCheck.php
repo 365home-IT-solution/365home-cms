@@ -6,6 +6,7 @@ namespace Modules\Warehouse\App\Models;
 
 use App\Models\Concerns\BelongsToBranch;
 use App\Models\Concerns\BelongsToPartner;
+use App\Models\Concerns\LogsAuditTrail;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -15,6 +16,7 @@ class WarehouseStockCheck extends Model
 {
     use BelongsToPartner;
     use BelongsToBranch;
+    use LogsAuditTrail;
 
     // Xem giải thích đầy đủ ở migration 2026_08_15_000014 — "bàn giao ca" là bước ca sau đếm lại
     // đúng các vật tư trong phiếu kiểm kê này để xác minh, KHÔNG tự động điều chỉnh tồn kho.

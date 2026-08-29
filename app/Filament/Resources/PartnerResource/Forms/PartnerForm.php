@@ -460,12 +460,15 @@ class PartnerForm
                 // Đổi đối tác — "quyền chi nhánh" (UserBranchPermission) đã gán cho tài khoản này ở
                 // các chi nhánh KHÔNG thuộc đối tác mới trở thành rác (tương tự lý do dọn rác trong
                 // CategoryObserver::saved()), xóa để không gây khó hiểu khi xem lại bảng phân quyền.
+                // Xoá từng bản ghi (không dùng ::delete() hàng loạt) để
+                // UserBranchPermissionObserver::deleted() bắn đúng, ghi lại audit log.
                 $query = UserBranchPermission::where('user_id', $user->id);
 
                 if ($newPartnerId === null) {
-                    $query->delete();
+                    $query->get()->each->delete();
                 } else {
-                    $query->whereHas('branch', fn ($bq) => $bq->where('partner_id', '!=', $newPartnerId))->delete();
+                    $query->whereHas('branch', fn ($bq) => $bq->where('partner_id', '!=', $newPartnerId))
+                        ->get()->each->delete();
                 }
             });
     }

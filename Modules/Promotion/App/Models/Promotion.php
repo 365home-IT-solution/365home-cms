@@ -15,6 +15,7 @@ class Promotion extends Model
 
     protected $fillable = [
         'partner_id',
+        'price_board_id',
         'name',
         'description',
         'type',
@@ -38,6 +39,11 @@ class Promotion extends Model
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function priceBoard()
+    {
+        return $this->belongsTo(\Modules\Product\App\Models\PriceBoard::class);
     }
 
     public function roomTimeSlots()

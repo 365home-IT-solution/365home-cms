@@ -2,6 +2,7 @@
 
 namespace Modules\Page\Entities;
 
+use App\Models\Concerns\LogsAuditTrail;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -13,7 +14,21 @@ use Modules\Page\Entities\ComponentConfiguration;
  */
 class PageComponent extends Model
 {
-    use HasFactory;
+    use HasFactory, LogsAuditTrail;
+
+    protected static function auditModuleName(): string
+    {
+        return 'Page';
+    }
+
+    // Không có field "name" — ghép tên trang + tên loại component để dễ đọc trong "Lịch sử thao tác".
+    protected function auditLabel(): string
+    {
+        $pageName      = $this->page?->title ?? ('#' . $this->page_id);
+        $componentName = $this->component?->label ?? ('#' . $this->component_id);
+
+        return "Trang {$pageName} — {$componentName}";
+    }
 
     protected $table = "comp_pages";
 

@@ -2,35 +2,31 @@
 
 namespace App\Observers;
 
+use App\Support\AuditFieldFilter;
 use Modules\AuditLog\Services\AuditLogger;
 use Modules\Product\App\Models\Product;
 
 class ProductObserver
 {
-    // Các field nhạy cảm liên quan đến doanh thu cần theo dõi khi update
-    private const TRACKED_FIELDS = [
-        'name', 'price', 'discount', 'is_activated', 'is_in_stock',
-        'full_booking_discount', 'deposit_1_night', 'deposit_multi_night',
-        'deposit_min_nights', 'default_checkin', 'default_checkout',
-    ];
-
     public function created(Product $product): void
     {
         AuditLogger::log(
             action: 'create',
             module: 'Product',
             record: $product,
-            new: $product->only(['name', 'price', 'discount', 'is_activated']),
+            new: AuditFieldFilter::filter($product->getAttributes()),
             label: $product->name,
         );
     }
 
+    // Trước đây chỉ ghi log khi field đổi nằm trong 1 danh sách TRACKED_FIELDS cố định (giá, giảm
+    // giá, kích hoạt...) — sửa mô tả, ảnh, cấu hình khác không nằm trong danh sách sẽ hoàn toàn
+    // KHÔNG có log. Bỏ whitelist, ghi lại TOÀN BỘ field thực sự thay đổi.
     public function updated(Product $product): void
     {
-        $changed = array_keys($product->getChanges());
-        $tracked = array_intersect($changed, self::TRACKED_FIELDS);
+        $changed = AuditFieldFilter::filter($product->getChanges());
 
-        if (empty($tracked)) {
+        if (empty($changed)) {
             return;
         }
 
@@ -38,8 +34,8 @@ class ProductObserver
             action: 'update',
             module: 'Product',
             record: $product,
-            old: array_intersect_key($product->getOriginal(), array_flip($tracked)),
-            new: array_intersect_key($product->getChanges(), array_flip($tracked)),
+            old: array_intersect_key($product->getOriginal(), $changed),
+            new: $changed,
             label: $product->name,
         );
     }
@@ -50,7 +46,7 @@ class ProductObserver
             action: 'delete',
             module: 'Product',
             record: $product,
-            old: $product->only(['name', 'price', 'is_activated']),
+            old: AuditFieldFilter::filter($product->getAttributes()),
             label: $product->name,
         );
     }

@@ -99,13 +99,6 @@ class EditOrder extends EditRecord
             ])
             ->all();
 
-        // 'booking_partner_id' là field ẢO (dehydrated(false), chỉ dùng để LỌC "Chi nhánh" theo
-        // đúng đối tác — xem OrderForm.php) nên KHÔNG có sẵn trong $data (không map cột nào). Nếu
-        // không tự điền lại giá trị này ngay ở đây, field hiện rỗng khi mở sửa đơn đã tạo, khiến
-        // "Chi nhánh" bên dưới không lọc được options() (rỗng vì thiếu partner), làm Select không
-        // tìm được nhãn cho category_id đã lưu và hiện NHẦM thành số ID thô thay vì tên chi nhánh.
-        $data['booking_partner_id'] = $this->record->partner_id;
-
         return $data;
     }
 
@@ -157,6 +150,11 @@ class EditOrder extends EditRecord
                 $data['current_payos_code'] = null;
             }
         }
+        // Gom log của OrderObserver::updated() (field cơ bản: status/amount/...) CHUNG với chi
+        // tiết phòng/khung giờ/dịch vụ được ghi ở afterSave() bên dưới thành 1 dòng duy nhất, thay
+        // vì 2 dòng rời rạc cho cùng 1 lần bấm "Lưu" — xem App\Support\OrderAuditBuffer.
+        \App\Support\OrderAuditBuffer::suppress((string) $record->id);
+
         $record->update($data);
 
         // Khách đi cùng KIỂU VÃNG LAI (order_guest_cccds, guest_index=2,3,4..., companion_id=NULL)
@@ -977,7 +975,28 @@ class EditOrder extends EditRecord
         // khách — xem $this->oldSurcharge ở beforeSave() và ExtraChargeService::calculateDiff().
         $surchargeChanged = (int) ($record->surcharge ?? 0) !== $this->oldSurcharge;
 
+        // KHÔNG pull() buffer ngay ở đây — handlePriceDiff() (gọi bên dưới) còn tự $order->update()
+        // thêm (dọn cờ phát sinh/QR, applyDiffToDeposit()...) và những field đó (amount/
+        // deposit_percent...) vẫn nằm trong TRACKED_FIELDS của OrderObserver; pull() sớm sẽ giải
+        // phóng suppress() quá sớm, khiến các update() đó lại tự bắn 1 dòng "Cập nhật" RIÊNG (đã
+        // xác nhận qua thực tế — dòng "Booking – Cập nhật" thứ 2 xuất hiện vài giây sau dòng "Chi
+        // tiết phòng/dịch vụ"). Chỉ pull()+ghi log SAU KHI handlePriceDiff() đã chạy xong hẳn — xem
+        // cuối method này.
+        $changeSummary = [];
+
         if ($guestCountChanged || $servicesChanged || $itemsChanged || $surchargeChanged) {
+            // Tính SẴN ở đây (trước đây chỉ tính bên trong nhánh paid/deposit ở dưới) — cần dùng
+            // ngay cả cho đơn 'pending' để ghi audit log chi tiết bên dưới; handlePriceDiff() vẫn
+            // chỉ được gọi cho paid/deposit như cũ, không đổi hành vi đó.
+            $changeSummary = $this->buildChangeSummary(
+                $record,
+                $guestCountChanged,
+                $servicesChanged,
+                $newItemsCount,
+                $newServicesSnapshot,
+                $surchargeChanged,
+            );
+
             $changes = [];
 
             if ($guestCountChanged) {
@@ -1022,17 +1041,39 @@ class EditOrder extends EditRecord
             // FCM + WS notification đến khách về thay đổi đơn
             $this->sendOrderUpdateNotification($record, $changes);
 
-            // Xử lý chênh lệch giá (chỉ khi đơn đã thanh toán ít nhất 1 lần)
+            // Xử lý chênh lệch giá (chỉ khi đơn đã thanh toán ít nhất 1 lần) — dùng lại
+            // $changeSummary đã tính ở trên, không tính lại lần 2. Vẫn đang suppress() — mọi
+            // $order->update() bên trong hàm này (dọn cờ phát sinh, applyDiffToDeposit()...) được
+            // gom chung vào buffer, KHÔNG tự bắn log riêng.
             if (in_array($record->status, ['paid', 'deposit'])) {
-                $this->handlePriceDiff($record, $this->buildChangeSummary(
-                    $record,
-                    $guestCountChanged,
-                    $servicesChanged,
-                    $newItemsCount,
-                    $newServicesSnapshot,
-                    $surchargeChanged,
-                ));
+                $this->handlePriceDiff($record, $changeSummary);
             }
+        }
+
+        // Lấy lại (và xoá) toàn bộ phần OrderObserver::updated() đã gom qua suppress() —  GỌI SAU
+        // handlePriceDiff() ở trên (không phải ngay từ đầu method) để bắt được luôn cả các
+        // $order->update() nó tự gọi thêm. Luôn gọi dù nhánh trên có chạy hay không, tránh rò rỉ
+        // buffer sang lần lưu kế tiếp nếu suppress() đã bật mà không có gì để pull().
+        $bufferedOrderFields = \App\Support\OrderAuditBuffer::pull((string) $record->id);
+
+        // Ghi 1 dòng DUY NHẤT, LUÔN LUÔN chạy bất kể trạng thái đơn, gộp cả field cơ bản (status/
+        // amount/... từ OrderObserver) LẪN chi tiết phòng/khung giờ/dịch vụ/số khách/phụ thu —
+        // thay vì nhiều dòng rời rạc cho cùng 1 lần bấm "Lưu". Không đụng đến action
+        // 'price_adjustment' riêng trong handlePriceDiff() — entry đó còn được
+        // OrderForm::buildPaymentTimelineSteps() đọc lại để hiển thị "Lịch sử thanh toán".
+        if (! empty($changeSummary) || ! empty($bufferedOrderFields['new'])) {
+            AuditLogger::log(
+                action: 'update',
+                module: 'Order',
+                record: $record,
+                old: $bufferedOrderFields['old'],
+                new: array_merge(
+                    $bufferedOrderFields['new'],
+                    $changeSummary ? ['thay_doi' => implode('; ', $changeSummary)] : []
+                ),
+                label: "#{$record->order_code} — {$record->buyer_name}"
+                    . ($changeSummary ? ' — Chi tiết phòng/dịch vụ' : ''),
+            );
         }
 
         // Refresh $this->record NGAY TẠI ĐÂY, KHÔNG đặt sau các early-return riêng của phần TTLock

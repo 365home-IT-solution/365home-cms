@@ -6,6 +6,7 @@ namespace Modules\Product\App\Filament\Resources\ManualLockPasswordResource\Page
 
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
+use Modules\AuditLog\Services\AuditLogger;
 use Modules\Product\App\Filament\Resources\ManualLockPasswordResource;
 use Modules\Product\App\Models\Product;
 
@@ -44,6 +45,32 @@ class EditManualLockPassword extends EditRecord
                 Product::where('id', $productId)->update(['has_manual_lock' => false]);
             }
         }
+
+        // 'products' là Select ->relationship() — pivot được Filament tự đồng bộ ở
+        // saveRelationships(), không đi qua $record->update() nên không có Eloquent event nào bắn
+        // ra để ghi log (cùng lỗi đã gặp ở Product tags/services). Ghi thủ công ở đây.
+        if (empty($added) && empty($removed)) {
+            return;
+        }
+
+        $old = [];
+        $new = [];
+
+        if (! empty($removed)) {
+            $old['phong_da_bo'] = Product::whereIn('id', $removed)->pluck('name')->implode(', ');
+        }
+        if (! empty($added)) {
+            $new['phong_da_them'] = Product::whereIn('id', $added)->pluck('name')->implode(', ');
+        }
+
+        AuditLogger::log(
+            action: 'update',
+            module: 'ManualLockPassword',
+            record: $record,
+            old: $old,
+            new: $new,
+            label: ($record->name ?? '#' . $record->id) . ' — Cập nhật phòng áp dụng',
+        );
     }
 
     protected function getHeaderActions(): array

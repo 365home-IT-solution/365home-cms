@@ -2,12 +2,15 @@
 
 namespace Modules\SettingCompany\Entities;
 
+use App\Models\Concerns\LogsAuditTrail;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Footer\Entities\FooterColumn;
 
 class Business extends Model
 {
+    use LogsAuditTrail;
+
     protected $fillable = [
         'name',
         'slug',

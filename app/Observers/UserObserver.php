@@ -3,30 +3,31 @@
 namespace App\Observers;
 
 use App\Models\User;
+use App\Support\AuditFieldFilter;
 use Modules\AuditLog\Services\AuditLogger;
 
 class UserObserver
 {
-    // Các field nhạy cảm cần theo dõi khi update
-    private const TRACKED_FIELDS = ['fullname', 'email', 'phone', 'date_of_birth'];
-
     public function created(User $user): void
     {
         AuditLogger::log(
             action: 'create',
             module: 'User',
             record: $user,
-            new: $user->only(['fullname', 'email', 'phone']),
+            new: AuditFieldFilter::filter($user->getAttributes()),
             label: $user->fullname ?? $user->email,
         );
     }
 
+    // Trước đây chỉ theo dõi fullname/email/phone/date_of_birth/partner_id — đổi role_id, trạng
+    // thái hoạt động, hay field khác không nằm trong whitelist sẽ không có log. Bỏ whitelist, ghi
+    // lại toàn bộ field thay đổi (password đã bị AuditFieldFilter loại trừ mặc định, không lộ ra
+    // log dù có đổi).
     public function updated(User $user): void
     {
-        $changed = array_keys($user->getChanges());
-        $tracked = array_intersect($changed, self::TRACKED_FIELDS);
+        $changed = AuditFieldFilter::filter($user->getChanges());
 
-        if (empty($tracked)) {
+        if (empty($changed)) {
             return;
         }
 
@@ -34,8 +35,8 @@ class UserObserver
             action: 'update',
             module: 'User',
             record: $user,
-            old: array_intersect_key($user->getOriginal(), array_flip($tracked)),
-            new: array_intersect_key($user->getChanges(), array_flip($tracked)),
+            old: array_intersect_key($user->getOriginal(), $changed),
+            new: $changed,
             label: $user->fullname ?? $user->email,
         );
     }
@@ -46,7 +47,7 @@ class UserObserver
             action: 'delete',
             module: 'User',
             record: $user,
-            old: $user->only(['fullname', 'email', 'phone']),
+            old: AuditFieldFilter::filter($user->getAttributes()),
             label: $user->fullname ?? $user->email,
         );
     }

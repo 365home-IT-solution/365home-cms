@@ -14,7 +14,7 @@ declare(strict_types=1);
 return [
     'Quản lý' => [
         'Quản lý vận hành' => ['Đơn phòng', 'Chi nhánh', 'Phòng', 'Dịch vụ', 'Tiện ích', 'Tỉnh/Thành phố'],
-        'Quản lý giá & khuyến mãi' => ['Hệ thống giá', 'Mã giảm giá', 'Ưu đãi khung giờ'],
+        'Quản lý giá & khuyến mãi' => ['Hệ thống giá', 'Bảng giá', 'Khuyến mãi & Giảm giá'],
         'Nội dung & Marketing' => ['Bài viết', 'Danh mục bài viết'],
         'Quản lý khách hàng' => ['Tin nhắn', 'Khách hàng', 'Hạng thành viên', 'Tư vấn khách hàng'],
         'Quản lý kho' => ['Danh mục vật tư', 'Phiếu nhập kho', 'Phiếu xuất kho', 'Phiếu kiểm kê', 'Nhóm vật tư', 'Đơn vị tính'],
@@ -25,7 +25,7 @@ return [
     'Cấu hình web' => [
         'Cấu hình chung' => ['Chung', 'Ẩn chi nhánh', 'Thông tin công ty'],
         'Pass cổng' => ['Khóa thủ công', 'Pass Cổng'],
-        'Giao diện website' => ['Thành phần', 'Menu', 'Trang', 'Theme', 'Thư viện', 'Banner'],
+        'Giao diện website' => ['Menu', 'Trang', 'Thư viện', 'Banner'],
         'Thanh toán & Tích hợp bên thứ ba' => ['Thanh toán online', 'Tài khoản TTLock', 'Email'],
     ],
 

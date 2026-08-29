@@ -30,7 +30,6 @@ use PayOS\PayOS;
 use Modules\Product\App\Models\Product;
 use Filament\Forms\Components\FileUpload;
 use Filament\Support\Colors\Color;
-use Modules\Category\Entities\Category;
 use Modules\Category\Entities\Categorizable;
 use Modules\Product\App\Models\RoomTimeSlot;
 use Modules\Payment\Entities\Order;
@@ -424,109 +423,18 @@ class OrderForm
                                                     ->columnSpan(1)
                                                     ->extraAttributes(['class' => 'cot2-badge'])
                                                     ->schema([
-                                                        Grid::make(3)
-                                                            ->schema([
-                                                                // Chỉ super_admin/nhân viên đối tác NỀN TẢNG (365home) mới thấy field
-                                                                // này — họ đặt phòng hộ mọi đối tác nên phải CHỌN ĐÚNG đối tác trước,
-                                                                // rồi "Chi nhánh" bên dưới mới lọc theo đúng đối tác đó (thay vì liệt kê
-                                                                // lẫn lộn chi nhánh của mọi đối tác cùng lúc). Không dehydrate vào Order
-                                                                // — chỉ dùng để LỌC, partner_id thật sự lấy từ category_id đã chọn
-                                                                // (xem CreateOrder::mutateFormDataBeforeCreate()).
-                                                                Select::make('booking_partner_id')
-                                                                    ->label('Đối tác')
-                                                                    ->visible(fn () => self::isPlatformStaff())
-                                                                    ->required(fn () => self::isPlatformStaff())
-                                                                    ->dehydrated(false)
-                                                                    // Gọn hơn "Chi nhánh" bên cạnh (Grid 3 cột, chỉ chiếm 1/3) theo yêu
-                                                                    // cầu — tên đối tác thường ngắn hơn tên chi nhánh nên không cần
-                                                                    // chiếm nhiều chỗ bằng.
-                                                                    ->columnSpan(1)
-                                                                    // Chỉ liệt kê đối tác ĐÃ ĐƯỢC XÁC NHẬN (verification_status =
-                                                                    // 'approved') — đối tác đang chờ duyệt/bị từ chối chưa đủ điều
-                                                                    // kiện vận hành thật, không nên đặt phòng hộ cho họ.
-                                                                    ->options(fn () => \App\Models\Partner::query()
-                                                                        ->where('verification_status', 'approved')
-                                                                        ->orderBy('name')
-                                                                        ->pluck('name', 'id'))
-                                                                    ->searchable()
-                                                                    ->preload()
-                                                                    // Mở lại 1 đơn ĐÃ ĐẶT (sửa đơn): field này dehydrated(false) nên
-                                                                    // luôn rỗng lúc mới mở — nếu không tự điền lại, "Chi nhánh" bên
-                                                                    // dưới không lọc được gì (options() rỗng vì thiếu booking_partner_id),
-                                                                    // khiến Select không tìm được nhãn cho category_id đã lưu và hiện
-                                                                    // NHẦM thành số ID thô thay vì tên chi nhánh.
-                                                                    ->afterStateHydrated(function ($component, $record) {
-                                                                        if ($component->getState() || ! $record) {
-                                                                            return;
-                                                                        }
+                                                        // "Đối tác"/"Chi nhánh" không còn chọn tay — hệ thống tự suy ra chi
+                                                        // nhánh (rồi qua đó đối tác sở hữu — xem
+                                                        // CreateOrder::mutateFormDataBeforeCreate()/EditOrder::handleRecordUpdate(),
+                                                        // 2 nơi này vẫn giữ nguyên, chỉ đổi NGUỒN gán category_id) NGAY KHI
+                                                        // chọn phòng ở Select 'product_id' bên dưới — mỗi phòng vốn đã gắn
+                                                        // sẵn đúng 1 chi nhánh, xem afterStateUpdated() của 'product_id'.
+                                                        // Không cần bắt admin chọn chi nhánh trước khi thấy được danh sách
+                                                        // phòng nữa — trang đã có sẵn "Chuyển đổi chi nhánh" toàn cục
+                                                        // (User::effectiveBranchIds(), tự áp lên mọi truy vấn Product) để
+                                                        // thu hẹp danh sách phòng khi cần.
+                                                        Hidden::make('category_id'),
 
-                                                                        if ($record->partner_id) {
-                                                                            $component->state($record->partner_id);
-                                                                        }
-                                                                    })
-                                                                    ->live()
-                                                                    ->afterStateUpdated(function (Set $set) {
-                                                                        $set('category_id', null);
-                                                                    }),
-
-                                                                Select::make('category_id')
-                                                                    ->label('Chi nhánh')
-                                                                    ->options(function (Get $get) {
-                                                                        $user  = auth()->user();
-                                                                        // whereNull('parent_id') — chi nhánh là category CẤP GỐC; nếu không
-                                                                        // lọc thêm điều kiện này, các category CON (dùng để phân loại
-                                                                        // phòng bên trong 1 chi nhánh, cũng category_type='product') sẽ
-                                                                        // lẫn vào danh sách, hiện nhầm tên phòng thay vì tên chi nhánh.
-                                                                        $query = Category::query()
-                                                                            ->where('category_type', 'product')
-                                                                            ->whereNull('parent_id')
-                                                                            ->orderBy('name');
-
-                                                                        if (self::isPlatformStaff()) {
-                                                                            $partnerId = $get('booking_partner_id');
-
-                                                                            // Chưa chọn đối tác — chưa hiện chi nhánh nào, tránh liệt kê lẫn
-                                                                            // lộn chi nhánh của TẤT CẢ đối tác cùng lúc.
-                                                                            if (! $partnerId) {
-                                                                                return [];
-                                                                            }
-
-                                                                            $query->where('partner_id', $partnerId);
-                                                                        } elseif ($user) {
-                                                                            $allowedIds = $user->allowedCategoryIds();
-                                                                            if (! empty($allowedIds)) {
-                                                                                $query->whereIn('id', $allowedIds);
-                                                                            } else {
-                                                                                // Mặc định thấy toàn bộ chi nhánh của đối tác mình.
-                                                                                $query->where('partner_id', $user->partner_id);
-                                                                            }
-                                                                        }
-                                                                        return $query->pluck('name', 'id');
-                                                                    })
-                                                                    // Đảm bảo LUÔN hiện đúng tên chi nhánh cho giá trị ĐÃ CHỌN, bất kể
-                                                                    // options() ở trên có đang bị thu hẹp/rỗng do timing (vd
-                                                                    // booking_partner_id chưa kịp hydrate) hay không — tránh lặp lại lỗi
-                                                                    // "hiện số ID thô thay vì tên chi nhánh" khi mở sửa/xem đơn đã tạo.
-                                                                    ->getOptionLabelUsing(fn ($value) => Category::find($value)?->name)
-                                                                    ->searchable()
-                                                                    ->required()
-                                                                    ->preload()
-                                                                    ->native(false)
-                                                                    ->live()
-                                                                    // Không phải platform staff thì "Đối tác" ở trên ẩn hẳn (không chiếm
-                                                                    // cột nào) — chiếm 2/3 còn lại (rộng hơn "Đối tác" 1/3) khi cùng
-                                                                    // hiện, hoặc trọn cả hàng (3/3) khi "Đối tác" bị ẩn.
-                                                                    ->columnSpan(fn () => self::isPlatformStaff() ? 2 : 3)
-                                                                    ->disabled(fn (Get $get) => self::isPlatformStaff() && ! $get('booking_partner_id'))
-                                                                    ->afterStateUpdated(function (Set $set, Get $get) {
-                                                                        // Đổi chi nhánh thì các phòng đã chọn ở Repeater bên dưới (nếu có)
-                                                                        // rất có thể không còn thuộc chi nhánh mới — reset lại để tránh giữ
-                                                                        // nhầm phòng của chi nhánh cũ.
-                                                                        foreach (array_keys($get('orderItems') ?? []) as $key) {
-                                                                            $set("orderItems.{$key}.product_id", null);
-                                                                        }
-                                                                    }),
-                                                            ]),
                                                     Group::make()
                                                         ->statePath('orderItems.0')
                                                         ->schema([
@@ -557,37 +465,18 @@ class OrderForm
                                                                                 // đã tự lọc theo partner_id (BelongsToPartner).
                                                                             }
 
-                                                                            // Chỉ hiện phòng THUỘC ĐÚNG chi nhánh đã chọn ở trên — trước đây
-                                                                            // chọn chi nhánh không thu hẹp danh sách phòng chút nào, dễ chọn
-                                                                            // nhầm phòng của chi nhánh khác cùng đối tác.
-                                                                            $categoryId = $get('data.category_id', isAbsolute: true);
-
-                                                                            if (! $categoryId) {
-                                                                                return [];
-                                                                            }
-
-                                                                            // Một số đối tác (dữ liệu cũ, vd 365home) tổ chức category 2 cấp:
-                                                                            // chi nhánh (parent_id NULL) → danh mục phòng con (parent_id = chi
-                                                                            // nhánh) — Product được gán categorizable vào danh mục CON, không
-                                                                            // phải thẳng vào chi nhánh. Phải gộp cả chi nhánh + toàn bộ danh
-                                                                            // mục con của nó khi tìm phòng, nếu không chọn chi nhánh sẽ ra
-                                                                            // danh sách rỗng dù chi nhánh đó có đầy đủ phòng.
-                                                                            $childCategoryIds = Category::where('parent_id', $categoryId)->pluck('id');
-                                                                            $searchCategoryIds = $childCategoryIds->push($categoryId);
-
-                                                                            $roomIdsInBranch = Categorizable::where('categorizable_type', Product::class)
-                                                                                ->whereIn('category_id', $searchCategoryIds)
-                                                                                ->pluck('categorizable_id');
-                                                                            $query->whereIn('id', $roomIdsInBranch);
-
+                                                                            // Không còn lọc theo "Chi nhánh" đã chọn tay (field đó đã bỏ) —
+                                                                            // danh sách phòng giờ dựa thẳng vào quyền của user (ở trên) +
+                                                                            // "Chuyển đổi chi nhánh" toàn cục (global scope tự áp lên
+                                                                            // Product, xem BelongsToActiveBranchCategories). Chi nhánh của
+                                                                            // đơn được suy ra NGƯỢC LẠI từ phòng vừa chọn, xem
+                                                                            // afterStateUpdated() bên dưới.
                                                                             return $query->pluck('name', 'id');
                                                                         })
-                                                                        // Giống category_id ở trên — options() phụ thuộc vào
-                                                                        // 'data.category_id' (absolute path), riêng modal "Xem chi tiết"
-                                                                        // (ViewAction) có statePath KHÁC trang Sửa nên path tuyệt đối này
-                                                                        // không phải lúc nào cũng resolve đúng. getOptionLabelUsing() tra
-                                                                        // thẳng theo ID nên LUÔN hiện đúng tên phòng bất kể options() ở
-                                                                        // trên có rỗng hay không.
+                                                                        // getOptionLabelUsing() tra thẳng theo ID (bỏ qua global scope
+                                                                        // 'partner') nên LUÔN hiện đúng tên phòng bất kể options() ở trên
+                                                                        // có rỗng/thu hẹp theo user hiện tại hay không — cần khi mở lại 1
+                                                                        // đơn cũ mà phòng đó không còn nằm trong phạm vi user đang xem.
                                                                         ->getOptionLabelUsing(fn ($value) => Product::withoutGlobalScope('partner')->find($value)?->name)
                                                                         ->searchable()
                                                                         ->preload()
@@ -595,8 +484,17 @@ class OrderForm
                                                                         ->reactive()
                                                                         ->afterStateUpdated(function ($state, Get $get, Set $set) {
                                                                             if ($state) {
-                                                                                $product = Product::find($state);
+                                                                                $product = Product::withoutGlobalScope('partner')->find($state);
                                                                                 if ($product) {
+                                                                                    // Tự suy ra chi nhánh (rồi qua đó đối tác sở hữu, xem
+                                                                                    // CreateOrder::mutateFormDataBeforeCreate()/
+                                                                                    // EditOrder::handleRecordUpdate()) từ chính phòng vừa
+                                                                                    // chọn — cùng cách lấy "chi nhánh gốc" đã dùng ở
+                                                                                    // CreateOrder::mount() (category cấp con thì lấy parent).
+                                                                                    $category = $product->categories->first();
+                                                                                    $branch   = $category?->parent_id ? $category->parent : $category;
+                                                                                    $set('data.category_id', $branch?->id, isAbsolute: true);
+
                                                                                     $set('name', $product->name);
                                                                                     $set('product_style', (int)($product->styles ?? 1));
                                                                                     $set('price_per_night', (float)($product->price ?? 0));
@@ -3006,16 +2904,6 @@ class OrderForm
         }
 
         return \Modules\TTLock\App\Services\TTLockService::hasAccountForCategory($record->category_id);
-    }
-
-    // super_admin và nhân viên đối tác NỀN TẢNG (vd 365home) đặt phòng hộ mọi đối tác — cần chọn
-    // đối tác trước để lọc đúng chi nhánh/phòng, khác nhân viên đối tác thường (chỉ thấy đối
-    // tác/chi nhánh của chính mình, không cần chọn).
-    private static function isPlatformStaff(): bool
-    {
-        $user = auth()->user();
-
-        return (bool) ($user?->isSuperAdmin() || $user?->belongsToPlatformPartner());
     }
 
     // Danh sách khung giờ (RoomTimeSlot) CỐ ĐỊNH khai báo sẵn cho phòng — không lọc theo ngày cụ
