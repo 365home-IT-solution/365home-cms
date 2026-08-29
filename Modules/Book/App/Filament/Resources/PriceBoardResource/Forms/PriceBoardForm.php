@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Book\App\Filament\Resources\PriceBoardResource\Forms;
 
+use Carbon\Carbon;
 use Filament\Forms\Components\Actions;
 use Filament\Forms\Components\Actions\Action;
 use Filament\Forms\Components\CheckboxList;
@@ -18,6 +19,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\TimePicker;
 use Filament\Forms\Components\Toggle;
+use Filament\Forms\Components\ViewField;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
@@ -37,6 +39,14 @@ class PriceBoardForm
     {
         return $form
             ->schema([
+                ViewField::make('_schedule_overview')
+                    ->label('')
+                    ->dehydrated(false)
+                    ->live()
+                    ->view('book::filament.resources.price-board-resource.schedule-overview')
+                    ->viewData(fn (Get $get) => static::scheduleOverviewData($get))
+                    ->columnSpanFull(),
+
                 Section::make('Thông tin bảng giá')
                     ->schema([
                         TextInput::make('name')
@@ -49,18 +59,21 @@ class PriceBoardForm
                             ->label('Kích hoạt')
                             ->helperText('Bật/tắt có hiệu lực NGAY LẬP TỨC cho các phòng đã chọn, không cần chờ tới ngày.')
                             ->default(true)
+                            ->live()
                             ->inline(false),
 
                         DatePicker::make('start_date')
                             ->label('Ngày bắt đầu')
                             ->native(false)
-                            ->displayFormat('d/m/Y'),
+                            ->displayFormat('d/m/Y')
+                            ->live(),
 
                         DatePicker::make('end_date')
                             ->label('Ngày kết thúc')
                             ->native(false)
                             ->displayFormat('d/m/Y')
-                            ->afterOrEqual('start_date'),
+                            ->afterOrEqual('start_date')
+                            ->live(),
 
                         Select::make('pricing_mode')
                             ->label('Kiểu bảng giá')
@@ -152,62 +165,75 @@ class PriceBoardForm
                                     ->numeric()
                                     ->dehydrated(false)
                                     ->columnSpan(1),
-                            ])
-                            ->columns(3),
+                            ]),
 
                         Section::make('Theo Khung Giờ')
                             ->icon('heroicon-o-clock')
                             ->compact()
                             ->schema([
-                                TextInput::make('_bulk_slot_value')
-                                    ->label(fn (Get $get) => $get('_bulk_mode') === 'percent' ? 'Mức % (+/-)' : 'Giá mới (VNĐ)')
-                                    ->helperText('Để trống nếu không đổi.')
-                                    ->numeric()
-                                    ->dehydrated(false)
-                                    ->columnSpan(1),
+                                Repeater::make('_bulk_slot_rules')
+                                    ->label('Các khung giờ cần đổi giá')
+                                    ->helperText('Thêm nhiều dòng để đổi giá nhiều khung giờ cùng lúc, VD: khung 1 → 200.000, khung 2 → 300.000... — 1 lần bấm "Áp dụng" bên dưới là áp hết cho mọi phòng trong bảng.')
+                                    ->schema([
+                                        Select::make('pick_mode')
+                                            ->label('Chọn khung giờ theo')
+                                            ->options([
+                                                'position' => 'Vị trí (đầu/cuối/thứ N)',
+                                                'specific' => 'Khung giờ cụ thể',
+                                            ])
+                                            ->default('position')
+                                            ->live()
+                                            ->dehydrated(false)
+                                            ->columnSpan(1),
 
-                                Select::make('_bulk_pick_mode')
-                                    ->label('Chọn khung giờ theo')
-                                    ->options([
-                                        'position' => 'Vị trí (đầu/cuối/thứ N)',
-                                        'specific' => 'Khung giờ cụ thể',
+                                        Select::make('timeslot_id')
+                                            ->label('Khung giờ')
+                                            ->options(fn () => TimeSlot::where(fn ($q) => $q->whereNull('type')->orWhere('type', '!=', 'date'))->pluck('label', 'id'))
+                                            ->searchable()
+                                            ->dehydrated(false)
+                                            ->columnSpan(1)
+                                            ->visible(fn (Get $get) => $get('pick_mode') === 'specific'),
+
+                                        Select::make('position')
+                                            ->label('Vị trí khung giờ')
+                                            ->options([
+                                                'first' => 'Khung đầu tiên',
+                                                'last'  => 'Khung cuối cùng',
+                                                'nth'   => 'Khung thứ N',
+                                            ])
+                                            ->default('first')
+                                            ->live()
+                                            ->dehydrated(false)
+                                            ->columnSpan(1)
+                                            ->visible(fn (Get $get) => $get('pick_mode') === 'position'),
+
+                                        TextInput::make('position_n')
+                                            ->label('N = ?')
+                                            ->numeric()
+                                            ->minValue(1)
+                                            ->dehydrated(false)
+                                            ->columnSpan(1)
+                                            ->visible(fn (Get $get) => $get('pick_mode') === 'position' && $get('position') === 'nth'),
+
+                                        TextInput::make('value')
+                                            ->label(fn (Get $get) => $get('../../_bulk_mode') === 'percent' ? 'Mức % (+/-)' : 'Giá mới (VNĐ)')
+                                            ->numeric()
+                                            ->dehydrated(false)
+                                            ->required()
+                                            ->columnSpan(1),
                                     ])
-                                    ->default('position')
-                                    ->live()
+                                    // Luôn 1 cột — lưới chia cột theo breakpoint MÀN HÌNH chứ không
+                                    // theo bề rộng thật của khối cha (section này chỉ chiếm nửa trang
+                                    // do nằm cạnh "Theo Ngày"), chia nhiều cột dễ bị bóp chật/cắt chữ dù
+                                    // màn hình máy tính to. Mỗi field 1 dòng riêng cho chắc chắn không
+                                    // lệch, kể cả trên mobile.
+                                    ->columns(1)
+                                    ->defaultItems(0)
+                                    ->addActionLabel('Thêm khung giờ cần đổi')
                                     ->dehydrated(false)
-                                    ->columnSpan(1),
-
-                                Select::make('_bulk_timeslot_id')
-                                    ->label('Khung giờ')
-                                    ->options(fn () => TimeSlot::where(fn ($q) => $q->whereNull('type')->orWhere('type', '!=', 'date'))->pluck('label', 'id'))
-                                    ->searchable()
-                                    ->dehydrated(false)
-                                    ->columnSpan(1)
-                                    ->visible(fn (Get $get) => $get('_bulk_pick_mode') === 'specific'),
-
-                                Select::make('_bulk_position')
-                                    ->label('Vị trí khung giờ')
-                                    ->options([
-                                        'first' => 'Khung đầu tiên',
-                                        'last'  => 'Khung cuối cùng',
-                                        'nth'   => 'Khung thứ N',
-                                    ])
-                                    ->default('first')
-                                    ->live()
-                                    ->dehydrated(false)
-                                    ->columnSpan(1)
-                                    ->visible(fn (Get $get) => $get('_bulk_pick_mode') === 'position'),
-
-                                TextInput::make('_bulk_position_n')
-                                    ->label('N = ?')
-                                    ->numeric()
-                                    ->minValue(1)
-                                    ->dehydrated(false)
-                                    ->columnSpan(1)
-                                    ->visible(fn (Get $get) => $get('_bulk_pick_mode') === 'position' && $get('_bulk_position') === 'nth'),
+                                    ->columnSpanFull(),
                             ])
-                            ->columns(4)
-                            ->description('Áp cho tất cả phòng Theo Khung Giờ đang có trong bảng, tại đúng khung giờ chọn bên dưới.'),
+                            ->description('Áp cho tất cả phòng Theo Khung Giờ đang có trong bảng, tại đúng (các) khung giờ chọn bên dưới.'),
 
                         Actions::make([
                             Action::make('apply_bulk_price')
@@ -217,9 +243,11 @@ class PriceBoardForm
                                 ->action(function (Get $get, Set $set, ?PriceBoard $record) {
                                     $mode      = $get('_bulk_mode');
                                     $dayValue  = $get('_bulk_day_value');
-                                    $slotValue = $get('_bulk_slot_value');
+                                    $slotRules = collect($get('_bulk_slot_rules') ?? [])
+                                        ->filter(fn ($rule) => ($rule['value'] ?? null) !== null && $rule['value'] !== '')
+                                        ->values();
 
-                                    if (($dayValue === null || $dayValue === '') && ($slotValue === null || $slotValue === '')) {
+                                    if (($dayValue === null || $dayValue === '') && $slotRules->isEmpty()) {
                                         return;
                                     }
 
@@ -229,10 +257,13 @@ class PriceBoardForm
                                         $items = static::applyBulkDayPrice($items, $mode, (float) $dayValue);
                                     }
 
-                                    if ($slotValue !== null && $slotValue !== '') {
-                                        $items = $get('_bulk_pick_mode') === 'position'
-                                            ? static::applyBulkByPosition($items, $get('_bulk_position'), (int) ($get('_bulk_position_n') ?? 1), $mode, (float) $slotValue)
-                                            : static::applyBulkByTimeslot($items, $get('_bulk_timeslot_id'), $mode, (float) $slotValue);
+                                    // Áp TỪNG dòng 1 theo đúng thứ tự đã thêm — mỗi dòng chỉ đổi 1 vị
+                                    // trí/khung giờ cụ thể nên không ghi đè lẫn nhau (khung 1→A xong mới
+                                    // tới khung 2→B, không phải cả 2 cùng ghi vào 1 vị trí).
+                                    foreach ($slotRules as $rule) {
+                                        $items = ($rule['pick_mode'] ?? 'position') === 'position'
+                                            ? static::applyBulkByPosition($items, $rule['position'] ?? 'first', (int) ($rule['position_n'] ?? 1), $mode, (float) $rule['value'])
+                                            : static::applyBulkByTimeslot($items, $rule['timeslot_id'] ?? null, $mode, (float) $rule['value']);
                                     }
 
                                     $set('items', $items);
@@ -241,7 +272,9 @@ class PriceBoardForm
                                 }),
                         ])->columnSpanFull(),
                     ])
-                    ->columns(2)
+                    // Luôn xếp dọc (1 cột) — "Theo Khung Giờ" giờ có thể nhiều dòng, để cạnh "Theo
+                    // Ngày" sẽ bị ép chỉ còn nửa bề rộng trang, dễ bóp chật các field bên trong.
+                    ->columns(1)
                     ->columnSpanFull()
                     ->visible(fn (Get $get) => $get('pricing_mode') !== PriceBoard::MODE_ADJUSTMENT),
 
@@ -252,7 +285,7 @@ class PriceBoardForm
                         Hidden::make('product_id'),
 
                         Group::make(
-                            static::slotPricingSchema('', true, fn () => static::promotionOptions())
+                            static::slotPricingSchema('', true, fn () => static::promotionOptions(), [], static::baselinePriceResolver())
                         )->visible(fn (Get $get) => static::styleOf($get('product_id')) === 1),
 
                         Group::make(
@@ -293,6 +326,8 @@ class PriceBoardForm
             return $row;
         }
 
+        $baseline = static::baselinePriceResolver();
+
         $row['roomTimeSlots'] = $product->roomTimeSlots()
             ->whereHas('timeSlot', fn ($q) => $q->where(fn ($q2) => $q2->whereNull('type')->orWhere('type', '!=', 'date')))
             ->with('timeSlot')
@@ -302,11 +337,15 @@ class PriceBoardForm
             ->sortBy(fn ($slot) => $slot->timeSlot?->start_time ?? '99:99:99')
             ->values()
             ->map(fn ($slot) => [
-                'timeslot_id' => $slot->timeslot_id,
-                'price'       => number_format((int) $slot->price, 0, ',', '.'),
-                'promotions'  => [],
-                'over_night'  => $slot->over_night,
-                'status'      => $slot->status ?? 'available',
+                'timeslot_id'     => $slot->timeslot_id,
+                'price'           => number_format((int) $slot->price, 0, ',', '.'),
+                // Nhúng sẵn "Giá gốc" ngay khi dựng dữ liệu dòng — TableRepeater (thư viện ngoài)
+                // không hỗ trợ afterStateHydrated() đọc field ở Repeater cha (product_id) một cách
+                // đáng tin cậy lúc tải trang, nên tính sẵn ở đây thay vì để field tự tính lúc hydrate.
+                '_baseline_price' => $baseline($product->id, $slot->timeslot_id),
+                'promotions'      => [],
+                'over_night'      => $slot->over_night,
+                'status'          => $slot->status ?? 'available',
             ])
             ->toArray();
 
@@ -418,8 +457,10 @@ class PriceBoardForm
      *  đảm bảo form luôn khớp với DB. */
     public static function buildItemsFromBoard(PriceBoard $board): array
     {
+        $baseline = static::baselinePriceResolver();
+
         return $board->items()->with(['timeSlots.timeslot', 'product'])->get()
-            ->map(function ($item) {
+            ->map(function ($item) use ($baseline) {
                 $style = (int) ($item->product->styles ?? 1);
 
                 $row = [
@@ -444,16 +485,101 @@ class PriceBoardForm
                     ->sortBy(fn ($slot) => $slot->timeslot?->start_time ?? '99:99:99')
                     ->values()
                     ->map(fn ($slot) => [
-                        'timeslot_id' => $slot->timeslot_id,
-                        'price'       => number_format((int) $slot->price, 0, ',', '.'),
-                        'over_night'  => $slot->over_night,
-                        'status'      => $slot->status,
+                        'timeslot_id'     => $slot->timeslot_id,
+                        'price'           => number_format((int) $slot->price, 0, ',', '.'),
+                        '_baseline_price' => $baseline($item->product_id, $slot->timeslot_id),
+                        'over_night'      => $slot->over_night,
+                        'status'          => $slot->status,
                     ])
                     ->toArray();
 
                 return $row;
             })
             ->toArray();
+    }
+
+    /** Closure tra "Giá gốc" — giá đang lưu ở "Bảng giá mặc định" (price_board_items/
+     *  price_board_time_slots của bảng is_default=true) cho đúng (phòng, khung giờ) — KHÔNG phải giá
+     *  đang chạy thật trên products/room_time_slots, vì phòng đó có thể đang bị 1 bảng đặt tên KHÁC
+     *  áp đè tạm thời (xem giải thích ở PriceBoardSyncService::applyForProduct()). Cache theo product
+     *  trong 1 request — TableRepeater gọi lại cho từng dòng/mỗi lần đổi khung giờ, tránh query lặp
+     *  lại y hệt nhiều lần trên cùng 1 phòng.
+     */
+    private static function baselinePriceResolver(): \Closure
+    {
+        $cache = [];
+
+        return function (int|string|null $productId, int|string|null $timeslotId) use (&$cache): ?int {
+            if (! $productId || ! $timeslotId) {
+                return null;
+            }
+
+            if (! array_key_exists($productId, $cache)) {
+                $defaultBoardId = app(PriceBoardSyncService::class)->defaultBoard()->id;
+
+                $cache[$productId] = \Modules\Product\App\Models\PriceBoardItem::where('price_board_id', $defaultBoardId)
+                    ->where('product_id', $productId)
+                    ->first()
+                    ?->timeSlots
+                    ->pluck('price', 'timeslot_id')
+                    ->all() ?? [];
+            }
+
+            return isset($cache[$productId][$timeslotId]) ? (int) $cache[$productId][$timeslotId] : null;
+        };
+    }
+
+    /** Dữ liệu cho khối "Tổng quan lịch trình" ở đầu form — tính trực tiếp trên GIÁ TRỊ ĐANG NHẬP
+     *  trên form (không đọc lại từ $record), để admin đổi ngày là thấy cập nhật ngay trước khi bấm
+     *  Lưu. Không giới hạn ngày bắt đầu/kết thúc (để trống = vô thời hạn) vẫn hiển thị hợp lý. */
+    private static function scheduleOverviewData(Get $get): array
+    {
+        $isActive  = (bool) ($get('is_active') ?? true);
+        $startDate = $get('start_date') ? Carbon::parse($get('start_date'))->startOfDay() : null;
+        $endDate   = $get('end_date') ? Carbon::parse($get('end_date'))->endOfDay() : null;
+        $today     = now()->startOfDay();
+
+        $status = match (true) {
+            ! $isActive                                     => ['Đã tắt', 'gray'],
+            $endDate && $today->gt($endDate)                 => ['Hết hạn', 'danger'],
+            $startDate && $today->lt($startDate)             => ['Chờ áp dụng', 'warning'],
+            default                                          => ['Đang áp dụng', 'success'],
+        };
+
+        $totalSeconds   = ($startDate && $endDate) ? max(1, $startDate->diffInSeconds($endDate)) : null;
+        $elapsedSeconds = ($startDate && $endDate) ? min($totalSeconds, max(0, $startDate->diffInSeconds(now(), false))) : null;
+        $progress       = $totalSeconds ? (int) round(($elapsedSeconds / $totalSeconds) * 100) : ($isActive ? 100 : 0);
+
+        return [
+            'statusLabel'   => $status[0],
+            'statusColor'   => $status[1],
+            'progressPercent' => max(0, min(100, $progress)),
+            'durationLabel' => static::formatDuration($startDate, $endDate),
+            'startMonthLabel'    => $startDate ? 'T' . $startDate->format('m') : '—',
+            'startDayLabel'      => $startDate ? $startDate->format('d') : '—',
+            'startTimeLabel'     => $startDate ? $startDate->format('H:i') : 'Không giới hạn',
+            'startDateFullLabel' => $startDate ? $startDate->translatedFormat('l, Y') : '',
+            'endMonthLabel'      => $endDate ? 'T' . $endDate->format('m') : '—',
+            'endDayLabel'        => $endDate ? $endDate->format('d') : '—',
+            'endTimeLabel'       => $endDate ? $endDate->format('H:i') : 'Không giới hạn',
+            'endDateFullLabel'   => $endDate ? $endDate->translatedFormat('l, Y') : '',
+        ];
+    }
+
+    private static function formatDuration(?Carbon $start, ?Carbon $end): string
+    {
+        if (! $start || ! $end) {
+            return 'Không giới hạn thời gian';
+        }
+
+        $days  = $start->diffInDays($end);
+        $hours = $start->copy()->addDays($days)->diffInHours($end);
+
+        if ($days === 0) {
+            return $hours . ' giờ';
+        }
+
+        return $hours > 0 ? "{$days} ngày {$hours} giờ" : "{$days} ngày";
     }
 
     private static function styleOf(?string $productId): int

@@ -5,6 +5,7 @@ namespace Modules\Book\App\Filament\Traits;
 use App\Services\PriceBoardSyncService;
 use Filament\Actions\Action;
 use Filament\Forms\Components\CheckboxList;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
@@ -374,45 +375,12 @@ trait HasBookingHeaderActions
                         ->options(fn (Get $get) => Product::where('is_activated', true)->where('styles', (int) ($get('room_style') ?? 1))->orderBy('name')->pluck('name', 'id'))
                         ->searchable()
                         ->bulkToggleable()
-                        ->columns(3)
+                        ->columns(['default' => 1, 'sm' => 2, 'lg' => 3])
                         ->required()
                         ->columnSpanFull(),
 
                     Section::make('Giá cần đổi')
                         ->schema([
-                            Select::make('pick_mode')
-                                ->label('Chọn khung giờ theo')
-                                ->options([
-                                    'position' => 'Vị trí (khung đầu/cuối/thứ N của mỗi phòng)',
-                                    'specific' => 'Khung giờ cụ thể (giống nhau ở mọi phòng)',
-                                ])
-                                ->default('position')
-                                ->live()
-                                ->visible(fn (Get $get) => (int) $get('room_style') === 1),
-
-                            Select::make('timeslot_id')
-                                ->label('Khung giờ')
-                                ->options(fn () => TimeSlot::where(fn ($q) => $q->whereNull('type')->orWhere('type', '!=', 'date'))->pluck('label', 'id'))
-                                ->searchable()
-                                ->visible(fn (Get $get) => (int) $get('room_style') === 1 && $get('pick_mode') === 'specific'),
-
-                            Select::make('position')
-                                ->label('Vị trí khung giờ')
-                                ->options([
-                                    'first' => 'Khung đầu tiên (giờ sớm nhất)',
-                                    'last'  => 'Khung cuối cùng (giờ muộn nhất)',
-                                    'nth'   => 'Khung thứ N',
-                                ])
-                                ->default('first')
-                                ->live()
-                                ->visible(fn (Get $get) => (int) $get('room_style') === 1 && $get('pick_mode') === 'position'),
-
-                            TextInput::make('position_n')
-                                ->label('N = ?')
-                                ->numeric()
-                                ->minValue(1)
-                                ->visible(fn (Get $get) => (int) $get('room_style') === 1 && $get('pick_mode') === 'position' && $get('position') === 'nth'),
-
                             Select::make('apply_mode')
                                 ->label('Kiểu áp dụng')
                                 ->options([
@@ -421,14 +389,77 @@ trait HasBookingHeaderActions
                                 ])
                                 ->default('price')
                                 ->live()
-                                ->required(),
+                                ->required()
+                                ->columnSpanFull(),
 
+                            // Theo Ngày: chỉ có 1 giá/đêm duy nhất, không có khái niệm "khung giờ".
                             TextInput::make('value')
                                 ->label(fn (Get $get) => $get('apply_mode') === 'percent' ? 'Mức % (+/-)' : 'Giá mới (VNĐ)')
                                 ->numeric()
-                                ->required(),
+                                ->required(fn (Get $get) => (int) $get('room_style') === 2)
+                                ->visible(fn (Get $get) => (int) $get('room_style') === 2)
+                                ->columnSpanFull(),
+
+                            // Theo Khung Giờ: nhiều dòng, mỗi dòng đổi giá 1 khung giờ riêng (VD khung
+                            // 1 → giá A, khung 2 → giá B...) — 1 lần bấm Áp dụng là áp hết.
+                            Repeater::make('slot_rules')
+                                ->label('Các khung giờ cần đổi giá')
+                                ->helperText('Thêm nhiều dòng để đổi giá nhiều khung giờ cùng lúc cho các phòng đã chọn.')
+                                ->schema([
+                                    Select::make('pick_mode')
+                                        ->label('Chọn khung giờ theo')
+                                        ->options([
+                                            'position' => 'Vị trí (đầu/cuối/thứ N của mỗi phòng)',
+                                            'specific' => 'Khung giờ cụ thể',
+                                        ])
+                                        ->default('position')
+                                        ->live()
+                                        ->columnSpan(1),
+
+                                    Select::make('timeslot_id')
+                                        ->label('Khung giờ')
+                                        ->options(fn () => TimeSlot::where(fn ($q) => $q->whereNull('type')->orWhere('type', '!=', 'date'))->pluck('label', 'id'))
+                                        ->searchable()
+                                        ->columnSpan(1)
+                                        ->visible(fn (Get $get) => $get('pick_mode') === 'specific'),
+
+                                    Select::make('position')
+                                        ->label('Vị trí khung giờ')
+                                        ->options([
+                                            'first' => 'Khung đầu tiên (giờ sớm nhất)',
+                                            'last'  => 'Khung cuối cùng (giờ muộn nhất)',
+                                            'nth'   => 'Khung thứ N',
+                                        ])
+                                        ->default('first')
+                                        ->live()
+                                        ->columnSpan(1)
+                                        ->visible(fn (Get $get) => $get('pick_mode') === 'position'),
+
+                                    TextInput::make('position_n')
+                                        ->label('N = ?')
+                                        ->numeric()
+                                        ->minValue(1)
+                                        ->columnSpan(1)
+                                        ->visible(fn (Get $get) => $get('pick_mode') === 'position' && $get('position') === 'nth'),
+
+                                    TextInput::make('value')
+                                        ->label(fn (Get $get) => $get('../../apply_mode') === 'percent' ? 'Mức % (+/-)' : 'Giá mới (VNĐ)')
+                                        ->numeric()
+                                        ->required()
+                                        ->columnSpan(1),
+                                ])
+                                // Luôn 1 cột — đây là modal rộng cố định (~672px), lưới chia cột theo
+                                // breakpoint màn hình (viewport) KHÔNG theo bề rộng modal thực tế, nên
+                                // cứ chia nhiều cột là bị bóp chật/chữ bị cắt dù màn hình máy tính to.
+                                // Mỗi field 1 dòng riêng, đủ rộng để không bị lệch/cắt chữ ở mọi kích
+                                // thước màn hình, kể cả mobile.
+                                ->columns(1)
+                                ->defaultItems(1)
+                                ->addActionLabel('Thêm khung giờ cần đổi')
+                                ->columnSpanFull()
+                                ->visible(fn (Get $get) => (int) $get('room_style') === 1),
                         ])
-                        ->columns(2),
+                        ->columns(['default' => 1, 'sm' => 2]),
                 ])
                 ->action(function (array $data) {
                     $count = $this->applyBulkPriceUpdate($data);
@@ -448,9 +479,11 @@ trait HasBookingHeaderActions
      *  giá nào, áp dụng ngay lập tức (đúng tinh thần "Hệ thống giá": sửa là có hiệu lực ngay). */
     private function applyBulkPriceUpdate(array $data): int
     {
-        $style = (int) $data['room_style'];
-        $mode  = $data['apply_mode'];
-        $value = (float) $data['value'];
+        $style     = (int) $data['room_style'];
+        $mode      = $data['apply_mode'];
+        $slotRules = collect($data['slot_rules'] ?? [])
+            ->filter(fn ($rule) => ($rule['value'] ?? null) !== null && $rule['value'] !== '')
+            ->values();
 
         $rooms = Product::where('is_activated', true)
             ->where('styles', $style)
@@ -461,12 +494,15 @@ trait HasBookingHeaderActions
         $service = app(PriceBoardSyncService::class);
 
         foreach ($rooms as $room) {
-            $before = $service->snapshotPricing($room);
+            $before  = $service->snapshotPricing($room);
+            $touched = false;
 
             if ($style === 2) {
+                $value   = (float) ($data['value'] ?? 0);
                 $current = (float) $room->price;
                 $new     = $mode === 'percent' ? (int) round($current * (1 + $value / 100)) : (int) round($value);
                 $room->update(['price' => $new]);
+                $touched = true;
             } else {
                 $slots = RoomTimeSlot::where('room_id', $room->id)
                     ->whereHas('timeSlot', fn ($q) => $q->where(fn ($q2) => $q2->whereNull('type')->orWhere('type', '!=', 'date')))
@@ -479,21 +515,31 @@ trait HasBookingHeaderActions
                     continue;
                 }
 
-                $target = $data['pick_mode'] === 'specific'
-                    ? $slots->firstWhere('timeslot_id', $data['timeslot_id'] ?? null)
-                    : $slots->get(match ($data['position'] ?? 'first') {
-                        'last'  => $slots->count() - 1,
-                        'nth'   => ((int) ($data['position_n'] ?? 1)) - 1,
-                        default => 0,
-                    });
+                // Áp TỪNG dòng đã khai báo — mỗi dòng chỉ đổi 1 vị trí/khung giờ cụ thể của phòng
+                // này nên không ghi đè lẫn nhau (khung 1→A xong mới tới khung 2→B).
+                foreach ($slotRules as $rule) {
+                    $target = ($rule['pick_mode'] ?? 'position') === 'specific'
+                        ? $slots->firstWhere('timeslot_id', $rule['timeslot_id'] ?? null)
+                        : $slots->get(match ($rule['position'] ?? 'first') {
+                            'last'  => $slots->count() - 1,
+                            'nth'   => ((int) ($rule['position_n'] ?? 1)) - 1,
+                            default => 0,
+                        });
 
-                if (! $target) {
-                    continue;
+                    if (! $target) {
+                        continue;
+                    }
+
+                    $value   = (float) $rule['value'];
+                    $current = (float) $target->price;
+                    $new     = $mode === 'percent' ? (int) round($current * (1 + $value / 100)) : (int) round($value);
+                    $target->update(['price' => $new]);
+                    $touched = true;
                 }
+            }
 
-                $current = (float) $target->price;
-                $new     = $mode === 'percent' ? (int) round($current * (1 + $value / 100)) : (int) round($value);
-                $target->update(['price' => $new]);
+            if (! $touched) {
+                continue;
             }
 
             $freshRoom = $room->fresh();

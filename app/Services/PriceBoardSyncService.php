@@ -48,6 +48,10 @@ class PriceBoardSyncService
                 []
             );
 
+            if (! $board->is_default && $product = Product::find($productId)) {
+                $this->captureBaselineIfMissing($item, $product);
+            }
+
             $item->timeSlots()->delete();
             $keepItemIds[] = $item->id;
         }
@@ -105,6 +109,10 @@ class PriceBoardSyncService
                 $fields
             );
 
+            if (! $board->is_default) {
+                $this->captureBaselineIfMissing($item, $product);
+            }
+
             $keepItemIds[] = $item->id;
 
             $item->timeSlots()->delete();
@@ -130,6 +138,40 @@ class PriceBoardSyncService
             $item->timeSlots()->delete();
             $item->delete();
         });
+    }
+
+    /** Chụp "giá gốc" của $product vào ĐÚNG $item (bảng đặt tên) — CHỈ chụp 1 LẦN DUY NHẤT lúc item
+     *  này mới được tạo (baseline_fields còn null), sau đó đóng băng vĩnh viễn dù "Hệ thống giá" có
+     *  sửa gì tiếp — đúng yêu cầu "giá khôi phục = giá tại thời điểm tạo bảng khuyến mãi", KHÔNG phải
+     *  giá mới nhất đang lưu ở "Bảng giá mặc định" (vốn liên tục cập nhật theo mỗi lần lưu). Item cũ
+     *  tạo trước khi có cột này (baseline_fields null) cũng tự "chữa lành" ngay lần sửa kế tiếp — chấp
+     *  nhận chụp trễ vì không thể biết lại giá TẠI ĐÚNG lúc tạo trong quá khứ. */
+    private function captureBaselineIfMissing(PriceBoardItem $item, Product $product): void
+    {
+        if ($item->baseline_fields !== null) {
+            return;
+        }
+
+        $baselineSlots = $product->roomTimeSlots()
+            ->whereHas('timeSlot', fn ($q) => $this->scopeRecurring($q))
+            ->get()
+            ->groupBy('timeslot_id')
+            ->map(fn ($group) => $group->sortBy('id')->last())
+            ->values()
+            ->map(fn (RoomTimeSlot $slot) => [
+                'timeslot_id' => $slot->timeslot_id,
+                'price'       => $slot->price,
+                'checkin'     => $slot->checkin,
+                'checkout'    => $slot->checkout,
+                'over_night'  => $slot->over_night,
+                'status'      => $slot->status,
+            ])
+            ->all();
+
+        $item->update([
+            'baseline_fields'     => $this->extractProductFields($product),
+            'baseline_time_slots' => $baselineSlots,
+        ]);
     }
 
     public function defaultBoard(): PriceBoard
@@ -203,6 +245,25 @@ class PriceBoardSyncService
                 $i->priceBoard?->id ?? 0
             ))
             ->first();
+
+        if (! $item) {
+            // Không còn bảng đặt tên nào đang active — ưu tiên khôi phục về giá gốc đã ĐÓNG BĂNG
+            // ngay tại thời điểm tạo bảng đặt tên GẦN NHẤT của phòng này (baseline_fields/
+            // baseline_time_slots, chụp 1 lần duy nhất, không đổi theo dù sau đó "Hệ thống giá" có
+            // sửa gì tiếp) — thay vì luôn đọc "Bảng giá mặc định" vốn liên tục cập nhật theo lần lưu
+            // MỚI NHẤT, không còn là giá gốc thật lúc tạo bảng khuyến mãi nữa.
+            $frozenItem = PriceBoardItem::where('product_id', $product->id)
+                ->whereHas('priceBoard', fn ($q) => $q->where('is_default', false))
+                ->whereNotNull('baseline_fields')
+                ->latest('created_at')
+                ->first();
+
+            if ($frozenItem) {
+                $this->writeBaselineToProduct($frozenItem, $product);
+
+                return;
+            }
+        }
 
         if (! $item) {
             $item = PriceBoardItem::where('price_board_id', $this->defaultBoard()->id)
@@ -293,43 +354,100 @@ class PriceBoardSyncService
 
     private function writeItemToProduct(PriceBoardItem $item, Product $product): void
     {
-        $before = $this->snapshotPricing($product);
-
         ['fields' => $fields, 'timeSlots' => $timeSlots] = $this->resolveEffectivePayload($item, $product);
+
+        $normalizedSlots = collect($timeSlots)->map(fn ($slot) => [
+            'timeslot_id' => $slot->timeslot_id,
+            'price'       => $slot->price,
+            'checkin'     => $slot->checkin,
+            'checkout'    => $slot->checkout,
+            'over_night'  => $slot->over_night,
+            'status'      => $slot->status,
+        ]);
+
+        $this->applyFieldsAndSlotsToProduct($product, $fields, $normalizedSlots, $item->price_board_id, $item->price_board_id);
+    }
+
+    /** Ghi giá gốc đã ĐÓNG BĂNG (baseline_fields/baseline_time_slots của $frozenItem, chụp lúc tạo
+     *  bảng đặt tên đó) xuống $product — dùng khi hết hạn TẤT CẢ bảng đặt tên, thay cho việc luôn đọc
+     *  "Bảng giá mặc định" (xem applyForProduct()). synced_from_price_board_id = null vì đây không
+     *  còn do bảng đặt tên nào "đang áp" nữa — chỉ còn lại đúng giá gốc của phòng. */
+    private function writeBaselineToProduct(PriceBoardItem $frozenItem, Product $product): void
+    {
+        $fields = $frozenItem->baseline_fields ?? [];
+        $slots  = collect($frozenItem->baseline_time_slots ?? []);
+
+        $this->applyFieldsAndSlotsToProduct($product, $fields, $slots, null, $this->defaultBoard()->id);
+    }
+
+    /** Lõi dùng chung: ghi $fields (các cột giá chung) + $timeSlots (mảng chuẩn hoá
+     *  timeslot_id/price/checkin/checkout/over_night/status) xuống $product/room_time_slots, rồi ghi
+     *  1 dòng lịch sử nếu giá thật sự đổi. $logBoardId dùng để gắn dòng lịch sử vào đúng bảng giá
+     *  (bảng đặt tên đang áp, hoặc "Bảng giá mặc định" khi khôi phục giá gốc). */
+    private function applyFieldsAndSlotsToProduct(Product $product, array $fields, \Illuminate\Support\Collection $timeSlots, ?int $syncedFromBoardId, int $logBoardId): void
+    {
+        $before = $this->snapshotPricing($product);
 
         $product->update($fields);
 
-        // Nếu item không có khung giờ nào (chưa từng được seed, hoặc bảng "override" lưu rỗng), TUYỆT
-        // ĐỐI không xoá khung giờ đang có của phòng — xoá xong không tạo lại gì sẽ làm phòng mất hết
-        // khung giờ đặt phòng. Giữ nguyên khung giờ hiện tại, chỉ áp các field giá chung ở trên.
+        // Nếu không có khung giờ nào (chưa từng được seed, hoặc bảng "override" lưu rỗng), TUYỆT ĐỐI
+        // không xoá khung giờ đang có của phòng — xoá xong không tạo lại gì sẽ làm phòng mất hết khung
+        // giờ đặt phòng. Giữ nguyên khung giờ hiện tại, chỉ áp các field giá chung ở trên.
         if ($timeSlots->isNotEmpty()) {
-            $recurringSlotIds = RoomTimeSlot::where('room_id', $product->id)
+            $existingSlots = RoomTimeSlot::where('room_id', $product->id)
                 ->whereHas('timeSlot', fn ($q) => $this->scopeRecurring($q))
-                ->pluck('id');
+                ->get()
+                ->keyBy('timeslot_id');
 
-            RoomTimeSlot::whereIn('id', $recurringSlotIds)->get()->each(function (RoomTimeSlot $slot) {
-                $slot->promotions()->detach();
-                $slot->coupons()->detach();
-                $slot->delete();
-            });
+            $targetTimeslotIds = $timeSlots->pluck('timeslot_id')->map(fn ($id) => (string) $id)->all();
+
+            // Khung giờ nào KHÔNG còn nằm trong bảng mới mới thật sự bị xoá (gỡ khuyến mãi/mã giảm
+            // giá trước khi xoá, vì bản ghi không còn tồn tại thì pivot trỏ vào id đó vô nghĩa).
+            $existingSlots
+                ->reject(fn (RoomTimeSlot $slot) => in_array((string) $slot->timeslot_id, $targetTimeslotIds, true))
+                ->each(function (RoomTimeSlot $slot) {
+                    $slot->promotions()->detach();
+                    $slot->coupons()->detach();
+                    $slot->delete();
+                });
 
             foreach ($timeSlots as $boardSlot) {
+                // Khung giờ đã tồn tại (cùng timeslot_id) thì UPDATE ngay trên đúng bản ghi cũ — giữ
+                // nguyên id, giữ nguyên Khuyến mãi/Mã giảm giá đã gắn (promotions()/coupons() pivot
+                // trỏ theo id này). Trước đây luôn xoá-tạo-lại MỌI khung giờ mỗi lần áp bảng giá (kể
+                // cả job tự động chạy MỖI ĐÊM cho MỌI phòng) khiến id đổi liên tục, âm thầm gỡ sạch
+                // mọi khuyến mãi đã gắn dù giá/khung giờ không hề đổi gì.
+                $existing = $existingSlots->get($boardSlot['timeslot_id']);
+
+                if ($existing) {
+                    $existing->update([
+                        'price'                      => $boardSlot['price'],
+                        'checkin'                    => $boardSlot['checkin'],
+                        'checkout'                   => $boardSlot['checkout'],
+                        'over_night'                 => $boardSlot['over_night'],
+                        'status'                     => $boardSlot['status'],
+                        'synced_from_price_board_id' => $syncedFromBoardId,
+                    ]);
+
+                    continue;
+                }
+
                 RoomTimeSlot::create([
                     'room_id'                    => $product->id,
-                    'timeslot_id'                => $boardSlot->timeslot_id,
-                    'price'                      => $boardSlot->price,
-                    'checkin'                    => $boardSlot->checkin,
-                    'checkout'                   => $boardSlot->checkout,
-                    'over_night'                 => $boardSlot->over_night,
-                    'status'                     => $boardSlot->status,
-                    'synced_from_price_board_id' => $item->price_board_id,
+                    'timeslot_id'                => $boardSlot['timeslot_id'],
+                    'price'                      => $boardSlot['price'],
+                    'checkin'                    => $boardSlot['checkin'],
+                    'checkout'                   => $boardSlot['checkout'],
+                    'over_night'                 => $boardSlot['over_night'],
+                    'status'                     => $boardSlot['status'],
+                    'synced_from_price_board_id' => $syncedFromBoardId,
                 ]);
             }
         }
 
         $after = $this->snapshotPricing($product->fresh());
 
-        $this->logPriceChange($item->price_board_id, $product, $before, $after);
+        $this->logPriceChange($logBoardId, $product, $before, $after);
     }
 
     /** Chụp giá hiện tại của $product (giá/đêm + giá từng khung giờ tái sử dụng, theo tên khung
