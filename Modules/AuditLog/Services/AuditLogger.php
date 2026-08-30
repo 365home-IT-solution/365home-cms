@@ -29,7 +29,10 @@ class AuditLogger
     ): void {
         $user = auth()->user();
 
-        if (! $user) {
+        // Chỉ ghi audit log cho hành động của staff (App\Models\User có trait HasRoles).
+        // Các model khác (vd. App\Models\Customer khi API đặt phòng cập nhật used_count của
+        // coupon) không có getRoleNames() và trước đây làm crash 500 toàn bộ request.
+        if (! $user instanceof \App\Models\User) {
             return;
         }
 

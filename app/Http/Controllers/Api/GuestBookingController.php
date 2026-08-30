@@ -386,18 +386,8 @@ class GuestBookingController extends Controller
 
             foreach ($appliedCoupons as $couponInfo) {
                 if (isset($couponInfo['_model'])) {
-                    try {
-                        // Khách vãng lai — không có Customer đăng nhập nên customer_id luôn null.
-                        $couponInfo['_model']->incrementUsage((string) $order->id, null, $order->category_id, $couponInfo['discount_amount'] ?? null);
-                    } catch (\Exception $e) {
-                        Log::error('incrementUsage error', [
-                            'coupon_code' => $couponInfo['code'] ?? null,
-                            'order_id' => $order->id,
-                            'error' => $e->getMessage(),
-                            'exception' => get_class($e),
-                        ]);
-                        throw $e;
-                    }
+                    // Khách vãng lai — không có Customer đăng nhập nên customer_id luôn null.
+                    $couponInfo['_model']->incrementUsage((string) $order->id, null, $order->category_id, $couponInfo['discount_amount'] ?? null);
                 }
             }
 
@@ -1581,8 +1571,7 @@ class GuestBookingController extends Controller
 
         $coupons = [];
         foreach ($codes as $index => $code) {
-            try {
-                $coupon = Coupon::where('code', $code)
+            $coupon = Coupon::where('code', $code)
                     ->where('is_active', true)
                     ->where(fn ($q) => $q->whereNull('start_at')->orWhere('start_at', '<=', now()))
                     ->where(fn ($q) => $q->whereNull('end_at')->orWhere('end_at', '>=', now()))
@@ -1629,17 +1618,6 @@ class GuestBookingController extends Controller
                 }
 
                 $coupons[] = $coupon;
-            } catch (\Exception $e) {
-                Log::error('applyGuestCoupons error', [
-                    'coupon_code' => $code,
-                    'order_amount' => $orderAmount,
-                    'room_id' => $room->id,
-                    'error' => $e->getMessage(),
-                    'exception' => get_class($e),
-                    'trace' => $e->getTraceAsString(),
-                ]);
-                throw $e;
-            }
         }
 
         usort($coupons, fn ($a, $b) => ($b->type === 'percentage' ? 1 : 0) - ($a->type === 'percentage' ? 1 : 0));

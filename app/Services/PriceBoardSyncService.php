@@ -290,6 +290,22 @@ class PriceBoardSyncService
         }
     }
 
+    /** Khôi phục giá gốc cho mọi phòng gắn với $board TRƯỚC KHI xoá — gọi ngay trước
+     *  DeleteAction::make() thực sự xoá bản ghi (xem PriceBoardResource). Bắt buộc phải làm TRƯỚC khi
+     *  xoá vì xoá PriceBoard sẽ cascade xoá luôn PriceBoardItem, mất theo cả baseline_fields/
+     *  baseline_time_slots đã đóng băng — nếu khôi phục SAU khi xoá thì không còn gì để đọc lại nữa.
+     *  Chỉ khôi phục item nào ĐÃ có baseline (item cũ tạo trước khi có cơ chế đóng băng thì bỏ qua,
+     *  coi như xoá xong giá giữ nguyên như cũ — vẫn tốt hơn xoá luôn dữ liệu gốc trong lúc không biết
+     *  chắc giá gốc thật là bao nhiêu). */
+    public function revertBoardBeforeDelete(PriceBoard $board): void
+    {
+        foreach ($board->items()->with('product')->get() as $item) {
+            if ($item->product && $item->baseline_fields !== null) {
+                $this->writeBaselineToProduct($item, $item->product);
+            }
+        }
+    }
+
     /** Tính lại NGAY giá đang đúng phải áp cho từng phòng gắn với $board (áp nếu $board đang thắng,
      *  khôi phục bảng khác/mặc định nếu không) — gọi ngay sau khi tạo/sửa/bật/tắt 1 bảng để có hiệu
      *  lực tức thời, không phải chờ job `price-boards:sync-due` chạy lúc nửa đêm. */
