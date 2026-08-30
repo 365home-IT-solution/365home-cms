@@ -24,7 +24,9 @@ trait BelongsToActiveBranchCategories
 
             $user = auth()->user();
 
-            if (! $user instanceof User) {
+            // super_admin PHẢI luôn xem được MỌI chi nhánh, cùng quy ước isSuperAdmin() bypass với
+            // scope 'partner' của BelongsToPartner — xem giải thích chi tiết ở BelongsToBranch.
+            if (! $user instanceof User || $user->isSuperAdmin()) {
                 return;
             }
 

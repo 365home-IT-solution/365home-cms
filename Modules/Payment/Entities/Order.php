@@ -179,7 +179,13 @@ class Order extends Model implements Eventable
 
             $user = auth()->user();
 
-            if (! $user instanceof User) {
+            // super_admin PHẢI luôn xem được MỌI chi nhánh (không riêng gì nút "Chuyển đổi chi
+            // nhánh" hiện đang chọn gì) — cùng quy ước isSuperAdmin() bypass với scope 'partner'
+            // của BelongsToPartner. Thiếu điều kiện này khiến effectiveBranchIds()/
+            // rootProductCategoryIds() (chỉ trả về category_type='product', parent_id NULL) vô
+            // tình lọc bỏ mọi đơn có category_id KHÔNG rơi đúng vào tập category gốc kiểu
+            // 'product' đó — dù super_admin đáng lẽ phải thấy hết, không phụ thuộc taxonomy này.
+            if (! $user instanceof User || $user->isSuperAdmin()) {
                 return;
             }
 
