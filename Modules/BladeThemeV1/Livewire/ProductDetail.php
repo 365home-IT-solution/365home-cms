@@ -281,7 +281,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             ->filter(fn ($c) => $c->is_active
                 && (!$c->start_at || $now->gte($c->start_at))
                 && (!$c->end_at || $now->lte($c->end_at))
-                && (!$c->usage_limit || $c->used_count < $c->usage_limit)
+                && ! $c->hasReachedUsageLimit()
                 && (! $roomId || ($c->apply_type !== 'specific_slot' && $c->appliesToRoom($roomId))))
             ->sortByDesc(fn ($c) => $c->end_at ?? $c->created_at)
             ->map(fn ($c) => [
@@ -395,7 +395,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         }
 
         // Kiểm tra usage limit
-        if ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {
+        if ($coupon->hasReachedUsageLimit()) {
             $this->couponErrorMessage = 'Mã giảm giá đã hết lượt sử dụng';
             return;
         }
@@ -1563,6 +1563,9 @@ public function confirmBooking()
                 // API cùng quy ước) — coupon_codes (JSON) mới là nguồn đầy đủ khi áp nhiều mã.
                 'coupon_code'    => collect($this->appliedCoupons)->first()?->code,
                 'coupon_codes'   => collect($this->appliedCoupons)->pluck('code')->values()->all() ?: null,
+                'coupon_discount_amounts' => collect($this->appliedCoupons)
+                    ->mapWithKeys(fn ($c, $couponId) => [$c->code => $this->couponDiscounts[$couponId] ?? null])
+                    ->all() ?: null,
                 'coupon_discount'=> $this->couponDiscountAmount,
                 'note_for_admin' => $noteForAdmin,
             ]);
@@ -1682,9 +1685,8 @@ public function confirmBooking()
                 }
             }
 
-            foreach ($this->appliedCoupons as $couponId => $appliedCoupon) {
-                $appliedCoupon->incrementUsage($order->id, $verifiedUserId, $order->category_id, (int) ($this->couponDiscounts[$couponId] ?? 0));
-            }
+            // KHÔNG tăng used_count ở đây nữa — mã chỉ thực sự bị trừ lượt khi đơn thanh toán thành
+            // công (xem CouponUsageLedger::confirm(), gọi từ OrderObserver).
 
             return $order;
         });

@@ -251,8 +251,9 @@ class OrderController extends Controller
 
             $this->guardExclusiveCoupons($newCodes);
 
-            // Giải phóng lượt dùng của coupon cũ
-            $this->releaseCouponUsage($order);
+            // Không cần giải phóng lượt dùng coupon cũ ở đây — update() chỉ chạy khi đơn còn
+            // 'pending' (xem guard ở đầu method), nghĩa là used_count CHƯA từng bị trừ cho coupon cũ
+            // (chỉ trừ lúc thanh toán thành công, xem CouponUsageLedger::confirm()).
 
             // Validate & apply coupon mới
             $product        = $order->items->first()?->product;
@@ -274,14 +275,14 @@ class OrderController extends Controller
                 $newCodes, $couponBase, $product, $customer
             );
 
-            // Increment usage cho coupon mới
-            foreach ($appliedCoupons as $info) {
-                $info['_model']->incrementUsage((string) $order->id, $customer->id ?? null, $order->category_id, $info['discount_amount']);
-            }
-
+            // KHÔNG tăng used_count ở đây nữa — chỉ lưu tạm số tiền giảm/mã, việc trừ lượt dời sang
+            // lúc đơn thanh toán thành công (xem CouponUsageLedger::confirm()).
             $appliedCodes = collect($appliedCoupons)->pluck('code')->values()->all();
             $updates['coupon_code']  = $appliedCodes[0] ?? null;
             $updates['coupon_codes'] = $appliedCodes ?: null;
+            $updates['coupon_discount_amounts'] = collect($appliedCoupons)
+                ->mapWithKeys(fn ($info) => [$info['code'] => $info['discount_amount'] ?? null])
+                ->all() ?: null;
 
             // Tính lại full_amount với coupon mới
             $baseAmt     = isset($updates['amount']) ? (int) $updates['amount'] : (int) $order->amount;
@@ -1381,26 +1382,6 @@ class OrderController extends Controller
     }
 
     /**
-     * Giải phóng lượt dùng của tất cả coupon đang áp trên đơn.
-     */
-    private function releaseCouponUsage(Order $order): void
-    {
-        $codes = $order->coupon_codes
-            ?? ($order->coupon_code ? [$order->coupon_code] : []);
-
-        if (empty($codes) || ! is_array($codes)) {
-            return;
-        }
-
-        Coupon::whereIn('code', $codes)
-            ->where('used_count', '>', 0)
-            ->decrement('used_count');
-
-        // Giải phóng lịch sử sử dụng gắn với đơn này — sẽ được ghi lại mới nếu áp mã khác ngay sau.
-        \Modules\Promotion\App\Models\CouponUsage::where('order_id', $order->id)->delete();
-    }
-
-    /**
      * Cho phép áp nhiều mã/đơn, TRỪ mã is_exclusive=true — cùng quy tắc BookingController::guardExclusiveCoupons().
      */
     private function guardExclusiveCoupons(array $codes): void
@@ -1464,7 +1445,7 @@ class OrderController extends Controller
                 }
             }
 
-            if ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {
+            if ($coupon->hasReachedUsageLimit()) {
                 throw ValidationException::withMessages([
                     $field => ["Mã \"{$code}\" đã hết lượt sử dụng."],
                 ]);

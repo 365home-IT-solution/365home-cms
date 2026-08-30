@@ -388,6 +388,12 @@ class BookingController extends Controller
 
             $firstCode = $appliedCouponCodes[0] ?? null;
 
+            // Số tiền giảm của TỪNG mã — chỉ lưu tạm ở đây, KHÔNG trừ used_count ngay (xem
+            // CouponUsageLedger::confirm(), gọi từ OrderObserver đúng lúc đơn thanh toán thành công).
+            $couponDiscountAmounts = collect($appliedCoupons)
+                ->mapWithKeys(fn ($c) => [$c['code'] => $c['discount_amount'] ?? null])
+                ->all();
+
             $order = Order::create([
                 // Cả 'amount' và 'full_amount' lưu ĐÚNG TỔNG GIÁ thật của đơn (không phải số tiền
                 // cọc cần trả ngay) — 'full_amount' CỐ ĐỊNH từ đây trở đi, 'amount' là nơi cập nhật
@@ -398,6 +404,7 @@ class BookingController extends Controller
                 'deposit_percent' => $depositPercentToSave,
                 'coupon_code'     => $firstCode,           // backward compat
                 'coupon_codes'    => $appliedCouponCodes ?: null,
+                'coupon_discount_amounts' => $couponDiscountAmounts ?: null,
                 'description'     => 'Đặt phòng - ' . $room->name,
                 'buyer_name'      => $buyerName,
                 'buyer_phone'     => $buyerPhone,
@@ -434,12 +441,8 @@ class BookingController extends Controller
                 $order->services()->create($svc);
             }
 
-            // Tăng lượt dùng cho tất cả coupon đã áp dụng
-            foreach ($appliedCoupons as $couponInfo) {
-                if (isset($couponInfo['_model'])) {
-                    $couponInfo['_model']->incrementUsage((string) $order->id, $customer?->id, $order->category_id, $couponInfo['discount_amount'] ?? null);
-                }
-            }
+            // KHÔNG tăng used_count ở đây nữa — mã chỉ thực sự bị trừ lượt khi đơn thanh toán thành
+            // công (xem CouponUsageLedger::confirm(), gọi từ OrderObserver).
 
             return $order;
         });
@@ -979,7 +982,8 @@ class BookingController extends Controller
      * Mỗi coupon áp trên số tiền còn lại sau coupon trước.
      *
      * Trả về [totalDiscount, appliedList]
-     * appliedList: mỗi phần tử có _model để gọi incrementUsage() trong transaction.
+     * appliedList: mỗi phần tử có 'code'/'discount_amount' để lưu vào coupon_discount_amounts của
+     * đơn — used_count CHỈ tăng sau này lúc đơn thanh toán thành công (CouponUsageLedger::confirm()).
      */
     /**
      * Cho phép áp NHIỀU mã/đơn như bình thường, TRỪ mã nào được đánh dấu is_exclusive=true — mã đó
@@ -1044,7 +1048,7 @@ class BookingController extends Controller
                 'type'            => $coupon->type,
                 'value'           => $coupon->value,
                 'discount_amount' => $discount,
-                '_model'          => $coupon, // chỉ dùng nội bộ để incrementUsage
+                '_model'          => $coupon, // chỉ dùng nội bộ, loại bỏ khỏi response (xem dưới)
             ];
         }
 
@@ -1109,7 +1113,7 @@ class BookingController extends Controller
             throw $e;
         }
 
-        if ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {
+        if ($coupon->hasReachedUsageLimit()) {
             throw ValidationException::withMessages([
                 $field => ["Mã \"{$code}\" đã hết lượt sử dụng."],
             ]);

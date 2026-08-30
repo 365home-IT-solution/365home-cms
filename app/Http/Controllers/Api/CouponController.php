@@ -137,7 +137,7 @@ class CouponController extends Controller
             }
         }
 
-        if ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {
+        if ($coupon->hasReachedUsageLimit()) {
             return response()->json(['message' => 'Mã giảm giá đã hết lượt sử dụng.'], 422);
         }
 

@@ -333,6 +333,12 @@ class GuestBookingController extends Controller
 
             $firstCode = $appliedCouponCodes[0] ?? null;
 
+            // Số tiền giảm của TỪNG mã — chỉ lưu tạm ở đây, KHÔNG trừ used_count ngay (xem
+            // CouponUsageLedger::confirm(), gọi từ OrderObserver đúng lúc đơn thanh toán thành công).
+            $couponDiscountAmounts = collect($appliedCoupons)
+                ->mapWithKeys(fn ($c) => [$c['code'] => $c['discount_amount'] ?? null])
+                ->all();
+
             $order = Order::create([
                 // Cả 'amount' và 'full_amount' lưu ĐÚNG TỔNG GIÁ thật của đơn (không phải số tiền
                 // cọc cần trả ngay) — 'full_amount' CỐ ĐỊNH từ đây trở đi (không đổi dù sau này có
@@ -345,6 +351,7 @@ class GuestBookingController extends Controller
                 'deposit_percent' => $depositPercentToSave,
                 'coupon_code'     => $firstCode,
                 'coupon_codes'    => $appliedCouponCodes ?: null,
+                'coupon_discount_amounts' => $couponDiscountAmounts ?: null,
                 'description'     => 'Đặt phòng - ' . $room->name,
                 'buyer_name'      => $buyerName,
                 'buyer_phone'     => $buyerPhone,
@@ -384,12 +391,8 @@ class GuestBookingController extends Controller
                 $order->services()->create($svc);
             }
 
-            foreach ($appliedCoupons as $couponInfo) {
-                if (isset($couponInfo['_model'])) {
-                    // Khách vãng lai — không có Customer đăng nhập nên customer_id luôn null.
-                    $couponInfo['_model']->incrementUsage((string) $order->id, null, $order->category_id, $couponInfo['discount_amount'] ?? null);
-                }
-            }
+            // KHÔNG tăng used_count ở đây nữa — mã chỉ thực sự bị trừ lượt khi đơn thanh toán thành
+            // công (xem CouponUsageLedger::confirm(), gọi từ OrderObserver).
 
             return $order;
         });
@@ -1593,7 +1596,7 @@ class GuestBookingController extends Controller
                     ]);
                 }
 
-                if ($coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit) {
+                if ($coupon->hasReachedUsageLimit()) {
                     throw ValidationException::withMessages([
                         $field => ["Mã \"{$code}\" đã hết lượt sử dụng."],
                     ]);

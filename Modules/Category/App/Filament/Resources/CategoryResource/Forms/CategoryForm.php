@@ -8,6 +8,7 @@ use CodeWithDennis\FilamentSelectTree\SelectTree;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Livewire as LivewireField;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -18,6 +19,8 @@ use Filament\Forms\Get;
 use Illuminate\Support\Str;
 use Filament\Forms\Set;
 use Illuminate\Validation\Rule;
+use Modules\Category\Entities\Category;
+use Modules\Category\Livewire\ChildBranches;
 
 class CategoryForm
 {
@@ -32,7 +35,28 @@ class CategoryForm
                         self::mainInfoSection()->columnSpan(['default' => 1, 'lg' => 2]),
                         self::imageSection()->columnSpan(['default' => 1, 'lg' => 1]),
                     ]),
+                self::childrenSection(),
             ]);
+    }
+
+    // Quản lý ĐẦY ĐỦ chi nhánh con (thêm/sửa/xóa + ảnh) bằng giao diện Livewire riêng, ĐỘC LẬP với
+    // vòng đời lưu của form chi nhánh cha — mỗi thao tác ghi thẳng DB ngay, không cần bấm nút "Lưu"
+    // ở đây. Nhúng qua Filament\Forms\Components\Livewire (component chính thức của Filament để đặt
+    // 1 Livewire component riêng vào giữa form khác, KHÔNG phải field Repeater/TableRepeater nữa —
+    // xem Modules\Category\Livewire\ChildBranches + view category::livewire.child-branches). Chỉ
+    // hiện ở trang Edit ($record khác null, Filament tự bind theo type-hint). Đây là cách thứ 2 để
+    // quản lý chi nhánh con song song với tab "Chi nhánh con" (ChildrenRelationManager) — dùng cách
+    // nào tùy ý, dữ liệu là 1 (cùng bảng categories, cùng parent_id).
+    private static function childrenSection(): Section
+    {
+        return Section::make('Chi nhánh con')
+            ->description('Thêm/sửa/xóa chi nhánh con ngay tại đây — mỗi thao tác áp dụng ngay lập tức. Xóa là xóa VĨNH VIỄN (không thể khôi phục).')
+            ->schema([
+                LivewireField::make(ChildBranches::class, fn (?Category $record) => ['categoryId' => $record?->id])
+                    ->key(fn (?Category $record) => 'child-branches-' . ($record?->id ?? 'new')),
+            ])
+            ->visible(fn (?Category $record) => $record !== null)
+            ->collapsible();
     }
 
     private static function mainInfoSection(): Section

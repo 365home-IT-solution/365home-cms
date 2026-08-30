@@ -2,18 +2,18 @@
 
 declare(strict_types=1);
 
-namespace Modules\AuditLog\App\Filament\Resources\AuditLogResource\Pages;
+namespace Modules\Coupon\App\Filament\Resources\CouponUsageLogResource\Pages;
 
 use Filament\Actions;
 use Filament\Forms\Components\DatePicker;
 use Filament\Resources\Pages\ListRecords;
 use Maatwebsite\Excel\Facades\Excel;
-use Modules\AuditLog\App\Exports\AuditLogExport;
-use Modules\AuditLog\App\Filament\Resources\AuditLogResource;
+use Modules\Coupon\App\Exports\CouponUsageLogExport;
+use Modules\Coupon\App\Filament\Resources\CouponUsageLogResource;
 
-class ListAuditLog extends ListRecords
+class ListCouponUsageLog extends ListRecords
 {
-    protected static string $resource = AuditLogResource::class;
+    protected static string $resource = CouponUsageLogResource::class;
 
     protected function getHeaderActions(): array
     {
@@ -34,9 +34,9 @@ class ListAuditLog extends ListRecords
                         ->afterOrEqual('date_from'),
                 ])
                 ->action(function (array $data) {
-                    $fileName = 'lich_su_thao_tac_' . now()->format('Y-m-d_His') . '.xlsx';
+                    $fileName = 'lich_su_dung_ma_giam_gia_' . now()->format('Y-m-d_His') . '.xlsx';
 
-                    return Excel::download(new AuditLogExport($data), $fileName);
+                    return Excel::download(new CouponUsageLogExport($data), $fileName);
                 }),
         ];
     }

@@ -14,6 +14,7 @@ use Modules\Category\Entities\Category;
 use Modules\Category\Traits\Categorizable;
 use Modules\Product\App\Models\RoomTimeSlot;
 use Modules\Product\App\Models\Product;
+use Modules\Payment\Entities\Order;
 
 class Coupon extends Model
 {
@@ -235,7 +236,7 @@ class Coupon extends Model
         }
 
         // Kiểm tra usage limit
-        if ($this->usage_limit && $this->used_count >= $this->usage_limit) {
+        if ($this->hasReachedUsageLimit()) {
             return false;
         }
 
@@ -272,6 +273,35 @@ class Coupon extends Model
         }
 
         return min($discount, $amount); // Không được vượt quá tổng tiền
+    }
+
+    /**
+     * Số đơn 'pending' CHƯA hết hạn đang giữ mã này (áp mã nhưng chưa thanh toán). used_count chỉ
+     * tăng khi đơn thanh toán thành công (xem CouponUsageLedger::confirm(), gọi từ OrderObserver) —
+     * nếu chỉ so usage_limit với used_count thì nhiều đơn pending cùng lúc giữ 1 mã giới hạn có thể
+     * đồng loạt thanh toán thành công và vượt usage_limit. Đếm thêm số này để chặn ngay lúc áp mã mà
+     * không cần đụng tới used_count trước khi thanh toán thật sự xảy ra.
+     */
+    public function pendingHoldCount(): int
+    {
+        return Order::where('status', 'pending')
+            ->where(fn ($q) => $q->whereNull('expired_at')->orWhere('expired_at', '>', now()))
+            ->where(fn ($q) => $q->where('coupon_code', $this->code)
+                ->orWhereJsonContains('coupon_codes', $this->code))
+            ->count();
+    }
+
+    /**
+     * true nếu mã đã hết lượt dùng — tính cả used_count (đã thanh toán) LẪN pendingHoldCount() (đơn
+     * pending đang giữ chỗ, chưa thanh toán) để không oversell coupon có usage_limit.
+     */
+    public function hasReachedUsageLimit(): bool
+    {
+        if (! $this->usage_limit) {
+            return false;
+        }
+
+        return ($this->used_count + $this->pendingHoldCount()) >= $this->usage_limit;
     }
 
     /**
