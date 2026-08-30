@@ -12,6 +12,7 @@ use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Table;
+use Modules\Book\App\Filament\Resources\PriceBoardResource;
 use Modules\Product\App\Models\PriceBoard;
 use Modules\Product\App\Models\PriceBoardPriceLog;
 
@@ -19,6 +20,10 @@ class PriceBoardTable
 {
     public static function table(Table $table): Table
     {
+        // Chia sẻ giữa before()/after() của DeleteAction bên dưới — xem giải thích ở
+        // EditPriceBoard::getHeaderActions().
+        $affectedProducts = collect();
+
         return $table
             ->columns([
                 TextColumn::make('name')
@@ -59,6 +64,9 @@ class PriceBoardTable
 
                 ToggleColumn::make('is_active')
                     ->label('Kích hoạt')
+                    // Ghi giá thật xuống hệ thống ngay khi bật/tắt — cần đúng quyền update, không chỉ
+                    // quyền xem danh sách (view_any).
+                    ->disabled(fn (PriceBoard $record) => ! PriceBoardResource::canEdit($record))
                     ->afterStateUpdated(function (PriceBoard $record) {
                         $service = app(PriceBoardSyncService::class);
 
@@ -113,6 +121,9 @@ class PriceBoardTable
                     ->color('warning')
                     ->requiresConfirmation()
                     ->modalDescription('Áp ngay giá của bảng này xuống các phòng đã chọn, bất kể ngày hiệu lực.')
+                    // Ghi giá thật xuống hệ thống NGAY lập tức — cùng mức rủi ro với Sửa/Xoá, phải
+                    // đòi đúng quyền update thay vì chỉ cần quyền xem danh sách (view_any) là bấm được.
+                    ->visible(fn (PriceBoard $record) => PriceBoardResource::canEdit($record))
                     ->action(function (PriceBoard $record) {
                         app(PriceBoardSyncService::class)->applyBoard($record);
 
@@ -122,10 +133,16 @@ class PriceBoardTable
                             ->send();
                     }),
                 EditAction::make(),
-                // Khôi phục giá gốc cho mọi phòng trong bảng TRƯỚC khi thực sự xoá — giống hệt hành
-                // vi khi bảng tự hết hạn (yêu cầu người dùng).
+                // Tính lại giá ĐÚNG cho mọi phòng trong bảng SAU khi xoá — xem giải thích ở
+                // EditPriceBoard::getHeaderActions() (không tự ý ghi thẳng baseline của bảng vừa xoá,
+                // tránh ghi đè nhầm lên giá của 1 bảng KHÁC đang thật sự active cho cùng phòng).
                 DeleteAction::make()
-                    ->before(fn (PriceBoard $record) => app(PriceBoardSyncService::class)->revertBoardBeforeDelete($record)),
+                    ->before(function (PriceBoard $record) use (&$affectedProducts) {
+                        $affectedProducts = app(PriceBoardSyncService::class)->productsAffectedByBoard($record);
+                    })
+                    ->after(function () use (&$affectedProducts) {
+                        app(PriceBoardSyncService::class)->resyncProductsAfterBoardDeleted($affectedProducts);
+                    }),
             ]);
     }
 }

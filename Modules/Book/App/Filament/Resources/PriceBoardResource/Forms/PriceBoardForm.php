@@ -316,6 +316,15 @@ class PriceBoardForm
                     ->addable(false)
                     ->deletable(false)
                     ->reorderable(false)
+                    // Chặn lưu bảng rỗng khi admin đã tích chọn phòng ở checklist phía trên nhưng QUÊN
+                    // bấm nút "Tạo/cập nhật danh sách phòng" — checklist không còn ->live() nữa (cố ý,
+                    // để tích nhiều phòng nhanh không bị bung lại), nên tích xong mà không bấm nút thì
+                    // 'items' vẫn rỗng và Lưu/Tạo sẽ âm thầm tạo ra 1 bảng giá 0 phòng nếu không có
+                    // validate này chặn lại.
+                    ->minItems(fn (Get $get) => $get('pricing_mode') === PriceBoard::MODE_ADJUSTMENT ? 0 : 1)
+                    ->validationMessages([
+                        'minItems' => 'Chưa có phòng nào trong bảng giá — nếu bạn đã tích chọn phòng ở trên, hãy bấm "Tạo/cập nhật danh sách phòng theo tích chọn ở trên" trước khi lưu.',
+                    ])
                     ->columnSpanFull()
                     ->visible(fn (Get $get) => $get('pricing_mode') !== PriceBoard::MODE_ADJUSTMENT),
             ]);
