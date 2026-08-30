@@ -25,6 +25,11 @@ class EditPriceBoard extends EditRecord
 
     protected function getHeaderActions(): array
     {
+        // Dùng biến ngoài, chia sẻ giữa before()/after() của DeleteAction bên dưới — before() phải
+        // chụp lại danh sách phòng gắn với bảng TRƯỚC khi xoá (xoá xong là mất, cascade theo
+        // PriceBoardItem), after() mới dùng lại để tính lại giá đúng cho từng phòng đó.
+        $affectedProducts = collect();
+
         return [
             Actions\Action::make('history')
                 ->label('Lịch sử')
@@ -51,11 +56,17 @@ class EditPriceBoard extends EditRecord
 
                     Notification::make()->title('Đã áp dụng bảng giá')->success()->send();
                 }),
-            // Khôi phục giá gốc cho mọi phòng trong bảng TRƯỚC khi thực sự xoá (yêu cầu người dùng —
-            // trước đây cố ý không khôi phục, nay đổi lại: xoá bảng cũng phải trả giá về như trước
-            // khi tạo bảng, giống hệt hành vi khi bảng tự hết hạn).
+            // Tính lại giá ĐÚNG cho mọi phòng trong bảng SAU khi xoá (yêu cầu người dùng — trước đây
+            // cố ý không khôi phục, nay đổi lại). Gọi lại đúng logic "bảng nào thắng" tiêu chuẩn thay
+            // vì tự ý ghi thẳng baseline của bảng vừa xoá — tránh ghi đè nhầm lên giá của 1 bảng KHÁC
+            // đang thật sự active cho cùng phòng đó.
             Actions\DeleteAction::make()
-                ->before(fn () => app(PriceBoardSyncService::class)->revertBoardBeforeDelete($this->record)),
+                ->before(function () use (&$affectedProducts) {
+                    $affectedProducts = app(PriceBoardSyncService::class)->productsAffectedByBoard($this->record);
+                })
+                ->after(function () use (&$affectedProducts) {
+                    app(PriceBoardSyncService::class)->resyncProductsAfterBoardDeleted($affectedProducts);
+                }),
         ];
     }
 

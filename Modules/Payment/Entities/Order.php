@@ -200,7 +200,11 @@ class Order extends Model implements Eventable
                 $order->order_code = (string) $code;
             }
 
-            if (empty($order->user_id) && auth()->check()) {
+            // user_id = nhân viên TẠO đơn giúp khách (đặt hộ qua admin) — không phải khách hàng tự
+            // đặt. Route khách tự đặt (BookingController...) chạy qua guard sanctum của Customer,
+            // auth()->id() lúc đó trả về UUID của Customer chứ không phải User, ghi nhầm vào cột này
+            // (không lỗi 500 vì không có ràng buộc khoá ngoại, nhưng làm sai dữ liệu "ai tạo đơn").
+            if (empty($order->user_id) && auth()->user() instanceof \App\Models\User) {
                 $order->user_id = (string) auth()->id();
             }
         });
