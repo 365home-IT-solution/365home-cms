@@ -29,8 +29,10 @@ class AdminNotificationService
 
     /**
      * @param  Collection<int, User>  $users
-     * @param  array<string, mixed>  $data  Payload gắn kèm thông báo — LUÔN nên có 'type' (vd 'order',
-     *                                      'chat', 'checkin', 'checkout') để FE phân loại/điều hướng khi
+     * @param  array<string, mixed>  $data  Payload gắn kèm thông báo — LUÔN nên có 'type' (vd
+     *                                      'booking_confirmation', 'order_pending', 'payment',
+     *                                      'order_update', 'extra_charge', 'message', 'checkin',
+     *                                      'checkout') để FE phân loại/điều hướng/chọn âm thanh khi
      *                                      nhận push hoặc đọc lại qua API (lưu trong viewData, xem
      *                                      Api\Admin\NotificationController::toItem()).
      */
@@ -91,6 +93,22 @@ class AdminNotificationService
      * Dùng chung cho mọi sự kiện gắn với đơn hàng (đơn mới/đổi trạng thái, check-in/check-out...) để
      * không lệch logic phân quyền theo chi nhánh giữa các nơi gọi.
      */
+    /**
+     * Loại chủ đối tác (User::isPartnerOwner() — có partner_id nhưng KHÔNG gắn hồ sơ Employee) khỏi
+     * danh sách nhận thông báo — dùng cho những loại thông báo KHÔNG liên quan trực tiếp đến đơn
+     * hàng (hiện chỉ 'message'/tin nhắn khách, xem Api\ChatController::send()), để chủ đối tác CHỈ
+     * nhận đúng các loại thông báo về đơn (booking_confirmation/order_pending/payment/order_update/
+     * extra_charge/checkin/checkout) — nhân viên (partner_id + có Employee) và super_admin không bị
+     * ảnh hưởng, vẫn nhận như cũ.
+     *
+     * @param  Collection<int, User>  $users
+     * @return Collection<int, User>
+     */
+    public function excludePartnerOwners(Collection $users): Collection
+    {
+        return $users->reject(fn (User $user) => $user->isPartnerOwner())->values();
+    }
+
     public function recipientsForOrder(Order $order): Collection
     {
         $superAdminRole = config('filament-shield.super_admin.name');

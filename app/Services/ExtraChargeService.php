@@ -6,11 +6,36 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
+use Modules\Payment\App\Filament\Resources\OrderResource;
 use Modules\Payment\Entities\Order;
 use PayOS\PayOS;
 
 class ExtraChargeService
 {
+    public function __construct(
+        private AdminNotificationService $adminNotify,
+    ) {}
+
+    /**
+     * Báo admin mọi mốc của khoản phát sinh (tạo/thu/thanh toán/hoàn tiền) — gắn type
+     * 'extra_charge' để FE phân biệt âm thanh với thông báo đơn hàng thường (xem
+     * App\Http\Controllers\Api\Admin\NotificationController).
+     */
+    private function notifyAdmin(Order $order, string $title, int $amount, string $icon = 'heroicon-o-banknotes', string $color = 'warning'): void
+    {
+        $body = "#{$order->order_code} · {$order->buyer_name} · " . number_format($amount) . ' VNĐ';
+
+        $this->adminNotify->notify(
+            $this->adminNotify->recipientsForOrder($order),
+            $title,
+            $body,
+            ['type' => 'extra_charge', 'order_code' => $order->order_code],
+            $icon,
+            $color,
+            OrderResource::getUrl('edit', ['record' => $order->id]),
+        );
+    }
+
     // ─── Tính chênh lệch giá ────────────────────────────────────────────────
 
     /**
@@ -186,6 +211,8 @@ class ExtraChargeService
             'amount'     => $amount,
         ]);
 
+        $this->notifyAdmin($order, 'Phát sinh thêm chờ thanh toán', $amount);
+
         return [
             'checkout_url' => $checkoutUrl,
             'qr_code'      => $qrCode,
@@ -290,6 +317,8 @@ class ExtraChargeService
             'order_id' => $order->id,
             'amount'   => $amount,
         ]);
+
+        $this->notifyAdmin($order, 'Đã thu tiền mặt phát sinh', $amount, 'heroicon-o-banknotes', 'success');
     }
 
     /**
@@ -312,6 +341,8 @@ class ExtraChargeService
             'order_id' => $order->id,
             'amount'   => $amount,
         ]);
+
+        $this->notifyAdmin($order, 'Đã thu chuyển khoản phát sinh', $amount, 'heroicon-o-banknotes', 'success');
     }
 
     /**
@@ -319,14 +350,18 @@ class ExtraChargeService
      */
     public function handleExtraChargePaid(Order $order): void
     {
+        $amount = (int) ($order->extra_charge_amount ?? 0);
+
         $order->update([
             'extra_charge_payment_method' => 'payos',
             'extra_charge_paid_at'        => now(),
             'extra_charge_expired_at'     => null,
-            'settled_adjustment_total'    => (int) ($order->settled_adjustment_total ?? 0) + (int) ($order->extra_charge_amount ?? 0),
+            'settled_adjustment_total'    => (int) ($order->settled_adjustment_total ?? 0) + $amount,
         ]);
 
         Log::info('ExtraCharge: paid via PayOS', ['order_id' => $order->id]);
+
+        $this->notifyAdmin($order, 'Đã thanh toán phát sinh qua PayOS', $amount, 'heroicon-o-banknotes', 'success');
     }
 
     // ─── Xử lý đơn paid bị GIẢM giá (huỷ khung giờ/dịch vụ) ─────────────────
@@ -371,5 +406,7 @@ class ExtraChargeService
             'amount'   => $amount,
             'method'   => $method,
         ]);
+
+        $this->notifyAdmin($order, 'Đã hoàn tiền phát sinh', $amount, 'heroicon-o-arrow-uturn-left', 'info');
     }
 }

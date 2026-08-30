@@ -244,18 +244,21 @@ class ChatController extends Controller
         // Thông báo cho admin — ghi vào danh sách thông báo (GET /api/admin/notifications) + push FCM
         // + tín hiệu socket làm mới, xem AdminNotificationService. Tin gắn với đơn thì lọc đúng admin
         // được phép xem chi nhánh của đơn đó; tin hỗ trợ chung (không có order_code) thì báo hết
-        // super_admin vì không có chi nhánh nào để xác định phạm vi.
+        // super_admin vì không có chi nhánh nào để xác định phạm vi. Loại chủ đối tác
+        // (isPartnerOwner()) khỏi danh sách — chủ đối tác CHỈ nên nhận thông báo về đơn, tin nhắn
+        // khách để nhân viên xử lý (xem AdminNotificationService::excludePartnerOwners()).
         try {
             $notifier = app(AdminNotificationService::class);
             $admins   = $matchedOrder
                 ? $notifier->recipientsForOrder($matchedOrder)
                 : User::role(config('filament-shield.super_admin.name'))->get();
+            $admins   = $notifier->excludePartnerOwners($admins);
 
             $notifier->notify(
                 $admins,
                 $matchedOrder ? "Tin nhắn đơn #{$matchedOrder->order_code}" : 'Tin nhắn hỗ trợ',
                 $customer->fullname . ': ' . $preview,
-                ['type' => 'chat', 'conversation_id' => $conv->id, 'order_code' => $matchedOrder?->order_code],
+                ['type' => 'message', 'conversation_id' => $conv->id, 'order_code' => $matchedOrder?->order_code],
                 'heroicon-o-chat-bubble-left-right',
                 'primary',
             );

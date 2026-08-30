@@ -206,9 +206,10 @@ class AdminPanelProvider extends PanelProvider
     var _prevCount = null;  // null = chưa có baseline
 
     /* ── 1. AUDIO ─────────────────────────────────────────── */
-    // 2 file riêng: 'order-notification.mp3' cho đơn hàng/check-in/check-out, 'tin-nhan-moi.mp3'
-    // riêng cho tin nhắn khách (type='chat', xem route admin.notifications.unread-count) — phân
-    // biệt để nhân viên nghe tiếng là biết ngay cần vào đâu (tin nhắn cần trả lời gấp hơn).
+    // 2 file riêng: 'order-notification.mp3' cho đơn hàng/phát sinh/check-in/check-out,
+    // 'tin-nhan-moi.mp3' riêng cho tin nhắn khách (type='message', xem route
+    // admin.notifications.unread-count) — phân biệt để nhân viên nghe tiếng là biết ngay cần vào
+    // đâu (tin nhắn cần trả lời gấp hơn).
 
     var _audioDefault = null;
     var _audioChat    = null;
@@ -241,7 +242,7 @@ class AdminPanelProvider extends PanelProvider
     }
 
     function playDing(latestType) {
-        var audio = (latestType === 'chat' && _audioChat) ? _audioChat : _audioDefault;
+        var audio = (latestType === 'message' && _audioChat) ? _audioChat : _audioDefault;
         if (!audio) return;
         audio.currentTime = 0;
         var p = audio.play();
