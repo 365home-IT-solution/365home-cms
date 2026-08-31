@@ -328,8 +328,8 @@ class ChatController extends Controller
                     $conv->customer,
                     'Tin nhắn từ Quản trị viên',
                     $preview,
-                    'chat',
-                    ['conversation_id' => $conv->id]
+                    'message',
+                    ['conversation_id' => $conv->id, 'order_code' => $payload['order_code'] ?? null]
                 );
             } catch (\Throwable $e) {
                 Log::warning('Chat FCM push failed', [

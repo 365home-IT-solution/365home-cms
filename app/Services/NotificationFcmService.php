@@ -36,6 +36,7 @@ class NotificationFcmService
             'body'     => $body,
             'url'      => $url,
             'type'     => $type,
+            'data'     => $extra ?: null,
             'sent_for' => 'users',
             'sent_at'  => now(),
         ]);
@@ -174,6 +175,7 @@ class NotificationFcmService
             'body'     => $body,
             'url'      => $url,
             'type'     => $type,
+            'data'     => $extra ?: null,
             'sent_for' => $sentFor,
             'sent_at'  => now(),
         ]);
@@ -284,6 +286,7 @@ class NotificationFcmService
             'body'     => $body,
             'url'      => $url,
             'type'     => $type,
+            'data'     => $extra ?: null,
             'sent_for' => 'guests',
             'sent_at'  => now(),
         ]);

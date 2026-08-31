@@ -238,12 +238,14 @@ class CustomerChat extends Page
         // FCM push notification cho khách
         if ($conv->customer?->token_device) {
             try {
+                $orderCode = $msg->order_id ? Order::find($msg->order_id)?->order_code : null;
+
                 app(NotificationFcmService::class)->sendToCustomer(
                     $conv->customer,
                     'Tin nhắn từ Quản trị viên',
                     $preview,
-                    'chat',
-                    ['conversation_id' => $conv->id]
+                    'message',
+                    ['conversation_id' => $conv->id, 'order_code' => $orderCode]
                 );
             } catch (\Throwable $e) {
                 Log::warning('Chat FCM push failed', [

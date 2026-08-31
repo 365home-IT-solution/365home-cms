@@ -37,7 +37,13 @@ class OrderObserver
         );
     }
 
-    private function sendToCustomer(Order $order, string $title, string $body): void
+    /**
+     * @param  string  $type  Cùng vocabulary với App\Services\AdminNotificationService (xem
+     *                        OrderObserver::send()) để FE dùng chung 1 bảng map âm thanh cho cả app
+     *                        admin lẫn app khách hàng — 'order_pending' | 'booking_confirmation' |
+     *                        'payment' | 'order_update' (mặc định).
+     */
+    private function sendToCustomer(Order $order, string $title, string $body, string $type = 'order_update'): void
     {
         if (! $order->customer_id) {
             return;
@@ -53,12 +59,12 @@ class OrderObserver
             $customer,
             $title,
             $body,
-            'booking',
-            ['order_code' => (string) $order->order_code, 'type' => 'order'],
+            $type,
+            ['order_code' => (string) $order->order_code],
         );
     }
 
-    private function sendToGuest(Order $order, string $title, string $body, string $type = 'booking'): void
+    private function sendToGuest(Order $order, string $title, string $body, string $type = 'order_update'): void
     {
         if ($order->customer_id || empty($order->device_token)) {
             return;
@@ -70,7 +76,7 @@ class OrderObserver
                 $title,
                 $body,
                 $type,
-                ['order_code' => (string) $order->order_code, 'type' => 'order'],
+                ['order_code' => (string) $order->order_code],
             );
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('Guest FCM from observer failed', [
@@ -154,14 +160,15 @@ class OrderObserver
         $this->sendToCustomer(
             $order,
             'Đặt phòng thành công',
-            "Đơn #{$order->order_code} đang chờ thanh toán. Vui lòng hoàn tất để xác nhận."
+            "Đơn #{$order->order_code} đang chờ thanh toán. Vui lòng hoàn tất để xác nhận.",
+            'order_pending'
         );
 
         $this->sendToGuest(
             $order,
             'Đặt phòng thành công',
             $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đang chờ thanh toán."),
-            'order_created'
+            'order_pending'
         );
     }
 
@@ -266,12 +273,14 @@ class OrderObserver
             $this->sendToCustomer(
                 $order,
                 'Thanh toán thành công',
-                "Đơn #{$order->order_code} đã được xác nhận. Chúc bạn có trải nghiệm tốt!"
+                "Đơn #{$order->order_code} đã được xác nhận. Chúc bạn có trải nghiệm tốt!",
+                'booking_confirmation'
             );
             $this->sendToGuest(
                 $order,
                 'Thanh toán thành công',
-                $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã xác nhận.")
+                $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã xác nhận."),
+                'booking_confirmation'
             );
             return;
         }
@@ -283,12 +292,14 @@ class OrderObserver
             $this->sendToCustomer(
                 $order,
                 'Đặt cọc thành công',
-                "Đơn #{$order->order_code} đã nhận cọc. Vui lòng thanh toán phần còn lại khi check-in."
+                "Đơn #{$order->order_code} đã nhận cọc. Vui lòng thanh toán phần còn lại khi check-in.",
+                'booking_confirmation'
             );
             $this->sendToGuest(
                 $order,
                 'Đặt cọc thành công',
-                $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã nhận cọc.")
+                $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã nhận cọc."),
+                'booking_confirmation'
             );
             return;
         }
@@ -300,12 +311,14 @@ class OrderObserver
             $this->sendToCustomer(
                 $order,
                 'Thanh toán hoàn tất',
-                "Đơn #{$order->order_code} đã được thanh toán đầy đủ."
+                "Đơn #{$order->order_code} đã được thanh toán đầy đủ.",
+                'payment'
             );
             $this->sendToGuest(
                 $order,
                 'Thanh toán hoàn tất',
-                $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã thanh toán đủ.")
+                $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã thanh toán đủ."),
+                'payment'
             );
             return;
         }
