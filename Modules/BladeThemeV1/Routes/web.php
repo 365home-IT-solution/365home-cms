@@ -132,6 +132,13 @@ if ($menus->isNotEmpty()) {
             createRoutes($pages);
         }
     }
+
+    // Trang tĩnh riêng, thay cho CMS Page id 63 — menu item "Hình thức thanh toán" vẫn trỏ url này
+    // (createRoutes() ở trên đăng ký nó về BladeThemeV1Controller@index/page_id=63). Route cùng URI
+    // đăng ký SAU sẽ đè route đăng ký trước trong route table của Laravel (khác với route có
+    // {wildcard}, nơi thứ tự đăng ký mới quyết định route nào match trước) — nên phải đặt SAU
+    // createRoutes(), không phải cùng khối "Static routes TRƯỚC dynamic" ở trên.
+    Route::get('/hinh-thuc-thanh-toan', [BladeThemeV1Controller::class, 'paymentMethodsPage'])->name('payment-methods.page');
 } else {
     Route::get('/', [BladeThemeV1Controller::class, 'index'])->name('home');
 }

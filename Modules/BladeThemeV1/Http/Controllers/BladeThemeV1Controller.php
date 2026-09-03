@@ -451,6 +451,27 @@ class BladeThemeV1Controller extends Controller
         ]);
     }
 
+    // /hinh-thuc-thanh-toan — trang tĩnh riêng (trước đây là CMS Page id 63, đã bỏ vì component
+    // "Nội dung" dump HTML thô chứa sẵn 1 thẻ <h1> khác, trùng với <h1 class="sr-only"> của layout
+    // CMS chung — xem Modules/BladeThemeV1/Resources/views/pages/index.blade.php).
+    public function paymentMethodsPage()
+    {
+        $seoData = [
+            'seo_title' => 'Hình Thức Thanh Toán Tại 365 HOME - QR & Chuyển Khoản',
+            'seo_description' => 'Hướng dẫn thanh toán tại 365 Home: quét mã QR trực tuyến hoặc chuyển khoản ngân hàng — nhanh chóng, an toàn và tiện lợi.',
+            'seo_keywords' => 'hình thức thanh toán, thanh toán QR, chuyển khoản ngân hàng, 365 home',
+            'og_type' => 'website',
+        ];
+
+        return view('bladethemev1::pages.payment-methods', [
+            'seoData' => $seoData,
+            'primaryColor' => $this->primaryColor,
+            'primaryColorRgb' => $this->primaryColorRgb,
+            'heavyPrimaryColor' => $this->heavyPrimaryColor,
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+        ]);
+    }
+
 
     // /room/{slug}/ — URL phẳng cũ (không có loại hình/khu vực/chi nhánh). Luôn tự chuyển sang URL
     // canonical /{type}/{location}/{branch}/{slug} nếu xác định được (xem renderProductDetail()).

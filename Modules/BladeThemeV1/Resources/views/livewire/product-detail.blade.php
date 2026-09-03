@@ -105,7 +105,8 @@
                         $allImgs = collect([$mainImg])->merge($galleryImgs->map(fn($m) => $m->getUrl()));
                         $totalImgCount = $allImgs->count();
                         $videoSettingPd = is_array($product->setting_video_room) ? $product->setting_video_room : [];
-                        $hasVideoPd = !empty(trim($videoSettingPd['url'] ?? ''));
+                        $videoResolvedPd = \Modules\BladeThemeV1\Support\VideoEmbedResolver::resolve($videoSettingPd);
+                        $hasVideoPd = $videoResolvedPd !== null;
                     @endphp
 
                     <style>
@@ -394,11 +395,20 @@
                         }
                     </style>
 
-                    {{-- Alpine gallery component --}}
+                    {{-- Alpine gallery component. Khi phòng có video: video luôn là slide ĐẦU TIÊN
+                         (index 0) trong lightbox chung, theo sau là ảnh chính rồi các ảnh phụ, theo
+                         đúng thứ tự — dùng chung 1 bộ điều hướng (prev/next/thumbnails) cho cả video
+                         lẫn ảnh, thay vì video mở modal riêng biệt. --}}
                     <div x-data="{
                         open: false,
                         current: 0,
+                        hasVideo: {{ $hasVideoPd ? 'true' : 'false' }},
+                        videoEmbedUrl: {{ json_encode($hasVideoPd ? $videoResolvedPd['embedUrl'] : '') }},
+                        videoIsEmbed: {{ $hasVideoPd && $videoResolvedPd['isEmbed'] ? 'true' : 'false' }},
                         images: {{ json_encode($allImgs->values()->all()) }},
+                        get slidesCount() { return this.images.length + (this.hasVideo ? 1 : 0); },
+                        isVideoSlide(idx) { return this.hasVideo && idx === 0; },
+                        imageIndexFor(idx) { return this.hasVideo ? idx - 1 : idx; },
                         show(idx) {
                             this.current = idx;
                             this.open = true;
@@ -408,8 +418,8 @@
                             this.open = false;
                             document.body.style.overflow = '';
                         },
-                        prev() { this.current = (this.current - 1 + this.images.length) % this.images.length; },
-                        next() { this.current = (this.current + 1) % this.images.length; },
+                        prev() { this.current = (this.current - 1 + this.slidesCount) % this.slidesCount; },
+                        next() { this.current = (this.current + 1) % this.slidesCount; },
                         onKey(e) {
                             if (!this.open) return;
                             if (e.key === 'ArrowLeft') this.prev();
@@ -428,7 +438,7 @@
                                 @scroll="slideIdx = Math.round($event.target.scrollLeft / $event.target.clientWidth)">
                                 @if ($hasVideoPd)
                                     <div class="pd-mobile-slide" style="cursor:pointer;"
-                                        @click="$dispatch('pd-open-video')">
+                                        @click="show(0)">
                                         <img src="{{ $mainImg }}" alt="{{ $product->name ?? 'Video phòng' }}">
                                         <span class="pd-mobile-play-btn">
                                             <svg viewBox="0 0 24 24" fill="#111827">
@@ -439,7 +449,7 @@
                                 @endif
                                 @foreach ($allImgs->values() as $i => $img)
                                     <div class="pd-mobile-slide"
-                                        @if ($totalImgCount > 1) style="cursor:pointer;" @click="show({{ $i }})" @endif>
+                                        @if ($totalImgCount > 1 || $hasVideoPd) style="cursor:pointer;" @click="show({{ $i + ($hasVideoPd ? 1 : 0) }})" @endif>
                                         <img src="{{ $img }}" alt="{{ $product->name ?? 'Ảnh' }} {{ $i + 1 }}">
                                     </div>
                                 @endforeach
@@ -451,62 +461,67 @@
                             @endif
                         </div>
 
-                        {{-- Ảnh phòng — desktop: lưới ảnh --}}
+                        {{-- Ảnh phòng — desktop: lưới ảnh. Khi phòng có video, video thay thế hẳn ô
+                             ảnh chính (col-span-2) thay vì đứng riêng — tránh lặp lại đúng 1 ảnh ở cả
+                             2 ô. --}}
                         <div class="hidden md:grid relative grid-cols-4 grid-rows-2 gap-2 rounded-xl overflow-hidden mb-6"
                             style="height:420px;">
-                            <div class="col-span-2 row-span-2 relative">
-                                <img src="{{ $mainImg }}" alt="{{ $product->name ?? 'Ảnh chính' }}"
-                                    class="absolute inset-0 w-full h-full object-cover"
-                                    @if ($totalImgCount > 1) @click="show(0)" style="cursor:pointer;" @endif>
-                            </div>
+                            @if ($hasVideoPd)
+                                {{-- Video — poster + nút play, click mở lightbox chung (video là
+                                     slide đầu tiên) thay vì phát tại chỗ, để có thể lướt tiếp sang
+                                     ảnh chính/ảnh phụ ngay trong cùng 1 khung xem. --}}
+                                <div class="col-span-2 row-span-2 relative">
+                                    <img src="{{ $mainImg }}" alt="{{ $product->name ?? 'Video phòng' }}"
+                                        class="absolute inset-0 w-full h-full object-cover cursor-pointer"
+                                        @click="show(0)">
+                                    <button type="button" @click="show(0)"
+                                        class="pd-mobile-play-btn" aria-label="Phát video phòng">
+                                        <svg viewBox="0 0 24 24" fill="#111827">
+                                            <polygon points="6,4 20,12 6,20" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            @else
+                                <div class="col-span-2 row-span-2 relative">
+                                    <img src="{{ $mainImg }}" alt="{{ $product->name ?? 'Ảnh chính' }}"
+                                        class="absolute inset-0 w-full h-full object-cover"
+                                        @if ($totalImgCount > 1) @click="show(0)" style="cursor:pointer;" @endif>
+                                </div>
+                            @endif
                             @for ($i = 1; $i <= 4; $i++)
                                 <div class="relative">
                                     @if ($allImgs->has($i))
                                         <img src="{{ $allImgs->values()->get($i) }}" alt="Ảnh {{ $i + 1 }}"
                                             class="absolute inset-0 w-full h-full object-cover cursor-pointer"
-                                            @click="show({{ $i }})">
+                                            @click="show({{ $i + ($hasVideoPd ? 1 : 0) }})">
                                     @else
                                         <div class="w-full h-full bg-gray-100"></div>
                                     @endif
                                 </div>
                             @endfor
-                            {{-- "Xem video" kế bên "Xem tất cả ảnh" — gộp về góc dưới-phải của
-                                 lưới ảnh. Cỡ chữ/padding thu gọn + rút ngắn nhãn nút so với bản
-                                 đứng riêng trước đây — 2 nút đủ dài cùng lúc sẽ tràn khỏi bề rộng
-                                 1 ô ảnh (~330px), đè lên viền ô ảnh bên cạnh. --}}
+                            {{-- "Xem tất cả ảnh" ở góc dưới-phải lưới ảnh — mở lightbox chung, bắt
+                                 đầu từ ảnh chính (video vẫn xem được bằng cách lướt ngược lại). Không
+                                 còn nút "Xem video" riêng. --}}
                             @if ($totalImgCount > 1 || $hasVideoPd)
                                 <div class="absolute bottom-3 right-3 flex items-center gap-1.5">
-                                    @if ($hasVideoPd)
-                                        <button type="button"
-                                            class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
-                                            style="background:var(--color-primary);box-shadow:0 3px 12px rgba(var(--color-primary-rgb),.35);"
-                                            @click="$dispatch('pd-open-video')">
-                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" class="shrink-0">
-                                                <circle cx="12" cy="12" r="10" fill="rgba(255,255,255,.25)" />
-                                                <polygon points="10,8 10,16 17,12" fill="white" />
-                                            </svg>
-                                            Xem video
-                                        </button>
-                                    @endif
-                                    @if ($totalImgCount > 1)
-                                        <button type="button" @click="show(0)"
-                                            class="inline-flex items-center gap-1.5 rounded-lg border border-gray-900 bg-white px-3 py-1.5 text-xs font-semibold text-gray-900 shadow-sm hover:bg-gray-50 transition-colors">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 shrink-0" fill="none"
-                                                viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
-                                                stroke-linecap="round" stroke-linejoin="round">
-                                                <path d="M12 3v18"></path>
-                                                <path d="M3 12h18"></path>
-                                                <rect x="3" y="3" width="18" height="18" rx="2"></rect>
-                                            </svg>
-                                            Xem tất cả ảnh
-                                        </button>
-                                    @endif
+                                    <button type="button" @click="show({{ $hasVideoPd ? 1 : 0 }})"
+                                        class="inline-flex items-center gap-1.5 rounded-lg border border-gray-900 bg-white px-3 py-1.5 text-xs font-semibold text-gray-900 shadow-sm hover:bg-gray-50 transition-colors">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 shrink-0" fill="none"
+                                            viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
+                                            stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M12 3v18"></path>
+                                            <path d="M3 12h18"></path>
+                                            <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                                        </svg>
+                                        Xem tất cả ảnh
+                                    </button>
                                 </div>
                             @endif
                         </div>
 
-                        {{-- === Lightbox modal (chỉ dùng khi nhiều ảnh) === --}}
-                        @if ($totalImgCount > 1)
+                        {{-- === Lightbox modal — dùng chung cho video + ảnh (video là slide đầu
+                             tiên khi có), điều hướng prev/next/thumbnails xuyên suốt. === --}}
+                        @if ($totalImgCount > 1 || $hasVideoPd)
                             <div x-show="open" x-cloak
                                 style="position:fixed;inset:0;z-index:10000!important;background:rgba(0,0,0,.92);">
 
@@ -518,11 +533,11 @@
                                     style="position:absolute;top:14px;right:18px;z-index:3;background:none;border:none;color:#fff;font-size:32px;line-height:1;cursor:pointer;opacity:.85;">&times;</button>
 
                                 {{-- Bộ đếm --}}
-                                <div x-text="(current + 1) + ' / ' + images.length"
+                                <div x-text="(current + 1) + ' / ' + slidesCount"
                                     style="position:absolute;top:18px;left:50%;transform:translateX(-50%);z-index:3;color:rgba(255,255,255,.7);font-size:13px;white-space:nowrap;">
                                 </div>
 
-                                {{-- Vùng ảnh: top=50px (dưới header), bottom=90px (trên thumbs) --}}
+                                {{-- Vùng ảnh/video: top=50px (dưới header), bottom=90px (trên thumbs) --}}
                                 <div
                                     style="position:absolute;top:50px;bottom:90px;left:0;right:0;z-index:1;display:flex;align-items:center;justify-content:center;padding:0 60px;box-sizing:border-box;">
 
@@ -534,8 +549,27 @@
                                         </svg>
                                     </button>
 
-                                    <img :src="images[current]" :alt="'Ảnh ' + (current + 1)" @click.stop
-                                        style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;user-select:none;display:block;">
+                                    @if ($hasVideoPd)
+                                        <template x-if="isVideoSlide(current)">
+                                            <div @click.stop style="position:relative;width:{{ $videoResolvedPd['maxWidth'] }};max-width:calc(100vw - 120px);">
+                                                <div style="position:relative;padding-bottom:{{ $videoResolvedPd['aspectPct'] }};height:0;border-radius:8px;overflow:hidden;">
+                                                    @if ($videoResolvedPd['isEmbed'])
+                                                        <iframe :src="videoEmbedUrl" title="{{ e($product->name ?? 'Video phòng') }}"
+                                                            style="position:absolute;inset:0;width:100%;height:100%;border:none;"
+                                                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                                            allowfullscreen></iframe>
+                                                    @else
+                                                        <video :src="videoEmbedUrl" controls autoplay
+                                                            style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;"></video>
+                                                    @endif
+                                                </div>
+                                            </div>
+                                        </template>
+                                    @endif
+                                    <template x-if="!isVideoSlide(current)">
+                                        <img :src="images[imageIndexFor(current)]" :alt="'Ảnh ' + (imageIndexFor(current) + 1)" @click.stop
+                                            style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px;user-select:none;display:block;">
+                                    </template>
 
                                     <button @click.stop="next()" aria-label="Tiếp"
                                         style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:50%;width:46px;height:46px;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:2;">
@@ -546,12 +580,25 @@
                                     </button>
                                 </div>
 
-                                {{-- Thumbnails: ghim dưới cùng --}}
+                                {{-- Thumbnails: ghim dưới cùng — video (nếu có) luôn ở đầu tiên --}}
                                 <div style="position:absolute;bottom:0;left:0;right:0;height:90px;z-index:2;display:flex;align-items:center;gap:8px;padding:0 16px;overflow-x:auto;"
                                     @click.stop>
+                                    @if ($hasVideoPd)
+                                        <div @click.stop="current = 0"
+                                            :style="current === 0 ? 'border:2px solid #fff;' : 'border:2px solid transparent;'"
+                                            style="flex-shrink:0;width:72px;height:54px;border-radius:6px;overflow:hidden;cursor:pointer;position:relative;">
+                                            <img src="{{ $mainImg }}" alt="Video phòng"
+                                                style="width:100%;height:100%;object-fit:cover;display:block;">
+                                            <span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.35);">
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="white">
+                                                    <polygon points="6,4 20,12 6,20" />
+                                                </svg>
+                                            </span>
+                                        </div>
+                                    @endif
                                     <template x-for="(img, idx) in images" :key="idx">
-                                        <div @click.stop="current = idx"
-                                            :style="current === idx ? 'border:2px solid #fff;' : 'border:2px solid transparent;'"
+                                        <div @click.stop="current = idx + (hasVideo ? 1 : 0)"
+                                            :style="current === idx + (hasVideo ? 1 : 0) ? 'border:2px solid #fff;' : 'border:2px solid transparent;'"
                                             style="flex-shrink:0;width:72px;height:54px;border-radius:6px;overflow:hidden;cursor:pointer;">
                                             <img :src="img" :alt="'Thumb ' + (idx + 1)"
                                                 style="width:100%;height:100%;object-fit:cover;display:block;">
@@ -700,8 +747,8 @@
 
                             <hr class="border-gray-200 my-8">
 
-                            {{-- Video phòng (nút đã được render trong gallery, chỉ cần modal) --}}
-                            @php $videoButtonInGallery = true; @endphp
+                            {{-- Video phòng (hiển thị/phát ở lightbox gallery ngay đầu trang) — chỉ
+                                 còn phát ra JSON-LD VideoObject cho SEO ở đây. --}}
                             @include('bladethemev1::components.product-detail.video-room')
 
                             {{-- Tiện nghi phòng --}}

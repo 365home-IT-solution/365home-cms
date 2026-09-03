@@ -83,7 +83,12 @@
         <div class="max-w-4xl mx-auto">
             <div class="mb-8">
                 <h2 class="text-2xl font-bold text-gray-900 mb-4">Lợi ích của việc đăng nhập 365 HOME</h2>
-                <p class="text-gray-600">Đăng nhập để truy cập đầy đủ các tính năng và nhận những ưu đãi độc quyền</p>
+                <p class="text-gray-600">
+                    Đăng nhập tài khoản 365 HOME để đặt phòng homestay, khách sạn, mini house và villa
+                    nhanh hơn. Tài khoản của bạn lưu lại thông tin cá nhân và lịch sử đặt phòng, giúp
+                    những lần đặt sau chỉ mất vài giây thay vì phải nhập lại từ đầu, đồng thời tự động
+                    nhận ưu đãi, mã giảm giá và các chương trình khuyến mãi dành riêng cho thành viên.
+                </p>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -157,7 +162,10 @@
                         Làm thế nào để tạo tài khoản 365 HOME?
                     </summary>
                     <div class="px-6 pb-6 text-gray-600">
-                        Bạn có thể đăng ký tài khoản mới bằng email hoặc số điện thoại. Điền thông tin cá nhân và xác nhận qua email/SMS để hoàn tất đăng ký.
+                        Chỉ cần nhập số điện thoại và xác nhận mã OTP ngay tại form bên trên — nếu số
+                        điện thoại chưa có tài khoản, hệ thống sẽ tự động chuyển sang bước "Hoàn tất
+                        đăng ký" (họ tên, ngày sinh, mật khẩu) ngay trên trang này, không cần chuyển
+                        sang trang khác. Toàn bộ quá trình mất chưa đến 1 phút.
                     </div>
                 </details>
 
@@ -166,7 +174,11 @@
                         Tài khoản của tôi có an toàn không?
                     </summary>
                     <div class="px-6 pb-6 text-gray-600">
-                        Chúng tôi sử dụng các công nghệ bảo mật tiên tiến để bảo vệ thông tin cá nhân của bạn. Mật khẩu được mã hóa và không bao giờ được lưu trữ dưới dạng văn bản thô.
+                        Chúng tôi sử dụng các công nghệ bảo mật tiên tiến để bảo vệ thông tin cá nhân
+                        của bạn. Mật khẩu được mã hóa và không bao giờ được lưu trữ dưới dạng văn bản
+                        thô, dữ liệu cá nhân và lịch sử đặt phòng chỉ hiển thị cho chính chủ tài khoản
+                        sau khi đăng nhập, và bạn có thể đổi mật khẩu hoặc đăng xuất khỏi thiết bị bất
+                        cứ lúc nào trong phần quản lý tài khoản.
                     </div>
                 </details>
 
@@ -175,7 +187,34 @@
                         Quên mật khẩu phải làm sao?
                     </summary>
                     <div class="px-6 pb-6 text-gray-600">
-                        Nhấp vào "Quên mật khẩu" trên trang đăng nhập, nhập email hoặc số điện thoại của bạn, và chúng tôi sẽ gửi hướng dẫn đặt lại mật khẩu.
+                        Không cần nhớ lại mật khẩu cũ — chỉ cần chọn "Đăng nhập bằng OTP qua Zalo" thay
+                        vì mật khẩu, nhập số điện thoại đã đăng ký và xác nhận mã OTP là vào được tài
+                        khoản ngay. Sau khi đăng nhập, bạn có thể vào phần quản lý tài khoản để đặt lại
+                        mật khẩu mới cho những lần đăng nhập sau.
+                    </div>
+                </details>
+
+                <details class="bg-white rounded-lg shadow">
+                    <summary class="p-6 cursor-pointer font-medium text-gray-900 hover:bg-gray-50">
+                        Không đăng nhập thì có đặt phòng được không?
+                    </summary>
+                    <div class="px-6 pb-6 text-gray-600">
+                        Vẫn được — 365 HOME cho phép đặt phòng dưới dạng khách vãng lai, chỉ cần nhập
+                        thông tin liên hệ khi thanh toán. Tuy nhiên, đăng nhập giúp lưu lại lịch sử đặt
+                        phòng, nhận ưu đãi thành viên và đặt phòng nhanh hơn ở những lần sau, nên chúng
+                        tôi khuyến khích tạo tài khoản nếu bạn dự định đặt phòng thường xuyên.
+                    </div>
+                </details>
+
+                <details class="bg-white rounded-lg shadow">
+                    <summary class="p-6 cursor-pointer font-medium text-gray-900 hover:bg-gray-50">
+                        Tôi có thể đăng nhập bằng mật khẩu thay vì OTP không?
+                    </summary>
+                    <div class="px-6 pb-6 text-gray-600">
+                        Có. 365 HOME dùng số điện thoại làm phương thức đăng nhập chính, và bạn có thể
+                        chọn giữa 2 cách: nhận mã OTP qua Zalo (mặc định, không cần nhớ mật khẩu) hoặc
+                        đăng nhập trực tiếp bằng mật khẩu đã tạo lúc đăng ký — chỉ cần bấm "Đăng nhập
+                        bằng mật khẩu" ngay dưới form.
                     </div>
                 </details>
             </div>
