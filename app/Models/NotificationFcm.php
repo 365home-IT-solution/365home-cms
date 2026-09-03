@@ -18,6 +18,7 @@ class NotificationFcm extends Model
         'body',
         'url',
         'type',
+        'data',
         'sent_for',
         'scheduled_at',
         'sent_at',
@@ -33,6 +34,7 @@ class NotificationFcm extends Model
         'scheduled_at'  => 'datetime',
         'sent_at'       => 'datetime',
         'recipient_ids' => 'array',
+        'data'          => 'array',
     ];
 
     public function isPending(): bool

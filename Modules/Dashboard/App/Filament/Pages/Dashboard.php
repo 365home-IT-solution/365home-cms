@@ -138,7 +138,11 @@ class Dashboard extends FilamentDashboard
             $voucherUsageDelta     = $prevVoucherUsageCount > 0
                 ? round((($voucherUsageCount - $prevVoucherUsageCount) / $prevVoucherUsageCount) * 100, 1)
                 : 0;
-            $voucherUsageUrl = \App\Filament\Resources\CustomerResource::getUrl('index', [
+            // Trỏ tới danh sách ĐƠN (không phải khách hàng) — theo yêu cầu, click vào thẻ KPI phải
+            // ra được danh sách đơn được áp mã kèm cột "Mã giảm giá"/"Tiền giảm" (xem cột
+            // coupon_codes_display/coupon_discount_total + filter "used_voucher" ở OrderTable.php/
+            // OrderFilter.php).
+            $voucherUsageUrl = \Modules\Payment\App\Filament\Resources\OrderResource::getUrl('index', [
                 'tableFilters' => [
                     'used_voucher' => [
                         'is_active'  => true,
@@ -517,12 +521,11 @@ class Dashboard extends FilamentDashboard
         if ($user === null) {
             $user = auth()->user();
         }
-        $year  = $year ?? Carbon::now()->year;
-        $query = Order::query()
+        $year      = $year ?? Carbon::now()->year;
+        $baseQuery = Order::query()
             ->where('exclude_from_stats', false)
             ->where('status', 'paid')
-            ->whereIn('payment_method', ['PayOS', 'cod'])
-            ->whereYear('created_at', $year);
+            ->whereIn('payment_method', ['PayOS', 'cod']);
 
         if ($user && ! $user->isSuperAdmin()) {
             // Order (Eloquent) đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds
@@ -532,7 +535,7 @@ class Dashboard extends FilamentDashboard
                 $allowedProductIds = Product::whereHas('categories', function ($q) use ($categoryIds) {
                     $q->whereIn('categories.id', $categoryIds);
                 })->pluck('id')->toArray();
-                $query->whereHas('items', function ($q) use ($allowedProductIds) {
+                $baseQuery->whereHas('items', function ($q) use ($allowedProductIds) {
                     $q->whereIn('product_id', $allowedProductIds);
                 });
             }
@@ -544,19 +547,24 @@ class Dashboard extends FilamentDashboard
             $branchProductIds = Product::whereHas('categories', function ($q) use ($branchCategoryIds) {
                 $q->whereIn('categories.id', $branchCategoryIds);
             })->pluck('id')->toArray();
-            $query->whereHas('items', function ($q) use ($branchProductIds) {
+            $baseQuery->whereHas('items', function ($q) use ($branchProductIds) {
                 $q->whereIn('product_id', $branchProductIds);
             });
         }
 
-        $data = $query
-            ->selectRaw('MONTH(created_at) as month, SUM(COALESCE(amount, full_amount)) as revenue')
-            ->groupByRaw('MONTH(created_at)')
-            ->pluck('revenue', 'month');
-
+        // Gộp theo TỪNG THÁNG bằng mốc ngày cụ thể (tháng 1: 01/01 00:00:00 -> 31/01 23:59:59, theo
+        // đúng lịch dương, giờ app.timezone) — KHÔNG dùng whereYear()+MONTH(created_at) như trước,
+        // vì MySQL MONTH() đọc thẳng thành phần tháng từ giá trị LƯU trong cột mà không quan tâm
+        // app.timezone, có thể lệch tháng với đơn tạo sát nửa đêm. whereBetween() với Carbon instance
+        // để Eloquent tự quy đổi đúng mốc theo app.timezone trước khi bind vào query.
         $months = [];
         for ($m = 1; $m <= 12; $m++) {
-            $months[] = (int) ($data[$m] ?? 0);
+            $start = Carbon::create($year, $m, 1)->startOfDay();
+            $end   = $start->copy()->endOfMonth();
+
+            $months[] = (int) (clone $baseQuery)
+                ->whereBetween('created_at', [$start, $end])
+                ->sum(DB::raw('COALESCE(amount, full_amount)'));
         }
 
         return [

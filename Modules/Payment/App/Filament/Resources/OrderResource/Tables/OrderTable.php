@@ -37,7 +37,7 @@ class OrderTable
     {
         return $table
             ->modifyQueryUsing(function ($query) {
-                $query->with(['items.product', 'services', 'accessCodes']);
+                $query->with(['items.product', 'services', 'accessCodes', 'couponUsages']);
                 if (! (auth()->user()?->isSuperAdmin() ?? false)) {
                     $query->where('exclude_from_stats', false);
                 }
@@ -135,6 +135,28 @@ class OrderTable
                 TextColumn::make('buyer_phone')
                     ->label('Số điện thoại')
                     ->searchable(),
+
+                // Nguồn dữ liệu từ couponUsages (đã eager-load ở modifyQueryUsing() phía trên),
+                // KHÔNG dùng orders.coupon_code — bảng đó không lưu discount_amount thực tế. Xem
+                // Dashboard.php::getViewData() (thẻ KPI "Voucher đã sử dụng") — click vào thẻ điều
+                // hướng tới đây kèm filter "used_voucher" nên 2 cột này cần hiện sẵn, không ẩn mặc định.
+                TextColumn::make('coupon_codes_display')
+                    ->label('Mã giảm giá')
+                    ->getStateUsing(fn ($record) => $record->couponUsages->pluck('code')->filter()->unique()->implode(', ') ?: null)
+                    ->placeholder('—')
+                    ->badge()
+                    ->color('gray'),
+
+                TextColumn::make('coupon_discount_total')
+                    ->label('Tiền giảm')
+                    ->getStateUsing(function ($record) {
+                        $total = $record->couponUsages->sum('discount_amount');
+                        return $total > 0 ? number_format($total, 0, ',', '.') . 'đ' : null;
+                    })
+                    ->placeholder('—')
+                    ->weight(FontWeight::Bold)
+                    ->color('danger'),
+
                 TextColumn::make('guest_count')
                     ->label('Số khách')
                     ->sortable()

@@ -12,22 +12,32 @@ use Illuminate\Notifications\DatabaseNotification;
 /**
  * Thông báo cho admin (bảng `notifications` chuẩn của Laravel, qua trait Notifiable trên
  * App\Models\User) — mọi nguồn sự kiện đều gửi qua App\Services\AdminNotificationService::notify(),
- * hiện có 4 loại phân biệt bằng field 'type' (đọc từ viewData của Filament Notification, xem
- * toItem()):
- *   - 'order'    → App\Observers\OrderObserver — CHỈ báo "Đơn mới" SAU KHI khách đã thanh toán
- *                  thành công (đủ hoặc cọc), không báo lúc vừa tạo đơn còn 'pending'; các lần đổi
- *                  trạng thái sau đó (đặt cọc xong trả nốt, hủy, hoàn tiền...) cũng thuộc loại này.
- *   - 'chat'     → App\Http\Controllers\Api\ChatController::send() — khách gửi tin nhắn (gắn đơn
+ * hiện có các loại phân biệt bằng field 'type' (đọc từ viewData của Filament Notification, xem
+ * toItem()) — FE dùng field này để chọn âm thanh thông báo phù hợp:
+ *   - 'booking_confirmation' → App\Observers\OrderObserver — đơn MỚI, tức lần thanh toán đầu tiên
+ *                  thành công (đủ hoặc cọc); KHÔNG dùng cho đơn vừa tạo còn 'pending' (xem
+ *                  'order_pending' bên dưới).
+ *   - 'order_pending' → App\Observers\OrderObserver — đơn VỪA TẠO nhưng CHƯA thanh toán ('pending')
+ *                  — báo để admin theo dõi/nhắc khách, tách riêng khỏi 'booking_confirmation' vì
+ *                  chưa chắc khách sẽ thanh toán.
+ *   - 'payment'  → App\Observers\OrderObserver — thanh toán PHẦN CÒN LẠI của đơn deposit
+ *                  (deposit → paid).
+ *   - 'order_update' → App\Observers\OrderObserver — mọi lần đổi trạng thái đơn khác (hủy, hoàn
+ *                  tiền...), mặc định của send() khi không thuộc 2 loại trên.
+ *   - 'extra_charge' → App\Services\ExtraChargeService — phát sinh thêm trên đơn đã thanh toán
+ *                  (tạo khoản phát sinh, thu tiền mặt/chuyển khoản, khách thanh toán qua PayOS,
+ *                  xác nhận hoàn tiền).
+ *   - 'message'  → App\Http\Controllers\Api\ChatController::send() — khách gửi tin nhắn (gắn đơn
  *                  hoặc hỗ trợ chung), kèm 'conversation_id' và 'order_code' (null nếu tin hỗ trợ
  *                  chung, không gắn đơn nào).
  *   - 'checkin'  → App\Http\Controllers\Api\UnlockController — khách mở cổng TTLock lần đầu (CHỈ
  *                  chi nhánh có đăng ký TTLock mới có loại này, chi nhánh cấp mã thủ công không tạo).
  *   - 'checkout' → cùng nơi trên, lần mở cổng thứ 2 trở đi.
- * 'order_code' xuất hiện ở cả 4 loại (null với 'chat' không gắn đơn) — dùng order_code (không phải
- * order_id nội bộ) vì đây là định danh FE/API bên ngoài đã dùng xuyên suốt (GET
- * /api/admin/orders/{order_code}, chat, v.v...), khỏi phải tra thêm 1 lần từ id sang code.
- * 'type' đọc thông báo cũ tạo trước khi có field này (chỉ có 'order') sẽ mặc định fallback về
- * 'order'.
+ * 'order_code' xuất hiện ở hầu hết các loại trên (null với 'message' không gắn đơn) — dùng
+ * order_code (không phải order_id nội bộ) vì đây là định danh FE/API bên ngoài đã dùng xuyên suốt
+ * (GET /api/admin/orders/{order_code}, chat, v.v...), khỏi phải tra thêm 1 lần từ id sang code.
+ * 'type' đọc thông báo cũ tạo trước khi có field này sẽ mặc định fallback về 'order' (giá trị lịch
+ * sử, không còn được gán mới — FE nên coi mọi 'type' lạ như âm thanh mặc định).
  *
  * Cùng nguồn dữ liệu với chuông thông báo trên Filament panel (route web
  * GET /admin/notifications/unread-count) — 2 nơi không xung đột, chỉ là 2 cách đọc khác nhau của
@@ -130,8 +140,10 @@ class NotificationController extends Controller
 
         return [
             'id'              => $n->id,
-            // 'order' | 'chat' | 'checkin' | 'checkout' — xem App\Services\AdminNotificationService.
-            // Thông báo cũ tạo trước khi có field này (chỉ có đơn hàng) mặc định coi là 'order'.
+            // 'booking_confirmation' | 'order_pending' | 'payment' | 'order_update' |
+            // 'extra_charge' | 'message' | 'checkin' | 'checkout' | string — xem
+            // App\Services\AdminNotificationService. Thông báo cũ tạo trước khi có field này mặc
+            // định coi là 'order' (giá trị lịch sử).
             'type'            => $viewData['type'] ?? 'order',
             'title'           => $data['title'] ?? null,
             'body'            => $data['body'] ?? null,

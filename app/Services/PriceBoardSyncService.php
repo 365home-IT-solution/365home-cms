@@ -152,7 +152,38 @@ class PriceBoardSyncService
             return;
         }
 
-        $baselineSlots = $product->roomTimeSlots()
+        $snapshot = $this->resolveBaselineSnapshot($product);
+
+        $item->update([
+            'baseline_fields'     => $snapshot['fields'],
+            'baseline_time_slots' => $snapshot['slots'],
+        ]);
+    }
+
+    /** "Giá gốc thật" của $product NGAY LÚC NÀY — dùng để chụp baseline cho 1 bảng đặt tên MỚI. Ưu
+     *  tiên đọc lại baseline ĐÃ ĐÓNG BĂNG của bảng đặt tên khác gần nhất (nếu có), thay vì đọc thẳng
+     *  giá ĐANG CHẠY trên room_time_slots — vì giá đang chạy có thể đang bị 1 bảng khác ghi đè tạm
+     *  thời (VD phòng đang trong đợt khuyến mãi A thì giá thật là giá của A, không phải giá gốc).
+     *  Đọc thẳng giá đang chạy trong lúc đó sẽ "nhiễm" giá tạm của A vào baseline của bảng mới B, khiến
+     *  sau này B hết hạn lại khôi phục nhầm về giá của A thay vì giá gốc thật trước khi có bảng nào cả.
+     *  Chỉ khi CHƯA từng có bảng đặt tên nào khác chụp baseline cho phòng này mới đọc giá đang chạy
+     *  (lúc đó chắc chắn không bị bảng nào khác ghi đè, giá đang chạy CHÍNH LÀ giá gốc thật). */
+    private function resolveBaselineSnapshot(Product $product): array
+    {
+        $frozenItem = PriceBoardItem::where('product_id', $product->id)
+            ->whereHas('priceBoard', fn ($q) => $q->where('is_default', false))
+            ->whereNotNull('baseline_fields')
+            ->latest('created_at')
+            ->first();
+
+        if ($frozenItem) {
+            return [
+                'fields' => $frozenItem->baseline_fields,
+                'slots'  => $frozenItem->baseline_time_slots ?? [],
+            ];
+        }
+
+        $slots = $product->roomTimeSlots()
             ->whereHas('timeSlot', fn ($q) => $this->scopeRecurring($q))
             ->get()
             ->groupBy('timeslot_id')
@@ -168,10 +199,10 @@ class PriceBoardSyncService
             ])
             ->all();
 
-        $item->update([
-            'baseline_fields'     => $this->extractProductFields($product),
-            'baseline_time_slots' => $baselineSlots,
-        ]);
+        return [
+            'fields' => $this->extractProductFields($product),
+            'slots'  => $slots,
+        ];
     }
 
     public function defaultBoard(): PriceBoard
@@ -287,6 +318,28 @@ class PriceBoardSyncService
             if ($item->product) {
                 $this->writeItemToProduct($item, $item->product);
             }
+        }
+    }
+
+    /** Lấy danh sách phòng gắn với $board — gọi TRƯỚC khi DeleteAction thực sự xoá bản ghi (xem
+     *  PriceBoardResource), vì xoá PriceBoard sẽ cascade xoá luôn PriceBoardItem, không còn cách nào
+     *  biết bảng này từng gắn phòng nào nữa SAU khi đã xoá. */
+    public function productsAffectedByBoard(PriceBoard $board): \Illuminate\Support\Collection
+    {
+        return $board->items()->with('product')->get()->pluck('product')->filter()->values();
+    }
+
+    /** Tính lại giá ĐÚNG cho từng phòng trong $products sau khi 1 bảng giá vừa bị xoá — gọi SAU khi
+     *  DeleteAction thực sự xoá xong. CỐ Ý không tự ý ghi thẳng baseline của bảng vừa xoá xuống —
+     *  trước đây làm vậy gây bug: nếu phòng đang có 1 bảng KHÁC đang active thật sự "thắng" (đúng giá
+     *  hiện tại), xoá 1 bảng CŨ/hết hạn khác cho cùng phòng đó sẽ ghi đè nhầm về giá của bảng vừa xoá,
+     *  làm mất giá đúng của bảng đang active. Gọi lại applyForProduct() — logic chọn "bảng nào thắng"
+     *  y hệt lúc chạy nền — để tự động chọn đúng: bảng khác đang active (nếu có) vẫn thắng như cũ,
+     *  chỉ khi THẬT SỰ không còn gì mới về đúng baseline gần nhất hoặc bảng mặc định. */
+    public function resyncProductsAfterBoardDeleted(iterable $products): void
+    {
+        foreach ($products as $product) {
+            $this->applyForProduct($product);
         }
     }
 

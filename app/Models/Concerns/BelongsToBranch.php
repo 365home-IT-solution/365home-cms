@@ -32,13 +32,14 @@ trait BelongsToBranch
 
             $user = auth()->user();
 
-            if (! $user instanceof User) {
+            // super_admin PHẢI luôn xem được MỌI chi nhánh, không phụ thuộc effectiveBranchIds()/
+            // rootProductCategoryIds() (chỉ trả về category gốc category_type='product' — có thể
+            // KHÔNG phủ hết mọi chi nhánh thật trong hệ thống nếu dữ liệu category lệch taxonomy)
+            // — cùng quy ước isSuperAdmin() bypass với scope 'partner' của BelongsToPartner.
+            if (! $user instanceof User || $user->isSuperAdmin()) {
                 return;
             }
 
-            // effectiveBranchIds() = rootProductCategoryIds() (mọi chi nhánh được phép, kể cả
-            // super_admin) trừ khi user đang thu hẹp qua nút "Chuyển đổi chi nhánh" — nhờ vậy
-            // super_admin mặc định vẫn thấy hết như trước, chỉ bị lọc khi chủ động chọn.
             $branchIds = $user->effectiveBranchIds();
 
             // Không xác định được chi nhánh nào (vd tài khoản chưa gán đối tác) — không lọc thêm

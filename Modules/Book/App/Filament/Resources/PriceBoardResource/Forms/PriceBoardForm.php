@@ -117,15 +117,28 @@ class PriceBoardForm
                 Section::make('Chọn phòng áp dụng')
                     ->description('Tích chọn phòng cần áp dụng bảng giá (gõ để tìm nhanh theo tên phòng).')
                     ->schema([
+                        // KHÔNG dùng ->live() ở đây nữa — tích chọn không bắn request nào lên server cả
+                        // (chỉ ghi nhận cục bộ trên trình duyệt), nên tích/bỏ tích bao nhiêu ô, nhanh
+                        // cỡ nào cũng không bao giờ bị request chạy chồng lên nhau làm bung lại. Danh
+                        // sách "Chi tiết giá từng phòng" chỉ dựng lại khi bấm nút "Tạo/cập nhật danh
+                        // sách phòng" bên dưới — 1 request DUY NHẤT, đọc đúng trạng thái tích cuối cùng.
                         CheckboxList::make('_room_checklist')
                             ->label('Phòng')
                             ->options(fn () => static::allRoomOptions())
                             ->searchable()
                             ->bulkToggleable()
                             ->columns(3)
-                            ->live()
                             ->dehydrated(false)
-                            ->afterStateUpdated(fn ($state, Get $get, Set $set) => static::syncItemsFromChecklist($state ?? [], $get, $set))
+                            ->columnSpanFull()
+                            ->visible(fn (Get $get) => $get('pricing_mode') !== PriceBoard::MODE_ADJUSTMENT),
+
+                        Actions::make([
+                            Action::make('apply_room_selection')
+                                ->label('Tạo/cập nhật danh sách phòng theo tích chọn ở trên')
+                                ->icon('heroicon-o-arrow-path')
+                                ->color('gray')
+                                ->action(fn (Get $get, Set $set) => static::syncItemsFromChecklist($get('_room_checklist') ?? [], $get, $set)),
+                        ])
                             ->columnSpanFull()
                             ->visible(fn (Get $get) => $get('pricing_mode') !== PriceBoard::MODE_ADJUSTMENT),
 
@@ -165,11 +178,16 @@ class PriceBoardForm
                                     ->numeric()
                                     ->dehydrated(false)
                                     ->columnSpan(1),
-                            ]),
+                            ])
+                            // Chỉ hiện khi trong danh sách phòng đã chọn có ÍT NHẤT 1 phòng "Theo
+                            // Ngày" — trước đây hiện cố định dù chọn toàn phòng "Theo Khung Giờ",
+                            // gây hiểu nhầm là áp được cho cả loại phòng không có trong bảng.
+                            ->visible(fn (Get $get) => static::itemsHaveStyle($get('items') ?? [], 2)),
 
                         Section::make('Theo Khung Giờ')
                             ->icon('heroicon-o-clock')
                             ->compact()
+                            ->visible(fn (Get $get) => static::itemsHaveStyle($get('items') ?? [], 1))
                             ->schema([
                                 Repeater::make('_bulk_slot_rules')
                                     ->label('Các khung giờ cần đổi giá')
@@ -298,6 +316,15 @@ class PriceBoardForm
                     ->addable(false)
                     ->deletable(false)
                     ->reorderable(false)
+                    // Chặn lưu bảng rỗng khi admin đã tích chọn phòng ở checklist phía trên nhưng QUÊN
+                    // bấm nút "Tạo/cập nhật danh sách phòng" — checklist không còn ->live() nữa (cố ý,
+                    // để tích nhiều phòng nhanh không bị bung lại), nên tích xong mà không bấm nút thì
+                    // 'items' vẫn rỗng và Lưu/Tạo sẽ âm thầm tạo ra 1 bảng giá 0 phòng nếu không có
+                    // validate này chặn lại.
+                    ->minItems(fn (Get $get) => $get('pricing_mode') === PriceBoard::MODE_ADJUSTMENT ? 0 : 1)
+                    ->validationMessages([
+                        'minItems' => 'Chưa có phòng nào trong bảng giá — nếu bạn đã tích chọn phòng ở trên, hãy bấm "Tạo/cập nhật danh sách phòng theo tích chọn ở trên" trước khi lưu.',
+                    ])
                     ->columnSpanFull()
                     ->visible(fn (Get $get) => $get('pricing_mode') !== PriceBoard::MODE_ADJUSTMENT),
             ]);
@@ -457,11 +484,22 @@ class PriceBoardForm
      *  đảm bảo form luôn khớp với DB. */
     public static function buildItemsFromBoard(PriceBoard $board): array
     {
-        $baseline = static::baselinePriceResolver();
+        $liveBaseline = static::baselinePriceResolver();
 
         return $board->items()->with(['timeSlots.timeslot', 'product'])->get()
-            ->map(function ($item) use ($baseline) {
+            ->map(function ($item) use ($liveBaseline) {
                 $style = (int) ($item->product->styles ?? 1);
+
+                // Item ĐÃ có giá gốc đóng băng (chụp lúc tạo bảng này, xem
+                // PriceBoardSyncService::captureBaselineIfMissing()) thì hiện ĐÚNG giá đó — vì đây
+                // mới là giá THẬT SỰ sẽ được khôi phục khi bảng hết hạn, không phải giá đang chạy hiện
+                // tại (có thể đã bị đổi tiếp qua "Hệ thống giá" sau khi tạo bảng này). Item cũ tạo
+                // trước khi có cơ chế đóng băng (chưa có baseline_time_slots) mới tạm dùng giá đang
+                // chạy hiện tại làm giá gốc hiển thị.
+                $frozenSlots = collect($item->baseline_time_slots ?? [])->keyBy('timeslot_id');
+                $baseline    = $frozenSlots->isNotEmpty()
+                    ? fn ($productId, $timeslotId) => isset($frozenSlots[$timeslotId]) ? (int) $frozenSlots[$timeslotId]['price'] : null
+                    : $liveBaseline;
 
                 $row = [
                     'product_id'                  => $item->product_id,
@@ -498,13 +536,14 @@ class PriceBoardForm
             ->toArray();
     }
 
-    /** Closure tra "Giá gốc" — giá đang lưu ở "Bảng giá mặc định" (price_board_items/
-     *  price_board_time_slots của bảng is_default=true) cho đúng (phòng, khung giờ) — KHÔNG phải giá
-     *  đang chạy thật trên products/room_time_slots, vì phòng đó có thể đang bị 1 bảng đặt tên KHÁC
-     *  áp đè tạm thời (xem giải thích ở PriceBoardSyncService::applyForProduct()). Cache theo product
-     *  trong 1 request — TableRepeater gọi lại cho từng dòng/mỗi lần đổi khung giờ, tránh query lặp
-     *  lại y hệt nhiều lần trên cùng 1 phòng.
-     */
+    /** Closure tra "Giá gốc" khi phòng CHƯA từng thuộc bảng đặt tên nào (chưa có baseline_time_slots
+     *  đóng băng để hiện) — dùng luôn giá ĐANG CHẠY THẬT trên room_time_slots, vì đây chính xác là giá
+     *  sẽ được chụp làm baseline NGAY khi bấm Lưu (xem PriceBoardSyncService::captureBaselineIfMissing).
+     *  Không đọc qua "Bảng giá mặc định" nữa — bảng đó chỉ dùng làm điểm khôi phục cho phòng chưa
+     *  từng gắn bảng đặt tên nào (không liên quan tới việc hiển thị "Giá gốc" ở đây), và có thể trống
+     *  nếu server chưa chạy `price-boards:seed-defaults`, trong khi room_time_slots luôn có sẵn. Cache
+     *  theo product trong 1 request — TableRepeater gọi lại cho từng dòng/mỗi lần đổi khung giờ, tránh
+     *  query lặp lại y hệt nhiều lần trên cùng 1 phòng. */
     private static function baselinePriceResolver(): \Closure
     {
         $cache = [];
@@ -515,14 +554,9 @@ class PriceBoardForm
             }
 
             if (! array_key_exists($productId, $cache)) {
-                $defaultBoardId = app(PriceBoardSyncService::class)->defaultBoard()->id;
-
-                $cache[$productId] = \Modules\Product\App\Models\PriceBoardItem::where('price_board_id', $defaultBoardId)
-                    ->where('product_id', $productId)
-                    ->first()
-                    ?->timeSlots
+                $cache[$productId] = \Modules\Product\App\Models\RoomTimeSlot::where('room_id', $productId)
                     ->pluck('price', 'timeslot_id')
-                    ->all() ?? [];
+                    ->all();
             }
 
             return isset($cache[$productId][$timeslotId]) ? (int) $cache[$productId][$timeslotId] : null;
@@ -580,6 +614,14 @@ class PriceBoardForm
         }
 
         return $hours > 0 ? "{$days} ngày {$hours} giờ" : "{$days} ngày";
+    }
+
+    /** $items có ít nhất 1 phòng đúng $style (1=Theo Khung Giờ, 2=Theo Ngày) không — dùng để ẩn/hiện
+     *  đúng section "Theo Ngày"/"Theo Khung Giờ" trong "Sửa giá hàng loạt", tránh hiện nhầm section
+     *  của loại phòng không hề có trong danh sách đã chọn. */
+    private static function itemsHaveStyle(array $items, int $style): bool
+    {
+        return collect($items)->contains(fn ($item) => static::styleOf($item['product_id'] ?? null) === $style);
     }
 
     private static function styleOf(?string $productId): int

@@ -22,7 +22,17 @@ Route::middleware('web')->group(function () {
 
 // Admin: unread notification count (for tab-title polling)
 // Cached per-user for 2s — supports many concurrent admins without hammering the DB
-Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group(function () {
+//
+// QUAN TRỌNG: phải có \App\Http\Middleware\MarkAdminPanelContext::class ở đây — nhóm route này là
+// route Laravel thường (không đi qua panel Filament), nên nếu thiếu middleware này,
+// App\Support\AdminPanelContext::isActive() sẽ luôn false trong suốt request, khiến scope
+// 'partner' của App\Models\Concerns\BelongsToPartner tự động BỎ QUA lọc partner_id — mọi query
+// Order/Product/... ở các route bên dưới (monthly-revenue, room-cards, kpi-stats, branch-monthly,
+// branch-revenue, top-customers, room-revenue...) sẽ trả về dữ liệu CỦA TẤT CẢ đối tác thay vì chỉ
+// đối tác của user đang đăng nhập — vừa sai số liệu dashboard (khác với lần load trang đầu tiên đi
+// qua panel Filament, có middleware này), vừa lộ dữ liệu chéo đối tác cho user không phải
+// super_admin.
+Route::middleware(['auth', 'web', 'throttle:120,1', \App\Http\Middleware\MarkAdminPanelContext::class])->prefix('admin/api')->group(function () {
     Route::get('notifications/unread-count', function () {
         $user = auth()->user();
         if (! $user) {
@@ -35,7 +45,8 @@ Route::middleware(['auth', 'web', 'throttle:120,1'])->prefix('admin/api')->group
             fn () => $user->unreadNotifications()->count()
         );
 
-        // 'type' của thông báo CHƯA ĐỌC mới nhất — vd 'order'|'chat'|'checkin'|'checkout' (xem
+        // 'type' của thông báo CHƯA ĐỌC mới nhất — vd 'booking_confirmation'|'payment'|
+        // 'order_update'|'extra_charge'|'message'|'checkin'|'checkout' (xem
         // App\Services\AdminNotificationService, field lưu trong viewData) — dùng để JS polling ở
         // AdminPanelProvider chọn ĐÚNG file âm thanh (tin nhắn khách phát âm thanh khác với đơn
         // hàng), không cần gọi thêm API nào khác.

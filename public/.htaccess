@@ -46,4 +46,10 @@
     <FilesMatch "\.(css|js)$">
         Header set Cache-Control "public, max-age=604800"
     </FilesMatch>
+    # Livewire's published JS (public/vendor/livewire/*) is served with a content-hash query string
+    # (?id=...) that changes whenever the file changes — safe to cache long + immutable like the
+    # hashed assets above, instead of falling back to the generic 1-week .js rule.
+    <FilesMatch "^livewire(\.min|\.esm)?\.js$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
 </IfModule>

@@ -6,6 +6,7 @@ use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Radio;
+use Filament\Forms\Components\Toggle;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Illuminate\Database\Eloquent\Builder;
@@ -267,6 +268,51 @@ class OrderFilter
                     };
 
                     return ['Số khung giờ: ' . $label];
+                })
+                ->columnSpan(['default' => 1, 'sm' => 2, 'lg' => 5]),
+
+            // Cùng quy ước với Filter "used_voucher" ở CustomerResource — dùng cho thẻ KPI "Voucher
+            // đã sử dụng" trên Dashboard: click vào thẻ sẽ điều hướng tới đây kèm tableFilters đã
+            // điền sẵn is_active+used_from/used_until (xem Dashboard.php::getViewData()).
+            Filter::make('used_voucher')
+                ->label('Đã áp voucher')
+                ->form([
+                    Toggle::make('is_active')
+                        ->label('Chỉ đơn đã áp voucher'),
+                    DatePicker::make('used_from')
+                        ->label('Từ ngày')
+                        ->native(false)
+                        ->displayFormat('d/m/Y'),
+                    DatePicker::make('used_until')
+                        ->label('Đến ngày')
+                        ->native(false)
+                        ->displayFormat('d/m/Y'),
+                ])
+                ->query(function (Builder $query, array $data): Builder {
+                    if (empty($data['is_active'])) {
+                        return $query;
+                    }
+
+                    return $query->whereHas('couponUsages', function (Builder $q) use ($data) {
+                        $q->when($data['used_from'] ?? null, fn (Builder $qq, $date) => $qq->whereDate('used_at', '>=', $date))
+                          ->when($data['used_until'] ?? null, fn (Builder $qq, $date) => $qq->whereDate('used_at', '<=', $date));
+                    });
+                })
+                ->indicateUsing(function (array $data): array {
+                    if (empty($data['is_active'])) {
+                        return [];
+                    }
+
+                    $indicators = ['is_active' => 'Đã áp voucher'];
+
+                    if (! empty($data['used_from'])) {
+                        $indicators['used_from'] = 'Từ ' . \Carbon\Carbon::parse($data['used_from'])->format('d/m/Y');
+                    }
+                    if (! empty($data['used_until'])) {
+                        $indicators['used_until'] = 'Đến ' . \Carbon\Carbon::parse($data['used_until'])->format('d/m/Y');
+                    }
+
+                    return $indicators;
                 })
                 ->columnSpan(['default' => 1, 'sm' => 2, 'lg' => 5]),
         ];

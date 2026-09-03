@@ -3,6 +3,7 @@
 namespace App\Exceptions;
 
 use BezhanSalleh\FilamentExceptions\FilamentExceptions;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
 use Throwable;
 
@@ -60,5 +61,23 @@ class Handler extends ExceptionHandler
                 FilamentExceptions::report($e);
             }
         });
+    }
+
+    /**
+     * Các route dưới admin/api/* là API nội bộ cho JS polling nền (chuông đơn mới, room-cards,
+     * kpi-stats...) — fetch() không tự gửi header Accept:application/json nên Laravel không coi đây
+     * là request "muốn JSON". Nếu để mặc định, khi phiên đăng nhập hết hạn giữa lúc polling đang
+     * chạy, Laravel sẽ redirect về trang login VÀ lưu chính URL API đó vào session làm "intended
+     * URL" — lần đăng nhập kế tiếp (kể cả bằng tài khoản khác) bị đưa thẳng tới URL JSON đó thay vì
+     * vào dashboard. Trả 401 JSON ngay tại đây để không bao giờ redirect/capture intended URL cho
+     * nhóm route này.
+     */
+    protected function unauthenticated($request, AuthenticationException $exception)
+    {
+        if ($request->is('admin/api/*')) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        return parent::unauthenticated($request, $exception);
     }
 }

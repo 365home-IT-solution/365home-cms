@@ -25,15 +25,24 @@ class NotificationController extends Controller
             ->paginate(20);
 
         $data = $items->map(function (NotificationFcmRecipient $r) {
+            $extra = $r->notification->data ?? [];
+
             return [
-                'id'      => $r->notification->id,
-                'title'   => $r->notification->title,
-                'body'    => $r->notification->body,
-                'url'     => $r->notification->url,
-                'type'    => $r->notification->type,
-                'is_read' => $r->read_at !== null,
-                'read_at' => $r->read_at?->toIso8601String(),
-                'sent_at' => $r->created_at->toIso8601String(),
+                'id'              => $r->notification->id,
+                'title'           => $r->notification->title,
+                'body'            => $r->notification->body,
+                'url'             => $r->notification->url,
+                // 'order_pending' | 'booking_confirmation' | 'payment' | 'order_update' | 'message'
+                // | 'manual' | 'checkin_reminder' | 'checkout_warning' | 'membership_auto_coupon' |
+                // 'checkin_streak_reminder' — cùng vocabulary với App\Services\AdminNotificationService
+                // cho nhóm order_pending/booking_confirmation/payment/order_update/message để FE
+                // dùng chung 1 bảng map âm thanh cho cả app admin lẫn app khách hàng.
+                'type'            => $r->notification->type,
+                'order_code'      => $extra['order_code'] ?? null,
+                'conversation_id' => $extra['conversation_id'] ?? null,
+                'is_read'         => $r->read_at !== null,
+                'read_at'         => $r->read_at?->toIso8601String(),
+                'sent_at'         => $r->created_at->toIso8601String(),
             ];
         })->values();
 

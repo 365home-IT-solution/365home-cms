@@ -17,7 +17,7 @@
                          phá, Các chi nhánh tại...) theo yêu cầu gộp về 1 chỗ duy nhất. --}}
                     @if ($generalSettings->holiday_theme_active && $generalSettings->holiday_logo_image)
                         <img src="{{ asset('/storage/'.$generalSettings->holiday_logo_image) }}"
-                             alt="" class="inline-block w-6 h-6 object-contain"/>
+                             alt="" class="inline-block w-6 h-6 object-contain" width="24" height="24"/>
                     @endif
                     Lịch đặt phòng trực tuyến
                 </h2>

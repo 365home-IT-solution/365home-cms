@@ -30,6 +30,7 @@ class Order extends Model implements Eventable
         'deposit_paid_amount',
         'coupon_code',
         'coupon_codes',
+        'coupon_discount_amounts',
         'deposit_paid_at',
         'paid_at',
         'remaining_paid_at',
@@ -103,6 +104,7 @@ class Order extends Model implements Eventable
         'cccd_data'              => 'array',
         'cccd_data_2'            => 'array',
         'coupon_codes'           => 'array',
+        'coupon_discount_amounts' => 'array',
         'deposit_paid_at'        => 'datetime',
         'paid_at'                => 'datetime',
         'remaining_paid_at'      => 'datetime',
@@ -177,7 +179,13 @@ class Order extends Model implements Eventable
 
             $user = auth()->user();
 
-            if (! $user instanceof User) {
+            // super_admin PHẢI luôn xem được MỌI chi nhánh (không riêng gì nút "Chuyển đổi chi
+            // nhánh" hiện đang chọn gì) — cùng quy ước isSuperAdmin() bypass với scope 'partner'
+            // của BelongsToPartner. Thiếu điều kiện này khiến effectiveBranchIds()/
+            // rootProductCategoryIds() (chỉ trả về category_type='product', parent_id NULL) vô
+            // tình lọc bỏ mọi đơn có category_id KHÔNG rơi đúng vào tập category gốc kiểu
+            // 'product' đó — dù super_admin đáng lẽ phải thấy hết, không phụ thuộc taxonomy này.
+            if (! $user instanceof User || $user->isSuperAdmin()) {
                 return;
             }
 
@@ -198,7 +206,11 @@ class Order extends Model implements Eventable
                 $order->order_code = (string) $code;
             }
 
-            if (empty($order->user_id) && auth()->check()) {
+            // user_id = nhân viên TẠO đơn giúp khách (đặt hộ qua admin) — không phải khách hàng tự
+            // đặt. Route khách tự đặt (BookingController...) chạy qua guard sanctum của Customer,
+            // auth()->id() lúc đó trả về UUID của Customer chứ không phải User, ghi nhầm vào cột này
+            // (không lỗi 500 vì không có ràng buộc khoá ngoại, nhưng làm sai dữ liệu "ai tạo đơn").
+            if (empty($order->user_id) && auth()->user() instanceof \App\Models\User) {
                 $order->user_id = (string) auth()->id();
             }
         });
@@ -351,6 +363,14 @@ class Order extends Model implements Eventable
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    // Lịch sử áp mã giảm giá của đơn — nguồn dữ liệu DUY NHẤT có discount_amount thực tế (orders
+    // chỉ lưu coupon_code/coupon_codes, KHÔNG lưu số tiền đã giảm). Dùng cho cột "Mã giảm giá"/
+    // "Tiền giảm" ở OrderTable và filter "used_voucher" (xem OrderFilter::filter()).
+    public function couponUsages()
+    {
+        return $this->hasMany(\Modules\Promotion\App\Models\CouponUsage::class);
     }
 
     /**

@@ -12,10 +12,16 @@ use App\Services\SlotRealtimeService;
 use Modules\AuditLog\Services\AuditLogger;
 use Modules\Payment\App\Filament\Resources\OrderResource;
 use Modules\Payment\Entities\Order;
+use Modules\Promotion\App\Services\CouponUsageLedger;
 
 class OrderObserver
 {
-    private function send(Order $order, string $title, string $icon, string $color): void
+    /**
+     * @param  string  $type  'booking_confirmation' (đơn mới/lần thanh toán đầu tiên) |
+     *                        'payment' (thanh toán phần còn lại) | 'order_update' (mọi thay đổi
+     *                        trạng thái khác — mặc định) — xem App\Services\AdminNotificationService.
+     */
+    private function send(Order $order, string $title, string $icon, string $color, string $type = 'order_update'): void
     {
         $body    = "#{$order->order_code} · {$order->buyer_name} · " . number_format($order->full_amount) . ' VNĐ';
         $service = app(AdminNotificationService::class);
@@ -24,14 +30,20 @@ class OrderObserver
             $service->recipientsForOrder($order),
             $title,
             $body,
-            ['type' => 'order', 'order_code' => $order->order_code],
+            ['type' => $type, 'order_code' => $order->order_code],
             $icon,
             $color,
             OrderResource::getUrl('edit', ['record' => $order->id]),
         );
     }
 
-    private function sendToCustomer(Order $order, string $title, string $body): void
+    /**
+     * @param  string  $type  Cùng vocabulary với App\Services\AdminNotificationService (xem
+     *                        OrderObserver::send()) để FE dùng chung 1 bảng map âm thanh cho cả app
+     *                        admin lẫn app khách hàng — 'order_pending' | 'booking_confirmation' |
+     *                        'payment' | 'order_update' (mặc định).
+     */
+    private function sendToCustomer(Order $order, string $title, string $body, string $type = 'order_update'): void
     {
         if (! $order->customer_id) {
             return;
@@ -47,12 +59,12 @@ class OrderObserver
             $customer,
             $title,
             $body,
-            'booking',
-            ['order_code' => (string) $order->order_code, 'type' => 'order'],
+            $type,
+            ['order_code' => (string) $order->order_code],
         );
     }
 
-    private function sendToGuest(Order $order, string $title, string $body, string $type = 'booking'): void
+    private function sendToGuest(Order $order, string $title, string $body, string $type = 'order_update'): void
     {
         if ($order->customer_id || empty($order->device_token)) {
             return;
@@ -64,7 +76,7 @@ class OrderObserver
                 $title,
                 $body,
                 $type,
-                ['order_code' => (string) $order->order_code, 'type' => 'order'],
+                ['order_code' => (string) $order->order_code],
             );
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('Guest FCM from observer failed', [
@@ -132,24 +144,31 @@ class OrderObserver
         $this->broadcastSlotStatusChanged($order);
 
         if (in_array($order->status, ['paid', 'deposit'], true)) {
-            $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'success');
+            $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'success', 'booking_confirmation');
+            app(CouponUsageLedger::class)->confirm($order);
         }
 
         if ($order->status !== 'pending') {
             return;
         }
 
+        // Đơn vừa tạo còn 'pending' (chưa thanh toán) — báo riêng cho admin theo dõi/nhắc khách,
+        // TÁCH type khỏi 'booking_confirmation' (chỉ dành cho đơn ĐÃ thanh toán) để FE chọn đúng
+        // mức độ ưu tiên/âm thanh khác nhau giữa "có tiền vào" và "đơn mới nhưng chưa chắc chắn".
+        $this->send($order, 'Đơn mới (chờ thanh toán)', 'heroicon-o-clock', 'warning', 'order_pending');
+
         $this->sendToCustomer(
             $order,
             'Đặt phòng thành công',
-            "Đơn #{$order->order_code} đang chờ thanh toán. Vui lòng hoàn tất để xác nhận."
+            "Đơn #{$order->order_code} đang chờ thanh toán. Vui lòng hoàn tất để xác nhận.",
+            'order_pending'
         );
 
         $this->sendToGuest(
             $order,
             'Đặt phòng thành công',
             $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đang chờ thanh toán."),
-            'order_created'
+            'order_pending'
         );
     }
 
@@ -229,20 +248,39 @@ class OrderObserver
         // thái mới nhất của từng ô ngày.
         $this->broadcastSlotStatusChanged($order);
 
+        // Mã giảm giá CHỈ thực sự bị trừ lượt (used_count) khi đơn thanh toán thành công LẦN ĐẦU —
+        // pending → paid (COD/chuyển khoản trả đủ ngay) hoặc pending → deposit (đặt cọc, đã có tiền
+        // thật) — KHÔNG còn trừ ngay lúc tạo đơn nữa (xem BookingController/GuestBookingController/
+        // ProductDetail/OrderController::update(), đã bỏ incrementUsage() ở đó). deposit → paid
+        // (thanh toán nốt phần còn lại) KHÔNG confirm lại vì đã confirm từ lúc vào 'deposit' rồi —
+        // CouponUsageLedger::confirm() cũng tự idempotent theo (order_id, code) để an toàn.
+        if ($oldStatus === 'pending' && in_array($newStatus, ['paid', 'deposit'], true)) {
+            app(CouponUsageLedger::class)->confirm($order);
+        }
+
+        // Đơn ĐÃ thanh toán (paid/deposit — nghĩa là mã đã được confirm ở trên hoặc lúc tạo) sau đó
+        // bị hủy/hoàn tiền → hoàn lại lượt dùng mã, đối xứng với deductMembershipSpending() bên dưới.
+        if (in_array($oldStatus, ['paid', 'deposit'], true)
+            && in_array($newStatus, ['cancelled', 'refunded', 'failed', 'cancelled_payment'], true)) {
+            app(CouponUsageLedger::class)->release($order);
+        }
+
         // pending → paid: lần thanh toán đầu tiên (đủ ngay) — đây mới là thời điểm "Đơn mới" thực sự
         // báo cho admin (xem created()).
         if ($newStatus === 'paid' && $oldStatus === 'pending') {
             $this->accumulateMembershipSpending($order);
-            $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'success');
+            $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'success', 'booking_confirmation');
             $this->sendToCustomer(
                 $order,
                 'Thanh toán thành công',
-                "Đơn #{$order->order_code} đã được xác nhận. Chúc bạn có trải nghiệm tốt!"
+                "Đơn #{$order->order_code} đã được xác nhận. Chúc bạn có trải nghiệm tốt!",
+                'booking_confirmation'
             );
             $this->sendToGuest(
                 $order,
                 'Thanh toán thành công',
-                $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã xác nhận.")
+                $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã xác nhận."),
+                'booking_confirmation'
             );
             return;
         }
@@ -250,16 +288,18 @@ class OrderObserver
         // pending → deposit: lần thanh toán đầu tiên (cọc) — cũng tính là "Đơn mới" (đã thanh toán
         // một phần, khác với đơn pending chưa ai trả tiền).
         if ($newStatus === 'deposit' && $oldStatus === 'pending') {
-            $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'success');
+            $this->send($order, 'Đơn mới', 'heroicon-o-shopping-bag', 'success', 'booking_confirmation');
             $this->sendToCustomer(
                 $order,
                 'Đặt cọc thành công',
-                "Đơn #{$order->order_code} đã nhận cọc. Vui lòng thanh toán phần còn lại khi check-in."
+                "Đơn #{$order->order_code} đã nhận cọc. Vui lòng thanh toán phần còn lại khi check-in.",
+                'booking_confirmation'
             );
             $this->sendToGuest(
                 $order,
                 'Đặt cọc thành công',
-                $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã nhận cọc.")
+                $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã nhận cọc."),
+                'booking_confirmation'
             );
             return;
         }
@@ -267,16 +307,18 @@ class OrderObserver
         // Phân biệt thanh toán lần 2 (deposit → paid) với thanh toán đủ ngay
         if ($newStatus === 'paid' && $oldStatus === 'deposit') {
             $this->accumulateMembershipSpending($order);
-            $this->send($order, 'Đã thanh toán phần còn lại', 'heroicon-o-check-circle', 'success');
+            $this->send($order, 'Đã thanh toán phần còn lại', 'heroicon-o-check-circle', 'success', 'payment');
             $this->sendToCustomer(
                 $order,
                 'Thanh toán hoàn tất',
-                "Đơn #{$order->order_code} đã được thanh toán đầy đủ."
+                "Đơn #{$order->order_code} đã được thanh toán đầy đủ.",
+                'payment'
             );
             $this->sendToGuest(
                 $order,
                 'Thanh toán hoàn tất',
-                $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã thanh toán đủ.")
+                $this->buildGuestCheckinBody($order, "Đơn #{$order->order_code} đã thanh toán đủ."),
+                'payment'
             );
             return;
         }
@@ -408,6 +450,18 @@ class OrderObserver
             ->first(fn ($rts) => $rts->timeSlot && $rts->timeSlot->start_time === $startTime);
 
         return $rts?->timeslot_id;
+    }
+
+    /**
+     * Hoàn lượt dùng mã giảm giá TRƯỚC khi đơn thật sự bị xóa — coupon_usages/coupon_usage_logs có
+     * cascadeOnDelete theo order_id, nên nếu chờ tới deleted() (chạy SAU khi DB đã cascade xóa) thì
+     * CouponUsageLedger::release() sẽ không tìm thấy dòng coupon_usages nào để hoàn used_count nữa.
+     */
+    public function deleting(Order $order): void
+    {
+        if (in_array($order->status, ['paid', 'deposit'], true)) {
+            app(CouponUsageLedger::class)->release($order);
+        }
     }
 
     public function deleted(Order $order): void
