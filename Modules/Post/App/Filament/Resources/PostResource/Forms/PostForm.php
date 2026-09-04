@@ -150,12 +150,15 @@ class PostForm
             ->columnSpan(2);
     }
 
-    private static function summaryField(): Textarea
+    // 'simple' profile: bold/italic/link/list — vừa đủ để tô đậm từ khoá + chèn link như ảnh mẫu
+    // (Frontend đã render {!! $post->summary !!} là HTML từ trước, textarea thường chỉ cho gõ
+    // chữ trần, muốn in đậm/gắn link phải gõ tay thẻ HTML).
+    private static function summaryField(): TinyEditor
     {
-        return Textarea::make('summary')
+        return TinyEditor::make('summary')
             ->label(__('post::post.form.label.summary'))
+            ->profile('simple')
             ->maxLength(65535)
-            ->rows(3)
             ->placeholder(__('post::post.form.placeholder.summary'))
             ->live(onBlur: true)
             ->afterStateUpdated(function ($state, Set $set, Get $get) {
