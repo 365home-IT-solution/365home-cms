@@ -8,7 +8,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Form;
-use Modules\Minihouse\App\Models\Contract;
+use Filament\Forms\Get;
 use Modules\Minihouse\App\Models\Transaction;
 
 class TransactionForm
@@ -25,7 +25,16 @@ class TransactionForm
                             Transaction::TYPE_IN  => 'Thu',
                             Transaction::TYPE_OUT => 'Chi',
                         ])
+                        ->live()
                         ->required(),
+                    Select::make('category')
+                        ->label('Hạng mục')
+                        ->options([
+                            Transaction::CATEGORY_REPAIR    => 'Sửa chữa',
+                            Transaction::CATEGORY_OPERATION => 'Vận hành',
+                            Transaction::CATEGORY_OTHER     => 'Khác',
+                        ])
+                        ->visible(fn (Get $get) => $get('type') === Transaction::TYPE_OUT),
                     TextInput::make('amount')
                         ->label('Số tiền')
                         ->numeric()
@@ -36,9 +45,14 @@ class TransactionForm
                         ->required(),
                     Select::make('contract_id')
                         ->label('Hợp đồng liên quan')
-                        ->options(fn () => Contract::query()->with(['room', 'tenant'])->get()
-                            ->mapWithKeys(fn (Contract $c) => [$c->id => "{$c->room?->code} - {$c->tenant?->fullname}"]))
-                        ->searchable(),
+                        ->relationship(
+                            'contract',
+                            'id',
+                            fn ($query) => $query->with(['room', 'tenant']),
+                        )
+                        ->getOptionLabelFromRecordUsing(fn ($record) => "{$record->room?->code} - {$record->tenant?->fullname}")
+                        ->searchable()
+                        ->preload(),
                     Textarea::make('note')
                         ->label('Ghi chú')
                         ->columnSpanFull(),

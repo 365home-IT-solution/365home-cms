@@ -13,9 +13,13 @@ class Transaction extends Model
     public const TYPE_IN  = 'thu';
     public const TYPE_OUT = 'chi';
 
+    public const CATEGORY_REPAIR    = 'sua_chua';
+    public const CATEGORY_OPERATION = 'van_hanh';
+    public const CATEGORY_OTHER     = 'khac';
+
     protected $table = 'minihouse_transactions';
 
-    protected $fillable = ['contract_id', 'type', 'amount', 'transaction_date', 'note'];
+    protected $fillable = ['contract_id', 'type', 'category', 'amount', 'transaction_date', 'note'];
 
     protected $casts = [
         'transaction_date' => 'date',

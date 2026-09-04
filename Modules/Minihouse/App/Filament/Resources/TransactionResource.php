@@ -19,7 +19,7 @@ class TransactionResource extends Resource
     protected static ?string $navigationIcon  = 'heroicon-o-banknotes';
     protected static ?string $navigationGroup = 'Quản lý';
     protected static ?string $navigationLabel = 'Sổ thu chi';
-    protected static ?int $navigationSort     = 6;
+    protected static ?int $navigationSort     = 7;
 
     public static function getModelLabel(): string
     {

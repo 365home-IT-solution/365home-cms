@@ -19,7 +19,7 @@ class ReminderResource extends Resource
     protected static ?string $navigationIcon  = 'heroicon-o-bell-alert';
     protected static ?string $navigationGroup = 'Quản lý';
     protected static ?string $navigationLabel = 'Nhắc việc';
-    protected static ?int $navigationSort     = 7;
+    protected static ?int $navigationSort     = 8;
 
     public static function getModelLabel(): string
     {

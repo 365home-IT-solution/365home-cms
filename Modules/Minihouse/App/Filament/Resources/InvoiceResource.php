@@ -19,7 +19,7 @@ class InvoiceResource extends Resource
     protected static ?string $navigationIcon  = 'heroicon-o-receipt-percent';
     protected static ?string $navigationGroup = 'Quản lý';
     protected static ?string $navigationLabel = 'Hoá đơn';
-    protected static ?int $navigationSort     = 5;
+    protected static ?int $navigationSort     = 6;
 
     public static function getModelLabel(): string
     {

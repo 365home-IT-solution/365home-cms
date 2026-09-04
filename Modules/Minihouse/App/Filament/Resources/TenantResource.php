@@ -19,7 +19,7 @@ class TenantResource extends Resource
     protected static ?string $navigationIcon  = 'heroicon-o-users';
     protected static ?string $navigationGroup = 'Quản lý';
     protected static ?string $navigationLabel = 'Khách thuê';
-    protected static ?int $navigationSort     = 3;
+    protected static ?int $navigationSort     = 4;
 
     public static function getModelLabel(): string
     {

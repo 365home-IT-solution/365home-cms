@@ -17,7 +17,10 @@ class Contract extends Model
 
     protected $table = 'minihouse_contracts';
 
-    protected $fillable = ['room_id', 'tenant_id', 'start_date', 'end_date', 'monthly_price', 'deposit_amount', 'status'];
+    protected $fillable = [
+        'room_id', 'tenant_id', 'start_date', 'end_date', 'monthly_price', 'deposit_amount', 'status',
+        'contract_content', 'contract_file', 'handover_file', 'deposit_receipt_file',
+    ];
 
     protected $casts = [
         'start_date' => 'date',

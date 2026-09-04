@@ -13,7 +13,7 @@ class FinanceReports extends Page
     protected static ?string $navigationGroup = 'Quản lý';
     protected static ?string $navigationLabel = 'Thu chi & Báo cáo';
     protected static ?string $title           = 'Thu chi & báo cáo';
-    protected static ?int $navigationSort     = 6;
+    protected static ?int $navigationSort     = 9;
 
     public static function canAccess(): bool
     {

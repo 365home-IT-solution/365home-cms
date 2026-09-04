@@ -15,7 +15,12 @@ class Invoice extends Model
 
     protected $table = 'minihouse_invoices';
 
-    protected $fillable = ['contract_id', 'month', 'electric_amount', 'water_amount', 'service_amount', 'total_amount', 'status'];
+    protected $fillable = [
+        'contract_id', 'month', 'room_price',
+        'electric_start', 'electric_end', 'electric_unit_price', 'electric_amount',
+        'water_start', 'water_end', 'water_unit_price', 'water_amount',
+        'service_amount', 'total_amount', 'status',
+    ];
 
     protected $casts = [
         'month' => 'date',

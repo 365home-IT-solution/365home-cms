@@ -13,7 +13,7 @@ class Tenant extends Model
 
     protected $table = 'minihouse_tenants';
 
-    protected $fillable = ['fullname', 'phone', 'id_card_number', 'room_id', 'note'];
+    protected $fillable = ['fullname', 'phone', 'id_card_number', 'id_card_front', 'id_card_back', 'room_id', 'note'];
 
     public function room(): BelongsTo
     {

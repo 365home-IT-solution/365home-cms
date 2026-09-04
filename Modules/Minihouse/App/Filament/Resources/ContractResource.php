@@ -19,7 +19,7 @@ class ContractResource extends Resource
     protected static ?string $navigationIcon  = 'heroicon-o-document-text';
     protected static ?string $navigationGroup = 'Quản lý';
     protected static ?string $navigationLabel = 'Hợp đồng';
-    protected static ?int $navigationSort     = 4;
+    protected static ?int $navigationSort     = 5;
 
     public static function getModelLabel(): string
     {

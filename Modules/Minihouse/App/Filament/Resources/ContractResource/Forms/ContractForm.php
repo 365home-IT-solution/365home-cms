@@ -3,13 +3,13 @@
 namespace Modules\Minihouse\App\Filament\Resources\ContractResource\Forms;
 
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Form;
 use Modules\Minihouse\App\Models\Contract;
-use Modules\Minihouse\App\Models\Room;
-use Modules\Minihouse\App\Models\Tenant;
 
 class ContractForm
 {
@@ -21,13 +21,15 @@ class ContractForm
                 ->schema([
                     Select::make('room_id')
                         ->label('Phòng')
-                        ->options(fn () => Room::query()->pluck('code', 'id'))
+                        ->relationship('room', 'code')
                         ->searchable()
+                        ->preload()
                         ->required(),
                     Select::make('tenant_id')
                         ->label('Khách thuê')
-                        ->options(fn () => Tenant::query()->pluck('fullname', 'id'))
+                        ->relationship('tenant', 'fullname')
                         ->searchable()
+                        ->preload()
                         ->required(),
                     DatePicker::make('start_date')
                         ->label('Ngày bắt đầu')
@@ -52,6 +54,33 @@ class ContractForm
                         ])
                         ->default(Contract::STATUS_ACTIVE)
                         ->required(),
+                ]),
+
+            Section::make('Nội dung hợp đồng')
+                ->schema([
+                    RichEditor::make('contract_content')
+                        ->label('Nội dung tuỳ chỉnh')
+                        ->columnSpanFull(),
+                ]),
+
+            Section::make('Lưu trữ giấy tờ')
+                ->columns(3)
+                ->schema([
+                    FileUpload::make('contract_file')
+                        ->label('Hợp đồng (file)')
+                        ->directory('minihouse/contracts')
+                        ->disk('public')
+                        ->acceptedFileTypes(['application/pdf', 'image/jpeg', 'image/png']),
+                    FileUpload::make('handover_file')
+                        ->label('Biên bản bàn giao')
+                        ->directory('minihouse/contracts')
+                        ->disk('public')
+                        ->acceptedFileTypes(['application/pdf', 'image/jpeg', 'image/png']),
+                    FileUpload::make('deposit_receipt_file')
+                        ->label('Biên bản đặt cọc')
+                        ->directory('minihouse/contracts')
+                        ->disk('public')
+                        ->acceptedFileTypes(['application/pdf', 'image/jpeg', 'image/png']),
                 ]),
         ]);
     }

@@ -10,7 +10,6 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
 use Modules\Minihouse\App\Models\Reminder;
-use Modules\Minihouse\App\Models\Room;
 
 class ReminderForm
 {
@@ -39,8 +38,19 @@ class ReminderForm
                         ->required(),
                     Select::make('room_id')
                         ->label('Phòng liên quan')
-                        ->options(fn () => Room::query()->pluck('code', 'id'))
-                        ->searchable(),
+                        ->relationship('room', 'code')
+                        ->searchable()
+                        ->preload(),
+                    Select::make('contract_id')
+                        ->label('Hợp đồng liên quan')
+                        ->relationship(
+                            'contract',
+                            'id',
+                            fn ($query) => $query->with(['room', 'tenant']),
+                        )
+                        ->getOptionLabelFromRecordUsing(fn ($record) => "{$record->room?->code} - {$record->tenant?->fullname}")
+                        ->searchable()
+                        ->preload(),
                     Toggle::make('is_done')
                         ->label('Đã xử lý'),
                     Textarea::make('content')

@@ -2,19 +2,19 @@
 
 namespace Modules\Minihouse\App\Filament\Resources\TenantResource\Forms;
 
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Form;
-use Modules\Minihouse\App\Models\Room;
 
 class TenantForm
 {
     public static function form(Form $form): Form
     {
         return $form->schema([
-            Section::make('Thông tin khách thuê')
+            Section::make('Hồ sơ khách thuê')
                 ->columns(2)
                 ->schema([
                     TextInput::make('fullname')
@@ -30,11 +30,27 @@ class TenantForm
                         ->maxLength(20),
                     Select::make('room_id')
                         ->label('Phòng đang ở')
-                        ->options(fn () => Room::query()->pluck('code', 'id'))
-                        ->searchable(),
+                        ->relationship('room', 'code')
+                        ->searchable()
+                        ->preload(),
                     Textarea::make('note')
                         ->label('Ghi chú')
                         ->columnSpanFull(),
+                ]),
+
+            Section::make('Ảnh giấy tờ tuỳ thân')
+                ->columns(2)
+                ->schema([
+                    FileUpload::make('id_card_front')
+                        ->label('CCCD mặt trước')
+                        ->image()
+                        ->directory('minihouse/tenants')
+                        ->disk('public'),
+                    FileUpload::make('id_card_back')
+                        ->label('CCCD mặt sau')
+                        ->image()
+                        ->directory('minihouse/tenants')
+                        ->disk('public'),
                 ]),
         ]);
     }
