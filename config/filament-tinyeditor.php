@@ -73,9 +73,11 @@ return [
 
             'style_formats' => [
                 [
+                    // Không có Heading 1: trang chi tiết bài viết đã tự render <h1> từ tiêu đề bài
+                    // (post-detail.blade.php) — cho phép chọn H1 ở đây sẽ tạo ra 2 thẻ H1 trên cùng
+                    // 1 trang, bị site-audit SEO flag "multiple H1 tags".
                     'title' => 'Headings',
                     'items' => [
-                        ['title' => 'Heading 1', 'format' => 'h1'],
                         ['title' => 'Heading 2', 'format' => 'h2'],
                         ['title' => 'Heading 3', 'format' => 'h3'],
                         ['title' => 'Heading 4', 'format' => 'h4'],
