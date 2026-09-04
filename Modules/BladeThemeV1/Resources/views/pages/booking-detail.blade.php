@@ -70,8 +70,10 @@
                 $wifi = $firstProduct ? $firstProduct->wifi : '...';
 
                 $targetUrl = route('booking.detail', ['code' => $order->order_code]);
-                $qrUrl = "https://api.qrserver.com/v1/create-qr-code/?size=250x250&margin=10&data=" .
-                urlencode($targetUrl);
+                // Render SVG tại chỗ thay vì gọi api.qrserver.com — tránh lỗi Search Console
+                // "External resources blocked by robots.txt" do robots.txt của qrserver.com
+                // chặn Googlebot thu thập ảnh QR.
+                $qrUrl = \Modules\BladeThemeV1\Support\QrCodeGenerator::dataUri($targetUrl, 250, 1);
                 @endphp
 
                 <div

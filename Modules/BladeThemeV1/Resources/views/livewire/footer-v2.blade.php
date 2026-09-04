@@ -7,8 +7,10 @@
       field "người đại diện pháp luật" nên để trống/placeholder riêng dòng đó.
     - Cột "Đối tác thanh toán": logo VNPAY tại public/images/payment/vnpay.png
       (nguồn: file người dùng cung cấp).
-    - QR tải app dùng API tạo QR công khai (không cần thêm package), trỏ thẳng Google Play (khớp
-      link mặc định của app-banner.blade.php).
+    - QR tải app: render SVG tại chỗ bằng QrCodeGenerator (bacon/bacon-qr-code, đã có sẵn qua
+      filament-breezy) thay vì gọi api.qrserver.com — tránh lỗi Search Console "External resources
+      blocked by robots.txt" do robots.txt của qrserver.com chặn Googlebot. Trỏ thẳng Google Play
+      (khớp link mặc định của app-banner.blade.php).
     - Huy hiệu "Đã thông báo Bộ Công Thương" tại public/images/bocongthuong.png (ảnh thật do
       người dùng cung cấp). Bỏ riêng "DMCA Protected" vì 365home chưa đăng ký.
 --}}
@@ -16,7 +18,7 @@
     /** @var \Modules\SettingCompany\Entities\Business|null $business */
     $playStoreUrl = 'https://play.google.com/store/apps/details?id=com.home365.app';
     $appStoreUrl = 'https://apps.apple.com/us/app/365-home/id6781598163';
-    $qrCodeUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=0&data=' . urlencode($playStoreUrl);
+    $qrCodeUrl = \Modules\BladeThemeV1\Support\QrCodeGenerator::dataUri($playStoreUrl, 200, 0);
 @endphp
 
 <footer class="border-t border-[#DDDDDD]" style="background-color:#F5F5F5;">
