@@ -88,14 +88,6 @@ public function getFilamentAvatarUrl(): ?string
 
     public function canAccessPanel(Panel $panel): bool
     {
-        // Panel /minihouse-admin dùng CHUNG bảng users với Home (không tách tài khoản riêng) — chỉ
-        // super_admin hoặc user có quyền 'access_minihouse' (cấp qua vai trò "Quản lý MiniHouse",
-        // xem MinihousePermissionSeeder) mới đăng nhập được vào panel này. Không áp các điều kiện
-        // partner_id/role bên dưới (chỉ dành riêng cho panel Home).
-        if ($panel->getId() === 'minihouse-admin') {
-            return $this->isSuperAdmin() || $this->can('access_minihouse');
-        }
-
         // Chỉ user có ít nhất 1 role thật (không phải panel_user) mới vào được admin panel
         // Khách hàng đăng ký qua OTP không có role → không vào được
         if (! $this->roles()->where('name', '!=', config('filament-shield.panel_user.name'))->exists()) {

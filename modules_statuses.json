@@ -26,6 +26,5 @@
     "AppPage": true,
     "TTLock": true,
     "Employee": true,
-    "Warehouse": true,
-    "Minihouse": true
+    "Warehouse": true
 }

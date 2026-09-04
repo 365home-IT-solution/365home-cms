@@ -164,7 +164,7 @@
                         @if($order['amount'] > 0)
                         <span class="ta-rc-amount-compact">{{ number_format($order['amount']) }}₫</span>
                         @endif
-                        <a href="/home-admin/orders/{{ $order['order_id'] }}/edit" class="ta-rc-detail-compact" title="Xem chi tiết đơn">
+                        <a href="/admin/orders/{{ $order['order_id'] }}/edit" class="ta-rc-detail-compact" title="Xem chi tiết đơn">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                         </a>
                     </div>
@@ -233,7 +233,7 @@
                         @else<span></span>@endif
                         <div style="display:flex;align-items:center;gap:5px;">
                             <span class="ta-rc-ago">{{ $order['created_at'] }}</span>
-                            <a href="/home-admin/orders/{{ $order['order_id'] }}/edit" class="ta-rc-btn-detail">
+                            <a href="/admin/orders/{{ $order['order_id'] }}/edit" class="ta-rc-btn-detail">
                                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
                                     <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke="currentColor" stroke-width="2"/>
                                     <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" stroke="currentColor" stroke-width="2"/>

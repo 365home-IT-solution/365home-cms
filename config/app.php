@@ -171,7 +171,6 @@ return [
         App\Providers\BroadcastServiceProvider::class,
         App\Providers\EventServiceProvider::class,
         App\Providers\Filament\AdminPanelProvider::class,
-        App\Providers\Filament\MinihouseAdminPanelProvider::class,
         App\Providers\RouteServiceProvider::class,
         TomatoPHP\FilamentMediaManager\FilamentMediaManagerServiceProvider::class,
         TomatoPHP\FilamentIcons\FilamentIconsServiceProvider::class,
