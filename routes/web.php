@@ -499,7 +499,7 @@ Route::middleware(['auth', 'web', 'throttle:120,1', \App\Http\Middleware\MarkAdm
             'status_label'     => $statusLabels[$order->status] ?? $order->status,
             'amount_html'      => $amountHtml,
             'access_code'      => $accessCode,
-            'edit_url'         => '/admin/orders/' . $order->id . '/edit',
+            'edit_url'         => '/home-admin/orders/' . $order->id . '/edit',
         ]);
     })->name('admin.orders.quick-info');
 

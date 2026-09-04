@@ -1,0 +1,11 @@
+{
+    "name": "Minihouse",
+    "alias": "minihouse",
+    "description": "Quản lý cho thuê phòng/căn hộ theo tháng (panel /minihouse-admin)",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\Minihouse\\Providers\\MinihouseServiceProvider"
+    ],
+    "files": []
+}

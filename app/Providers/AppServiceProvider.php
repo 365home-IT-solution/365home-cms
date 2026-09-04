@@ -88,9 +88,18 @@ class AppServiceProvider extends ServiceProvider
             PanelsRenderHook::FOOTER,
             fn(): View => view('filament.components.panel-footer'),
         );
+        // USER_MENU_BEFORE render KHÔNG truyền scopes (xem vendor/filament/filament/resources/views/
+        // components/user-menu.blade.php) nên tham số $scopes của registerRenderHook() không lọc được
+        // theo panel ở hook này — phải tự kiểm tra panel hiện tại bên trong từng closure. "Chi nhánh"
+        // (branch-switcher) là khái niệm CỦA RIÊNG Home (Modules\Product\Category theo partner) —
+        // panel MiniHouse dùng chung User nhưng KHÔNG có khái niệm chi nhánh này, phải ẩn hẳn ở đó.
         FilamentView::registerRenderHook(
             PanelsRenderHook::USER_MENU_BEFORE,
             function (): string {
+                if (\Filament\Facades\Filament::getCurrentPanel()?->getId() !== 'admin') {
+                    return '';
+                }
+
                 $user = auth()->user();
 
                 // Chỉ hiện nút chuyển đổi chi nhánh khi có từ 2 chi nhánh trở lên để chọn — 1 chi
@@ -104,11 +113,15 @@ class AppServiceProvider extends ServiceProvider
         );
         FilamentView::registerRenderHook(
             PanelsRenderHook::USER_MENU_BEFORE,
-            fn (): string => \Livewire\Livewire::mount('account-switcher'),
+            fn (): string => \Filament\Facades\Filament::getCurrentPanel()?->getId() === 'admin'
+                ? \Livewire\Livewire::mount('account-switcher')
+                : '',
         );
         FilamentView::registerRenderHook(
             PanelsRenderHook::USER_MENU_BEFORE,
-            fn(): View => view('filament.components.button-website'),
+            fn (): string|View => \Filament\Facades\Filament::getCurrentPanel()?->getId() === 'admin'
+                ? view('filament.components.button-website')
+                : '',
         );
 
         try {
