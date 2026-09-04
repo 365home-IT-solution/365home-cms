@@ -171,6 +171,26 @@ class CccdDeclaration extends Model
             ->all();
     }
 
+    // Dùng cho nút "Xuất Excel theo khoảng ngày" ở ListCccdDeclarations — KHÔNG giới hạn "cần khai
+    // báo hôm nay" như idsNeedingDeclarationToday(), vì đây là xuất tra cứu/báo cáo theo khoảng
+    // ngày đến (checked_in_at) và (tuỳ chọn) theo chi nhánh, không phải để nộp KBTT trong ngày.
+    public static function idsForDateRangeExport(string $from, string $until, array $categoryIds = []): array
+    {
+        return static::query()
+            ->whereHas('order', function ($q) use ($categoryIds) {
+                $q->whereIn('status', self::CONFIRMED_ORDER_STATUSES);
+
+                if (! empty($categoryIds)) {
+                    $q->whereIn('category_id', $categoryIds);
+                }
+            })
+            ->whereDate('checked_in_at', '>=', $from)
+            ->whereDate('checked_in_at', '<=', $until)
+            ->orderBy('checked_in_at')
+            ->pluck('id')
+            ->all();
+    }
+
     // Các trường THEO ĐÚNG "Nội dung thông báo" mà Luật Cư trú yêu cầu (họ tên, số định danh/hộ
     // chiếu, lý do lưu trú, thời gian lưu trú, nơi cư trú) — dùng để chặn KHÔNG cho đánh dấu "đã
     // khai báo" khi dữ liệu còn thiếu (vd CCCD chưa quét được), tránh nhân viên lỡ tay xác nhận
