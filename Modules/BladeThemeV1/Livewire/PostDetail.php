@@ -4,6 +4,7 @@ namespace Modules\BladeThemeV1\Livewire;
 
 use Livewire\Component;
 use Modules\Post\Entities\Post;
+use Modules\BladeThemeV1\Support\TableOfContents;
 use Modules\BladeThemeV1\Traits\HandleColorTrait;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -19,6 +20,8 @@ class PostDetail extends Component
     public $config = [];
     public $primaryColor;
     public $style;
+    public $tocItems = [];
+    public $contentWithIds = '';
 
     public function mount($slug)
     {
@@ -27,6 +30,12 @@ class PostDetail extends Component
         $this->post = $this->fetchPost();
         $this->relatedPosts = $this->fetchRelatedPosts();
         $this->style = Cache::get('post_config_style', '');
+
+        // Gắn id vào từng heading H2-H6 server-side + build cây mục lục 1 lần khi mount (nội
+        // dung bài không đổi trong vòng đời request), xem TableOfContents::build().
+        $toc = TableOfContents::build($this->post->content ?? '');
+        $this->contentWithIds = $toc['content'];
+        $this->tocItems = $toc['items'];
 
           // Fetch chessboard data if post has a chessboard
         if ($this->post->chessboard_status == 1 && $this->post->chessboard_id) {
@@ -88,16 +97,6 @@ class PostDetail extends Component
         return $categoryPosts->merge($tagPosts);
     }
 
-    public function fetchLatestPosts()
-    {
-        return Post::with(['tags', 'categories', 'media'])
-            ->where('status', 'published')
-            ->where('id', '!=', $this->post->id)
-            ->latest('published_at')
-            ->limit(5)
-            ->get();
-    }
-
  public function render()
 {
     $url = url()->current();
@@ -107,10 +106,11 @@ class PostDetail extends Component
         'post' => $this->post,
         'categories' => $this->post->categories,
         'relatedPosts' => $this->relatedPosts,
-        'latestPosts' => $this->fetchLatestPosts(),
         'style' => $this->style,
         'url' => $url,
         'title' => $title,
+        'tocItems' => $this->tocItems,
+        'contentWithIds' => $this->contentWithIds,
     ]);
 }
 }

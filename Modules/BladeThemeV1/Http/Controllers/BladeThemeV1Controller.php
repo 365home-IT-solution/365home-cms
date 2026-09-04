@@ -230,11 +230,16 @@ class BladeThemeV1Controller extends Controller
 
     public function postDetail($slug)
     {
-        $post = Post::with(['user'])->where('slug', $slug)->first();
+        $post = Post::with(['user', 'categories'])->where('slug', $slug)->first();
 
         if (!$post) {
             abort(404);
         }
+
+        // Danh mục đầu tiên của bài viết, chèn vào breadcrumb (Trang chủ > Bài viết > Danh mục >
+        // Tiêu đề) — trang danh sách bài viết lọc theo danh mục qua query string ?danh-muc=<tên>
+        // (xem PostPage::$selectedCategory), nên link ở đây trỏ thẳng tới bộ lọc đó.
+        $postCategory = $post->categories->first();
 
         $seoOgImage = null;
         if ($post->hasMedia('Ảnh chính')) {
@@ -272,6 +277,7 @@ class BladeThemeV1Controller extends Controller
             'seoData' => $seoData,
             'slug' => $slug,
             'name' => $post->title,
+            'postCategory' => $postCategory,
             'primaryColor' => $this->primaryColor,
             'primaryColorRgb' => $this->primaryColorRgb,
             'heavyPrimaryColor' => $this->heavyPrimaryColor,

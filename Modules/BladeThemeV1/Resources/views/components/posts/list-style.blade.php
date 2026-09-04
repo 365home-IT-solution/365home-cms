@@ -1,11 +1,11 @@
 @foreach ($posts as $post)
     <div
         class="w-full mx-auto bg-white rounded-xl overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 ease-in-out flex flex-col md:flex-row">
-        <div class="w-full md:w-[350px] relative overflow-hidden h-[300px]">
+        <div class="w-full md:w-[350px] relative overflow-hidden h-[300px] bg-gray-100">
             @if ($post->hasMedia('Ảnh chính'))
                 <img src="{{ $post->getFirstMedia('Ảnh chính')->getUrl() }}"
                     alt="{{ $post->getFirstMedia('Ảnh chính')->name ?? $post->title }}"
-                    class="w-full h-full object-cover rounded-t-xl md:rounded-l-xl md:rounded-t-none" />
+                    class="w-full h-full object-contain rounded-t-xl md:rounded-l-xl md:rounded-t-none" />
             @else
                 <div
                     class="w-full h-full rounded-t-xl md:rounded-l-xl md:rounded-t-none flex justify-center items-center bg-gray-50">
@@ -15,19 +15,6 @@
         </div>
         <div class="w-full md:w-3/5 p-6 flex flex-col justify-between">
             <div>
-                <div class="mt-2 flex flex-wrap gap-2">
-                    @if ($post->categories->isNotEmpty())
-                        @foreach ($post->categories as $category)
-                            @if (!empty(trim($category->name)))
-                                <span
-                                    class="bg-primary text-white sm:text-xs md:text-xs mr-2 uppercase text-xs font-semibold px-2.5 py-1 rounded">
-                                    {{ $category->name }}
-                                </span>
-                            @endif
-                        @endforeach
-                    @endif
-                </div>
-
                 <a href="{{ route('post.detail', ['slug' => $post->slug]) }}"s
                     class="hover:text-primary sm:text-xs md:text-lg lg:text-xl font-bold text-gray-900 mt-2 mb-3 hover:text-primary-600 transition-colors duration-200">
                     {{ $post->title }}

@@ -3,9 +3,30 @@
     $primaryColor = $this->primaryColor;
     $darkerPrimaryColor = dechex(hexdec(substr($primaryColor, 1)) - 0x222222);
     $darkerPrimaryColor = '#' . str_pad($darkerPrimaryColor, 6, '0', STR_PAD_LEFT);
+
+    $breadcrumbSchemaItems = [[
+        '@type'    => 'ListItem',
+        'position' => 1,
+        'name'     => 'Trang chủ',
+        'item'     => url('/'),
+    ]];
+    foreach ($breadcrumbs as $index => $breadcrumb) {
+        $breadcrumbSchemaItems[] = [
+            '@type'    => 'ListItem',
+            'position' => $index + 2,
+            'name'     => $breadcrumb['title'],
+            'item'     => $breadcrumb['url'],
+        ];
+    }
+    $breadcrumbSchema = [
+        '@context'        => 'https://schema.org',
+        '@type'           => 'BreadcrumbList',
+        'itemListElement' => $breadcrumbSchemaItems,
+    ];
 @endphp
 <div class="">
     @if ($currentUrl !== '/' && count($breadcrumbs) > 0)
+        <script type="application/ld+json">{!! json_encode($breadcrumbSchema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) !!}</script>
         <nav aria-label="Breadcrumb" class="max-w-screen-xl text-gray-900 mx-auto text-sm md:px-8 px-4">
             <ol class="list-none p-0 inline-flex flex-wrap py-4">
                 <li class="flex items-center">
@@ -23,8 +44,7 @@
                                 {{ $breadcrumb['title'] }}
                             </a>
                         @else
-                            <span class="md:block hidden text-gray-500">{{ $breadcrumb['title'] }}</span>
-                            <span class="md:hidden block text-gray-500">{{ Str::limit($breadcrumb['title'], 35, '...') }}</span>
+                            <span class="text-gray-500">{{ $breadcrumb['title'] }}</span>
                         @endif
                     </li>
                 @endforeach

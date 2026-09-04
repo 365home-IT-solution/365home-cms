@@ -23,7 +23,9 @@
         </div>
         <div class="w-full md:w-auto md:flex items-center justify-between">
             <div class="relative flex">
-                <input wire:model.live="search" type="text" placeholder="Tìm kiếm bài viết..."
+                <input wire:model.live="search" type="search" name="tim-kiem-bai-viet"
+                       autocomplete="off" data-lpignore="true" data-1p-ignore data-form-type="other"
+                       aria-label="Tìm kiếm bài viết" placeholder="Tìm kiếm bài viết..."
                        class="w-full md:w-64 pl-10 pr-4 py-2 focus:ring-0 focus:ring-offset-0 border-gray-300 focus:border-primary rounded-md text-sm focus:outline-none transition-all duration-200">
                 <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
 

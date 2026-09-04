@@ -233,129 +233,105 @@
         font-size: 16px;
     }
 
-    /* Giữ lại CSS TOC của bạn */
-    .toc-parent a {
-        font-size: 18px;
-        font-weight: bold;
+    /* Link trong khung mô tả ngắn dùng màu primary thay vì xanh dương mặc định của trình duyệt,
+       khớp với viền/nền cũng đang dùng --color-primary. */
+    .post-intro a {
+        color: var(--color-primary);
+        font-weight: 600;
+        text-decoration: underline;
     }
 
-    .toc-item a {
-        font-size: 14px;
+    /* Mục lục: item đang active theo vị trí cuộn trang (xem IntersectionObserver bên dưới) */
+    .toc-link.toc-link-active {
+        color: var(--color-primary);
+        font-weight: 600;
+        background-color: rgba(var(--color-primary-rgb), 0.08);
     }
 
-    .toc-parent ul .toc-item a {
-        font-weight: normal;
-    }
-
-    .toc-item {
-        margin-bottom: 5px;
-    }
-
-    .toggle-btn {
-        font-weight: bold;
-        font-size: 16px;
-        margin-right: 5px;
-        cursor: pointer;
+    .toc-link.toc-link-active .toc-dot {
+        background-color: var(--color-primary);
     }
 </style>
 <div class="max-w-screen-xl mx-auto md:px-8 px-4 py-8 flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-8">
 
+    @if (!empty($tocItems))
+        <!-- Nội dung: cột trái sticky, chỉ hiện ở lg+ (dưới lg dùng nút nổi + modal, xem cuối trang) -->
+        <aside class="hidden lg:block lg:w-64 flex-shrink-0">
+            <nav id="toc-sticky" aria-label="Nội dung bài viết" class="sticky top-20 rounded-2xl border overflow-hidden"
+                 style="border-color: rgba(var(--color-primary-rgb), 0.25); background-color: rgba(var(--color-primary-rgb), 0.04);">
+                <div class="flex items-center gap-2 px-4 py-3 font-semibold text-primary">
+                    <x-heroicon-o-list-bullet class="w-5 h-5 flex-shrink-0" />
+                    Nội dung
+                </div>
+                <div class="max-h-[65vh] overflow-y-auto border-t px-4 pb-4 pt-3"
+                     style="border-color: rgba(var(--color-primary-rgb), 0.15);">
+                    <x-bladethemev1::posts.toc-list :items="$tocItems" />
+                </div>
+            </nav>
+        </aside>
+    @endif
+
     <!-- Main Content -->
-    <main class="flex-1 bg-white">
+    <main class="flex-1 min-w-0 bg-white">
         @if ($post)
-            <div id="seo-data" data-seo-title="{{ $post->seo_title }}" data-seo-description="{{ $post->seo_description }}"
-                 data-seo-keyword="{{ $post->seo_keywords }}">
-            </div>
-
-            <div class="flex gap-2">
-                @foreach ($post->categories as $category)
-                    <span class="block px-4 py-2 mb-2 text-sm font-medium bg-primary text-white rounded-md shadow-md">
-                        {{ $category->name }}
-                    </span>
-                @endforeach
-            </div>
-
-
             <article class="bg-white overflow-hidden">
                 <h1 class="md:text-2xl text-xl font-bold text-#E3A008 uppercase text-primary">
                     {{ $post->title }}</h1>
 
                 @php
-                    $featuredImage = $post->getFirstMediaUrl('Ảnh chính');
-                    $wordCount = str_word_count(strip_tags($post->content ?? ''));
-                    $readingMinutes = max(1, (int) ceil($wordCount / 200));
+                    $featuredMedia = $post->getFirstMedia('Ảnh chính');
+                    $featuredImage = $featuredMedia?->getUrl() ?? '';
+                    $featuredImageWidth = $featuredMedia?->getCustomProperty('width');
+                    $featuredImageHeight = $featuredMedia?->getCustomProperty('height');
+
+                    // srcset chỉ liệt kê conversion đã thực sự sinh ra (post cũ upload trước khi
+                    // Post::registerMediaConversions() tồn tại sẽ chưa có — cần chạy lại
+                    // `php artisan media-library:regenerate` để backfill, xem ghi chú ở Post.php).
+                    // Không có conversion nào thì bỏ hẳn srcset, dùng $featuredImage gốc như cũ.
+                    $featuredImageSrcset = collect(['card' => 480, 'wide' => 1080, 'full' => 1440])
+                        ->filter(fn ($width, $conversion) => $featuredMedia?->hasGeneratedConversion($conversion))
+                        ->map(fn ($width, $conversion) => $featuredMedia->getUrl($conversion) . ' ' . $width . 'w')
+                        ->implode(', ');
                 @endphp
 
                 @if($featuredImage)
                     <img src="{{ $featuredImage }}" alt="{{ $post->title }}"
-                         class="w-full hidden h-auto rounded-lg my-4 object-cover max-h-[480px]"
+                         @if($featuredImageWidth) width="{{ $featuredImageWidth }}" @endif
+                         @if($featuredImageHeight) height="{{ $featuredImageHeight }}" @endif
+                         @if($featuredImageSrcset)
+                             srcset="{{ $featuredImageSrcset }}"
+                             sizes="(max-width: 1023px) 100vw, 768px"
+                         @endif
+                         class="w-full h-auto rounded-lg my-4 object-cover max-h-[480px]"
                          loading="lazy">
                 @endif
 
-                <div class="flex hidden flex-wrap justify-between gap-4 md:gap-6 my-4 border-gray-300 py-3 border-b">
-                    <div class="flex flex-wrap items-center gap-4">
-                        <!-- Author -->
-                        <div class="flex items-center gap-2 text-gray-700">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-                                 stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
-                                <path stroke-linecap="round" stroke-linejoin="round"
-                                      d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                            </svg>
-                            <p class="text-sm font-medium">Tác giả: {{ $post->user->fullname ?? $post->user->name ?? 'Ẩn danh' }}</p>
-                        </div>
+                <div class="flex flex-wrap items-center justify-between gap-4 my-4 border-gray-300 py-3 border-b">
+                    <!-- Ngày tạo -->
+                    <span class="flex items-center gap-2 text-gray-700">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                             stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                  d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+                        </svg>
+                        <span class="text-sm font-medium">Ngày tạo: {{ \Carbon\Carbon::parse($post->created_at)->format('d/m/Y') }}</span>
+                    </span>
 
-                        <!-- Date -->
-                        <span class="flex items-center gap-2 text-gray-700">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-                                 stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
-                                <path stroke-linecap="round" stroke-linejoin="round"
-                                      d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
-                            </svg>
-                            <span class="text-sm font-medium">{{ \Carbon\Carbon::parse($post->created_at)->format('d/m/Y') }}</span>
-                        </span>
-
-                        @if($post->updated_at && $post->updated_at->gt($post->created_at->addMinutes(5)))
-                            <!-- Updated date -->
-                            <span class="flex items-center gap-2 text-gray-500">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-                                     stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                                    <path stroke-linecap="round" stroke-linejoin="round"
-                                          d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
-                                </svg>
-                                <span class="text-xs text-gray-500">Cập nhật: {{ \Carbon\Carbon::parse($post->updated_at)->format('d/m/Y') }}</span>
-                            </span>
-                        @endif
-
-                        <!-- Reading time -->
-                        <span class="flex items-center gap-2 text-gray-500">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-                                 stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
-                                <path stroke-linecap="round" stroke-linejoin="round"
-                                      d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                            </svg>
-                            <span class="text-xs text-gray-500">{{ $readingMinutes }} phút đọc</span>
-                        </span>
-                    </div>
+                    @livewire('bladethemev1::post-rating', ['postId' => $post->id], key('post-rating-' . $post->id))
                 </div>
 
                 <div class="">
 
-                    <div class="post-summary text-gray-700 mb-6" style="font-style: italic;">
+                    {{-- Cố tình không dùng class "post-summary" ở đây: class đó bị giới hạn
+                         -webkit-line-clamp: 3 dòng trong app.scss (dùng cho preview tóm tắt ở thẻ
+                         bài viết/overlay danh sách) — trang chi tiết cần hiện trọn vẹn mô tả, chữ
+                         nhiều bao nhiêu cũng không nên bị cắt/dính sát viền dashed bên dưới. --}}
+                    <div class="post-intro text-gray-700 text-sm sm:text-base mb-6 p-4 sm:p-5 rounded-2xl"
+                         style="background-color: rgba(var(--color-primary-rgb), 0.08); border: 2px dashed var(--color-primary);">
                         {!! $post->summary !!}
                     </div>
-                    <div class="toc-wrap md:p-4 p-2" style="border-radius: 10px; ">
-                        <div class="text-center md:text-2xl text-xl cursor-pointer flex justify-between items-center text-primary"
-                             id="toc-toggle">
-                            Mục lục
-                            <span id="toggle-icon" class="ml-2 text-xl">▼</span> <!-- Biểu tượng mũi tên -->
-                        </div>
-                        <div id="toc" class="hidden ">
-                            <!-- Mục lục sẽ được tạo ra ở đây -->
-                        </div>
-                    </div>
-
                     <div class="post-content prose max-w-none">
-                        {!! $post->content !!}
+                        {!! $contentWithIds !!}
                     </div>
 
                     <div>
@@ -492,19 +468,6 @@
                     ])
                 </div>
             </article>
-
-            @if ($relatedPosts->isNotEmpty())
-                <div class="mt-12">
-                    <h2 class="text-xl font-semibold mb-6 text-gray-900">Bài viết liên quan</h2>
-                    <div class="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-                        @foreach ($relatedPosts as $relatedPost)
-                            @include('bladethemev1::components.posts.card', [
-                                'post' => $relatedPost,
-                            ])
-                        @endforeach
-                    </div>
-                </div>
-            @endif
         @else
             <p class="text-center text-gray-600">Không tìm thấy bài viết.</p>
         @endif
@@ -513,151 +476,142 @@
     <!-- Sidebar -->
     <aside class="w-full md:w-1/3 lg:w-1/4 bg-white p-4">
         <nav class="space-y-4">
-            <div class="w-full sm:w-auto relative">
-                @livewire('bladethemev1::post-search')
-            </div>
-            <div class="space-y-6">
-                <h3 class="text-lg font-semibold text-gray-900">Bài viết mới nhất</h3>
-                @foreach ($latestPosts as $post)
-                    <div class="flex items-start space-x-4">
-                        <img src="{{ $post->media->first()->getUrl() }}" alt="{{ $post->title }}"
-                             class="w-16 h-16 rounded-lg object-cover">
-                        <div>
-                            @if ($post->categories->isNotEmpty())
-                                <div class="mb-1">
-                                    <span class="text-xs font-semibold text-primary">
-                                        {{ $post->categories->first()->name }}
-                                    </span>
-                                </div>
-                            @endif
-                            <a href="{{ route('post.detail', ['slug' => $post->slug]) }}"
+            @if ($relatedPosts->isNotEmpty())
+                <div class="space-y-6">
+                    <h3 class="text-lg font-semibold text-gray-900">Bài viết liên quan</h3>
+                    @foreach ($relatedPosts as $relatedPost)
+                        <div class="flex items-start space-x-4">
+                            <img src="{{ $relatedPost->media->first()?->getUrl() }}" alt="{{ $relatedPost->title }}"
+                                 class="w-16 h-16 rounded-lg object-cover flex-shrink-0">
+                            <a href="{{ route('post.detail', ['slug' => $relatedPost->slug]) }}"
                                class="text-sm font-semibold text-black hover:text-primary">
-                                {{ \Illuminate\Support\Str::limit($post->title, 50) }}
+                                {{ \Illuminate\Support\Str::limit($relatedPost->title, 60) }}
                             </a>
-                            <p class="text-xs text-gray-500 mt-1 flex items-center space-x-1">
-                                <i class="far fa-calendar-alt"></i>
-                                <span>{{ $post->published_at?->translatedFormat('d \t\h\á\n\g m, Y') }}</span>
-                            </p>
                         </div>
-                    </div>
-                @endforeach
-            </div>
+                    @endforeach
+                </div>
+            @endif
         </nav>
     </aside>
 </div>
+
+@if (!empty($tocItems))
+    <!-- Nội dung: dưới lg dùng nút nổi + modal thay cho cột sticky (ẩn ở lg+ vì đã có cột trái).
+         z-index > 1000 vì .bottom-navigation-1 (thanh menu dưới cùng site) đứng ở z-index:1000,
+         che khuất mọi thứ z thấp hơn nằm trong vùng của nó. Nút tròn ghim giữa mép trái màn hình
+         (không dính đáy, tránh chồng lên thanh menu dưới); modal hiện dạng thẻ nổi giữa màn hình
+         thay vì bottom-sheet. -->
+    <div class="lg:hidden" x-data="{ open: false }">
+        <button type="button" @click="open = true" aria-label="Mở mục lục nội dung"
+                class="fixed left-4 top-1/2 -translate-y-1/2 z-[1010] flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg"
+                style="background-color: var(--color-primary);">
+            <x-heroicon-o-list-bullet class="w-6 h-6 flex-shrink-0" />
+        </button>
+
+        <div x-show="open" x-cloak x-transition.opacity @click="open = false"
+             class="fixed inset-0 z-[1005] bg-black/40"></div>
+
+        <div x-show="open" x-cloak x-transition
+             class="fixed left-1/2 top-1/2 z-[1010] w-[calc(100%-3rem)] max-w-md -translate-x-1/2 -translate-y-1/2 max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
+            <div class="mb-4 flex items-center justify-between">
+                <span class="flex items-center gap-2 text-lg font-semibold text-primary">
+                    <x-heroicon-o-list-bullet class="w-6 h-6 flex-shrink-0" />
+                    Nội dung
+                </span>
+                <button type="button" @click="open = false" aria-label="Đóng">
+                    <x-heroicon-o-x-mark class="w-6 h-6 text-gray-500" />
+                </button>
+            </div>
+            <div @click="if ($event.target.closest('.toc-link')) open = false">
+                <x-bladethemev1::posts.toc-list :items="$tocItems" />
+            </div>
+        </div>
+    </div>
+@endif
+
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        const headings = document.querySelectorAll(
-            '.post-content h1, .post-content h2, .post-content h3, .post-content h4, .post-content h5, .post-content h6'
-        );
-        const tocContainer = document.querySelector('#toc');
-        const tocWrap = document.querySelector('.toc-wrap');
-
-        if (headings.length === 0 || !tocContainer || !tocWrap) {
-            console.log('No headings found or TOC elements missing, hiding TOC');
-            if (tocWrap) {
-                tocWrap.style.display = 'none';
+        // Ảnh có caption trong TinyMCE (image_caption: true) được bọc <figure><img><figcaption>.
+        // Biên tập viên hay chỉ điền caption mà quên ô Alt text riêng trong dialog ảnh — điền lại
+        // alt từ caption cho những ảnh còn thiếu, tránh mất điểm accessibility/SEO ảnh.
+        document.querySelectorAll('.post-content figure').forEach(function(figure) {
+            const img = figure.querySelector('img');
+            const figcaption = figure.querySelector('figcaption');
+            if (img && figcaption && !img.getAttribute('alt')) {
+                img.setAttribute('alt', figcaption.textContent.trim());
             }
-            return;
+        });
+
+        // Id của heading + cây mục lục giờ được build sẵn ở server (TableOfContents::build, xem
+        // PostDetail.php) — JS chỉ còn lo phần tương tác: cuộn mượt, thu/phóng khung, và tô đậm
+        // mục đang đọc theo vị trí cuộn (progressive enhancement, không ảnh hưởng gì nếu JS lỗi).
+        const headings = document.querySelectorAll('.post-content h1, .post-content h2, .post-content h3');
+        headings.forEach(heading => heading.classList.add('text-primary'));
+
+        // Header dùng position:sticky và tự co giãn chiều cao khi cuộn (xem header-hero-sticky),
+        // nên top cố định bằng Tailwind (top-20) sẽ lúc đúng lúc không — đo chiều cao header thật
+        // và ghim cột "Nội dung" ngay dưới nó, cập nhật lại mỗi khi cuộn/resize.
+        const tocSticky = document.getElementById('toc-sticky');
+        const stickyHeader = document.querySelector('.header-hero-sticky');
+
+        if (tocSticky && stickyHeader) {
+            const syncTocTop = () => {
+                tocSticky.style.top = (stickyHeader.offsetHeight + 16) + 'px';
+            };
+
+            syncTocTop();
+            window.addEventListener('resize', syncTocTop);
+
+            let tocTopTicking = false;
+            window.addEventListener('scroll', () => {
+                if (tocTopTicking) return;
+                tocTopTicking = true;
+                requestAnimationFrame(() => {
+                    syncTocTop();
+                    tocTopTicking = false;
+                });
+            });
         }
 
-        const startingLevel = parseInt(headings[0].tagName[1]); // Get the first heading level
-        const toc = document.createElement('ul');
-        toc.classList.add('space-y-2', 'px-2');
-        toc.style.listStyle = 'auto';
-        const prevLevels = Array(6).fill(0); // Tracks heading levels
+        // Nội dung giờ có 2 bản trong DOM (cột sticky lg+ và modal mobile, xem trên) — cùng
+        // chọn hết qua .toc-link, bản nào đang ẩn theo breakpoint thì không ai bấm được nên
+        // không cần phân biệt.
+        const tocLinks = document.querySelectorAll('.toc-link');
 
-        let lastList = toc; // Tracks the last list element (for nesting)
-
-        headings.forEach(heading => {
-            const level = parseInt(heading.tagName[1]);
-
-            // Update the numbering for the current level
-            prevLevels[level - 1]++;
-            for (let i = level; i < prevLevels.length; i++) {
-                prevLevels[i] = 0; // Reset lower levels
-            }
-
-            const newHeadingId = `${heading.textContent.toLowerCase().replace(/ /g, '-')}`;
-            heading.id = newHeadingId;
-
-            const anchor = document.createElement('a');
-            anchor.setAttribute('href', `#${newHeadingId}`);
-            anchor.textContent = heading.textContent;
-
-            anchor.addEventListener('click', (event) => {
+        tocLinks.forEach(link => {
+            link.addEventListener('click', function(event) {
                 event.preventDefault();
-                const targetId = event.target.getAttribute('href').slice(1);
+                const targetId = this.getAttribute('href').slice(1);
                 const targetElement = document.getElementById(targetId);
+                if (!targetElement) return;
 
                 const offset = 70;
-                const elementPosition = targetElement.getBoundingClientRect().top;
-                const offsetPosition = elementPosition + window.pageYOffset - offset;
+                const offsetPosition = targetElement.getBoundingClientRect().top + window.pageYOffset - offset;
 
-                window.scrollTo({
-                    top: offsetPosition,
-                    behavior: "smooth"
-                });
-
+                window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
                 history.pushState(null, null, `#${targetId}`);
             });
-
-            const listItem = document.createElement('li');
-            listItem.classList.add('md:text-lg', 'text-md');
-            listItem.appendChild(anchor);
-
-            // Determine nesting level and append accordingly
-            if (level > startingLevel) {
-                const lastItemSublist = document.createElement('ul');
-                lastList.appendChild(lastItemSublist);
-                lastList = lastItemSublist;
-            } else if (level < startingLevel) {
-                lastList = toc;
-            }
-
-            lastList.appendChild(listItem);
         });
 
-        tocContainer.innerHTML = '';
-        tocContainer.appendChild(toc);
+        if ('IntersectionObserver' in window && tocLinks.length > 0) {
+            const tocHeadings = Array.from(tocLinks)
+                .map(link => document.getElementById(link.getAttribute('href').slice(1)))
+                .filter(Boolean);
 
-        // Add toggle feature for parents with more than 2 children
-        const parents = document.querySelectorAll('.toc-parent');
-        parents.forEach(parent => {
-            const subList = parent.querySelector('ul');
-            if (subList && subList.children.length > 1) {
-                // Add the toggle functionality
-                const toggleButton = document.createElement('span');
-                toggleButton.textContent = '▼';
-                toggleButton.classList.add('toggle-btn');
-                toggleButton.style.cursor = 'pointer';
-                toggleButton.style.marginRight = '5px';
-
-                toggleButton.addEventListener('click', function() {
-                    const isHidden = subList.style.display === 'none';
-                    subList.style.display = isHidden ? 'block' : 'none';
-                    toggleButton.textContent = isHidden ? '▲' : '▼';
+            const setActiveLink = (id) => {
+                tocLinks.forEach(link => {
+                    link.classList.toggle('toc-link-active', link.getAttribute('href') === `#${id}`);
                 });
+            };
 
-                parent.prepend(toggleButton); // Insert before the anchor
-                subList.style.display = 'none'; // Initially collapse the list
-            }
-        });
+            const observer = new IntersectionObserver((entries) => {
+                const visible = entries.find(entry => entry.isIntersecting);
+                if (visible) {
+                    setActiveLink(visible.target.id);
+                }
+            }, { rootMargin: '-80px 0px -70% 0px' });
 
-        // Change heading colors based on levels
-        headings.forEach(heading => {
-            if (heading.tagName === 'H1' || heading.tagName === 'H2' || heading.tagName === 'H3') {
-                heading.classList.add('text-primary');
-            }
-        });
-
-        // Toggle functionality for TOC
-        const tocToggle = document.getElementById('toc-toggle');
-        const toggleIcon = document.getElementById('toggle-icon');
-
-        tocToggle.addEventListener('click', function() {
-            tocContainer.classList.toggle('hidden');
-            toggleIcon.textContent = tocContainer.classList.contains('hidden') ? '▼' : '▲';
-        });
+            tocHeadings.forEach(heading => observer.observe(heading));
+        }
     });
 </script>

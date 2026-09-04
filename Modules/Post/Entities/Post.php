@@ -10,8 +10,10 @@ use Illuminate\Support\Facades\Auth;
 use Modules\Category\Entities\Category;
 use Modules\Category\Traits\Categorizable;
 use Modules\Comment\Entities\Comment;
+use Spatie\Image\Enums\Fit;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Spatie\Tags\HasTags;
 
 class Post extends Model implements HasMedia
@@ -80,5 +82,35 @@ class Post extends Model implements HasMedia
     public function comments()
     {
         return $this->morphMany(Comment::class, 'commentable');
+    }
+
+    public function ratings()
+    {
+        return $this->hasMany(PostRating::class);
+    }
+
+    public function ratingAverage(): float
+    {
+        return round((float) $this->ratings()->avg('rating'), 1);
+    }
+
+    public function ratingCount(): int
+    {
+        return $this->ratings()->count();
+    }
+
+    // Cùng convention với Modules\Product\App\Models\Product::registerMediaConversions() — dùng
+    // chung tên/kích thước để srcset responsive trên frontend đọc được nhất quán giữa các loại
+    // media. Ảnh cũ đã upload trước khi thêm hàm này cần chạy lại:
+    // php artisan media-library:regenerate --only="Modules\Post\Entities\Post"
+    public function registerMediaConversions(?Media $media = null): void
+    {
+        foreach (['thumb' => 240, 'card' => 480, 'wide' => 1080, 'full' => 1440] as $name => $size) {
+            $this->addMediaConversion($name)
+                ->fit(Fit::Max, $size, $size)
+                ->format('avif')
+                ->quality(72)
+                ->nonQueued();
+        }
     }
 }

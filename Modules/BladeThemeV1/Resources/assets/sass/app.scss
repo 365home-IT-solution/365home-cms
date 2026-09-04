@@ -1,6 +1,14 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+// Chuẩn Alpine.js: ẩn phần tử x-cloak trước khi Alpine kịp khởi tạo (tránh flash nội dung), rồi
+// Alpine tự gỡ attribute này khi boot xong, nhường quyền hiện/ẩn hoàn toàn cho x-show. Không dùng
+// class "hidden" cùng x-show — class đó không tự gỡ khi Alpine set display trở lại nên phần tử
+// sẽ kẹt ẩn vĩnh viễn (đã gặp lỗi này ở modal mục lục mobile).
+[x-cloak] {
+    display: none !important;
+}
 @import "lightgallery/css/lightgallery-bundle.min.css";
 @import "plyr/dist/plyr.css";
 // Using the SCSS source (not css/all.min.css) so we can set $fa-font-display: swap — the
@@ -267,9 +275,18 @@ html {
     border-radius: 10px;
 }
 
+.post-content figure {
+    margin: 1.5em auto;
+    text-align: center;
+}
+
 .post-content figcaption {
     display: flex;
     justify-content: center;
+    margin-top: 0.5em;
+    font-size: 0.85em;
+    font-style: italic;
+    color: #6b7280;
 }
 
 .post-content.prose.max-w-none {

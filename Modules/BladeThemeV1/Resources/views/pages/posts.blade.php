@@ -17,7 +17,7 @@
                 'config' => [
                     'component' => [
                         'show_sidebar' => false,
-                        'columns' => 3,
+                        'columns' => 4,
                         'number-post' => 9,
                         'show_pagination' => true,
                         'location-sidebar' => '',

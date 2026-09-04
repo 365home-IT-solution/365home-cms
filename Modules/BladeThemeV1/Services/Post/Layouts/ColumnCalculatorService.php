@@ -32,10 +32,6 @@ class ColumnCalculatorService
 
         $columns = $this->determineSelectedColumns();
 
-        if ($this->showSidebar && $columns === 4) {
-            return "xs:grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3";
-        }
-
         return match ($columns) {
             1 => "xs:grid-cols-1 sm:grid-cols-1 md:grid-cols-1 lg:grid-cols-1 xl:grid-cols-1",
             2 => "xs:grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2",
@@ -54,8 +50,6 @@ class ColumnCalculatorService
 
     protected function calculateLgColumns(int $selectedColumns): int
     {
-        return ($this->showSidebar && $selectedColumns === 4)
-            ? 3
-            : $selectedColumns;
+        return $selectedColumns;
     }
 }
