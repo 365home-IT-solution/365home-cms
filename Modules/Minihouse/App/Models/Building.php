@@ -12,7 +12,7 @@ class Building extends Model
 
     protected $table = 'minihouse_buildings';
 
-    protected $fillable = ['name', 'address', 'note'];
+    protected $fillable = ['name', 'address', 'note', 'image'];
 
     public function rooms(): HasMany
     {

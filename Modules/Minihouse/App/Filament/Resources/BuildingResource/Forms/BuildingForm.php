@@ -2,6 +2,7 @@
 
 namespace Modules\Minihouse\App\Filament\Resources\BuildingResource\Forms;
 
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
@@ -22,6 +23,14 @@ class BuildingForm
                     TextInput::make('address')
                         ->label('Địa chỉ')
                         ->maxLength(255),
+                    FileUpload::make('image')
+                        ->label('Ảnh toà nhà')
+                        ->image()
+                        ->imageEditor()
+                        ->imagePreviewHeight('150')
+                        ->directory('minihouse/buildings')
+                        ->disk('public')
+                        ->columnSpanFull(),
                     Textarea::make('note')
                         ->label('Ghi chú')
                         ->columnSpanFull(),

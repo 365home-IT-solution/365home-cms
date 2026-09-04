@@ -26,7 +26,7 @@ class EditTheme extends EditRecord
     public function getBreadcrumbs(): array
     {
         return [
-            url('/admin/themes') => 'Theme',
+            ThemeResource::getUrl('index') => 'Theme',
             '' => 'Cấu hình theme',
         ];
     }

@@ -19,7 +19,7 @@ class Transaction extends Model
 
     protected $table = 'minihouse_transactions';
 
-    protected $fillable = ['contract_id', 'type', 'category', 'amount', 'transaction_date', 'note'];
+    protected $fillable = ['contract_id', 'type', 'category', 'amount', 'transaction_date', 'note', 'receipt_image'];
 
     protected $casts = [
         'transaction_date' => 'date',

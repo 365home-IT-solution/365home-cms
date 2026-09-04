@@ -113,13 +113,17 @@ class OrderObserver
     {
         // Chỉ log khi admin tạo đơn trực tiếp từ admin panel.
         // Admin panel và frontend dùng chung web guard nên phải kiểm tra qua Referer header:
-        //   - Admin panel: Referer chứa '/admin/'  → log
-        //   - Frontend (client hoặc admin test UI): Referer không chứa '/admin/' → bỏ qua
+        //   - Admin panel: Referer chứa '/home-admin/' → log
+        //   - Frontend (client hoặc admin test UI): Referer không chứa '/home-admin/' → bỏ qua
         //   - Webhook PayOS: auth()->user() = null → bỏ qua
+        // LƯU Ý: '/home-admin/' phải khớp path() của AdminPanelProvider (App\Providers\Filament\
+        // AdminPanelProvider) — đổi path panel ở đó thì PHẢI đổi cả chuỗi này, nếu không toàn bộ
+        // audit-log tạo/sửa đơn từ admin panel sẽ ngừng ghi mà không có lỗi/cảnh báo nào (đã xảy ra
+        // 1 lần khi đổi /admin -> /home-admin, phát hiện muộn).
         $user    = auth()->user();
         $referer = request()->headers->get('referer', '');
 
-        if ($user && str_contains($referer, '/admin/')) {
+        if ($user && str_contains($referer, '/home-admin/')) {
             AuditLogger::log(
                 action: 'create',
                 module: 'Order',
@@ -192,7 +196,8 @@ class OrderObserver
 
         if (! empty($changed)) {
             $referer = request()->headers->get('referer', '');
-            if (str_contains($referer, '/admin/')) {
+            // Xem giải thích ở created() — chuỗi này phải khớp path() của AdminPanelProvider.
+            if (str_contains($referer, '/home-admin/')) {
                 $old = array_intersect_key($order->getOriginal(), $changed);
                 $new = $changed;
 

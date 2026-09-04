@@ -9,7 +9,7 @@ class Amenity extends Model
 {
     protected $table = 'minihouse_amenities';
 
-    protected $fillable = ['name'];
+    protected $fillable = ['name', 'image'];
 
     public function rooms(): BelongsToMany
     {

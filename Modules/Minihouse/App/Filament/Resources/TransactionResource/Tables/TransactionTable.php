@@ -5,6 +5,7 @@ namespace Modules\Minihouse\App\Filament\Resources\TransactionResource\Tables;
 use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Actions\DeleteBulkAction;
 use Filament\Tables\Actions\EditAction;
+use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
@@ -29,6 +30,8 @@ class TransactionTable
                 TextColumn::make('amount')->label('Số tiền')->money('VND')->sortable(),
                 TextColumn::make('contract.room.code')->label('Phòng')->searchable(),
                 TextColumn::make('note')->label('Ghi chú')->limit(40)->searchable(),
+                ImageColumn::make('receipt_image')->label('Biên lai')->circular()
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 SelectFilter::make('type')

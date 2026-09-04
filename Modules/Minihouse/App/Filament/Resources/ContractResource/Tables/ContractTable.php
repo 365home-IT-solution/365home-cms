@@ -5,6 +5,7 @@ namespace Modules\Minihouse\App\Filament\Resources\ContractResource\Tables;
 use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Actions\DeleteBulkAction;
 use Filament\Tables\Actions\EditAction;
+use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
@@ -35,6 +36,17 @@ class ContractTable
                     Contract::STATUS_CANCELLED => 'danger',
                     default => 'gray',
                 }),
+                // Chỉ báo nhanh đã có/thiếu giấy tờ lưu trữ (mục "5. Hợp đồng & giấy tờ" trong docs)
+                // — mở file thật thì vào Sửa, FileUpload tự hiện link tải xuống.
+                IconColumn::make('contract_file')->label('Hợp đồng')->boolean()
+                    ->getStateUsing(fn (Contract $record) => filled($record->contract_file))
+                    ->toggleable(isToggledHiddenByDefault: true),
+                IconColumn::make('handover_file')->label('Biên bản bàn giao')->boolean()
+                    ->getStateUsing(fn (Contract $record) => filled($record->handover_file))
+                    ->toggleable(isToggledHiddenByDefault: true),
+                IconColumn::make('deposit_receipt_file')->label('Biên bản đặt cọc')->boolean()
+                    ->getStateUsing(fn (Contract $record) => filled($record->deposit_receipt_file))
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 SelectFilter::make('room_id')

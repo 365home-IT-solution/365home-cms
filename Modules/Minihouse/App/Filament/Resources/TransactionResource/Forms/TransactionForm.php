@@ -3,6 +3,7 @@
 namespace Modules\Minihouse\App\Filament\Resources\TransactionResource\Forms;
 
 use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -55,6 +56,14 @@ class TransactionForm
                         ->preload(),
                     Textarea::make('note')
                         ->label('Ghi chú')
+                        ->columnSpanFull(),
+                    FileUpload::make('receipt_image')
+                        ->label('Ảnh biên lai / hoá đơn')
+                        ->image()
+                        ->imageEditor()
+                        ->directory('minihouse/transactions')
+                        ->disk('public')
+                        ->visible(fn (Get $get) => $get('type') === Transaction::TYPE_OUT)
                         ->columnSpanFull(),
                 ]),
         ]);
