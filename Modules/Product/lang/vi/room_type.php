@@ -2,10 +2,10 @@
 
 return [
     'resource' => [
-        'navigation_label' => 'Danh mục Phòng',
-        'model_label'      => 'Danh mục Phòng',
-        'plural_model_label' => 'Danh mục Phòng',
-        'navigation_group' => 'Quản lý API',
+        'navigation_label' => 'Loại hình phòng',
+        'model_label'      => 'Loại hình phòng',
+        'plural_model_label' => 'Loại hình phòng',
+        'navigation_group' => 'Quản lý',
         'navigation_icon'  => 'heroicon-o-tag',
     ],
     'form' => [

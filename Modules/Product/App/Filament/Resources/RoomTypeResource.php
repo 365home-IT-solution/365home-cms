@@ -16,13 +16,6 @@ class RoomTypeResource extends Resource
 {
     protected static ?string $model = RoomType::class;
 
-    // Gộp vào mục "Thông tin & Cấu hình Phòng" đã bỏ khỏi menu — ẩn tạm, giữ nguyên route/API.
-    // Bật lại bằng cách xoá method này.
-    public static function shouldRegisterNavigation(): bool
-    {
-        return false;
-    }
-
     public static function getNavigationIcon(): string
     {
         return __('product::room_type.resource.navigation_icon');

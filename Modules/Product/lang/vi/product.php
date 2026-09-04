@@ -49,6 +49,7 @@ return [
             'width' => 'Chiều rộng',
             'height' => 'Chiều cao',
             'categories' => 'Chi nhánh & Khu vực',
+            'room_type' => 'Loại hình phòng',
             'tags' => 'Tiện ích',
         ],
         'placeholder' => [
@@ -64,6 +65,7 @@ return [
             'width' => '0',
             'height' => '0',
             'categories' => 'Chọn chi nhánh/khu vực Phòng',
+            'room_type' => 'Chọn loại hình phòng',
             'tags' => 'Nhập tiện nghi',
         ],
         'suffix' => [
@@ -88,6 +90,7 @@ return [
             'width' => 'Chiều rộng của Phòng',
             'height' => 'Chiều cao của Phòng',
             'categories' => 'Chọn một hoặc nhiều chi nhánh & khu vực cho Phòng',
+            'room_type' => 'Bắt buộc để URL chi tiết phòng tự chuyển đúng dạng /loại-hình/khu-vực/chi-nhánh/phòng',
             'tags' => 'Thêm các tiện nghi liên quan đến Phòng',
         ],
         'options' => [

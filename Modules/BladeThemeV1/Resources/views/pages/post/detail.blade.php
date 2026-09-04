@@ -5,7 +5,7 @@
 @section('content')
     @livewire('bladethemev1::header')
     @livewire('bladethemev1::drawer-menu')
-    @livewire('bladethemev1::breadcrumb', ['slug' => $slug, 'name' => $name, 'parents' => [['title' => 'Bài viết', 'url' => route('posts.page')]]])
+    @livewire('bladethemev1::breadcrumb', ['slug' => $slug, 'name' => $name, 'parents' => [['title' => 'Bài viết', 'url' => url('/bai-viet')]]])
     @livewire('bladethemev1::post-detail', ['slug' => $slug])
     @livewire('bladethemev1::footer')
     @livewire('bladethemev1::contact-link')

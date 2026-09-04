@@ -437,15 +437,51 @@
                             <div class="pd-mobile-slider"
                                 @scroll="slideIdx = Math.round($event.target.scrollLeft / $event.target.clientWidth)">
                                 @if ($hasVideoPd)
-                                    <div class="pd-mobile-slide" style="cursor:pointer;"
-                                        @click="show(0)">
-                                        <img src="{{ $mainImg }}" alt="{{ $product->name ?? 'Video phòng' }}">
-                                        <span class="pd-mobile-play-btn">
-                                            <svg viewBox="0 0 24 24" fill="#111827">
-                                                <polygon points="6,4 20,12 6,20" />
-                                            </svg>
-                                        </span>
-                                    </div>
+                                    @if ($videoResolvedPd['supportsMutedAutoplay'])
+                                        {{-- Tự phát video (muted) ngay trong slide đầu tiên — chạm vào
+                                             để bật tiếng, không mở lightbox nữa. --}}
+                                        <div class="pd-mobile-slide" style="position:relative;" x-data="{
+                                            muted: true,
+                                            unmute() {
+                                                this.muted = false;
+                                                const f = this.$refs.pdVidFrameM;
+                                                if (f && f.contentWindow) {
+                                                    f.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'unMute', args: [] }), '*');
+                                                    f.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setVolume', args: [100] }), '*');
+                                                }
+                                            }
+                                        }">
+                                            @if ($videoResolvedPd['isEmbed'])
+                                                <iframe x-ref="pdVidFrameM" src="{{ $videoResolvedPd['mutedEmbedUrl'] }}"
+                                                    title="{{ e($product->name ?? 'Video phòng') }}"
+                                                    style="width:100%;height:100%;border:none;display:block;"
+                                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                                    allowfullscreen></iframe>
+                                            @else
+                                                <video x-ref="pdVidFrameM" :muted="muted" src="{{ $videoResolvedPd['embedUrl'] }}"
+                                                    autoplay loop playsinline
+                                                    style="width:100%;height:100%;object-fit:cover;display:block;"></video>
+                                            @endif
+                                            <div x-show="muted" class="absolute bottom-3 left-3 z-10 flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1.5 pointer-events-none">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+                                                    <path d="M3 9v6h4l5 5V4L7 9H3z" />
+                                                    <path d="M16 8l4 8m0-8l-4 8" stroke="white" stroke-width="1.8" stroke-linecap="round" />
+                                                </svg>
+                                            </div>
+                                            <div x-show="muted" class="absolute inset-0 cursor-pointer" style="z-index:5;"
+                                                @click="unmute()" aria-label="Bật tiếng video"></div>
+                                        </div>
+                                    @else
+                                        <div class="pd-mobile-slide" style="cursor:pointer;"
+                                            @click="show(0)">
+                                            <img src="{{ $mainImg }}" alt="{{ $product->name ?? 'Video phòng' }}">
+                                            <span class="pd-mobile-play-btn">
+                                                <svg viewBox="0 0 24 24" fill="#111827">
+                                                    <polygon points="6,4 20,12 6,20" />
+                                                </svg>
+                                            </span>
+                                        </div>
+                                    @endif
                                 @endif
                                 @foreach ($allImgs->values() as $i => $img)
                                     <div class="pd-mobile-slide"
@@ -467,20 +503,59 @@
                         <div class="hidden md:grid relative grid-cols-4 grid-rows-2 gap-2 rounded-xl overflow-hidden mb-6"
                             style="height:420px;">
                             @if ($hasVideoPd)
-                                {{-- Video — poster + nút play, click mở lightbox chung (video là
-                                     slide đầu tiên) thay vì phát tại chỗ, để có thể lướt tiếp sang
-                                     ảnh chính/ảnh phụ ngay trong cùng 1 khung xem. --}}
-                                <div class="col-span-2 row-span-2 relative">
-                                    <img src="{{ $mainImg }}" alt="{{ $product->name ?? 'Video phòng' }}"
-                                        class="absolute inset-0 w-full h-full object-cover cursor-pointer"
-                                        @click="show(0)">
-                                    <button type="button" @click="show(0)"
-                                        class="pd-mobile-play-btn" aria-label="Phát video phòng">
-                                        <svg viewBox="0 0 24 24" fill="#111827">
-                                            <polygon points="6,4 20,12 6,20" />
-                                        </svg>
-                                    </button>
-                                </div>
+                                @if ($videoResolvedPd['supportsMutedAutoplay'])
+                                    {{-- Tự phát video (muted) ngay khi vào trang thay vì hiện ảnh
+                                         tĩnh — click vào để bật tiếng (unmute), không mở lightbox
+                                         nữa (xem "Xem tất cả ảnh" bên dưới để xem qua ảnh/video). --}}
+                                    <div class="col-span-2 row-span-2 relative" x-data="{
+                                        muted: true,
+                                        unmute() {
+                                            this.muted = false;
+                                            const f = this.$refs.pdVidFrame;
+                                            if (f && f.contentWindow) {
+                                                f.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'unMute', args: [] }), '*');
+                                                f.contentWindow.postMessage(JSON.stringify({ event: 'command', func: 'setVolume', args: [100] }), '*');
+                                            }
+                                        }
+                                    }">
+                                        @if ($videoResolvedPd['isEmbed'])
+                                            <iframe x-ref="pdVidFrame" src="{{ $videoResolvedPd['mutedEmbedUrl'] }}"
+                                                title="{{ e($product->name ?? 'Video phòng') }}"
+                                                class="absolute inset-0 w-full h-full" style="border:none;"
+                                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                                allowfullscreen></iframe>
+                                        @else
+                                            <video x-ref="pdVidFrame" :muted="muted" src="{{ $videoResolvedPd['embedUrl'] }}"
+                                                autoplay loop playsinline
+                                                class="absolute inset-0 w-full h-full object-cover"></video>
+                                        @endif
+                                        {{-- Icon loa (trạng thái) — nằm dưới lớp overlay bắt click --}}
+                                        <div x-show="muted" class="absolute bottom-3 left-3 z-10 flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1.5 pointer-events-none">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+                                                <path d="M3 9v6h4l5 5V4L7 9H3z" />
+                                                <path d="M16 8l4 8m0-8l-4 8" stroke="white" stroke-width="1.8" stroke-linecap="round" />
+                                            </svg>
+                                        </div>
+                                        {{-- Overlay bắt click để unmute — chỉ tồn tại khi đang muted,
+                                             mất đi sau khi bật tiếng để lộ control gốc của player. --}}
+                                        <div x-show="muted" class="absolute inset-0 cursor-pointer" style="z-index:5;"
+                                            @click="unmute()" aria-label="Bật tiếng video"></div>
+                                    </div>
+                                @else
+                                    {{-- TikTok/Facebook: embed không có API mute/unmute qua postMessage
+                                         đáng tin cậy — giữ hành vi cũ (poster + click mở lightbox). --}}
+                                    <div class="col-span-2 row-span-2 relative">
+                                        <img src="{{ $mainImg }}" alt="{{ $product->name ?? 'Video phòng' }}"
+                                            class="absolute inset-0 w-full h-full object-cover cursor-pointer"
+                                            @click="show(0)">
+                                        <button type="button" @click="show(0)"
+                                            class="pd-mobile-play-btn" aria-label="Phát video phòng">
+                                            <svg viewBox="0 0 24 24" fill="#111827">
+                                                <polygon points="6,4 20,12 6,20" />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                @endif
                             @else
                                 <div class="col-span-2 row-span-2 relative">
                                     <img src="{{ $mainImg }}" alt="{{ $product->name ?? 'Ảnh chính' }}"

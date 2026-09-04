@@ -72,6 +72,15 @@ class ProductForm
                 ->helperText(__('product::product.form.helper_text.categories'))
                 ->inlineLabel(),
 
+            Select::make('room_type_id')
+                ->label(__('product::product.form.label.room_type'))
+                ->relationship('roomType', 'name')
+                ->searchable()
+                ->preload()
+                ->placeholder(__('product::product.form.placeholder.room_type'))
+                ->helperText(__('product::product.form.helper_text.room_type'))
+                ->inlineLabel(),
+
             Select::make('tags')
                 ->label(__('product::product.form.label.tags'))
                 ->relationship('tags', 'name')
