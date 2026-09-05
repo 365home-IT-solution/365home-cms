@@ -6,7 +6,7 @@
             <nav id="toc-sticky" aria-label="Nội dung bài viết" class="sticky top-20 rounded-2xl border overflow-hidden"
                  style="border-color: rgba(var(--color-primary-rgb), 0.25); background-color: rgba(var(--color-primary-rgb), 0.04);">
                 <div class="flex items-center gap-2 px-4 py-3 font-semibold text-primary">
-                    <x-heroicon-o-list-bullet class="w-5 h-5 flex-shrink-0" />
+                    <svg class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true"><use href="#i-list-bullet" /></svg>
                     Nội dung
                 </div>
                 <div class="max-h-[65vh] overflow-y-auto border-t px-4 pb-4 pt-3"
@@ -117,11 +117,7 @@
                                target="_blank">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36"
                                      viewBox="0 0 93 92" fill="none">
-                                    <rect x="1.13867" width="91.5618" height="91.5618" rx="15"
-                                          fill="#337FFF" />
-                                    <path
-                                        d="M57.4233 48.6403L58.7279 40.3588H50.6917V34.9759C50.6917 32.7114 51.8137 30.4987 55.4013 30.4987H59.1063V23.4465C56.9486 23.1028 54.7685 22.9168 52.5834 22.8901C45.9692 22.8901 41.651 26.8626 41.651 34.0442V40.3588H34.3193V48.6403H41.651V68.671H50.6917V48.6403H57.4233Z"
-                                        fill="white" />
+                                    <use href="#i-social-facebook" />
                                 </svg>
                             </a>
                             <span
@@ -138,11 +134,7 @@
                                target="_blank">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36"
                                      viewBox="0 0 93 92" fill="none">
-                                    <rect x="0.138672" width="91.5618" height="91.5618" rx="15"
-                                          fill="black" />
-                                    <path
-                                        d="M50.7568 42.1716L69.3704 21H64.9596L48.7974 39.383L35.8887 21H21L40.5205 48.7983L21 71H25.4111L42.4788 51.5869L56.1113 71H71L50.7557 42.1716H50.7568ZM44.7152 49.0433L42.7374 46.2752L27.0005 24.2492H33.7756L46.4755 42.0249L48.4533 44.7929L64.9617 67.8986H58.1865L44.7152 49.0443V49.0433Z"
-                                        fill="white" />
+                                    <use href="#i-social-x" />
                                 </svg>
                             </a>
                             <span
@@ -159,23 +151,7 @@
                                target="_blank">
                                 <svg width="36" height="36" viewBox="0 0 92 92" fill="none"
                                      xmlns="http://www.w3.org/2000/svg">
-                                    <rect x="0.638672" y="0.5" width="90.5618" height="90.5618" rx="14.5"
-                                          fill="white" stroke="#C4CFE3" />
-                                    <path
-                                        d="M22.0065 66.1236H30.4893V45.5227L18.3711 36.4341V62.4881C18.3711 64.4997 20.001 66.1236 22.0065 66.1236Z"
-                                        fill="#4285F4" />
-                                    <path
-                                        d="M59.5732 66.1236H68.056C70.0676 66.1236 71.6914 64.4937 71.6914 62.4881V36.4341L59.5732 45.5227"
-                                        fill="#34A853" />
-                                    <path
-                                        d="M59.5732 29.7693V45.5229L71.6914 36.4343V31.587C71.6914 27.0912 66.5594 24.5282 62.9663 27.2245"
-                                        fill="#FBBC04" />
-                                    <path
-                                        d="M30.4893 45.5227V29.769L45.0311 40.6754L59.5729 29.769V45.5227L45.0311 56.429"
-                                        fill="#EA4335" />
-                                    <path
-                                        d="M18.3711 31.587V36.4343L30.4893 45.5229V29.7693L27.0962 27.2245C23.4971 24.5282 18.3711 27.0912 18.3711 31.587Z"
-                                        fill="#C5221F" />
+                                    <use href="#i-social-mail" />
                                 </svg>
                             </a>
                             <span
@@ -191,11 +167,7 @@
                             <a href="https://t.me/share/url?url={{ urlencode($url) }}&text={{ $title }}">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36"
                                      viewBox="0 0 92 93" fill="none">
-                                    <rect x="0.138672" y="1" width="91.5618" height="91.5618" rx="15"
-                                          fill="#34AADF" />
-                                    <path
-                                        d="M25.0881 43.5652C25.0881 43.5652 43.716 35.7194 50.1765 32.9567C52.6532 31.8518 61.0518 28.3155 61.0518 28.3155C61.0518 28.3155 64.9282 26.7685 64.6052 30.5256C64.4974 32.0728 63.6361 37.4874 62.7747 43.3442C61.4825 51.6322 60.0827 60.6935 60.0827 60.6935C60.0827 60.6935 59.8674 63.2352 58.0369 63.6772C56.2065 64.1192 53.1914 62.1302 52.6532 61.6881C52.2223 61.3566 44.5774 56.3838 41.7778 53.9527C41.0241 53.2897 40.1627 51.9637 41.8854 50.4166C45.7618 46.7699 50.3919 42.2392 53.1914 39.3661C54.4836 38.04 55.7757 34.9459 50.3919 38.703C42.7469 44.1178 35.2096 49.201 35.2096 49.201C35.2096 49.201 33.4868 50.306 30.2565 49.3115C27.0261 48.317 23.2575 46.9909 23.2575 46.9909C23.2575 46.9909 20.6734 45.3334 25.0881 43.5652Z"
-                                        fill="white" />
+                                    <use href="#i-social-telegram" />
                                 </svg>
                             </a>
                             <span
@@ -251,7 +223,7 @@
         <button type="button" @click="open = true" aria-label="Mở mục lục nội dung"
                 class="fixed left-4 top-1/2 -translate-y-1/2 z-[1010] flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg"
                 style="background-color: var(--color-primary);">
-            <x-heroicon-o-list-bullet class="w-6 h-6 flex-shrink-0" />
+            <svg class="w-6 h-6 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true"><use href="#i-list-bullet" /></svg>
         </button>
 
         <div x-show="open" x-cloak x-transition.opacity @click="open = false"
@@ -261,11 +233,11 @@
              class="fixed left-1/2 top-1/2 z-[1010] w-[calc(100%-3rem)] max-w-md -translate-x-1/2 -translate-y-1/2 max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
             <div class="mb-4 flex items-center justify-between">
                 <span class="flex items-center gap-2 text-lg font-semibold text-primary">
-                    <x-heroicon-o-list-bullet class="w-6 h-6 flex-shrink-0" />
+                    <svg class="w-6 h-6 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true"><use href="#i-list-bullet" /></svg>
                     Nội dung
                 </span>
                 <button type="button" @click="open = false" aria-label="Đóng">
-                    <x-heroicon-o-x-mark class="w-6 h-6 text-gray-500" />
+                    <svg class="w-6 h-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true"><use href="#i-x-mark" /></svg>
                 </button>
             </div>
             <div @click="if ($event.target.closest('.toc-link')) open = false">

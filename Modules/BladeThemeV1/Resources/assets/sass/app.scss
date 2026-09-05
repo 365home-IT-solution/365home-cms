@@ -293,6 +293,42 @@ html {
     line-height: 2rem;
 }
 
+// Gộp utility Tailwind lặp lại nhiều lần trên cùng 1 trang (mỗi mục lục 1 bài viết lặp lại đúng
+// chuỗi class này cho từng heading — 10+ lần/trang) thành 1 class ngắn ở đây, biên dịch ra CSS
+// giống hệt (không đổi giao diện), chỉ giảm dung lượng HTML lặp lại cho SEO audit "tỷ lệ văn
+// bản/HTML". Xem components/posts/toc-list.blade.php.
+.toc-link {
+    // "group" không phải utility có CSS thật (chỉ để bật group-hover: ở con) — @apply không nhận,
+    // giữ nguyên là class tĩnh ở blade (xem toc-list.blade.php).
+    @apply flex min-w-0 items-center gap-2 rounded-md px-2 py-2 text-sm text-gray-600 transition-colors hover:text-primary;
+}
+
+.toc-dot {
+    @apply h-1.5 w-1.5 flex-shrink-0 rounded-full bg-gray-300;
+}
+
+// Thẻ bài viết trong danh sách (components/posts/card.blade.php) — lặp lại nhiều lần/trang (mỗi
+// bài viết 1 thẻ), gộp utility về đây để giảm dung lượng HTML lặp lại, không đổi giao diện.
+.post-card {
+    @apply h-full rounded-xl bg-white relative shadow-sm overflow-hidden;
+}
+
+.post-card-thumb {
+    @apply relative rounded-t-xl overflow-hidden aspect-video w-full bg-gray-100;
+}
+
+.post-card-img {
+    @apply w-full h-full object-cover object-center;
+}
+
+.post-card-title {
+    @apply text-primary group-hover:opacity-80 transition-opacity duration-300 ease-out text-base mb-2 font-bold leading-snug line-clamp-2;
+}
+
+.post-card-summary {
+    @apply leading-relaxed text-gray-600 text-sm line-clamp-2;
+}
+
 .shadow-custom {
     box-shadow: rgba(100, 100, 111, 0.2) 0px 7px 29px 0px;
 }

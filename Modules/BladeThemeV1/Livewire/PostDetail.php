@@ -14,14 +14,23 @@ class PostDetail extends Component
 {
     use HandleColorTrait;
 
-    public $slug;
-    public $post;
-    public $relatedPosts;
-    public $config = [];
-    public $primaryColor;
-    public $style;
-    public $tocItems = [];
-    public $contentWithIds = '';
+    // KHÔNG public: component này không có action nào (không wire:click/wire:model), chỉ render
+    // 1 lần lúc mount() rồi thôi — không cần Livewire khôi phục lại state ở request sau. Property
+    // public sẽ bị Livewire serialize NGUYÊN VẸN vào thuộc tính ẩn wire:snapshot trên HTML output,
+    // nghĩa là để public thì toàn bộ nội dung bài viết + 6 bài liên quan bị LẶP LẠI 2 LẦN trong
+    // HTML (1 lần hiển thị, 1 lần giấu trong JSON) — đo thực tế làm phình snapshot của riêng
+    // component này lên ~26KB, lớn hơn tổng 17 component Livewire khác trên trang cộng lại, kéo
+    // tỷ lệ văn bản/HTML xuống thấp (SEO audit flag "low text to HTML ratio"). protected vẫn truy
+    // cập bình thường bằng $this-> trong chính class này, chỉ khác là Livewire không đồng bộ ra
+    // ngoài client nữa.
+    protected $slug;
+    protected $post;
+    protected $relatedPosts;
+    protected $config = [];
+    protected $primaryColor;
+    protected $style;
+    protected $tocItems = [];
+    protected $contentWithIds = '';
 
     public function mount($slug)
     {

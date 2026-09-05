@@ -147,6 +147,7 @@
 </head>
 
 <body class="relative">
+    @include('bladethemev1::components.icon-sprite')
     @yield('content')
 
     @livewire('bladethemev1::bottom-sidebar')

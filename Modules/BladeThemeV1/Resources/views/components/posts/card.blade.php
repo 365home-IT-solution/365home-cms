@@ -1,11 +1,11 @@
 <div class="p-2">
-    <div class="h-full rounded-xl bg-white relative group shadow-sm overflow-hidden">
+    <div class="post-card group">
         <a href="{{ route('post.detail', ['slug' => $post->slug]) }}" class="h-full flex flex-col">
-            <div class="relative rounded-t-xl overflow-hidden aspect-video w-full bg-gray-100">
+            <div class="post-card-thumb">
                 @if ($post->hasMedia('Ảnh chính'))
                     <img src="{{ $post->getFirstMedia('Ảnh chính')->getUrl() }}"
                          alt="{{ $post->title }}"
-                         class="w-full h-full object-cover object-center">
+                         class="post-card-img">
                 @else
                     <div class="flex justify-center items-center bg-gradient-to-br from-gray-100 to-gray-200 w-full h-full">
                         <div class="text-center">
@@ -17,11 +17,11 @@
             </div>
 
             <div class="p-4 flex-grow flex flex-col bg-white">
-                <h3 class="text-primary group-hover:opacity-80 transition-opacity duration-300 ease-out text-base mb-2 font-bold leading-snug line-clamp-2">
+                <h3 class="post-card-title">
                     {{ $post->title }}
                 </h3>
 
-                <p class="leading-relaxed text-gray-600 text-sm line-clamp-2">
+                <p class="post-card-summary">
                     {{ Str::limit($post->summary, 90, '...') }}
                 </p>
 
