@@ -73,6 +73,17 @@ class BladeThemeV1Controller extends Controller
             'og_type'         => 'website',
         ];
 
+        // Trang 2 trở đi của danh sách bài viết (component "Trang bài viết" — PostPage.php, query
+        // string ?trang=N) chỉ lặp lại đúng khung trang 1 với vài bài khác, gần như không có chữ
+        // riêng — SEO audit flag "low word count"/"thin content". noindex,follow theo đúng khuyến
+        // nghị chuẩn cho trang phân trang: trang 1 vẫn index bình thường, "follow" vẫn cho link
+        // equity chảy qua để Google thấy được các bài viết/trang sau, chỉ trang 2+ không cạnh
+        // tranh xếp hạng với nội dung trùng lặp/mỏng đó.
+        $pageNumber = (int) $request->query('trang', 1);
+        if ($pageNumber > 1) {
+            $seoData['robots'] = 'noindex, follow';
+        }
+
         $pageComponents = PageComponent::with(['component', 'pageComponentConfigurationValues'])
             ->where('page_id', $pageId)
             ->get();
@@ -426,7 +437,7 @@ class BladeThemeV1Controller extends Controller
         ]);
     }
 
-    public function postsPage()
+    public function postsPage(Request $request)
     {
         $seoData = [
             'seo_title' => 'Tin tức và bài viết mới nhất về đặt phòng tại 365 HOME',
@@ -434,6 +445,15 @@ class BladeThemeV1Controller extends Controller
             'seo_keywords' => 'tin tức, bài viết, 365 home',
             'og_type' => 'website',
         ];
+
+        // Trang 2 trở đi (PostPage.php, query string ?trang=N) chỉ lặp lại đúng khung trang 1 với
+        // vài bài khác, gần như không có chữ riêng — SEO audit flag "low word count"/"thin
+        // content". noindex,follow: trang 1 vẫn index bình thường, "follow" vẫn cho link equity
+        // chảy qua để Google thấy được các bài viết ở trang sau, chỉ trang 2+ không cạnh tranh
+        // xếp hạng với nội dung trùng lặp/mỏng đó.
+        if ((int) $request->query('trang', 1) > 1) {
+            $seoData['robots'] = 'noindex, follow';
+        }
 
         return view('bladethemev1::pages.posts', [
             'seoData' => $seoData,

@@ -23,3 +23,8 @@ html { font-size: .8rem; }
 
 .custom-lheight { line-height: 1.2rem; }
 .text-md { font-size: 1rem; line-height: 1.25rem; }
+
+// Sitewide static rules previously duplicated inline across many blade files (moved into the
+// Vite bundle instead of a separate public/css/site.css request — same content, one fewer
+// unmerged CSS file per SEO/perf audit).
+@import "site-extracted";

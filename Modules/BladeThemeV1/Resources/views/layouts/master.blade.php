@@ -135,14 +135,12 @@
             --color-tickGray: {{ data_get($siteTheme, 'tick_gray', '#9ca3af') }};
         }
     </style>
-    {{-- Phần tĩnh (không phụ thuộc theme màu runtime) của <style> ở trên đã tách ra file này —
-         browser cache được giữa các trang thay vì gửi lại y hệt trong HTML mỗi lần tải, giảm
-         dung lượng markup so với nội dung chữ hiển thị (SEO audit flag "low text-to-HTML ratio"). --}}
-    {{-- ?v= theo mtime file — file này chỉnh sửa khá thường xuyên (đợt dọn CSS inline), không có
-         query cache-busting thì browser có thể giữ nguyên bản cache cũ sau mỗi lần deploy (file
-         không có Cache-Control, chỉ Last-Modified/ETag, browser vẫn có thể tự ý cache theo
-         heuristic mà không revalidate ngay). --}}
-    <link rel="stylesheet" href="{{ asset('css/site.css') }}?v={{ file_exists(public_path('css/site.css')) ? filemtime(public_path('css/site.css')) : 1 }}">
+    {{-- Phần tĩnh (không phụ thuộc theme màu runtime) của <style> ở trên đã tách ra
+         Resources/assets/sass/_site-extracted.scss, biên dịch chung vào app.css/home.css qua
+         Vite (@import "site-extracted" ở cuối app.scss/home.scss) thay vì 1 file <link> CSS
+         riêng — browser vẫn cache được (không còn gửi lại y hệt trong HTML mỗi lần tải, giảm
+         dung lượng markup so với nội dung chữ hiển thị), mà không bị audit "CSS chưa hợp nhất"
+         vì không tăng thêm số request CSS ngoài bundle Vite sẵn có. --}}
     <meta name="google-site-verification" content="0ZBswrf5iWy88w6bO01M5Ug3fzaHQYSVopJfACzmioc" />
     <meta name="google-site-verification" content="JxaNDMFwsnjNqpiMuX2dNb9xgCObK0fzixMaom0QD4I" />
     @livewireStyles
