@@ -208,6 +208,40 @@
 
     <script type="application/ld+json">{!! json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) !!}</script>
 
+    {{-- LodgingBusiness (con của LocalBusiness) — CHỈ gắn ở trang chủ, không lặp lại ở mọi trang
+         (tránh trùng lặp schema không cần thiết). NAP (tên/địa chỉ/SĐT) PHẢI khớp chính xác với
+         Google Business Profile — sai lệch dù nhỏ giữa 2 nguồn làm giảm tín hiệu local SEO thay vì
+         tăng, nên copy nguyên văn từ hồ sơ GBP thật, không tự ý rút gọn/viết khác đi. Không có toạ
+         độ chính xác cấp chi nhánh (chỉ có toạ độ cấp tỉnh, dùng cho bản đồ tìm kiếm) nên KHÔNG gắn
+         "geo" thay vì áng chừng sai. --}}
+    @if(request()->is('/'))
+        @php
+            $businessSchema = [
+                '@context'   => 'https://schema.org',
+                '@type'      => 'LodgingBusiness',
+                'name'       => '365 Home Cần Thơ',
+                'image'      => $ogImage ?: null,
+                'url'        => url('/'),
+                'telephone'  => '+84939174365',
+                'email'      => '365home.cantho@gmail.com',
+                'priceRange' => '$$',
+                'address'    => [
+                    '@type'           => 'PostalAddress',
+                    'streetAddress'   => '254 Đường Xuân Thủy',
+                    'addressLocality' => 'An Bình, Ninh Kiều, Cần Thơ',
+                    'postalCode'      => '90000',
+                    'addressCountry'  => 'VN',
+                ],
+                'sameAs' => [
+                    'https://www.facebook.com/365home.254xuanthuy.cantho',
+                    'https://www.tiktok.com/@365.home',
+                ],
+            ];
+            $businessSchema = array_filter($businessSchema, fn ($v) => $v !== null);
+        @endphp
+        <script type="application/ld+json">{!! json_encode($businessSchema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) !!}</script>
+    @endif
+
     {{-- VideoObject schema cho từng YouTube video embed trên trang --}}
     @if(!empty($seoData['video_ids']))
         @foreach($seoData['video_ids'] as $videoId)

@@ -14,6 +14,7 @@ use Modules\Post\Entities\Post;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomType;
 use App\Models\Province;
+use App\Models\ProvinceBranch;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Http\Controllers\PaymentController;
 use Illuminate\Support\Facades\Log;
@@ -826,6 +827,46 @@ class BladeThemeV1Controller extends Controller
             'og_type'         => 'website',
         ];
 
+        // Danh sách phòng render sẵn server-side (chỉ hiện trong <noscript>, xem
+        // pages/product/search.blade.php) — kết quả tìm kiếm thật ở trang này hoàn toàn do JS
+        // (public/js/home-sections.js) gọi API rồi bơm vào DOM, nên crawler không chạy JS (nhiều
+        // audit tool mặc định tắt JS, và một phần lượt crawl của Google) không thấy được link nào
+        // tới 1 trong các phòng thật — khiến toàn bộ phòng trở thành "không thể phát hiện" dù có
+        // trong sitemap.xml. Khối <noscript> này KHÔNG hiển thị gì khi JS bật (không ảnh hưởng giao
+        // diện/UX hiện tại), chỉ để lộ link thật cho crawler không chạy JS.
+        $noscriptQuery = Product::where(['is_activated' => true, 'is_in_stock' => true, 'type' => 'simple'])
+            ->activeBranch()
+            ->with(['categories:id,slug,parent_id', 'roomType:id,slug'])
+            ->select(['id', 'name', 'slug', 'price', 'room_type_id']);
+
+        if ($type) {
+            $typeDbSlug = BranchBookConfig::typeDbSlugFromUrl($type);
+            if ($typeDbSlug) {
+                $noscriptQuery->whereHas('roomType', fn ($q) => $q->where('slug', $typeDbSlug));
+            }
+        }
+
+        if ($province) {
+            $branchCatIds = ProvinceBranch::where('province_id', $province->id)->pluck('categorie_id');
+            $childCatIds  = Category::whereIn('parent_id', $branchCatIds)->pluck('id');
+            $allCatIds    = $branchCatIds->merge($childCatIds);
+            $noscriptQuery->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allCatIds));
+        }
+
+        $noscriptRooms = $noscriptQuery->paginate(24)->withQueryString();
+
+        $noscriptRoomLinks = collect($noscriptRooms->items())->map(function ($room) {
+            $loc = BranchBookConfig::resolveLocationForProduct($room);
+
+            return [
+                'name'  => $room->name,
+                'price' => (float) $room->price,
+                'url'   => $loc
+                    ? url('/' . $loc['type_url_slug'] . '/' . $loc['province_slug'] . '/' . $loc['branch_slug'] . '/' . $room->slug . '/')
+                    : url('/room/' . $room->slug . '/'),
+            ];
+        });
+
         return view('bladethemev1::pages.product.search', [
             'seoData'          => $seoData,
             'primaryColor'     => $this->primaryColor,
@@ -837,6 +878,8 @@ class BladeThemeV1Controller extends Controller
             'mapLat'           => $mapLat,
             'mapLng'           => $mapLng,
             'mapZoom'          => $mapZoom,
+            'noscriptRooms'      => $noscriptRooms,
+            'noscriptRoomLinks'  => $noscriptRoomLinks,
         ]);
     }
 

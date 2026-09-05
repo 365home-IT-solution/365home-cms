@@ -614,6 +614,30 @@
 
     <link rel="stylesheet" href="{{ asset('css/leaflet.min.css') }}" />
 
+    {{-- Danh sách phòng thật, chỉ hiện khi trình duyệt TẮT JavaScript — kết quả tìm kiếm bình
+         thường (bên dưới) hoàn toàn do JS bơm vào DOM sau khi gọi API, nên trình duyệt/crawler tắt
+         JS không bao giờ thấy được link tới phòng nào cả. <noscript> không hiển thị gì khi JS bật
+         nên KHÔNG ảnh hưởng giao diện hiện tại, chỉ để lộ link thật cho crawler không chạy JS (xem
+         BladeThemeV1Controller::searchProduct()). --}}
+    @if($noscriptRoomLinks->isNotEmpty())
+        <noscript>
+            <div class="md:max-w-11xl md:mx-auto md:px-6 py-6">
+                <h2 class="text-lg font-bold text-gray-900 mb-4">Danh sách phòng</h2>
+                <ul class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                    @foreach($noscriptRoomLinks as $room)
+                        <li>
+                            <a href="{{ $room['url'] }}" class="block p-4 rounded-xl border border-gray-200">
+                                <span class="block font-semibold text-gray-900">{{ $room['name'] }}</span>
+                                <span class="block text-sm text-gray-500">{{ number_format($room['price']) }}đ</span>
+                            </a>
+                        </li>
+                    @endforeach
+                </ul>
+                <x-bladethemev1::paginate :items="$noscriptRooms" />
+            </div>
+        </noscript>
+    @endif
+
     <div id="search-layout" class="md:max-w-11xl md:mx-auto md:px-6">
 
         <div id="rooms-left-panel" class="{{ $isBranchesView ? 'branches-peek' : '' }}">
