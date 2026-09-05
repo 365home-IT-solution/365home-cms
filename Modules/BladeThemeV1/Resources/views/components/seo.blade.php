@@ -163,6 +163,34 @@
                     ],
                 ];
             }
+
+            // Chỉ gắn khi có đánh giá thật (RoomRating) — Product là loại được Google chính thức hỗ
+            // trợ hiện sao ngoài SERP (khác Article), không cần lo chính sách như AggregateRating ở
+            // schema Article phía trên.
+            if (!empty($seoData['rating_count'])) {
+                $schema['aggregateRating'] = [
+                    '@type'       => 'AggregateRating',
+                    'ratingValue' => (string) $seoData['rating_average'],
+                    'ratingCount' => (int) $seoData['rating_count'],
+                    'bestRating'  => '5',
+                    'worstRating' => '1',
+                ];
+            }
+
+            if (!empty($seoData['reviews'])) {
+                $schema['review'] = array_map(fn ($r) => [
+                    '@type'         => 'Review',
+                    'author'        => ['@type' => 'Person', 'name' => $r['author']],
+                    'reviewRating'  => [
+                        '@type'       => 'Rating',
+                        'ratingValue' => (string) $r['star'],
+                        'bestRating'  => '5',
+                        'worstRating' => '1',
+                    ],
+                    'reviewBody'    => $r['comment'] ?? '',
+                    'datePublished' => $r['date'] ?? '',
+                ], $seoData['reviews']);
+            }
         @endphp
 
     @else

@@ -589,7 +589,7 @@ class BladeThemeV1Controller extends Controller
                 $query->where('status', 1);
             })
             ->with(['tags:id,name', 'categories:id,slug,parent_id', 'roomType:id,slug,name'])
-            ->select(['id', 'name', 'slug', 'short_description', 'description', 'price', 'discount', 'is_in_stock', 'updated_at', 'room_type_id'])
+            ->select(['id', 'name', 'slug', 'short_description', 'description', 'price', 'discount', 'is_in_stock', 'updated_at', 'room_type_id', 'rating_score'])
             ->first();
 
         if (!$product) {
@@ -627,6 +627,17 @@ class BladeThemeV1Controller extends Controller
         );
         $videoIds = array_unique($ytMatches[1]);
 
+        // aggregateRating/review cho schema Product — 2 trường Rich Results Test báo "thiếu (không
+        // bắt buộc)". Khác Article (chính sách Google chỉ cho phép rating hiện ngoài SERP với
+        // Product/Recipe/LocalBusiness...), Product là đúng loại được hỗ trợ chính thức. Chỉ gắn
+        // aggregateRating khi có ít nhất 1 đánh giá thật (RoomRating, xem RatingController) — không
+        // bịa số. review lấy tối đa 10 đánh giá mới nhất, kể cả không có bình luận (reviewBody để
+        // trống hợp lệ theo schema.org) vì đây là dữ liệu thật do khách để lại, không cần lọc thêm.
+        $ratingCount = $product->ratings()->count();
+        $reviews = $ratingCount > 0
+            ? $product->ratings()->with('customer:id,fullname')->latest()->limit(10)->get()
+            : collect();
+
         $seoData = [
             'seo_title'          => $product->name . ' - Đặt phòng tại 365 HOME',
             'seo_description'    => $seoDescription,
@@ -643,6 +654,14 @@ class BladeThemeV1Controller extends Controller
             'video_name'         => $product->name,
             'video_description'  => $seoDescription,
             'video_upload_date'  => $product->updated_at?->toIso8601String(),
+            'rating_average'     => $product->rating_score !== null ? (float) $product->rating_score : null,
+            'rating_count'       => $ratingCount,
+            'reviews'            => $reviews->map(fn ($r) => [
+                'author'  => $r->customer?->fullname ?: 'Khách ẩn danh',
+                'star'    => (int) $r->star,
+                'comment' => $r->comment,
+                'date'    => $r->created_at?->toIso8601String(),
+            ])->all(),
         ];
 
         // Breadcrumb theo đúng chuỗi silo của URL canonical (loại hình > khu vực > chi nhánh) —
