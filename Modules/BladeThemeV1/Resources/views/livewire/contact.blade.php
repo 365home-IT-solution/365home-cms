@@ -169,20 +169,4 @@
         </div>
     @endif
 
-    <style>
-        @keyframes rotateY {
-            0% {
-                transform: rotateY(0deg);
-            }
-
-            100% {
-                transform: rotateY(360deg);
-            }
-        }
-
-        .hover-rotat:hover .rotat-icon {
-            will-change: transform;
-            animation: rotateY 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-    </style>
 </div>

@@ -1,9 +1,4 @@
 <div x-data="{ searched: false }">
-    <style>
-        [x-cloak] {
-            display: none !important
-        }
-    </style>
     <div class="w-full max-w-11xl mx-auto px-4 sm:px-6">
     <!-- Search Section -->
     <div class="w-full text-center space-y-8 fade-in-up" style="animation-delay: 0.1s;">

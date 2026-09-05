@@ -77,9 +77,3 @@
     </a>
 </div>
 
-<style>
-    .hover-lift {
-        transition: box-shadow 0.3s ease-in-out;
-    }
-
-</style>

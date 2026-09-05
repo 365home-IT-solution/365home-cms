@@ -99,15 +99,6 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>
 
-<style>
-    #search-results-container {
-        position: relative;
-    }
-    .leaflet-popup-content-wrapper {
-        border-radius: 12px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-    }
-</style>
 
 @livewire('bladethemev1::notification')
 @endsection

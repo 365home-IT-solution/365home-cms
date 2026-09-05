@@ -134,82 +134,15 @@
             --color-tickYellow: {{ data_get($siteTheme, 'tick_yellow', '#eab308') }};
             --color-tickGray: {{ data_get($siteTheme, 'tick_gray', '#9ca3af') }};
         }
-        * {
-            font-family: 'Inter', sans-serif;
-        }
-
-        body {
-            font-family: 'Inter', sans-serif;
-        }
-
-        /* ========== SMOOTH SCROLL FOR ENTIRE WEBSITE ========== */
-        html {
-            scroll-behavior: smooth;
-        }
-
-        /* Tắt scroll-anchoring toàn site: khi header co/giãn chiều cao (sticky search bar),
-           trình duyệt tự "neo" vào 1 phần tử bên dưới và tự điều chỉnh scrollY để giữ nó
-           đứng yên trên màn hình -> gây rung/nhấp nháy header liên tục khi cuộn. */
-        * {
-            overflow-anchor: none;
-        }
-
-        /* Custom Scrollbar cho toàn website */
-        ::-webkit-scrollbar {
-            width: 8px;
-            height: 8px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: #f1f1f1;
-            border-radius: 10px;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: linear-gradient(135deg, var(--color-primary), var(--color-primary-light));
-            border-radius: 10px;
-            transition: all 0.3s ease;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: linear-gradient(135deg, var(--color-primary-light), var(--color-primary));
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        }
-
-        /* Firefox scrollbar */
-        * {
-            scrollbar-width: thin;
-            scrollbar-color: var(--color-primary) #f1f1f1;
-        }
-
-        /* Ẩn hẳn thanh cuộn (kể cả thanh cuộn trang tuỳ chỉnh ở trên) ở kích thước mobile — vẫn
-           cuộn được bình thường, chỉ không hiện thanh cuộn để trông gọn như app di động. Desktop
-           giữ nguyên thanh cuộn màu theme như cũ. */
-        @media (max-width: 767.98px) {
-            ::-webkit-scrollbar {
-                display: none;
-                width: 0;
-                height: 0;
-            }
-            * {
-                scrollbar-width: none;
-            }
-        }
-
-        /* Smooth scroll animation cho tất cả elements có overflow */
-        .overflow-auto,
-        .overflow-y-auto,
-        .overflow-x-auto,
-        .scroll-smooth {
-            scroll-behavior: smooth;
-        }
-
-        .owl-cards>* {
-            padding-left: 0;
-            padding-right: 0;
-        }
-
     </style>
+    {{-- Phần tĩnh (không phụ thuộc theme màu runtime) của <style> ở trên đã tách ra file này —
+         browser cache được giữa các trang thay vì gửi lại y hệt trong HTML mỗi lần tải, giảm
+         dung lượng markup so với nội dung chữ hiển thị (SEO audit flag "low text-to-HTML ratio"). --}}
+    {{-- ?v= theo mtime file — file này chỉnh sửa khá thường xuyên (đợt dọn CSS inline), không có
+         query cache-busting thì browser có thể giữ nguyên bản cache cũ sau mỗi lần deploy (file
+         không có Cache-Control, chỉ Last-Modified/ETag, browser vẫn có thể tự ý cache theo
+         heuristic mà không revalidate ngay). --}}
+    <link rel="stylesheet" href="{{ asset('css/site.css') }}?v={{ file_exists(public_path('css/site.css')) ? filemtime(public_path('css/site.css')) : 1 }}">
     <meta name="google-site-verification" content="0ZBswrf5iWy88w6bO01M5Ug3fzaHQYSVopJfACzmioc" />
     <meta name="google-site-verification" content="JxaNDMFwsnjNqpiMuX2dNb9xgCObK0fzixMaom0QD4I" />
     @livewireStyles

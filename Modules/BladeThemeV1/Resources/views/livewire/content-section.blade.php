@@ -28,21 +28,6 @@
             <div class="mb-4 post-content content-section text-xl text-gray-800 dark:text-gray-400">
                 {!! $content !!}</div>
             <div class="md:px-28 text-justify"></div>
-            <style>
-                .content-section ul {
-                    margin-top: 10px;
-                }
-
-                .content-section p {
-                    padding-bottom: 10px;
-                    line-height: 27px;
-                    text-align: justify
-                }
-
-                .content-section ul li {
-                    margin-bottom: 10px;
-                }
-            </style>
         @endif
 
         @if ($button_cta)

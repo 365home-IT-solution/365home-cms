@@ -76,12 +76,3 @@
     </div>
 </div>
 
-<style scoped>
-    .hover-lift {
-        transition: transform 0.3s ease-in-out;
-    }
-
-    .hover-lift:hover {
-        transform: translateY(-0.25rem);
-    }
-</style>

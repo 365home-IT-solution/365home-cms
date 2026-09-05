@@ -68,13 +68,17 @@ class PostDetail extends Component
         $categoryIds = $this->post->categories->pluck('id')->toArray();
         $tagIds = $this->post->tags->pluck('id')->toArray();
 
+        // inRandomOrder() thay vì latest(): với latest(), 1 bài chỉ lọt "related" của bài khác
+        // khi nằm trong 6 bài mới nhất cùng danh mục — danh mục càng nhiều bài, bài cũ càng
+        // nhanh bị đẩy khỏi mọi related-posts trên toàn site, trở thành orphan page (0-1 backlink
+        // nội bộ, SEO audit flag). Random cho mọi bài cùng danh mục cơ hội xuất hiện như nhau.
         $categoryPosts = Post::with(['tags', 'categories', 'media'])
             ->where('status', 'published')
             ->where('id', '!=', $this->post->id)
             ->whereHas('categories', function ($q) use ($categoryIds) {
                 $q->whereIn('categories.id', $categoryIds);
             })
-            ->latest()
+            ->inRandomOrder()
             ->limit(6)
             ->get();
 
@@ -89,7 +93,7 @@ class PostDetail extends Component
                     $q->whereIn('tags.id', $tagIds);
                 })
                 ->whereNotIn('id', $categoryPosts->pluck('id')) // tránh trùng lặp
-                ->latest()
+                ->inRandomOrder()
                 ->limit($remainingCount)
                 ->get();
         }

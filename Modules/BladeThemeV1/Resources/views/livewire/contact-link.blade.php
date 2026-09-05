@@ -1,22 +1,3 @@
-<style>
-    /* Mặc định z-index cao để đè lên mọi thứ */
-    .custom-floating-contact {
-        z-index: 9999 !important;
-    }
-
-    .custom-floating-contact.hide-for-modal {
-        display: none !important;
-    }
-
-    /* Chỉ áp dụng cho màn hình nhỏ hơn 768px (Mobile/Tablet dọc) */
-    @media (max-width: 768px) {
-        .custom-floating-contact {
-            /* bottom-5 của tailwind là 1.25rem (20px) */
-            /* Ta đè nó bằng 90px để né thanh sidebar dưới */
-            bottom: 90px !important;
-        }
-    }
-</style>
 <div x-cloak x-data="{ open: false }" x-on:amenities-modal-open.window="$el.classList.add('hide-for-modal')"
     x-on:amenities-modal-close.window="$el.classList.remove('hide-for-modal')"
     class="custom-floating-contact fixed right-4 bottom-5 z-50 flex flex-col items-end gap-3">

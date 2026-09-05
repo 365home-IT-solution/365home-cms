@@ -451,69 +451,12 @@
     </div>
 </div>
 
+{{-- headerHeight đến từ cấu hình admin (chiều cao header có thể chỉnh) — phần duy nhất thật sự
+     runtime trong khối CSS cũ, các rule tĩnh còn lại đã chuyển ra public/css/site.css. --}}
 <style>
-    /* Sau khi scroll xuống (nền trắng): chữ màu primary */
-    .header-hero-sticky .main-menu-item {
-        color: var(--color-primary) !important;
-    }
-    .header-hero-sticky .main-menu-item:hover {
-        color: var(--color-primary) !important;
-        opacity: 0.8;
-    }
-
-    /* Custom styles for mobile optimization */
-    .fixed-header {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        z-index: 50;
-    }
-
-    /* Ensure mobile menu doesn't interfere with content */
     @media (max-width: 768px) {
         .fixed-header + * {
             margin-top: {{ $headerHeight }};
-        }
-
-        /* Mobile responsive adjustments */
-        .container {
-            padding-left: 1rem;
-            padding-right: 1rem;
-        }
-
-        .mx-\[110px\] {
-            margin-left: 0;
-            margin-right: 0;
-        }
-
-        .px-\[12px\] {
-            padding-left: 0.75rem;
-            padding-right: 0.75rem;
-        }
-    }
-
-    /* Smooth transitions for mobile menu */
-    [x-cloak] {
-        display: none !important;
-    }
-
-    /* Touch-friendly button sizes */
-    @media (max-width: 768px) {
-        button {
-            min-height: 44px;
-            min-width: 44px;
-        }
-    }
-
-    /* Mobile menu styling */
-    @media (max-width: 768px) {
-        .mobile-menu-dropdown {
-            position: absolute;
-            top: 100%;
-            left: 0;
-            right: 0;
-            z-index: 50;
         }
     }
 </style>

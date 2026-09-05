@@ -4,10 +4,6 @@
  * Biến nhận vào: $product (Eloquent Product model, bắt buộc)
 --}}
 <div class="mb-6" id="pd-ratings-section" x-data="pdRatingsWidget('{{ $product->id }}')" x-init="init()">
-    <style>
-        .pd-reviews-scroll { scrollbar-width: none; }
-        .pd-reviews-scroll::-webkit-scrollbar { display: none; }
-    </style>
 
     <h2 class="text-xl font-bold text-gray-900 mb-4">Đánh giá</h2>
 

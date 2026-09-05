@@ -412,29 +412,6 @@
         @endif
     </div>
 
-    <style>
-        @keyframes slideInRight {
-            0% {
-                transform: translateX(100%);
-            }
-            100% {
-                transform: translateX(0);
-            }
-        }
-
-        @keyframes fadeOut {
-            0% {
-                opacity: 1;
-            }
-            100% {
-                opacity: 0;
-            }
-        }
-
-        .animation-slide-in-right {
-            animation: slideInRight 0.5s ease forwards, fadeOut 2s 2.5s ease forwards;
-        }
-    </style>
     <script>
         function toggleReplies(commentId) {
             const replies = document.getElementById(`replies${commentId}`);

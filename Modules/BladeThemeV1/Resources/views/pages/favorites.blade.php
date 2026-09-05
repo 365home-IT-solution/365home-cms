@@ -104,15 +104,13 @@
         </div>
     </section>
 
+    {{-- .fav-branch-*/.fav-skel* rules đã chuyển ra public/css/site.css. Phần .branch-grid/
+         .room-slider-nav/.room-wishlist-btn giữ inline: cùng pattern được flash-sale.blade.php,
+         pages/booking-board.blade.php và pages/product/search.blade.php dùng lại với các biến thể
+         khác nhau đôi chút (VD search.blade.php có thêm cursor:grab/touch-action trên
+         .branch-grid) — gộp chung vào 1 file CSS global có rủi ro làm lệch nhau giữa các trang
+         dùng chung selector, nên không đụng tới trong đợt dọn dẹp text/HTML ratio này. --}}
     <style>
-        /* Mỗi chi nhánh 1 dòng riêng, bên dưới là các phòng của chi nhánh đó — giống trang kết
-           quả tìm kiếm: mobile vuốt ngang từng thẻ (Airbnb-style), desktop lưới cố định 3 cột. */
-        .fav-branch-section { margin-bottom: 8px; }
-        .fav-branch-header { padding: 14px 4px 8px; }
-        .fav-branch-header a { display: inline-flex; align-items: center; gap: 5px; text-decoration: none; }
-        .fav-branch-name { font-size: 14px; font-weight: 700; color: #111827; }
-        .fav-branch-count { font-size: 12px; font-weight: 500; color: #9ca3af; }
-
         .room-slider { position: relative; }
 
         .branch-grid {
@@ -211,21 +209,6 @@
             100% { transform: scale(1); }
         }
 
-        /* Skeleton loading trong lúc loadFavorites() gọi API — thay cho dòng chữ "Đang tải..."
-           cũ, dùng đúng khung .branch-grid/.branch-card/.home-card như card thật nên không giật
-           layout khi thay thế bằng nội dung thật. */
-        @keyframes fav-skel-shimmer {
-            0% { background-position: -400px 0; }
-            100% { background-position: 400px 0; }
-        }
-        .fav-skel {
-            background: linear-gradient(90deg, #eef0f2 25%, #f7f8f9 37%, #eef0f2 63%);
-            background-size: 800px 100%;
-            animation: fav-skel-shimmer 1.4s ease-in-out infinite;
-            border-radius: 6px;
-            display: block;
-        }
-        .fav-skel-img { padding-top: 72%; border-radius: 14px; }
     </style>
 
     <script src="{{ asset('js/home-sections.min.js') }}?v={{ filemtime(public_path('js/home-sections.min.js')) }}"></script>

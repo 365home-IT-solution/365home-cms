@@ -14,11 +14,12 @@
             {{ $selectedCategory == $childCategory->name ? 'bg-yellow-200' : '' }}
             hover:bg-gray-100">
             <div class="flex items-center justify-between text-base text-gray-800 menu-item">
-                <div wire:click="setSelectedCategory('{{ $childCategory->name }}')"
-                     class="flex cursor-pointer items-center w-full space-x-2">
+                <a href="{{ url('/bai-viet') }}?danh-muc={{ urlencode($childCategory->name) }}"
+                   wire:click.prevent="setSelectedCategory('{{ $childCategory->name }}')"
+                   class="flex cursor-pointer items-center w-full space-x-2">
                     <i class="fa-solid fa-circle text-primary mr-2" style="font-size: 8px;"></i>
                     <span class="text-sm">{{ $childCategory->name }}</span>
-                </div>
+                </a>
                 @if($hasChildren)
                     <button @click.stop="subOpen = !subOpen" class="focus:outline-none">
                         <i x-show="!subOpen" class="fa-solid fa-caret-down text-primary"></i>

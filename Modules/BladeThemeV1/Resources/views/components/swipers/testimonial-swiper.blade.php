@@ -57,44 +57,6 @@
         </div>
     </div>
 
-    <style>
-        .testimonial-container {
-            background-color: #ffffff;
-            padding: 2rem 1.5rem;
-            max-height: 340px;
-            overflow: hidden;
-        }
-
-        .testimonial-slider .slick-slide {
-            padding: 0.5rem;
-            height: auto;
-        }
-
-        .testimonial-slider p {
-            margin-bottom: 0;
-            line-height: 1.4;
-        }
-
-        .arrow-container {
-            transition: all 0.3s ease;
-        }
-
-        .prev-arrow:hover .arrow-container,
-        .next-arrow:hover .arrow-container {
-            transform: scale(1.1);
-        }
-
-        @media (max-width: 768px) {
-            .testimonial-container {
-                padding: 1.5rem 1rem;
-                max-height: none;
-            }
-
-            .flex.items-start.space-x-4 {
-                margin-bottom: 1.5rem;
-            }
-        }
-    </style>
 </div>
 
 <script>

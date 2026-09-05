@@ -1,5 +1,5 @@
 <div class="relative max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-    <div class="grid gap-6" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+    <div class="performance-results-grid grid gap-6" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
         @foreach ($metrics as $item)
             <div class="group relative p-6 bg-white border border-gray-200 rounded-lg shadow-md hover:shadow-xl transition-all duration-300 flex flex-col items-center justify-center text-center overflow-hidden">
                 <h1 class="text-3xl sm:text-4xl font-bold text-primary mb-2 counter" data-target="{{ $item['value'] }}">0 {{ $item['unit'] }}</h1>
@@ -9,21 +9,6 @@
         @endforeach
     </div>
 
-    <style>
-        @keyframes fadeInDown {
-            from { opacity: 0; transform: translateY(-20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fade-in-down {
-            animation: fadeInDown 0.8s ease-out forwards;
-        }
-
-        @media (max-width: 640px) {
-            .grid {
-                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important;
-            }
-        }
-    </style>
 </div>
 
 <script>

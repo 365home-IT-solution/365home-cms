@@ -69,14 +69,6 @@
                 </div>
             </div>
         @elseif ($process_style == 'row')
-            <style>
-                .service-divider {
-                    height: 3px;
-                    width: 40px;
-                    background-color: #ffa500;
-                    margin: 0 0 12px 0;
-                }
-            </style>
             <div class="max-w-7xl mx-auto px-4 py-8 relative overflow-hidden">
 
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-16">

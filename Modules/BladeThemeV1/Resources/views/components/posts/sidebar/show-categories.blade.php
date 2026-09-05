@@ -25,11 +25,12 @@
                         <li x-data="{ parentOpen: false }"
                             class="transition duration-300 ease-in-out hover:bg-gray-100 rounded-lg p-1 {{ $selectedCategory == $parentCategory->name ? 'bg-yellow-100' : '' }}">
                             <div class="flex items-center justify-between text-md text-gray-700">
-                                <div wire:click="setSelectedCategory('{{ $parentCategory->name }}')"
-                                     class="flex cursor-pointer items-center w-full">
+                                <a href="{{ url('/bai-viet') }}?danh-muc={{ urlencode($parentCategory->name) }}"
+                                   wire:click.prevent="setSelectedCategory('{{ $parentCategory->name }}')"
+                                   class="flex cursor-pointer items-center w-full">
                                     <i class="fa-regular fa-circle-dot text-primary mr-3 text-sm"></i>
                                     <span class="text-md text-gray-700">{{ $parentCategory->name }}</span>
-                                </div>
+                                </a>
                                 @if($parentCategory->children->isNotEmpty())
                                     <button @click="parentOpen = !parentOpen" class="focus:outline-none">
                                         <i x-show="!parentOpen" class="fa-solid fa-square-caret-down text-primary"></i>
@@ -50,11 +51,12 @@
                                             {{ $isSearched ? 'bg-yellow-100' : ''}}
                                             {{ $selectedCategory == $childCategory->name ? 'bg-yellow-100' : '' }}">
                                             <div class="flex items-center justify-between text-base text-gray-800 menu-item">
-                                                <div wire:click="setSelectedCategory('{{ $childCategory->name }}')"
-                                                     class="flex items-center w-full">
+                                                <a href="{{ url('/bai-viet') }}?danh-muc={{ urlencode($childCategory->name) }}"
+                                                   wire:click.prevent="setSelectedCategory('{{ $childCategory->name }}')"
+                                                   class="flex items-center w-full">
                                                     <i class="fa-solid fa-circle text-primary mr-2" style="font-size: 5px;"></i>
                                                     <span>{{ $childCategory->name }}</span>
-                                                </div>
+                                                </a>
                                                 @if($childCategory->children->isNotEmpty())
                                                     <button @click.stop="childOpen = !childOpen" class="focus:outline-none">
                                                         <i x-show="!childOpen" class="fa-solid fa-square-caret-down text-primary"></i>

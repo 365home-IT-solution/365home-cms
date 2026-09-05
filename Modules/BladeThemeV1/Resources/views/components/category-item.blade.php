@@ -43,6 +43,9 @@
         </div>
     @endif
 </div>
+{{-- $primaryColor là prop truyền vào theo từng instance (component nhận :primaryColor) — không
+     có rule tĩnh nào khác trong khối CSS cũ, nên toàn bộ vẫn giữ inline, không có gì để chuyển
+     ra public/css/site.css. --}}
 <style>
     .hoverPrimaryColor:hover {
         color: {{ $primaryColor }};

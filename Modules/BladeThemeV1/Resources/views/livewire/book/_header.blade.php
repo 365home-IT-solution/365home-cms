@@ -54,8 +54,4 @@
                 @endforeach
             </div>
         </div>
-        <style>
-            .book-tab-scroll { scrollbar-width: none; }
-            .book-tab-scroll::-webkit-scrollbar { display: none; }
-        </style>
         --}}

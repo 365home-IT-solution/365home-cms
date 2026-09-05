@@ -54,8 +54,20 @@ class BladeThemeV1Controller extends Controller
 
         $page = Page::findOrFail($pageId);
 
+        // H1 luôn là $page->title (pages/index.blade.php). Nếu seo_title bỏ trống hoặc được
+        // nhập y hệt title, title tag sẽ trùng H1 từng ký tự — SEO tool flag "duplicate H1/title
+        // tag" (đã áp dụng cùng cách xử lý cho bài viết ở postDetail() bên dưới). Thêm hậu tố
+        // "| 365Home" cho trường hợp đó để 2 thẻ luôn khác nhau, không cần sửa tay từng trang;
+        // seo_title đã được tùy biến thật sự thì giữ nguyên.
+        $pageTitle = $page->title ?? '';
+        $pageSeoTitle = trim((string) ($page->seo_title ?? ''));
+        if ($pageSeoTitle === '' || $pageSeoTitle === trim($pageTitle)) {
+            $core = trim((string) preg_replace('/^365\s*home\s*[|–—-]?\s*/iu', '', trim($pageTitle)));
+            $pageSeoTitle = trim(($core !== '' ? $core : trim($pageTitle)) . ' | 365Home');
+        }
+
         $seoData = [
-            'seo_title'       => $page->seo_title       ?? '',
+            'seo_title'       => $pageSeoTitle,
             'seo_description' => $page->seo_description ?? '',
             'seo_keywords'    => $page->seo_keywords    ?? '',
             'og_type'         => 'website',
@@ -261,6 +273,12 @@ class BladeThemeV1Controller extends Controller
             $seoTitle = trim(($core !== '' ? $core : trim($postTitle)) . ' | 365Home');
         }
 
+        // AggregateRating chỉ đính kèm khi đã có ít nhất 1 lượt bình chọn thật (post_ratings) —
+        // Google từ chối rating rỗng/0 sao, và chính sách rich-result của Google hiện KHÔNG áp
+        // dụng cho Article/blog (chỉ Product/Recipe/LocalBusiness...) nên có thể Google vẫn không
+        // hiển thị sao ngoài SERP dù đã gắn đúng schema — xem thêm ghi chú ở seo.blade.php.
+        $ratingCount = $post->ratingCount();
+
         $seoData = [
             'seo_title'              => $seoTitle,
             'seo_description'        => $post->seo_description ?? '',
@@ -271,6 +289,8 @@ class BladeThemeV1Controller extends Controller
             'article_modified_time'  => $post->updated_at?->toIso8601String(),
             'author_name'            => $post->user?->fullname ?? $post->user?->name ?? '',
             'site_name'              => config('app.name'),
+            'rating_average'         => $ratingCount > 0 ? $post->ratingAverage() : null,
+            'rating_count'           => $ratingCount,
         ];
 
         return view('bladethemev1::pages.post.detail', [
@@ -470,6 +490,48 @@ class BladeThemeV1Controller extends Controller
         ];
 
         return view('bladethemev1::pages.payment-methods', [
+            'seoData' => $seoData,
+            'primaryColor' => $this->primaryColor,
+            'primaryColorRgb' => $this->primaryColorRgb,
+            'heavyPrimaryColor' => $this->heavyPrimaryColor,
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+        ]);
+    }
+
+    // /huong-dan-su-dung — trang tĩnh riêng (trước đây là CMS Page id 65), cùng lý do với
+    // paymentMethodsPage() ở trên: component "Nội dung" dump HTML thô có sẵn 1 heading khác trùng
+    // <h1 class="sr-only"> của layout CMS chung, kèm text/HTML ratio quá thấp do toàn bộ chrome
+    // header/footer/hero-section chiếm gần hết HTML trong khi nội dung thật chỉ vài đoạn ngắn.
+    public function usageGuidePage()
+    {
+        $seoData = [
+            'seo_title' => 'Hướng Dẫn Đặt Phòng Và Thanh Toán Tại 365 HOME',
+            'seo_description' => 'Hướng dẫn các bước đặt phòng, thanh toán QR, huỷ đơn và xử lý phát sinh khi giao dịch tại 365 Home.',
+            'seo_keywords' => 'hướng dẫn sử dụng, hướng dẫn đặt phòng, huỷ đơn hàng, 365 home',
+            'og_type' => 'website',
+        ];
+
+        return view('bladethemev1::pages.huong-dan-su-dung', [
+            'seoData' => $seoData,
+            'primaryColor' => $this->primaryColor,
+            'primaryColorRgb' => $this->primaryColorRgb,
+            'heavyPrimaryColor' => $this->heavyPrimaryColor,
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+        ]);
+    }
+
+    // /privacy — trang tĩnh riêng (trước đây là CMS Page id 62), cùng lý do với
+    // paymentMethodsPage()/usageGuidePage() ở trên.
+    public function privacyPolicyPage()
+    {
+        $seoData = [
+            'seo_title' => 'Chính Sách Bảo Mật Thông Tin Khách Hàng | 365 HOME',
+            'seo_description' => 'Chính sách bảo mật thông tin cá nhân tại 365 Home: mục đích thu thập, phạm vi sử dụng, thời gian lưu trữ và quyền quản lý dữ liệu của khách hàng.',
+            'seo_keywords' => 'chính sách bảo mật, bảo mật thông tin cá nhân, 365 home',
+            'og_type' => 'website',
+        ];
+
+        return view('bladethemev1::pages.privacy', [
             'seoData' => $seoData,
             'primaryColor' => $this->primaryColor,
             'primaryColorRgb' => $this->primaryColorRgb,

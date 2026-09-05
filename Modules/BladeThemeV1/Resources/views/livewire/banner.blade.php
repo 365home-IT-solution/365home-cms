@@ -33,32 +33,11 @@
         </div>
     @endif
 
+    {{-- height_swiper đến từ cấu hình admin (chiều cao swiper có thể chỉnh) — phần duy nhất thật
+         sự runtime trong khối CSS cũ, các rule tĩnh còn lại đã chuyển ra public/css/site.css. --}}
     <style>
         .banner-skeleten {
             height: {{ $height_swiper }}% !important;
-        }
-        .swiper-slide {
-            width: 100%;
-            height: 100%;
-            background-position: center;
-            background-repeat: no-repeat;
-            background-size: contain;
-        }
-        .swiper-slide img {
-            width: 100%;
-            height: auto;
-            max-height: 100%;
-            object-fit: cover;
-        }
-        @media (max-width: 1024px) {
-            .swiper-wrapper {
-                height: 90%;
-            }
-        }
-        @media (max-width: 768px) {
-            .banner-skeleten {
-                height: auto !important;
-            }
         }
     </style>
 </div>

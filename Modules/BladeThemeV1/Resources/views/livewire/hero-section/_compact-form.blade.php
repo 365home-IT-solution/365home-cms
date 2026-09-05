@@ -1,23 +1,6 @@
         {{-- Form mở rộng — mobile: popup toàn màn hình; desktop: panel sổ xuống dưới pill
-             (breakpoint 1024px, đồng bộ với lg: dùng trong header/banner-form) --}}
-        <style>
-            .hero-compact-form-panel { background: #fff; }
-            @media (max-width: 1023px) {
-                .hero-compact-form-panel {
-                    position: fixed;
-                    inset: 0;
-                    z-index: 2000;
-                    overflow-y: auto;
-                    -webkit-overflow-scrolling: touch;
-                }
-            }
-            @media (min-width: 1024px) {
-                .hero-compact-form-panel {
-                    border-bottom: 1px solid #e5e7eb;
-                    box-shadow: 0 4px 24px rgba(0,0,0,.12);
-                }
-            }
-        </style>
+             (breakpoint 1024px, đồng bộ với lg: dùng trong header/banner-form). Rule CSS tĩnh
+             của .hero-compact-form-panel đã chuyển ra public/css/site.css. --}}
         <div x-show="formOpen"
              x-data="heroDatePicker({{ $selectedBuoi === '2' ? 'true' : 'false' }}, '{{ $selectedRoomType }}')"
              x-cloak
