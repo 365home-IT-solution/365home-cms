@@ -59,18 +59,42 @@
     {{-- JSON-LD Structured Data --}}
     @if($ogType === 'article')
         @php
+            // Rich Results Test flag "author" thiếu name/url khi rỗng — site chưa có trang hồ sơ
+            // tác giả riêng nên dùng luôn trang chủ làm url; không có tên tác giả thật (user null
+            // hoặc chưa điền fullname/name) thì quy về Organization (chính site) thay vì Person
+            // tên rỗng, tránh lặp lại đúng lỗi vừa bị flag.
+            $authorName = trim((string) ($seoData['author_name'] ?? ''));
+
             $schema = [
                 '@context'      => 'https://schema.org',
                 '@type'         => 'Article',
                 'headline'      => $seoData['seo_title']      ?? '',
                 'description'   => $seoData['seo_description'] ?? '',
                 'url'           => url()->current(),
-                'author'        => ['@type' => 'Person', 'name' => $seoData['author_name'] ?? ''],
-                'publisher'     => ['@type' => 'Organization', 'name' => $seoData['site_name'] ?? config('app.name')],
+                'author'        => $authorName !== ''
+                    ? ['@type' => 'Person', 'name' => $authorName, 'url' => url('/')]
+                    : ['@type' => 'Organization', 'name' => $seoData['site_name'] ?? config('app.name'), 'url' => url('/')],
+                'publisher'     => ['@type' => 'Organization', 'name' => $seoData['site_name'] ?? config('app.name'), 'url' => url('/')],
                 'datePublished' => $seoData['article_published_time'] ?? '',
                 'dateModified'  => $seoData['article_modified_time']  ?? '',
             ];
             if ($ogImage) $schema['image'] = $ogImage;
+
+            // Chỉ gắn khi đã có bình chọn thật (post_ratings) — Google từ chối AggregateRating
+            // 0 sao/rỗng. LƯU Ý: chính sách review rich-result của Google hiện chỉ áp dụng cho
+            // Product/Recipe/LocalBusiness..., KHÔNG áp dụng cho Article/BlogPosting — gắn đúng
+            // schema này vẫn có khả năng Google không hiển thị sao ngoài kết quả tìm kiếm, hoặc
+            // hiển thị một thời gian rồi ngừng nếu chính sách siết lại. Đã trao đổi rủi ro này với
+            // yêu cầu nghiệp vụ trước khi thêm.
+            if (!empty($seoData['rating_count'])) {
+                $schema['aggregateRating'] = [
+                    '@type'       => 'AggregateRating',
+                    'ratingValue' => (string) $seoData['rating_average'],
+                    'ratingCount' => (int) $seoData['rating_count'],
+                    'bestRating'  => '5',
+                    'worstRating' => '1',
+                ];
+            }
         @endphp
 
     @elseif($ogType === 'product')

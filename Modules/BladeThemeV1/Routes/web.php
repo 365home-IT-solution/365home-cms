@@ -139,6 +139,11 @@ if ($menus->isNotEmpty()) {
     // {wildcard}, nơi thứ tự đăng ký mới quyết định route nào match trước) — nên phải đặt SAU
     // createRoutes(), không phải cùng khối "Static routes TRƯỚC dynamic" ở trên.
     Route::get('/hinh-thuc-thanh-toan', [BladeThemeV1Controller::class, 'paymentMethodsPage'])->name('payment-methods.page');
+    // Trang tĩnh riêng, thay cho CMS Page id 65/62 — menu item vẫn trỏ 2 url này (createRoutes() ở
+    // trên đăng ký chúng về BladeThemeV1Controller@index/page_id=65,62). Cùng lý do/cùng cơ chế
+    // override như route /hinh-thuc-thanh-toan ngay phía trên.
+    Route::get('/huong-dan-su-dung', [BladeThemeV1Controller::class, 'usageGuidePage'])->name('usage-guide.page');
+    Route::get('/privacy', [BladeThemeV1Controller::class, 'privacyPolicyPage'])->name('privacy.page');
 } else {
     Route::get('/', [BladeThemeV1Controller::class, 'index'])->name('home');
 }
