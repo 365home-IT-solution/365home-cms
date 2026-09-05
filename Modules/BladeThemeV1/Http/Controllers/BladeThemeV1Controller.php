@@ -612,7 +612,18 @@ class BladeThemeV1Controller extends Controller
             : url('/room/' . $slug . '/');
 
         $seoKeywords    = $product->tags->pluck('name')->implode(', ');
+        // Google Search Console báo "Dữ liệu có cấu trúc Trang thông tin của người bán — trường
+        // description bị thiếu" cho các phòng không nhập "Mô tả ngắn" — short_description rỗng
+        // khiến schema Product render 'description' => '' (chuỗi rỗng vẫn coi là thiếu). Fallback
+        // qua mô tả đầy đủ (cắt ngắn) rồi tới 1 câu tối thiểu dựng từ tên phòng thật, không để rỗng.
         $seoDescription = html_entity_decode(strip_tags($product->short_description ?? ''));
+        if ($seoDescription === '') {
+            $seoDescription = html_entity_decode(strip_tags($product->description ?? ''));
+        }
+        if ($seoDescription === '') {
+            $seoDescription = $product->name . ' - Phòng tại 365 Home, đặt phòng theo giờ/ngày, tự check-in không cần lễ tân.';
+        }
+        $seoDescription = \Illuminate\Support\Str::limit(trim($seoDescription), 300, '...');
         $seoOgImage     = $product->hasMedia('Ảnh bìa')
                             ? $product->getFirstMedia('Ảnh bìa')->getUrl()
                             : null;
@@ -700,7 +711,16 @@ class BladeThemeV1Controller extends Controller
         }
 
         $seoKeywords    = $template->tags->pluck('name')->implode(', ');
+        // Cùng fallback description như renderProductDetail() ở trên — tránh 'description' => ''
+        // khi "Mô tả ngắn" chưa nhập (Google Search Console báo thiếu trường này).
         $seoDescription = html_entity_decode(strip_tags($template->short_description ?? ''));
+        if ($seoDescription === '') {
+            $seoDescription = html_entity_decode(strip_tags($template->description ?? ''));
+        }
+        if ($seoDescription === '') {
+            $seoDescription = $template->name . ' - Mẫu giao diện tại 365 Home.';
+        }
+        $seoDescription = \Illuminate\Support\Str::limit(trim($seoDescription), 300, '...');
         $seoOgImage     = $template->hasMedia('Ảnh bìa')
                             ? $template->getFirstMedia('Ảnh bìa')->getUrl()
                             : null;
