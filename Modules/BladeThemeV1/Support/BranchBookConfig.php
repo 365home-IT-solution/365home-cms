@@ -22,6 +22,21 @@ class BranchBookConfig
         'chung-cu'   => 'apartment',
     ];
 
+    // Slug chi nhánh (Category.slug) CŨ -> MỚI, dùng khi rút gọn slug từ "tên đầy đủ = địa chỉ"
+    // (vd "254-xuan-thuy-an-binh-can-tho") sang dạng ngắn cho SEO (vd "254-xuan-thuy"). Category
+    // tra theo slug hiện tại nên đổi slug xong là URL cũ 404 ngay nếu không có map này — chỉ
+    // renderBookingBoard()/BladeThemeV1Controller cần tới (route chi tiết phòng tự lành nhờ so
+    // sánh với slug MỚI mỗi request, xem renderProductDetail()). Thêm dòng mới mỗi khi đổi slug 1
+    // chi nhánh, KHÔNG xoá dòng cũ — giữ redirect vĩnh viễn cho URL đã index/chia sẻ trước đó.
+    public const LEGACY_BRANCH_SLUGS = [
+        '254-xuan-thuy-an-binh-can-tho'     => '254-xuan-thuy',
+        '252-xuan-thuy-an-binh-can-tho'     => '252-xuan-thuy',
+        '69-d-nguyen-ngoc-bich-kdc-hung-phu-1' => '69-nguyen-ngoc-bich',
+        '385v314b-385-d-tran-nam-phu'       => '385v3-14b-tran-nam-phu',
+        '89-xuan-thuy-an-binh-can-tho'      => '89-xuan-thuy',
+        '290-vo-van-kiet-soc-trang-can-tho' => '290-vo-van-kiet',
+    ];
+
     /** Danh sách slug URL hợp lệ — dùng làm ->where('type', ...) cho route {type}. */
     public static function typeUrlSlugs(): array
     {
