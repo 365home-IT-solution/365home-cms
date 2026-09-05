@@ -82,7 +82,9 @@ Route::get('/thong-tin-dat-phong/{code}', [BladeThemeV1Controller::class, 'booki
 Route::get('/tai-khoan', [BladeThemeV1Controller::class, 'accountPage'])->name('account.page');
 Route::get('/yeu-thich', [BladeThemeV1Controller::class, 'favoritesPage'])->name('favorites.page');
 Route::get('/dang-nhap', [BladeThemeV1Controller::class, 'loginPage'])->name('login.page');
-Route::get('/tin-tuc', [BladeThemeV1Controller::class, 'postsPage'])->name('posts.page');
+// URL cũ của trang danh sách bài viết — giữ lại, 301 sang /bai-viet để không mất SEO/link đã chia
+// sẻ (route thật đã chuyển xuống sau createRoutes(), xem comment ở đó).
+Route::get('/tin-tuc', fn () => redirect('/bai-viet', 301));
 
 // {type} — slug URL rút gọn theo LOẠI HÌNH (homestay/khach-san/mini-house/villa/nha-nghi/chung-cu
 // — xem BranchBookConfig::TYPE_URL_MAP, nguồn duy nhất của mapping này, PHẢI khớp
@@ -144,6 +146,11 @@ if ($menus->isNotEmpty()) {
     // override như route /hinh-thuc-thanh-toan ngay phía trên.
     Route::get('/huong-dan-su-dung', [BladeThemeV1Controller::class, 'usageGuidePage'])->name('usage-guide.page');
     Route::get('/privacy', [BladeThemeV1Controller::class, 'privacyPolicyPage'])->name('privacy.page');
+    // Danh sách bài viết đổi từ /tin-tuc sang /bai-viet theo yêu cầu — menu item "Nổi bật" (title
+    // sai, chưa đổi) đang trỏ đúng URL /bai-viet này về 1 CMS Page khác (page_id=3, xem
+    // createRoutes() ở trên); route đăng ký SAU (ở đây) đè route đó, page_id=3 không còn truy cập
+    // được qua URL này nữa — đã xác nhận với yêu cầu nghiệp vụ trước khi đổi.
+    Route::get('/bai-viet', [BladeThemeV1Controller::class, 'postsPage'])->name('posts.page');
 } else {
     Route::get('/', [BladeThemeV1Controller::class, 'index'])->name('home');
 }

@@ -19,11 +19,11 @@
             <span class="nav-label-1">Yêu thích</span>
         </a>
 
-        <a href="/tin-tuc" class="nav-item-1 {{ $currentUrl === '/tin-tuc' ? 'active' : '' }}">
+        <a href="/bai-viet" class="nav-item-1 {{ $currentUrl === '/bai-viet' ? 'active' : '' }}">
             <div class="nav-icon-1">
                 <x-heroicon-o-newspaper />
             </div>
-            <span class="nav-label-1">Tin tức</span>
+            <span class="nav-label-1">Bài viết</span>
         </a>
 
         {{-- Chọn khu vực — bản mobile của nút cùng tên ở header desktop (header-main.blade.php).

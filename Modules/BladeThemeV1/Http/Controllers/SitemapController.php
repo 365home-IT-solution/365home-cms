@@ -132,7 +132,7 @@ class SitemapController extends Controller
             '## Pages',
             '',
             '- [Tìm phòng](' . route('product.search') . ')',
-            '- [Tin tức](' . url('/tin-tuc') . ')',
+            '- [Bài viết](' . route('posts.page') . ')',
             '- [Tra cứu booking](' . url('/ticket-booking') . ')',
         ]);
 
