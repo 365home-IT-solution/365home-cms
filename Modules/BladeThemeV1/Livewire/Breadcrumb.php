@@ -25,7 +25,10 @@ class Breadcrumb extends Component
 
         if ($this->slug) {
             $this->breadcrumbs = array_values($parents);
-            $this->breadcrumbs[] = ['title' => $name, 'url' => url($this->slug)];
+            // Mắt xích cuối = trang đang xem, nên URL của nó luôn CHÍNH LÀ URL hiện tại — không
+            // được tự ráp lại từ $slug (url($this->slug) bỏ mất mọi prefix/silo path: /bai-viet/,
+            // /mau-giao-dien/, hay cả chuỗi /{type}/{location}/{branch}/ của trang chi tiết phòng).
+            $this->breadcrumbs[] = ['title' => $name, 'url' => request()->url()];
         } else {
             $this->generateBreadcrumbs();
         }
