@@ -65,8 +65,12 @@ class AdminPanelProvider extends PanelProvider
     {
         $panel = $panel
             ->default()
+            // GIỮ NGUYÊN id('admin') dù đường dẫn đổi — id này là gốc của TOÀN BỘ tên route
+            // filament.admin.* dùng khắp dự án (route('filament.admin.resources.orders.edit', ...)...
+            // ở hàng trăm chỗ); đổi id sẽ làm sập tất cả các route đó. Chỉ đổi path() (URL thật gõ
+            // trên trình duyệt) từ /admin sang /home-admin để tách biệt với /minihouse-admin mới.
             ->id('admin')
-            ->path('admin')
+            ->path('home-admin')
             ->login(Login::class)
             ->passwordReset(RequestPasswordReset::class)
             ->emailVerification()
@@ -191,15 +195,32 @@ class AdminPanelProvider extends PanelProvider
         // khi Livewire boot để cơ chế lắng nghe "echo-private:kênh,.event" (dùng ở
         // CreateOrder/EditOrder cho hold khung giờ real-time, xem TimeslotHoldService) nhận đúng
         // window.Echo, nên đặt ở HEAD_END thay vì BODY_END như script polling bên dưới.
+        //
+        // registerRenderHook() KHÔNG tự lọc theo panel (render-time scopes ở đây là [PageClass,
+        // ResourceClass], không phải panel id — xem Filament\Pages\BasePage::getRenderHookScopes) —
+        // từ khi có thêm panel minihouse-admin (dùng chung service-provider-registration nên
+        // register() này chạy ở MỌI request) phải tự kiểm tra panel hiện tại, nếu không toàn bộ
+        // script/âm thanh thông báo của Home sẽ bị nạp nhầm sang MiniHouse.
         FilamentView::registerRenderHook(
             PanelsRenderHook::HEAD_END,
-            fn (): string => (string) app(\Illuminate\Foundation\Vite::class)(['resources/js/echo-admin.js']),
+            function (): string {
+                if (\Filament\Facades\Filament::getCurrentPanel()?->getId() !== 'admin') {
+                    return '';
+                }
+
+                return (string) app(\Illuminate\Foundation\Vite::class)(['resources/js/echo-admin.js']);
+            },
         );
 
         // Inject polling script: tab title + notification sound + instant bell refresh
         FilamentView::registerRenderHook(
             PanelsRenderHook::BODY_END,
-            fn (): string => <<<'BLADE'
+            function (): string {
+                if (\Filament\Facades\Filament::getCurrentPanel()?->getId() !== 'admin') {
+                    return '';
+                }
+
+                return <<<'BLADE'
 <script>
 (function () {
     var _baseTitle = null;
@@ -319,13 +340,19 @@ class AdminPanelProvider extends PanelProvider
     });
 })();
 </script>
-BLADE
+BLADE;
+            },
         );
 
         // Hover-to-open for top nav group dropdowns
         FilamentView::registerRenderHook(
             PanelsRenderHook::BODY_END,
-            fn (): string => <<<'BLADE'
+            function (): string {
+                if (\Filament\Facades\Filament::getCurrentPanel()?->getId() !== 'admin') {
+                    return '';
+                }
+
+                return <<<'BLADE'
 <script>
 (function () {
     function patchTopNavHover() {
@@ -361,7 +388,8 @@ BLADE
     });
 })();
 </script>
-BLADE
+BLADE;
+            },
         );
 
         // FCM token registration — xin quyền thông báo + lưu device token vào DB
@@ -369,6 +397,10 @@ BLADE
         FilamentView::registerRenderHook(
             PanelsRenderHook::BODY_END,
             function (): string {
+                if (\Filament\Facades\Filament::getCurrentPanel()?->getId() !== 'admin') {
+                    return '';
+                }
+
                 $vapidKey = config('services.firebase.vapid_key', '');
                 if (! $vapidKey) {
                     return '';

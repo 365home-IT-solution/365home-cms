@@ -116,7 +116,7 @@ window.rcOrderItemClick = function(event, item) {
     var orderData = {};
     try { orderData = JSON.parse(item.dataset.order || '{}'); } catch (e) { return; }
     if (!orderData.order_id) return;
-    window.location.href = '/admin/orders/' + orderData.order_id + '/edit';
+    window.location.href = '/home-admin/orders/' + orderData.order_id + '/edit';
 };
 
 // ── Order selection ───────────────────────────────────────────────
@@ -1939,7 +1939,7 @@ window.rcCalSaveOrderNote = function(btn) {
                     timeHtml +
                     '<span class="ta-rc-spacer"></span>' +
                     amtHtml +
-                    '<a href="/admin/orders/' + o.order_id + '/edit" class="ta-rc-detail-compact" title="Xem chi tiết đơn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>' +
+                    '<a href="/home-admin/orders/' + o.order_id + '/edit" class="ta-rc-detail-compact" title="Xem chi tiết đơn"><svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>' +
                   '</div>' +
                 '</div>';
         });
@@ -2005,7 +2005,7 @@ window.rcCalSaveOrderNote = function(btn) {
                     amtHtml +
                     '<div style="display:flex;align-items:center;gap:5px;">' +
                       '<span class="ta-rc-ago">' + o.created_at + '</span>' +
-                      '<a href="/admin/orders/' + o.order_id + '/edit" class="ta-rc-btn-detail"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke="currentColor" stroke-width="2"/><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" stroke="currentColor" stroke-width="2"/></svg>Chi tiết</a>' +
+                      '<a href="/home-admin/orders/' + o.order_id + '/edit" class="ta-rc-btn-detail"><svg width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" stroke="currentColor" stroke-width="2"/><path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" stroke="currentColor" stroke-width="2"/></svg>Chi tiết</a>' +
                     '</div>' +
                   '</div>' +
                 '</div>';
@@ -3053,7 +3053,7 @@ window.rcCalSaveOrderNote = function(btn) {
                 '<div class="ta-rr-num">' + c.count + '</div>' +
                 '<div class="ta-rr-num ta-rr-bold">' + fmtM(c.revenue) + '</div>' +
                 '<div class="ta-rr-num">' +
-                    '<a href="/admin/coupons/create" target="_blank" class="ta-cust-coupon-btn" title="Tạo mã khuyến mãi cho ' + c.phone + '">' + COUPON_ICO + '</a>' +
+                    '<a href="/home-admin/coupons/create" target="_blank" class="ta-cust-coupon-btn" title="Tạo mã khuyến mãi cho ' + c.phone + '">' + COUPON_ICO + '</a>' +
                 '</div>' +
             '</div>';
         }).join('');
