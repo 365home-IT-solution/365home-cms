@@ -285,10 +285,9 @@ class BladeThemeV1Controller extends Controller
             $seoTitle = trim(($core !== '' ? $core : trim($postTitle)) . ' | 365Home');
         }
 
-        // AggregateRating chỉ đính kèm khi đã có ít nhất 1 lượt bình chọn thật (post_ratings) —
-        // Google từ chối rating rỗng/0 sao, và chính sách rich-result của Google hiện KHÔNG áp
-        // dụng cho Article/blog (chỉ Product/Recipe/LocalBusiness...) nên có thể Google vẫn không
-        // hiển thị sao ngoài SERP dù đã gắn đúng schema — xem thêm ghi chú ở seo.blade.php.
+        // rating_average/rating_count: dùng cho node JSON-LD "CreativeWorkSeries" riêng (xem
+        // seo.blade.php) hiện sao ngoài SERP cho bài viết — chỉ gắn khi có ít nhất 1 bình chọn
+        // thật (post_ratings), không bịa số 0 sao/rỗng.
         $ratingCount = $post->ratingCount();
 
         $seoData = [

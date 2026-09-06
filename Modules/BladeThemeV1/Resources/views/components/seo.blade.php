@@ -57,6 +57,9 @@
     @endif
 
     {{-- JSON-LD Structured Data --}}
+    @php
+        $ratingScriptSchema = null;
+    @endphp
     @if($ogType === 'article')
         @php
             // Rich Results Test flag "author" thiếu name/url khi rỗng — site chưa có trang hồ sơ
@@ -80,19 +83,31 @@
             ];
             if ($ogImage) $schema['image'] = $ogImage;
 
-            // Chỉ gắn khi đã có bình chọn thật (post_ratings) — Google từ chối AggregateRating
-            // 0 sao/rỗng. LƯU Ý: chính sách review rich-result của Google hiện chỉ áp dụng cho
-            // Product/Recipe/LocalBusiness..., KHÔNG áp dụng cho Article/BlogPosting — gắn đúng
-            // schema này vẫn có khả năng Google không hiển thị sao ngoài kết quả tìm kiếm, hoặc
-            // hiển thị một thời gian rồi ngừng nếu chính sách siết lại. Đã trao đổi rủi ro này với
-            // yêu cầu nghiệp vụ trước khi thêm.
+            // KHÔNG gắn aggregateRating vào khối Article ở trên: Article/BlogPosting không nằm
+            // trong danh sách @type mà Google cho phép chứa aggregateRating (chỉ Book/Course/Event/
+            // LocalBusiness/Product/Recipe/CreativeWorkSeries...) — đã thử và Rich Results Test báo
+            // lỗi nghiêm trọng "Loại đối tượng cho trường '<parent_node>' không hợp lệ".
+            //
+            // Thay vào đó gắn 1 node JSON-LD RIÊNG, type "CreativeWorkSeries" — nằm trong whitelist
+            // nên qua được validate. Đây là kỹ thuật đối thủ đang dùng (vd goldenbeeltd.vn,
+            // nucuoimekong.com — dùng chính plugin "kk-star-ratings" tạo node này) để hiện sao ngoài
+            // SERP cho bài viết, dù về đúng ngữ nghĩa CreativeWorkSeries là series phim/podcast/sách
+            // nhiều tập chứ không phải bài blog. Google validate theo whitelist type chứ không kiểm
+            // tra loại có khớp nội dung thật hay không nên vẫn qua, nhưng đây là lách chính sách
+            // "structured data phải phản ánh đúng nội dung trang" — đã trao đổi và CHẤP NHẬN rủi ro
+            // này (có thể bị Google tắt rich result nếu quét lại) để đổi lấy sao hiển thị ngoài SERP.
+            $ratingScriptSchema = null;
             if (!empty($seoData['rating_count'])) {
-                $schema['aggregateRating'] = [
-                    '@type'       => 'AggregateRating',
-                    'ratingValue' => (string) $seoData['rating_average'],
-                    'ratingCount' => (int) $seoData['rating_count'],
-                    'bestRating'  => '5',
-                    'worstRating' => '1',
+                $ratingScriptSchema = [
+                    '@context'        => 'https://schema.org/',
+                    '@type'           => 'CreativeWorkSeries',
+                    'name'            => $seoData['seo_title'] ?? '',
+                    'aggregateRating' => [
+                        '@type'       => 'AggregateRating',
+                        'ratingValue' => (string) $seoData['rating_average'],
+                        'bestRating'  => '5',
+                        'ratingCount' => (string) $seoData['rating_count'],
+                    ],
                 ];
             }
         @endphp
@@ -207,6 +222,10 @@
     @endif
 
     <script type="application/ld+json">{!! json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) !!}</script>
+
+    @if($ratingScriptSchema)
+        <script type="application/ld+json">{!! json_encode($ratingScriptSchema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) !!}</script>
+    @endif
 
     {{-- LodgingBusiness (con của LocalBusiness) — CHỈ gắn ở trang chủ, không lặp lại ở mọi trang
          (tránh trùng lặp schema không cần thiết). NAP (tên/địa chỉ/SĐT) PHẢI khớp chính xác với
