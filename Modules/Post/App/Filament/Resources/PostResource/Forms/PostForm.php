@@ -9,6 +9,7 @@ use App\Models\User;
 use CodeWithDennis\FilamentSelectTree\SelectTree;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\Grid;
+use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\SpatieTagsInput;
@@ -150,14 +151,19 @@ class PostForm
             ->columnSpan(2);
     }
 
-    // 'simple' profile: bold/italic/link/list — vừa đủ để tô đậm từ khoá + chèn link như ảnh mẫu
-    // (Frontend đã render {!! $post->summary !!} là HTML từ trước, textarea thường chỉ cho gõ
-    // chữ trần, muốn in đậm/gắn link phải gõ tay thẻ HTML).
-    private static function summaryField(): TinyEditor
+    // Dùng RichEditor gốc của Filament thay vì TinyEditor thứ 2: 2 TinyEditor (summary + content)
+    // cùng lúc trên 1 form khiến field đứng trước (summary) không render ra được — trơ, không có
+    // toolbar/khung soạn thảo nào cả (đã thử thêm ->id() tường minh + bổ sung plugin 'lists' còn
+    // thiếu ở profile 'simple' nhưng không khắc phục được, không có quyền tự đăng nhập admin để lấy
+    // console log JS xác định nguyên nhân sâu hơn). RichEditor không dùng chung cơ chế lazy-load
+    // Alpine với TinyEditor nên không đụng độ. toolbarButtons giữ tương đương profile 'simple' cũ:
+    // đậm/nghiêng/danh sách/link — đủ để tô đậm từ khoá + chèn link (frontend đã render
+    // {!! $post->summary !!} là HTML từ trước).
+    private static function summaryField(): RichEditor
     {
-        return TinyEditor::make('summary')
+        return RichEditor::make('summary')
             ->label(__('post::post.form.label.summary'))
-            ->profile('simple')
+            ->toolbarButtons(['bold', 'italic', 'bulletList', 'orderedList', 'link'])
             ->maxLength(65535)
             ->placeholder(__('post::post.form.placeholder.summary'))
             ->live(onBlur: true)
