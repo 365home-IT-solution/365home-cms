@@ -65,7 +65,13 @@ class TableOfContents
                 continue;
             }
 
-            $slug = Str::slug($text);
+            // Editor hay gõ số thứ tự ngay trong heading ("1. Vì sao nên...", hoặc 2 cấp kiểu
+            // "3.3. Localhome" cho heading con), Str::slug() giữ nguyên số đó khiến id/#anchor bắt
+            // đầu bằng "1-..."/"3-..." xấu và vô nghĩa khi đứng riêng trên URL — bỏ hết các lớp số
+            // thứ tự này (lặp "+" để bóc cả "3.3." chứ không chỉ "3.") khi tạo slug, chỉ dùng cho
+            // id/href, chữ hiển thị ở $text giữ nguyên số như editor đã gõ.
+            $slugSource = preg_replace('/^\s*(?:\d+[\.\)\-:]\s*)+/u', '', $text);
+            $slug = Str::slug($slugSource !== '' ? $slugSource : $text);
             if ($slug === '') {
                 $slug = 'muc-' . (count($usedSlugs) + 1);
             }
