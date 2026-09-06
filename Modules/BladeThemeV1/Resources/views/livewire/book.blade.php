@@ -18,6 +18,16 @@
     },
 
     toggleSlot(el, slot) {
+        // is_activated/totalSlotsInRoom/fullBookingDiscountValue/bulkDiscountRules không còn
+        // nhúng thẳng trong @click của từng ô (xem book/_slot-cell.blade.php) — đọc lại từ
+        // data-room-meta trên wrapper của phòng (book/_desktop-grid.blade.php,
+        // book/_mobile.blade.php), gộp vào slot trước khi dùng, giữ nguyên shape/giá trị y hệt
+        // trước đây để mọi logic tính giá/discount bên dưới không cần đổi gì.
+        const metaEl = el.closest('[data-room-meta]');
+        if (metaEl) {
+            slot = { ...slot, ...JSON.parse(metaEl.dataset.roomMeta) };
+        }
+
         if (this.selectedRoomId === null) {
             this.selectedRoomId = slot.roomId;
             this.selectedRoomIsActive = slot.is_activated;

@@ -78,8 +78,19 @@
                             // không phá màu trạng thái đặt/pending.
                             $roomConfig = $productColors[$room->id] ?? null;
                             $roomBg     = $roomConfig['color'] ?? null;
+
+                            // is_activated/totalSlotsInRoom/fullBookingDiscountValue/bulkDiscountRules
+                            // giống hệt nhau ở mọi ô của phòng này — render 1 lần ở đây thay vì lặp
+                            // lại trong @click của TỪNG ô (book/_slot-cell.blade.php), toggleSlot()
+                            // ở book.blade.php đọc lại qua el.closest('[data-room-meta]') lúc click.
+                            $roomMetaJson = json_encode([
+                                'is_activated'             => (bool) $room->is_activated,
+                                'totalSlotsInRoom'         => $room->roomTimeSlots->count(),
+                                'fullBookingDiscountValue' => (string) $room->full_booking_discount,
+                                'bulkDiscountRules'        => $room->bulk_discount_rules ?? [],
+                            ]);
                         @endphp
-                        <div class="swiper-slide">
+                        <div class="swiper-slide" data-room-meta="{{ $roomMetaJson }}">
                             <h3 class="book-room-name book-dt-room-name">
                                 {{ $room->name }}
                                 @if($roomHasDiscount)

@@ -124,6 +124,13 @@
 
     $displayPromotion         = $increasePromotions[0] ?? null;
     $displayDiscountPromotion = $discountPromotionsData[0] ?? null;
+
+    // is_activated/totalSlotsInRoom/fullBookingDiscountValue/bulkDiscountRules KHÔNG đổi theo
+    // từng ô (chỉ theo phòng) — nhúng lại y hệt cho MỖI ô (hàng trăm-nghìn ô/trang chi nhánh
+    // nhiều phòng) là lãng phí HTML thuần, đã bị Google Search Console báo "kích thước HTML quá
+    // lớn" (>2MB) ở chi nhánh 8 phòng. Đã chuyển 4 field này ra data-room-meta, render 1
+    // lần/phòng (book/_desktop-grid.blade.php, book/_mobile.blade.php) — toggleSlot() ở
+    // book.blade.php tự đọc lại + merge vào $slot lúc click, giữ nguyên object cuối cùng như cũ.
 @endphp
 <div class="selectable {{ $classes }}"
     style="{{ !$isSelectable ? 'pointer-events:none;opacity:0.55;' : 'cursor:pointer;' }}{{ $orderColor ? '--order-color:' . $orderColor . ';' : '' }}"
@@ -143,11 +150,7 @@
         hasDiscount: {{ $hasDiscountPromotion ? 'true' : 'false' }},
         hasIncrease: {{ $hasIncreasePromotion ? 'true' : 'false' }},
         isIncrease: {{ $isIncrease ? 'true' : 'false' }},
-        is_activated: {{ $room->is_activated ? 'true' : 'false' }},
         overNight: {{ $roomTimeSlot->over_night ?? 0 }},
-        totalSlotsInRoom: {{ $room->roomTimeSlots->count() }},
-        fullBookingDiscountValue: '{{ $room->full_booking_discount }}',
-        bulkDiscountRules: {{ json_encode($room->bulk_discount_rules ?? []) }},
         discountPromotions: {{ json_encode($discountPromotionsData) }},
         increasePromotions: {{ json_encode($increasePromotionsData) }}
     })">

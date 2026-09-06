@@ -186,7 +186,20 @@
         {{-- Right: Scrollable slots per room --}}
         <div class="book-slots-outer">
             @foreach ($styleOneRooms as $ri => $room)
-            <div x-show="activeRoomIdx === {{ $ri }}" x-cloak class="book-slots-card">
+            @php
+                // is_activated/totalSlotsInRoom/fullBookingDiscountValue/bulkDiscountRules giống
+                // hệt nhau ở mọi ô của phòng này — render 1 lần ở đây thay vì lặp lại trong @click
+                // của TỪNG ô (book/_slot-cell.blade.php), toggleSlot() ở book.blade.php đọc lại
+                // qua el.closest('[data-room-meta]') lúc click. Xem cùng lý do ở
+                // book/_desktop-grid.blade.php.
+                $roomMetaJson = json_encode([
+                    'is_activated'             => (bool) $room->is_activated,
+                    'totalSlotsInRoom'         => $room->roomTimeSlots->count(),
+                    'fullBookingDiscountValue' => (string) $room->full_booking_discount,
+                    'bulkDiscountRules'        => $room->bulk_discount_rules ?? [],
+                ]);
+            @endphp
+            <div x-show="activeRoomIdx === {{ $ri }}" x-cloak class="book-slots-card" data-room-meta="{{ $roomMetaJson }}">
                 <div class="book-slots-scroll" x-ref="bookSlotsScroll{{ $ri }}"
                     @scroll="$refs.bookDatesScroll.scrollTop = $event.target.scrollTop">
 
