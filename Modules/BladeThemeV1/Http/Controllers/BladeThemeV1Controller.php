@@ -621,7 +621,13 @@ class BladeThemeV1Controller extends Controller
             $seoDescription = html_entity_decode(strip_tags($product->description ?? ''));
         }
         if ($seoDescription === '') {
-            $seoDescription = $product->name . ' - Phòng tại 365 Home, đặt phòng theo giờ/ngày, tự check-in không cần lễ tân.';
+            // Chưa nhập "Mô tả ngắn"/"Mô tả đầy đủ" cho phòng này — dựng câu tối thiểu kèm TÊN
+            // CHI NHÁNH (không chỉ tên phòng) để các phòng cùng chi nhánh không vô tình ra description
+            // giống hệt nhau khi cả loạt phòng đều bỏ trống mô tả (đã xảy ra thật, xem SQL backfill
+            // đi kèm cho các phòng cũ đã lỡ nhập sẵn 1 đoạn mô tả chi nhánh y hệt nhau).
+            $seoDescription = $loc && $loc['branch_name']
+                ? $product->name . ' tại chi nhánh ' . $loc['branch_name'] . ' - 365 Home. Đặt phòng theo giờ/ngày.'
+                : $product->name . ' - Phòng tại 365 Home, đặt phòng theo giờ/ngày.';
         }
         $seoDescription = \Illuminate\Support\Str::limit(trim($seoDescription), 300, '...');
         $seoOgImage     = $product->hasMedia('Ảnh bìa')
