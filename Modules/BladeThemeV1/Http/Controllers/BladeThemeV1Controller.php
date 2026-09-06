@@ -932,11 +932,14 @@ class BladeThemeV1Controller extends Controller
 
     private function renderBookingBoard(string $slug, ?string $type, ?string $location)
     {
-        // Slug chi nhánh vừa được rút gọn (xem BranchBookConfig::LEGACY_BRANCH_SLUGS) — 301 sang
-        // slug mới, để route /chi-nhanh/{slug} bên dưới tự tiếp tục 301 lần nữa về URL canonical
-        // đầy đủ /{type}/{location}/{slug} (giống cơ chế alias /branch/{slug} đã có sẵn).
-        if (isset(BranchBookConfig::LEGACY_BRANCH_SLUGS[$slug])) {
-            return redirect('/chi-nhanh/' . BranchBookConfig::LEGACY_BRANCH_SLUGS[$slug], 301);
+        // Việc rút gọn slug chi nhánh (xem BranchBookConfig::LEGACY_BRANCH_SLUGS) chưa từng được
+        // áp dụng thật trên dữ liệu (categories.slug vẫn giữ dạng đầy đủ) và đã bị huỷ — slug ĐẦY
+        // ĐỦ mới là canonical. Nếu $slug đang gõ là 1 slug NGẮN đã lỡ chia sẻ/index trước đây, 301
+        // về slug đầy đủ tương ứng (để route /chi-nhanh/{slug} bên dưới tiếp tục 301 lần nữa về URL
+        // canonical /{type}/{location}/{slug}) thay vì ngược lại.
+        $fullSlug = array_search($slug, BranchBookConfig::LEGACY_BRANCH_SLUGS, true);
+        if ($fullSlug !== false) {
+            return redirect('/chi-nhanh/' . $fullSlug, 301);
         }
 
         $result = BranchBookConfig::build($slug);

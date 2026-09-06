@@ -22,12 +22,13 @@ class BranchBookConfig
         'chung-cu'   => 'apartment',
     ];
 
-    // Slug chi nhánh (Category.slug) CŨ -> MỚI, dùng khi rút gọn slug từ "tên đầy đủ = địa chỉ"
-    // (vd "254-xuan-thuy-an-binh-can-tho") sang dạng ngắn cho SEO (vd "254-xuan-thuy"). Category
-    // tra theo slug hiện tại nên đổi slug xong là URL cũ 404 ngay nếu không có map này — chỉ
-    // renderBookingBoard()/BladeThemeV1Controller cần tới (route chi tiết phòng tự lành nhờ so
-    // sánh với slug MỚI mỗi request, xem renderProductDetail()). Thêm dòng mới mỗi khi đổi slug 1
-    // chi nhánh, KHÔNG xoá dòng cũ — giữ redirect vĩnh viễn cho URL đã index/chia sẻ trước đó.
+    // Slug chi nhánh (Category.slug) ĐẦY ĐỦ (key, vd "254-xuan-thuy-an-binh-can-tho") -> slug
+    // NGẮN (value, vd "254-xuan-thuy") đã có lúc định dùng thay cho slug đầy đủ, nhưng KHÔNG bao
+    // giờ được áp dụng thật trên dữ liệu (categories.slug vẫn luôn là dạng đầy đủ) và đã bị huỷ —
+    // slug ĐẦY ĐỦ mới là canonical (xem renderBookingBoard()). Map này giờ chỉ còn tác dụng: nếu
+    // URL dạng ngắn lỡ đã được chia sẻ/index đâu đó trước khi huỷ, vẫn 301 đúng về slug đầy đủ
+    // thay vì 404. Phòng thân dữ liệu chưa chắc luôn đồng bộ, BranchBookConfig::build() cũng tra
+    // ngược map này khi không tìm thấy category theo slug ngắn. KHÔNG xoá dòng nào ở đây.
     public const LEGACY_BRANCH_SLUGS = [
         '254-xuan-thuy-an-binh-can-tho'     => '254-xuan-thuy',
         '252-xuan-thuy-an-binh-can-tho'     => '252-xuan-thuy',
@@ -192,10 +193,11 @@ class BranchBookConfig
     {
         $branch = Category::where('slug', $slug)->first();
 
-        // $slug có thể là slug MỚI (rút gọn, xem LEGACY_BRANCH_SLUGS) nhưng category trong DB vẫn
-        // đang giữ slug CŨ (việc đổi tên chưa được áp dụng thật trên dữ liệu) — thử luôn slug cũ
-        // tương ứng trước khi coi là không tìm thấy, để /chi-nhanh/{slug-mới} không 404 oan, và
-        // redirect long->short ở renderBookingBoard() không dẫn vào 1 URL chết.
+        // $slug có thể là 1 slug NGẮN đã lỡ chia sẻ/index từ trước (xem LEGACY_BRANCH_SLUGS —
+        // việc rút gọn đã bị huỷ, slug ĐẦY ĐỦ mới là canonical) — thử luôn slug đầy đủ tương ứng
+        // trước khi coi là không tìm thấy, để URL ngắn cũ đó không 404 oan (dù renderBookingBoard()
+        // đã redirect ngắn -> đầy đủ trước khi tới đây, giữ fallback này phòng khi có nơi khác gọi
+        // thẳng build() với slug ngắn).
         if (! $branch) {
             $oldSlug = array_search($slug, self::LEGACY_BRANCH_SLUGS, true);
             if ($oldSlug !== false) {

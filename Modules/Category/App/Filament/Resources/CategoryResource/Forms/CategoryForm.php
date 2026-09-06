@@ -112,11 +112,13 @@ class CategoryForm
                     ? Rule::unique('categories', 'slug')->ignore($categoryId)
                     : Rule::unique('categories', 'slug');
             }])
-            // Với chi nhánh (tên = địa chỉ đầy đủ), NÊN sửa slug này thành dạng ngắn gọn (vd
-            // "254-xuan-thuy" thay vì để mặc định tự sinh cả địa chỉ) — slug ngắn được dùng làm
-            // URL chi tiết phòng/chi nhánh, ảnh hưởng SEO. Sửa slug sau khi đã có URL cũ đang
-            // chia sẻ/index thì cần thêm dòng redirect vào BranchBookConfig::LEGACY_BRANCH_SLUGS.
-            ->helperText('Dùng làm URL — nên đặt ngắn gọn, không cần trùng tên đầy đủ (đặc biệt khi tên là địa chỉ).')
+            // Slug này (kể cả khi tên chi nhánh = địa chỉ đầy đủ) được dùng TRỰC TIẾP làm URL chi
+            // tiết phòng/chi nhánh (BranchBookConfig::resolveLocationForProduct()/build()) — GIỮ
+            // NGUYÊN dạng đầy đủ tự sinh, KHÔNG rút gọn thủ công. Từng thử rút gọn cho gọn URL
+            // nhưng không áp dụng nhất quán được trên dữ liệu, gây hàng loạt URL/link nội bộ 404 —
+            // xem BranchBookConfig::LEGACY_BRANCH_SLUGS. Nếu bắt buộc phải đổi slug sau khi đã có
+            // URL cũ đang chia sẻ/index, thêm dòng redirect vào LEGACY_BRANCH_SLUGS đó.
+            ->helperText('Dùng làm URL — giữ nguyên dạng tự sinh, không rút gọn thủ công (kể cả khi tên là địa chỉ dài).')
             ->columnSpan(2);
     }
 
