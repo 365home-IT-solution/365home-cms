@@ -261,6 +261,17 @@
 
     <main class="branch-page-main" style="background:#fff; min-height:100vh;">
         <div class="w-full max-w-11xl mx-auto px-4 sm:px-6 pb-6">
+            {{-- H1 duy nhất của trang — trước đây trang không có H1 nào (SEO audit flag "5 các
+                 trang không có tiêu đề h1"), vì heading "Danh sách phòng" duy nhất trên trang là
+                 h2 và chỉ được JS chèn vào sau khi fetch /api/v1/search xong. Render sẵn trong
+                 HTML gốc để Google thấy ngay cả khi chưa/không chạy JS. Dùng đúng tên chi nhánh
+                 ($branch->name, vd "252 Xuân Thủy, An Bình, Cần Thơ") khớp với seo_title đã đặt
+                 ở renderBookingBoard() (BladeThemeV1Controller) — không trùng lặp y hệt title tag
+                 vì title còn có hậu tố "| 365 HOME". --}}
+            <h1 class="text-xl md:text-2xl font-bold text-gray-900 mt-4 mb-4">
+                Đặt phòng {{ $branch->name }}
+            </h1>
+
             <div class="branch-columns">
                 {{-- Cột 1: Danh sách phòng thuộc chi nhánh này. Desktop: danh sách dọc, sticky
                      cạnh bảng đặt lịch (như cũ). Mobile: hiển thị ngay bên dưới Lịch đặt phòng
