@@ -192,6 +192,17 @@ class BranchBookConfig
     {
         $branch = Category::where('slug', $slug)->first();
 
+        // $slug có thể là slug MỚI (rút gọn, xem LEGACY_BRANCH_SLUGS) nhưng category trong DB vẫn
+        // đang giữ slug CŨ (việc đổi tên chưa được áp dụng thật trên dữ liệu) — thử luôn slug cũ
+        // tương ứng trước khi coi là không tìm thấy, để /chi-nhanh/{slug-mới} không 404 oan, và
+        // redirect long->short ở renderBookingBoard() không dẫn vào 1 URL chết.
+        if (! $branch) {
+            $oldSlug = array_search($slug, self::LEGACY_BRANCH_SLUGS, true);
+            if ($oldSlug !== false) {
+                $branch = Category::where('slug', $oldSlug)->first();
+            }
+        }
+
         if (! $branch) {
             return null;
         }
