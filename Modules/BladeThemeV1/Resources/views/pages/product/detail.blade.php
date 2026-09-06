@@ -2,7 +2,13 @@
 
 <x-bladethemev1::seo :seoData="$seoData"/>
 
-@include('bladethemev1::styles.product-detail-styles')
+{{-- @include thường (không bọc @push) echo ngay ra output tại đây — TRƯỚC khi layout cha
+     (@extends ở trên) kịp render <!DOCTYPE html>/<head>, khiến DOCTYPE không còn là byte đầu
+     tiên của response (trang bị audit tool báo "không khai báo DOCTYPE"). Bọc vào @push('head')
+     để nội dung <style> được đẩy đúng vào @stack('head') trong layouts/master.blade.php. --}}
+@push('head')
+    @include('bladethemev1::styles.product-detail-styles')
+@endpush
 
 @section('content')
     @livewire('bladethemev1::header')
