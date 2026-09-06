@@ -5,6 +5,7 @@ namespace Modules\BladeThemeV1\Http\Controllers;
 use Illuminate\Routing\Controller;
 use Modules\BladeThemeV1\Support\BranchBookConfig;
 use Modules\Menu\Entities\MenuItem;
+use Modules\Page\Entities\Page;
 use Modules\Post\Entities\Post;
 use Modules\Product\App\Models\Product;
 
@@ -53,6 +54,9 @@ class SitemapController extends Controller
         // 3. Phòng / sản phẩm (type = simple) — liệt kê thẳng URL canonical (có khu vực/chi nhánh
         // khi xác định được, xem BranchBookConfig::resolveLocationForProduct()) thay vì URL phẳng
         // /room/{slug} rồi để Google tự đi theo redirect — sitemap không nên chứa URL redirect.
+        // Phòng chưa gắn chi nhánh nào (resolveLocationForProduct trả về null) thì /room/{slug}
+        // cũng 404 luôn (renderProductDetail yêu cầu category active) — loại hẳn khỏi sitemap thay
+        // vì trỏ vào URL chết.
         $rooms = Product::where([
             'is_activated' => true,
             'type'         => 'simple',
@@ -61,14 +65,16 @@ class SitemapController extends Controller
             ->with(['categories:id,slug,parent_id', 'roomType:id,slug'])
             ->select(['id', 'slug', 'updated_at', 'room_type_id'])
             ->latest('updated_at')
-            ->get();
-
-        foreach ($rooms as $room) {
-            $loc = BranchBookConfig::resolveLocationForProduct($room);
-            $room->url = $loc
-                ? url('/' . $loc['type_url_slug'] . '/' . $loc['province_slug'] . '/' . $loc['branch_slug'] . '/' . $room->slug . '/')
-                : url('/room/' . $room->slug . '/');
-        }
+            ->get()
+            ->map(function ($room) {
+                $loc = BranchBookConfig::resolveLocationForProduct($room);
+                $room->url = $loc
+                    ? url('/' . $loc['type_url_slug'] . '/' . $loc['province_slug'] . '/' . $loc['branch_slug'] . '/' . $room->slug . '/')
+                    : null;
+                return $room;
+            })
+            ->filter(fn ($room) => $room->url !== null)
+            ->values();
 
         // 4. Mẫu giao diện / dịch vụ (type = service)
         $templates = Product::where([
@@ -144,23 +150,23 @@ class SitemapController extends Controller
     private function flattenMenuItems($items, &$collection, string $parentUrl = ''): void
     {
         foreach ($items as $item) {
-            $rawUrl = ltrim($item->url ?? '', '/');
+            // Menu item trỏ tới 1 Page (qua page_id, hoặc qua linkable_type/linkable_id) đã bị xóa
+            // khỏi DB — không có cascade delete khi xóa Page nên hàng menu_items để lại rác, cột
+            // `url` vẫn giữ nguyên giá trị cũ khiến sitemap liệt kê URL đã chết mãi mãi. Bỏ qua
+            // item này (vẫn duyệt tiếp children) nếu model được trỏ tới không còn tồn tại.
+            $isDangling = ($item->page_id && !Page::whereKey($item->page_id)->exists())
+                || ($item->linkable_type && $item->linkable_id && !$item->linkable);
 
-            if (empty($rawUrl)) {
-                continue;
+            if (!$isDangling) {
+                $rawUrl = ltrim($item->url ?? '', '/');
+
+                if (!empty($rawUrl) && !str_starts_with($rawUrl, 'http')) {
+                    $collection->push([
+                        'url'     => url($rawUrl),
+                        'lastmod' => $item->updated_at?->toAtomString() ?? now()->toAtomString(),
+                    ]);
+                }
             }
-
-            // Bỏ qua external links
-            if (str_starts_with($rawUrl, 'http')) {
-                continue;
-            }
-
-            $fullUrl = url($rawUrl);
-
-            $collection->push([
-                'url'     => $fullUrl,
-                'lastmod' => $item->updated_at?->toAtomString() ?? now()->toAtomString(),
-            ]);
 
             if ($item->children && $item->children->isNotEmpty()) {
                 $this->flattenMenuItems($item->children, $collection);

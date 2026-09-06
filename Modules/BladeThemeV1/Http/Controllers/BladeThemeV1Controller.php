@@ -875,17 +875,22 @@ class BladeThemeV1Controller extends Controller
 
         $noscriptRooms = $noscriptQuery->paginate(24)->withQueryString();
 
+        // Phòng chưa gắn chi nhánh nào (resolveLocationForProduct trả về null) thì /room/{slug}
+        // cũng 404 (renderProductDetail yêu cầu category active) — loại hẳn khỏi danh sách thay vì
+        // lộ link chết cho crawler.
         $noscriptRoomLinks = collect($noscriptRooms->items())->map(function ($room) {
             $loc = BranchBookConfig::resolveLocationForProduct($room);
+
+            if (!$loc) {
+                return null;
+            }
 
             return [
                 'name'  => $room->name,
                 'price' => (float) $room->price,
-                'url'   => $loc
-                    ? url('/' . $loc['type_url_slug'] . '/' . $loc['province_slug'] . '/' . $loc['branch_slug'] . '/' . $room->slug . '/')
-                    : url('/room/' . $room->slug . '/'),
+                'url'   => url('/' . $loc['type_url_slug'] . '/' . $loc['province_slug'] . '/' . $loc['branch_slug'] . '/' . $room->slug . '/'),
             ];
-        });
+        })->filter()->values();
 
         return view('bladethemev1::pages.product.search', [
             'seoData'          => $seoData,
