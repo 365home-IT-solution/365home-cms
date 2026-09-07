@@ -28,7 +28,7 @@
                         </p>
                         <div class="h-10">
                             <small class="leading-5 text-gray-500 dark:text-gray-400">
-                                {{ Str::limit($post->summary, 70, '...') }}
+                                {{ Str::limit(strip_tags($post->summary), 70, '...') }}
                             </small>
                         </div>
                         @if ($post->categories->count())

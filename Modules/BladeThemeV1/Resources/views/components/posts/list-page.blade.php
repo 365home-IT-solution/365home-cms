@@ -34,7 +34,7 @@
                 </div>
 
                 <p class="text-gray-600 text-sm line-clamp-2">
-                    {{ Str::limit($post->summary, 100, '...') }}
+                    {{ Str::limit(strip_tags($post->summary), 100, '...') }}
                 </p>
             </div>
             <div class="flex items-center flex-wrap mt-4">

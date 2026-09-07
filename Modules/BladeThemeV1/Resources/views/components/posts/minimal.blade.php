@@ -20,7 +20,7 @@
 
 
             <p class="text-gray-600 mb-4">
-                {{ Str::limit($post->summary, 120, '...') }}
+                {{ Str::limit(strip_tags($post->summary), 120, '...') }}
             </p>
 
             @if ($post->tags->isNotEmpty())

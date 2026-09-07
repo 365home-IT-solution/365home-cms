@@ -22,7 +22,7 @@
                 </h3>
 
                 <p class="post-card-summary">
-                    {{ Str::limit($post->summary, 90, '...') }}
+                    {{ Str::limit(strip_tags($post->summary), 90, '...') }}
                 </p>
 
                 <time datetime="{{ $post->created_at->toIso8601String() }}" class="mt-2 block text-xs text-gray-400">

@@ -38,7 +38,7 @@
             @endif
             <div class="h-0 overflow-hidden group-hover:h-16 group-hover:mt-4 transition-all duration-300 ease-in-out">
                 <p class="text-sm post-summary text-white">
-                    {{ Str::limit($post->summary, 90, '...') }}
+                    {{ Str::limit(strip_tags($post->summary), 90, '...') }}
                 </p>
             </div>
         </div>

@@ -45,7 +45,7 @@
                 {{ $post->title }}
             </div>
             <p class="text-gray-700 mt-2">
-                {{ Str::limit($post->summary, 70, '...') }}
+                {{ Str::limit(strip_tags($post->summary), 70, '...') }}
             </p>
 
             <div class="flex flex-wrap justify-between items-center gap-3">
