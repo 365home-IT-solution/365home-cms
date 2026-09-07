@@ -8,15 +8,15 @@ use App\Http\Controllers\Api\Admin\Minihouse\Concerns\ScopesToMinihouseBuilding;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Modules\Minihouse\App\Models\Contract;
+use Modules\Minihouse\App\Models\ContractTenant;
+use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\Room;
 
-// CRUD cơ bản cho Hợp đồng. Các luồng nghiệp vụ nâng cao chỉ có ở panel Filament (chưa đưa vào API
-// đợt này — xem EditContract::getHeaderActions()): Gia hạn (renewContract, có ghi log
-// ContractRenewal), Thanh lý/Hoàn cọc (checkoutContract), Chuyển phòng (transferRoom, tạo hợp đồng
-// mới + copy người ở cùng/phụ thu). API này chỉ tạo/sửa/xoá hợp đồng thô — muốn làm các luồng trên
-// qua API thì cần bổ sung thêm action riêng, chưa nằm trong phạm vi lần này.
+// CRUD cơ bản cho Hợp đồng + 3 luồng nghiệp vụ nâng cao mirror ĐÚNG logic bản Filament (xem
+// EditContract::getHeaderActions()): Gia hạn, Thanh lý/Hoàn cọc, Chuyển phòng.
 class ContractController extends Controller
 {
     use ScopesToMinihouseBuilding;
@@ -158,6 +158,182 @@ class ContractController extends Controller
         $contract->delete();
 
         return response()->json(['message' => 'Đã xoá hợp đồng.']);
+    }
+
+    // POST /api/admin/minihouse/contracts/{id}/renew
+    // Mirror EditContract's renewContract: ghi 1 dòng lịch sử ContractRenewal TRƯỚC khi cập nhật,
+    // để sau này còn tra lại được đã gia hạn bao nhiêu lần, giá cũ là bao nhiêu.
+    public function renew(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasPermission($request, 'update_contracts')) {
+            return response()->json(['message' => 'Không có quyền gia hạn hợp đồng.'], 403);
+        }
+
+        $contract = Contract::withoutGlobalScopes()->with('room')->find($id);
+
+        if (! $contract || ! $this->isBuildingAllowed($request, $contract->room?->building_id)) {
+            return response()->json(['message' => 'Không tìm thấy hợp đồng.'], 404);
+        }
+
+        if ($contract->status !== Contract::STATUS_ACTIVE) {
+            return response()->json(['message' => 'Chỉ gia hạn được hợp đồng đang hiệu lực.'], 422);
+        }
+
+        $data = $request->validate([
+            'new_end_date'      => [
+                'required', 'date',
+                function ($attribute, $value, $fail) use ($contract) {
+                    if ($contract->end_date && \Illuminate\Support\Carbon::parse($value)->lte($contract->end_date)) {
+                        $fail('Ngày kết thúc mới phải sau ngày kết thúc hiện tại (' . $contract->end_date->format('d/m/Y') . ').');
+                    }
+                },
+            ],
+            'new_monthly_price' => 'required|numeric|min:0',
+            'note'              => 'nullable|string',
+        ]);
+
+        $contract->renewals()->create([
+            'old_end_date'      => $contract->end_date,
+            'new_end_date'      => $data['new_end_date'],
+            'old_monthly_price' => $contract->monthly_price,
+            'new_monthly_price' => $data['new_monthly_price'],
+            'note'              => $data['note'] ?? null,
+            'created_by'        => $request->user()->id,
+        ]);
+
+        $contract->update([
+            'end_date'      => $data['new_end_date'],
+            'monthly_price' => $data['new_monthly_price'],
+        ]);
+
+        return response()->json(['data' => $this->toDetailItem($contract->fresh(['room.building', 'tenant']))]);
+    }
+
+    // POST /api/admin/minihouse/contracts/{id}/checkout
+    // Mirror EditContract's checkoutContract: gợi ý số tiền hoàn cọc = cọc - tổng còn nợ (gồm cả
+    // hoá đơn "partial", không chỉ "unpaid" — xem note trong toDetailItem). Đổi status=expired,
+    // ContractObserver tự trả phòng về "Trống".
+    public function checkout(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasPermission($request, 'update_contracts')) {
+            return response()->json(['message' => 'Không có quyền thanh lý hợp đồng.'], 403);
+        }
+
+        $contract = Contract::withoutGlobalScopes()->with('room')->find($id);
+
+        if (! $contract || ! $this->isBuildingAllowed($request, $contract->room?->building_id)) {
+            return response()->json(['message' => 'Không tìm thấy hợp đồng.'], 404);
+        }
+
+        if ($contract->status !== Contract::STATUS_ACTIVE) {
+            return response()->json(['message' => 'Chỉ thanh lý được hợp đồng đang hiệu lực.'], 422);
+        }
+
+        $unpaidTotal = (float) Invoice::where('contract_id', $contract->id)
+            ->whereIn('status', [Invoice::STATUS_UNPAID, Invoice::STATUS_PARTIAL])
+            ->get()
+            ->sum(fn (Invoice $invoice) => $invoice->remainingAmount());
+        $suggested = max(0, (float) $contract->deposit_amount - $unpaidTotal);
+
+        $data = $request->validate([
+            'checkout_at'               => 'required|date',
+            'deposit_refunded_amount'   => 'nullable|numeric|min:0',
+            'deposit_deduction_reason'  => 'nullable|string',
+        ]);
+
+        $data['deposit_refunded_amount'] ??= $suggested;
+
+        $contract->update([
+            ...$data,
+            'status' => Contract::STATUS_EXPIRED,
+        ]);
+
+        return response()->json([
+            'data'              => $this->toDetailItem($contract->fresh(['room.building', 'tenant'])),
+            'suggested_refund'  => $suggested,
+            'unpaid_total'      => $unpaidTotal,
+        ]);
+    }
+
+    // POST /api/admin/minihouse/contracts/{id}/transfer-room
+    // Mirror EditContract's transferRoom: hợp đồng CŨ kết thúc (status=expired, tự trả phòng cũ về
+    // "Trống"), tạo NGAY hợp đồng MỚI cho phòng mới mang theo cọc + người ở cùng + phụ thu (nếu
+    // cùng toà nhà) — KHÔNG hoàn cọc như "Thanh lý", coi như 1 lần thuê liên tục chỉ đổi phòng.
+    public function transferRoom(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasPermission($request, 'update_contracts')) {
+            return response()->json(['message' => 'Không có quyền chuyển phòng.'], 403);
+        }
+
+        $old = Contract::withoutGlobalScopes()->with('room')->find($id);
+
+        if (! $old || ! $this->isBuildingAllowed($request, $old->room?->building_id)) {
+            return response()->json(['message' => 'Không tìm thấy hợp đồng.'], 404);
+        }
+
+        if ($old->status !== Contract::STATUS_ACTIVE) {
+            return response()->json(['message' => 'Chỉ chuyển phòng được hợp đồng đang hiệu lực.'], 422);
+        }
+
+        $data = $request->validate([
+            'new_room_id'        => 'required|integer|exists:minihouse_rooms,id',
+            'transfer_at'        => 'required|date',
+            'new_monthly_price'  => 'required|numeric|min:0',
+        ]);
+
+        $newRoom = Room::withoutGlobalScopes()->find($data['new_room_id']);
+
+        if (! $newRoom || $newRoom->status !== Room::STATUS_EMPTY || $newRoom->id === $old->room_id) {
+            return response()->json(['message' => 'Phòng mới phải đang "Trống" và khác phòng hiện tại.'], 422);
+        }
+
+        // Phòng mới có thể ở toà nhà KHÁC toà đang quản lý (VD chuyển liên toà) — vẫn phải được
+        // phép quản lý toà đó mới cho chuyển tới, không thì 1 tài khoản bị giới hạn có thể "đẩy"
+        // khách sang toà mình không được quản lý.
+        if (! $this->isBuildingAllowed($request, $newRoom->building_id)) {
+            return response()->json(['message' => 'Không có quyền chuyển khách sang toà nhà của phòng này.'], 403);
+        }
+
+        $result = DB::transaction(function () use ($old, $newRoom, $data) {
+            $sameBuilding = $newRoom->building_id === $old->room?->building_id;
+
+            $old->update([
+                'status'      => Contract::STATUS_EXPIRED,
+                'checkout_at' => $data['transfer_at'],
+            ]);
+
+            $new = Contract::create([
+                'room_id'                       => $newRoom->id,
+                'tenant_id'                      => $old->tenant_id,
+                'start_date'                     => $data['transfer_at'],
+                'end_date'                       => $old->end_date,
+                'monthly_price'                  => $data['new_monthly_price'],
+                'deposit_amount'                 => $old->deposit_amount,
+                'status'                         => Contract::STATUS_ACTIVE,
+                'electric_unit_price'            => $sameBuilding ? $old->electric_unit_price : null,
+                'water_unit_price'               => $sameBuilding ? $old->water_unit_price : null,
+                'transferred_from_contract_id'   => $old->id,
+            ]);
+
+            $old->update(['transferred_to_contract_id' => $new->id]);
+
+            foreach ($old->occupantEntries as $occupant) {
+                ContractTenant::create([
+                    'contract_id'             => $new->id,
+                    'tenant_id'               => $occupant->tenant_id,
+                    'role'                    => ContractTenant::ROLE_OCCUPANT,
+                    'relationship_to_primary' => $occupant->relationship_to_primary,
+                ]);
+            }
+
+            if ($sameBuilding) {
+                $new->surcharges()->sync($old->surcharges()->pluck('minihouse_surcharges.id'));
+            }
+
+            return $new;
+        });
+
+        return response()->json(['data' => $this->toDetailItem($result->fresh(['room.building', 'tenant']))], 201);
     }
 
     private function toListItem(Contract $contract): array

@@ -8,13 +8,14 @@ use App\Http\Controllers\Api\Admin\Minihouse\Concerns\ScopesToMinihouseBuilding;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Invoice;
+use Modules\Minihouse\App\Services\InvoiceGenerationService;
 
 // CRUD hoá đơn. status/amount_paid/paid_at là cột CACHE tự đồng bộ từ InvoicePayment (xem
 // InvoicePaymentObserver) — API này KHÔNG cho set trực tiếp 3 trường đó lúc tạo/sửa, phải đi qua
 // InvoicePaymentController (POST .../payments) như đúng luồng "Ghi nhận thanh toán" ở panel.
-// Lập hoá đơn HÀNG LOẠT theo tháng (InvoiceGenerationService) chưa đưa vào API đợt này.
 class InvoiceController extends Controller
 {
     use ScopesToMinihouseBuilding;
@@ -57,6 +58,48 @@ class InvoiceController extends Controller
         }
 
         return response()->json(['data' => $this->toDetailItem($invoice)]);
+    }
+
+    // POST /api/admin/minihouse/invoices/generate {month: "2026-09", building_ids?: [1,2]}
+    // Mirror ListInvoices::bulkGenerateInvoices (panel) — lập hoá đơn cho mọi hợp đồng "Đang hiệu
+    // lực" của tháng chọn, bỏ qua hợp đồng đã có hoá đơn tháng đó. building_ids bỏ trống = TOÀN BỘ
+    // toà nhà tài khoản này được quản lý (KHÔNG phải toàn bộ site — service gốc coi null là "tất cả
+    // không giới hạn gì", phải tự truyền permittedBuildingIds() vào đây, không thì 1 tài khoản chỉ
+    // quản lý 1 toà có thể lập hoá đơn hộ cho toà khác qua API).
+    public function generate(Request $request): JsonResponse
+    {
+        if (! $this->hasPermission($request, 'create_invoices')) {
+            return response()->json(['message' => 'Không có quyền lập hoá đơn.'], 403);
+        }
+
+        $data = $request->validate([
+            'month'          => 'required|date',
+            'building_ids'   => 'nullable|array',
+            'building_ids.*' => 'integer|exists:minihouse_buildings,id',
+        ]);
+
+        $permitted = $this->permittedBuildingIds($request);
+        $requested = $data['building_ids'] ?? null;
+
+        if ($requested) {
+            $notAllowed = array_diff($requested, $permitted);
+
+            if (! empty($notAllowed)) {
+                return response()->json(['message' => 'Không có quyền lập hoá đơn cho 1 hoặc nhiều toà nhà đã chọn.'], 403);
+            }
+        }
+
+        $buildingIds = $requested ?: $permitted;
+        $month       = Carbon::parse($data['month'])->startOfMonth();
+
+        $result = InvoiceGenerationService::generateForMonth($month, $buildingIds);
+
+        return response()->json([
+            'created_count' => $result['created']->count(),
+            'skipped_count' => $result['skipped']->count(),
+            'created'       => $result['created']->map(fn (Invoice $i) => $this->toListItem($i)),
+            'skipped'       => $result['skipped']->map(fn (Contract $c) => ['contract_id' => $c->id, 'room_id' => $c->room_id]),
+        ]);
     }
 
     // POST /api/admin/minihouse/invoices

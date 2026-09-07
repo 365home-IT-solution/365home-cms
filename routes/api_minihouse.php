@@ -30,10 +30,11 @@ use Illuminate\Support\Facades\Route;
 | App\Http\Controllers\Api\Admin\Minihouse\Concerns\ScopesToMinihouseBuilding (dựa trên
 | User::rootBuildingIds()) — không tin vào global scope của model.
 |
-| Phạm vi lần này: CRUD cơ bản cho mọi model MiniHouse hiện có. CHƯA đưa vào API các luồng nghiệp
-| vụ nâng cao chỉ có ở panel Filament: Gia hạn/Thanh lý/Chuyển phòng hợp đồng (xem
-| EditContract::getHeaderActions()), Lập hoá đơn hàng loạt theo tháng (InvoiceGenerationService),
-| gửi thông báo nhắc việc tự động. Cần thì bổ sung action riêng sau.
+| Bao gồm CRUD cơ bản cho mọi model MiniHouse hiện có + các luồng nghiệp vụ nâng cao mirror đúng
+| panel Filament: Gia hạn/Thanh lý/Chuyển phòng hợp đồng (xem ContractController::renew/checkout/
+| transferRoom, đúng logic EditContract::getHeaderActions()), Lập hoá đơn hàng loạt theo tháng
+| (InvoiceController::generate, dùng lại InvoiceGenerationService). CHƯA có: gửi thông báo nhắc
+| việc tự động qua API (hiện chỉ chạy theo lịch cron, xem SendReminderNotificationsCommand).
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->name('api.admin.minihouse.')->group(function () {
@@ -53,7 +54,11 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
 
     Route::apiResource('contracts', ContractController::class)->except(['show'])->parameters(['contracts' => 'id']);
     Route::get('contracts/{id}', [ContractController::class, 'show'])->name('contracts.show');
+    Route::post('contracts/{id}/renew', [ContractController::class, 'renew'])->name('contracts.renew');
+    Route::post('contracts/{id}/checkout', [ContractController::class, 'checkout'])->name('contracts.checkout');
+    Route::post('contracts/{id}/transfer-room', [ContractController::class, 'transferRoom'])->name('contracts.transfer-room');
 
+    Route::post('invoices/generate', [InvoiceController::class, 'generate'])->name('invoices.generate');
     Route::apiResource('invoices', InvoiceController::class)->except(['show'])->parameters(['invoices' => 'id']);
     Route::get('invoices/{id}', [InvoiceController::class, 'show'])->name('invoices.show');
     Route::get('invoices/{invoiceId}/payments', [InvoicePaymentController::class, 'index'])->name('invoices.payments.index');
