@@ -92,6 +92,13 @@ class RouteServiceProvider extends ServiceProvider
                 ->prefix('api')
                 ->group(base_path('routes/api_admin.php'));
 
+            // API cho MiniHouse (quản lý cho thuê theo tháng) — tách file riêng khỏi api_admin.php
+            // dù cũng dùng chung App\Models\User + auth:sanctum + admin.api như trên, vì đây là 1
+            // mảng nghiệp vụ độc lập hoàn toàn với Home (đặt phòng ngắn hạn), tách file cho dễ tìm.
+            Route::middleware('api')
+                ->prefix('api')
+                ->group(base_path('routes/api_minihouse.php'));
+
             Route::middleware('web')
                 ->group(base_path('routes/web.php'));
         });
