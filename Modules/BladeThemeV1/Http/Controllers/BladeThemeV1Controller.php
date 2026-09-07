@@ -52,8 +52,20 @@ class BladeThemeV1Controller extends Controller
     public function index(Request $request)
     {
         $pageId = $request->route('page_id');
+        $page = Page::find($pageId);
 
-        $page = Page::findOrFail($pageId);
+        if (!$page) {
+            // '/' vẫn có route (menu item "Trang chủ" còn đó, xem web.php) nhưng CMS Page nó trỏ
+            // tới (page_id) đã bị xoá riêng trong Trang > Pages — khác các URL CMS khác, trang chủ
+            // không được phép 404 chỉ vì thiếu 1 Page, nên rơi về home() (view tĩnh, không phụ
+            // thuộc Page/PageComponent) thay vì báo lỗi. Cùng triết lý fallback-thay-vì-hard-fail
+            // như criticalHomeData() bên dưới. URL CMS khác vẫn 404 như cũ — chỉ trang chủ được bảo vệ.
+            if ($request->path() === '/') {
+                return $this->home();
+            }
+
+            abort(404);
+        }
 
         // H1 luôn là $page->title (pages/index.blade.php). Nếu seo_title bỏ trống hoặc được
         // nhập y hệt title, title tag sẽ trùng H1 từng ký tự — SEO tool flag "duplicate H1/title
@@ -510,6 +522,31 @@ class BladeThemeV1Controller extends Controller
         ];
 
         return view('bladethemev1::pages.payment-methods', [
+            'seoData' => $seoData,
+            'primaryColor' => $this->primaryColor,
+            'primaryColorRgb' => $this->primaryColorRgb,
+            'heavyPrimaryColor' => $this->heavyPrimaryColor,
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+        ]);
+    }
+
+    // /ticket-booking — trang tĩnh riêng, thay cho CMS Page id 54 (menu item "Tra cứu đơn đặt
+    // phòng" vẫn trỏ url này — xem web.php). URL này bị hardcode ở nhiều nơi khác trong giao diện
+    // (bottom-sidebar, header-main, HeroSection, SitemapController) nên không được phép phụ thuộc
+    // vào menu item/CMS Page còn tồn tại hay không — trước đây nếu menu item bị xoá/đổi url, hoặc
+    // Page 54 bị xoá, toàn bộ các link "Tra cứu đơn" đó sẽ dẫn tới 404 y hệt lỗi trang chủ. Component
+    // CMS trên trang này chỉ có đúng 1 widget "search-booking", không có config heading/background
+    // nào khác, nên tĩnh hoá không mất gì so với bản CMS hiện tại.
+    public function ticketBookingPage()
+    {
+        $seoData = [
+            'seo_title' => 'Ticket Booking - 365home',
+            'seo_description' => 'Tra cứu nhanh thông tin đơn đặt phòng tại 365 Home bằng mã đặt phòng hoặc số điện thoại — kiểm tra trạng thái, giờ nhận và trả phòng chỉ trong vài giây.',
+            'seo_keywords' => '',
+            'og_type' => 'website',
+        ];
+
+        return view('bladethemev1::pages.ticket-booking', [
             'seoData' => $seoData,
             'primaryColor' => $this->primaryColor,
             'primaryColorRgb' => $this->primaryColorRgb,

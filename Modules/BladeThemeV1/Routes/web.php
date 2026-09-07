@@ -134,25 +134,48 @@ if ($menus->isNotEmpty()) {
             createRoutes($pages);
         }
     }
+}
 
-    // Trang tĩnh riêng, thay cho CMS Page id 63 — menu item "Hình thức thanh toán" vẫn trỏ url này
-    // (createRoutes() ở trên đăng ký nó về BladeThemeV1Controller@index/page_id=63). Route cùng URI
-    // đăng ký SAU sẽ đè route đăng ký trước trong route table của Laravel (khác với route có
-    // {wildcard}, nơi thứ tự đăng ký mới quyết định route nào match trước) — nên phải đặt SAU
-    // createRoutes(), không phải cùng khối "Static routes TRƯỚC dynamic" ở trên.
-    Route::get('/hinh-thuc-thanh-toan', [BladeThemeV1Controller::class, 'paymentMethodsPage'])->name('payment-methods.page');
-    // Trang tĩnh riêng, thay cho CMS Page id 65/62 — menu item vẫn trỏ 2 url này (createRoutes() ở
-    // trên đăng ký chúng về BladeThemeV1Controller@index/page_id=65,62). Cùng lý do/cùng cơ chế
-    // override như route /hinh-thuc-thanh-toan ngay phía trên.
-    Route::get('/huong-dan-su-dung', [BladeThemeV1Controller::class, 'usageGuidePage'])->name('usage-guide.page');
-    Route::get('/privacy', [BladeThemeV1Controller::class, 'privacyPolicyPage'])->name('privacy.page');
-    // Danh sách bài viết đổi từ /tin-tuc sang /bai-viet theo yêu cầu — menu item "Nổi bật" (title
-    // sai, chưa đổi) đang trỏ đúng URL /bai-viet này về 1 CMS Page khác (page_id=3, xem
-    // createRoutes() ở trên); route đăng ký SAU (ở đây) đè route đó, page_id=3 không còn truy cập
-    // được qua URL này nữa — đã xác nhận với yêu cầu nghiệp vụ trước khi đổi.
-    Route::get('/bai-viet', [BladeThemeV1Controller::class, 'postsPage'])->name('posts.page');
-} else {
-    Route::get('/', [BladeThemeV1Controller::class, 'index'])->name('home');
+// 5 trang tĩnh dưới đây đăng ký KHÔNG ĐIỀU KIỆN (ngoài if ($menus->isNotEmpty()) như trước) — nếu
+// admin ẩn/xoá hết menu, $menus rỗng nên createRoutes() ở trên không chạy, và trước đây cả 5 route
+// này cũng biến mất theo (dù chúng có view/controller tĩnh riêng, chẳng liên quan gì tới việc CMS
+// Page/menu item có tồn tại hay không) — cùng lỗi 404 như trang chủ trước khi sửa. Đặt SAU
+// createRoutes() (không phải cùng khối "Static routes TRƯỚC dynamic" ở đầu file) để vẫn giữ đúng cơ
+// chế override: route cùng URI đăng ký SAU đè route đăng ký trước trong route table của Laravel —
+// cần thiết khi $menus không rỗng và createRoutes() đã đăng ký cùng URL này trỏ tới CMS Page.
+
+// Trang tĩnh riêng, thay cho CMS Page id 63 — menu item "Hình thức thanh toán" vẫn trỏ url này
+// (createRoutes() ở trên đăng ký nó về BladeThemeV1Controller@index/page_id=63).
+Route::get('/hinh-thuc-thanh-toan', [BladeThemeV1Controller::class, 'paymentMethodsPage'])->name('payment-methods.page');
+// Trang tĩnh riêng, thay cho CMS Page id 54 — menu item "Tra cứu đơn đặt phòng" vẫn trỏ url này
+// (createRoutes() ở trên đăng ký nó về BladeThemeV1Controller@index/page_id=54). URL này còn bị
+// hardcode ở nhiều nơi khác trong giao diện (bottom-sidebar, header-main, HeroSection,
+// SitemapController) nên càng không được phép phụ thuộc menu/Page còn sống hay không.
+Route::get('/ticket-booking', [BladeThemeV1Controller::class, 'ticketBookingPage'])->name('ticket-booking.page');
+// Trang tĩnh riêng, thay cho CMS Page id 65/62 — menu item vẫn trỏ 2 url này (createRoutes() ở
+// trên đăng ký chúng về BladeThemeV1Controller@index/page_id=65,62). Cùng lý do/cùng cơ chế
+// override như route /hinh-thuc-thanh-toan ngay phía trên.
+Route::get('/huong-dan-su-dung', [BladeThemeV1Controller::class, 'usageGuidePage'])->name('usage-guide.page');
+Route::get('/privacy', [BladeThemeV1Controller::class, 'privacyPolicyPage'])->name('privacy.page');
+// Danh sách bài viết đổi từ /tin-tuc sang /bai-viet theo yêu cầu — menu item "Nổi bật" (title
+// sai, chưa đổi) đang trỏ đúng URL /bai-viet này về 1 CMS Page khác (page_id=3, xem
+// createRoutes() ở trên); route đăng ký SAU (ở đây) đè route đó, page_id=3 không còn truy cập
+// được qua URL này nữa — đã xác nhận với yêu cầu nghiệp vụ trước khi đổi.
+Route::get('/bai-viet', [BladeThemeV1Controller::class, 'postsPage'])->name('posts.page');
+
+// Lưới an toàn cho '/': createRoutes() ở trên chỉ đăng ký route gốc nếu có ĐÚNG 1 menu item cấp
+// cao nhất với url rút gọn về rỗng (vd "Trang chủ" -> page_id=50). Nếu mục menu đó bị xoá/đổi url,
+// hoặc admin ẩn/xoá hết menu (khiến $menus rỗng), '/' sẽ không có route nào khớp. Trước đây nhánh
+// else phía trên luôn đăng ký lại '/' về index() nhưng KHÔNG set page_id mặc định — Page::findOrFail(null)
+// ném ModelNotFoundException nên trang chủ chắc chắn 404 mọi lúc trong tình huống đó. Thay bằng
+// home() (pages/home.blade.php), view tĩnh không phụ thuộc CMS Page/PageComponent, chỉ áp dụng khi
+// chưa có route GET '/' nào được đăng ký ở trên (không đè route CMS hợp lệ).
+$hasRootRoute = collect(Route::getRoutes())->contains(
+    fn ($route) => $route->uri() === '/' && in_array('GET', $route->methods(), true)
+);
+
+if (!$hasRootRoute) {
+    Route::get('/', [BladeThemeV1Controller::class, 'home'])->name('home');
 }
 // routes/web.php
 Route::get('/theme.css', function () {
