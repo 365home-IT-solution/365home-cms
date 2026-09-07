@@ -410,6 +410,38 @@ public function getFilamentAvatarUrl(): ?string
         return $result->unique()->values()->toArray();
     }
 
+    // Toà nhà (MiniHouse) tài khoản này được CHỦ ĐỘNG gán quyền quản lý — mirror ý tưởng
+    // branchPermissions()/UserBranchPermission ở trên nhưng đơn giản hơn nhiều (bảng pivot thẳng,
+    // không qua model trung gian có audit created_by): MiniHouse không có khái niệm nhiều đối tác/
+    // partner_id như Home, nên không cần y hệt kiến trúc đó.
+    public function minihouseBuildings()
+    {
+        return $this->belongsToMany(\Modules\Minihouse\App\Models\Building::class, 'minihouse_user_buildings');
+    }
+
+    /**
+     * Toà nhà MiniHouse tài khoản này được phép quản lý. super_admin = tất cả. Tài khoản thường:
+     * CHƯA từng được gán riêng (0 dòng ở minihouse_user_buildings) = mặc định mở, được phép TẤT CẢ
+     * — tránh tự khoá luôn nhân viên mới cấp quyền access_minihouse mà admin quên gán toà nhà; đã
+     * gán ít nhất 1 toà thì chỉ còn thấy đúng những toà đã gán (ranh giới quyền thật sự bắt đầu từ
+     * lúc đó). Dùng ở Modules\Minihouse\App\Support\ActiveBuildingScope.
+     */
+    public function rootBuildingIds(): array
+    {
+        if ($this->isSuperAdmin()) {
+            return \Modules\Minihouse\App\Models\Building::withoutGlobalScopes()->pluck('id')->all();
+        }
+
+        // ->withoutGlobalScopes() BẮT BUỘC ở đây — minihouseBuildings() là quan hệ tới Building, mà
+        // Building có global scope riêng (ScopedToActiveBuilding) đọc lại CHÍNH rootBuildingIds() này
+        // để tính activeBuildingIds(). Thiếu dòng này thì mọi tài khoản KHÔNG PHẢI super_admin gọi
+        // rootBuildingIds() sẽ đệ quy vô hạn ngay khi query Building (rootBuildingIds() -> query
+        // Building -> scope Building -> rootBuildingIds() -> ...), sập panel với OOM.
+        $assigned = $this->minihouseBuildings()->withoutGlobalScopes()->pluck('minihouse_buildings.id')->all();
+
+        return $assigned ?: \Modules\Minihouse\App\Models\Building::withoutGlobalScopes()->pluck('id')->all();
+    }
+
     public function registerMediaConversions(Media|null $media = null): void
     {
         $this->addMediaConversion('thumb')

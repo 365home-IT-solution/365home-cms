@@ -3,7 +3,9 @@
 namespace Modules\Minihouse\App\Filament\Pages;
 
 use Filament\Pages\Dashboard as FilamentDashboard;
+use Modules\Minihouse\App\Filament\Widgets\ExpiringContractsWidget;
 use Modules\Minihouse\App\Filament\Widgets\MinihouseStatsWidget;
+use Modules\Minihouse\App\Filament\Widgets\RoomOccupancyMapWidget;
 use Modules\Minihouse\App\Filament\Widgets\UpcomingRemindersWidget;
 
 class Dashboard extends FilamentDashboard
@@ -16,6 +18,8 @@ class Dashboard extends FilamentDashboard
     {
         return [
             MinihouseStatsWidget::class,
+            RoomOccupancyMapWidget::class,
+            ExpiringContractsWidget::class,
             UpcomingRemindersWidget::class,
         ];
     }

@@ -91,6 +91,22 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping()
             ->appendOutputTo(storage_path('logs/price-boards-sync.log'));
+
+        // MiniHouse: lập hoá đơn hàng loạt đầu mỗi tháng cho mọi hợp đồng đang hiệu lực — xem
+        // InvoiceGenerationService. Vẫn lập tay được bất kỳ lúc nào qua nút "Lập hoá đơn hàng loạt"
+        // ở trang Hoá đơn, lệnh này chỉ để khỏi phải nhớ bấm mỗi tháng.
+        $schedule->command('minihouse:generate-invoices')
+            ->monthlyOn(1, '01:00')
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/minihouse-generate-invoices.log'));
+
+        // MiniHouse: gửi thông báo cho nhắc việc đến hạn/quá hạn — xem ReminderNotificationService.
+        $schedule->command('minihouse:send-reminder-notifications')
+            ->dailyAt('07:00')
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/minihouse-reminder-notifications.log'));
     }
 
     /**

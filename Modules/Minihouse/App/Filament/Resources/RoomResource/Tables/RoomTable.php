@@ -11,6 +11,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Modules\Minihouse\App\Models\Building;
 use Modules\Minihouse\App\Models\Room;
+use Modules\Minihouse\App\Support\Money;
 
 class RoomTable
 {
@@ -23,13 +24,16 @@ class RoomTable
                     ->getStateUsing(fn (Room $record) => $record->photos[0] ?? null)
                     ->circular(),
                 TextColumn::make('code')->label('Mã / Tên phòng')->searchable()->sortable(),
+                TextColumn::make('floor')->label('Tầng')->sortable()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('position_row')->label('Hàng')->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('position_col')->label('Cột')->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('building.name')->label('Toà nhà')->searchable()->sortable(),
                 TextColumn::make('area')->label('Diện tích')->suffix(' m²')->sortable(),
-                TextColumn::make('price')->label('Giá thuê')->money('VND')->sortable(),
+                TextColumn::make('price')->label('Giá thuê')->formatStateUsing(fn ($state) => Money::format($state))->sortable(),
                 TextColumn::make('status')->label('Tình trạng')->badge()->formatStateUsing(fn (string $state) => match ($state) {
                     Room::STATUS_EMPTY  => 'Trống',
                     Room::STATUS_RENTED => 'Đã thuê',
-                    Room::STATUS_REPAIR => 'Đang sửa',
+                    Room::STATUS_REPAIR => 'Đã khoá',
                     default => $state,
                 })->color(fn (string $state) => match ($state) {
                     Room::STATUS_EMPTY  => 'success',
@@ -48,7 +52,7 @@ class RoomTable
                     ->options([
                         Room::STATUS_EMPTY  => 'Trống',
                         Room::STATUS_RENTED => 'Đã thuê',
-                        Room::STATUS_REPAIR => 'Đang sửa',
+                        Room::STATUS_REPAIR => 'Đã khoá',
                     ]),
             ])
             ->actions([
