@@ -143,6 +143,7 @@
          vì không tăng thêm số request CSS ngoài bundle Vite sẵn có. --}}
     <meta name="google-site-verification" content="0ZBswrf5iWy88w6bO01M5Ug3fzaHQYSVopJfACzmioc" />
     <meta name="google-site-verification" content="JxaNDMFwsnjNqpiMuX2dNb9xgCObK0fzixMaom0QD4I" />
+    <meta name="zalo-platform-site-verification" content="Nu2E0BkzMXX3m_u7cEvuC7ERpoQVxHLmDpao" />
     @livewireStyles
 </head>
 
