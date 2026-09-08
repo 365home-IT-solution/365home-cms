@@ -340,7 +340,7 @@
                                     </button>
 
                                     @if ($hasVideoPd)
-                                        <template x-if="isVideoSlide(current)">
+                                        <template x-if="open && isVideoSlide(current)">
                                             <div @click.stop style="position:relative;width:{{ $videoResolvedPd['maxWidth'] }};max-width:calc(100vw - 120px);">
                                                 <div style="position:relative;padding-bottom:{{ $videoResolvedPd['aspectPct'] }};height:0;border-radius:8px;overflow:hidden;">
                                                     @if ($videoResolvedPd['isEmbed'])
