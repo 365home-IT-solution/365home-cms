@@ -79,8 +79,17 @@
                             {{-- x-data ở CẤP TOÀ NHÀ — "Chọn nhiều" chỉ chọn được phòng TRONG CÙNG 1 toà, không
                             lẫn sang toà khác. `rooms` là map id -> {code,status,createHref,roomEditHref} của
                             các phòng CHƯA có khách (đang thuê không cho chọn) để phần header tra cứu link/tên
-                            khi hiện nút hành động cho đúng phòng đang chọn. --}}
+                            khi hiện nút hành động cho đúng phòng đang chọn.
+
+                            wire:key BẮT BUỘC phải đổi mỗi khi trạng thái phòng trong toà này thay đổi (hash
+                            theo đúng dữ liệu `selectableRooms`) — không có key này, sau khi bấm Khoá/Mở khoá
+                            (wire:click gọi lên server rồi Livewire vá lại HTML), Alpine KHÔNG khởi tạo lại
+                            x-data mà giữ nguyên `rooms`/`selected` cũ trong bộ nhớ trình duyệt (Livewire chỉ vá
+                            DOM tại đúng vị trí, không huỷ-tạo-lại phần tử) — khiến nút "Khoá phòng"/"Mở khoá"
+                            hiện sai nhãn (dựa theo trạng thái CŨ) và việc chọn nhiều bị lẫn lộn giữa các lần
+                            thao tác. Đổi key ép Livewire coi đây là phần tử MỚI, Alpine khởi tạo lại sạch. --}}
                             <div
+                                wire:key="mh-building-{{ $group['building']?->id ?? 'none' }}-{{ md5(json_encode($group['selectableRooms'])) }}"
                                 x-data="{
                                     multiMode: false,
                                     selected: [],
@@ -105,6 +114,9 @@
                                         <div class="mt-1.5 flex flex-wrap items-center gap-1 text-[11px]">
                                             <span class="rounded-full bg-success-50 px-1.5 py-0.5 font-medium text-success-700 dark:bg-success-500/10 dark:text-success-400">{{ $group['stats']['empty'] }} trống</span>
                                             <span class="rounded-full bg-primary-50 px-1.5 py-0.5 font-medium text-primary-700 dark:bg-primary-500/10 dark:text-primary-400">{{ $group['stats']['rented'] }} đang thuê</span>
+                                            @if ($group['stats']['reserved'] > 0)
+                                                <span class="rounded-full bg-info-50 px-1.5 py-0.5 font-medium text-info-700 dark:bg-info-500/10 dark:text-info-400">{{ $group['stats']['reserved'] }} đã đặt cọc</span>
+                                            @endif
                                             @if ($group['stats']['repair'] > 0)
                                                 <span class="rounded-full bg-warning-50 px-1.5 py-0.5 font-medium text-warning-700 dark:bg-warning-500/10 dark:text-warning-400">{{ $group['stats']['repair'] }} khoá</span>
                                             @endif
@@ -152,10 +164,11 @@
                                                 <span style="font-size:11px; color:#6b7280;" x-text="'Đã chọn ' + selected.length + ' phòng'"></span>
                                                 <button
                                                     type="button"
-                                                    @click="$wire.bulkMarkRepair(selected); clearSelection(); multiMode = false;"
+                                                    @click="$wire.bulkToggleRepair(selected); clearSelection(); multiMode = false;"
                                                     style="border-radius:6px; padding:4px 8px; font-size:11px; font-weight:500; background:rgba(var(--warning-600),1); color:#fff; border:none; cursor:pointer;"
+                                                    title="Phòng đang khoá sẽ mở ra, phòng đang trống sẽ bị khoá lại — mỗi phòng tự đảo đúng trạng thái của nó."
                                                 >
-                                                    Khoá phòng
+                                                    Khoá / Mở khoá
                                                 </button>
                                                 <button type="button" @click="toggleMultiMode()" style="border-radius:6px; padding:4px 8px; font-size:11px; color:#9ca3af; background:none; border:none; cursor:pointer;">Huỷ</button>
                                             </div>
@@ -179,7 +192,7 @@
                                                                 @if ($room)
                                                                     @include('minihouse::filament.widgets.partials.room-card', ['room' => $room])
                                                                 @else
-                                                                    <div class="min-h-[4.5rem] rounded-lg border border-dashed border-gray-200 dark:border-white/10"></div>
+                                                                    <div class="aspect-square rounded-lg border border-dashed border-gray-200 dark:border-white/10"></div>
                                                                 @endif
                                                             @endforeach
                                                         @endforeach

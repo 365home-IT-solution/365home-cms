@@ -16,9 +16,10 @@ class Room extends Model
     use ScopedToActiveBuildingId;
     use LogsMinihouseActivity;
 
-    public const STATUS_EMPTY   = 'trong';
-    public const STATUS_RENTED  = 'dang_thue';
-    public const STATUS_REPAIR  = 'bao_tri';
+    public const STATUS_EMPTY    = 'trong';
+    public const STATUS_RESERVED = 'dat_coc';
+    public const STATUS_RENTED   = 'dang_thue';
+    public const STATUS_REPAIR   = 'bao_tri';
 
     protected $table = 'minihouse_rooms';
 
@@ -52,5 +53,10 @@ class Room extends Model
     public function amenities(): BelongsToMany
     {
         return $this->belongsToMany(Amenity::class, 'minihouse_room_amenity');
+    }
+
+    public function assets(): HasMany
+    {
+        return $this->hasMany(RoomAsset::class);
     }
 }

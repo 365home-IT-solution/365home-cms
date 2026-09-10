@@ -51,7 +51,7 @@ class ActivityLogTable
                 SelectFilter::make('subject_type')
                     ->label('Loại đối tượng')
                     ->options(fn () => ActivityLog::query()->distinct()->pluck('subject_type', 'subject_type')
-                        ->mapWithKeys(fn ($value) => [$value => class_basename($value)])),
+                        ->mapWithKeys(fn ($value) => [$value => \Modules\Minihouse\App\Support\ActivityLogFormatter::modelLabel($value)])),
                 Filter::make('created_at')
                     ->label('Khoảng ngày')
                     ->form([

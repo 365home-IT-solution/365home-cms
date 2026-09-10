@@ -40,6 +40,14 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        // Portal khách thuê MiniHouse — đăng nhập bằng OTP qua SĐT (KHÔNG mật khẩu), TÁCH BIỆT hoàn
+        // toàn khỏi guard "web" (nhân viên/chủ nhà, App\Models\User). Xem
+        // Modules\Minihouse\App\Models\Tenant, TenantOtpService.
+        'tenant' => [
+            'driver' => 'session',
+            'provider' => 'tenants',
+        ],
     ],
 
     /*
@@ -63,6 +71,11 @@ return [
         'users' => [
             'driver' => 'eloquent',
             'model' => App\Models\User::class,
+        ],
+
+        'tenants' => [
+            'driver' => 'eloquent',
+            'model' => Modules\Minihouse\App\Models\Tenant::class,
         ],
 
         // 'users' => [

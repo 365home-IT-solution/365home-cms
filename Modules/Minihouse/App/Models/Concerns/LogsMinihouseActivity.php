@@ -4,6 +4,8 @@ namespace Modules\Minihouse\App\Models\Concerns;
 
 use App\Models\User;
 use Modules\Minihouse\App\Models\ActivityLog;
+use Modules\Minihouse\App\Models\Contract;
+use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Support\ActiveBuildingScope;
 
 // Ghi log tự động (tạo/sửa/xoá) cho MỌI model gắn trait này — mirror đúng cơ chế "trait tự gắn"
@@ -102,12 +104,27 @@ trait LogsMinihouseActivity
             return $this->room?->building_id;
         }
 
+        // withoutGlobalScopes() — Contract dùng SoftDeletes riêng, quan hệ mặc định trả null nếu hợp
+        // đồng liên quan đã bị xoá mềm TRƯỚC LÚC model này bị sửa/xoá (VD sửa 1 Reminder/Transaction
+        // cũ sau khi hợp đồng đã thanh lý) — sẽ ghi log building_id=NULL, làm dòng log biến mất khỏi
+        // Nhật ký hoạt động khi lọc theo toà, dù vẫn cần tra cứu được (cùng lỗi lớp SoftDeletes đã
+        // gặp nhiều lần trong module).
         if (array_key_exists('contract_id', $this->attributes) && method_exists($this, 'contract')) {
-            return $this->contract?->room?->building_id;
+            return Contract::withoutGlobalScopes()
+                ->with(['room' => fn ($q) => $q->withoutGlobalScopes()])
+                ->find($this->contract_id)
+                ?->room?->building_id;
         }
 
         if (array_key_exists('invoice_id', $this->attributes) && method_exists($this, 'invoice')) {
-            return $this->invoice?->contract?->room?->building_id;
+            $invoice = Invoice::withoutGlobalScopes()->find($this->invoice_id);
+
+            return $invoice?->contract_id
+                ? Contract::withoutGlobalScopes()
+                    ->with(['room' => fn ($q) => $q->withoutGlobalScopes()])
+                    ->find($invoice->contract_id)
+                    ?->room?->building_id
+                : null;
         }
 
         return null;

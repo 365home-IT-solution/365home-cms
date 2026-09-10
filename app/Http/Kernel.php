@@ -71,6 +71,7 @@ class Kernel extends HttpKernel
         'livewire.secure'   => \App\Http\Middleware\SecureLivewireRequests::class,
         'customer.active'   => \App\Http\Middleware\EnsureCustomerIsActive::class,
         'admin.api'         => \App\Http\Middleware\AdminApiAuth::class,
+        'tenant.api'        => \App\Http\Middleware\TenantApiAuth::class,
 //        'api.key' => \Modules\ApiConfig\App\Http\Middleware\ValidateApiKey::class,
     ];
 }

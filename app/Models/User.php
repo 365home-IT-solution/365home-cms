@@ -419,12 +419,21 @@ public function getFilamentAvatarUrl(): ?string
         return $this->belongsToMany(\Modules\Minihouse\App\Models\Building::class, 'minihouse_user_buildings');
     }
 
+    // Gán quyền quản lý CẢ 1 Khu vực (mọi toà nhà thuộc khu, kể cả toà thêm sau này) — thay vì phải
+    // tick tay từng toà một khi 1 người phụ trách nguyên 1 khu vực. Dùng CHUNG với
+    // minihouseBuildings() trong rootBuildingIds() (hợp cả 2 nguồn), xem minihouse_user_zones.
+    public function minihouseZones()
+    {
+        return $this->belongsToMany(\Modules\Minihouse\App\Models\Zone::class, 'minihouse_user_zones');
+    }
+
     /**
      * Toà nhà MiniHouse tài khoản này được phép quản lý. super_admin = tất cả. Tài khoản thường:
-     * CHƯA từng được gán riêng (0 dòng ở minihouse_user_buildings) = mặc định mở, được phép TẤT CẢ
-     * — tránh tự khoá luôn nhân viên mới cấp quyền access_minihouse mà admin quên gán toà nhà; đã
-     * gán ít nhất 1 toà thì chỉ còn thấy đúng những toà đã gán (ranh giới quyền thật sự bắt đầu từ
-     * lúc đó). Dùng ở Modules\Minihouse\App\Support\ActiveBuildingScope.
+     * CHƯA từng được gán riêng (0 toà + 0 khu vực) = mặc định mở, được phép TẤT CẢ — tránh tự khoá
+     * luôn nhân viên mới cấp quyền access_minihouse mà admin quên gán toà nhà/khu vực; đã gán ít
+     * nhất 1 toà HOẶC 1 khu vực thì chỉ còn thấy đúng HỢP (UNION) của: toà được gán trực tiếp + toàn
+     * bộ toà thuộc khu vực được gán (ranh giới quyền thật sự bắt đầu từ lúc đó). Dùng ở
+     * Modules\Minihouse\App\Support\ActiveBuildingScope.
      */
     public function rootBuildingIds(): array
     {
@@ -437,9 +446,24 @@ public function getFilamentAvatarUrl(): ?string
         // để tính activeBuildingIds(). Thiếu dòng này thì mọi tài khoản KHÔNG PHẢI super_admin gọi
         // rootBuildingIds() sẽ đệ quy vô hạn ngay khi query Building (rootBuildingIds() -> query
         // Building -> scope Building -> rootBuildingIds() -> ...), sập panel với OOM.
-        $assigned = $this->minihouseBuildings()->withoutGlobalScopes()->pluck('minihouse_buildings.id')->all();
+        $assignedBuildingIds = $this->minihouseBuildings()->withoutGlobalScopes()->pluck('minihouse_buildings.id')->all();
 
-        return $assigned ?: \Modules\Minihouse\App\Models\Building::withoutGlobalScopes()->pluck('id')->all();
+        $assignedZoneIds = $this->minihouseZones()->pluck('minihouse_zones.id')->all();
+
+        $buildingIdsFromZones = empty($assignedZoneIds)
+            ? []
+            : \Modules\Minihouse\App\Models\Building::withoutGlobalScopes()
+                ->whereIn('zone_id', $assignedZoneIds)
+                ->pluck('id')
+                ->all();
+
+        // TRƯỚC ĐÂY: chưa gán toà/khu vực nào thì mặc định trả về TOÀN BỘ toà nhà (tránh khoá nhầm
+        // nhân viên mới trước khi admin kịp gán) — nhưng đây là lỗ hổng bảo mật thật: 1 tài khoản có
+        // quyền access_minihouse nhưng CHƯA được gán toà cụ thể sẽ thấy hết dữ liệu mọi toà nhà cho
+        // tới khi được gán, thay vì ngược lại. Đổi sang mặc định KHÔNG THẤY GÌ (mảng rỗng) — an toàn
+        // hơn, đúng nguyên tắc "từ chối trước, cấp quyền sau" — admin phải chủ động gán ít nhất 1
+        // toà/khu vực thì nhân viên mới thấy được dữ liệu.
+        return array_values(array_unique([...$assignedBuildingIds, ...$buildingIdsFromZones]));
     }
 
     public function registerMediaConversions(Media|null $media = null): void

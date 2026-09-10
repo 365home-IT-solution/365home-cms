@@ -5,12 +5,14 @@ namespace Modules\Minihouse\Database\Seeders;
 use Illuminate\Database\Seeder;
 use Modules\Minihouse\App\Models\Building;
 use Modules\Minihouse\App\Models\Room;
+use Modules\Minihouse\App\Models\Zone;
 
-// Dữ liệu mẫu để test bộ lọc/quản lý theo Toà nhà — 3 toà nhà, mỗi toà 2 tầng x 4 phòng (đủ để
-// RoomOccupancyMapWidget nhóm theo tầng trên Dashboard). Seeder ĐỘC LẬP, chạy tay khi cần (không gọi
-// trong DatabaseSeeder): php artisan db:seed --class="Modules\Minihouse\Database\Seeders\BuildingRoomSeeder".
-// An toàn chạy lại nhiều lần — firstOrCreate theo tên toà/mã phòng, không tạo trùng, không ghi đè
-// field đã sửa tay (chỉ tự điền 'floor' cho phòng cũ trước khi có cột này, nếu đang trống).
+// Dữ liệu mẫu để test bộ lọc/quản lý theo Khu vực/Toà nhà — 2 khu vực, 3 toà nhà (2 toà thuộc 2 khu
+// khác nhau + 1 toà CỐ TÌNH không thuộc khu vực nào, minh hoạ Khu vực là tuỳ chọn), mỗi toà 2 tầng x
+// 4 phòng (đủ để RoomOccupancyMapWidget nhóm theo tầng trên Dashboard). Seeder ĐỘC LẬP, chạy tay khi
+// cần: php artisan db:seed --class="Modules\Minihouse\Database\Seeders\BuildingRoomSeeder".
+// An toàn chạy lại nhiều lần — firstOrCreate theo tên khu/toà/mã phòng, không tạo trùng, không ghi
+// đè field đã sửa tay (chỉ tự điền 'floor' cho phòng cũ trước khi có cột này, nếu đang trống).
 class BuildingRoomSeeder extends Seeder
 {
     public const ROOMS_PER_FLOOR = 4;
@@ -18,16 +20,21 @@ class BuildingRoomSeeder extends Seeder
 
     public function run(): void
     {
+        $zoneQ1 = Zone::firstOrCreate(['name' => 'Khu Quận 1']);
+        $zoneQ3 = Zone::firstOrCreate(['name' => 'Khu Quận 3']);
+
         $buildings = [
-            ['name' => 'Toà nhà A - Quận 1', 'code_prefix' => 'A', 'address' => '12 Nguyễn Huệ, Phường Bến Nghé', 'price' => 3200000, 'electric' => 3800, 'water' => 20000],
-            ['name' => 'Toà nhà B - Quận 3', 'code_prefix' => 'B', 'address' => '45 Võ Văn Tần, Phường 6', 'price' => 2800000, 'electric' => 3500, 'water' => 18000],
-            ['name' => 'Toà nhà C - Bình Thạnh', 'code_prefix' => 'C', 'address' => '78 Điện Biên Phủ, Phường 15', 'price' => 2500000, 'electric' => 3500, 'water' => 18000],
+            ['name' => 'Toà nhà A - Quận 1', 'code_prefix' => 'A', 'address' => '12 Nguyễn Huệ, Phường Bến Nghé', 'price' => 3200000, 'electric' => 3800, 'water' => 20000, 'zone_id' => $zoneQ1->id],
+            ['name' => 'Toà nhà B - Quận 3', 'code_prefix' => 'B', 'address' => '45 Võ Văn Tần, Phường 6', 'price' => 2800000, 'electric' => 3500, 'water' => 18000, 'zone_id' => $zoneQ3->id],
+            // Cố tình KHÔNG gán khu vực — minh hoạ Toà nhà.zone_id là tuỳ chọn, không bắt buộc.
+            ['name' => 'Toà nhà C - Bình Thạnh', 'code_prefix' => 'C', 'address' => '78 Điện Biên Phủ, Phường 15', 'price' => 2500000, 'electric' => 3500, 'water' => 18000, 'zone_id' => null],
         ];
 
         foreach ($buildings as $data) {
             $building = Building::firstOrCreate(
                 ['name' => $data['name']],
                 [
+                    'zone_id'             => $data['zone_id'],
                     'address'             => $data['address'],
                     'electric_unit_price' => $data['electric'],
                     'water_unit_price'    => $data['water'],
@@ -69,6 +76,6 @@ class BuildingRoomSeeder extends Seeder
             }
         }
 
-        $this->command?->info('BuildingRoomSeeder: đã tạo ' . count($buildings) . ' toà nhà, mỗi toà ' . (self::FLOORS * self::ROOMS_PER_FLOOR) . ' phòng (' . self::FLOORS . ' tầng).');
+        $this->command?->info('BuildingRoomSeeder: đã tạo 2 khu vực, ' . count($buildings) . ' toà nhà, mỗi toà ' . (self::FLOORS * self::ROOMS_PER_FLOOR) . ' phòng (' . self::FLOORS . ' tầng).');
     }
 }

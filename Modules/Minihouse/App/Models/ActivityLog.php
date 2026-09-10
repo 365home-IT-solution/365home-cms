@@ -46,6 +46,6 @@ class ActivityLog extends Model
 
     public function subjectTypeLabel(): string
     {
-        return class_basename($this->subject_type);
+        return \Modules\Minihouse\App\Support\ActivityLogFormatter::modelLabel($this->subject_type);
     }
 }

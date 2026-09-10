@@ -25,9 +25,10 @@ class TransactionTable
                 TextColumn::make('type')->label('Loại')->badge()->formatStateUsing(fn (string $state) => $state === Transaction::TYPE_IN ? 'Thu' : 'Chi')
                     ->color(fn (string $state) => $state === Transaction::TYPE_IN ? 'success' : 'danger'),
                 TextColumn::make('category')->label('Hạng mục')->formatStateUsing(fn (?string $state) => match ($state) {
-                    Transaction::CATEGORY_REPAIR    => 'Sửa chữa',
-                    Transaction::CATEGORY_OPERATION => 'Vận hành',
-                    Transaction::CATEGORY_OTHER     => 'Khác',
+                    Transaction::CATEGORY_REPAIR         => 'Sửa chữa',
+                    Transaction::CATEGORY_OPERATION      => 'Vận hành',
+                    Transaction::CATEGORY_DEPOSIT_REFUND => 'Hoàn cọc',
+                    Transaction::CATEGORY_OTHER          => 'Khác',
                     default => '—',
                 }),
                 TextColumn::make('amount')->label('Số tiền')->formatStateUsing(fn ($state) => Money::format($state))->sortable(),
@@ -53,9 +54,10 @@ class TransactionTable
                 SelectFilter::make('category')
                     ->label('Hạng mục')
                     ->options([
-                        Transaction::CATEGORY_REPAIR    => 'Sửa chữa',
-                        Transaction::CATEGORY_OPERATION => 'Vận hành',
-                        Transaction::CATEGORY_OTHER     => 'Khác',
+                        Transaction::CATEGORY_REPAIR         => 'Sửa chữa',
+                        Transaction::CATEGORY_OPERATION      => 'Vận hành',
+                        Transaction::CATEGORY_DEPOSIT_REFUND => 'Hoàn cọc',
+                        Transaction::CATEGORY_OTHER          => 'Khác',
                     ]),
                 Filter::make('transaction_date')
                     ->label('Khoảng ngày')

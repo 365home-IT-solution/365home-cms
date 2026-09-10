@@ -21,6 +21,7 @@ use Filament\Forms\Set;
 use Modules\Minihouse\App\Filament\Resources\TenantResource;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\ContractTenant;
+use Modules\Minihouse\App\Models\ResidenceDeclaration;
 use Modules\Minihouse\App\Models\Room;
 use Modules\Minihouse\App\Models\Tenant;
 
@@ -112,20 +113,55 @@ class ContractForm
                                 ->required()
                                 ->prefix('đ')
                                 ->default(fn () => Room::find(request()->query('room_id'))?->price),
+                            // Cột deposit_amount ở DB là NOT NULL nhưng field này không bắt buộc
+                            // nhập (cho phép thuê không cọc) — để trống mà không có default(0) +
+                            // dehydrateStateUsing() ép về 0 sẽ gửi lên null, vỡ ràng buộc NOT NULL,
+                            // Filament không bắt được lỗi này thành thông báo form (lỗi DB thô, ra
+                            // trang lỗi 500) — xem storage/logs/laravel.log.
                             TextInput::make('deposit_amount')
                                 ->label('Tiền cọc')
                                 ->numeric()
-                                ->prefix('đ'),
+                                ->prefix('đ')
+                                ->default(0)
+                                ->dehydrateStateUsing(fn ($state) => $state ?? 0),
+                            // KHÔNG còn lựa chọn "Đã huỷ" (Contract::STATUS_CANCELLED) ở đây — trước
+                            // đây trạng thái này chọn tay được mà không qua nghiệp vụ nào (không ghi
+                            // lý do huỷ, không xử lý hoàn cọc nhất quán) — giờ CHỈ chuyển sang "Đã
+                            // huỷ" qua nút "Huỷ hợp đồng" ở EditContract (đã có xử lý đầy đủ). Hợp
+                            // đồng ĐÃ huỷ từ trước vẫn hiển thị/lọc được bình thường (badge/filter ở
+                            // ContractTable vẫn còn nguyên), chỉ là không thể chọn LẠI trạng thái này
+                            // bằng cách sửa tay field nữa.
                             Select::make('status')
                                 ->label('Trạng thái')
-                                ->options([
-                                    Contract::STATUS_ACTIVE    => 'Đang hiệu lực',
-                                    Contract::STATUS_EXPIRED   => 'Hết hạn',
-                                    Contract::STATUS_CANCELLED => 'Đã huỷ',
+                                // "Đã huỷ" chỉ hiện lại làm option khi ĐÃ là giá trị hiện có (hợp đồng
+                                // huỷ qua action "Huỷ hợp đồng" trước đó) — để mở lại trang Sửa không
+                                // bị hiện Select trống do giá trị không khớp option nào; KHÔNG cho
+                                // chọn MỚI sang "Đã huỷ" bằng cách sửa tay field này nữa.
+                                ->options(fn (Get $get) => [
+                                    Contract::STATUS_ACTIVE  => 'Đang hiệu lực',
+                                    Contract::STATUS_EXPIRED => 'Hết hạn',
+                                    ...($get('status') === Contract::STATUS_CANCELLED ? [Contract::STATUS_CANCELLED => 'Đã huỷ'] : []),
                                 ])
                                 ->default(Contract::STATUS_ACTIVE)
                                 ->live()
                                 ->required(),
+                            // Chọn sẵn ở đây để ResidenceDeclarationService tự điền vào "Khai báo lưu
+                            // trú" sinh ra từ hợp đồng này (trước đây luôn để trống, bắt nhân viên
+                            // phải vào từng khai báo bổ sung tay mới bấm "Đánh dấu đã khai báo" được
+                            // — xem ResidenceDeclaration::REQUIRED_FIELD_LABELS). Dùng ĐÚNG danh mục
+                            // chuẩn Bộ Công an, cùng nguồn với ResidenceDeclarationForm.
+                            Select::make('reason_for_stay')
+                                ->label('Lý do lưu trú')
+                                ->options(ResidenceDeclaration::REASON_FOR_STAY_OPTIONS)
+                                ->native(false)
+                                ->searchable()
+                                ->live()
+                                ->helperText('Tự điền vào Khai báo lưu trú của khách đứng tên + người ở cùng khi tạo/sửa hợp đồng.'),
+                            TextInput::make('custom_reason')
+                                ->label('Nhập lý do (nếu chọn "Mục đích khác")')
+                                ->maxLength(255)
+                                ->visible(fn (Get $get) => $get('reason_for_stay') === '20 - Mục đích khác')
+                                ->required(fn (Get $get) => $get('reason_for_stay') === '20 - Mục đích khác'),
                         ]),
 
                     // Ghi rõ ngay trong hợp đồng các khoản phí phát sinh hàng tháng ngoài giá phòng
@@ -173,6 +209,13 @@ class ContractForm
                             Repeater::make('occupantEntries')
                                 ->relationship('occupantEntries')
                                 ->label('')
+                                // BẮT BUỘC set default([]) — không có dòng này, Repeater tự seed sẵn
+                                // 1 dòng RỖNG ngay khi mở trang Tạo hợp đồng mới (dù không ai bấm
+                                // "Thêm người ở cùng"), rồi validate 'tenant_id' ->required() của
+                                // đúng dòng rỗng đó khi submit, khiến "Người ở cùng" biến thành BẮT
+                                // BUỘC ngoài ý muốn cho MỌI hợp đồng — kể cả hợp đồng chỉ có 1 người ở
+                                // (không có ai ở cùng).
+                                ->default([])
                                 ->addActionLabel('Thêm người ở cùng')
                                 ->itemLabel(fn (array $state): ?string => ($tenant = Tenant::find($state['tenant_id'] ?? null)) ? self::tenantOptionLabel($tenant) : 'Người ở cùng mới')
                                 ->collapsible()

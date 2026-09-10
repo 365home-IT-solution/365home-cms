@@ -56,7 +56,16 @@ class TransactionController extends Controller
             return response()->json(['message' => 'Không có quyền xem thu chi.'], 403);
         }
 
-        $transaction = Transaction::withoutGlobalScopes()->with(['building', 'contract.room'])->find($id);
+        // Contract/Room dùng SoftDeletes riêng — 1 hợp đồng bị xoá mềm sau khi phát sinh giao dịch
+        // (building_id là cột riêng của Transaction nên KHÔNG ảnh hưởng phân quyền ở dưới, chỉ ảnh
+        // hưởng hiển thị room_code) vẫn nên hiện đúng, không rơi về null.
+        $transaction = Transaction::withoutGlobalScopes()
+            ->with([
+                'building',
+                'contract'      => fn ($q) => $q->withoutGlobalScopes(),
+                'contract.room' => fn ($q) => $q->withoutGlobalScopes(),
+            ])
+            ->find($id);
 
         if (! $transaction || ! $this->isBuildingAllowed($request, $transaction->building_id)) {
             return response()->json(['message' => 'Không tìm thấy giao dịch.'], 404);

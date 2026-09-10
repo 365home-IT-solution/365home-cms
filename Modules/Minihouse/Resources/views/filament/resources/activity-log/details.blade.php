@@ -25,9 +25,9 @@
                 <tbody>
                     @foreach ($fields as $field)
                         <tr class="border-b border-gray-100 last:border-0 dark:border-white/5">
-                            <td class="py-2 pr-4 font-medium text-gray-950 dark:text-white">{{ $field }}</td>
-                            <td class="py-2 pr-4 text-danger-600 dark:text-danger-400">{{ $old[$field] ?? '—' }}</td>
-                            <td class="py-2 text-success-600 dark:text-success-400">{{ $new[$field] ?? '—' }}</td>
+                            <td class="py-2 pr-4 font-medium text-gray-950 dark:text-white">{{ \Modules\Minihouse\App\Support\ActivityLogFormatter::fieldLabel($field) }}</td>
+                            <td class="py-2 pr-4 text-danger-600 dark:text-danger-400">{{ \Modules\Minihouse\App\Support\ActivityLogFormatter::formatValue($record->subject_type, $field, $old[$field] ?? null) }}</td>
+                            <td class="py-2 text-success-600 dark:text-success-400">{{ \Modules\Minihouse\App\Support\ActivityLogFormatter::formatValue($record->subject_type, $field, $new[$field] ?? null) }}</td>
                         </tr>
                     @endforeach
                 </tbody>

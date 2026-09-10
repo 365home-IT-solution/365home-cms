@@ -26,6 +26,7 @@ test_security.php
 /.idea
 /.vscode
 phpunit.xml
+.phpunit.result.cache
 *.zip
 .DS_Store
 Thumbs.db

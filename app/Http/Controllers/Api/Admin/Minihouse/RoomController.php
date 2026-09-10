@@ -74,8 +74,10 @@ class RoomController extends Controller
             'position_col'  => 'nullable|integer|min:1',
             'area'          => 'nullable|numeric|min:0',
             'price'         => 'required|numeric|min:0',
-            'status'        => ['nullable', Rule::in([Room::STATUS_EMPTY, Room::STATUS_RENTED, Room::STATUS_REPAIR])],
+            'status'        => ['nullable', Rule::in([Room::STATUS_EMPTY, Room::STATUS_RESERVED, Room::STATUS_RENTED, Room::STATUS_REPAIR])],
             'note'          => 'nullable|string',
+            'photos'        => 'nullable|array',
+            'photos.*'      => 'string',
             'amenity_ids'   => 'nullable|array',
             'amenity_ids.*' => 'integer|exists:minihouse_amenities,id',
         ]);
@@ -118,8 +120,10 @@ class RoomController extends Controller
             'position_col'  => 'nullable|integer|min:1',
             'area'          => 'nullable|numeric|min:0',
             'price'         => 'sometimes|required|numeric|min:0',
-            'status'        => ['sometimes', Rule::in([Room::STATUS_EMPTY, Room::STATUS_RENTED, Room::STATUS_REPAIR])],
+            'status'        => ['sometimes', Rule::in([Room::STATUS_EMPTY, Room::STATUS_RESERVED, Room::STATUS_RENTED, Room::STATUS_REPAIR])],
             'note'          => 'nullable|string',
+            'photos'        => 'nullable|array',
+            'photos.*'      => 'string',
             'amenity_ids'   => 'nullable|array',
             'amenity_ids.*' => 'integer|exists:minihouse_amenities,id',
         ]);

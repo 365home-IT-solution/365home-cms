@@ -47,7 +47,11 @@ class ContractObserver
             }
         }
 
-        if ($contract->wasChanged(['tenant_id', 'room_id', 'start_date', 'end_date'])) {
+        // reason_for_stay/custom_reason: sửa hợp đồng CŨ để bổ sung "Lý do lưu trú" (trước đây bỏ
+        // trống) cũng phải đồng bộ lại — thiếu 2 trường này ở đây thì tính năng tự điền lý do vào
+        // Khai báo lưu trú (xem ContractForm) chỉ có tác dụng với hợp đồng MỚI, không áp dụng lại
+        // được cho hợp đồng đã tồn tại từ trước khi chỉ sửa mỗi trường này.
+        if ($contract->wasChanged(['tenant_id', 'room_id', 'start_date', 'end_date', 'reason_for_stay', 'custom_reason'])) {
             app(ResidenceDeclarationService::class)->syncContract($contract);
         }
     }
@@ -75,7 +79,12 @@ class ContractObserver
         }
     }
 
-    private function syncRoom(?int $roomId): void
+    // Public — RefreshRoomStatusCommand (cron hàng ngày) cũng gọi lại đúng hàm này để tự chuyển
+    // "Đã đặt cọc" -> "Đã thuê" đúng ngày start_date tới, dù không có sự kiện sửa Hợp đồng nào xảy ra
+    // đúng ngày đó (VD tạo hợp đồng start_date tương lai 1 tuần trước, không ai đụng vào hợp đồng
+    // giữa chừng — nếu chỉ dựa vào sự kiện Contract thì phòng sẽ mãi kẹt ở "Đã đặt cọc" quá ngày dọn
+    // vào thật).
+    public function syncRoom(?int $roomId): void
     {
         $room = Room::find($roomId);
 
@@ -84,12 +93,22 @@ class ContractObserver
             return;
         }
 
-        $hasActiveContract = Contract::query()
+        $activeContracts = Contract::query()
             ->where('room_id', $room->id)
             ->where('status', Contract::STATUS_ACTIVE)
-            ->exists();
+            ->get(['start_date']);
 
-        $targetStatus = $hasActiveContract ? Room::STATUS_RENTED : Room::STATUS_EMPTY;
+        $today = now()->startOfDay();
+
+        // Có hợp đồng đang hiệu lực và ĐÃ tới ngày dọn vào -> "Đã thuê" thật sự. Có hợp đồng đang
+        // hiệu lực nhưng ngày dọn vào còn ở TƯƠNG LAI (khách mới đặt cọc giữ chỗ, chưa tới ở) ->
+        // "Đã đặt cọc" — khác "Trống" (đừng cho khách khác thuê nhầm) và khác "Đã thuê" (chưa ai ở
+        // thật, tỷ lệ lấp đầy trên Dashboard không nên tính vào đây).
+        $targetStatus = match (true) {
+            $activeContracts->contains(fn (Contract $c) => ! $c->start_date || $c->start_date->lte($today)) => Room::STATUS_RENTED,
+            $activeContracts->isNotEmpty() => Room::STATUS_RESERVED,
+            default => Room::STATUS_EMPTY,
+        };
 
         if ($room->status !== $targetStatus) {
             $room->update(['status' => $targetStatus]);

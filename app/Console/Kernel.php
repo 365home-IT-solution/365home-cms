@@ -92,14 +92,46 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->appendOutputTo(storage_path('logs/price-boards-sync.log'));
 
-        // MiniHouse: lập hoá đơn hàng loạt đầu mỗi tháng cho mọi hợp đồng đang hiệu lực — xem
-        // InvoiceGenerationService. Vẫn lập tay được bất kỳ lúc nào qua nút "Lập hoá đơn hàng loạt"
-        // ở trang Hoá đơn, lệnh này chỉ để khỏi phải nhớ bấm mỗi tháng.
+        // MiniHouse: lập hoá đơn hàng loạt — xem InvoiceGenerationService. Đổi từ "1 lần đầu tháng"
+        // sang CHẠY HÀNG NGÀY (2026-09-08): toà "Theo ngày thuê" (Building::BILLING_CYCLE_ANNIVERSARY)
+        // mỗi hợp đồng đến hạn 1 ngày khác nhau trong tháng, không chỉ mùng 1 — phải kiểm tra mỗi
+        // ngày mới bắt đúng lúc. Toà "Theo tháng dương lịch" (mặc định, hành vi cũ) không bị ảnh
+        // hưởng gì thêm: unique(contract_id, month) tự chặn tạo trùng, chạy thừa các ngày sau ngày 1
+        // chỉ là no-op (skip vì đã có hoá đơn tháng đó). Vẫn lập tay được bất kỳ lúc nào qua nút "Lập
+        // hoá đơn hàng loạt" ở trang Hoá đơn.
         $schedule->command('minihouse:generate-invoices')
-            ->monthlyOn(1, '01:00')
+            ->dailyAt('01:00')
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping()
             ->appendOutputTo(storage_path('logs/minihouse-generate-invoices.log'));
+
+        // MiniHouse: tự chuyển phòng "Đã đặt cọc" -> "Đã thuê" đúng ngày dọn vào — chạy TRƯỚC lập
+        // hoá đơn (00:45 < 01:00), tránh trường hợp phòng vẫn hiện "Đã đặt cọc" khi hoá đơn tháng đó
+        // đã được lập xong cho đúng ngày hôm nay.
+        $schedule->command('minihouse:refresh-room-status')
+            ->dailyAt('00:45')
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/minihouse-refresh-room-status.log'));
+
+        // MiniHouse: tạo nhắc việc + gửi Zalo cho khách thuê có hợp đồng SẮP hết hạn (theo Building.
+        // contract_expiry_reminder_days_before) — xem NotifyExpiringContractsCommand. Chạy TRƯỚC
+        // minihouse:check-overdue-contracts để 2 lệnh không tranh nhau tạo Reminder cho cùng 1 hợp
+        // đồng đúng ngày nó vừa chuyển từ "sắp hết hạn" sang "đã quá hạn".
+        $schedule->command('minihouse:notify-expiring-contracts')
+            ->dailyAt('06:15')
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/minihouse-notify-expiring-contracts.log'));
+
+        // MiniHouse: tạo nhắc việc cho hợp đồng đã quá hạn (end_date đã qua) mà chưa thanh lý/gia
+        // hạn — xem CheckOverdueContractsCommand. Chạy TRƯỚC minihouse:send-reminder-notifications
+        // (07:00) để nhắc việc vừa tạo được gửi luôn trong cùng ngày, không phải đợi sang hôm sau.
+        $schedule->command('minihouse:check-overdue-contracts')
+            ->dailyAt('06:30')
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/minihouse-check-overdue-contracts.log'));
 
         // MiniHouse: gửi thông báo cho nhắc việc đến hạn/quá hạn — xem ReminderNotificationService.
         $schedule->command('minihouse:send-reminder-notifications')
@@ -107,6 +139,15 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping()
             ->appendOutputTo(storage_path('logs/minihouse-reminder-notifications.log'));
+
+        // MiniHouse: nhắc Khai báo lưu trú đến hạn/quá hạn — xem ResidenceDeclarationService::
+        // notifyDue(). Tách giờ khác nhắc việc thường ở trên vì đây là kênh riêng (gửi LẶP LẠI mỗi
+        // ngày cho tới khi khai báo xong, không phải 1 lần như Reminder).
+        $schedule->command('minihouse:notify-residence-declarations')
+            ->dailyAt('08:00')
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/minihouse-notify-residence-declarations.log'));
     }
 
     /**

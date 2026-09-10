@@ -33,9 +33,10 @@ class TransactionForm
                     Select::make('category')
                         ->label('Hạng mục')
                         ->options([
-                            Transaction::CATEGORY_REPAIR    => 'Sửa chữa',
-                            Transaction::CATEGORY_OPERATION => 'Vận hành',
-                            Transaction::CATEGORY_OTHER     => 'Khác',
+                            Transaction::CATEGORY_REPAIR         => 'Sửa chữa',
+                            Transaction::CATEGORY_OPERATION      => 'Vận hành',
+                            Transaction::CATEGORY_DEPOSIT_REFUND => 'Hoàn cọc',
+                            Transaction::CATEGORY_OTHER          => 'Khác',
                         ])
                         ->visible(fn (Get $get) => $get('type') === Transaction::TYPE_OUT),
                     TextInput::make('amount')

@@ -4,6 +4,7 @@ namespace Modules\Minihouse\App\Filament\Resources\RoomResource\Forms;
 
 use Closure;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -11,6 +12,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Modules\Minihouse\App\Models\Room;
+use Modules\Minihouse\App\Models\RoomAsset;
 
 class RoomForm
 {
@@ -46,12 +48,14 @@ class RoomForm
                     Select::make('status')
                         ->label('Tình trạng')
                         ->options([
-                            Room::STATUS_EMPTY  => 'Trống',
-                            Room::STATUS_RENTED => 'Đã thuê',
-                            Room::STATUS_REPAIR => 'Đã khoá',
+                            Room::STATUS_EMPTY    => 'Trống',
+                            Room::STATUS_RESERVED => 'Đã đặt cọc',
+                            Room::STATUS_RENTED   => 'Đã thuê',
+                            Room::STATUS_REPAIR   => 'Đã khoá',
                         ])
                         ->default(Room::STATUS_EMPTY)
-                        ->required(),
+                        ->required()
+                        ->helperText('"Đã đặt cọc"/"Đã thuê" tự động cập nhật theo Hợp đồng (ngày bắt đầu) — chỉ nên tự sửa tay khi cần điều chỉnh bất thường.'),
                     Textarea::make('note')
                         ->label('Ghi chú')
                         ->columnSpanFull(),
@@ -77,6 +81,41 @@ class RoomForm
                         ->minValue(1)
                         ->helperText('Đếm từ 1, theo chiều trái sang phải dọc hành lang.')
                         ->rule(fn (Get $get, ?Room $record): Closure => self::uniquePositionRule($get, $record)),
+                ]),
+
+            // Danh sách tài sản/nội thất CÓ SẴN trong phòng (tủ lạnh, máy lạnh, giường...) kèm tình
+            // trạng — theo dõi để biết cần thay/sửa gì khi khách trả phòng, và làm căn cứ đối chiếu
+            // khi phát sinh phụ thu hư hỏng. Chỉ hiện được SAU KHI phòng đã tạo (cần room_id để lưu
+            // quan hệ) — lúc tạo mới phòng thì thêm tài sản ở lần sửa kế tiếp.
+            Section::make('Tài sản trong phòng')
+                ->description('Theo dõi tủ lạnh, máy lạnh, giường, tủ... và tình trạng hiện tại — dùng làm căn cứ khi khách trả phòng hoặc phát sinh phụ thu hư hỏng.')
+                ->visible(fn (?Room $record) => $record !== null)
+                ->schema([
+                    Repeater::make('assets')
+                        ->label('')
+                        ->relationship('assets')
+                        ->schema([
+                            TextInput::make('name')
+                                ->label('Tên tài sản')
+                                ->required()
+                                ->maxLength(255),
+                            Select::make('condition')
+                                ->label('Tình trạng')
+                                ->options([
+                                    RoomAsset::CONDITION_GOOD        => 'Tốt',
+                                    RoomAsset::CONDITION_DAMAGED      => 'Hư hỏng',
+                                    RoomAsset::CONDITION_MAINTENANCE => 'Đang sửa',
+                                ])
+                                ->default(RoomAsset::CONDITION_GOOD)
+                                ->required(),
+                            TextInput::make('note')
+                                ->label('Ghi chú'),
+                        ])
+                        ->columns(3)
+                        ->addActionLabel('Thêm tài sản')
+                        ->defaultItems(0)
+                        ->collapsible()
+                        ->itemLabel(fn (array $state) => $state['name'] ?? null),
                 ]),
 
             Section::make('Mô tả thêm')

@@ -140,8 +140,19 @@ class UserForm
                     ->preload()
                     ->columnSpanFull(),
 
+                CheckboxList::make('minihouseZones')
+                    ->label('Khu vực được quản lý')
+                    ->relationship(
+                        name: 'minihouseZones',
+                        titleAttribute: 'name',
+                        modifyQueryUsing: fn (Builder $query) => $query->withoutGlobalScopes(),
+                    )
+                    ->helperText('Gán CẢ 1 khu vực = tự quản lý mọi toà nhà thuộc khu đó, kể cả toà thêm sau này — không cần tick lại từng toà.')
+                    ->columns(2)
+                    ->columnSpanFull(),
+
                 CheckboxList::make('minihouseBuildings')
-                    ->label('Toà nhà được quản lý')
+                    ->label('Toà nhà được quản lý riêng lẻ')
                     ->relationship(
                         name: 'minihouseBuildings',
                         titleAttribute: 'name',
@@ -150,7 +161,7 @@ class UserForm
                         // gán quyền cho NGƯỜI KHÁC phải luôn thấy đủ toàn bộ toà nhà.
                         modifyQueryUsing: fn (Builder $query) => $query->withoutGlobalScopes(),
                     )
-                    ->helperText('Để trống = không giới hạn, tài khoản quản lý được TẤT CẢ toà nhà. Đã tick ít nhất 1 toà thì chỉ còn thấy đúng những toà đã chọn.')
+                    ->helperText('Cộng thêm vào các khu vực đã chọn ở trên (nếu có). Để trống CẢ khu vực lẫn toà nhà = không giới hạn, quản lý được TẤT CẢ. Đã chọn ít nhất 1 khu vực hoặc 1 toà thì chỉ còn thấy đúng phạm vi đã gán.')
                     ->columns(2)
                     ->columnSpanFull(),
             ]);

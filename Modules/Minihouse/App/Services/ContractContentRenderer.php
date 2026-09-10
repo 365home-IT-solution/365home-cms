@@ -10,16 +10,25 @@ use Modules\Minihouse\App\Models\Contract;
 // contract_content; nhân viên vẫn sửa tay thêm được sau đó trong RichEditor (bấm cập nhật lại sẽ
 // ghi đè toàn bộ, kể cả phần đã sửa tay — có confirm trước khi bấm).
 //
-// KHÔNG có hồ sơ "Bên cho thuê" (chủ nhà/doanh nghiệp) trong hệ thống — khác Partner (App\Support\
-// PartnerContractRenderer, đối tác là doanh nghiệp có đầy đủ hồ sơ pháp lý) — để trống dạng
-// "..................." cho phần này, nhân viên tự điền tay 1 lần rồi các lần "Cập nhật" sau vẫn
-// mất phần đã điền (ghi đè toàn bộ) — nhược điểm đã biết, chấp nhận được vì thông tin chủ nhà hầu
-// như không đổi giữa các hợp đồng, điền lại nhanh.
+// "Bên cho thuê" tự điền từ hồ sơ Chủ sở hữu của Toà nhà (Building::owner_name/owner_id_card_number/
+// owner_address/owner_phone — xem BuildingForm tab "Chủ sở hữu") — thiếu field nào thì để trống dạng
+// "..................." cho field đó, nhân viên tự bổ sung ở tab Chủ sở hữu 1 lần cho cả toà thay vì
+// sửa tay từng hợp đồng.
 class ContractContentRenderer
 {
     public static function render(Contract $contract): string
     {
-        $contract->loadMissing(['room.building', 'tenant', 'occupantEntries.tenant', 'surcharges']);
+        // Room/Building/Tenant dùng SoftDeletes riêng — loadMissing() mặc định vẫn áp scope đó cho
+        // TỪNG quan hệ lồng nhau, nên 1 phòng/khách bị xoá mềm SAU KHI hợp đồng đã tạo (hợp đồng vẫn
+        // còn) sẽ làm bản in hợp đồng mất tên phòng/tên khách — cùng lỗi đã gặp và sửa ở
+        // InvoiceContentRenderer::renderPrintable(). Bỏ scope ở từng mắt xích để bản in luôn đầy đủ.
+        $contract->loadMissing([
+            'room'                  => fn ($q) => $q->withoutGlobalScopes(),
+            'room.building'         => fn ($q) => $q->withoutGlobalScopes(),
+            'tenant'                => fn ($q) => $q->withoutGlobalScopes(),
+            'occupantEntries.tenant' => fn ($q) => $q->withoutGlobalScopes(),
+            'surcharges',
+        ]);
 
         $room     = $contract->room;
         $building = $room?->building;
@@ -30,9 +39,21 @@ class ContractContentRenderer
         $endDate   = $contract->end_date?->format('d/m/Y') ?? 'Không xác định (thuê không thời hạn)';
 
         $buildingName    = e($building?->name ?? '...................');
-        $buildingAddress = e(trim(implode(', ', array_filter([$building?->address, $building?->ward, $building?->province]))) ?: '...................');
+        // province/ward lưu dạng "Mã - Tên" (VD "701 - TP. Hồ Chí Minh") để khớp đúng danh mục chuẩn
+        // Bộ Công an dùng cho Khai báo lưu trú (xem BuildingForm) — hợp đồng in cho khách đọc thì bỏ
+        // phần mã, chỉ giữ tên cho dễ đọc.
+        $buildingAddress = e(trim(implode(', ', array_filter([
+            $building?->address,
+            self::stripDisplayCode($building?->ward),
+            self::stripDisplayCode($building?->province),
+        ]))) ?: '...................');
         $roomCode        = e($room?->code ?? '...................');
         $roomArea        = $room?->area ? e($room->area) . ' m²' : '...................';
+
+        $ownerName    = e($building?->owner_name ?? '...................');
+        $ownerCccd    = e($building?->owner_id_card_number ?? '...................');
+        $ownerAddress = e($building?->owner_address ?? '...................');
+        $ownerPhone   = e($building?->owner_phone ?? '...................');
 
         $tenantName    = e($tenant?->fullname ?? '...................');
         $tenantCccd    = e($tenant?->id_card_number ?? '...................');
@@ -63,10 +84,10 @@ class ContractContentRenderer
                 </div>
 
                 <p><strong>BÊN CHO THUÊ (BÊN A):</strong><br>
-                Họ tên/Đơn vị: ...................<br>
-                CCCD/MSDN: ...................<br>
-                Địa chỉ: ...................<br>
-                Điện thoại: ...................</p>
+                Họ tên/Đơn vị: {$ownerName}<br>
+                CCCD/MSDN: {$ownerCccd}<br>
+                Địa chỉ: {$ownerAddress}<br>
+                Điện thoại: {$ownerPhone}</p>
 
                 <p><strong>BÊN THUÊ (BÊN B):</strong><br>
                 Họ tên: {$tenantName}<br>
@@ -196,5 +217,16 @@ class ContractContentRenderer
     private static function money(mixed $amount): string
     {
         return number_format((float) $amount, 0, ',', '.') . ' đ';
+    }
+
+    // Building.province/ward lưu dạng "Mã - Tên" (xem TbltProvince/TbltWard, BuildingForm) — bỏ
+    // phần mã số phía trước, chỉ giữ lại tên để hiện trên hợp đồng in cho khách đọc.
+    private static function stripDisplayCode(?string $value): ?string
+    {
+        if (blank($value) || ! str_contains($value, ' - ')) {
+            return $value;
+        }
+
+        return trim(substr($value, strpos($value, ' - ') + 3));
     }
 }

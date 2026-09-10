@@ -30,13 +30,14 @@ class ResidenceDeclaration extends Model
         'checked_in_at', 'checked_out_at', 'room_number', 'stay_address',
         'reason_for_stay', 'custom_reason',
         'current_residence', 'residence_type', 'province', 'ward', 'address_detail', 'notes',
-        'declared_at', 'declared_by',
+        'declared_at', 'declared_by', 'last_reminded_at',
     ];
 
     protected $casts = [
-        'checked_in_at'  => 'datetime',
-        'checked_out_at' => 'datetime',
-        'declared_at'    => 'datetime',
+        'checked_in_at'     => 'datetime',
+        'checked_out_at'    => 'datetime',
+        'declared_at'       => 'datetime',
+        'last_reminded_at'  => 'datetime',
     ];
 
     public function contract(): BelongsTo

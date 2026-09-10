@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\PdfSigning\ContractPdfRenderer;
 use Illuminate\Http\Request;
 use Modules\Minihouse\App\Models\Contract;
+use Modules\Minihouse\App\Models\Room;
 use Modules\Minihouse\App\Services\ContractContentRenderer;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -30,7 +31,10 @@ class ContractPrintController extends Controller
         // toà nhà), 1 tài khoản bị giới hạn chỉ quản lý Toà A vẫn đổi được id trên URL để xem/tải
         // hợp đồng của Toà B. Phải tự kiểm tra thêm đúng ranh giới toà nhà ở đây.
         if (! $user->isSuperAdmin()) {
-            $buildingId = $contract->room?->building_id;
+            // Room dùng SoftDeletes riêng — quan hệ mặc định sẽ trả về null nếu phòng bị xoá mềm
+            // (dù hợp đồng vẫn còn), chặn nhầm quyền xem hợp đồng lịch sử hợp lệ (cùng lỗi lớp đã
+            // gặp và sửa ở InvoiceContentRenderer/InvoicePrintController).
+            $buildingId = Room::withoutGlobalScopes()->find($contract->room_id)?->building_id;
 
             abort_unless($buildingId && in_array($buildingId, $user->rootBuildingIds()), 403);
         }

@@ -2,8 +2,10 @@
 
 namespace Modules\Minihouse\App\Observers;
 
+use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\InvoicePayment;
+use Modules\Minihouse\App\Models\Reminder;
 use Modules\Minihouse\App\Models\Transaction;
 
 // Đồng bộ lại Invoice.amount_paid/paid_at/status (cột CACHE, giống hệt cách Invoice.service_amount
@@ -38,8 +40,12 @@ class InvoicePaymentObserver
             return;
         }
 
-        $amountPaid = (float) $invoice->payments()->sum('amount');
-        $lastPaidAt = $invoice->payments()->latest('paid_at')->value('paid_at');
+        // CHỈ tính khoản đã được duyệt (status='approved') — khoản 'pending' (nhân viên vừa ghi
+        // nhận, chưa được Chủ toà nhà xác nhận) không được coi là "đã thanh toán" để tránh nhân viên
+        // tự khai đã thu tiền mà chưa ai kiểm chứng (xem InvoicePayment::STATUS_*).
+        $approvedPayments = $invoice->payments()->where('status', InvoicePayment::STATUS_APPROVED);
+        $amountPaid = (float) (clone $approvedPayments)->sum('amount');
+        $lastPaidAt = (clone $approvedPayments)->latest('paid_at')->value('paid_at');
 
         $status = Invoice::STATUS_UNPAID;
 
@@ -56,17 +62,41 @@ class InvoicePaymentObserver
             'paid_at'     => $lastPaidAt,
             'status'      => $status,
         ]);
+
+        // Hoá đơn vừa chuyển "Đã thanh toán" — tự đánh dấu xong mọi "Nhắc đóng tiền" đang gắn hoá
+        // đơn này (nếu còn), để: 1) không hiện nhầm là "chưa xử lý" trên danh sách nhắc việc nữa, và
+        // 2) dừng hẳn việc lặp lại nhắc (xem SendReminderNotificationsCommand::dueForRepeat() — vốn
+        // đã tự dừng qua điều kiện trạng thái hoá đơn, đây chỉ thêm để danh sách Nhắc việc phản ánh
+        // đúng thực tế, không cần nhân viên tự tay tắt).
+        if ($status === Invoice::STATUS_PAID) {
+            Reminder::withoutGlobalScopes()
+                ->where('invoice_id', $invoice->id)
+                ->where('is_done', false)
+                ->update(['is_done' => true]);
+        }
     }
 
     private function syncTransaction(InvoicePayment $payment): void
     {
-        $invoice = $payment->invoice()->with('contract.room')->first();
+        // KHÔNG tự tạo dòng "Thu" cho khoản CHƯA duyệt — sổ Thu Chi chỉ nên phản ánh tiền đã CHẮC
+        // CHẮN thu được (đã duyệt hoặc PayOS tự xác nhận), không phải lời khai chưa kiểm chứng.
+        if (! $payment->isApproved()) {
+            return;
+        }
+
+        $invoice = $payment->invoice()->first();
 
         if (! $invoice) {
             return;
         }
 
-        $room = $invoice->contract?->room;
+        // Contract dùng SoftDeletes riêng — quan hệ mặc định $invoice->contract sẽ trả về null nếu
+        // hợp đồng bị xoá mềm, làm mất building_id (dòng "Thu" biến mất khỏi mọi tài khoản bị giới
+        // hạn theo toà) — cùng lỗi lớp đã gặp và sửa ở Invoice/ContractPrintController.
+        $contract = $invoice->contract_id
+            ? Contract::withoutGlobalScopes()->with(['room' => fn ($q) => $q->withoutGlobalScopes()])->find($invoice->contract_id)
+            : null;
+        $room = $contract?->room;
 
         // $room có thể null nếu hợp đồng/phòng đã bị xoá — không ghi đè building_id đã có (nếu dòng
         // Transaction này đã tồn tại từ trước) thành NULL, vì Transaction lọc theo toà nhà bằng

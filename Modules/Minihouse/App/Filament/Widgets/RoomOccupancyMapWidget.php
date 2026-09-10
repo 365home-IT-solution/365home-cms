@@ -108,7 +108,7 @@ class RoomOccupancyMapWidget extends Widget
             // Map phòng chưa có khách (id => code/status/link) để phía Alpine tra cứu khi hiện
             // menu hành động ở HEADER của card toà nhà (không phải menu nổi trên từng ô nữa) — xem
             // room-occupancy-map.blade.php. Phòng đang thuê không cho chọn nên không cần có ở đây.
-            $selectableRooms = $roomCards->reject(fn ($r) => $r['status'] === Room::STATUS_RENTED)
+            $selectableRooms = $roomCards->reject(fn ($r) => in_array($r['status'], [Room::STATUS_RENTED, Room::STATUS_RESERVED], true))
                 ->keyBy('id')
                 ->map(fn ($r) => [
                     'code'         => $r['code'],
@@ -124,6 +124,7 @@ class RoomOccupancyMapWidget extends Widget
                 'stats'           => [
                     'total'   => $roomCards->count(),
                     'empty'   => $roomCards->where('status', Room::STATUS_EMPTY)->count(),
+                    'reserved' => $roomCards->where('status', Room::STATUS_RESERVED)->count(),
                     'rented'  => $roomCards->where('status', Room::STATUS_RENTED)->count(),
                     'repair'  => $roomCards->where('status', Room::STATUS_REPAIR)->count(),
                     'inDebt'  => $roomCards->where('debt', '>', 0)->count(),
@@ -142,7 +143,7 @@ class RoomOccupancyMapWidget extends Widget
     {
         $room = Room::find($roomId);
 
-        if (! $room || $room->status === Room::STATUS_RENTED) {
+        if (! $room || in_array($room->status, [Room::STATUS_RENTED, Room::STATUS_RESERVED], true)) {
             return;
         }
 
@@ -151,15 +152,20 @@ class RoomOccupancyMapWidget extends Widget
         ]);
     }
 
-    // "Chọn nhiều" ở header card toà nhà — khoá HÀNG LOẠT phòng đã chọn thành "Đã khoá" trong 1
-    // lần bấm (VD sửa cả dãy điện của 1 tầng). Chỉ 1 chiều (-> Đã khoá), không có chiều ngược lại
-    // hàng loạt — mở khoá từng phòng vẫn phải chọn riêng lẻ (đúng ý muốn "chỉ 1 nút" ở chế độ này).
-    // Bỏ qua phòng đang có khách ở — không chọn được phòng đó từ đầu nhưng vẫn phòng thủ ở đây
-    // phòng trường hợp trạng thái vừa đổi giữa lúc đang chọn.
-    public function bulkMarkRepair(array $roomIds): void
+    // "Chọn nhiều" ở header card toà nhà — MỖI phòng đã chọn tự ĐẢO NGƯỢC đúng trạng thái của
+    // riêng nó (đang khoá -> mở ra, đang trống -> khoá lại) thay vì ép tất cả về 1 chiều — chọn lẫn
+    // cả 2 loại cùng lúc (VD sửa xong 1 dãy, mở khoá lại đồng thời khoá thêm dãy khác) vẫn ra đúng
+    // kết quả cho từng phòng, không cần tách làm 2 lượt chọn riêng. Bỏ qua phòng đang có khách ở —
+    // không chọn được phòng đó từ đầu nhưng vẫn phòng thủ ở đây phòng trường hợp trạng thái vừa đổi
+    // giữa lúc đang chọn.
+    public function bulkToggleRepair(array $roomIds): void
     {
-        Room::whereIn('id', $roomIds)
-            ->where('status', '!=', Room::STATUS_RENTED)
-            ->update(['status' => Room::STATUS_REPAIR]);
+        $rooms = Room::whereIn('id', $roomIds)->whereNotIn('status', [Room::STATUS_RENTED, Room::STATUS_RESERVED])->get();
+
+        foreach ($rooms as $room) {
+            $room->update([
+                'status' => $room->status === Room::STATUS_REPAIR ? Room::STATUS_EMPTY : Room::STATUS_REPAIR,
+            ]);
+        }
     }
 }

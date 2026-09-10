@@ -3,15 +3,21 @@
 namespace Modules\Minihouse\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use Modules\Minihouse\App\Models\Announcement;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\ContractTenant;
 use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\InvoicePayment;
+use Modules\Minihouse\App\Models\Reminder;
 use Modules\Minihouse\App\Models\Tenant;
+use Modules\Minihouse\App\Models\TenantFeedback;
+use Modules\Minihouse\App\Observers\AnnouncementObserver;
 use Modules\Minihouse\App\Observers\ContractObserver;
 use Modules\Minihouse\App\Observers\ContractTenantObserver;
 use Modules\Minihouse\App\Observers\InvoiceObserver;
 use Modules\Minihouse\App\Observers\InvoicePaymentObserver;
+use Modules\Minihouse\App\Observers\ReminderObserver;
+use Modules\Minihouse\App\Observers\TenantFeedbackObserver;
 use Modules\Minihouse\App\Observers\TenantObserver;
 
 class MinihouseServiceProvider extends ServiceProvider
@@ -41,6 +47,15 @@ class MinihouseServiceProvider extends ServiceProvider
         // Xoá thật các InvoicePayment (kéo theo Transaction liên kết) khi hoá đơn bị xoá mềm — xem
         // InvoiceObserver.
         Invoice::observe(InvoiceObserver::class);
+        // Tự sinh nhắc việc kế tiếp khi 1 nhắc việc có khai chu kỳ lặp lại được đánh dấu "Đã xử lý"
+        // (chủ yếu cho "Nhắc bảo trì" định kỳ) — xem ReminderObserver.
+        Reminder::observe(ReminderObserver::class);
+        // Báo lại cho khách trong Portal khi phản hồi (gửi có đăng nhập) được đánh dấu "Đã xử lý" —
+        // xem TenantFeedbackObserver.
+        TenantFeedback::observe(TenantFeedbackObserver::class);
+        // Tự phát thông báo chung ra Portal cho toàn bộ khách thuê liên quan ngay khi tạo — xem
+        // AnnouncementObserver.
+        Announcement::observe(AnnouncementObserver::class);
     }
 
     public function register()

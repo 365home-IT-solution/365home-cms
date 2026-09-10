@@ -17,9 +17,10 @@ class Transaction extends Model
     public const TYPE_IN  = 'thu';
     public const TYPE_OUT = 'chi';
 
-    public const CATEGORY_REPAIR    = 'sua_chua';
-    public const CATEGORY_OPERATION = 'van_hanh';
-    public const CATEGORY_OTHER     = 'khac';
+    public const CATEGORY_REPAIR         = 'sua_chua';
+    public const CATEGORY_OPERATION      = 'van_hanh';
+    public const CATEGORY_DEPOSIT_REFUND = 'hoan_coc';
+    public const CATEGORY_OTHER          = 'khac';
 
     protected $table = 'minihouse_transactions';
 

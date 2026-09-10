@@ -5,6 +5,7 @@ namespace Modules\Minihouse\App\Filament\Resources\TenantResource\Pages;
 use Filament\Actions;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Modules\Minihouse\App\Filament\Resources\ContractResource;
 use Modules\Minihouse\App\Filament\Resources\TenantResource;
 use Modules\Minihouse\App\Observers\TenantObserver;
 
@@ -15,6 +16,16 @@ class EditTenant extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
+            // Chỉ hiện khi khách ĐANG có phòng (room_id tự đồng bộ theo hợp đồng "Đang hiệu lực" —
+            // xem ContractObserver::syncTenant()) — bấm để mở đúng hợp đồng đó, tránh phải tự tìm ở
+            // danh sách Hợp đồng. Dùng Tenant::activeContract() thay vì đoán qua room_id vì 1 phòng
+            // có thể có NHIỀU hợp đồng lịch sử (đã hết hạn) — phải lọc đúng status "active".
+            Actions\Action::make('goToContract')
+                ->label('Đi đến hợp đồng')
+                ->icon('heroicon-o-document-text')
+                ->color('gray')
+                ->visible(fn () => (bool) $this->record->activeContract())
+                ->url(fn () => ContractResource::getUrl('edit', ['record' => $this->record->activeContract()])),
             // Bấm tay khi cần quét lại (ảnh mờ lần đầu quét hỏng, hoặc muốn xác nhận lại) — giống
             // hệt nút "Quét CCCD" bên Home (App\Filament\Resources\CustomerResource\Pages\
             // EditCustomer). Bấm tay = chủ động yêu cầu quét lại nên GHI ĐÈ luôn theo ảnh hiện có,

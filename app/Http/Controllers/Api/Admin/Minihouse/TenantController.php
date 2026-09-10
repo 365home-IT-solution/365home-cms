@@ -52,7 +52,7 @@ class TenantController extends Controller
             return response()->json(['message' => 'Không có quyền xem khách thuê.'], 403);
         }
 
-        $tenant = Tenant::withoutGlobalScopes()->with('room:id,code,building_id')->find($id);
+        $tenant = Tenant::withoutGlobalScopes()->with(['room' => fn ($q) => $q->withoutGlobalScopes()])->find($id);
 
         if (! $tenant || ! $this->tenantAllowed($request, $tenant)) {
             return response()->json(['message' => 'Không tìm thấy khách thuê.'], 404);
@@ -98,7 +98,7 @@ class TenantController extends Controller
 
         $tenant = Tenant::create($data);
 
-        return response()->json(['data' => $this->toDetailItem($tenant->fresh('room'))], 201);
+        return response()->json(['data' => $this->toDetailItem($tenant->fresh(['room' => fn ($q) => $q->withoutGlobalScopes()]))], 201);
     }
 
     // PUT/PATCH /api/admin/minihouse/tenants/{id}
@@ -108,7 +108,7 @@ class TenantController extends Controller
             return response()->json(['message' => 'Không có quyền sửa khách thuê.'], 403);
         }
 
-        $tenant = Tenant::withoutGlobalScopes()->with('room')->find($id);
+        $tenant = Tenant::withoutGlobalScopes()->with(['room' => fn ($q) => $q->withoutGlobalScopes()])->find($id);
 
         if (! $tenant || ! $this->tenantAllowed($request, $tenant)) {
             return response()->json(['message' => 'Không tìm thấy khách thuê.'], 404);
@@ -142,7 +142,7 @@ class TenantController extends Controller
 
         $tenant->update($data);
 
-        return response()->json(['data' => $this->toDetailItem($tenant->fresh('room'))]);
+        return response()->json(['data' => $this->toDetailItem($tenant->fresh(['room' => fn ($q) => $q->withoutGlobalScopes()]))]);
     }
 
     // DELETE /api/admin/minihouse/tenants/{id}
@@ -152,7 +152,7 @@ class TenantController extends Controller
             return response()->json(['message' => 'Không có quyền xoá khách thuê.'], 403);
         }
 
-        $tenant = Tenant::withoutGlobalScopes()->with('room')->find($id);
+        $tenant = Tenant::withoutGlobalScopes()->with(['room' => fn ($q) => $q->withoutGlobalScopes()])->find($id);
 
         if (! $tenant || ! $this->tenantAllowed($request, $tenant)) {
             return response()->json(['message' => 'Không tìm thấy khách thuê.'], 404);

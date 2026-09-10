@@ -29,12 +29,21 @@ class ReminderController extends Controller
 
         $permitted = $this->permittedBuildingIds($request);
 
+        // withoutGlobalScopes() ở whereHas('contract'/'room') — tránh mất nhắc việc của 1 hợp đồng
+        // đã xoá mềm khỏi danh sách (cùng lỗi lớp đã sửa ở Reminder::booted(), InvoiceController...).
         $reminders = Reminder::query()
-            ->with(['room:id,code,building_id', 'contract.room:id,code,building_id'])
+            ->with([
+                'room'          => fn ($q) => $q->withoutGlobalScopes(),
+                'contract'      => fn ($q) => $q->withoutGlobalScopes(),
+                'contract.room' => fn ($q) => $q->withoutGlobalScopes(),
+            ])
             ->where(fn ($q) => $q
                 ->where(fn ($q2) => $q2->whereNull('room_id')->whereNull('contract_id'))
-                ->orWhereHas('room', fn ($q2) => $q2->whereIn('building_id', $permitted))
-                ->orWhereHas('contract.room', fn ($q2) => $q2->whereIn('building_id', $permitted)))
+                ->orWhereHas('room', fn ($q2) => $q2->withoutGlobalScopes()->whereIn('building_id', $permitted))
+                ->orWhereHas('contract', fn ($q2) => $q2->withoutGlobalScopes()->whereHas(
+                    'room',
+                    fn ($q3) => $q3->withoutGlobalScopes()->whereIn('building_id', $permitted),
+                )))
             ->when($request->filled('is_done'), fn ($q) => $q->where('is_done', $request->boolean('is_done')))
             ->when($request->filled('type'), fn ($q) => $q->where('type', $request->string('type')))
             ->orderBy('remind_date')
@@ -53,12 +62,16 @@ class ReminderController extends Controller
         }
 
         $data = $request->validate([
-            'title'       => 'required|string|max:255',
-            'content'     => 'nullable|string',
-            'remind_date' => 'required|date',
-            'type'        => ['required', Rule::in([Reminder::TYPE_PAYMENT, Reminder::TYPE_CONTRACT, Reminder::TYPE_MAINTENANCE, Reminder::TYPE_OTHER])],
-            'room_id'     => 'nullable|integer|exists:minihouse_rooms,id',
-            'contract_id' => 'nullable|integer|exists:minihouse_contracts,id',
+            'title'                 => 'required|string|max:255',
+            'content'               => 'nullable|string',
+            'remind_date'           => 'required|date',
+            'type'                  => ['required', Rule::in([Reminder::TYPE_PAYMENT, Reminder::TYPE_CONTRACT, Reminder::TYPE_MAINTENANCE, Reminder::TYPE_OTHER])],
+            'room_id'               => 'nullable|integer|exists:minihouse_rooms,id',
+            'contract_id'           => 'nullable|integer|exists:minihouse_contracts,id',
+            'invoice_id'            => 'nullable|integer|exists:minihouse_invoices,id',
+            // Chỉ có ý nghĩa với "Nhắc bảo trì" — đánh dấu "Đã xử lý" thì ReminderObserver tự sinh
+            // nhắc việc kế tiếp theo đúng chu kỳ này, xem ReminderObserver.
+            'repeat_interval_days'  => 'nullable|integer|min:1',
         ]);
 
         if (! empty($data['room_id'])) {
@@ -96,11 +109,13 @@ class ReminderController extends Controller
         }
 
         $data = $request->validate([
-            'title'       => 'sometimes|required|string|max:255',
-            'content'     => 'nullable|string',
-            'remind_date' => 'sometimes|required|date',
-            'type'        => ['sometimes', Rule::in([Reminder::TYPE_PAYMENT, Reminder::TYPE_CONTRACT, Reminder::TYPE_MAINTENANCE, Reminder::TYPE_OTHER])],
-            'is_done'     => 'nullable|boolean',
+            'title'                 => 'sometimes|required|string|max:255',
+            'content'               => 'nullable|string',
+            'remind_date'           => 'sometimes|required|date',
+            'type'                  => ['sometimes', Rule::in([Reminder::TYPE_PAYMENT, Reminder::TYPE_CONTRACT, Reminder::TYPE_MAINTENANCE, Reminder::TYPE_OTHER])],
+            'invoice_id'            => 'nullable|integer|exists:minihouse_invoices,id',
+            'repeat_interval_days'  => 'nullable|integer|min:1',
+            'is_done'               => 'nullable|boolean',
         ]);
 
         $reminder->update($data);
@@ -126,9 +141,16 @@ class ReminderController extends Controller
         return response()->json(['message' => 'Đã xoá nhắc việc.']);
     }
 
+    // Room/Contract dùng SoftDeletes riêng — eager-load thường vẫn áp scope đó ở quan hệ lồng nhau,
+    // nên 1 phòng/hợp đồng bị xoá mềm sẽ làm building_id ở dưới thành null, CHẶN NHẦM quyền xem 1
+    // nhắc việc lịch sử hợp lệ (cùng lỗi lớp đã gặp và sửa ở InvoiceController/InvoicePrintController).
     private function findAllowed(Request $request, int $id): ?Reminder
     {
-        $reminder = Reminder::with(['room', 'contract.room'])->find($id);
+        $reminder = Reminder::with([
+            'room'          => fn ($q) => $q->withoutGlobalScopes(),
+            'contract'      => fn ($q) => $q->withoutGlobalScopes(),
+            'contract.room' => fn ($q) => $q->withoutGlobalScopes(),
+        ])->find($id);
 
         if (! $reminder) {
             return null;
@@ -146,15 +168,18 @@ class ReminderController extends Controller
     private function toItem(Reminder $reminder): array
     {
         return [
-            'id'          => $reminder->id,
-            'title'       => $reminder->title,
-            'content'     => $reminder->content,
-            'remind_date' => $reminder->remind_date?->toDateString(),
-            'type'        => $reminder->type,
-            'room_id'     => $reminder->room_id,
-            'room_code'   => $reminder->room?->code,
-            'contract_id' => $reminder->contract_id,
-            'is_done'     => $reminder->is_done,
+            'id'                    => $reminder->id,
+            'title'                 => $reminder->title,
+            'content'               => $reminder->content,
+            'remind_date'           => $reminder->remind_date?->toDateString(),
+            'type'                  => $reminder->type,
+            'room_id'               => $reminder->room_id,
+            'room_code'             => $reminder->room?->code,
+            'contract_id'           => $reminder->contract_id,
+            'invoice_id'            => $reminder->invoice_id,
+            'repeat_interval_days'  => $reminder->repeat_interval_days,
+            'is_done'               => $reminder->is_done,
+            'notified_at'           => $reminder->notified_at?->toIso8601String(),
         ];
     }
 }

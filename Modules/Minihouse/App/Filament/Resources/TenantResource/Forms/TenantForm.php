@@ -12,6 +12,9 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
+use Modules\Minihouse\App\Models\Room;
 use Modules\Minihouse\App\Models\Tenant;
 
 class TenantForm
@@ -45,18 +48,58 @@ class TenantForm
                                     Tenant::GENDER_FEMALE => 'Nữ',
                                     Tenant::GENDER_OTHER  => 'Khác',
                                 ]),
-                            // CHỈ HIỂN THỊ — không cho sửa tay. Giá trị này do hệ thống tự tính lại
-                            // từ hợp đồng "Đang hiệu lực" (đứng tên hoặc ở cùng) mỗi khi hợp đồng
-                            // thay đổi, xem ContractObserver::syncTenant(). Cho sửa tay ở đây sẽ vô
-                            // nghĩa (bị ghi đè âm thầm ngay sự kiện hợp đồng kế tiếp) và dễ gây hiểu
-                            // nhầm — muốn đổi phòng cho khách thì phải sửa/tạo Hợp đồng, không sửa
-                            // trực tiếp ở đây.
+                            // CHỈ HIỂN THỊ khi SỬA khách đã có sẵn — không cho sửa tay. Giá trị này
+                            // do hệ thống tự tính lại từ hợp đồng "Đang hiệu lực" (đứng tên hoặc ở
+                            // cùng) mỗi khi hợp đồng thay đổi, xem ContractObserver::syncTenant().
+                            // Cho sửa tay ở đây sẽ vô nghĩa (bị ghi đè âm thầm ngay sự kiện hợp đồng
+                            // kế tiếp) và dễ gây hiểu nhầm — khách ĐÃ CÓ hợp đồng thì phải đổi
+                            // phòng/gia hạn qua đúng trang Hợp đồng, không sửa trực tiếp ở đây.
                             Select::make('room_id')
                                 ->label('Phòng đang ở')
                                 ->relationship('room', 'code')
+                                ->visible(fn (string $operation) => $operation === 'edit')
                                 ->disabled()
                                 ->dehydrated(false)
                                 ->helperText('Tự động theo hợp đồng đang hiệu lực — sửa ở trang Hợp đồng.'),
+                            // CHỈ HIỂN THỊ lúc TẠO MỚI khách thuê — tiện tạo luôn hợp đồng đầu tiên
+                            // trong 1 lần thao tác thay vì phải mở thêm trang Hợp đồng riêng. Để
+                            // trống thì chỉ lưu hồ sơ khách, không tạo hợp đồng gì cả (giữ đúng hành
+                            // vi cũ). CreateTenant::afterCreate() đọc 4 field new_* này để tạo
+                            // Contract — dehydrated(true) mặc định để mutateFormDataBeforeCreate() ở
+                            // đó lấy được, rồi tự loại khỏi $data trước khi gọi Tenant::create().
+                            Select::make('new_room_id')
+                                ->label('Phòng thuê')
+                                ->visible(fn (string $operation) => $operation === 'create')
+                                ->options(fn () => Room::where('status', Room::STATUS_EMPTY)
+                                    ->with('building')
+                                    ->get()
+                                    ->mapWithKeys(fn (Room $r) => [$r->id => "{$r->building?->name} - {$r->code}"]))
+                                ->searchable()
+                                ->live()
+                                ->helperText('Chọn phòng để tự động tạo hợp đồng thuê ngay khi lưu khách thuê này — để trống nếu chỉ lưu hồ sơ, tạo hợp đồng sau.')
+                                ->afterStateUpdated(function (Get $get, Set $set, $state) {
+                                    $room = Room::find($state);
+
+                                    if ($room && blank($get('new_monthly_price'))) {
+                                        $set('new_monthly_price', $room->price);
+                                    }
+                                }),
+                            TextInput::make('new_monthly_price')
+                                ->label('Giá thuê / tháng')
+                                ->numeric()
+                                ->prefix('đ')
+                                ->visible(fn (string $operation, Get $get) => $operation === 'create' && filled($get('new_room_id'))),
+                            DatePicker::make('new_start_date')
+                                ->label('Ngày bắt đầu thuê')
+                                ->native(false)
+                                ->default(now())
+                                ->visible(fn (string $operation, Get $get) => $operation === 'create' && filled($get('new_room_id'))),
+                            TextInput::make('new_deposit_amount')
+                                ->label('Tiền cọc')
+                                ->numeric()
+                                ->prefix('đ')
+                                ->default(0)
+                                ->visible(fn (string $operation, Get $get) => $operation === 'create' && filled($get('new_room_id'))),
                             TextInput::make('occupation')
                                 ->label('Nghề nghiệp')
                                 ->maxLength(255),

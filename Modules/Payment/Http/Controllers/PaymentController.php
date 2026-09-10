@@ -563,6 +563,18 @@ private function buildTelegramMessage(Order $order, string $status): string
                     return response()->json(['error' => 0, 'message' => 'Extra charge processed']);
                 }
 
+                // MiniHouse dùng CHUNG 1 tài khoản PayOS này (client_id/api_key/checksum_key đọc từ
+                // cùng PaymentConfiguration) — PayOS chỉ cho đăng ký 1 URL webhook DUY NHẤT cho toàn
+                // tài khoản (đang trỏ về đúng route này của Home), nên orderCode của MiniHouse (LUÔN
+                // sinh 9 chữ số, bắt đầu bằng số 9 — xem Modules\Minihouse\App\Services\
+                // InvoicePayOsService::generateUniqueOrderCode, không bao giờ trùng dải ≤8 chữ số của
+                // Order) phải được tự nhận diện và chuyển tiếp xử lý ở đây thay vì báo "Order not
+                // found" rồi bỏ qua.
+                if (preg_match('/^9\d{8}$/', (string) $orderCode)
+                    && \App\Http\Controllers\Api\Minihouse\PayOsWebhookController::processVerifiedData($data)) {
+                    return response()->json(['error' => 0, 'message' => 'Minihouse invoice processed'], 200);
+                }
+
                 Log::warning('PayOS Webhook: Order not found', ['orderCode' => $orderCode]);
                 return response()->json(['message' => 'Order not found, assuming test request'], 200);
             }

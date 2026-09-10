@@ -12,6 +12,9 @@ use Illuminate\Support\Carbon;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Services\InvoiceGenerationService;
+use Modules\Minihouse\App\Services\InvoiceMomoService;
+use Modules\Minihouse\App\Services\InvoicePayOsService;
+use Modules\Minihouse\App\Services\InvoiceVnpayService;
 
 // CRUD hoá đơn. status/amount_paid/paid_at là cột CACHE tự đồng bộ từ InvoicePayment (xem
 // InvoicePaymentObserver) — API này KHÔNG cho set trực tiếp 3 trường đó lúc tạo/sửa, phải đi qua
@@ -29,10 +32,20 @@ class InvoiceController extends Controller
 
         $permitted = $this->permittedBuildingIds($request);
 
+        // withoutGlobalScopes() ở whereHas('contract'/'room') — mặc định vẫn tự áp scope SoftDeletes
+        // của Contract/Room bên trong EXISTS subquery, khiến hoá đơn của 1 hợp đồng ĐÃ XOÁ MỀM biến
+        // mất khỏi danh sách của tài khoản bị giới hạn theo toà (super_admin không lọc theo
+        // $permitted nên không gặp lỗi này — chỉ tài khoản thường mới bị ảnh hưởng).
         $invoices = Invoice::query()
             ->withoutGlobalScopes()
-            ->with(['contract.room:id,code,building_id'])
-            ->whereHas('contract.room', fn ($q) => $q->whereIn('building_id', $permitted))
+            ->with([
+                'contract'      => fn ($q) => $q->withoutGlobalScopes(),
+                'contract.room' => fn ($q) => $q->withoutGlobalScopes(),
+            ])
+            ->whereHas('contract', fn ($q) => $q->withoutGlobalScopes()->whereHas(
+                'room',
+                fn ($q2) => $q2->withoutGlobalScopes()->whereIn('building_id', $permitted),
+            ))
             ->when($request->filled('contract_id'), fn ($q) => $q->where('contract_id', $request->integer('contract_id')))
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
             ->when($request->filled('month'), fn ($q) => $q->whereDate('month', $request->date('month')->startOfMonth()))
@@ -51,13 +64,85 @@ class InvoiceController extends Controller
             return response()->json(['message' => 'Không có quyền xem hoá đơn.'], 403);
         }
 
-        $invoice = Invoice::withoutGlobalScopes()->with(['contract.room.building', 'items', 'payments'])->find($id);
+        $invoice = Invoice::withoutGlobalScopes()->with($this->invoiceRelations())->find($id);
 
         if (! $invoice || ! $this->isBuildingAllowed($request, $invoice->contract?->room?->building_id)) {
             return response()->json(['message' => 'Không tìm thấy hoá đơn.'], 404);
         }
 
         return response()->json(['data' => $this->toDetailItem($invoice)]);
+    }
+
+    // POST /api/admin/minihouse/invoices/{id}/qr
+    // Tạo mã QR PayOS cho ĐÚNG số tiền còn lại của hoá đơn — khách chuyển khoản quét mã này, PayOS
+    // tự gọi webhook (app/Http/Controllers/Api/Minihouse/PayOsWebhookController) xác nhận thanh
+    // toán, tự tạo InvoicePayment thật giống hệt ghi nhận tay. Không thay thế "Ghi nhận thanh toán"
+    // thủ công (mục /payments) — khách trả tiền mặt vẫn ghi tay bình thường qua đó.
+    public function generateQr(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasPermission($request, 'update_invoices')) {
+            return response()->json(['message' => 'Không có quyền tạo mã QR thanh toán.'], 403);
+        }
+
+        $invoice = Invoice::withoutGlobalScopes()->with($this->invoiceRelations())->find($id);
+
+        if (! $invoice || ! $this->isBuildingAllowed($request, $invoice->contract?->room?->building_id)) {
+            return response()->json(['message' => 'Không tìm thấy hoá đơn.'], 404);
+        }
+
+        try {
+            $result = InvoicePayOsService::createQr($invoice);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['data' => $result]);
+    }
+
+    // POST /api/admin/minihouse/invoices/{id}/momo — cùng nguyên tắc generateQr() ở trên, dùng
+    // InvoiceMomoService (KHÔNG có tài khoản chung dự phòng — chỉ hoạt động nếu toà nhà của hoá đơn
+    // đã chọn "MoMo" và điền đủ 3 field, xem Building::hasOwnMomo()).
+    public function generateMomo(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasPermission($request, 'update_invoices')) {
+            return response()->json(['message' => 'Không có quyền tạo link thanh toán MoMo.'], 403);
+        }
+
+        $invoice = Invoice::withoutGlobalScopes()->with($this->invoiceRelations())->find($id);
+
+        if (! $invoice || ! $this->isBuildingAllowed($request, $invoice->contract?->room?->building_id)) {
+            return response()->json(['message' => 'Không tìm thấy hoá đơn.'], 404);
+        }
+
+        try {
+            $result = InvoiceMomoService::createPaymentRequest($invoice);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['data' => $result]);
+    }
+
+    // POST /api/admin/minihouse/invoices/{id}/vnpay — cùng nguyên tắc, dùng InvoiceVnpayService.
+    public function generateVnpay(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasPermission($request, 'update_invoices')) {
+            return response()->json(['message' => 'Không có quyền tạo link thanh toán VNPay.'], 403);
+        }
+
+        $invoice = Invoice::withoutGlobalScopes()->with($this->invoiceRelations())->find($id);
+
+        if (! $invoice || ! $this->isBuildingAllowed($request, $invoice->contract?->room?->building_id)) {
+            return response()->json(['message' => 'Không tìm thấy hoá đơn.'], 404);
+        }
+
+        try {
+            $result = InvoiceVnpayService::createPaymentUrl($invoice, $request->ip());
+        } catch (\Throwable $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['data' => $result]);
     }
 
     // POST /api/admin/minihouse/invoices/generate {month: "2026-09", building_ids?: [1,2]}
@@ -124,7 +209,7 @@ class InvoiceController extends Controller
             'service_amount'       => 'nullable|numeric|min:0',
         ]);
 
-        $contract = Contract::withoutGlobalScopes()->with('room')->find($data['contract_id']);
+        $contract = Contract::withoutGlobalScopes()->with(['room' => fn ($q) => $q->withoutGlobalScopes()])->find($data['contract_id']);
 
         if (! $contract || ! $this->isBuildingAllowed($request, $contract->room?->building_id)) {
             return response()->json(['message' => 'Không có quyền tạo hoá đơn cho hợp đồng này.'], 403);
@@ -154,7 +239,7 @@ class InvoiceController extends Controller
             'status'          => Invoice::STATUS_UNPAID,
         ]));
 
-        return response()->json(['data' => $this->toDetailItem($invoice->fresh(['contract.room.building', 'items', 'payments']))], 201);
+        return response()->json(['data' => $this->toDetailItem($invoice->fresh($this->invoiceRelations()))], 201);
     }
 
     // PUT/PATCH /api/admin/minihouse/invoices/{id}
@@ -164,7 +249,7 @@ class InvoiceController extends Controller
             return response()->json(['message' => 'Không có quyền sửa hoá đơn.'], 403);
         }
 
-        $invoice = Invoice::withoutGlobalScopes()->with('contract.room')->find($id);
+        $invoice = Invoice::withoutGlobalScopes()->with($this->invoiceRelations())->find($id);
 
         if (! $invoice || ! $this->isBuildingAllowed($request, $invoice->contract?->room?->building_id)) {
             return response()->json(['message' => 'Không tìm thấy hoá đơn.'], 404);
@@ -201,7 +286,7 @@ class InvoiceController extends Controller
             'total_amount'    => round($roomPrice + $electricAmount + $waterAmount + $service, 2),
         ]));
 
-        return response()->json(['data' => $this->toDetailItem($invoice->fresh(['contract.room.building', 'items', 'payments']))]);
+        return response()->json(['data' => $this->toDetailItem($invoice->fresh($this->invoiceRelations()))]);
     }
 
     // DELETE /api/admin/minihouse/invoices/{id}
@@ -211,7 +296,7 @@ class InvoiceController extends Controller
             return response()->json(['message' => 'Không có quyền xoá hoá đơn.'], 403);
         }
 
-        $invoice = Invoice::withoutGlobalScopes()->with('contract.room')->find($id);
+        $invoice = Invoice::withoutGlobalScopes()->with($this->invoiceRelations())->find($id);
 
         if (! $invoice || ! $this->isBuildingAllowed($request, $invoice->contract?->room?->building_id)) {
             return response()->json(['message' => 'Không tìm thấy hoá đơn.'], 404);
@@ -222,6 +307,21 @@ class InvoiceController extends Controller
         $invoice->delete();
 
         return response()->json(['message' => 'Đã xoá hoá đơn.']);
+    }
+
+    // Contract/Room/Building dùng SoftDeletes riêng — eager-load thường vẫn áp scope đó ở TỪNG quan
+    // hệ lồng nhau, nên 1 hợp đồng/phòng bị xoá mềm sẽ làm $invoice->contract trả về null, kéo theo
+    // isBuildingAllowed() nhận building_id=null và CHẶN NHẦM quyền xem 1 hoá đơn lịch sử hợp lệ (cùng
+    // lỗi lớp đã gặp và sửa ở InvoiceContentRenderer/InvoicePrintController/InvoicePayOsService).
+    private function invoiceRelations(): array
+    {
+        return [
+            'contract'                => fn ($q) => $q->withoutGlobalScopes(),
+            'contract.room'           => fn ($q) => $q->withoutGlobalScopes(),
+            'contract.room.building'  => fn ($q) => $q->withoutGlobalScopes(),
+            'items',
+            'payments',
+        ];
     }
 
     private function toListItem(Invoice $invoice): array
@@ -264,8 +364,14 @@ class InvoiceController extends Controller
             'status'                => $invoice->status,
             'paid_at'               => $invoice->paid_at?->toIso8601String(),
             'items'                 => $invoice->items->map(fn ($i) => ['id' => $i->id, 'name' => $i->name, 'amount' => $i->amount]),
+            // status/approved_at/approved_by — thiếu 3 trường này thì client KHÔNG phân biệt được 1
+            // dòng 'pending' (chưa cộng vào amount_paid ở trên, chờ "Chủ toà nhà" duyệt) với 1 dòng
+            // đã 'approved', trong khi GET .../payments (InvoicePaymentController::toItem()) đã trả
+            // đủ 3 trường này cho ĐÚNG model InvoicePayment — giữ 2 endpoint đồng nhất.
             'payments'              => $invoice->payments->map(fn ($p) => [
-                'id' => $p->id, 'amount' => $p->amount, 'paid_at' => $p->paid_at?->toDateString(), 'payment_method' => $p->payment_method, 'note' => $p->note,
+                'id' => $p->id, 'amount' => $p->amount, 'paid_at' => $p->paid_at?->toDateString(),
+                'payment_method' => $p->payment_method, 'note' => $p->note,
+                'status' => $p->status, 'approved_at' => $p->approved_at?->toIso8601String(), 'approved_by' => $p->approved_by,
             ]),
             'created_at'            => $invoice->created_at?->toIso8601String(),
             'updated_at'            => $invoice->updated_at?->toIso8601String(),

@@ -27,10 +27,19 @@ class ResidenceDeclarationController extends Controller
 
         $permitted = $this->permittedBuildingIds($request);
 
+        // withoutGlobalScopes() ở whereHas('contract'/'room') — tránh mất khai báo lưu trú của 1
+        // hợp đồng đã xoá mềm khỏi danh sách (cùng lỗi lớp đã sửa ở ScopedToActiveBuildingViaContract).
         $declarations = ResidenceDeclaration::query()
             ->withoutGlobalScopes()
-            ->with(['contract.room:id,code,building_id', 'tenant:id,fullname'])
-            ->whereHas('contract.room', fn ($q) => $q->whereIn('building_id', $permitted))
+            ->with([
+                'contract'      => fn ($q) => $q->withoutGlobalScopes(),
+                'contract.room' => fn ($q) => $q->withoutGlobalScopes(),
+                'tenant:id,fullname',
+            ])
+            ->whereHas('contract', fn ($q) => $q->withoutGlobalScopes()->whereHas(
+                'room',
+                fn ($q2) => $q2->withoutGlobalScopes()->whereIn('building_id', $permitted),
+            ))
             ->when($request->filled('contract_id'), fn ($q) => $q->where('contract_id', $request->integer('contract_id')))
             ->when($request->filled('declared'), fn ($q) => $request->boolean('declared')
                 ? $q->whereNotNull('declared_at')
@@ -186,9 +195,19 @@ class ResidenceDeclarationController extends Controller
         return response()->json(['message' => 'Đã xoá khai báo lưu trú.']);
     }
 
+    // Contract/Room/Tenant dùng SoftDeletes riêng — eager-load thường vẫn áp scope đó ở quan hệ lồng
+    // nhau, nên 1 hợp đồng bị xoá mềm sẽ làm building_id ở dưới thành null, CHẶN NHẦM quyền xem 1
+    // khai báo lưu trú lịch sử hợp lệ (cùng lỗi lớp đã gặp và sửa ở InvoiceController/
+    // InvoicePrintController).
     private function findAllowed(Request $request, int $id): ?ResidenceDeclaration
     {
-        $declaration = ResidenceDeclaration::withoutGlobalScopes()->with(['contract.room', 'tenant'])->find($id);
+        $declaration = ResidenceDeclaration::withoutGlobalScopes()
+            ->with([
+                'contract'      => fn ($q) => $q->withoutGlobalScopes(),
+                'contract.room' => fn ($q) => $q->withoutGlobalScopes(),
+                'tenant'        => fn ($q) => $q->withoutGlobalScopes(),
+            ])
+            ->find($id);
 
         if (! $declaration || ! $this->isBuildingAllowed($request, $declaration->contract?->room?->building_id)) {
             return null;

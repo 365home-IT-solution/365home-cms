@@ -2,9 +2,10 @@
 
 namespace Modules\Minihouse\App\Services;
 
-use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
+use Modules\Minihouse\App\Models\Building;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Invoice;
 
@@ -26,6 +27,12 @@ class InvoiceGenerationService
      *                                         ActiveBuildingScope ở tầng Contract::query() nếu có).
      * @return array{created: Collection<int, Invoice>, skipped: Collection<int, Contract>}
      */
+    // $month CHỈ áp dụng cho toà "Theo tháng dương lịch" (Building::BILLING_CYCLE_CALENDAR_MONTH).
+    // Toà "Theo ngày thuê" (BILLING_CYCLE_ANNIVERSARY) bỏ qua $month — luôn tự tính đúng chu kỳ kế
+    // tiếp CỦA TỪNG hợp đồng dựa theo hoá đơn gần nhất/ngày bắt đầu hợp đồng (xem
+    // generateDueAnniversaryInvoices()), vì "tháng" không có ý nghĩa cố định với kiểu này. Gộp
+    // chung 1 hàm để nút "Lập hoá đơn hàng loạt"/cron chỉ cần gọi 1 chỗ, không phải tự phân biệt
+    // toà nào theo kiểu nào.
     public static function generateForMonth(Carbon $month, ?array $buildingIds = null): array
     {
         $periodStart = $month->copy()->startOfMonth();
@@ -34,6 +41,9 @@ class InvoiceGenerationService
         $contracts = Contract::query()
             ->where('status', Contract::STATUS_ACTIVE)
             ->when(filled($buildingIds), fn ($q) => $q->whereHas('room', fn ($q2) => $q2->whereIn('building_id', $buildingIds)))
+            ->whereHas('room.building', fn ($q) => $q->where(fn ($q2) => $q2
+                ->whereNull('billing_cycle_type')
+                ->orWhere('billing_cycle_type', Building::BILLING_CYCLE_CALENDAR_MONTH)))
             // Hợp đồng đã kết thúc trước khi tháng này bắt đầu, hoặc chưa tới ngày bắt đầu — không
             // có ngày nào thuộc kỳ này để tính tiền phòng.
             ->where(fn ($q) => $q->whereNull('end_date')->orWhereDate('end_date', '>=', $periodStart))
@@ -45,33 +55,119 @@ class InvoiceGenerationService
         $skipped = collect();
 
         foreach ($contracts as $contract) {
-            $exists = Invoice::query()
-                ->where('contract_id', $contract->id)
-                ->whereYear('month', $periodStart->year)
-                ->whereMonth('month', $periodStart->month)
-                ->exists();
+            // Không còn ràng buộc unique(contract_id, month) ở DB nữa (đã bỏ — nó KHÔNG biết gì về
+            // xoá mềm, khiến xoá 1 hoá đơn xong thì KHÔNG BAO GIỜ lập lại được cho đúng hợp đồng +
+            // tháng đó nữa, xác nhận là bug thật). Khoá theo hợp đồng khi kiểm tra + tạo để 2 lượt
+            // "Lập hoá đơn hàng loạt" chạy chồng nhau (cron + bấm tay) không cùng vượt qua exists()
+            // rồi cùng tạo trùng — thay thế đúng vai trò ràng buộc DB cũ nhưng tôn trọng xoá mềm.
+            $lock = Cache::lock('minihouse-invoice-gen:' . $contract->id, 10);
 
-            if ($exists) {
+            if (! $lock->block(5)) {
                 $skipped->push($contract);
 
                 continue;
             }
 
             try {
-                $created->push(static::buildInvoiceForContract($contract, $periodStart, $periodEnd));
-            } catch (QueryException $e) {
-                // Ràng buộc unique(contract_id, month) ở DB chặn trùng khi 2 lần lập hoá đơn hàng
-                // loạt chạy chồng nhau (cron + bấm tay) — coi như bỏ qua giống trường hợp ->exists()
-                // phát hiện được, không để crash cả lượt lập hoá đơn.
-                if (! str_contains($e->getMessage(), 'minihouse_invoices_contract_month_unique')) {
-                    throw $e;
+                $exists = Invoice::query()
+                    ->where('contract_id', $contract->id)
+                    ->whereYear('month', $periodStart->year)
+                    ->whereMonth('month', $periodStart->month)
+                    ->exists();
+
+                if ($exists) {
+                    $skipped->push($contract);
+
+                    continue;
                 }
 
+                $created->push(static::buildInvoiceForContract($contract, $periodStart, $periodEnd));
+            } finally {
+                $lock->release();
+            }
+        }
+
+        $anniversaryResult = static::generateDueAnniversaryInvoices($buildingIds);
+
+        return [
+            'created' => $created->concat($anniversaryResult['created']),
+            'skipped' => $skipped->concat($anniversaryResult['skipped']),
+        ];
+    }
+
+    // Toà "Theo ngày thuê": mỗi hợp đồng có chu kỳ RIÊNG bắt đầu từ start_date, lặp lại mỗi tháng
+    // theo đúng ngày đó (VD start_date=15/3 -> chu kỳ 15/3-14/4, 15/4-14/5,...) — không phụ thuộc
+    // tháng dương lịch nào. Tự tính chu kỳ KẾ TIẾP dựa vào period_end của hoá đơn GẦN NHẤT (chưa có
+    // hoá đơn nào thì bắt đầu từ start_date), lặp tạo bù nếu đã bỏ lỡ NHIỀU chu kỳ (lâu chưa chạy
+    // lệnh) — có giới hạn 24 vòng/hợp đồng (2 năm) để tránh vòng lặp vô hạn nếu có dữ liệu bất thường.
+    private static function generateDueAnniversaryInvoices(?array $buildingIds): array
+    {
+        $today = Carbon::today();
+
+        $contracts = Contract::query()
+            ->where('status', Contract::STATUS_ACTIVE)
+            ->when(filled($buildingIds), fn ($q) => $q->whereHas('room', fn ($q2) => $q2->whereIn('building_id', $buildingIds)))
+            ->whereHas('room.building', fn ($q) => $q->where('billing_cycle_type', Building::BILLING_CYCLE_ANNIVERSARY))
+            ->whereDate('start_date', '<=', $today)
+            ->with(['room.building'])
+            ->get();
+
+        $created = collect();
+        $skipped = collect();
+
+        foreach ($contracts as $contract) {
+            // Khoá theo hợp đồng cho CẢ vòng lặp chu kỳ bù bên dưới — cùng lý do đã sửa ở
+            // generateForMonth() (không còn ràng buộc unique DB nữa, chuyển hẳn sang khoá ứng dụng).
+            $lock = Cache::lock('minihouse-invoice-gen:' . $contract->id, 30);
+
+            if (! $lock->block(5)) {
                 $skipped->push($contract);
+
+                continue;
+            }
+
+            try {
+                static::generateDueCyclesForContract($contract, $today, $created);
+            } finally {
+                $lock->release();
             }
         }
 
         return ['created' => $created, 'skipped' => $skipped];
+    }
+
+    private static function generateDueCyclesForContract(Contract $contract, Carbon $today, Collection $created): void
+    {
+        for ($i = 0; $i < 24; $i++) {
+            $lastInvoice = Invoice::where('contract_id', $contract->id)->orderByDesc('period_end')->first();
+
+            $cycleStart = $lastInvoice
+                ? $lastInvoice->period_end->copy()->addDay()
+                : $contract->start_date->copy();
+
+            // Chưa tới ngày bắt đầu chu kỳ kế tiếp — dừng, hôm khác chạy lại sẽ tự bắt đúng lúc.
+            if ($cycleStart->gt($today)) {
+                break;
+            }
+
+            // Hợp đồng đã kết thúc trước khi chu kỳ này bắt đầu — không còn gì để lập nữa.
+            if ($contract->end_date && $cycleStart->gt($contract->end_date)) {
+                break;
+            }
+
+            $cycleEnd = $cycleStart->copy()->addMonthNoOverflow()->subDay();
+
+            if ($contract->end_date && $cycleEnd->gt($contract->end_date)) {
+                $cycleEnd = $contract->end_date->copy();
+            }
+
+            $created->push(static::buildInvoiceForContract($contract, $cycleStart, $cycleEnd));
+
+            // Vừa lập tới đúng hoặc quá ngày kết thúc hợp đồng — không còn chu kỳ nào sau đó.
+            if ($contract->end_date && $cycleEnd->gte($contract->end_date)) {
+                break;
+            }
+        }
     }
 
     public static function buildInvoiceForContract(Contract $contract, Carbon $periodStart, Carbon $periodEnd): Invoice
@@ -84,7 +180,7 @@ class InvoiceGenerationService
 
         $roomPrice = $daysInPeriod >= $daysInMonth
             ? (float) $contract->monthly_price
-            : round(((float) $contract->monthly_price / $daysInMonth) * $daysInPeriod, 2);
+            : round(((float) $contract->monthly_price / $daysInMonth) * $daysInPeriod, 0);
 
         $electricPrice = $contract->electric_unit_price ?: $contract->room?->building?->electric_unit_price;
         $waterPrice    = $contract->water_unit_price ?: $contract->room?->building?->water_unit_price;
@@ -119,8 +215,8 @@ class InvoiceGenerationService
             'electric_unit_price'  => $electricPrice,
             'water_start'          => $lastInvoice?->water_end,
             'water_unit_price'     => $waterPrice,
-            'service_amount'       => round($serviceAmount, 2),
-            'total_amount'         => round($roomPrice + $serviceAmount, 2),
+            'service_amount'       => round($serviceAmount, 0),
+            'total_amount'         => round($roomPrice + $serviceAmount, 0),
             'status'               => Invoice::STATUS_UNPAID,
         ]);
 

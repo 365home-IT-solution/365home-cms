@@ -27,12 +27,18 @@ class InvoiceForm
             Section::make('Thông tin hoá đơn')
                 ->columns(2)
                 ->schema([
+                    // withoutGlobalScopes() BẮT BUỘC — Contract có global scope lọc theo "Toà nhà
+                    // đang chọn" ở bộ lọc header (ScopedToActiveBuildingViaRoom). Thiếu dòng này,
+                    // nếu bộ lọc header KHÁC toà nhà của hợp đồng đang gán cho hoá đơn này (VD đang
+                    // sửa hoá đơn cũ trong khi header đã đổi sang xem toà khác), Filament không tra
+                    // được record để lấy nhãn hiển thị, hiện ra ID thô ("3") thay vì "A-02 - Tô Xuân
+                    // Nam" — bug đã gặp thật trên hoá đơn #1.
                     Select::make('contract_id')
                         ->label('Hợp đồng')
                         ->relationship(
                             'contract',
                             'id',
-                            fn ($query) => $query->with(['room', 'tenant']),
+                            fn ($query) => $query->withoutGlobalScopes()->with(['room', 'tenant']),
                         )
                         ->getOptionLabelFromRecordUsing(fn ($record) => "{$record->room?->code} - {$record->tenant?->fullname}")
                         ->searchable()
@@ -156,6 +162,11 @@ class InvoiceForm
                     Repeater::make('items')
                         ->relationship('items')
                         ->label('')
+                        // BẮT BUỘC set default([]) — thiếu dòng này, Repeater tự seed sẵn 1 dòng
+                        // RỖNG ngay khi mở trang Tạo hoá đơn (dù không bấm "Thêm phụ thu"), khiến
+                        // 'name'/'amount' ->required() của dòng rỗng đó chặn submit MỌI hoá đơn mới,
+                        // kể cả hoá đơn không có phụ thu nào.
+                        ->default([])
                         ->addActionLabel('Thêm phụ thu')
                         ->live()
                         ->afterStateUpdated(fn (Get $get, Set $set) => static::recalcItemsTotal($get, $set))
@@ -219,9 +230,12 @@ class InvoiceForm
                         ->helperText('Tự động cộng Tiền phòng + Điện + Nước + Dịch vụ khác — có thể sửa tay nếu cần.'),
                 ]),
 
-            // Ghi nhận từng LẦN thanh toán — hỗ trợ khách trả nhiều lần (trả trước 1 phần, phần còn
-            // lại sau). Trạng thái/Đã trả/Còn lại ở trên TỰ TÍNH lại ngay khi thêm/sửa/xoá 1 dòng ở
-            // đây (InvoicePaymentObserver), không cần bấm gì thêm.
+            // Ghi nhận thanh toán — CHỈ NHẬN ĐÚNG 1 LẦN duy nhất cho mỗi hoá đơn, số tiền phải bằng
+            // đúng tổng tiền hoá đơn (yêu cầu 2026-09-07: bỏ hỗ trợ trả nhiều lần/trả từng phần —
+            // xem Invoice::validateSinglePayment(), dùng chung với InvoicePaymentController phía
+            // API). maxItems(1) chặn thêm dòng thứ 2 ngay trên giao diện (nút "Thêm" tự ẩn sau khi đã
+            // có 1 dòng); rule() ở field amount chặn luôn cả trường hợp SỬA lại số tiền của dòng duy
+            // nhất đó thành khác tổng hoá đơn.
             Section::make('Thanh toán')
                 ->schema([
                     Placeholder::make('payment_summary')
@@ -231,7 +245,10 @@ class InvoiceForm
                                 'Trạng thái: %s — Đã trả: %sđ / Tổng: %sđ — Còn lại: %sđ',
                                 match ($record->status) {
                                     Invoice::STATUS_PAID    => 'Đã thanh toán',
-                                    Invoice::STATUS_PARTIAL => 'Thanh toán 1 phần',
+                                    // STATUS_PARTIAL chỉ còn xuất hiện ở hoá đơn CŨ trước khi áp quy
+                                    // tắc "chỉ 1 lần, đủ tiền" — không còn tạo mới được trạng thái
+                                    // này nữa (xem validateSinglePayment()).
+                                    Invoice::STATUS_PARTIAL => 'Thanh toán 1 phần (dữ liệu cũ)',
                                     default                 => 'Chưa thanh toán',
                                 },
                                 number_format((float) $record->amount_paid, 0, ',', '.'),
@@ -243,27 +260,50 @@ class InvoiceForm
                     Repeater::make('payments')
                         ->relationship('payments')
                         ->label('')
+                        // default([]) — cùng lý do với Repeater 'items' ở trên, tránh seed sẵn 1 dòng
+                        // rỗng dù Repeater này đang ẩn lúc tạo mới (->visible bên dưới).
+                        ->default([])
                         ->addActionLabel('Ghi nhận thanh toán')
                         ->visible(fn (?Invoice $record) => $record !== null)
-                        ->mutateRelationshipDataBeforeCreateUsing(fn (array $data) => [...$data, 'created_by' => auth()->id()])
+                        ->maxItems(1)
+                        // status='pending' khi TẠO MỚI — nhân viên ghi nhận xong vẫn CHƯA tính là đã
+                        // thanh toán (Invoice.amount_paid chỉ cộng khoản 'approved', xem
+                        // InvoicePaymentObserver) cho tới khi "Chủ toà nhà" (quyền
+                        // approve_invoice_payments) bấm duyệt ở nút "Duyệt thanh toán" trên header —
+                        // xem EditInvoice.php.
+                        ->mutateRelationshipDataBeforeCreateUsing(fn (array $data) => [...$data, 'created_by' => auth()->id(), 'status' => InvoicePayment::STATUS_PENDING])
                         ->collapsible()
                         ->columns(3)
                         ->itemLabel(fn (array $state): ?string => isset($state['amount'])
                             ? number_format((float) $state['amount'], 0, ',', '.') . 'đ — ' . ($state['paid_at'] ?? '')
+                            . (($state['status'] ?? null) === InvoicePayment::STATUS_APPROVED ? ' — Đã duyệt ✓' : ' — Chờ Chủ toà nhà duyệt')
                             : 'Lần thanh toán mới')
                         ->schema([
+                            // Đã duyệt rồi thì KHOÁ không cho sửa nữa — tránh nhân viên đổi số tiền/
+                            // ngày sau khi Chủ toà nhà đã xác nhận, làm sai lệch dữ liệu đã duyệt.
                             TextInput::make('amount')
                                 ->label('Số tiền')
                                 ->numeric()
                                 ->prefix('đ')
-                                ->required(),
+                                ->required()
+                                ->disabled(fn (Get $get) => $get('status') === InvoicePayment::STATUS_APPROVED)
+                                ->helperText('Phải đúng bằng Tổng tiền hoá đơn — hệ thống chỉ nhận thanh toán 1 lần duy nhất.')
+                                ->rule(fn (Get $get) => function (string $attribute, $value, \Closure $fail) use ($get) {
+                                    $total = (float) $get('../../total_amount');
+
+                                    if (abs((float) $value - $total) > 0.01) {
+                                        $fail('Số tiền phải đúng bằng tổng tiền hoá đơn (' . number_format($total, 0, ',', '.') . 'đ).');
+                                    }
+                                }),
                             DatePicker::make('paid_at')
                                 ->label('Ngày thanh toán')
                                 ->native(false)
                                 ->default(now())
-                                ->required(),
+                                ->required()
+                                ->disabled(fn (Get $get) => $get('status') === InvoicePayment::STATUS_APPROVED),
                             Select::make('payment_method')
                                 ->label('Hình thức')
+                                ->disabled(fn (Get $get) => $get('status') === InvoicePayment::STATUS_APPROVED)
                                 ->options([
                                     InvoicePayment::METHOD_CASH     => 'Tiền mặt',
                                     InvoicePayment::METHOD_TRANSFER => 'Chuyển khoản',
@@ -308,7 +348,7 @@ class InvoiceForm
 
         $roomPrice = $daysInPeriod >= $daysInMonth
             ? (float) $contract->monthly_price
-            : round(((float) $contract->monthly_price / $daysInMonth) * $daysInPeriod, 2);
+            : round(((float) $contract->monthly_price / $daysInMonth) * $daysInPeriod, 0);
 
         $set('room_price', $roomPrice);
         static::recalcTotal($get, $set);
@@ -317,14 +357,14 @@ class InvoiceForm
     private static function recalcElectric(Get $get, Set $set): void
     {
         $amount = (max(0, (float) $get('electric_end') - (float) $get('electric_start'))) * (float) $get('electric_unit_price');
-        $set('electric_amount', round($amount, 2));
+        $set('electric_amount', round($amount, 0));
         static::recalcTotal($get, $set);
     }
 
     private static function recalcWater(Get $get, Set $set): void
     {
         $amount = (max(0, (float) $get('water_end') - (float) $get('water_start'))) * (float) $get('water_unit_price');
-        $set('water_amount', round($amount, 2));
+        $set('water_amount', round($amount, 0));
         static::recalcTotal($get, $set);
     }
 
@@ -335,7 +375,7 @@ class InvoiceForm
             + (float) $get('water_amount')
             + (float) $get('service_amount');
 
-        $set('total_amount', round($total, 2));
+        $set('total_amount', round($total, 0));
     }
 
     // Đơn giá điện/nước — ưu tiên đọc từ chính Hợp đồng (đã ghi rõ trong hợp đồng, có thể khác giá
@@ -401,7 +441,7 @@ class InvoiceForm
     {
         $serviceAmount = collect($get('items') ?? [])->sum(fn ($item) => (float) ($item['amount'] ?? 0));
 
-        $set('service_amount', round($serviceAmount, 2));
+        $set('service_amount', round($serviceAmount, 0));
         static::recalcTotal($get, $set);
     }
 
@@ -411,7 +451,7 @@ class InvoiceForm
     private static function recalcItemsTotalFromItem(Get $get, Set $set): void
     {
         $serviceAmount = collect($get('../') ?? [])->sum(fn ($item) => (float) ($item['amount'] ?? 0));
-        $serviceAmount = round($serviceAmount, 2);
+        $serviceAmount = round($serviceAmount, 0);
 
         $set('../../service_amount', $serviceAmount);
 
@@ -420,6 +460,6 @@ class InvoiceForm
             + (float) $get('../../water_amount')
             + $serviceAmount;
 
-        $set('../../total_amount', round($total, 2));
+        $set('../../total_amount', round($total, 0));
     }
 }
