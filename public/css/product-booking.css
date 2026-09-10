@@ -1,0 +1,607 @@
+/* Tách riêng khỏi Resources/assets/sass/_site-extracted.scss (bundle CSS toàn site qua Vite)
+   CÓ CHỦ Ý — xem _site-extracted.scss dòng ~3445: .selectable ở đây trùng tên class với
+   .selectable của book/_styles.blade.php (trang đặt lịch theo chi nhánh) nhưng khác nhau ở
+   --room-accent; gộp chung vào 1 bundle toàn site sẽ khiến 2 bộ rule đè lẫn nhau giữa các
+   trang không liên quan. File này chỉ được nạp qua <link> ngay trong product-detail.blade.php
+   (giữ đúng phạm vi trang như <style> inline cũ) — KHÔNG import file này vào _site-extracted.scss
+   hay app.scss/home.scss. */
+
+/* ── selectable box: nền trung tính (không theo màu phòng, để
+   không lẫn với màu trạng thái đã đặt/pending/khuyến mãi), chỉ
+   viền mặc định (còn trống) theo --room-accent nếu phòng có
+   cấu hình màu (color_product) — xem $roomColor phía trên. ── */
+.selectable {
+    position: relative;
+    z-index: 10;
+    height: 32px;
+    padding: 0 .5rem;
+    font-weight: 700;
+    border-radius: 8px !important;
+    background: #fff !important;
+    border: 1.5px solid var(--room-accent, #d1d5db) !important;
+    color: #374151 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: visible;
+    transition: all .18s ease;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, .08);
+}
+
+.selectable:hover:not([style*="pointer-events"]) {
+    background: #f3f4f6 !important;
+    border-color: #9ca3af !important;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, .08), 0 4px 12px rgba(0, 0, 0, .08);
+    transform: translateY(-1px);
+}
+
+.selectable.booked {
+    background: var(--color-primary) !important;
+    border-color: var(--color-primary) !important;
+    cursor: not-allowed !important;
+    pointer-events: none;
+}
+
+.selectable.pending {
+    background: #CFDC74 !important;
+    border-color: #CFDC74 !important;
+    cursor: not-allowed !important;
+    pointer-events: none;
+}
+
+/* Đồng bộ với book.blade.php: "bị khóa ngày" dùng cùng nền primary như
+   "đã đặt" (không còn nền xám + icon khóa riêng), xem book/_styles.blade.php. */
+.selectable.blocked {
+    background: var(--color-primary) !important;
+    border-color: var(--color-primary) !important;
+    cursor: not-allowed !important;
+    pointer-events: none;
+}
+
+/* Đang bị ADMIN giữ chỗ real-time (xem TimeslotHoldService) — nền cam
+   riêng, phân biệt với "đã đặt" (primary)/"bị khoá ngày" (xám). */
+.selectable.held {
+    background: #f59e0b !important;
+    border-color: #f59e0b !important;
+    cursor: not-allowed !important;
+    pointer-events: none;
+}
+
+.selectable.held .lock-icon {
+    color: #fff;
+}
+
+/* Đặt sau cùng để "đang chọn" luôn thắng dù ô đó cũng đang booked/pending
+   (trường hợp reselect lại slot thuộc chính đơn đang chờ của khách).
+   opacity:1 !important để thắng luôn cả style inline opacity:0.6 gắn
+   theo !$isSelectable — nếu không màu đen sẽ bị pha loãng thành xám. */
+.selectable.active {
+    background: #111827 !important;
+    border-color: #111827 !important;
+    opacity: 1 !important;
+}
+
+/* Ô vừa ĐANG chọn (active, đen) vừa bị ADMIN giữ chỗ (held, cam+khoá) —
+   2 trạng thái này KHÔNG được để cùng lộ ra như "đang chọn của khách"
+   (echo-client.js đã cố tự click() bỏ chọn khi admin giữ, nhưng vẫn có
+   khe hở thời điểm 2 class tồn tại cùng lúc). .active định nghĩa SAU
+   .held nên cùng độ đặc thù (2 class, !important) thì .active thắng —
+   thêm rule 3-class này để held LUÔN thắng bất kể thứ tự khai báo, tránh
+   hiện nhầm màu đen "đã chọn" thay vì cam+khoá khi 2 trạng thái đụng nhau. */
+.selectable.active.held {
+    background: #f59e0b !important;
+    border-color: #f59e0b !important;
+    opacity: 1 !important;
+}
+
+.selectable.past-time {
+    background: #f3f4f6 !important;
+    border: 1px solid #e5e7eb !important;
+}
+
+.lock-icon {
+    width: 14px;
+    height: 14px;
+    color: #9ca3af;
+    position: relative;
+    z-index: 15;
+}
+
+.selectable-mini {
+    position: relative;
+    z-index: 1;
+    background: #fff !important;
+    border: 1.5px solid #dddddd !important;
+    border-radius: 6px !important;
+    overflow: visible;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.promotion-corner-image {
+    position: absolute;
+    top: -7px;
+    right: -7px;
+    z-index: 30;
+    width: 18px;
+    height: 18px;
+    overflow: hidden;
+    animation: pdBounce 2s ease-in-out infinite;
+}
+
+.corner-img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    transition: transform .3s;
+}
+
+.selectable:hover .corner-img {
+    transform: scale(1.15);
+}
+
+.promotion-center-label {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 25;
+    font-size: 10px;
+    font-weight: 700;
+    color: #4c1d95;
+    white-space: nowrap;
+    overflow: hidden;
+    max-width: 90%;
+    text-shadow: 0 1px 2px rgba(255, 255, 255, .8);
+    animation: pdPulse 2.5s ease-in-out infinite;
+}
+
+@keyframes pdBounce {
+
+    0%,
+    100% {
+        transform: translateY(0) scale(1)
+    }
+
+    50% {
+        transform: translateY(-3px) scale(1.05)
+    }
+}
+
+@keyframes pdPulse {
+
+    0%,
+    100% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1)
+    }
+
+    50% {
+        opacity: .9;
+        transform: translate(-50%, -50%) scale(1.05)
+    }
+}
+
+/* ── Desktop: bảng 2 khối tách rời (giống cấu trúc mobile) — cột
+     "Thời gian" và khối khung giờ là 2 card riêng, có khoảng cách
+     thật ở giữa, không dùng <table> nữa (table không tạo được
+     khoảng trống thật giữa các cột). ── */
+.pd-dt-header {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 14px;
+}
+
+.pd-dt-col-header {
+    width: 110px;
+    flex-shrink: 0;
+    min-height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: #111827;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+}
+
+.pd-dt-slots-header-row {
+    flex: 1;
+    display: flex;
+    gap: 8px;
+    padding: 6px 10px;
+    min-height: 50px;
+    align-items: center;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+}
+
+.pd-dt-slot-th {
+    flex: 1;
+    min-width: 90px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #111827;
+}
+
+/* Khung (border/bo góc/nền) đứng yên cố định — chỉ phần NỘI DUNG bên
+   trong (.pd-dt-dates-scroll / .pd-dt-slots-scroll) cuộn dọc, đồng bộ
+   2 chiều bằng Alpine (@scroll) để 2 cột luôn khớp hàng với nhau. */
+.pd-dt-grid-outer {
+    display: flex;
+    gap: 14px;
+    align-items: stretch;
+}
+
+.pd-dt-dates-card {
+    width: 110px;
+    flex-shrink: 0;
+    height: 460px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+.pd-dt-dates-scroll,
+.pd-dt-slots-scroll {
+    height: 100%;
+    overflow-y: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+
+.pd-dt-dates-scroll::-webkit-scrollbar,
+.pd-dt-slots-scroll::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
+.pd-dt-date-row {
+    height: 48px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-bottom: 1px solid #f3f4f6;
+    text-align: center;
+}
+
+.pd-dt-date-row:last-child {
+    border-bottom: none;
+}
+
+.pd-dt-date-row.is-today {
+    background: #f9fafb;
+}
+
+.pd-dt-slots-outer {
+    flex: 1;
+    min-width: 0;
+}
+
+.pd-dt-slots-card {
+    height: 460px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+.pd-dt-slots-row {
+    display: flex;
+    gap: 8px;
+    padding: 6px 10px;
+    height: 48px;
+    align-items: center;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.pd-dt-slots-row:last-child {
+    border-bottom: none;
+}
+
+.pd-dt-slots-row:hover {
+    background-color: #f9fafb;
+}
+
+.pd-dt-slot-cell {
+    flex: 1;
+    min-width: 90px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ── Mobile two-panel card ── */
+.pd-room-header {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 18px 16px 14px;
+    background: #fff;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.pd-room-name {
+    font-family: 'Georgia', 'Times New Roman', serif;
+    font-style: italic;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #111827;
+    line-height: 1.1;
+    margin: 0;
+}
+
+.pd-room-sub {
+    color: #6b7280;
+    font-size: .8rem;
+    font-weight: 600;
+    margin-top: 5px;
+    letter-spacing: .03em;
+}
+
+.pd-grid-header {
+    display: flex;
+    gap: 10px;
+    padding: 0 14px;
+    margin-top: 14px;
+}
+
+.pd-col-header {
+    min-width: 72px;
+    width: 72px;
+    flex-shrink: 0;
+    height: 46px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: .7rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: #111827;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+}
+
+.pd-slots-headers-wrap {
+    flex: 1;
+    min-width: 0;
+}
+
+.pd-slots-header-row {
+    display: flex;
+    gap: 3px;
+    padding: 0 4px;
+    height: 46px;
+    align-items: center;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+}
+
+.pd-slot-th {
+    flex: 1;
+    text-align: center;
+    font-size: .55rem;
+    font-weight: 700;
+    letter-spacing: -.03em;
+    line-height: 1.15;
+    min-width: 0;
+    color: #111827;
+}
+
+.pd-overnight-tag {
+    display: block;
+    font-size: .48rem;
+    font-weight: 600;
+    background: #e5e7eb;
+    color: #374151;
+    border-radius: 3px;
+    padding: 1px 2px;
+    margin-top: 1px;
+}
+
+.pd-mobile-scroll {
+    max-height: 380px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    border-radius: 0 0 20px 20px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    background: #fff;
+}
+
+.pd-mobile-scroll::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
+.pd-grid-outer {
+    display: flex;
+    gap: 10px;
+    padding: 12px 14px 20px;
+    align-items: flex-start;
+    background: #fff;
+}
+
+.pd-dates-card {
+    border-radius: 14px;
+    min-width: 72px;
+    width: 72px;
+    flex-shrink: 0;
+    border: 1px solid #e5e7eb;
+    overflow: clip;
+    background: #fff;
+}
+
+.pd-date-row {
+    height: 38px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-bottom: 1px solid #f3f4f6;
+    gap: 2px;
+    padding: 0 4px;
+}
+
+.pd-date-row:last-child {
+    border-bottom: none;
+}
+
+.pd-date-day {
+    font-size: .62rem;
+    color: #6b7280;
+    font-weight: 500;
+    line-height: 1;
+}
+
+.pd-date-num {
+    font-size: .78rem;
+    font-weight: 700;
+    color: #111827;
+    line-height: 1;
+}
+
+.pd-date-row.is-today {
+    background: #f3f4f6;
+}
+
+.pd-date-row.is-today .pd-date-day,
+.pd-date-row.is-today .pd-date-num {
+    font-weight: 800;
+}
+
+.pd-slots-outer {
+    flex: 1;
+    min-width: 0;
+}
+
+.pd-slots-card {
+    border-radius: 14px;
+    border: 1px solid #e5e7eb;
+    overflow: clip;
+    max-width: 100%;
+    background: #fff;
+}
+
+.pd-slots-row {
+    display: flex;
+    gap: 3px;
+    padding: 4px;
+    height: 38px;
+    align-items: center;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.pd-slots-row:last-child {
+    border-bottom: none;
+}
+
+.pd-slot-cell {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.pd-slot-cell .selectable {
+    width: 100%;
+    height: 22px !important;
+    border-radius: 6px !important;
+}
+
+.pd-slot-cell .lock-icon {
+    width: 10px;
+    height: 10px;
+}
+
+/* ── Slot pagination strip ── */
+.slot-page-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 14px;
+    background: #f3f4f6;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.slot-pg-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #fff;
+    border: 1px solid #d1d5db;
+    color: #374151;
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: .75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .2s;
+}
+
+.slot-pg-btn:hover:not(:disabled) {
+    background: #e5e7eb;
+}
+
+.slot-pg-btn:disabled {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+.slot-pg-info {
+    color: #6b7280;
+    font-size: .75rem;
+    font-weight: 600;
+}
+
+/* ── Theme lễ hội (ManageGeneral::holiday_theme_active) ──
+   Đồng bộ với book/_styles.blade.php: ô "đang chọn" đổi từ đen
+   sang đỏ + sao trắng giữa. Selector luôn thêm .holiday-theme
+   (3 lớp thay vì 2) nên thắng rule .selectable.active gốc phía trên
+   bất kể thứ tự khai báo trong file. */
+.holiday-theme .selectable.active {
+    background: #dc2626 !important;
+    border-color: #dc2626 !important;
+    opacity: 1 !important;
+}
+
+.holiday-theme .selectable.active::after {
+    content: "\2605" !important;
+    position: absolute;
+    inset: 0;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    color: #ffd60a;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, .35);
+    font-size: 14px;
+    line-height: 1;
+    background: none !important;
+}
+
+/* Ô vừa active vừa bị admin giữ chỗ (held) giữ nguyên cam+icon
+   khoá, không bị đỏ+sao đè lên — 4 lớp nên thắng rule ở trên. */
+.holiday-theme .selectable.active.held {
+    background: #f59e0b !important;
+    border-color: #f59e0b !important;
+}
+
+.holiday-theme .selectable.active.held::after {
+    content: "" !important;
+}

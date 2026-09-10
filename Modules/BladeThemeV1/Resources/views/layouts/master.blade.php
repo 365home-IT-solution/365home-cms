@@ -33,6 +33,18 @@
 <html lang="{{ config('app.locale', 'vi') }}">
 
 <head>
+    @if ($generalSettings->google_analytics_enabled && $generalSettings->google_analytics_id)
+        {{-- Google tag (gtag.js) — đặt càng cao càng tốt trong <head> theo khuyến nghị của Google,
+             để đo được cả những lượt rời trang sớm trước khi phần còn lại của <head> tải xong. --}}
+        <script async src="https://www.googletagmanager.com/gtag/js?id={{ $generalSettings->google_analytics_id }}"></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', '{{ $generalSettings->google_analytics_id }}');
+        </script>
+    @endif
+
     <!-- Basic Meta Tags -->
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
@@ -157,26 +169,13 @@
     @stack('scripts')
     @livewireScripts
     @if ($isHomePage)
-        <script type="module">
-            let homeRealtimeLoaded = false;
-            const loadHomeRealtime = () => {
-                if (homeRealtimeLoaded) return;
-                homeRealtimeLoaded = true;
-                import(@js(Vite::asset('resources/js/echo-client.js')));
-                import(@js(Vite::asset('resources/js/ws-client.js')));
+        <script>
+            window.__homeRealtimeUrls = {
+                echo: @js(Vite::asset('resources/js/echo-client.js')),
+                ws: @js(Vite::asset('resources/js/ws-client.js')),
             };
-            const boundary = document.querySelector('[data-home-realtime-boundary]');
-            if (boundary && 'IntersectionObserver' in window) {
-                const observer = new IntersectionObserver((entries) => {
-                    if (!entries.some(entry => entry.isIntersecting)) return;
-                    observer.disconnect();
-                    loadHomeRealtime();
-                });
-                observer.observe(boundary);
-            } else if (boundary) {
-                boundary.addEventListener('pointerdown', loadHomeRealtime, { once: true, passive: true });
-            }
         </script>
+        <script type="module" src="{{ asset('js/home-realtime-loader.js') }}?v={{ filemtime(public_path('js/home-realtime-loader.js')) }}"></script>
     @endif
 </body>
 
