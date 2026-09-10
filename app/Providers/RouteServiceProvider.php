@@ -35,6 +35,19 @@ class RouteServiceProvider extends ServiceProvider
             if ($request->is('api/lock/callback')) {
                 return Limit::none();
             }
+
+            // Webhook thanh toán PayOS/MoMo/VNPay — KHÔNG đăng nhập (user() luôn null) nên bị giới
+            // hạn CHUNG theo IP với mọi request API khác. IP gọi webhook là của PayOS/MoMo/VNPay
+            // (không phải của khách/nhân viên), nên nhiều toà nhà cùng phát sinh giao dịch trong
+            // cùng 1 phút hoàn toàn có thể vượt quá 60 request/phút — bị chặn (429) đồng nghĩa
+            // KHÔNG XÁC NHẬN ĐƯỢC 1 GIAO DỊCH THANH TOÁN THẬT dù khách đã trả tiền thành công. Miễn
+            // trừ hẳn giới hạn cho 3 route này, cùng tiền lệ với "api/lock/callback" ở trên — an toàn
+            // vì cả 3 controller đều tự xác thực chữ ký HMAC trước khi xử lý, không phụ thuộc rate
+            // limit để chống spam.
+            if ($request->is('api/minihouse/webhook/*')) {
+                return Limit::none();
+            }
+
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
         });
 
@@ -91,6 +104,13 @@ class RouteServiceProvider extends ServiceProvider
             Route::middleware('api')
                 ->prefix('api')
                 ->group(base_path('routes/api_admin.php'));
+
+            // API cho MiniHouse (quản lý cho thuê theo tháng) — tách file riêng khỏi api_admin.php
+            // dù cũng dùng chung App\Models\User + auth:sanctum + admin.api như trên, vì đây là 1
+            // mảng nghiệp vụ độc lập hoàn toàn với Home (đặt phòng ngắn hạn), tách file cho dễ tìm.
+            Route::middleware('api')
+                ->prefix('api')
+                ->group(base_path('routes/api_minihouse.php'));
 
             Route::middleware('web')
                 ->group(base_path('routes/web.php'));

@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
+use Modules\Minihouse\App\Support\MinihousePermissions;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
@@ -20,14 +21,10 @@ class MinihousePermissionSeeder extends Seeder
     {
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
 
-        $permissions = ['access_minihouse'];
-
-        foreach (['buildings', 'rooms', 'tenants', 'contracts', 'invoices', 'transactions', 'reminders'] as $group) {
-            foreach (['view_any', 'create', 'update', 'delete'] as $action) {
-                $permissions[] = "{$action}_{$group}";
-            }
-        }
-        $permissions[] = 'view_any_reports';
+        // Danh sách quyền lấy từ MinihousePermissions — NGUỒN DUY NHẤT, dùng chung với
+        // Modules\Minihouse\App\Filament\Resources\RoleResource (tạo/sửa vai trò ngay trong panel
+        // MiniHouse) để 2 nơi không lệch nhau khi thêm Resource mới.
+        $permissions = MinihousePermissions::all();
 
         foreach ($permissions as $name) {
             Permission::firstOrCreate(['name' => $name, 'guard_name' => 'web']);
