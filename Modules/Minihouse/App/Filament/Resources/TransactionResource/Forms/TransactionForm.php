@@ -10,6 +10,8 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
+use Filament\Forms\Set;
+use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Transaction;
 
 class TransactionForm
@@ -31,9 +33,10 @@ class TransactionForm
                     Select::make('category')
                         ->label('Hạng mục')
                         ->options([
-                            Transaction::CATEGORY_REPAIR    => 'Sửa chữa',
-                            Transaction::CATEGORY_OPERATION => 'Vận hành',
-                            Transaction::CATEGORY_OTHER     => 'Khác',
+                            Transaction::CATEGORY_REPAIR         => 'Sửa chữa',
+                            Transaction::CATEGORY_OPERATION      => 'Vận hành',
+                            Transaction::CATEGORY_DEPOSIT_REFUND => 'Hoàn cọc',
+                            Transaction::CATEGORY_OTHER          => 'Khác',
                         ])
                         ->visible(fn (Get $get) => $get('type') === Transaction::TYPE_OUT),
                     TextInput::make('amount')
@@ -53,7 +56,26 @@ class TransactionForm
                         )
                         ->getOptionLabelFromRecordUsing(fn ($record) => "{$record->room?->code} - {$record->tenant?->fullname}")
                         ->searchable()
-                        ->preload(),
+                        ->preload()
+                        ->live()
+                        // Tự điền Toà nhà theo đúng phòng của hợp đồng — chỉ điền khi đang trống,
+                        // không ghi đè nếu nhân viên đã tự chọn khác (giao dịch chung nhiều
+                        // phòng/không đúng theo hợp đồng này).
+                        ->afterStateUpdated(function (Get $get, Set $set, $state) {
+                            if (blank($get('building_id'))) {
+                                $set('building_id', Contract::find($state)?->room?->building_id);
+                            }
+                        }),
+                    // Bắt buộc — đây là cột dùng để lọc thu chi theo toà nhà (xem
+                    // ActiveBuildingScope/ScopedToActiveBuildingId) — không có toà nhà thì giao dịch
+                    // sẽ bị ẩn khỏi mọi tài khoản bị giới hạn quản lý theo toà.
+                    Select::make('building_id')
+                        ->label('Toà nhà')
+                        ->relationship('building', 'name')
+                        ->searchable()
+                        ->preload()
+                        ->required()
+                        ->helperText('Tự điền theo hợp đồng nếu có chọn — vẫn sửa được cho giao dịch chung của cả toà (sửa chữa, vận hành...) không gắn hợp đồng cụ thể.'),
                     Textarea::make('note')
                         ->label('Ghi chú')
                         ->columnSpanFull(),

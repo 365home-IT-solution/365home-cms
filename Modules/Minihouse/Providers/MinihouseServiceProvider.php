@@ -3,6 +3,22 @@
 namespace Modules\Minihouse\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use Modules\Minihouse\App\Models\Announcement;
+use Modules\Minihouse\App\Models\Contract;
+use Modules\Minihouse\App\Models\ContractTenant;
+use Modules\Minihouse\App\Models\Invoice;
+use Modules\Minihouse\App\Models\InvoicePayment;
+use Modules\Minihouse\App\Models\Reminder;
+use Modules\Minihouse\App\Models\Tenant;
+use Modules\Minihouse\App\Models\TenantFeedback;
+use Modules\Minihouse\App\Observers\AnnouncementObserver;
+use Modules\Minihouse\App\Observers\ContractObserver;
+use Modules\Minihouse\App\Observers\ContractTenantObserver;
+use Modules\Minihouse\App\Observers\InvoiceObserver;
+use Modules\Minihouse\App\Observers\InvoicePaymentObserver;
+use Modules\Minihouse\App\Observers\ReminderObserver;
+use Modules\Minihouse\App\Observers\TenantFeedbackObserver;
+use Modules\Minihouse\App\Observers\TenantObserver;
 
 class MinihouseServiceProvider extends ServiceProvider
 {
@@ -15,6 +31,31 @@ class MinihouseServiceProvider extends ServiceProvider
         $this->registerConfig();
         $this->registerViews();
         $this->loadMigrationsFrom(module_path($this->moduleName, 'Database/Migrations'));
+
+        // Tự đồng bộ Room.status/Tenant.room_id theo vòng đời hợp đồng, mirror người đứng tên vào
+        // minihouse_contract_tenants — xem ContractObserver.
+        Contract::observe(ContractObserver::class);
+        // Quét CCCD tự động + đồng bộ lại "Khai báo lưu trú" cho Khách thuê (đứng tên chính lẫn ở
+        // cùng — đều là Tenant thật từ khi gộp ContractOccupant vào Tenant) — xem TenantObserver.
+        Tenant::observe(TenantObserver::class);
+        // Thêm/gỡ "Người ở cùng" chỉ đụng bảng trung gian, không tự fire sự kiện Contract/Tenant —
+        // xem ContractTenantObserver.
+        ContractTenant::observe(ContractTenantObserver::class);
+        // Đồng bộ lại Invoice.amount_paid/paid_at/status mỗi khi 1 lần thanh toán được ghi/xoá —
+        // xem InvoicePaymentObserver.
+        InvoicePayment::observe(InvoicePaymentObserver::class);
+        // Xoá thật các InvoicePayment (kéo theo Transaction liên kết) khi hoá đơn bị xoá mềm — xem
+        // InvoiceObserver.
+        Invoice::observe(InvoiceObserver::class);
+        // Tự sinh nhắc việc kế tiếp khi 1 nhắc việc có khai chu kỳ lặp lại được đánh dấu "Đã xử lý"
+        // (chủ yếu cho "Nhắc bảo trì" định kỳ) — xem ReminderObserver.
+        Reminder::observe(ReminderObserver::class);
+        // Báo lại cho khách trong Portal khi phản hồi (gửi có đăng nhập) được đánh dấu "Đã xử lý" —
+        // xem TenantFeedbackObserver.
+        TenantFeedback::observe(TenantFeedbackObserver::class);
+        // Tự phát thông báo chung ra Portal cho toàn bộ khách thuê liên quan ngay khi tạo — xem
+        // AnnouncementObserver.
+        Announcement::observe(AnnouncementObserver::class);
     }
 
     public function register()

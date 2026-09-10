@@ -17,7 +17,11 @@ return [
 
     'access' => [
         'enabled' => true,
-        'logger' => \Z3d0X\FilamentLogger\Loggers\AccessLogger::class,
+        // Bọc AccessLogger gốc qua App\Listeners\FilamentAccessLoginLogger — sự kiện Login là sự
+        // kiện TOÀN CỤC (mọi guard), không riêng Filament, và AccessLogger gốc vỡ (TypeError) khi
+        // guard không phải "web" đăng nhập (VD guard "tenant" của Portal khách thuê) vì giả định
+        // user luôn có cột "name". Xem giải thích đầy đủ trong chính listener đó.
+        'logger' => \App\Listeners\FilamentAccessLoginLogger::class,
         'color' => 'danger',
         'log_name' => 'Access',
     ],
