@@ -142,6 +142,6 @@
     </div>
 @endif
 
-    <script src="{{ asset('js/room-calendar.js') }}?v={{ filemtime(public_path('js/room-calendar.js')) }}"></script>
+    <script src="{{ asset('js/room-calendar.min.js') }}?v={{ filemtime(public_path('js/room-calendar.min.js')) }}"></script>
 
 </div>

@@ -31,7 +31,7 @@
 
     <h1 class="sr-only">Tìm kiếm phòng</h1>
 
-    <link rel="stylesheet" href="{{ asset('css/search-page.css') }}?v={{ filemtime(public_path('css/search-page.css')) }}">
+    <link rel="stylesheet" href="{{ asset('css/search-page.min.css') }}?v={{ filemtime(public_path('css/search-page.min.css')) }}">
 
     <link rel="stylesheet" href="{{ asset('css/leaflet.min.css') }}" />
 
@@ -112,7 +112,7 @@
             @endif
         };
     </script>
-    <script src="{{ asset('js/search-map.js') }}?v={{ filemtime(public_path('js/search-map.js')) }}"></script>
+    <script src="{{ asset('js/search-map.min.js') }}?v={{ filemtime(public_path('js/search-map.min.js')) }}"></script>
 
     <script src="{{ asset('js/home-sections.min.js') }}?v={{ filemtime(public_path('js/home-sections.min.js')) }}"></script>
     <script src="{{ asset('js/search-results.min.js') }}?v={{ filemtime(public_path('js/search-results.min.js')) }}"></script>

@@ -175,7 +175,7 @@
                 ws: @js(Vite::asset('resources/js/ws-client.js')),
             };
         </script>
-        <script type="module" src="{{ asset('js/home-realtime-loader.js') }}?v={{ filemtime(public_path('js/home-realtime-loader.js')) }}"></script>
+        <script type="module" src="{{ asset('js/home-realtime-loader.min.js') }}?v={{ filemtime(public_path('js/home-realtime-loader.min.js')) }}"></script>
     @endif
 </body>
 

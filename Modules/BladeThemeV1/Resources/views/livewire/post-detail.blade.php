@@ -247,4 +247,4 @@
     </div>
 @endif
 
-<script src="{{ asset('js/post-detail.js') }}?v={{ filemtime(public_path('js/post-detail.js')) }}"></script>
+<script src="{{ asset('js/post-detail.min.js') }}?v={{ filemtime(public_path('js/post-detail.min.js')) }}"></script>

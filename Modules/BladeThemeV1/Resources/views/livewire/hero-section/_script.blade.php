@@ -8,5 +8,5 @@
          component instances in the same request — the functions are idempotent overwrites anyway,
          so only the LAST assignment mattered; now there's only ever one. --}}
     @once('hero-section-inline-script')
-    <script src="{{ asset('js/hero-section.js') }}?v={{ filemtime(public_path('js/hero-section.js')) }}"></script>
+    <script src="{{ asset('js/hero-section.min.js') }}?v={{ filemtime(public_path('js/hero-section.min.js')) }}"></script>
     @endonce

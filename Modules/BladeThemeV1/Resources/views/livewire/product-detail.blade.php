@@ -610,7 +610,7 @@
                                     </div>
 
                                     {{-- ── CSS cho lịch đặt phòng (selectable + mobile card) ── --}}
-                                    <link rel="stylesheet" href="{{ asset('css/product-booking.css') }}?v={{ filemtime(public_path('css/product-booking.css')) }}">
+                                    <link rel="stylesheet" href="{{ asset('css/product-booking.min.css') }}?v={{ filemtime(public_path('css/product-booking.min.css')) }}">
 
                                     {{-- ── Shared Alpine state (mobile + desktop) ── --}}
                                     <div x-data="{
@@ -1624,7 +1624,7 @@
     <script>
         window.pdComponentId = '{{ $_instance->getId() }}';
     </script>
-    <script src="{{ asset('js/product-booking.js') }}?v={{ filemtime(public_path('js/product-booking.js')) }}"></script>
+    <script src="{{ asset('js/product-booking.min.js') }}?v={{ filemtime(public_path('js/product-booking.min.js')) }}"></script>
 @endpush
 
 {{-- Real-time "khung giờ đang bị admin giữ chỗ" (echo-client.js) giờ đã nhúng chung ở

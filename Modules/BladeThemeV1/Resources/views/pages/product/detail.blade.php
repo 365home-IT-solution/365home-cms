@@ -25,6 +25,6 @@
 <script>
     window.pdPrimaryColor = @json($primaryColor);
 </script>
-<script src="{{ asset('js/product-detail-init.js') }}?v={{ filemtime(public_path('js/product-detail-init.js')) }}"></script>
+<script src="{{ asset('js/product-detail-init.min.js') }}?v={{ filemtime(public_path('js/product-detail-init.min.js')) }}"></script>
     @endpush
 @endonce
