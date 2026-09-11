@@ -20,6 +20,22 @@ use Modules\Product\App\Models\Product;
 class RatingController extends Controller
 {
     /**
+     * Ngoài giới hạn theo CHI NHÁNH (userCanAccess()/resolveCategoryFilter()), mọi action còn phải
+     * qua permission 'manage_ratings' (Spatie) — trước đây bất kỳ admin nào đăng nhập được (qua
+     * middleware 'admin.api', chỉ check auth, không check quyền) đều xem/trả lời/xoá được đánh giá,
+     * không phân biệt vai trò. Dùng 1 permission chung cho cả xem/trả lời/xoá (không tách nhỏ hơn) —
+     * xem database/seeders/RatingPermissionSeeder.php để tạo permission này rồi gán cho role phù hợp.
+     * super_admin luôn bypass, cùng quy ước với ScopesToMinihouseBuilding::hasPermission().
+     */
+    private function hasPermission(Request $request): bool
+    {
+        /** @var \App\Models\User|null $user */
+        $user = $request->user();
+
+        return $user && ($user->isSuperAdmin() || $user->can('manage_ratings'));
+    }
+
+    /**
      * GET /api/admin/ratings
      * Query params: ?room_id=&room_slug=&categories=slug1,slug2&star=1-5&has_reply=0|1&search=&per_page=
      * - room_slug: slug của phòng (products.slug) — lọc đúng 1 phòng, thay cho phải biết room_id.
@@ -34,6 +50,10 @@ class RatingController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        if (! $this->hasPermission($request)) {
+            return response()->json(['message' => 'Không có quyền xem đánh giá.'], 403);
+        }
+
         $query = RoomRating::with(['customer:id,fullname,phone', 'room:id,name', 'repliedBy:id,fullname'])
             ->orderByDesc('created_at');
 
@@ -84,6 +104,10 @@ class RatingController extends Controller
      */
     public function show(Request $request, int $id): JsonResponse
     {
+        if (! $this->hasPermission($request)) {
+            return response()->json(['message' => 'Không có quyền xem đánh giá.'], 403);
+        }
+
         $rating = RoomRating::with(['customer:id,fullname,phone', 'room:id,name', 'repliedBy:id,fullname'])->find($id);
 
         if (! $rating || ! $this->userCanAccess($request, $rating)) {
@@ -99,6 +123,10 @@ class RatingController extends Controller
      */
     public function reply(Request $request, int $id): JsonResponse
     {
+        if (! $this->hasPermission($request)) {
+            return response()->json(['message' => 'Không có quyền phản hồi đánh giá.'], 403);
+        }
+
         $data = $request->validate([
             'reply' => 'required|string|max:1000',
         ]);
@@ -126,6 +154,10 @@ class RatingController extends Controller
      */
     public function deleteReply(Request $request, int $id): JsonResponse
     {
+        if (! $this->hasPermission($request)) {
+            return response()->json(['message' => 'Không có quyền gỡ phản hồi đánh giá.'], 403);
+        }
+
         $rating = RoomRating::find($id);
 
         if (! $rating || ! $this->userCanAccess($request, $rating)) {
@@ -145,6 +177,10 @@ class RatingController extends Controller
      */
     public function destroy(Request $request, int $id): JsonResponse
     {
+        if (! $this->hasPermission($request)) {
+            return response()->json(['message' => 'Không có quyền xoá đánh giá.'], 403);
+        }
+
         $rating = RoomRating::find($id);
 
         if (! $rating || ! $this->userCanAccess($request, $rating)) {

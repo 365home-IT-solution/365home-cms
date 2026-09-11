@@ -54,12 +54,34 @@ use Illuminate\Support\Facades\Storage;
 class MembershipTierController extends Controller
 {
     /**
+     * Hạng thành viên dùng CHUNG TOÀN HỆ THỐNG (không thuộc chi nhánh/đối tác nào — xem docblock
+     * class), nên KHÔNG dùng phạm vi chi nhánh (allowedCategoryIds()) như các API khác — chỉ
+     * super_admin mới được thao tác (xem/tạo/sửa/xoá/đồng bộ voucher), user thuộc bất kỳ chi nhánh
+     * nào khác đều bị chặn hẳn, không phải thu hẹp theo quyền.
+     */
+    private function ensureSuperAdmin(Request $request): ?JsonResponse
+    {
+        /** @var \App\Models\User|null $user */
+        $user = $request->user();
+
+        if (! $user || ! $user->isSuperAdmin()) {
+            return response()->json(['message' => 'Bạn không sử dụng được.'], 403);
+        }
+
+        return null;
+    }
+
+    /**
      * GET /api/admin/membership-tiers
      * Query params: ?search= (tên/slug), ?is_active=, ?per_page= (mặc định 20, truyền 0 = lấy hết
      * không phân trang — dùng cho dropdown chọn hạng)
      */
     public function index(Request $request): JsonResponse
     {
+        if ($deny = $this->ensureSuperAdmin($request)) {
+            return $deny;
+        }
+
         $query = MembershipTier::query()->withCount('customers');
 
         if ($request->filled('search')) {
@@ -86,8 +108,12 @@ class MembershipTierController extends Controller
     /**
      * GET /api/admin/membership-tiers/{id}
      */
-    public function show(int $id): JsonResponse
+    public function show(Request $request, int $id): JsonResponse
     {
+        if ($deny = $this->ensureSuperAdmin($request)) {
+            return $deny;
+        }
+
         $tier = MembershipTier::withCount('customers')->with('coupons')->find($id);
 
         if (! $tier) {
@@ -102,6 +128,10 @@ class MembershipTierController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        if ($deny = $this->ensureSuperAdmin($request)) {
+            return $deny;
+        }
+
         $data = $request->validate($this->rules());
 
         $tier = MembershipTier::create([
@@ -146,6 +176,10 @@ class MembershipTierController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
+        if ($deny = $this->ensureSuperAdmin($request)) {
+            return $deny;
+        }
+
         $tier = MembershipTier::find($id);
 
         if (! $tier) {
@@ -188,6 +222,10 @@ class MembershipTierController extends Controller
      */
     public function syncVouchers(Request $request, int $id): JsonResponse
     {
+        if ($deny = $this->ensureSuperAdmin($request)) {
+            return $deny;
+        }
+
         $tier = MembershipTier::find($id);
 
         if (! $tier) {
@@ -208,8 +246,12 @@ class MembershipTierController extends Controller
      * Chặn xoá nếu còn khách hàng đang giữ hạng này — tránh mất cấu hình hạng đang được dùng (dù
      * FK cho phép NULL tự động, xoá ngầm sẽ khiến khách "rơi" khỏi mọi hạng mà không ai biết).
      */
-    public function destroy(int $id): JsonResponse
+    public function destroy(Request $request, int $id): JsonResponse
     {
+        if ($deny = $this->ensureSuperAdmin($request)) {
+            return $deny;
+        }
+
         $tier = MembershipTier::withCount('customers')->find($id);
 
         if (! $tier) {

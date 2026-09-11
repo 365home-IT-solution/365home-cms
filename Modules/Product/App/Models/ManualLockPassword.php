@@ -116,6 +116,14 @@ class ManualLockPassword extends Model
      * Tìm bộ mật khẩu đang hoạt động cho một phòng tại một thời điểm mốc cụ thể.
      * Ưu tiên: trùng khoảng ngày → mới nhất theo valid_from → fallback bất kỳ active.
      *
+     * Khớp theo 1 trong 2 cách (xem scopeMatchesProduct()):
+     *  - Gán trực tiếp cho phòng này (quan hệ products()) — dù bản ghi thuộc chi nhánh nào.
+     *  - Gán cho ĐÚNG chi nhánh (category_id) của phòng này VÀ không chọn phòng cụ thể nào
+     *    (form Filament: mục "Phòng áp dụng" để trống) — nghĩa là áp dụng cho CẢ chi nhánh.
+     *    Trước đây chỉ khớp theo phòng cụ thể, nên bộ mật khẩu gán theo chi nhánh (không tick
+     *    phòng nào) không bao giờ được tìm thấy — chi nhánh có mã cổng thủ công vẫn không hiển
+     *    thị được, lại rơi về nhánh TTLock/null phía buildLockInfo().
+     *
      * Lưu ý: $referenceDate phải là thời điểm đơn được "chốt" (khách thanh toán/đặt cọc),
      * KHÔNG phải checkin_date của đơn và KHÔNG phải now() tại thời điểm xem lại — nếu không,
      * mật khẩu hiển thị cho khách sẽ đổi qua ngày khác mỗi khi họ xem lại vé sau đó, hoặc lộ
@@ -130,7 +138,7 @@ class ManualLockPassword extends Model
 
         // 1. Tìm bản ghi có valid_from <= checkin <= valid_until (ưu tiên)
         $match = static::active()
-            ->whereHas('products', fn ($q) => $q->where('products.id', $product->id))
+            ->where(fn ($q) => static::scopeMatchesProduct($q, $product))
             ->where(function ($q) use ($date) {
                 $q->where(function ($inner) use ($date) {
                     $inner->where('valid_from', '<=', $date)
@@ -148,8 +156,27 @@ class ManualLockPassword extends Model
 
         // 2. Fallback: bộ mật khẩu active mới nhất cho phòng đó
         return static::active()
-            ->whereHas('products', fn ($q) => $q->where('products.id', $product->id))
+            ->where(fn ($q) => static::scopeMatchesProduct($q, $product))
             ->latest()
             ->first();
+    }
+
+    /**
+     * Điều kiện khớp phòng dùng chung cho cả 2 bước tìm ở trên — xem giải thích đầy đủ ở
+     * docblock getForProductAndDate().
+     */
+    private static function scopeMatchesProduct(Builder $query, Product $product): Builder
+    {
+        $branchCategoryIds = $product->categories()
+            ->where('category_type', 'product')
+            ->pluck('categories.id')
+            ->all();
+
+        return $query
+            ->whereHas('products', fn ($q) => $q->where('products.id', $product->id))
+            ->orWhere(function ($branchScope) use ($branchCategoryIds) {
+                $branchScope->whereIn('category_id', $branchCategoryIds)
+                    ->doesntHave('products');
+            });
     }
 }
