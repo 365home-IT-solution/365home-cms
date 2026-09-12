@@ -9,6 +9,7 @@ use Filament\Tables\Actions\BulkAction;
 use Filament\Tables\Actions\BulkActionGroup;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\ViewColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
@@ -22,46 +23,65 @@ class ResidenceDeclarationTable
     {
         return $table
             ->columns([
+                // Mobile (< md): CHỈ hiện đúng 1 dòng gọn tự vẽ (xem file blade), theo đúng cơ chế
+                // ViewColumn đã áp dụng cho TenantTable (KHÔNG dùng Tables\Columns\Layout\* — xem
+                // ghi chú chi tiết trong TenantTable::table()).
+                ViewColumn::make('mobile_card')
+                    ->label('')
+                    ->view('minihouse::filament.tables.residence-declaration-mobile-row')
+                    ->hiddenFrom('md')
+                    // Style nội tuyến ép co cột (xem giải thích đầy đủ ở TenantTable::table()) —
+                    // class Tailwind (max-w-0/w-full) không có tác dụng vì chưa từng build vào CSS.
+                    ->extraCellAttributes(['style' => 'max-width: 190px; width: 100%; overflow: hidden;']),
+
                 TextColumn::make('contract.room.code')
                     ->label('Phòng')
                     ->searchable()
-                    ->sortable(),
+                    ->sortable()
+                    ->visibleFrom('md'),
 
                 TextColumn::make('subject')
                     ->label('Vai trò')
                     ->state(fn (ResidenceDeclaration $record) => $record->roleInContract() === 'occupant' ? 'Người ở cùng' : 'Người đứng tên')
                     ->badge()
-                    ->color(fn (ResidenceDeclaration $record) => $record->roleInContract() === 'occupant' ? 'warning' : 'gray'),
+                    ->color(fn (ResidenceDeclaration $record) => $record->roleInContract() === 'occupant' ? 'warning' : 'gray')
+                    ->visibleFrom('md'),
 
                 TextColumn::make('full_name')
                     ->label('Họ và tên')
                     ->searchable()
-                    ->sortable(),
+                    ->sortable()
+                    ->visibleFrom('md'),
 
                 TextColumn::make('cccd_number')
                     ->label('Số CCCD')
                     ->searchable()
-                    ->copyable(),
+                    ->copyable()
+                    ->visibleFrom('md'),
 
                 TextColumn::make('date_of_birth')
                     ->label('Ngày sinh')
-                    ->toggleable(),
+                    ->toggleable()
+                    ->visibleFrom('md'),
 
                 TextColumn::make('checked_in_at')
                     ->label('Ngày đến')
                     ->dateTime('d/m/Y H:i')
-                    ->sortable(),
+                    ->sortable()
+                    ->visibleFrom('md'),
 
                 TextColumn::make('checked_out_at')
                     ->label('Ngày đi dự kiến')
                     ->dateTime('d/m/Y H:i')
-                    ->sortable(),
+                    ->sortable()
+                    ->visibleFrom('md'),
 
                 TextColumn::make('declaration_deadline')
                     ->label('Hạn khai báo')
                     ->state(fn (ResidenceDeclaration $record) => $record->declarationDeadline()?->format('H:i d/m/Y'))
                     ->sortable(false)
-                    ->color(fn (ResidenceDeclaration $record) => $record->isOverdue() ? 'danger' : ($record->isDueSoon() ? 'warning' : null)),
+                    ->color(fn (ResidenceDeclaration $record) => $record->isOverdue() ? 'danger' : ($record->isDueSoon() ? 'warning' : null))
+                    ->visibleFrom('md'),
 
                 TextColumn::make('declared_at')
                     ->label('Trạng thái khai báo')
@@ -112,16 +132,20 @@ class ResidenceDeclarationTable
                         return $record->declarationDeadline()
                             ? 'Hạn: ' . $record->declarationDeadline()->format('H:i d/m/Y')
                             : null;
-                    }),
+                    })
+                    ->visibleFrom('md'),
 
-                TextColumn::make('gender')->label('Giới tính')->toggleable(isToggledHiddenByDefault: true),
-                TextColumn::make('nationality')->label('Quốc tịch')->toggleable(isToggledHiddenByDefault: true),
-                TextColumn::make('reason_for_stay')->label('Lý do lưu trú')->toggleable(isToggledHiddenByDefault: true),
-                TextColumn::make('current_residence')->label('Nơi thường trú')->toggleable(isToggledHiddenByDefault: true),
-                TextColumn::make('province')->label('Tỉnh/Thành phố')->toggleable(isToggledHiddenByDefault: true),
-                TextColumn::make('ward')->label('Phường/Xã')->toggleable(isToggledHiddenByDefault: true),
-                TextColumn::make('created_at')->label('Ngày tạo')->dateTime('d/m/Y H:i')->sortable()->toggleable(isToggledHiddenByDefault: true),
+                TextColumn::make('gender')->label('Giới tính')->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
+                TextColumn::make('nationality')->label('Quốc tịch')->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
+                TextColumn::make('reason_for_stay')->label('Lý do lưu trú')->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
+                TextColumn::make('current_residence')->label('Nơi thường trú')->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
+                TextColumn::make('province')->label('Tỉnh/Thành phố')->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
+                TextColumn::make('ward')->label('Phường/Xã')->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
+                TextColumn::make('created_at')->label('Ngày tạo')->dateTime('d/m/Y H:i')->sortable()->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
             ])
+            // Eager-load để cột "Vai trò" (roleInContract()) không tự query riêng
+            // minihouse_contract_tenants cho MỖI dòng đang hiện — xem ResidenceDeclaration::roleInContract().
+            ->modifyQueryUsing(fn (Builder $query) => $query->with('contract.contractTenants'))
             ->filters([
                 Filter::make('date')
                     ->form([
@@ -156,10 +180,13 @@ class ResidenceDeclarationTable
                     ),
             ])
             ->actions([
+                // ->extraAttributes(class: mh-row-action) trên cả 3 action — ẩn chữ nhãn, chỉ giữ
+                // icon, RIÊNG dưới 768px (xem _mobile-action-styles.blade.php).
                 Action::make('markDeclared')
                     ->label('Đánh dấu đã khai báo')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
+                    ->extraAttributes(['class' => 'mh-row-action'])
                     ->visible(fn (ResidenceDeclaration $record) => ! $record->isDeclared())
                     ->requiresConfirmation(fn (ResidenceDeclaration $record) => $record->isDataComplete())
                     ->modalDescription('Xác nhận bạn ĐÃ nộp khai báo lưu trú cho cơ quan công an (qua ASM/dịch vụ công) cho người này?')
@@ -183,6 +210,7 @@ class ResidenceDeclarationTable
                     ->label('Bỏ đánh dấu đã khai báo')
                     ->icon('heroicon-o-x-circle')
                     ->color('gray')
+                    ->extraAttributes(['class' => 'mh-row-action'])
                     ->visible(fn (ResidenceDeclaration $record) => $record->isDeclared())
                     ->requiresConfirmation()
                     ->modalDescription('Xác nhận BỎ đánh dấu "đã khai báo" cho người này?')
@@ -192,7 +220,7 @@ class ResidenceDeclarationTable
                         Notification::make()->title('Đã bỏ đánh dấu khai báo')->success()->send();
                     }),
 
-                EditAction::make()->label('Sửa'),
+                EditAction::make()->label('Sửa')->extraAttributes(['class' => 'mh-row-action']),
             ])
             ->bulkActions([
                 BulkActionGroup::make([
@@ -262,6 +290,7 @@ class ResidenceDeclarationTable
                         ->deselectRecordsAfterCompletion(),
                 ]),
             ])
+            ->header(fn () => view('minihouse::filament.tables._mobile-action-styles'))
             ->defaultSort('checked_in_at', 'asc')
             ->searchable()
             ->striped();

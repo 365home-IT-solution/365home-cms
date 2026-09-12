@@ -14,6 +14,7 @@ use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
+use Modules\Minihouse\App\Models\ResidenceDeclaration;
 use Modules\Minihouse\App\Models\Room;
 use Modules\Minihouse\App\Models\Tenant;
 
@@ -35,10 +36,14 @@ class TenantForm
                             TextInput::make('phone')
                                 ->label('Số điện thoại')
                                 ->tel()
-                                ->maxLength(20),
+                                ->maxLength(20)
+                                ->regex('/^(0[0-9]{9,10}|\+84[0-9]{9,10})$/')
+                                ->validationMessages(['regex' => 'Số điện thoại không đúng định dạng (VD: 0912345678).']),
                             TextInput::make('id_card_number')
                                 ->label('Số CCCD/CMND')
-                                ->maxLength(20),
+                                ->maxLength(20)
+                                ->regex('/^([0-9]{9}|[0-9]{12})$/')
+                                ->validationMessages(['regex' => 'Số CCCD/CMND phải gồm đúng 9 (CMND cũ) hoặc 12 (CCCD mới) chữ số.']),
                             DatePicker::make('date_of_birth')
                                 ->label('Ngày sinh'),
                             Select::make('gender')
@@ -48,6 +53,21 @@ class TenantForm
                                     Tenant::GENDER_FEMALE => 'Nữ',
                                     Tenant::GENDER_OTHER  => 'Khác',
                                 ]),
+                            // Dùng khi khai báo tạm trú (ResidenceDeclarationService::syncContract())
+                            // — ưu tiên đọc 2 field này trước khi rơi về mặc định "VNM - Viet Nam"/
+                            // "1 - Thẻ CCCD", cần thiết cho khách nước ngoài/dùng hộ chiếu.
+                            Select::make('nationality')
+                                ->label('Quốc tịch')
+                                ->options(ResidenceDeclaration::NATIONALITY_OPTIONS)
+                                ->default(ResidenceDeclaration::NATIONALITY_DEFAULT)
+                                ->native(false)
+                                ->searchable(),
+                            Select::make('document_type')
+                                ->label('Loại giấy tờ')
+                                ->options(ResidenceDeclaration::DOCUMENT_TYPE_OPTIONS)
+                                ->default('1 - Thẻ CCCD')
+                                ->native(false)
+                                ->searchable(),
                             // CHỈ HIỂN THỊ khi SỬA khách đã có sẵn — không cho sửa tay. Giá trị này
                             // do hệ thống tự tính lại từ hợp đồng "Đang hiệu lực" (đứng tên hoặc ở
                             // cùng) mỗi khi hợp đồng thay đổi, xem ContractObserver::syncTenant().
@@ -87,6 +107,7 @@ class TenantForm
                             TextInput::make('new_monthly_price')
                                 ->label('Giá thuê / tháng')
                                 ->numeric()
+                                ->minValue(0)
                                 ->prefix('đ')
                                 ->visible(fn (string $operation, Get $get) => $operation === 'create' && filled($get('new_room_id'))),
                             DatePicker::make('new_start_date')
@@ -97,6 +118,7 @@ class TenantForm
                             TextInput::make('new_deposit_amount')
                                 ->label('Tiền cọc')
                                 ->numeric()
+                                ->minValue(0)
                                 ->prefix('đ')
                                 ->default(0)
                                 ->visible(fn (string $operation, Get $get) => $operation === 'create' && filled($get('new_room_id'))),
@@ -119,11 +141,15 @@ class TenantForm
                             FileUpload::make('id_card_front')
                                 ->label('CCCD mặt trước')
                                 ->image()
+                                // 5MB đủ dư cho ảnh chụp CCCD rõ nét — chặn ảnh quá khổ làm chậm
+                                // OCR (CccdScannerService::MAX_SCAN_SECONDS) và tốn dung lượng lưu trữ.
+                                ->maxSize(5120)
                                 ->directory('minihouse/tenants')
                                 ->disk('public'),
                             FileUpload::make('id_card_back')
                                 ->label('CCCD mặt sau')
                                 ->image()
+                                ->maxSize(5120)
                                 ->directory('minihouse/tenants')
                                 ->disk('public'),
                         ]),

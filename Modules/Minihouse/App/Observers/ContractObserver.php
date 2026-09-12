@@ -51,7 +51,13 @@ class ContractObserver
         // trống) cũng phải đồng bộ lại — thiếu 2 trường này ở đây thì tính năng tự điền lý do vào
         // Khai báo lưu trú (xem ContractForm) chỉ có tác dụng với hợp đồng MỚI, không áp dụng lại
         // được cho hợp đồng đã tồn tại từ trước khi chỉ sửa mỗi trường này.
-        if ($contract->wasChanged(['tenant_id', 'room_id', 'start_date', 'end_date', 'reason_for_stay', 'custom_reason'])) {
+        //
+        // status/checkout_at: Thanh lý/Huỷ/Chuyển phòng đổi 2 field này (KHÔNG đổi end_date) nhưng
+        // trước đây KHÔNG nằm trong danh sách kích hoạt đồng bộ ở đây — khiến "Ngày đi dự kiến"
+        // (ResidenceDeclaration.checked_out_at, map từ contract->end_date, xem
+        // ResidenceDeclarationService::upsertFromTenant()) không bao giờ được cập nhật khi khách trả
+        // phòng/huỷ hợp đồng SỚM (trước end_date gốc) — audit phát hiện 2026-09-11.
+        if ($contract->wasChanged(['tenant_id', 'room_id', 'start_date', 'end_date', 'reason_for_stay', 'custom_reason', 'status', 'checkout_at'])) {
             app(ResidenceDeclarationService::class)->syncContract($contract);
         }
     }

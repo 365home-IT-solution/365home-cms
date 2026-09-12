@@ -49,7 +49,8 @@ class Tenant extends Model implements AuthenticatableContract, HasName
 
     protected $fillable = [
         'fullname', 'phone', 'password', 'id_card_number', 'id_card_front', 'id_card_back',
-        'date_of_birth', 'gender', 'hometown', 'permanent_address', 'occupation', 'workplace',
+        'date_of_birth', 'gender', 'nationality', 'document_type', 'hometown', 'permanent_address',
+        'occupation', 'workplace',
         'emergency_contact_name', 'emergency_contact_phone',
         'residence_declared', 'residence_declared_at',
         'room_id', 'note',
@@ -113,5 +114,17 @@ class Tenant extends Model implements AuthenticatableContract, HasName
             ->value('minihouse_contract_tenants.contract_id');
 
         return $activeContractId ? Contract::withoutGlobalScopes()->find($activeContractId) : null;
+    }
+
+    // Audit phát hiện: quyền "Xem nhật ký hoạt động" (view_any_activity_logs) là quyền RIÊNG, độc lập
+    // với "Xem khách thuê" (view_any_tenants) — không loại trừ id_card_number ở đây thì 1 tài khoản
+    // chỉ được cấp quyền xem log vẫn đọc được nguyên số CCCD của khách qua old_values/new_values
+    // trong modal chi tiết log, dù không có quyền xem hồ sơ khách thuê.
+    protected static function activityExcludedFields(): array
+    {
+        // Không gọi được parent::activityExcludedFields() — method này đến từ TRAIT
+        // (LogsMinihouseActivity), không phải class cha thật, nên phải liệt kê lại đúng danh sách mặc
+        // định của trait (created_at/updated_at/deleted_at) rồi thêm id_card_number.
+        return ['created_at', 'updated_at', 'deleted_at', 'id_card_number'];
     }
 }

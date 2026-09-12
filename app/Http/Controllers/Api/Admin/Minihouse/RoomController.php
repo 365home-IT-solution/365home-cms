@@ -86,6 +86,21 @@ class RoomController extends Controller
             return response()->json(['message' => 'Không có quyền tạo phòng cho toà nhà này.'], 403);
         }
 
+        // Mirror RoomForm::uniquePositionRule() (Filament) — chặn 2 phòng CÙNG toà nhà + CÙNG tầng
+        // trùng hàng/cột, thiếu chặn này thì API vẫn tạo được trong khi form Filament sẽ từ chối,
+        // sơ đồ phòng trên Dashboard chỉ vẽ được 1 phòng/ô nên phòng trùng vị trí sẽ "biến mất" khỏi
+        // sơ đồ mà không báo lỗi gì.
+        if (
+            filled($data['position_row'] ?? null) && filled($data['position_col'] ?? null)
+            && Room::where('building_id', $data['building_id'])
+                ->where('floor', $data['floor'] ?? null)
+                ->where('position_row', $data['position_row'])
+                ->where('position_col', $data['position_col'])
+                ->exists()
+        ) {
+            return response()->json(['message' => 'Đã có phòng khác ở đúng vị trí (hàng ' . $data['position_row'] . ', cột ' . $data['position_col'] . ') của tầng này.'], 422);
+        }
+
         $data['status'] ??= Room::STATUS_EMPTY;
         $amenityIds = $data['amenity_ids'] ?? null;
         unset($data['amenity_ids']);
@@ -130,6 +145,37 @@ class RoomController extends Controller
 
         if (isset($data['building_id']) && ! $this->isBuildingAllowed($request, (int) $data['building_id'])) {
             return response()->json(['message' => 'Không có quyền chuyển phòng sang toà nhà này.'], 403);
+        }
+
+        // Mirror RoomForm::uniquePositionRule() — xem giải thích đầy đủ ở store(). Dùng giá trị MỚI
+        // nếu có sửa, rơi về giá trị HIỆN TẠI của phòng nếu field đó không nằm trong request này.
+        $effectiveBuildingId = $data['building_id'] ?? $room->building_id;
+        $effectiveFloor      = array_key_exists('floor', $data) ? $data['floor'] : $room->floor;
+        $effectiveRow        = array_key_exists('position_row', $data) ? $data['position_row'] : $room->position_row;
+        $effectiveCol        = array_key_exists('position_col', $data) ? $data['position_col'] : $room->position_col;
+
+        if (
+            filled($effectiveRow) && filled($effectiveCol)
+            && Room::where('building_id', $effectiveBuildingId)
+                ->where('floor', $effectiveFloor)
+                ->where('position_row', $effectiveRow)
+                ->where('position_col', $effectiveCol)
+                ->whereKeyNot($room->getKey())
+                ->exists()
+        ) {
+            return response()->json(['message' => 'Đã có phòng khác ở đúng vị trí (hàng ' . $effectiveRow . ', cột ' . $effectiveCol . ') của tầng này.'], 422);
+        }
+
+        // Room.status chỉ nên do ContractObserver tự đồng bộ theo hợp đồng thật — cho sửa tay tự do
+        // sang "Trống"/"Đã khoá" trong khi vẫn còn hợp đồng "Đang hiệu lực" sẽ khiến bộ chọn phòng khi
+        // tạo hợp đồng mới coi phòng này là còn trống, có thể gán nhầm 2 khách vào cùng 1 phòng (xem
+        // Room::hasActiveContract()).
+        if (
+            isset($data['status'])
+            && ! in_array($data['status'], [Room::STATUS_RENTED, Room::STATUS_RESERVED], true)
+            && $room->hasActiveContract()
+        ) {
+            return response()->json(['message' => 'Phòng này đang có hợp đồng "Đang hiệu lực" — không thể đổi tình trạng thủ công. Hãy Thanh lý/Huỷ/Chuyển phòng ở hợp đồng trước.'], 422);
         }
 
         $amenityIds = $data['amenity_ids'] ?? null;

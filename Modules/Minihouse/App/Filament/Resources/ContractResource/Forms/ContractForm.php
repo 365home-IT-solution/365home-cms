@@ -110,6 +110,7 @@ class ContractForm
                             TextInput::make('monthly_price')
                                 ->label('Giá thuê / tháng')
                                 ->numeric()
+                                ->minValue(0)
                                 ->required()
                                 ->prefix('đ')
                                 ->default(fn () => Room::find(request()->query('room_id'))?->price),
@@ -121,6 +122,7 @@ class ContractForm
                             TextInput::make('deposit_amount')
                                 ->label('Tiền cọc')
                                 ->numeric()
+                                ->minValue(0)
                                 ->prefix('đ')
                                 ->default(0)
                                 ->dehydrateStateUsing(fn ($state) => $state ?? 0),
@@ -293,17 +295,20 @@ class ContractForm
                                 ->label('Hợp đồng (file)')
                                 ->directory('minihouse/contracts')
                                 ->disk('public')
-                                ->acceptedFileTypes(['application/pdf', 'image/jpeg', 'image/png']),
+                                ->acceptedFileTypes(['application/pdf', 'image/jpeg', 'image/png'])
+                                ->maxSize(10240),
                             FileUpload::make('handover_file')
                                 ->label('Biên bản bàn giao (lúc nhận)')
                                 ->directory('minihouse/contracts')
                                 ->disk('public')
-                                ->acceptedFileTypes(['application/pdf', 'image/jpeg', 'image/png']),
+                                ->acceptedFileTypes(['application/pdf', 'image/jpeg', 'image/png'])
+                                ->maxSize(10240),
                             FileUpload::make('deposit_receipt_file')
                                 ->label('Biên bản đặt cọc')
                                 ->directory('minihouse/contracts')
                                 ->disk('public')
-                                ->acceptedFileTypes(['application/pdf', 'image/jpeg', 'image/png']),
+                                ->acceptedFileTypes(['application/pdf', 'image/jpeg', 'image/png'])
+                                ->maxSize(10240),
                         ]),
 
                     Tab::make('Thanh lý hợp đồng')
@@ -327,6 +332,7 @@ class ContractForm
                             TextInput::make('deposit_refunded_amount')
                                 ->label('Số tiền cọc đã hoàn')
                                 ->numeric()
+                                ->minValue(0)
                                 ->prefix('đ'),
                             Textarea::make('deposit_deduction_reason')
                                 ->label('Lý do trừ cọc (nếu có)')
@@ -336,6 +342,7 @@ class ContractForm
                                 ->directory('minihouse/contracts')
                                 ->disk('public')
                                 ->acceptedFileTypes(['application/pdf', 'image/jpeg', 'image/png'])
+                                ->maxSize(10240)
                                 ->columnSpanFull(),
                         ]),
                 ]),
@@ -383,20 +390,56 @@ class ContractForm
     // Livewire → phiên hết hạn, xem giải thích ở TenantForm). Cứ tải ảnh rồi bấm "Tạo" bình thường
     // — TenantObserver sẽ tự quét NGAY SAU KHI LƯU (đây vốn là luồng tạo mới), đủ dùng cho form nhỏ
     // này; muốn quét lại/bổ sung thêm thông tin thì mở đúng khách vừa tạo trong trang Khách thuê.
+    // Đủ 5 field gốc (họ tên/SĐT/CCCD/ảnh 2 mặt) để tạo hồ sơ nhanh; thêm 5 field bên dưới vì
+    // ResidenceDeclarationService::syncContract() tự đồng bộ NGAY khi hợp đồng này được lưu — điền
+    // sẵn ở đây thì "Khai báo lưu trú" tự sinh ra ĐỦ ngay từ đầu, không phải mở riêng bổ sung sau
+    // (ngày sinh/giới tính/nơi thường trú vẫn có thể tự qua quét CCCD nếu có tải ảnh, nhưng không
+    // phải lúc nào ảnh cũng quét được nên vẫn cho nhập tay dự phòng ở đây).
     private static function miniTenantForm(): array
     {
         return [
             TextInput::make('fullname')->label('Họ tên')->required()->maxLength(255),
-            TextInput::make('phone')->label('Số điện thoại')->tel()->maxLength(20),
-            TextInput::make('id_card_number')->label('Số CCCD/CMND')->maxLength(20),
+            TextInput::make('phone')->label('Số điện thoại')->tel()->maxLength(20)
+                ->regex('/^(0[0-9]{9,10}|\+84[0-9]{9,10})$/')
+                ->validationMessages(['regex' => 'Số điện thoại không đúng định dạng (VD: 0912345678).']),
+            TextInput::make('id_card_number')->label('Số CCCD/CMND')->maxLength(20)
+                ->regex('/^([0-9]{9}|[0-9]{12})$/')
+                ->validationMessages(['regex' => 'Số CCCD/CMND phải gồm đúng 9 (CMND cũ) hoặc 12 (CCCD mới) chữ số.']),
+            DatePicker::make('date_of_birth')->label('Ngày sinh')->native(false),
+            Select::make('gender')
+                ->label('Giới tính')
+                ->options([
+                    Tenant::GENDER_MALE   => 'Nam',
+                    Tenant::GENDER_FEMALE => 'Nữ',
+                    Tenant::GENDER_OTHER  => 'Khác',
+                ]),
+            Select::make('nationality')
+                ->label('Quốc tịch')
+                ->options(ResidenceDeclaration::NATIONALITY_OPTIONS)
+                ->default(ResidenceDeclaration::NATIONALITY_DEFAULT)
+                ->native(false)
+                ->searchable(),
+            Select::make('document_type')
+                ->label('Loại giấy tờ')
+                ->options(ResidenceDeclaration::DOCUMENT_TYPE_OPTIONS)
+                ->default('1 - Thẻ CCCD')
+                ->native(false)
+                ->searchable(),
+            TextInput::make('permanent_address')
+                ->label('Nơi thường trú')
+                ->helperText('Theo CCCD — cần khi khai báo tạm trú.')
+                ->maxLength(255)
+                ->columnSpanFull(),
             FileUpload::make('id_card_front')
                 ->label('CCCD mặt trước')
                 ->image()
+                ->maxSize(5120)
                 ->directory('minihouse/tenants')
                 ->disk('public'),
             FileUpload::make('id_card_back')
                 ->label('CCCD mặt sau')
                 ->image()
+                ->maxSize(5120)
                 ->directory('minihouse/tenants')
                 ->disk('public'),
         ];

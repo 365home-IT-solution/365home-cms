@@ -115,7 +115,9 @@ class UserForm
                         TextInput::make('phone')
                             ->label('Số điện thoại')
                             ->tel()
-                            ->maxLength(20),
+                            ->maxLength(20)
+                            ->regex('/^(0[0-9]{9,10}|\+84[0-9]{9,10})$/')
+                            ->validationMessages(['regex' => 'Số điện thoại không đúng định dạng (VD: 0912345678).']),
                     ])
                     ->columns(2),
             ]);

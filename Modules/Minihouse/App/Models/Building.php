@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Modules\Minihouse\App\Exceptions\CannotDeleteReferencedRecordException;
 use Modules\Minihouse\App\Models\Concerns\LogsMinihouseActivity;
 use Modules\Minihouse\App\Models\Concerns\ScopedToActiveBuilding;
 
@@ -69,6 +70,21 @@ class Building extends Model
     public function rooms(): HasMany
     {
         return $this->hasMany(Room::class);
+    }
+
+    // Building dùng SoftDeletes — xoá chỉ set deleted_at, KHÔNG kích hoạt cascade FK thật ở CSDL. Còn
+    // Phòng nào thuộc toà này thì chặn xoá, tránh Room.building_id trỏ về 1 Building đã "biến mất"
+    // (mọi $room->building sau đó trả về NULL do SoftDeletingScope, làm hỏng hiển thị tên toà/đơn giá
+    // điện nước mặc định ở mọi nơi đọc quan hệ đó) — xem CannotDeleteReferencedRecordException.
+    protected static function booted(): void
+    {
+        static::deleting(function (Building $building) {
+            if ($building->rooms()->exists()) {
+                throw new CannotDeleteReferencedRecordException(
+                    'Toà nhà này vẫn còn Phòng thuộc về nó — không thể xoá. Hãy chuyển hoặc xoá các Phòng đó trước.'
+                );
+            }
+        });
     }
 
     public function surcharges(): HasMany

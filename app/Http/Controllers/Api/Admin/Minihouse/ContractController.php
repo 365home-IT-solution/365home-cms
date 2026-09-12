@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\Admin\Minihouse\Concerns\ScopesToMinihouseBuilding;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Modules\Minihouse\App\Models\Contract;
@@ -15,6 +16,7 @@ use Modules\Minihouse\App\Models\ContractTenant;
 use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\Room;
 use Modules\Minihouse\App\Models\Transaction;
+use Modules\Minihouse\App\Services\ContractEarlyEndService;
 
 // CRUD cơ bản cho Hợp đồng + 4 luồng nghiệp vụ nâng cao mirror ĐÚNG logic bản Filament (xem
 // EditContract::getHeaderActions()): Gia hạn, Thanh lý/Hoàn cọc, Huỷ hợp đồng, Chuyển phòng.
@@ -246,10 +248,15 @@ class ContractController extends Controller
             return response()->json(['message' => 'Chỉ thanh lý được hợp đồng đang hiệu lực.'], 422);
         }
 
+        // reprorate($preview=true) — hoá đơn tháng hiện tại có thể đã lập giả định ở tới hết tháng,
+        // cần tính lại ĐÚNG số ngày thực ở để gợi ý hoàn cọc không bị TÍNH THỪA — mirror đúng
+        // EditContract::checkoutContract() bên Filament (trước đây API port thiếu hẳn bước này).
         $unpaidTotal = (float) Invoice::where('contract_id', $contract->id)
             ->whereIn('status', [Invoice::STATUS_UNPAID, Invoice::STATUS_PARTIAL])
             ->get()
             ->sum(fn (Invoice $invoice) => $invoice->remainingAmount());
+        $reproratedDelta = ContractEarlyEndService::reprorate($contract, now(), preview: true);
+        $unpaidTotal = max(0, $unpaidTotal + $reproratedDelta);
         $suggested = max(0, (float) $contract->deposit_amount - $unpaidTotal);
 
         $data = $request->validate([
@@ -264,6 +271,10 @@ class ContractController extends Controller
             ...$data,
             'status' => Contract::STATUS_EXPIRED,
         ]);
+
+        // Rút ngắn/lập bù hoá đơn theo ĐÚNG ngày trả phòng thực tế (khác $reproratedDelta ở trên chỉ
+        // tính thử theo hôm nay để gợi ý hoàn cọc) — xem ContractEarlyEndService.
+        ContractEarlyEndService::reprorate($contract, Carbon::parse($data['checkout_at']));
 
         $this->recordDepositRefundTransaction($contract, (float) $data['deposit_refunded_amount'], 'Hoàn cọc khi thanh lý hợp đồng #' . $contract->id);
 
@@ -293,10 +304,14 @@ class ContractController extends Controller
             return response()->json(['message' => 'Chỉ huỷ được hợp đồng đang hiệu lực.'], 422);
         }
 
+        // Xem chú thích ở checkout() — hoá đơn tháng hiện tại cần tính lại đúng số ngày thực ở trước
+        // khi gợi ý hoàn cọc (mirror EditContract::cancelContract()).
         $unpaidTotal = (float) Invoice::where('contract_id', $contract->id)
             ->whereIn('status', [Invoice::STATUS_UNPAID, Invoice::STATUS_PARTIAL])
             ->get()
             ->sum(fn (Invoice $invoice) => $invoice->remainingAmount());
+        $reproratedDelta = ContractEarlyEndService::reprorate($contract, now(), preview: true);
+        $unpaidTotal = max(0, $unpaidTotal + $reproratedDelta);
         $suggested = max(0, (float) $contract->deposit_amount - $unpaidTotal);
 
         $data = $request->validate([
@@ -318,6 +333,9 @@ class ContractController extends Controller
             'deposit_deduction_reason' => $note,
             'status'                   => Contract::STATUS_CANCELLED,
         ]);
+
+        // Rút ngắn/lập bù hoá đơn theo ĐÚNG ngày huỷ thực tế — xem ContractEarlyEndService.
+        ContractEarlyEndService::reprorate($contract, Carbon::parse($data['checkout_at']));
 
         $this->recordDepositRefundTransaction($contract, (float) $depositRefunded, 'Hoàn cọc khi huỷ hợp đồng #' . $contract->id);
 
@@ -394,6 +412,12 @@ class ContractController extends Controller
                 'status'      => Contract::STATUS_EXPIRED,
                 'checkout_at' => $data['transfer_at'],
             ]);
+
+            // Xem chú thích ở ContractEarlyEndService — hoá đơn phòng CŨ có thể đã lập giả định ở
+            // tới hết tháng, phải rút ngắn lại đúng ngày chuyển phòng để không tính tiền phòng CHỒNG
+            // LẤN với hoá đơn phòng MỚI sắp lập cho đúng những ngày còn lại đó (mirror
+            // EditContract::transferRoom() — trước đây API port thiếu hẳn bước này).
+            ContractEarlyEndService::reprorate($old, Carbon::parse($data['transfer_at']));
 
             $new = Contract::create([
                 'room_id'                       => $newRoom->id,

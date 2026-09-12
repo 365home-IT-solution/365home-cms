@@ -13,6 +13,7 @@ use Modules\BladeThemeV1\Support\QrCodeGenerator;
 use Modules\Minihouse\App\Filament\Resources\InvoiceResource;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\InvoicePayment;
+use Modules\Minihouse\App\Observers\InvoicePaymentObserver;
 use Modules\Minihouse\App\Services\InvoiceMomoService;
 use Modules\Minihouse\App\Services\InvoicePayOsService;
 use Modules\Minihouse\App\Services\InvoiceVnpayService;
@@ -283,12 +284,33 @@ class EditInvoice extends EditRecord
                         ->send();
                 }),
 
-            Actions\DeleteAction::make(),
+            Actions\DeleteAction::make()
+                ->before(function (Actions\DeleteAction $action) {
+                    if ($this->record->hasApprovedPayment()) {
+                        Notification::make()
+                            ->title('Không thể xoá')
+                            ->body('Hoá đơn này đã có thanh toán được duyệt — không thể xoá để tránh mất dữ liệu sổ Thu Chi. Muốn xoá, hãy xoá đúng lần thanh toán đó trước.')
+                            ->danger()
+                            ->send();
+
+                        $action->halt();
+                    }
+                }),
         ];
     }
 
     private function pendingPayment(): ?InvoicePayment
     {
         return $this->record->payments()->where('status', InvoicePayment::STATUS_PENDING)->first();
+    }
+
+    // status/amount_paid là cột CACHE chỉ tự đồng bộ khi có sự kiện THÊM/SỬA/XOÁ InvoicePayment (xem
+    // InvoicePaymentObserver) — sửa room_price/điện/nước/phụ thu ở form này (đổi total_amount) KHÔNG
+    // tự kích lại đồng bộ đó, có thể để lại hoá đơn vẫn hiện "Đã thanh toán" dù total_amount vừa tăng
+    // vượt quá amount_paid cũ. Gọi lại sau mỗi lần lưu để status luôn khớp đúng total_amount mới nhất
+    // (cùng nguyên tắc áp cho API, xem InvoiceController::update()).
+    protected function afterSave(): void
+    {
+        (new InvoicePaymentObserver())->resyncInvoice($this->record->id);
     }
 }

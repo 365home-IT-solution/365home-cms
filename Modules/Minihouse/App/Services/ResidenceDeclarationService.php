@@ -46,10 +46,17 @@ class ResidenceDeclarationService
                 'cccd_number'       => $tenant->id_card_number,
                 'phone_number'      => $tenant->phone ?: $existing?->phone_number,
                 'current_residence' => $tenant->permanent_address ?: $existing?->current_residence,
-                'nationality'       => $existing?->nationality ?: ResidenceDeclaration::NATIONALITY_DEFAULT,
-                'document_type'     => $existing?->document_type ?: '1 - Thẻ CCCD',
+                // Ưu tiên đọc từ hồ sơ Khách thuê trước (cần cho khách nước ngoài/dùng hộ chiếu) —
+                // rơi về giá trị đã tự sửa tay trên chính bản khai này, cuối cùng mới về mặc định.
+                'nationality'       => $tenant->nationality ?: ($existing?->nationality ?: ResidenceDeclaration::NATIONALITY_DEFAULT),
+                'document_type'     => $tenant->document_type ?: ($existing?->document_type ?: '1 - Thẻ CCCD'),
                 'checked_in_at'     => $contract->start_date,
-                'checked_out_at'    => $contract->end_date,
+                // Ưu tiên checkout_at (ngày trả phòng/huỷ THỰC TẾ, do Thanh lý/Huỷ/Chuyển phòng ghi
+                // — xem EditContract/ContractController) — rơi về end_date (ngày kết thúc DỰ KIẾN
+                // lúc lập hợp đồng) nếu hợp đồng còn đang hiệu lực/chưa kết thúc sớm. Trước đây luôn
+                // đọc end_date nên "Ngày đi dự kiến" không bao giờ cập nhật khi khách trả phòng sớm
+                // (audit phát hiện 2026-09-11).
+                'checked_out_at'    => $contract->checkout_at ?: $contract->end_date,
                 'room_number'       => $contract->room?->code,
                 'stay_address'      => $contract->room?->building?->address,
                 // Tỉnh/Thành phố, Phường/Xã, địa chỉ chi tiết của "Nơi cư trú" = nơi khách ĐANG Ở

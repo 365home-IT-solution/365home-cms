@@ -100,7 +100,9 @@ class ResidenceDeclarationForm
                         ->native(false)
                         ->seconds(false)
                         ->timezone('Asia/Ho_Chi_Minh')
-                        ->displayFormat('d/m/Y H:i'),
+                        ->displayFormat('d/m/Y H:i')
+                        ->afterOrEqual('checked_in_at')
+                        ->validationMessages(['after_or_equal' => 'Ngày đi dự kiến phải sau hoặc bằng Ngày đến.']),
                 ]),
             ]),
 

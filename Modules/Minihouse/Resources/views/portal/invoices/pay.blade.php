@@ -31,6 +31,13 @@
             </a>
         @endif
 
-        <p class="mt-4 text-xs text-gray-400">Sau khi thanh toán thành công, hệ thống sẽ tự động cập nhật trạng thái hoá đơn trong ít phút.</p>
+        {{-- VietQR (có bank_info) là mã QR TĨNH, không có webhook nào báo về hệ thống khi khách
+        chuyển khoản — khác PayOS/MoMo/VNPay tự động cập nhật thật. Nói "hệ thống tự động cập nhật"
+        cho cả VietQR là sai sự thật, khiến khách chờ mãi không thấy đổi rồi nhắn hỏi/khiếu nại. --}}
+        @if (! empty($payment['bank_info']))
+            <p class="mt-4 text-xs text-gray-400">Sau khi chuyển khoản, vui lòng chờ chủ nhà xác nhận đã nhận được tiền — hệ thống không tự động cập nhật với hình thức chuyển khoản này.</p>
+        @else
+            <p class="mt-4 text-xs text-gray-400">Sau khi thanh toán thành công, hệ thống sẽ tự động cập nhật trạng thái hoá đơn trong ít phút.</p>
+        @endif
     </div>
 @endsection

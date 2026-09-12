@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Modules\Minihouse\App\Exceptions\CannotDeleteReferencedRecordException;
 use Modules\Minihouse\App\Models\Concerns\LogsMinihouseActivity;
 use Modules\Minihouse\App\Models\Concerns\ScopedToActiveBuildingId;
 
@@ -58,5 +59,32 @@ class Room extends Model
     public function assets(): HasMany
     {
         return $this->hasMany(RoomAsset::class);
+    }
+
+    // Room.status chỉ nên do ContractObserver::syncRoom() tự cập nhật theo hợp đồng thật — cho sửa
+    // tay TỰ DO (đổi thành "Trống"/"Đã khoá" trong khi vẫn còn hợp đồng "Đang hiệu lực") sẽ khiến
+    // phòng hiện SAI là còn trống ở mọi nơi lọc theo status (bộ chọn phòng khi tạo Hợp đồng mới, Sơ đồ
+    // phòng ở Dashboard), có thể dẫn tới gán nhầm 2 khách vào cùng 1 phòng cho tới lần đồng bộ kế tiếp
+    // (khi hợp đồng có thay đổi, hoặc cron RefreshRoomStatusCommand chạy). Dùng để chặn ở RoomForm/
+    // RoomController — KHÔNG chặn khi status vẫn giữ nguyên "Đang thuê"/"Đã đặt cọc".
+    public function hasActiveContract(): bool
+    {
+        return $this->contracts()->where('status', Contract::STATUS_ACTIVE)->exists();
+    }
+
+    // Room dùng SoftDeletes — xoá chỉ set deleted_at, KHÔNG kích hoạt cascade FK thật ở CSDL. Chặn
+    // xoá nếu còn BẤT KỲ hợp đồng nào (kể cả đã hết hạn/huỷ, không chỉ "Đang hiệu lực") tham chiếu
+    // tới phòng này — hợp đồng cũ vẫn là dữ liệu lịch sử/hoá đơn thật, xoá phòng sẽ làm Contract.room_
+    // id trỏ về 1 Room đã "biến mất" (mọi $contract->room sau đó trả về NULL do SoftDeletingScope,
+    // làm hỏng hiển thị mã phòng trên hợp đồng/hoá đơn cũ) — xem CannotDeleteReferencedRecordException.
+    protected static function booted(): void
+    {
+        static::deleting(function (Room $room) {
+            if ($room->contracts()->exists()) {
+                throw new CannotDeleteReferencedRecordException(
+                    'Phòng này vẫn còn Hợp đồng (kể cả đã kết thúc) tham chiếu tới — không thể xoá để giữ nguyên lịch sử hợp đồng/hoá đơn.'
+                );
+            }
+        });
     }
 }

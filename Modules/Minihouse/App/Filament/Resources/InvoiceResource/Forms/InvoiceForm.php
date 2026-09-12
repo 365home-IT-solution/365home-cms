@@ -2,6 +2,7 @@
 
 namespace Modules\Minihouse\App\Filament\Resources\InvoiceResource\Forms;
 
+use Filament\Forms\Components\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
@@ -13,6 +14,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
+use Filament\Notifications\Notification;
 use Illuminate\Support\Carbon;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Invoice;
@@ -206,6 +208,7 @@ class InvoiceForm
                             TextInput::make('amount')
                                 ->label('Số tiền')
                                 ->numeric()
+                                ->minValue(0)
                                 ->prefix('đ')
                                 ->required()
                                 ->live(onBlur: true)
@@ -225,6 +228,7 @@ class InvoiceForm
                     TextInput::make('total_amount')
                         ->label('Tổng tiền')
                         ->numeric()
+                        ->minValue(0)
                         ->prefix('đ')
                         ->required()
                         ->helperText('Tự động cộng Tiền phòng + Điện + Nước + Dịch vụ khác — có thể sửa tay nếu cần.'),
@@ -272,6 +276,34 @@ class InvoiceForm
                         // approve_invoice_payments) bấm duyệt ở nút "Duyệt thanh toán" trên header —
                         // xem EditInvoice.php.
                         ->mutateRelationshipDataBeforeCreateUsing(fn (array $data) => [...$data, 'created_by' => auth()->id(), 'status' => InvoicePayment::STATUS_PENDING])
+                        // Chặn xoá khoản ĐÃ DUYỆT ngay trong Repeater — mặc định Filament vẫn hiện nút
+                        // xoá của từng dòng bất kể trạng thái (chỉ 3 input amount/paid_at/payment_method
+                        // bị disabled() ở trên khi đã duyệt, KHÔNG tự ẩn nút xoá). Xoá 1 khoản đã duyệt
+                        // là xoá THẬT InvoicePayment (không SoftDeletes) kéo theo cascade xoá luôn dòng
+                        // "Thu" tương ứng trong sổ Thu Chi — đúng lỗ hổng mà chặn xoá HOÁ ĐƠN
+                        // (Invoice::hasApprovedPayment()) không phủ tới vì đó là chặn xoá CẢ hoá đơn,
+                        // không phải chặn xoá riêng 1 dòng thanh toán bên trong. Ghi đè thẳng
+                        // action() (thay vì cố dùng deletable(fn (Get $get)) — closure đó chạy ở scope
+                        // của CHÍNH Repeater, không phải scope của từng item, nên không đọc được
+                        // 'status' của riêng dòng đang xoá).
+                        ->deleteAction(fn (Action $action) => $action->action(function (array $arguments, Repeater $component) {
+                            $items = $component->getState();
+                            $item  = $items[$arguments['item']] ?? null;
+
+                            if (($item['status'] ?? null) === InvoicePayment::STATUS_APPROVED) {
+                                Notification::make()
+                                    ->title('Không thể xoá')
+                                    ->body('Khoản thanh toán này đã được duyệt — không thể xoá để tránh mất dữ liệu sổ Thu Chi.')
+                                    ->danger()
+                                    ->send();
+
+                                return;
+                            }
+
+                            unset($items[$arguments['item']]);
+                            $component->state($items);
+                            $component->callAfterStateUpdated();
+                        }))
                         ->collapsible()
                         ->columns(3)
                         ->itemLabel(fn (array $state): ?string => isset($state['amount'])

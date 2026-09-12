@@ -98,6 +98,17 @@ class Invoice extends Model
         return max(0, (float) $this->total_amount - (float) $this->amount_paid);
     }
 
+    // Hoá đơn đã có ÍT NHẤT 1 khoản thanh toán ĐÃ DUYỆT — dùng để chặn xoá hoá đơn (xem
+    // InvoiceObserver::deleting()): xoá 1 hoá đơn hiện tại xoá THẬT (không phải xoá mềm) mọi
+    // InvoicePayment + kéo theo xoá luôn dòng "Thu" tương ứng trong sổ Thu Chi, tức là mất VĨNH VIỄN
+    // bằng chứng đã thu tiền thật — sai nguyên tắc kế toán nếu để xoá tự do. Chỉ chặn khi có khoản
+    // ĐÃ DUYỆT (tiền đã xác nhận thật); khoản "pending" (nhân viên khai chờ chủ nhà duyệt) chưa phải
+    // tiền thật nên không cần chặn, xoá hoá đơn nháp/nhầm đó vẫn cho phép.
+    public function hasApprovedPayment(): bool
+    {
+        return $this->payments()->where('status', InvoicePayment::STATUS_APPROVED)->exists();
+    }
+
     // "Lập hoá đơn hàng loạt" CỐ Ý tạo hoá đơn thiếu chỉ số điện/nước (không tự đoán được, phải đọc
     // đồng hồ thật — xem InvoiceGenerationService), nhân viên tự bổ sung sau bằng cách sửa tay. Trong
     // khoảng thời gian CHƯA bổ sung đó, hoá đơn CHƯA đủ thông tin để cho khách thuê xem trong Portal

@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\Minihouse;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\InvoicePayment;
@@ -83,23 +84,53 @@ class VnpayIpnController extends Controller
         $transactionNo = $params['vnp_TransactionNo'] ?? null;
         $note = 'Thanh toán qua VNPay - transactionNo: ' . $transactionNo;
 
-        $alreadyRecorded = InvoicePayment::where('invoice_id', $invoice->id)->where('note', $note)->exists();
+        // Khoá dòng Invoice (SELECT ... FOR UPDATE) trong 1 transaction cho TOÀN BỘ đoạn kiểm tra +
+        // tạo bên dưới — VNPay có thể gọi lại IPN tối đa 10 lần/5 phút gần như CÙNG LÚC (xem comment
+        // đầu file); nếu chỉ kiểm tra "exists()" rồi mới "create()" (không khoá), 2 request gần như
+        // đồng thời có thể CÙNG thấy "chưa có" rồi CÙNG tạo — ghi trùng 1 lần thanh toán, cộng dồn sai
+        // amount_paid. Đồng bộ với đúng cơ chế đã áp dụng ở MomoWebhookController.
+        $created = DB::transaction(function () use ($invoice, $amount, $note) {
+            Invoice::whereKey($invoice->id)->lockForUpdate()->first();
 
-        if ($alreadyRecorded) {
+            $alreadyRecorded = InvoicePayment::where('invoice_id', $invoice->id)->where('note', $note)->exists();
+
+            if ($alreadyRecorded) {
+                return false;
+            }
+
+            // Nghiệp vụ hiện tại CHỈ nhận ĐÚNG 1 lần thanh toán/hoá đơn (xem
+            // Invoice::validateSinglePayment()). Hoá đơn đã có 1 dòng thanh toán khác (tiền mặt/
+            // chuyển khoản tay CHƯA duyệt, hoặc đã duyệt qua cổng khác) rồi mà VNPay vẫn báo về thành
+            // công — KHÔNG tự tạo thêm dòng thứ 2 (sẽ cộng dồn sai amount_paid nếu dòng cũ sau này
+            // cũng được duyệt) — chỉ log cảnh báo để nhân viên tự kiểm tra và xử lý tay, cùng nguyên
+            // tắc với MomoWebhookController.
+            if ($invoice->payments()->exists()) {
+                Log::warning('VnpayIpnController: hoá đơn đã có thanh toán khác, KHÔNG tự tạo thêm — cần nhân viên kiểm tra tay', [
+                    'txn_ref'    => $invoice->vnpay_txn_ref,
+                    'invoice_id' => $invoice->id,
+                ]);
+
+                return false;
+            }
+
+            // status=APPROVED ngay — VNPay đã xác nhận tiền thật (chữ ký + mã trạng thái hợp lệ),
+            // không cần "Chủ toà nhà" duyệt lại lần 2 (giống PayOS/MoMo).
+            $invoice->payments()->create([
+                'amount'         => $amount,
+                'paid_at'        => now(),
+                'payment_method' => InvoicePayment::METHOD_TRANSFER,
+                'note'           => $note,
+                'status'         => InvoicePayment::STATUS_APPROVED,
+                'approved_at'    => now(),
+                'created_by'     => null,
+            ]);
+
+            return true;
+        });
+
+        if (! $created) {
             return response()->json(['RspCode' => '02', 'Message' => 'Order already confirmed']);
         }
-
-        // status=APPROVED ngay — VNPay đã xác nhận tiền thật (chữ ký + mã trạng thái hợp lệ), không
-        // cần "Chủ toà nhà" duyệt lại lần 2 (giống PayOS/MoMo).
-        $invoice->payments()->create([
-            'amount'         => $amount,
-            'paid_at'        => now(),
-            'payment_method' => InvoicePayment::METHOD_TRANSFER,
-            'note'           => $note,
-            'status'         => InvoicePayment::STATUS_APPROVED,
-            'approved_at'    => now(),
-            'created_by'     => null,
-        ]);
 
         return response()->json(['RspCode' => '00', 'Message' => 'Confirm Success']);
     }

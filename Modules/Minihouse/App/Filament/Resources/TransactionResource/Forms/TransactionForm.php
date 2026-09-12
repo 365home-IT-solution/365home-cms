@@ -42,6 +42,7 @@ class TransactionForm
                     TextInput::make('amount')
                         ->label('Số tiền')
                         ->numeric()
+                        ->minValue(0.01)
                         ->required()
                         ->prefix('đ'),
                     DatePicker::make('transaction_date')
@@ -83,6 +84,7 @@ class TransactionForm
                         ->label('Ảnh biên lai / hoá đơn')
                         ->image()
                         ->imageEditor()
+                        ->maxSize(5120)
                         ->directory('minihouse/transactions')
                         ->disk('public')
                         ->visible(fn (Get $get) => $get('type') === Transaction::TYPE_OUT)

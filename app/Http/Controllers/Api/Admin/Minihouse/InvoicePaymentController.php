@@ -139,6 +139,15 @@ class InvoicePaymentController extends Controller
             return response()->json(['message' => 'Không tìm thấy lần thanh toán này.'], 404);
         }
 
+        // Đối xứng với chặn xoá HOÁ ĐƠN đã có (InvoiceObserver::deleting() ném
+        // CannotDeletePaidInvoiceException khi có khoản duyệt) — thiếu chặn tương tự ở CHÍNH endpoint
+        // xoá payment này thì vẫn xoá thẳng được khoản đã duyệt qua đây, xoá THẬT (không SoftDeletes)
+        // kéo theo cascade xoá luôn dòng "Thu" liên kết trong sổ Thu Chi, mất vĩnh viễn bằng chứng đã
+        // thu tiền thật.
+        if ($payment->status === InvoicePayment::STATUS_APPROVED) {
+            return response()->json(['message' => 'Khoản thanh toán này đã được duyệt — không thể xoá để tránh mất dữ liệu sổ Thu Chi.'], 422);
+        }
+
         $payment->delete();
 
         return response()->json(['message' => 'Đã xoá lần thanh toán.']);

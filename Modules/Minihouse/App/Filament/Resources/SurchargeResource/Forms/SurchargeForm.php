@@ -31,6 +31,7 @@ class SurchargeForm
                     TextInput::make('amount')
                         ->label('Số tiền mặc định')
                         ->numeric()
+                        ->minValue(0)
                         ->prefix('đ')
                         ->required(),
                     Toggle::make('is_active')

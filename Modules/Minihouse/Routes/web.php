@@ -29,7 +29,11 @@ Route::middleware('auth')
 Route::get('/minihouse/feedback', [TenantFeedbackController::class, 'create'])
     ->name('minihouse.feedback.create');
 
+// throttle — endpoint công khai, không đăng nhập, không captcha: không giới hạn tần suất thì 1 script
+// có thể spam hàng loạt đánh giá giả mạo tên/SĐT khách thuê thật cho bất kỳ phòng nào. 5 lần/phút/IP
+// vẫn đủ thoải mái cho người dùng thật (không ai gửi feedback nhiều lần liên tục thật sự).
 Route::post('/minihouse/feedback', [TenantFeedbackController::class, 'store'])
+    ->middleware('throttle:5,1')
     ->name('minihouse.feedback.store');
 
 // Portal khách thuê — đăng nhập bằng OTP theo SĐT (guard "tenant", KHÔNG dùng chung guard "web" của

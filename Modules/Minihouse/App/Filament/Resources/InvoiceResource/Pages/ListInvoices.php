@@ -8,6 +8,7 @@ use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Support\Carbon;
+use Modules\Minihouse\App\Filament\Exports\InvoiceExporter;
 use Modules\Minihouse\App\Filament\Resources\InvoiceResource;
 use Modules\Minihouse\App\Models\Building;
 use Modules\Minihouse\App\Services\InvoiceGenerationService;
@@ -67,6 +68,10 @@ class ListInvoices extends ListRecords
                         ->send();
                 }),
 
+            // Xuất Excel TOÀN BỘ danh sách đang lọc/tìm kiếm hiện tại — xem chú thích chi tiết ở
+            // ListTenants::getHeaderActions() (lý do dùng Actions\ExportAction cấp trang thay vì
+            // Tables\Actions\ExportAction cấp bảng).
+            Actions\ExportAction::make()->label('Xuất Excel')->exporter(InvoiceExporter::class),
             Actions\CreateAction::make(),
         ];
     }
