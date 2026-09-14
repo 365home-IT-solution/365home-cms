@@ -81,6 +81,7 @@ class CouponController extends Controller
             'apply_type'      => $c->apply_type,
             'min_order_value' => $c->min_order_value,
             'max_discount'    => $c->max_discount,
+            'start_at'        => $c->start_at?->toDateTimeString(),
             'end_at'          => $c->end_at?->toDateTimeString(),
             'is_personal'     => isset($personalCodes[$c->code]) || $c->isPersonal(),
             'usage_remaining' => $c->usage_limit !== null
