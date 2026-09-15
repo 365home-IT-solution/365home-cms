@@ -5,6 +5,7 @@ namespace Modules\Minihouse\App\Services;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Modules\Metering\App\Models\MeteringReading;
 use Modules\Minihouse\App\Models\Building;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Invoice;
@@ -195,6 +196,13 @@ class InvoiceGenerationService
             ->orderByDesc('period_end')
             ->first();
 
+        // Module Metering (tách riêng, chỉ quản lý CHỈ SỐ — không quản lý giá) có thể đã có log chỉ
+        // số điện/nước của đúng phòng + đúng tháng đang lập hoá đơn — ưu tiên dùng log đó (kể cả
+        // electric_end/water_end, nhân viên đã đọc đồng hồ xong trước khi lập hoá đơn) thay vì luôn
+        // để trống end như trước. Building/phòng CHƯA dùng module Metering (không có log tháng này)
+        // thì giữ nguyên hành vi cũ — không breaking.
+        $meteringReading = MeteringReading::forRoomAndMonth($contract->room_id, $periodStart);
+
         $items = $contract->surcharges()->get()
             ->map(fn ($surcharge) => [
                 'surcharge_id' => $surcharge->id,
@@ -205,18 +213,40 @@ class InvoiceGenerationService
 
         $serviceAmount = collect($items)->sum('amount');
 
+        $electricStart = $meteringReading?->electric_start ?? $lastInvoice?->electric_end;
+        $electricEnd   = $meteringReading?->electric_end;
+        $waterStart    = $meteringReading?->water_start ?? $lastInvoice?->water_end;
+        $waterEnd      = $meteringReading?->water_end;
+
+        // BẮT BUỘC tính electric_amount/water_amount NGAY LÚC TẠO — trước đây (khi end LUÔN null vì
+        // chưa có module Metering) bỏ qua 2 field này không sao vì mặc định là 0 đúng thực tế "chưa
+        // biết". Từ khi có module Metering, $meteringReading có thể đã cho biết ĐỦ end ngay lúc lập
+        // hoá đơn hàng loạt — bỏ qua sẽ để electric_amount/water_amount = NULL/0 SAI dù thừa dữ liệu
+        // để tính đúng, và total_amount cũng thiếu hẳn 2 khoản này (lỗi thật đã phát hiện: hoá đơn có
+        // electric_end/water_end đầy đủ nhưng electric_amount/water_amount vẫn bằng 0).
+        $electricAmount = ($electricEnd !== null && $electricStart !== null)
+            ? round(max(0, (float) $electricEnd - (float) $electricStart) * (float) $electricPrice, 0)
+            : 0;
+        $waterAmount = ($waterEnd !== null && $waterStart !== null)
+            ? round(max(0, (float) $waterEnd - (float) $waterStart) * (float) $waterPrice, 0)
+            : 0;
+
         $invoice = Invoice::create([
             'contract_id'          => $contract->id,
             'month'                => $periodStart->copy()->startOfMonth(),
             'period_start'         => $effectiveStart,
             'period_end'           => $effectiveEnd,
             'room_price'           => $roomPrice,
-            'electric_start'       => $lastInvoice?->electric_end,
+            'electric_start'       => $electricStart,
+            'electric_end'         => $electricEnd,
             'electric_unit_price'  => $electricPrice,
-            'water_start'          => $lastInvoice?->water_end,
+            'electric_amount'      => $electricAmount,
+            'water_start'          => $waterStart,
+            'water_end'            => $waterEnd,
             'water_unit_price'     => $waterPrice,
+            'water_amount'         => $waterAmount,
             'service_amount'       => round($serviceAmount, 0),
-            'total_amount'         => round($roomPrice + $serviceAmount, 0),
+            'total_amount'         => round($roomPrice + $electricAmount + $waterAmount + $serviceAmount, 0),
             'status'               => Invoice::STATUS_UNPAID,
         ]);
 

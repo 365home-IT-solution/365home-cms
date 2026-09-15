@@ -18,6 +18,7 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Filament\Facades\Filament;
 use Filament\Support\Facades\FilamentView;
 use Filament\View\PanelsRenderHook;
+use Modules\Metering\App\Filament\MeteringPlugin;
 use Modules\Minihouse\App\Filament\MinihousePlugin;
 use Modules\Minihouse\App\Filament\Pages\Dashboard;
 use Modules\Minihouse\App\Livewire\BuildingSwitcher;
@@ -89,6 +90,10 @@ class MinihouseAdminPanelProvider extends PanelProvider
             ->databaseNotificationsPolling('30s')
             ->plugins([
                 MinihousePlugin::make(),
+                // Module Metering tách riêng khỏi Minihouse (chỉ quản lý log chỉ số điện/nước, đơn
+                // giá vẫn giữ ở Minihouse) — cùng cơ chế tự phát hiện Resource qua plugin, đăng ký
+                // vào chung panel minihouse-admin.
+                MeteringPlugin::make(),
                 // Cùng giao diện Vai trò/Permission dạng lưới theo từng Resource như panel Home
                 // (App\Providers\Filament\AdminPanelProvider) — chain cấu hình giống hệt. Mỗi panel
                 // tự resolve 1 instance FilamentShieldPlugin riêng (không phải singleton dùng

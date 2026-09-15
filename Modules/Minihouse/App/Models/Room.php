@@ -51,6 +51,12 @@ class Room extends Model
         return $this->hasMany(Contract::class);
     }
 
+    // Ảnh 360° chụp bên TRONG phòng này (nếu có) — xem PanoramaScene.
+    public function panoramaScenes(): HasMany
+    {
+        return $this->hasMany(PanoramaScene::class)->orderBy('sort_order');
+    }
+
     public function amenities(): BelongsToMany
     {
         return $this->belongsToMany(Amenity::class, 'minihouse_room_amenity');

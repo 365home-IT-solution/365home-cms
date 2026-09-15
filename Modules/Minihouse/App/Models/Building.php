@@ -72,6 +72,12 @@ class Building extends Model
         return $this->hasMany(Room::class);
     }
 
+    // Toàn bộ ảnh 360° (sảnh/hành lang/phòng) thuộc toà này — xem PanoramaScene.
+    public function panoramaScenes(): HasMany
+    {
+        return $this->hasMany(PanoramaScene::class)->orderBy('sort_order');
+    }
+
     // Building dùng SoftDeletes — xoá chỉ set deleted_at, KHÔNG kích hoạt cascade FK thật ở CSDL. Còn
     // Phòng nào thuộc toà này thì chặn xoá, tránh Room.building_id trỏ về 1 Building đã "biến mất"
     // (mọi $room->building sau đó trả về NULL do SoftDeletingScope, làm hỏng hiển thị tên toà/đơn giá

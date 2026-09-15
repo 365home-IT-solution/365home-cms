@@ -1,0 +1,11 @@
+{
+    "name": "Metering",
+    "alias": "metering",
+    "description": "",
+    "keywords": [],
+    "priority": 0,
+    "providers": [
+        "Modules\\Metering\\App\\Providers\\MeteringServiceProvider"
+    ],
+    "files": []
+}

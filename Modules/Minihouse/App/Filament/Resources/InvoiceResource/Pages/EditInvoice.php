@@ -10,6 +10,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\HtmlString;
 use Modules\BladeThemeV1\Support\QrCodeGenerator;
+use Modules\Metering\App\Models\MeteringReading;
 use Modules\Minihouse\App\Filament\Resources\InvoiceResource;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\InvoicePayment;
@@ -302,6 +303,51 @@ class EditInvoice extends EditRecord
     private function pendingPayment(): ?InvoicePayment
     {
         return $this->record->payments()->where('status', InvoicePayment::STATUS_PENDING)->first();
+    }
+
+    // Hoá đơn nào đó có thể đã lưu SỐ TIỀN CŨ (electric_amount/water_amount) từ trước khi log Số điện
+    // nước liên quan được tạo/sửa lại (chỉ số start/end đã đổi theo log mới nhưng thành tiền chưa
+    // được tính lại — recalcElectric()/recalcWater() phía client chỉ chạy khi có tương tác trực tiếp
+    // trên form, không tự chạy lại khi mở 1 hoá đơn ĐÃ CÓ SẴN). Tính lại ngay mỗi lần MỞ trang Sửa để
+    // luôn hiển thị đúng — chỉ SỬA HIỂN THỊ ở đây, số thật trong DB chỉ đổi khi bấm Lưu.
+    protected function mutateFormDataBeforeFill(array $data): array
+    {
+        $contract = ! empty($data['contract_id']) ? Contract::withoutGlobalScopes()->find($data['contract_id']) : null;
+        $roomId   = $contract?->room_id;
+
+        if (! $roomId || empty($data['month'])) {
+            return $data;
+        }
+
+        // setTimezone() BẮT BUỘC — $data['month'] ở đây đến từ Invoice::toArray() (cast 'date'),
+        // Laravel serialize ra chuỗi ISO UTC (VD "2026-08-31T17:00:00.000000Z" cho đúng nửa đêm
+        // 01/09 giờ VN). Carbon::parse() suông giữ nguyên giờ UTC đó, startOfMonth() bên trong
+        // forRoomAndMonth() sẽ tính nhầm ra 01/08 thay vì 01/09 — tra sai hẳn sang tháng trước, log
+        // đúng tháng luôn bị coi là "không tìm thấy". Đổi múi giờ về app.timezone (Asia/Ho_Chi_Minh)
+        // trước khi tra để lấy đúng ngày theo giờ VN, khớp với cách $get('month') hoạt động trong
+        // InvoiceForm (giá trị đó đến thẳng từ DatePicker phía client, không có vấn đề timezone này).
+        $reading = MeteringReading::forRoomAndMonth((int) $roomId, Carbon::parse($data['month'])->setTimezone(config('app.timezone')));
+
+        if (! $reading) {
+            return $data;
+        }
+
+        $data['electric_start'] = $reading->electric_start;
+        $data['electric_end']   = $reading->electric_end;
+        $data['water_start']    = $reading->water_start;
+        $data['water_end']      = $reading->water_end;
+
+        $electricAmount = max(0, (float) $reading->electric_end - (float) $reading->electric_start) * (float) ($data['electric_unit_price'] ?? 0);
+        $waterAmount    = max(0, (float) $reading->water_end - (float) $reading->water_start) * (float) ($data['water_unit_price'] ?? 0);
+
+        $data['electric_amount'] = round($electricAmount, 0);
+        $data['water_amount']    = round($waterAmount, 0);
+        $data['total_amount']    = round(
+            (float) ($data['room_price'] ?? 0) + $electricAmount + $waterAmount + (float) ($data['service_amount'] ?? 0),
+            0
+        );
+
+        return $data;
     }
 
     // status/amount_paid là cột CACHE chỉ tự đồng bộ khi có sự kiện THÊM/SỬA/XOÁ InvoicePayment (xem
