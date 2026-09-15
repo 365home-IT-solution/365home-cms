@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Modules\Minihouse\App\Exceptions\CannotDeletePaidInvoiceException;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Services\InvoiceGenerationService;
@@ -232,10 +233,10 @@ class InvoiceController extends Controller
         $serviceAmount  = $data['service_amount'] ?? 0;
 
         $invoice = Invoice::create(array_merge($data, [
-            'electric_amount' => round($electricAmount, 2),
-            'water_amount'    => round($waterAmount, 2),
-            'service_amount'  => round($serviceAmount, 2),
-            'total_amount'    => round($data['room_price'] + $electricAmount + $waterAmount + $serviceAmount, 2),
+            'electric_amount' => round($electricAmount, 0),
+            'water_amount'    => round($waterAmount, 0),
+            'service_amount'  => round($serviceAmount, 0),
+            'total_amount'    => round($data['room_price'] + $electricAmount + $waterAmount + $serviceAmount, 0),
             'status'          => Invoice::STATUS_UNPAID,
         ]));
 
@@ -281,10 +282,17 @@ class InvoiceController extends Controller
         $waterAmount    = max(0, ($wEnd ?? 0) - ($wStart ?? 0)) * ($wPrice ?? 0);
 
         $invoice->update(array_merge($data, [
-            'electric_amount' => round($electricAmount, 2),
-            'water_amount'    => round($waterAmount, 2),
-            'total_amount'    => round($roomPrice + $electricAmount + $waterAmount + $service, 2),
+            'electric_amount' => round($electricAmount, 0),
+            'water_amount'    => round($waterAmount, 0),
+            'total_amount'    => round($roomPrice + $electricAmount + $waterAmount + $service, 0),
         ]));
+
+        // status/amount_paid là cột CACHE chỉ tự đồng bộ khi có sự kiện THÊM/SỬA/XOÁ InvoicePayment
+        // (xem InvoicePaymentObserver) — sửa total_amount ở trên KHÔNG tự kích lại đồng bộ đó, để lại
+        // hoá đơn có thể vẫn hiện "Đã thanh toán" dù total_amount vừa tăng lên vượt quá amount_paid
+        // cũ (VD sửa lại chỉ số điện/nước sau khi hoá đơn đã được duyệt thanh toán đủ). Gọi lại đúng
+        // hàm đồng bộ đó ở đây để status luôn khớp đúng total_amount mới nhất.
+        (new \Modules\Minihouse\App\Observers\InvoicePaymentObserver())->resyncInvoice($invoice->id);
 
         return response()->json(['data' => $this->toDetailItem($invoice->fresh($this->invoiceRelations()))]);
     }
@@ -303,8 +311,14 @@ class InvoiceController extends Controller
         }
 
         // InvoiceObserver::deleting() tự xoá hết InvoicePayment (kéo theo Transaction liên kết) khi
-        // hoá đơn bị xoá mềm — xem MinihouseServiceProvider::boot().
-        $invoice->delete();
+        // hoá đơn bị xoá mềm — xem MinihouseServiceProvider::boot(). Ném
+        // CannotDeletePaidInvoiceException nếu hoá đơn đã có thanh toán được duyệt (chặn mất dữ liệu
+        // sổ Thu Chi), bắt lại ở đây để trả 422 thân thiện thay vì lỗi 500.
+        try {
+            $invoice->delete();
+        } catch (CannotDeletePaidInvoiceException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         return response()->json(['message' => 'Đã xoá hoá đơn.']);
     }

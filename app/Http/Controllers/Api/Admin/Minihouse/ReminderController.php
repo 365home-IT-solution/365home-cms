@@ -12,6 +12,7 @@ use Illuminate\Validation\Rule;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Reminder;
 use Modules\Minihouse\App\Models\Room;
+use Modules\Minihouse\App\Services\ReminderNotificationService;
 
 // Nhắc việc. room_id/contract_id ĐỀU nullable — nhắc việc CHUNG (không gắn phòng/hợp đồng nào, VD
 // "Đóng thuế quý") hiện được cho MỌI tài khoản MiniHouse, không giới hạn theo toà — chỉ nhắc việc
@@ -121,6 +122,26 @@ class ReminderController extends Controller
         $reminder->update($data);
 
         return response()->json(['data' => $this->toItem($reminder->fresh(['room', 'contract.room']))]);
+    }
+
+    // POST /api/admin/minihouse/reminders/send-due — kích hoạt thủ công NGAY logic đang chạy cron
+    // hàng ngày (xem SendReminderNotificationsCommand/app/Console/Kernel.php) — dùng khi cần gửi lại
+    // ngay không đợi tới giờ chạy cron (VD vừa sửa cấu hình Zalo/SMS, muốn kiểm tra ngay). Không giới
+    // hạn theo toà nhà được quản lý (ReminderNotificationService::sendDue() tự xét TOÀN BỘ reminder
+    // đến hạn, đúng như cron) — chỉ chặn theo quyền, dùng lại quyền "Sửa nhắc việc" sẵn có thay vì
+    // thêm 1 quyền riêng mới cho 1 hành động không phải CRUD.
+    public function sendDue(Request $request): JsonResponse
+    {
+        if (! $this->hasPermission($request, 'update_reminders')) {
+            return response()->json(['message' => 'Không có quyền gửi nhắc việc.'], 403);
+        }
+
+        $result = ReminderNotificationService::sendDue();
+
+        return response()->json([
+            'message' => "Đã gửi thông báo cho {$result['total']} nhắc việc.",
+            'data'    => $result,
+        ]);
     }
 
     // DELETE /api/admin/minihouse/reminders/{id}

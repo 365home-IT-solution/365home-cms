@@ -25,6 +25,7 @@ class AmenityForm
                         ->image()
                         ->imageEditor()
                         ->imagePreviewHeight('100')
+                        ->maxSize(5120)
                         ->directory('minihouse/amenities')
                         ->disk('public')
                         ->nullable(),

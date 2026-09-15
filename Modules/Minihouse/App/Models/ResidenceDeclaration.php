@@ -57,8 +57,16 @@ class ResidenceDeclaration extends Model
 
     // "primary" (đứng tên hợp đồng) hay "occupant" (ở cùng) — tra theo bảng trung gian
     // minihouse_contract_tenants, không lưu trực tiếp ở đây để tránh 2 nguồn sự thật lệch nhau.
+    // Nếu 'contract.contractTenants' đã được eager-load sẵn (xem ResidenceDeclarationTable::table())
+    // thì dùng lại luôn, tránh N+1 (1 query riêng/dòng khi hiện danh sách nhiều bản khai).
     public function roleInContract(): string
     {
+        if ($this->relationLoaded('contract') && $this->contract?->relationLoaded('contractTenants')) {
+            return $this->contract->contractTenants
+                ->firstWhere('tenant_id', $this->tenant_id)
+                ?->role ?? ContractTenant::ROLE_PRIMARY;
+        }
+
         return ContractTenant::where('contract_id', $this->contract_id)
             ->where('tenant_id', $this->tenant_id)
             ->value('role') ?? ContractTenant::ROLE_PRIMARY;

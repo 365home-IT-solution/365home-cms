@@ -86,7 +86,9 @@ class ResidenceDeclarationController extends Controller
             'document_type'      => 'nullable|string|max:255',
             'phone_number'       => 'nullable|string|max:20',
             'checked_in_at'      => 'nullable|date',
-            'checked_out_at'     => 'nullable|date',
+            // Mirror ResidenceDeclarationForm — chặn "Ngày đi dự kiến" trước "Ngày đến", tránh dữ
+            // liệu vô lý làm sai thời hạn khai báo (declarationDeadline()) và export cho công an.
+            'checked_out_at'     => 'nullable|date|after_or_equal:checked_in_at',
             'room_number'        => 'nullable|string|max:255',
             'stay_address'       => 'nullable|string|max:255',
             'reason_for_stay'    => 'nullable|string|max:255',
@@ -132,7 +134,9 @@ class ResidenceDeclarationController extends Controller
             'document_type'      => 'nullable|string|max:255',
             'phone_number'       => 'nullable|string|max:20',
             'checked_in_at'      => 'nullable|date',
-            'checked_out_at'     => 'nullable|date',
+            // Mirror ResidenceDeclarationForm — chặn "Ngày đi dự kiến" trước "Ngày đến", tránh dữ
+            // liệu vô lý làm sai thời hạn khai báo (declarationDeadline()) và export cho công an.
+            'checked_out_at'     => 'nullable|date|after_or_equal:checked_in_at',
             'room_number'        => 'nullable|string|max:255',
             'stay_address'       => 'nullable|string|max:255',
             'reason_for_stay'    => 'nullable|string|max:255',

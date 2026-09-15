@@ -27,5 +27,6 @@
     "TTLock": true,
     "Employee": true,
     "Warehouse": true,
-    "Minihouse": true
+    "Minihouse": true,
+    "Metering": true
 }

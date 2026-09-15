@@ -32,7 +32,10 @@ class InvoicePaymentObserver
         // Không cần tự xoá Transaction ở đây — FK invoice_payment_id đã cascadeOnDelete().
     }
 
-    private function resyncInvoice(?int $invoiceId): void
+    // public — InvoiceController::update() cũng gọi lại đúng hàm này sau khi nhân viên sửa số tiền
+    // hoá đơn (room_price/điện/nước/phụ thu), để status/amount_paid được TÍNH LẠI ngay theo tổng mới
+    // (xem giải thích đầy đủ ở InvoiceController::update()).
+    public function resyncInvoice(?int $invoiceId): void
     {
         $invoice = Invoice::find($invoiceId);
 

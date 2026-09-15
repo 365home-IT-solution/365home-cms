@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Modules\Minihouse\Http\Controllers\ContractPrintController;
 use Modules\Minihouse\Http\Controllers\InvoicePrintController;
+use Modules\Minihouse\Http\Controllers\PanoramaTourController;
 use Modules\Minihouse\Http\Controllers\Portal\TenantAuthController;
 use Modules\Minihouse\Http\Controllers\Portal\TenantPortalController;
 use Modules\Minihouse\Http\Controllers\TenantFeedbackController;
@@ -29,8 +30,36 @@ Route::middleware('auth')
 Route::get('/minihouse/feedback', [TenantFeedbackController::class, 'create'])
     ->name('minihouse.feedback.create');
 
+// throttle — endpoint công khai, không đăng nhập, không captcha: không giới hạn tần suất thì 1 script
+// có thể spam hàng loạt đánh giá giả mạo tên/SĐT khách thuê thật cho bất kỳ phòng nào. 5 lần/phút/IP
+// vẫn đủ thoải mái cho người dùng thật (không ai gửi feedback nhiều lần liên tục thật sự).
 Route::post('/minihouse/feedback', [TenantFeedbackController::class, 'store'])
+    ->middleware('throttle:5,1')
     ->name('minihouse.feedback.store');
+
+// Tour ảo 360° CÔNG KHAI — khách xem sơ đồ phòng qua ảnh toàn cảnh (Pannellum), KHÔNG cần đăng nhập,
+// cùng nguyên tắc route công khai với TenantFeedbackController (dán QR trong toà nhà/phòng, hoặc gửi
+// link trực tiếp cho khách). Xem PanoramaTourController.
+Route::get('/minihouse/tour/{building}', [PanoramaTourController::class, 'show'])
+    ->whereNumber('building')
+    ->name('minihouse.tour.show');
+
+Route::get('/minihouse/tour/{building}/data.json', [PanoramaTourController::class, 'data'])
+    ->whereNumber('building')
+    ->name('minihouse.tour.data');
+
+// Sơ đồ tầng isometric TỰ SINH từ dữ liệu 360° (không cần nhập toạ độ tay) — xem
+// PanoramaFloorPlanLayoutService. Đặt TRƯỚC "{scene}" bên dưới vì "floorplan" không phải số nên
+// ->whereNumber('scene') của route đó sẽ không khớp nhầm, nhưng để tường minh đặt trước cho dễ đọc.
+Route::get('/minihouse/tour/{building}/floorplan', [PanoramaTourController::class, 'floorplan'])
+    ->whereNumber('building')
+    ->name('minihouse.tour.floorplan');
+
+// Đặt SAU "/data.json" — path khác nhau nên không đụng route-model-binding, nhưng để cạnh nhau cho
+// dễ đọc (route "vào thẳng 1 điểm" và "dữ liệu tour" cùng thuộc {building}).
+Route::get('/minihouse/tour/{building}/{scene}', [PanoramaTourController::class, 'scene'])
+    ->whereNumber(['building', 'scene'])
+    ->name('minihouse.tour.scene');
 
 // Portal khách thuê — đăng nhập bằng OTP theo SĐT (guard "tenant", KHÔNG dùng chung guard "web" của
 // nhân viên/chủ nhà), xem TenantAuthController/TenantPortalController. Đặt CHUNG group prefix

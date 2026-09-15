@@ -105,11 +105,13 @@ class BuildingForm
                 TextInput::make('electric_unit_price')
                     ->label('Đơn giá điện mặc định')
                     ->numeric()
+                    ->minValue(0)
                     ->prefix('đ')
                     ->helperText('Áp dụng khi lập hoá đơn cho phòng thuộc toà này — sửa được riêng từng hoá đơn.'),
                 TextInput::make('water_unit_price')
                     ->label('Đơn giá nước mặc định')
                     ->numeric()
+                    ->minValue(0)
                     ->prefix('đ')
                     ->helperText('Áp dụng khi lập hoá đơn cho phòng thuộc toà này — sửa được riêng từng hoá đơn.'),
                 FileUpload::make('image')
@@ -117,6 +119,7 @@ class BuildingForm
                     ->image()
                     ->imageEditor()
                     ->imagePreviewHeight('150')
+                    ->maxSize(5120)
                     ->directory('minihouse/buildings')
                     ->disk('public')
                     ->columnSpanFull(),
@@ -146,10 +149,14 @@ class BuildingForm
                         TextInput::make('owner_phone')
                             ->label('Số điện thoại')
                             ->tel()
-                            ->maxLength(20),
+                            ->maxLength(20)
+                            ->regex('/^(0[0-9]{9,10}|\+84[0-9]{9,10})$/')
+                            ->validationMessages(['regex' => 'Số điện thoại không đúng định dạng (VD: 0912345678).']),
                         TextInput::make('owner_id_card_number')
                             ->label('Số CCCD/CMND')
-                            ->maxLength(20),
+                            ->maxLength(20)
+                            ->regex('/^([0-9]{9}|[0-9]{12})$/')
+                            ->validationMessages(['regex' => 'Số CCCD/CMND phải gồm đúng 9 (CMND cũ) hoặc 12 (CCCD mới) chữ số.']),
                         TextInput::make('owner_email')
                             ->label('Email')
                             ->email()

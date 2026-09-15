@@ -8,6 +8,8 @@ use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Modules\Minihouse\App\Models\Tenant;
+use Modules\Minihouse\App\Models\TenantPushToken;
 
 class FcmService
 {
@@ -141,6 +143,127 @@ class FcmService
             $this->sendViaExpo($customer->token_device, $title, $body, $data);
         } else {
             $this->sendMobile($this->getAccessToken(), $customer->token_device, $title, $body, $data);
+        }
+    }
+
+    /**
+     * Gửi push notification tới TẤT CẢ thiết bị đã đăng ký của 1 khách thuê MiniHouse
+     * (Modules\Minihouse\App\Models\Tenant) — CỐ Ý không tái dùng sendToUsers()/sendToCustomer() ở
+     * trên: 2 hàm đó dọn token chết bằng cách xoá ở bảng FcmToken/Customer, dùng nhầm cho Tenant sẽ
+     * xoá sai bảng (không lỗi, nhưng token chết của Tenant sẽ không bao giờ được dọn, tồn tại mãi).
+     * Tách hẳn 2 hàm private bên dưới (sendViaExpoToTenant/sendWebToTenant) để dọn đúng bảng
+     * TenantPushToken, không đụng gì tới luồng push hiện có của Home.
+     */
+    public function sendToTenant(Tenant $tenant, string $title, string $body, array $data = []): void
+    {
+        $tokens = TenantPushToken::where('tenant_id', $tenant->id)->pluck('token')->all();
+
+        if (empty($tokens)) {
+            return;
+        }
+
+        $expoTokens = array_values(array_filter($tokens, fn ($token) => $this->isExpoToken($token)));
+        $fcmTokens  = array_values(array_diff($tokens, $expoTokens));
+
+        foreach ($expoTokens as $token) {
+            $this->sendViaExpoToTenant($token, $title, $body, $data);
+        }
+
+        if (empty($fcmTokens)) {
+            return;
+        }
+
+        $accessToken = $this->getAccessToken();
+
+        foreach ($fcmTokens as $token) {
+            $this->sendWebToTenant($accessToken, $token, $title, $body, $data);
+        }
+    }
+
+    private function sendViaExpoToTenant(string $token, string $title, string $body, array $data): void
+    {
+        $payload = [
+            'to'    => $token,
+            'title' => $title,
+            'body'  => $body,
+            'sound' => 'default',
+            'data'  => $data,
+        ];
+
+        try {
+            $response = Http::withHeaders([
+                'Accept'       => 'application/json',
+                'Content-Type' => 'application/json',
+            ])
+                ->timeout(10)
+                ->post('https://exp.host/--/api/v2/push/send', $payload);
+
+            $result = $response->json('data');
+            $status = $result['status'] ?? '';
+
+            if ($status === 'error') {
+                $errorCode = $result['details']['error'] ?? '';
+
+                if ($errorCode === 'DeviceNotRegistered') {
+                    TenantPushToken::where('token', $token)->delete();
+                } else {
+                    Log::warning('Expo push (tenant) failed', ['error' => $errorCode, 'token_prefix' => substr($token, 0, 30)]);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::error('Expo push (tenant) exception', ['message' => $e->getMessage()]);
+        }
+    }
+
+    // webpush.fcm_options.link trỏ vào Portal khách thuê (khác hẳn sendToUsers() trỏ /admin) — bấm
+    // vào thông báo trên trình duyệt sẽ mở đúng trang liên quan (VD chi tiết hoá đơn) thay vì trang
+    // quản trị mà khách thuê không có quyền vào.
+    private function sendWebToTenant(string $accessToken, string $token, string $title, string $body, array $data): void
+    {
+        $url = "https://fcm.googleapis.com/v1/projects/{$this->projectId}/messages:send";
+
+        $payload = [
+            'message' => [
+                'token'        => $token,
+                'notification' => ['title' => $title, 'body' => $body],
+                'webpush'      => [
+                    'notification' => [
+                        'title' => $title,
+                        'body'  => $body,
+                        'icon'  => '/favicon.ico',
+                        'badge' => '/favicon.ico',
+                        'requireInteraction' => false,
+                    ],
+                    'fcm_options' => [
+                        'link' => $data['link'] ?? (config('app.url') . '/minihouse/portal'),
+                    ],
+                ],
+                'android' => [
+                    'notification' => ['sound' => 'default'],
+                ],
+                'apns' => [
+                    'payload' => ['aps' => ['sound' => 'default', 'badge' => 1]],
+                ],
+                'data' => empty($data) ? new \stdClass() : array_map('strval', $data),
+            ],
+        ];
+
+        try {
+            $response = Http::withToken($accessToken)
+                ->timeout(10)
+                ->post($url, $payload);
+
+            if ($response->failed()) {
+                $error = $response->json('error.details.0.errorCode') ?? $response->body();
+
+                if (in_array($error, ['UNREGISTERED', 'INVALID_ARGUMENT'])) {
+                    TenantPushToken::where('token', $token)->delete();
+                } else {
+                    Log::warning('FCM send (tenant) failed', ['error' => $error, 'token_prefix' => substr($token, 0, 20)]);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::error('FCM exception (tenant)', ['message' => $e->getMessage()]);
         }
     }
 

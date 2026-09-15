@@ -5,17 +5,12 @@
     widget, làm mọi lời gọi $wire bên trong (toggleRoomRepair/bulkMarkRepair) bị chỉ sai sang tận
     component CHA (trang Dashboard) — gây lỗi 500 "method not found on component". --}}
     <style>
+        /* Desktop (>=768px): 1 trang = 3 toà xếp cạnh nhau, y hệt trước đây. Mobile: 1 trang = ĐÚNG 1
+        toà, chiếm trọn màn hình (không xuống hàng) — số toà/trang (pageSize, tính trong x-data bên
+        dưới) đổi số cột grid tương ứng qua :style, CSS này chỉ lo khoảng cách. */
         .mh-room-map-buildings {
             display: grid;
-            grid-template-columns: 1fr;
             gap: 1rem;
-            align-items: start;
-        }
-        @media (min-width: 768px) {
-            .mh-room-map-buildings { grid-template-columns: repeat(2, 1fr); }
-        }
-        @media (min-width: 1280px) {
-            .mh-room-map-buildings { grid-template-columns: repeat(3, 1fr); }
         }
     </style>
 
@@ -32,51 +27,82 @@
         </div>
 
         @php
-            // 1 hàng = 3 toà nhà — nhiều hơn thì gộp thành từng "trang" 3 toà để lướt qua lại
-            // (carousel) thay vì xếp dồn dọc rất dài, khó so sánh nhiều toà cùng lúc.
-            $buildingPages = $buildings->chunk(3)->values();
+            // Danh sách PHẲNG (không gộp trước theo Blade nữa) — số toà/trang giờ tính bên JS theo
+            // kích thước màn hình thực tế (3 ở desktop ≥768px, 1 ở mobile), Blade không biết trước
+            // được viewport nên không thể chunk() cố định 1 số như trước.
+            $buildingPages = $buildings->values();
         @endphp
 
         @if ($buildingPages->isEmpty())
             <p class="text-sm text-gray-500 dark:text-gray-400">Chưa có phòng nào.</p>
         @else
-            <div x-data="{ page: 0, pages: {{ $buildingPages->count() }} }">
-                @if ($buildingPages->count() > 1)
+            <div
+                x-data="{
+                    total: {{ $buildingPages->count() }},
+                    pageSize: window.matchMedia('(min-width: 768px)').matches ? 3 : 1,
+                    page: 0,
+                    touchStartX: null,
+                    get pages() { return Math.max(1, Math.ceil(this.total / this.pageSize)); },
+                    isOnPage(i) { return Math.floor(i / this.pageSize) === this.page; },
+                    goToPage(p) { this.page = ((p % this.pages) + this.pages) % this.pages; },
+                    init() {
+                        // Đổi cỡ màn hình (xoay ngang/dọc, thu nhỏ trình duyệt) — tính lại pageSize và
+                        // reset về trang đầu để tránh 'page' trỏ ra ngoài phạm vi mới.
+                        window.matchMedia('(min-width: 768px)').addEventListener('change', (e) => {
+                            this.pageSize = e.matches ? 3 : 1;
+                            this.page = 0;
+                        });
+                    },
+                    onTouchStart(e) { this.touchStartX = e.changedTouches[0].screenX; },
+                    onTouchEnd(e) {
+                        if (this.touchStartX === null) return;
+                        const delta = e.changedTouches[0].screenX - this.touchStartX;
+                        this.touchStartX = null;
+                        if (Math.abs(delta) < 40) return; // vuốt quá ngắn — bỏ qua, tránh nhầm với chạm thường
+                        this.goToPage(this.page + (delta < 0 ? 1 : -1));
+                    },
+                }"
+            >
+                <template x-if="pages > 1">
                     <div class="mb-4 flex items-center justify-center gap-3">
                         <button
                             type="button"
-                            @click="page = (page - 1 + pages) % pages"
+                            @click="goToPage(page - 1)"
                             class="flex h-7 w-7 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-white"
                         >
                             <x-heroicon-o-chevron-left class="h-4 w-4" />
                         </button>
 
                         <div class="flex items-center gap-1.5">
-                            @foreach ($buildingPages as $i => $_)
+                            <template x-for="p in pages" :key="p">
                                 <button
                                     type="button"
-                                    @click="page = {{ $i }}"
-                                    :class="page === {{ $i }} ? 'w-5 bg-primary-500' : 'w-1.5 bg-gray-300 dark:bg-white/20'"
+                                    @click="goToPage(p - 1)"
+                                    :class="page === (p - 1) ? 'w-5 bg-primary-500' : 'w-1.5 bg-gray-300 dark:bg-white/20'"
                                     class="h-1.5 rounded-full transition-all"
-                                    aria-label="Trang {{ $i + 1 }}"
+                                    :aria-label="'Trang ' + p"
                                 ></button>
-                            @endforeach
+                            </template>
                         </div>
 
                         <button
                             type="button"
-                            @click="page = (page + 1) % pages"
+                            @click="goToPage(page + 1)"
                             class="flex h-7 w-7 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-white/10 dark:hover:text-white"
                         >
                             <x-heroicon-o-chevron-right class="h-4 w-4" />
                         </button>
                     </div>
-                @endif
+                </template>
 
-                @foreach ($buildingPages as $i => $pageBuildings)
-                    <div x-show="page === {{ $i }}" x-cloak class="mh-room-map-buildings">
-                        @foreach ($pageBuildings as $group)
-                            {{-- x-data ở CẤP TOÀ NHÀ — "Chọn nhiều" chỉ chọn được phòng TRONG CÙNG 1 toà, không
+                <div
+                    @touchstart="onTouchStart($event)" @touchend="onTouchEnd($event)"
+                    class="mh-room-map-buildings"
+                    x-bind:style="'grid-template-columns: repeat(' + pageSize + ', 1fr);'"
+                >
+                @foreach ($buildingPages as $i => $group)
+                    <div x-show="isOnPage({{ $i }})" x-cloak>
+                        {{-- x-data ở CẤP TOÀ NHÀ — "Chọn nhiều" chỉ chọn được phòng TRONG CÙNG 1 toà, không
                             lẫn sang toà khác. `rooms` là map id -> {code,status,createHref,roomEditHref} của
                             các phòng CHƯA có khách (đang thuê không cho chọn) để phần header tra cứu link/tên
                             khi hiện nút hành động cho đúng phòng đang chọn.
@@ -108,8 +134,11 @@
                                 }"
                                 class="overflow-hidden rounded-xl border border-gray-200 dark:border-white/10"
                             >
-                                <div class="flex items-start justify-between gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-white/10 dark:bg-white/5">
-                                    <div>
+                                {{-- flex-col ở mobile (tên toà + hành động xếp thành 2 hàng riêng, mỗi hàng đủ
+                                rộng để không bị bóp/cắt chữ nút) — sm:flex-row trở lại đúng 1 hàng như cũ ở
+                                màn hình ≥640px, nơi đủ chỗ cho cả 2 bên. --}}
+                                <div class="flex flex-col gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-white/10 dark:bg-white/5 sm:flex-row sm:items-start sm:justify-between">
+                                    <div class="min-w-0">
                                         <div class="truncate text-sm font-semibold text-gray-950 dark:text-white">{{ $group['building']?->name ?? 'Chưa gán toà nhà' }}</div>
                                         <div class="mt-1.5 flex flex-wrap items-center gap-1 text-[11px]">
                                             <span class="rounded-full bg-success-50 px-1.5 py-0.5 font-medium text-success-700 dark:bg-success-500/10 dark:text-success-400">{{ $group['stats']['empty'] }} trống</span>
@@ -132,7 +161,7 @@
                                     {{-- Dùng style nội tuyến cho TOÀN BỘ nút ở đây (không phải class Tailwind) —
                                     đây là vùng UI mới, tránh lệ thuộc phải build lại CSS mỗi lần thêm class mới
                                     (đã từng bị nút hiện "mờ" do thiếu 1 class chưa kịp build). --}}
-                                    <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:4px; flex-shrink:0;">
+                                    <div style="display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-start; gap:4px;">
                                         <template x-if="selected.length === 0">
                                             <button
                                                 type="button"
@@ -184,7 +213,11 @@
                                             </div>
 
                                             @if ($floorData['maxCol'] > 0)
-                                                {{-- Sơ đồ THẬT theo đúng hàng/cột đã khai báo — ô không có phòng để trống, không phải bị thiếu dữ liệu. --}}
+                                                {{-- Sơ đồ THẬT theo đúng hàng/cột đã khai báo — ô không có phòng để trống, không phải bị thiếu dữ liệu.
+                                                CỐ Ý dùng "inline-grid" (co vừa đúng nội dung, ô luôn cố định 4.5rem) chứ KHÔNG giãn hết chiều rộng
+                                                thẻ — đã cân nhắc phương án giãn ô để lấp khoảng trống ở toà/tầng ít cột, nhưng chọn giữ kích thước ô
+                                                ĐỒNG NHẤT giữa mọi toà/tầng (chấp nhận có khoảng trống bên phải ở toà/tầng ít phòng) thay vì để cùng 1
+                                                mã phòng to nhỏ khác nhau tuỳ toà/tầng. --}}
                                                 <div class="overflow-x-auto pb-1">
                                                     <div class="inline-grid gap-1.5" style="grid-template-columns: repeat({{ $floorData['maxCol'] }}, minmax(4.5rem, 1fr));">
                                                         @foreach ($floorData['grid'] as $rowCells)
@@ -216,9 +249,9 @@
                                     @endforeach
                                 </div>
                             </div>
-                        @endforeach
                     </div>
                 @endforeach
+                </div>
             </div>
         @endif
     </x-filament::section>

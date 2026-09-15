@@ -6,6 +6,8 @@ use App\Models\User;
 use App\Services\AdminNotificationService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Modules\Minihouse\App\Models\Building;
+use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\PortalNotification;
 use Modules\Minihouse\App\Models\Reminder;
 use Modules\Minihouse\App\Support\MinihousePermissions;
@@ -58,6 +60,69 @@ class ReminderNotificationService
         }
 
         return $query->get();
+    }
+
+    // Logic dùng chung cho lệnh cron NGÀY (SendReminderNotificationsCommand) VÀ endpoint API kích
+    // hoạt thủ công (ReminderController::sendDue()) — tránh viết trùng 2 nơi. 2 nhóm gửi:
+    //  1. CHƯA TỪNG GỬI, đã tới/qua remind_date, chưa xong (is_done=false) — hành vi gốc, gửi đúng 1 lần.
+    //  2. ĐÃ GỬI rồi nhưng là "Nhắc đóng tiền" gắn 1 hoá đơn VẪN CÒN CHƯA THANH TOÁN sau khi đã đủ số
+    //     ngày lặp lại cấu hình ở Building.payment_reminder_repeat_days — CHỈ DỪNG khi hoá đơn đã "Đã
+    //     thanh toán" (InvoicePaymentObserver tự đánh dấu is_done=true cho các reminder liên quan).
+    // Trả về số liệu để cả 2 nơi gọi tự báo cáo lại cho người dùng (console output / JSON response).
+    public static function sendDue(): array
+    {
+        $newReminders = Reminder::query()
+            ->withoutGlobalScopes()
+            ->where('is_done', false)
+            ->whereNull('notified_at')
+            ->whereDate('remind_date', '<=', now()->toDateString())
+            ->get();
+
+        $repeatReminders = static::dueForRepeat();
+
+        $all = $newReminders->concat($repeatReminders);
+
+        foreach ($all as $reminder) {
+            static::notify($reminder);
+        }
+
+        return [
+            'total'  => $all->count(),
+            'new'    => $newReminders->count(),
+            'repeat' => $repeatReminders->count(),
+        ];
+    }
+
+    // Nhắc đóng tiền ĐÃ GỬI ít nhất 1 lần, hoá đơn liên quan VẪN chưa thanh toán, và đã đủ số ngày
+    // lặp lại kể từ lần nhắc gần nhất — tính theo Building.payment_reminder_repeat_days của đúng
+    // toà nhà chứa hợp đồng đó (không cấu hình = không lặp, giữ nguyên hành vi gốc).
+    private static function dueForRepeat(): Collection
+    {
+        return Reminder::query()
+            ->withoutGlobalScopes()
+            ->where('is_done', false)
+            ->where('type', Reminder::TYPE_PAYMENT)
+            ->whereNotNull('invoice_id')
+            ->whereNotNull('notified_at')
+            ->get()
+            ->filter(function (Reminder $reminder) {
+                $invoice = Invoice::withoutGlobalScopes()->find($reminder->invoice_id);
+
+                if (! $invoice || ! in_array($invoice->status, [Invoice::STATUS_UNPAID, Invoice::STATUS_PARTIAL], true)) {
+                    return false;
+                }
+
+                $repeatDays = $reminder->resolveBuildingId()
+                    ? Building::withoutGlobalScopes()->find($reminder->resolveBuildingId())?->payment_reminder_repeat_days
+                    : null;
+
+                if (! $repeatDays) {
+                    return false;
+                }
+
+                return $reminder->notified_at->copy()->addDays($repeatDays)->lte(now());
+            })
+            ->values();
     }
 
     public static function notify(Reminder $reminder): void

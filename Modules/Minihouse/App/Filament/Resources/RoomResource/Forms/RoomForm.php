@@ -11,6 +11,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
+use Modules\Minihouse\App\Models\AssetType;
 use Modules\Minihouse\App\Models\Room;
 use Modules\Minihouse\App\Models\RoomAsset;
 
@@ -43,6 +44,7 @@ class RoomForm
                     TextInput::make('price')
                         ->label('Giá thuê / tháng')
                         ->numeric()
+                        ->minValue(0)
                         ->required()
                         ->prefix('đ'),
                     Select::make('status')
@@ -55,7 +57,20 @@ class RoomForm
                         ])
                         ->default(Room::STATUS_EMPTY)
                         ->required()
-                        ->helperText('"Đã đặt cọc"/"Đã thuê" tự động cập nhật theo Hợp đồng (ngày bắt đầu) — chỉ nên tự sửa tay khi cần điều chỉnh bất thường.'),
+                        ->helperText('"Đã đặt cọc"/"Đã thuê" tự động cập nhật theo Hợp đồng (ngày bắt đầu) — chỉ nên tự sửa tay khi cần điều chỉnh bất thường.')
+                        // Chặn đổi sang "Trống"/"Đã khoá" trong khi phòng vẫn có hợp đồng "Đang hiệu
+                        // lực" — xem Room::hasActiveContract(). Vẫn cho phép GIỮ NGUYÊN "Đang thuê"/
+                        // "Đã đặt cọc" khi sửa các field khác của phòng (không đổi status thì không
+                        // kiểm tra).
+                        ->rule(fn (?Room $record) => function (string $attribute, $value, \Closure $fail) use ($record) {
+                            if (
+                                $record
+                                && ! in_array($value, [Room::STATUS_RENTED, Room::STATUS_RESERVED], true)
+                                && $record->hasActiveContract()
+                            ) {
+                                $fail('Phòng này đang có hợp đồng "Đang hiệu lực" — không thể đổi tình trạng thủ công. Hãy Thanh lý/Huỷ/Chuyển phòng ở trang Hợp đồng trước.');
+                            }
+                        }),
                     Textarea::make('note')
                         ->label('Ghi chú')
                         ->columnSpanFull(),
@@ -95,10 +110,24 @@ class RoomForm
                         ->label('')
                         ->relationship('assets')
                         ->schema([
-                            TextInput::make('name')
+                            // Chọn từ danh mục "Loại tài sản" (CRUD riêng ở AssetTypeResource) thay
+                            // vì gõ tay tự do — nhiều phòng thì gõ tay rất chậm và dễ lệch tên cùng 1
+                            // loại (VD "Máy lạnh"/"máy lạnh"/"Điều hoà"). createOptionForm cho thêm
+                            // NGAY 1 loại mới vào danh mục nếu chưa có, không cần rời trang Phòng —
+                            // cùng nguyên tắc popup "thêm nhanh khách thuê" ở ContractForm.
+                            Select::make('name')
                                 ->label('Tên tài sản')
+                                ->options(fn () => AssetType::orderBy('name')->pluck('name', 'name'))
+                                ->searchable()
                                 ->required()
-                                ->maxLength(255),
+                                ->createOptionForm([
+                                    TextInput::make('name')
+                                        ->label('Tên loại tài sản')
+                                        ->required()
+                                        ->unique('minihouse_asset_types', 'name')
+                                        ->maxLength(255),
+                                ])
+                                ->createOptionUsing(fn (array $data) => AssetType::create($data)->name),
                             Select::make('condition')
                                 ->label('Tình trạng')
                                 ->options([
@@ -126,6 +155,7 @@ class RoomForm
                         ->image()
                         ->multiple()
                         ->reorderable()
+                        ->maxSize(5120)
                         ->directory('minihouse/rooms')
                         ->disk('public'),
                     // Chọn từ bảng minihouse_amenities (CRUD riêng ở "Tiện ích") thay vì danh sách cố

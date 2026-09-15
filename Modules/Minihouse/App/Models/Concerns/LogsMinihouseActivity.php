@@ -6,16 +6,16 @@ use App\Models\User;
 use Modules\Minihouse\App\Models\ActivityLog;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Invoice;
-use Modules\Minihouse\App\Support\ActiveBuildingScope;
 
 // Ghi log tự động (tạo/sửa/xoá) cho MỌI model gắn trait này — mirror đúng cơ chế "trait tự gắn"
 // App\Models\Concerns\LogsAuditTrail bên Home, nhưng viết vào bảng riêng của MiniHouse
 // (minihouse_activity_logs, lọc theo building_id) thay vì bảng audit_logs bắt buộc partner_id của
 // Home — MiniHouse không có khái niệm partner.
 //
-// Chỉ ghi khi đang chạy TRONG panel minihouse-admin (ActiveBuildingScope::isPanelActive()) VÀ có
-// user thật đăng nhập — tránh ghi nhầm log cho lệnh console (VD minihouse:generate-invoices chạy
-// theo lịch, không có ai đăng nhập) hay observer tự đồng bộ dữ liệu ngoài panel.
+// Ghi khi có user thật đứng sau thao tác (panel Filament HOẶC API REST đã xác thực Sanctum — xem
+// shouldLogActivity()) — tránh ghi nhầm log cho lệnh console (VD minihouse:generate-invoices chạy
+// theo lịch, không có ai đăng nhập) hay observer tự đồng bộ dữ liệu không gắn với 1 request có
+// người dùng thật.
 trait LogsMinihouseActivity
 {
     private static bool $activityLoggingSuppressed = false;
@@ -69,9 +69,15 @@ trait LogsMinihouseActivity
         });
     }
 
+    // Trước đây CHỈ ghi log khi đang chạy trong panel Filament (isPanelActive()) — audit phát hiện
+    // 2026-09-11: mọi thao tác qua API REST (app/Http/Controllers/Api/Admin/Minihouse/*, xác thực
+    // Sanctum) chạy NGOÀI panel nên KHÔNG BAO GIỜ được ghi log, dù có tài khoản thật đứng sau (Laravel
+    // middleware auth:sanctum tự shouldUse('sanctum') làm guard mặc định cho hết request đó, nên
+    // auth()->user() ở đây vẫn tra đúng tài khoản API — không cần chỉ định guard). Giữ nguyên việc
+    // loại trừ lệnh console/cron/observer tự đồng bộ (không ai đăng nhập, auth()->user() = null).
     private static function shouldLogActivity(): bool
     {
-        return ActiveBuildingScope::isPanelActive() && auth()->user() instanceof User && ! self::$activityLoggingSuppressed;
+        return auth()->user() instanceof User && ! self::$activityLoggingSuppressed;
     }
 
     private static function writeActivityLog(string $action, $model, ?array $old, ?array $new): void

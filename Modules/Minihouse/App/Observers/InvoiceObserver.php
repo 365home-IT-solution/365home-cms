@@ -2,6 +2,7 @@
 
 namespace Modules\Minihouse\App\Observers;
 
+use Modules\Minihouse\App\Exceptions\CannotDeletePaidInvoiceException;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\PortalNotification;
@@ -17,8 +18,21 @@ use Modules\Minihouse\App\Services\PortalNotificationService;
 // đúng dòng Transaction liên kết qua invoice_payment_id.
 class InvoiceObserver
 {
+    // Chặn xoá hoá đơn ĐÃ CÓ khoản thanh toán được duyệt — xoá bên dưới xoá THẬT InvoicePayment (kéo
+    // theo xoá luôn dòng "Thu" trong sổ Thu Chi), mất vĩnh viễn bằng chứng đã thu tiền thật nếu cho
+    // xoá tự do (xem Invoice::hasApprovedPayment()). Ném exception ở event "deleting" chặn được MỌI
+    // đường gọi delete() (Filament, API, tinker...) tại 1 điểm duy nhất — InvoiceTable/EditInvoice
+    // (Filament) và InvoiceController::destroy() (API) tự bắt exception này để hiện thông báo thân
+    // thiện thay vì để lộ trang lỗi 500.
     public function deleting(Invoice $invoice): void
     {
+        if ($invoice->hasApprovedPayment()) {
+            throw new CannotDeletePaidInvoiceException(
+                'Hoá đơn này đã có thanh toán được duyệt — không thể xoá để tránh mất dữ liệu sổ Thu Chi. '
+                . 'Muốn xoá, hãy xoá đúng lần thanh toán đó trước (hoá đơn về lại "chưa thanh toán").'
+            );
+        }
+
         $invoice->payments()->get()->each->delete();
     }
 

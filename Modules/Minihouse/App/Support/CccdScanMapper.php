@@ -28,10 +28,21 @@ class CccdScanMapper
     // hợp thực tế (khách dùng CCCD gắn chip, chỉ cần quét đúng 1 ảnh mặt trước là đủ), và là 1 phần
     // nguyên nhân khiến quét chậm/timeout ("This page has expired") khi phải rơi xuống OCR.space
     // (gọi API ngoài qua mạng) cho cả 2 ảnh.
+    // Ngưỡng thời gian (giây) đã tiêu tốn cho mặt trước, quá ngưỡng này thì BỎ QUA quét mặt sau —
+    // CccdScannerService::scanImage() tự có ngân sách RIÊNG tối đa 18s (MAX_SCAN_SECONDS) cho MỖI
+    // LẦN gọi, tính lại từ đầu mỗi lần — gọi tuần tự cả 2 ảnh (mặt trước rồi mặt sau) khi mặt trước
+    // không ra kết quả có thể cộng dồn tới ~36s trong CÙNG 1 request đồng bộ (TenantObserver::saved(),
+    // TenantForm live callback), dễ vượt timeout PHP/web server/Livewire. Nếu mặt trước đã tốn gần hết
+    // 1 ngân sách hợp lý rồi (thường do phải rơi xuống bước OCR chậm) thì thà bỏ qua mặt sau, chấp
+    // nhận không quét được, còn hơn để request treo thêm tới 18s nữa.
+    private const MAX_SECONDS_BEFORE_SKIPPING_BACK_SCAN = 10;
+
     public static function scan(mixed $front, mixed $back): ?array
     {
         $front = self::resolveScanPath($front);
         $back  = self::resolveScanPath($back);
+
+        $start = microtime(true);
 
         if ($front) {
             $result = app(CccdScannerService::class)->scanImage($front);
@@ -40,7 +51,7 @@ class CccdScanMapper
             }
         }
 
-        if ($back) {
+        if ($back && (microtime(true) - $start) < self::MAX_SECONDS_BEFORE_SKIPPING_BACK_SCAN) {
             return app(CccdScannerService::class)->scanImage($back);
         }
 
