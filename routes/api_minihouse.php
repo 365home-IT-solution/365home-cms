@@ -36,8 +36,9 @@ use Illuminate\Support\Facades\Route;
 | Bao gồm CRUD cơ bản cho mọi model MiniHouse hiện có + các luồng nghiệp vụ nâng cao mirror đúng
 | panel Filament: Gia hạn/Thanh lý/Chuyển phòng hợp đồng (xem ContractController::renew/checkout/
 | transferRoom, đúng logic EditContract::getHeaderActions()), Lập hoá đơn hàng loạt theo tháng
-| (InvoiceController::generate, dùng lại InvoiceGenerationService). CHƯA có: gửi thông báo nhắc
-| việc tự động qua API (hiện chỉ chạy theo lịch cron, xem SendReminderNotificationsCommand).
+| (InvoiceController::generate, dùng lại InvoiceGenerationService), kích hoạt thủ công gửi thông báo
+| nhắc việc đến hạn (ReminderController::sendDue(), dùng chung logic với cron
+| SendReminderNotificationsCommand qua ReminderNotificationService::sendDue()).
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->name('api.admin.minihouse.')->group(function () {
@@ -84,6 +85,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
 
     Route::apiResource('surcharges', SurchargeController::class)->only(['index', 'store', 'update', 'destroy'])->parameters(['surcharges' => 'id']);
 
+    // send-due: kích hoạt thủ công NGAY logic gửi thông báo nhắc việc đến hạn đang chạy cron hàng
+    // ngày (xem ReminderController::sendDue()) — đặt TRƯỚC apiResource để rõ ràng đây là 1 action
+    // riêng, không phải resource {id}.
+    Route::post('reminders/send-due', [ReminderController::class, 'sendDue'])->name('reminders.send-due');
     Route::apiResource('reminders', ReminderController::class)->only(['index', 'store', 'update', 'destroy'])->parameters(['reminders' => 'id']);
 
     Route::apiResource('residence-declarations', ResidenceDeclarationController::class)->except(['show'])->parameters(['residence-declarations' => 'id']);
@@ -139,5 +144,7 @@ Route::prefix('minihouse/portal')->name('api.minihouse.portal.')->group(function
         Route::get('contracts/{contract}', [TenantPortalApiController::class, 'showContract'])->name('contracts.show');
         Route::post('feedback', [TenantPortalApiController::class, 'storeFeedback'])->name('feedback.store');
         Route::post('password', [TenantPortalApiController::class, 'updatePassword'])->name('password.update');
+        Route::post('push-token', [TenantPortalApiController::class, 'registerPushToken'])->name('push-token.register');
+        Route::delete('push-token', [TenantPortalApiController::class, 'unregisterPushToken'])->name('push-token.unregister');
     });
 });

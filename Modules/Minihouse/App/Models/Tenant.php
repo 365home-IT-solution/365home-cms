@@ -91,6 +91,12 @@ class Tenant extends Model implements AuthenticatableContract, HasName
         return $this->hasMany(Contract::class);
     }
 
+    // Thiết bị/trình duyệt đã đăng ký nhận thông báo đẩy — xem TenantPushToken, FcmService::sendToTenant().
+    public function pushTokens(): HasMany
+    {
+        return $this->hasMany(TenantPushToken::class);
+    }
+
     // TOÀN BỘ hợp đồng khách này có liên quan — đứng tên chính LẪN ở cùng — dùng cho "Lịch sử
     // thuê" và các báo cáo chung, vì người ở cùng giờ cũng là Khách thuê thật (xem
     // App\Models\ContractTenant).

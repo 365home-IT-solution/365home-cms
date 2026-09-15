@@ -13,6 +13,7 @@ use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\InvoicePayment;
 use Modules\Minihouse\App\Models\PortalNotification;
 use Modules\Minihouse\App\Models\Tenant;
+use Modules\Minihouse\App\Models\TenantPushToken;
 use Modules\Minihouse\App\Services\TenantPortalService;
 use Modules\Minihouse\Http\Controllers\Portal\Concerns\InteractsWithTenantPortalData;
 
@@ -195,6 +196,39 @@ class TenantPortalApiController extends Controller
         $this->tenant($request)->update(['password' => $data['password']]);
 
         return response()->json(['message' => 'Đã đặt mật khẩu — lần sau bạn có thể đăng nhập bằng SĐT + mật khẩu, không cần chờ mã OTP nữa.']);
+    }
+
+    // POST /api/minihouse/portal/push-token — đăng ký thiết bị nhận Thông báo đẩy (Web Push/FCM hoặc
+    // Expo, xem App\Services\FcmService::sendToTenant()). updateOrCreate theo đúng "token" (KHÔNG
+    // theo tenant_id) — 1 thiết bị/trình duyệt chỉ có 1 token vật lý, nếu khách khác đăng nhập trên
+    // CÙNG thiết bị đó thì token phải chuyển sang thuộc khách mới, không giữ lại của khách cũ.
+    public function registerPushToken(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'token'    => ['required', 'string', 'max:1000'],
+            'platform' => ['nullable', 'string', 'max:50'],
+        ]);
+
+        TenantPushToken::updateOrCreate(
+            ['token' => $data['token']],
+            ['tenant_id' => $this->tenant($request)->id, 'platform' => $data['platform'] ?? null],
+        );
+
+        return response()->json(['message' => 'Đã đăng ký nhận thông báo đẩy trên thiết bị này.']);
+    }
+
+    // DELETE /api/minihouse/portal/push-token — gọi lúc đăng xuất/tắt nhận thông báo, để tránh gửi
+    // push tới thiết bị không còn đăng nhập khách này nữa. Chỉ xoá token thuộc ĐÚNG khách đang gọi —
+    // không cho xoá token của khách khác dù trùng chuỗi token (hiếm nhưng không tin dữ liệu client gửi).
+    public function unregisterPushToken(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'token' => ['required', 'string', 'max:1000'],
+        ]);
+
+        TenantPushToken::where('token', $data['token'])->where('tenant_id', $this->tenant($request)->id)->delete();
+
+        return response()->json(['message' => 'Đã huỷ đăng ký nhận thông báo đẩy trên thiết bị này.']);
     }
 
     private function tenant(Request $request): Tenant
