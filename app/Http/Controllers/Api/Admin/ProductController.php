@@ -7,11 +7,14 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Api\Admin\Concerns\GeneratesUniqueSlug;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\AdminNotificationService;
+use App\Services\TelegramService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Modules\AuditLog\Services\AuditLogger;
@@ -19,6 +22,7 @@ use Modules\BladeThemeV1\App\Models\AdditionService;
 use Modules\Category\Entities\Category;
 use Modules\Product\App\Filament\Resources\ProductResource\Tables\Actions\RoomCleaningAction;
 use Modules\Product\App\Models\Product;
+use Modules\TTLock\App\Services\TTLockService;
 use Spatie\Tags\Tag;
 
 /**
@@ -534,6 +538,101 @@ class ProductController extends Controller
         $product->confirmCleaned($employee, $data['note'] ?? null);
 
         return response()->json(['message' => 'Đã xác nhận dọn xong — phòng sẵn sàng nhận đặt mới.']);
+    }
+
+    /**
+     * POST /api/admin/rooms/{id}/unlock
+     * Admin mở cổng TTLock từ xa cho 1 phòng, KHÔNG gắn với đơn hàng nào (khác
+     * Api\Admin\UnlockController::unlock() — dùng khi cần vào phòng ngoài luồng nhận/trả phòng: dọn
+     * dẹp, kiểm tra kỹ thuật, hỗ trợ khẩn...). CHỈ cho phép mở khi chi nhánh (category) của phòng đã
+     * đăng ký tài khoản TTLock đang hoạt động — xem TTLockService::hasAccountForCategory(); nếu
+     * không, trả lỗi ngay, không thử gọi TTLock.
+     *
+     * Kết quả (thành công/thất bại) luôn được báo real-time cho admin qua
+     * AdminNotificationService::notify() (chuông + FCM ở app admin). Khi mở THÀNH CÔNG, bắn thêm 1
+     * tin nhắn Telegram cố định "Cổng/cửa đã mở thành công - {tên phòng}" — mở thất bại KHÔNG gửi
+     * Telegram (chỉ báo qua notify() ở trên).
+     */
+    public function unlock(Request $request, string $id): JsonResponse
+    {
+        /** @var User $admin */
+        $admin   = $request->user();
+        $product = $this->visibleProductsQuery($admin)->find($id);
+
+        if (! $product) {
+            return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
+        }
+
+        $categoryId = $product->branch_category_id;
+        $ttlock     = TTLockService::forCategory($categoryId);
+
+        if (! $ttlock) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Chi nhánh của phòng này chưa đăng ký tài khoản TTLock.',
+            ], 422);
+        }
+
+        if (! $product->lock_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Phòng này chưa gán khóa TTLock.',
+            ], 422);
+        }
+
+        // Cửa gắn 2 ổ cần nhả CÙNG LÚC (Product::unlock_both_locks) — cùng quy ước với
+        // Api\UnlockController::handleTTLockUnlock().
+        $bothLocksRequired = $product->unlock_both_locks && $product->lock_id && $product->lock_id_checkout;
+
+        $opened = $bothLocksRequired
+            ? $ttlock->remoteUnlockBoth((int) $product->lock_id, (int) $product->lock_id_checkout)['success']
+            : $ttlock->remoteUnlock((int) $product->lock_id);
+
+        Log::info('Admin remote unlock room (no order)', [
+            'product_id' => $product->id,
+            'lock_id'    => $product->lock_id,
+            'both_locks' => $bothLocksRequired,
+            'success'    => $opened,
+            'admin'      => $admin->email,
+        ]);
+
+        $this->notifyRoomUnlockResult($product, $categoryId, $opened);
+
+        if (! $opened) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Không thể mở cổng tự động. Khóa có thể đang ngoại tuyến.',
+            ], 503);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Cổng/cửa đã mở thành công.',
+        ]);
+    }
+
+    private function notifyRoomUnlockResult(Product $product, ?int $categoryId, bool $success): void
+    {
+        $notificationService = app(AdminNotificationService::class);
+
+        $notificationService->notify(
+            $notificationService->recipientsForCategory($categoryId, $product->partner_id),
+            $success ? 'Mở cổng thành công' : 'Mở cổng thất bại',
+            "{$product->name} · " . now()->format('H:i d/m'),
+            ['type' => 'room_unlock', 'product_id' => $product->id, 'success' => $success],
+            $success ? 'heroicon-o-lock-open' : 'heroicon-o-exclamation-triangle',
+            $success ? 'success' : 'danger',
+        );
+
+        if (! $success) {
+            return;
+        }
+
+        try {
+            app(TelegramService::class)->sendLockMessage("Cổng/cửa đã mở thành công - {$product->name}");
+        } catch (\Throwable $e) {
+            Log::error('Admin remote unlock room: Telegram notify failed', ['error' => $e->getMessage()]);
+        }
     }
 
     /**

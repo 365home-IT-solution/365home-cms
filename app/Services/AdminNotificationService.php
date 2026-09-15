@@ -111,16 +111,26 @@ class AdminNotificationService
 
     public function recipientsForOrder(Order $order): Collection
     {
+        return $this->recipientsForCategory($order->category_id, $order->partner_id);
+    }
+
+    /**
+     * Danh sách user nên nhận thông báo về một chi nhánh (category) cụ thể — logic tách ra từ
+     * recipientsForOrder() để dùng chung cho các sự kiện KHÔNG gắn với đơn hàng (vd admin mở cổng
+     * TTLock trực tiếp cho 1 phòng, xem Api\Admin\ProductController::unlock()).
+     */
+    public function recipientsForCategory(?int $categoryId, ?string $partnerId): Collection
+    {
         $superAdminRole = config('filament-shield.super_admin.name');
         $superAdmins    = User::role($superAdminRole)->get();
 
-        if ($order->category_id === null) {
+        if ($categoryId === null) {
             return $superAdmins->isNotEmpty() ? $superAdmins : User::all();
         }
 
-        // Tìm parent_id của category đơn hàng để khớp với cả branch-level permission
-        $matchIds = [$order->category_id];
-        $cat = Category::select('id', 'parent_id')->find($order->category_id);
+        // Tìm parent_id của category để khớp với cả branch-level permission
+        $matchIds = [$categoryId];
+        $cat = Category::select('id', 'parent_id')->find($categoryId);
         if ($cat && $cat->parent_id) {
             $matchIds[] = $cat->parent_id;
         }
@@ -130,12 +140,12 @@ class AdminNotificationService
             ->whereHas('branchPermissions', fn ($q) => $q->whereIn('category_id', $matchIds))
             ->get();
 
-        // User cùng đối tác với đơn nhưng KHÔNG có bất kỳ branchPermissions nào (chưa bị giới hạn
-        // chi nhánh cụ thể) — vẫn nhận, vì "chưa gán quyền" nghĩa là "không giới hạn", không phải
+        // User cùng đối tác nhưng KHÔNG có bất kỳ branchPermissions nào (chưa bị giới hạn chi
+        // nhánh cụ thể) — vẫn nhận, vì "chưa gán quyền" nghĩa là "không giới hạn", không phải
         // "không được xem gì".
         $unrestrictedPartnerUsers = User::whereDoesntHave('roles', fn ($q) => $q->where('name', $superAdminRole))
             ->doesntHave('branchPermissions')
-            ->where('partner_id', $order->partner_id)
+            ->where('partner_id', $partnerId)
             ->get();
 
         $all = $superAdmins->merge($regionalUsers)->merge($unrestrictedPartnerUsers)->unique('id');

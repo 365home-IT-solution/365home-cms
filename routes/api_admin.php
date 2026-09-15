@@ -270,6 +270,12 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 | PATCH /api/admin/rooms/{id}/confirm-cleaning
 |                          → nhân viên xác nhận đã dọn xong (housekeeping_status: cleaning→available),
 |                            xem docblock App\Http\Controllers\Api\Admin\ProductController::confirmCleaning().
+| POST /api/admin/rooms/{id}/unlock
+|                          → admin mở cổng TTLock từ xa cho 1 phòng, KHÔNG cần đơn hàng (khác POST
+|                            /api/admin/orders/{order_code}/unlock — dùng khi cần vào phòng ngoài
+|                            luồng nhận/trả phòng). Chỉ cho phép khi chi nhánh của phòng đã đăng ký
+|                            tài khoản TTLock đang hoạt động, xem docblock
+|                            App\Http\Controllers\Api\Admin\ProductController::unlock().
 | GET /api/admin/rooms/{id}/time-slots/overview
 |                          → giống rooms/{id}/time-slots nhưng KHÔNG có price/final_price/
 |                            has_promotion/is_increase/promotions (xem RoomController::
@@ -329,6 +335,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::patch('rooms/{id}/room-type', [AdminProductController::class, 'updateRoomType'])->name('rooms.room-type');
     Route::delete('rooms/{id}/room-type/{roomTypeId}', [AdminProductController::class, 'destroyRoomType'])->name('rooms.room-type.destroy');
     Route::patch('rooms/{id}/confirm-cleaning', [AdminProductController::class, 'confirmCleaning'])->name('rooms.confirm-cleaning');
+    Route::post('rooms/{id}/unlock', [AdminProductController::class, 'unlock'])->name('rooms.unlock');
     Route::post('rooms/{id}/block',   [AdminRoomBlockController::class, 'block'])->name('rooms.block');
     Route::delete('rooms/{id}/block', [AdminRoomBlockController::class, 'unblock'])->name('rooms.block.release');
     Route::patch('rooms/{id}/booking-settings', [AdminProductController::class, 'updateBookingSettings'])->name('rooms.booking-settings');
