@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Admin\Minihouse\AmenityController;
+use App\Http\Controllers\Api\Admin\Minihouse\AnnouncementController;
 use App\Http\Controllers\Api\Admin\Minihouse\BuildingController;
 use App\Http\Controllers\Api\Admin\Minihouse\ContractController;
 use App\Http\Controllers\Api\Admin\Minihouse\InvoiceController;
@@ -94,6 +95,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
     Route::apiResource('residence-declarations', ResidenceDeclarationController::class)->except(['show'])->parameters(['residence-declarations' => 'id']);
     Route::get('residence-declarations/{id}', [ResidenceDeclarationController::class, 'show'])->name('residence-declarations.show');
     Route::post('residence-declarations/{id}/mark-declared', [ResidenceDeclarationController::class, 'markDeclared'])->name('residence-declarations.mark-declared');
+
+    Route::apiResource('announcements', AnnouncementController::class)->only(['index', 'store', 'destroy'])->parameters(['announcements' => 'id']);
 });
 
 // Webhook PayOS — công khai, KHÔNG qua auth:sanctum/admin.api vì PayOS gọi thẳng vào đây, không có
