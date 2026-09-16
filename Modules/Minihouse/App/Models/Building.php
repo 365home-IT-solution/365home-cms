@@ -2,15 +2,28 @@
 
 namespace Modules\Minihouse\App\Models;
 
-use Illuminate\Database\Eloquent\Model;
+use App\Models\Province;
+use App\Models\ProvinceBranch;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Str;
+use Modules\Category\Entities\Category;
 use Modules\Minihouse\App\Exceptions\CannotDeleteReferencedRecordException;
 use Modules\Minihouse\App\Models\Concerns\LogsMinihouseActivity;
 use Modules\Minihouse\App\Models\Concerns\ScopedToActiveBuilding;
+use Modules\Minihouse\App\Support\HomestayBridge;
 
-class Building extends Model
+// "Toà nhà" MiniHouse — VẬT LÝ là 1 dòng trong bảng `categories` của Home (category_type=product,
+// parent_id=null, "chi nhánh"), đồng nhất kiến trúc dữ liệu, xem plan gộp MiniHouse-Homestay.
+//
+// GIỮ NGUYÊN 100% API cũ ($building->address/$building->owner_name/$building->payos_client_id...,
+// Building::create([...])) để toàn bộ code đang dùng class này KHÔNG PHẢI SỬA GÌ — field không tồn
+// tại trên categories được uỷ quyền qua BuildingSetting (bảng minihouse_building_settings) trong
+// getAttribute()/setAttribute() bên dưới; 'note' forward sang cột 'description' thật của Category.
+class Building extends Category
 {
     use SoftDeletes;
     use ScopedToActiveBuilding;
@@ -21,13 +34,32 @@ class Building extends Model
     public const PAYMENT_METHOD_MOMO   = 'momo';
     public const PAYMENT_METHOD_VNPAY  = 'vnpay';
 
-    // CALENDAR_MONTH (mặc định): lập hoá đơn theo đúng tháng dương lịch, mọi hợp đồng trong toà đóng
-    // tiền cùng đợt. ANNIVERSARY: theo ngày BẮT ĐẦU của TỪNG hợp đồng (mỗi khách 1 mốc riêng theo
-    // ngày dọn vào) — xem InvoiceGenerationService::generateDueAnniversaryInvoices().
     public const BILLING_CYCLE_CALENDAR_MONTH = 'calendar_month';
     public const BILLING_CYCLE_ANNIVERSARY    = 'anniversary_date';
 
-    protected $table = 'minihouse_buildings';
+    // Category KHÔNG khai báo $table tường minh (dựa vào quy ước Eloquent tự suy tên bảng từ TÊN
+    // CLASS THẬT LÚC CHẠY) — Building là class con nên PHẢI khai báo lại rõ ràng, nếu không Eloquent
+    // sẽ tự suy nhầm thành bảng "buildings" (số nhiều của "Building") thay vì "categories".
+    protected $table = 'categories';
+
+    private const RENAMED = ['note' => 'description'];
+
+    private const DETAIL_FIELDS = [
+        'zone_id', 'address', 'province', 'ward',
+        'electric_unit_price', 'water_unit_price',
+        'payment_method',
+        'billing_cycle_type', 'payment_reminder_days_before', 'payment_reminder_repeat_days',
+        'fixed_due_day', 'contract_expiry_reminder_days_before',
+        'owner_name', 'owner_phone', 'owner_id_card_number', 'owner_email', 'owner_address',
+        'owner_bank_bin', 'owner_bank_name', 'owner_bank_account_number', 'owner_bank_account_holder',
+        'payos_client_id', 'payos_api_key', 'payos_checksum_key',
+        'momo_partner_code', 'momo_access_key', 'momo_secret_key',
+        'vnpay_tmn_code', 'vnpay_hash_secret', 'payment_sandbox',
+    ];
+
+    // 'province'/'ward' hiển thị (chuỗi tự do, giữ API cũ) map sang cột *_raw của BuildingSetting —
+    // liên kết THẬT với bảng provinces/province_branches của Home được đồng bộ ở saved() bên dưới.
+    private const DETAIL_COLUMN_MAP = ['province' => 'province_name_raw', 'ward' => 'ward_raw'];
 
     protected $fillable = [
         'zone_id',
@@ -46,16 +78,59 @@ class Building extends Model
         'payment_sandbox',
     ];
 
-    // float — tránh cast 'decimal:2' luôn ép hiện đủ 2 số lẻ (VD "2500.00") dù giá trị là số nguyên.
-    protected $casts = [
-        'electric_unit_price'           => 'float',
-        'water_unit_price'              => 'float',
-        'payment_reminder_days_before'  => 'integer',
-        'payment_reminder_repeat_days'  => 'integer',
-        'fixed_due_day'                 => 'integer',
-        'contract_expiry_reminder_days_before' => 'integer',
-        'payment_sandbox'               => 'boolean',
+    protected $appends = [
+        'zone_id', 'address', 'province', 'ward', 'note',
+        'electric_unit_price', 'water_unit_price', 'payment_method',
+        'billing_cycle_type', 'payment_reminder_days_before', 'payment_reminder_repeat_days',
+        'fixed_due_day', 'contract_expiry_reminder_days_before',
+        'owner_name', 'owner_phone', 'owner_id_card_number', 'owner_email', 'owner_address',
+        'owner_bank_bin', 'owner_bank_name', 'owner_bank_account_number', 'owner_bank_account_holder',
+        'payos_client_id', 'payos_api_key', 'payos_checksum_key',
+        'momo_partner_code', 'momo_access_key', 'momo_secret_key',
+        'vnpay_tmn_code', 'vnpay_hash_secret', 'payment_sandbox',
     ];
+
+    private array $pendingDetail = [];
+
+    public function getAttribute($key)
+    {
+        if (isset(self::RENAMED[$key])) {
+            return parent::getAttribute(self::RENAMED[$key]);
+        }
+
+        if (in_array($key, self::DETAIL_FIELDS, true)) {
+            if (array_key_exists($key, $this->pendingDetail)) {
+                return $this->pendingDetail[$key];
+            }
+
+            $column = self::DETAIL_COLUMN_MAP[$key] ?? $key;
+
+            return $this->detail?->{$column};
+        }
+
+        return parent::getAttribute($key);
+    }
+
+    public function setAttribute($key, $value)
+    {
+        if (isset(self::RENAMED[$key])) {
+            return parent::setAttribute(self::RENAMED[$key], $value);
+        }
+
+        if (in_array($key, self::DETAIL_FIELDS, true)) {
+            $column                      = self::DETAIL_COLUMN_MAP[$key] ?? $key;
+            $this->pendingDetail[$column] = $value;
+
+            return $this;
+        }
+
+        return parent::setAttribute($key, $value);
+    }
+
+    public function detail(): HasOne
+    {
+        return $this->hasOne(BuildingSetting::class, 'category_id');
+    }
 
     public function usesAnniversaryBilling(): bool
     {
@@ -69,101 +144,62 @@ class Building extends Model
 
     public function rooms(): HasMany
     {
-        return $this->hasMany(Room::class);
+        return $this->hasMany(Room::class, 'building_id');
     }
 
-    // Toàn bộ ảnh 360° (sảnh/hành lang/phòng) thuộc toà này — xem PanoramaScene.
     public function panoramaScenes(): HasMany
     {
-        return $this->hasMany(PanoramaScene::class)->orderBy('sort_order');
-    }
-
-    // Building dùng SoftDeletes — xoá chỉ set deleted_at, KHÔNG kích hoạt cascade FK thật ở CSDL. Còn
-    // Phòng nào thuộc toà này thì chặn xoá, tránh Room.building_id trỏ về 1 Building đã "biến mất"
-    // (mọi $room->building sau đó trả về NULL do SoftDeletingScope, làm hỏng hiển thị tên toà/đơn giá
-    // điện nước mặc định ở mọi nơi đọc quan hệ đó) — xem CannotDeleteReferencedRecordException.
-    protected static function booted(): void
-    {
-        static::deleting(function (Building $building) {
-            if ($building->rooms()->exists()) {
-                throw new CannotDeleteReferencedRecordException(
-                    'Toà nhà này vẫn còn Phòng thuộc về nó — không thể xoá. Hãy chuyển hoặc xoá các Phòng đó trước.'
-                );
-            }
-        });
+        return $this->hasMany(PanoramaScene::class, 'building_id')->orderBy('sort_order');
     }
 
     public function surcharges(): HasMany
     {
-        return $this->hasMany(Surcharge::class);
+        return $this->hasMany(Surcharge::class, 'building_id');
     }
 
-    // Đủ thông tin để đưa vào mục "BÊN CHO THUÊ" của hợp đồng thuê phòng (xem
-    // ContractContentRenderer::render()) — CCCD + địa chỉ là 2 field pháp lý bắt buộc phải có trên
-    // hợp đồng giấy, tên/điện thoại có thể suy luận thiếu nhưng vẫn nên đủ.
     public function hasCompleteOwnerProfile(): bool
     {
         return filled($this->owner_name) && filled($this->owner_id_card_number) && filled($this->owner_address);
     }
 
-    // Đủ dữ liệu để dựng QR chuyển khoản (xem VietQrService) — thiếu 1 trong 2 field bắt buộc thì
-    // không hiện QR trên phiếu thu, tránh in ra QR hỏng/không quét được.
     public function hasOwnerBankInfo(): bool
     {
         return filled($this->owner_bank_bin) && filled($this->owner_bank_account_number);
     }
 
-    // Toà nhà có tài khoản PayOS RIÊNG (khác tài khoản PayOS chung của cả hệ thống, dùng chung với
-    // Home) — khi có đủ 3 field này, InvoicePayOsService tự dùng đúng tài khoản này để tạo mã QR,
-    // tiền vào thẳng tài khoản của chủ toà, PayOS tự gọi webhook xác nhận — không cần "Chi hộ"
-    // chuyển tiền lại cho chủ toà vì tiền đã vào đúng chỗ ngay từ đầu.
     public function hasOwnPayOs(): bool
     {
         return filled($this->payos_client_id) && filled($this->payos_api_key) && filled($this->payos_checksum_key);
     }
 
-    /**
-     * @return array{0: string, 1: string, 2: string} [client_id, api_key, checksum_key]
-     */
+    /** @return array{0: string, 1: string, 2: string} */
     public function payOsCredentials(): array
     {
         return [$this->payos_client_id, $this->payos_api_key, $this->payos_checksum_key];
     }
 
-    // Toà nhà có tài khoản MoMo Business RIÊNG — cùng nguyên tắc hasOwnPayOs(), nhưng KHÔNG có tài
-    // khoản chung để rơi về (xem ghi chú ở migration add_momo_vnpay_credentials...) — chưa khai báo
-    // đủ 3 field thì MoMo coi như CHƯA cấu hình cho toà đó, không có phương án dự phòng nào khác.
     public function hasOwnMomo(): bool
     {
         return filled($this->momo_partner_code) && filled($this->momo_access_key) && filled($this->momo_secret_key);
     }
 
-    /**
-     * @return array{0: string, 1: string, 2: string} [partner_code, access_key, secret_key]
-     */
+    /** @return array{0: string, 1: string, 2: string} */
     public function momoCredentials(): array
     {
         return [$this->momo_partner_code, $this->momo_access_key, $this->momo_secret_key];
     }
 
-    // Toà nhà có tài khoản VNPay (merchant) RIÊNG — cùng nguyên tắc, cũng KHÔNG có tài khoản chung.
     public function hasOwnVnpay(): bool
     {
         return filled($this->vnpay_tmn_code) && filled($this->vnpay_hash_secret);
     }
 
-    /**
-     * @return array{0: string, 1: string} [tmn_code, hash_secret]
-     */
+    /** @return array{0: string, 1: string} */
     public function vnpayCredentials(): array
     {
         return [$this->vnpay_tmn_code, $this->vnpay_hash_secret];
     }
 
-    // Kiểu thanh toán THỰC SỰ áp dụng cho toà nhà này — dựa trên LỰA CHỌN tường minh của nhân viên
-    // (payment_method, chọn ở BuildingForm) chứ KHÔNG tự suy luận theo trường nào đang được điền,
-    // tránh mơ hồ khi nhiều mục cùng có dữ liệu. Trả về null nếu đã chọn 1 kiểu nhưng chưa điền đủ
-    // thông tin cho kiểu đó (VD chọn "PayOS riêng" nhưng bỏ trống API Key).
     public function activePaymentMethod(): ?string
     {
         return match ($this->payment_method) {
@@ -175,10 +211,79 @@ class Building extends Model
         };
     }
 
-    // Building tự thân LÀ toà nhà — không có building_id/room_id/contract_id để LogsMinihouseActivity
-    // tự suy ra như các model khác.
     protected function activityBuildingId(): ?int
     {
         return $this->id;
+    }
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope('minihouse_buildings_only', function (Builder $query) {
+            $query->where('category_type', 'product')
+                ->whereNull('parent_id')
+                ->where('partner_id', HomestayBridge::PARTNER_ID);
+        });
+
+        static::creating(function (Building $building) {
+            $building->category_type ??= 'product';
+            $building->parent_id     ??= null;
+            $building->partner_id    ??= HomestayBridge::PARTNER_ID;
+            $building->status        ??= true;
+
+            if (! $building->slug) {
+                $building->slug = self::generateUniqueSlug($building->name ?: 'toa-nha');
+            }
+        });
+
+        static::saved(function (Building $building) {
+            if (! empty($building->pendingDetail)) {
+                BuildingSetting::updateOrCreate(['category_id' => $building->id], $building->pendingDetail);
+                $building->pendingDetail = [];
+                $building->unsetRelation('detail');
+            }
+
+            self::syncProvinceLink($building);
+        });
+
+        static::deleting(function (Building $building) {
+            if ($building->rooms()->exists()) {
+                throw new CannotDeleteReferencedRecordException(
+                    'Toà nhà này vẫn còn Phòng thuộc về nó — không thể xoá. Hãy chuyển hoặc xoá các Phòng đó trước.'
+                );
+            }
+        });
+    }
+
+    // Đồng bộ liên kết THẬT với bảng provinces/province_branches của Home mỗi khi 'province' đổi —
+    // giữ đúng tinh thần Giai đoạn 2 (migrateBuildings()), áp dụng cho cả sửa tay qua BuildingForm.
+    private static function syncProvinceLink(Building $building): void
+    {
+        $provinceName = $building->province;
+
+        if (! $provinceName) {
+            return;
+        }
+
+        $province = Province::firstOrCreate(
+            ['name' => $provinceName],
+            ['slug' => Str::slug($provinceName)]
+        );
+
+        ProvinceBranch::firstOrCreate([
+            'province_id'  => $province->id,
+            'categorie_id' => $building->id,
+        ], ['status' => true]);
+    }
+
+    private static function generateUniqueSlug(string $base): string
+    {
+        $slug = Str::slug($base) ?: 'toa-nha';
+        $i    = 1;
+
+        while (Category::where('slug', $slug)->exists()) {
+            $slug = Str::slug($base) . '-' . (++$i);
+        }
+
+        return $slug;
     }
 }

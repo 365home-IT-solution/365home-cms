@@ -134,7 +134,20 @@ class Product extends Model implements HasMedia, Resourceable
         static::deleting(function ($product) {
             $product->comments()->delete();
         });
+    }
 
+    // Dùng booted() (thay vì nhét vào boot() ở trên) CỐ Ý — Modules\Minihouse\App\Models\Room
+    // extends Product để dùng chung bảng products (đồng nhất kiến trúc dữ liệu), nhưng phải LOẠI TRỪ
+    // đúng scope này cho riêng Room (Room hiển thị NGƯỢC LẠI — CHỈ phòng MiniHouse, không phải loại
+    // trừ nó). boot() luôn được Room kế thừa nguyên vẹn (Room không override boot()) nên vẫn giữ
+    // được hành vi xoá comment ở trên; còn booted() thì Room ghi đè HẲN bằng booted() riêng của nó
+    // (không gọi parent::booted()) nên scope dưới đây KHÔNG bao giờ được đăng ký cho Room — cách duy
+    // nhất để 1 scope "biến mất" hoàn toàn với 1 model con, vì gọi withoutGlobalScope() từ TRONG 1
+    // scope khác không có tác dụng (thứ tự áp dụng scope không đảm bảo scope bị gỡ chạy trước scope
+    // cần gỡ — đã tự kiểm chứng: Room::count() trả về 0 nếu làm theo cách đó, vì điều kiện "loại trừ
+    // minihouse" và "chỉ lấy minihouse" bị AND lại thành mâu thuẫn).
+    protected static function booted(): void
+    {
         // Phòng của module MiniHouse (cho thuê dài hạn theo hợp đồng, room_type_id = RoomType
         // "minihouse") mượn bảng products để đồng nhất kiến trúc với Home, nhưng TUYỆT ĐỐI không
         // được lọt vào bất kỳ luồng đặt phòng ngắn hạn nào (tìm kiếm, bảng giá, khuyến mãi, dashboard
