@@ -316,6 +316,15 @@ class BladeThemeV1Controller extends Controller
             'rating_count'           => $ratingCount,
         ];
 
+        // Bài "Chi nhánh mới... 89 Xuân Thủy" hiện chỉ có nội dung placeholder chưa điền (bảng/danh
+        // sách rỗng kiểu "Cột 1"/"Tiêu đề 1") — SEO audit flag "low text-to-HTML ratio" đúng thực
+        // tế, không phải lỗi template (các bài khác đều 5.000-12.000 ký tự nội dung thật). Gắn
+        // noindex tạm thời tới khi nội dung thật được viết xong; xoá điều kiện này (và bỏ noindex)
+        // ngay khi đó — không áp dụng cho các bài viết khác.
+        if ($post->slug === 'chi-nhanh-moi-cua-365home-89-xuan-thuy-an-binh-can-tho') {
+            $seoData['robots'] = 'noindex, follow';
+        }
+
         return view('bladethemev1::pages.post.detail', [
             'seoData' => $seoData,
             'slug' => $slug,
@@ -947,6 +956,9 @@ class BladeThemeV1Controller extends Controller
             'mapZoom'          => $mapZoom,
             'noscriptRooms'      => $noscriptRooms,
             'noscriptRoomLinks'  => $noscriptRoomLinks,
+            'typeNameDisplay'    => $typeName,
+            'locationName'       => $locName,
+            'roomCount'          => $noscriptRooms->total(),
         ]);
     }
 

@@ -116,6 +116,61 @@
 
     <script src="{{ asset('js/home-sections.min.js') }}?v={{ filemtime(public_path('js/home-sections.min.js')) }}"></script>
     <script src="{{ asset('js/search-results.min.js') }}?v={{ filemtime(public_path('js/search-results.min.js')) }}"></script>
+
+    {{-- ============== NỘI DUNG SEO TĨNH: Giới thiệu / Vì sao chọn / FAQ ==============
+         Kết quả tìm kiếm ở trên hoàn toàn do JS bơm vào #search-results-body (xem noscript ở đầu
+         file) nên HTML gốc gần như không có chữ nào — audit tool flag "low text-to-HTML ratio"
+         cho toàn bộ 6 trang loại hình (/villa, /mini-house, /homestay...) + các biến thể
+         /{type}/{location}. Khối dưới đây render tĩnh, luôn có trong HTML gốc bất kể JS, không
+         đụng vào khu vực tìm kiếm/bản đồ phía trên. CHỈ dùng dạng PHP-inline một dòng (không dùng
+         từ khoá đóng dạng khối riêng) — xem chú thích tương tự trong flash-sale.blade.php, lý do
+         là bộ nén Blade ghép nhầm directive mở với từ khoá đóng ĐẦU TIÊN tìm thấy trong TOÀN BỘ
+         file (kể cả trong comment), có thể nuốt nhầm khối @php ở đầu file này (dòng 6). --}}
+    @php($typeLabel = $typeNameDisplay ?: 'Phòng')
+    @php($typeLower = $typeNameDisplay ? mb_strtolower($typeNameDisplay) : 'phòng')
+    @php($locationLabel = $locationName ?: 'Cần Thơ')
+
+    <section class="py-8 sm:py-10 bg-white">
+        <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
+            <div class="rounded-3xl bg-gray-50 border border-gray-100 p-6 sm:p-8">
+                <h2 class="text-2xl font-bold text-gray-900 mb-3">{{ $typeLabel }} tại {{ $locationLabel }}</h2>
+                <p class="text-gray-600 leading-relaxed max-w-3xl">
+                    365 Home cung cấp đa dạng lựa chọn {{ $typeLower }} tại {{ $locationLabel }}, hỗ trợ đặt
+                    theo giờ hoặc theo ngày tuỳ nhu cầu.
+                    @if ($roomCount > 0)
+                        Hiện có {{ number_format($roomCount) }} phòng đang mở đặt trong khu vực này,
+                    @endif
+                    cập nhật giá và tình trạng phòng trống theo thời gian thực ngay trên trang tìm kiếm.
+                    Toàn bộ quy trình xem giá, chọn khung giờ và đặt phòng đều thực hiện trực tiếp trên
+                    website hoặc ứng dụng di động 365 Home, không cần gọi điện đặt trước.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <section class="py-6 sm:py-8 bg-white">
+        <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
+            <x-bladethemev1::seo-content.feature-grid title="Vì sao đặt {{ $typeLower }} tại 365 Home" :items="[
+                ['icon' => 'clock', 'title' => 'Đặt phòng linh hoạt', 'text' => 'Chọn thuê theo giờ hoặc theo ngày, xác nhận đặt phòng ngay trên website hoặc ứng dụng.'],
+                ['icon' => 'tag', 'title' => 'Giá minh bạch', 'text' => 'Xem giá và tình trạng phòng trống trực tiếp trên trang tìm kiếm, không phát sinh phí ẩn.'],
+                ['icon' => 'shield', 'title' => 'Khoá thông minh, an toàn', 'text' => 'Nhiều phòng được trang bị khoá điện tử, hỗ trợ quản lý và mở khoá từ xa.'],
+                ['icon' => 'device', 'title' => 'Ứng dụng 365 Home', 'text' => 'Đặt phòng, theo dõi đơn và nhận ưu đãi mọi lúc trên ứng dụng di động 365 Home.'],
+            ]" />
+        </div>
+    </section>
+
+    @php($searchFaqs = [
+        ['q' => 'Đặt ' . $typeLower . ' theo giờ tại ' . $locationLabel . ' như thế nào?', 'a' => 'Khách chọn khung giờ nhận/trả phòng phù hợp ngay trên trang tìm kiếm hoặc ứng dụng 365 Home, hệ thống xác nhận đặt phòng ngay mà không cần gọi điện trước.'],
+        ['q' => 'Giá hiển thị đã bao gồm những gì?', 'a' => 'Giá hiển thị trên từng phòng được cập nhật theo thời gian thực, chi tiết dịch vụ đi kèm (nếu có) được hiển thị đầy đủ trong bước xem chi tiết phòng trước khi đặt.'],
+        ['q' => 'Có thể hủy hoặc đổi lịch đặt phòng không?', 'a' => 'Chính sách hủy/đổi lịch có thể khác nhau theo từng loại phòng và thời điểm đặt, được hiển thị rõ trong bước đặt phòng trước khi thanh toán.'],
+        ['q' => '365 Home có ứng dụng di động không?', 'a' => 'Có. Ứng dụng 365 Home có trên App Store và Google Play, cho phép đặt phòng, theo dõi đơn đặt và nhận ưu đãi.'],
+    ])
+    <section class="py-6 sm:py-8 bg-gray-50">
+        <div class="max-w-3xl mx-auto px-4 sm:px-6">
+            <x-bladethemev1::seo-content.faq-accordion :items="$searchFaqs" />
+        </div>
+    </section>
+
  @livewire('bladethemev1::footer')
     @livewire('bladethemev1::contact-link')
     @livewire('bladethemev1::notification')

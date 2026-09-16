@@ -1618,6 +1618,34 @@
     </div>
 @endif
 
+{{-- ============== NỘI DUNG SEO TĨNH: Chính sách đặt phòng / FAQ ==============
+     Mô tả/tiện nghi phòng ở trên đã render server-side đầy đủ, nhưng toàn trang không có đoạn nào
+     mang tính chính sách chung/FAQ — 100% nội dung phụ thuộc vào 1 sản phẩm cụ thể. Khối tĩnh dưới
+     đây không phụ thuộc dữ liệu phòng (trừ tên phòng ở câu hỏi đầu), luôn có trong HTML gốc. CHỈ
+     dùng @php(...) dạng một dòng ở đây (không thêm "@endphp" mới) dù file này đã có sẵn nhiều cặp
+     @php...@endphp tự cân bằng khác — giữ thói quen an toàn thống nhất với các trang đã sửa trước
+     (flash-sale.blade.php, product/search.blade.php) để không phải soát lại toàn bộ 15 cặp hiện có
+     mỗi lần sửa file này. Card/FAQ dùng chung 2 component components/seo-content/{feature-grid,
+     faq-accordion}.blade.php — sửa giao diện thì sửa ở đó. --}}
+<div class="mt-10 pt-8 border-t border-gray-200">
+    <x-bladethemev1::seo-content.feature-grid title="Chính sách đặt phòng" :items="[
+        ['icon' => 'clock', 'title' => 'Đặt phòng tức thì', 'text' => 'Chọn khung giờ còn trống và xác nhận đặt phòng ngay trên website hoặc ứng dụng, không cần gọi điện trước.'],
+        ['icon' => 'tag', 'title' => 'Giá minh bạch', 'text' => 'Giá hiển thị theo đúng khung giờ/ngày đã chọn, dịch vụ thêm (nếu có) được liệt kê riêng trước khi thanh toán.'],
+        ['icon' => 'card', 'title' => 'Thanh toán trực tuyến', 'text' => 'Thanh toán ngay trên website hoặc ứng dụng 365 Home qua các phương thức được hỗ trợ ở bước thanh toán.'],
+        ['icon' => 'calendar', 'title' => 'Hủy/đổi lịch rõ ràng', 'text' => 'Chính sách hủy/đổi lịch được hiển thị cụ thể trong bước đặt phòng trước khi thanh toán.'],
+    ]" />
+</div>
+
+@php($pdFaqs = [
+    ['q' => 'Làm sao để đặt ' . $product->name . '?', 'a' => 'Chọn khung giờ phù hợp ở mục "Lịch đặt phòng" phía trên, sau đó xác nhận thông tin và thanh toán trực tuyến ngay trên trang.'],
+    ['q' => 'Giá hiển thị đã bao gồm những gì?', 'a' => 'Giá hiển thị theo từng khung giờ/ngày đã chọn. Các dịch vụ thêm (nếu có) được liệt kê riêng ở mục "Dịch vụ phòng" và tính thêm khi khách chọn sử dụng.'],
+    ['q' => 'Có thể hủy hoặc đổi lịch đặt phòng không?', 'a' => 'Chính sách hủy/đổi lịch được hiển thị rõ trong bước đặt phòng trước khi thanh toán, có thể khác nhau tuỳ thời điểm đặt.'],
+    ['q' => 'Thanh toán bằng cách nào?', 'a' => 'Thanh toán trực tuyến ngay trên website hoặc ứng dụng 365 Home qua các phương thức được hỗ trợ tại bước thanh toán.'],
+])
+<div class="mt-10 pt-8 border-t border-gray-200">
+    <x-bladethemev1::seo-content.faq-accordion :items="$pdFaqs" />
+</div>
+
 </div>
 </div>
 @push('scripts')
