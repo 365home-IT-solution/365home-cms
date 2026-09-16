@@ -19,6 +19,7 @@ use Modules\Minihouse\App\Observers\InvoicePaymentObserver;
 use Modules\Minihouse\App\Observers\ReminderObserver;
 use Modules\Minihouse\App\Observers\TenantFeedbackObserver;
 use Modules\Minihouse\App\Observers\TenantObserver;
+use Modules\Minihouse\App\Console\Commands\MigrateRoomsToProductsCommand;
 
 class MinihouseServiceProvider extends ServiceProvider
 {
@@ -56,6 +57,10 @@ class MinihouseServiceProvider extends ServiceProvider
         // Tự phát thông báo chung ra Portal cho toàn bộ khách thuê liên quan ngay khi tạo — xem
         // AnnouncementObserver.
         Announcement::observe(AnnouncementObserver::class);
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([MigrateRoomsToProductsCommand::class]);
+        }
     }
 
     public function register()
