@@ -12,13 +12,14 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Modules\Product\App\Models\PriceBoard;
 use Modules\Product\App\Models\PriceBoardPriceLog;
-use Modules\Product\App\Models\Product;
 
 /**
  * CRUD + vận hành "Bảng giá" đặt tên (price_boards/price_board_items) cho panel Home — bản API của
- * đúng tính năng đã có ở Filament (Modules\Book\App\Filament\Resources\PriceBoardResource). Không tạo
- * logic ghi giá mới: mọi thao tác ghi đều gọi thẳng App\Services\PriceBoardSyncService, y hệt UI, để
- * 2 đường (Filament + API) không bao giờ lệch nhau.
+ * đúng tính năng đã có ở Filament (Modules\Book\App\Filament\Resources\PriceBoardResource,
+ * Pages\CreatePriceBoard/EditPriceBoard). Mọi bước ghi đi ĐÚNG THỨ TỰ như Filament (kiểm tra trùng
+ * lịch hiệu lực bằng product_ids vừa gửi TRƯỚC KHI đụng gì tới DB, rồi mới tạo/sửa board + lưu items +
+ * resyncBoardProducts() trong CÙNG 1 transaction) và gọi thẳng App\Services\PriceBoardSyncService,
+ * y hệt UI, để 2 đường không bao giờ lệch nhau.
  *
  * Quyền: CHỈ super_admin hoặc user có quyền Shield riêng của resource này
  * (view_any_price::board/create_price::board/update_price::board/delete_price::board — xem
@@ -26,10 +27,10 @@ use Modules\Product\App\Models\Product;
  * loạt, ghi thẳng xuống hệ thống ngay khi gọi, cùng mức rủi ro với "Sửa giá hàng loạt"
  * (BulkPriceController) nên áp đúng 1 chuẩn quyền.
  *
- * price_boards KHÔNG có cột partner_id (bảng toàn cục) — quyền truy cập theo TỪNG PHÒNG gắn trong
- * bảng giá (product_ids/items[].product_id) vẫn phải qua đúng partner_id + allowedCategoryIds() của
- * user, giống RoomPricingController — tránh 1 đối tác (nếu sau này được cấp quyền Shield) đổi giá
- * phòng của đối tác khác qua bảng giá.
+ * CỐ Ý không lọc phòng theo partner_id/allowedCategoryIds() — PriceBoardForm::allRoomOptions() bên
+ * Filament cũng không lọc (mọi phòng is_activated đều chọn được, xem comment trong file đó), vì
+ * quyền truy cập TOÀN BỘ tính năng này đã bị khoá ở mức resource (super_admin/quyền Shield riêng) chứ
+ * không khoá theo từng phòng — API phải hành xử giống hệt, không tự thêm rào chắn Filament không có.
  */
 class PriceBoardController extends Controller
 {
@@ -115,38 +116,39 @@ class PriceBoardController extends Controller
         $data = $request->validate($this->boardValidationRules());
         $data = $this->itemsValidation($request, $data);
 
-        if ($error = $this->assertProductsVisible($user, $this->productIdsFromPayload($data)))  {
-            return $error;
-        }
-
-        $board = new PriceBoard();
+        // Kiểm tra trùng lịch TRƯỚC khi đụng gì tới DB — ĐÚNG thứ tự
+        // CreatePriceBoard::handleRecordCreation() bên Filament (assertNoOverlap() nhận thẳng
+        // product_ids vừa submit, dùng 1 PriceBoard rỗng chưa lưu), không phải tạo xong rồi mới kiểm
+        // tra + rollback. Không thêm lọc partner_id/allowedCategoryIds() ở đây — PriceBoardForm bên
+        // Filament CỐ Ý không lọc theo chi nhánh/đối tác khi chọn phòng (xem
+        // PriceBoardForm::allRoomOptions()), API phải hành xử giống hệt, không tự thêm rào chắn
+        // Filament không có.
+        $service    = app(PriceBoardSyncService::class);
+        $productIds = collect($this->productIdsFromPayload($data));
 
         try {
-            $service = app(PriceBoardSyncService::class);
-
-            DB::transaction(function () use ($board, $data, $service) {
-                $board->fill([
-                    'name'             => $data['name'],
-                    'note'             => $data['note'] ?? null,
-                    'start_date'       => $data['start_date'] ?? null,
-                    'end_date'         => $data['end_date'] ?? null,
-                    'is_active'        => $data['is_active'] ?? true,
-                    'pricing_mode'     => $data['pricing_mode'] ?? PriceBoard::MODE_OVERRIDE,
-                    'adjustment_type'  => $data['adjustment_type'] ?? null,
-                    'adjustment_value' => $data['adjustment_value'] ?? null,
-                ]);
-                $board->save();
-
-                $service->saveItems($board, $data);
-                $service->assertNoOverlap($board);
-            });
+            $service->assertNoOverlap(new PriceBoard(), $productIds->filter());
         } catch (\RuntimeException $e) {
-            // DB::transaction() đã rollback board+items vừa tạo khi assertNoOverlap() ném lỗi bên
-            // trong nó — không cần tự xoá lại gì thêm ở đây.
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        app(PriceBoardSyncService::class)->resyncBoardProducts($board);
+        $board = DB::transaction(function () use ($data, $service) {
+            $board = PriceBoard::create([
+                'name'             => $data['name'],
+                'note'             => $data['note'] ?? null,
+                'start_date'       => $data['start_date'] ?? null,
+                'end_date'         => $data['end_date'] ?? null,
+                'is_active'        => $data['is_active'] ?? true,
+                'pricing_mode'     => $data['pricing_mode'] ?? PriceBoard::MODE_OVERRIDE,
+                'adjustment_type'  => $data['adjustment_type'] ?? null,
+                'adjustment_value' => $data['adjustment_value'] ?? null,
+            ]);
+
+            $service->saveItems($board, $data);
+            $service->resyncBoardProducts($board);
+
+            return $board;
+        });
 
         return response()->json($this->toDetailItem($board->fresh(['items.product', 'items.timeSlots'])), 201);
     }
@@ -176,31 +178,36 @@ class PriceBoardController extends Controller
         $data  = $request->validate($rules);
         $data  = $this->itemsValidation($request, $data, required: false);
 
-        if ($error = $this->assertProductsVisible($user, $this->productIdsFromPayload($data))) {
-            return $error;
-        }
+        $touchesItems = array_key_exists('items', $data) || array_key_exists('product_ids', $data);
+
+        // Cùng thứ tự EditPriceBoard::handleRecordUpdate() bên Filament: kiểm tra trùng lịch TRƯỚC
+        // khi ghi gì xuống DB, dùng product_ids vừa submit (nếu không gửi items/product_ids — giữ
+        // nguyên phòng đang gắn — thì dùng lại đúng tập phòng hiện có của board, không phải bỏ qua
+        // kiểm tra). Không lọc theo partner_id/allowedCategoryIds() — lý do xem store().
+        $service    = app(PriceBoardSyncService::class);
+        $productIds = $touchesItems
+            ? collect($this->productIdsFromPayload($data))
+            : $board->items()->pluck('product_id');
 
         try {
-            $service = app(PriceBoardSyncService::class);
-
-            DB::transaction(function () use ($board, $data, $service) {
-                $board->fill(collect($data)->only([
-                    'name', 'note', 'start_date', 'end_date', 'is_active',
-                    'pricing_mode', 'adjustment_type', 'adjustment_value',
-                ])->toArray());
-                $board->save();
-
-                if (array_key_exists('items', $data) || array_key_exists('product_ids', $data)) {
-                    $service->saveItems($board, $data);
-                }
-
-                $service->assertNoOverlap($board);
-            });
+            $service->assertNoOverlap($board, $productIds->filter());
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        app(PriceBoardSyncService::class)->resyncBoardProducts($board);
+        DB::transaction(function () use ($board, $data, $service, $touchesItems) {
+            $board->fill(collect($data)->only([
+                'name', 'note', 'start_date', 'end_date', 'is_active',
+                'pricing_mode', 'adjustment_type', 'adjustment_value',
+            ])->toArray());
+            $board->save();
+
+            if ($touchesItems) {
+                $service->saveItems($board, $data);
+            }
+
+            $service->resyncBoardProducts($board);
+        });
 
         return response()->json($this->toDetailItem($board->fresh(['items.product', 'items.timeSlots'])));
     }
@@ -435,31 +442,6 @@ class PriceBoardController extends Controller
     private function visibleBoard(string $id): ?PriceBoard
     {
         return PriceBoard::where('is_default', false)->where('id', $id)->first();
-    }
-
-    /** Không phải super_admin thì MỌI phòng nhắc tới trong product_ids/items phải thuộc đúng
-     *  partner_id + allowedCategoryIds() của user (giống RoomPricingController::userCanAccessRoom()) —
-     *  chặn 1 đối tác (nếu được cấp quyền Shield riêng) đổi giá phòng ngoài phạm vi qua bảng giá. */
-    private function assertProductsVisible(User $user, array $productIds): ?JsonResponse
-    {
-        if (empty($productIds) || $user->isSuperAdmin()) {
-            return null;
-        }
-
-        $categoryIds  = $user->allowedCategoryIds();
-        $visibleCount = Product::whereIn('id', $productIds)
-            ->where('partner_id', $user->partner_id)
-            ->when(! empty($categoryIds), fn ($q) => $q->whereHas(
-                'categories',
-                fn ($q2) => $q2->whereIn('categories.id', $categoryIds)
-            ))
-            ->count();
-
-        if ($visibleCount !== count(array_unique($productIds))) {
-            return response()->json(['message' => 'Một hoặc nhiều phòng không thuộc phạm vi quản lý của tài khoản.'], 422);
-        }
-
-        return null;
     }
 
     // ── Response formatting ─────────────────────────────────────────────────

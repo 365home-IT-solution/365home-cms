@@ -58,10 +58,11 @@ sửa giá từng phòng (`RoomPricingController`) nên bị khoá chặt hơn:
 
 Không đủ quyền → `403 { "message": "Không có quyền thực hiện thao tác này." }`.
 
-Bảng giá không có cột `partner_id` (bảng toàn cục), nhưng **từng phòng nhắc tới** trong
-`product_ids`/`items[].product_id`/`room_ids` vẫn bị kiểm tra đúng `partner_id` + phạm vi chi nhánh
-(`allowedCategoryIds()`) của tài khoản gọi API — không phải `super_admin` mà đụng tới phòng ngoài
-phạm vi sẽ nhận `422 { "message": "Một hoặc nhiều phòng không thuộc phạm vi quản lý của tài khoản." }`.
+Bảng giá không có cột `partner_id` (bảng toàn cục) và **không lọc phòng theo chi nhánh/đối tác** khi
+chọn phòng trong `product_ids`/`items[].product_id`/`room_ids` — đúng như `PriceBoardForm::allRoomOptions()`
+bên Filament (mọi phòng `is_activated` đều chọn được), vì quyền vào cả tính năng đã bị khoá ở mức
+resource (bảng trên) chứ không khoá theo từng phòng. API cố tình không thêm rào chắn mà Filament
+không có.
 
 ---
 
@@ -238,15 +239,20 @@ Trả đầy đủ như mục 3.1, kèm `items[]` — từng phòng đã gắn v
 { "message": "Khoảng ngày hiệu lực trùng với bảng giá \"Khuyến mãi Tết 2027\" cho ít nhất 1 phòng đã chọn." }
 ```
 
-Tạo xong, nếu bảng đang `is_active=true` và đang trong khoảng ngày hiệu lực, giá được **áp ngay** —
-không cần gọi thêm `POST .../apply`.
+**Luồng khớp Filament:** kiểm tra trùng lịch chạy **TRƯỚC KHI** ghi bất cứ gì xuống DB (dùng đúng
+`product_ids` vừa gửi lên) — đúng thứ tự `CreatePriceBoard::handleRecordCreation()` bên Filament,
+không phải tạo xong rồi mới kiểm tra và rollback. Tạo xong, nếu bảng đang `is_active=true` và đang
+trong khoảng ngày hiệu lực, giá được **áp ngay** (trong cùng transaction) — không cần gọi thêm
+`POST .../apply`.
 
 ### 3.4 `PUT/PATCH /price-boards/{id}` — Sửa bảng giá
 
 Field như mục 3.3, tất cả **tuỳ chọn** (`sometimes`) — field không gửi giữ nguyên giá trị cũ. Gửi lại
 `items`/`product_ids` sẽ **thay thế toàn bộ** danh sách phòng đang gắn (phòng nào không còn trong
 mảng mới sẽ bị gỡ khỏi bảng giá này — giá của phòng đó tự tính lại theo bảng khác đang active hoặc
-khôi phục về giá gốc, xem mục 3.5). Cùng lỗi `422` trùng lịch như tạo mới.
+khôi phục về giá gốc, xem mục 3.5). Không gửi `items`/`product_ids` thì giữ nguyên phòng đang gắn —
+kiểm tra trùng lịch vẫn chạy dựa trên đúng tập phòng hiện có của bảng. Cùng lỗi `422` trùng lịch như
+tạo mới, cùng thứ tự `EditPriceBoard::handleRecordUpdate()` bên Filament (kiểm tra trước, ghi sau).
 
 ### 3.5 `DELETE /price-boards/{id}` — Xoá bảng giá
 
