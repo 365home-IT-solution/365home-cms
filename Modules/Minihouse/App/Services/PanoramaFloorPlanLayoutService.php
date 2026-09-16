@@ -23,6 +23,22 @@ class PanoramaFloorPlanLayoutService
     private const UNIT = 3.6;       // (đường suy yaw dự phòng) khoảng cách giữa 2 điểm CHÍNH trên lưới
     private const SATELLITE_UNIT = 1.5; // khoảng cách từ 1 phòng tới điểm PHỤ của chính nó (VD nhà vệ sinh)
 
+    // Nhận diện "loại không gian con" từ TIÊU ĐỀ cảnh 360° (nhân viên tự gõ, không có ô chọn riêng) —
+    // MUỐN THÊM LOẠI MỚI trong tương lai: chỉ cần thêm 1 dòng vào đây (khoá => mảng từ khoá tiếng Việt
+    // không dấu/có dấu đều được vì đã lowercase), rồi khai màu/kiểu vẽ tương ứng ở phía JS
+    // (panorama-floorplan.blade.php, biến KIND_META) — KHÔNG cần sửa vòng lặp/logic nào khác ở cả 2
+    // nơi. Duyệt THEO THỨ TỰ khai báo, khớp từ khoá đầu tiên tìm thấy — xếp từ khoá DÀI/CỤ THỂ hơn lên
+    // trước để tránh khớp nhầm (VD "gác lửng" phải đứng trước "gác" chung chung).
+    private const KIND_KEYWORDS = [
+        'wc'          => ['vệ sinh', 'toilet', 'wc'],
+        'mezzanine'   => ['gác lửng', 'gác xép', 'gác'],
+        'bedroom'     => ['phòng ngủ', 'ngủ'],
+        'kitchen'     => ['bếp'],
+        'storage'     => ['kho chứa đồ', 'kho', 'tủ đồ'],
+        'drying_yard' => ['sân phơi', 'sân thượng'],
+        'balcony'     => ['ban công', 'logia', 'lô gia'],
+    ];
+
     /**
      * @return array{nodes: array<int, array>, satellites: array<int, array>, edges: array<int, array>}
      */
@@ -126,6 +142,10 @@ class PanoramaFloorPlanLayoutService
                 'y'         => $positions[$id]['y'],
                 'thumbnail' => $this->thumbUrl($scene),
                 'disconnected' => $positions[$id]['y'] === 999.0,
+                // Diện tích THẬT đã khai báo ở Room (m²) — hiện kèm nhãn phòng trên sơ đồ thay vì tự
+                // suy/bịa 1 con số kích thước không có thật (khối 3D vẽ theo tỉ lệ tượng trưng, không
+                // theo đúng diện tích thật — chỉ NHÃN chữ là số liệu thật).
+                'area'      => $scene->room?->area,
             ];
         }
 
@@ -158,6 +178,23 @@ class PanoramaFloorPlanLayoutService
                     $y = $primaryPos['y'] + $dy * self::SATELLITE_UNIT;
                 }
 
+                // "Bên trái/phải" THẬT khi đứng trong phòng nhìn ra cửa — lấy TRỰC TIẾP từ góc yaw
+                // hotspot đã chụp (link ảnh 360° thật nối phòng chính -> buồng phụ này), KHÔNG suy
+                // theo lưới/quy ước tự đặt như phần x/y ở trên (khách phản hồi: quy ước cũ "cửa luôn
+                // bên trái" ra SAI so với ảnh thật — VD ảnh cho thấy WC bên trái, cửa ra hành lang bên
+                // phải, sơ đồ cũ lại vẽ ngược). direction($yaw)[0] = sin(yaw) — dấu dương/âm đúng
+                // nghĩa phải/trái theo cùng hệ quy chiếu build() đang dùng cho mọi hướng khác (xem
+                // direction()). Không có hotspot link thật (building cũ/thiếu dữ liệu) -> để null, JS
+                // tự rơi về quy ước mặc định (cửa trái, buồng phụ phải) như trước, không vỡ sơ đồ.
+                // LƯU Ý: sin(yaw) dương/âm ĐÚNG QUY ƯỚC "phải/trái theo hướng camera nhìn ra" (khớp
+                // direction() dùng cho các hướng khác) nhưng NGƯỢC LẠI với "trái/phải theo mắt người
+                // XEM ảnh 360° trên màn hình" (ảnh 360 hiển thị soi gương theo trục ngang so với hướng
+                // camera thật) — xác nhận thật bằng ảnh chụp Phòng 102 (khách gửi): WC hiện bên TRÁI
+                // màn hình, "Ra hành lang" bên PHẢI, trong khi sin(yaw) của link WC lại dương (đáng lẽ
+                // "phải" theo quy ước direction() gốc) — nên đảo dấu ở ĐÚNG 1 chỗ này.
+                $sideLink = $primaryScene->hotspots->firstWhere('target_scene_id', $satelliteScene->id);
+                $side = $sideLink ? ($this->direction($sideLink->yaw)[0] >= 0 ? 'left' : 'right') : null;
+
                 $satellites[] = [
                     'id'       => $satelliteScene->id,
                     'parentId' => $primaryId,
@@ -165,6 +202,7 @@ class PanoramaFloorPlanLayoutService
                     'kind'     => $kind,
                     'x'        => $x,
                     'y'        => $y,
+                    'side'     => $side,
                     'thumbnail' => $this->thumbUrl($satelliteScene),
                 ];
             }
@@ -339,14 +377,17 @@ class PanoramaFloorPlanLayoutService
     {
         $title = mb_strtolower($title);
 
-        if (str_contains($title, 'vệ sinh')) {
-            return 'wc';
+        foreach (self::KIND_KEYWORDS as $kind => $keywords) {
+            foreach ($keywords as $keyword) {
+                if (str_contains($title, $keyword)) {
+                    return $kind;
+                }
+            }
         }
 
-        if (str_contains($title, 'ban công')) {
-            return 'balcony';
-        }
-
+        // Tên không khớp từ khoá nào đã biết — KHÔNG bỏ sót khỏi sơ đồ, vẫn vẽ được (chấm tròn thông
+        // dụng, xem KIND_META.other ở panorama-floorplan.blade.php) trong lúc chờ thêm đúng từ khoá
+        // vào KIND_KEYWORDS phía trên nếu đây là 1 loại không gian lặp lại nhiều lần.
         return 'other';
     }
 
