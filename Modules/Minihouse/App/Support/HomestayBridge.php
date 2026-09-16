@@ -2,6 +2,8 @@
 
 namespace Modules\Minihouse\App\Support;
 
+use Modules\Product\App\Models\RoomType;
+
 // Hằng số DÙNG CHUNG cho việc gộp Phòng/Toà nhà MiniHouse vào products/categories của Home (đồng
 // nhất kiến trúc theo yêu cầu khách hàng) — xem kế hoạch đầy đủ trong lịch sử trao đổi + migration
 // 2026_09_17_000001_seed_minihouse_internal_partner_and_room_type.php.
@@ -24,5 +26,5 @@ class HomestayBridge
 {
     public const PARTNER_ID = '00000000-0000-0000-0000-000000000001';
 
-    public const ROOM_TYPE_SLUG = 'minihouse';
+    public const ROOM_TYPE_SLUG = RoomType::MINIHOUSE_SLUG;
 }

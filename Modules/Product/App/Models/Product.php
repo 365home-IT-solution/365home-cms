@@ -4,6 +4,7 @@ namespace Modules\Product\App\Models;
 
 use App\Models\Concerns\BelongsToActiveBranchCategories;
 use App\Models\Concerns\BelongsToPartner;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -132,6 +133,19 @@ class Product extends Model implements HasMedia, Resourceable
 
         static::deleting(function ($product) {
             $product->comments()->delete();
+        });
+
+        // Phòng của module MiniHouse (cho thuê dài hạn theo hợp đồng, room_type_id = RoomType
+        // "minihouse") mượn bảng products để đồng nhất kiến trúc với Home, nhưng TUYỆT ĐỐI không
+        // được lọt vào bất kỳ luồng đặt phòng ngắn hạn nào (tìm kiếm, bảng giá, khuyến mãi, dashboard
+        // room cards...) — không có 1 lớp truy vấn chung nào tất cả các luồng đó cùng gọi qua (đã rà
+        // soát: RoomSearchService, Livewire Products.php, HomeController, RoomController,
+        // BookingController, RoomTypeController, RoomCardsService, PriceBoardSyncService,
+        // ProductResource đều tự Product:: riêng), nên chặn tập trung ở ĐÚNG 1 chỗ bằng Global Scope
+        // — mọi nơi trên tự động được loại trừ mà không cần sửa từng nơi. Phía MiniHouse tự truy vấn
+        // phòng của mình phải chủ động withoutGlobalScope('exclude_minihouse').
+        static::addGlobalScope('exclude_minihouse', function (Builder $query) {
+            $query->whereDoesntHave('roomType', fn ($q) => $q->where('slug', RoomType::MINIHOUSE_SLUG));
         });
     }
 
