@@ -83,7 +83,7 @@ class RoomController extends Controller
             'photos'        => 'nullable|array',
             'photos.*'      => 'string',
             'amenity_ids'   => 'nullable|array',
-            'amenity_ids.*' => 'integer|exists:room_amenities,id',
+            'amenity_ids.*' => 'integer|exists:minihouse_amenities,id',
         ]);
 
         if (! $this->isBuildingAllowed($request, (int) $data['building_id'])) {
@@ -145,7 +145,7 @@ class RoomController extends Controller
             'photos'        => 'nullable|array',
             'photos.*'      => 'string',
             'amenity_ids'   => 'nullable|array',
-            'amenity_ids.*' => 'integer|exists:room_amenities,id',
+            'amenity_ids.*' => 'integer|exists:minihouse_amenities,id',
         ]);
 
         if (isset($data['building_id']) && ! $this->isBuildingAllowed($request, (int) $data['building_id'])) {

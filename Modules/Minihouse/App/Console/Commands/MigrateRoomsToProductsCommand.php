@@ -8,24 +8,28 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Modules\Category\Entities\Category;
-use Modules\Minihouse\App\Models\Amenity;
 use Modules\Minihouse\App\Models\Building;
 use Modules\Minihouse\App\Models\Room;
 use Modules\Minihouse\App\Support\HomestayBridge;
 use Modules\Product\App\Models\Product;
-use Modules\Product\App\Models\RoomAmenity;
-use Modules\Product\App\Models\RoomAmenityAssign;
 use Modules\Product\App\Models\RoomType;
 
 // Giai đoạn 2 của kế hoạch gộp Phòng/Toà nhà MiniHouse vào products/categories — xem plan đầy đủ
 // trong lịch sử trao đổi. Idempotent theo cột legacy_minihouse_building_id/legacy_minihouse_room_id
 // (firstOrCreate) nên chạy lại nhiều lần an toàn, không tạo trùng. Bọc trong 1 transaction: lệch
 // số dòng ở bước đối chiếu cuối sẽ tự rollback toàn bộ.
+//
+// KHÔNG đụng tới minihouse_amenities/minihouse_room_amenity — Room::amenities() vẫn dùng ĐÚNG hệ
+// Amenity riêng của MiniHouse như trước khi gộp (xem ghi chú ở Room::amenities()), không chuyển
+// sang RoomAmenity/product_amenity chung của Home (thử rồi revert — AmenityController vẫn quản lý
+// đúng Amenity cũ, đổi 1 mình quan hệ sẽ làm amenity_ids trả về từ danh mục không còn hợp lệ khi
+// gán cho phòng). Chỉ cột room_id của minihouse_room_amenity cần nới kiểu (xem migration
+// widen_room_id_on_minihouse_room_amenity ở Giai đoạn 3), không cần chuyển dữ liệu gì ở đây.
 class MigrateRoomsToProductsCommand extends Command
 {
     protected $signature = 'minihouse:migrate-to-products {--dry-run : Chỉ log, không ghi DB}';
 
-    protected $description = 'Chuyển minihouse_buildings/minihouse_rooms/minihouse_amenities sang categories/products/RoomAmenity (Giai đoạn 2 kế hoạch gộp MiniHouse-Homestay)';
+    protected $description = 'Chuyển minihouse_buildings/minihouse_rooms sang categories/products (Giai đoạn 2 kế hoạch gộp MiniHouse-Homestay)';
 
     public function handle(): int
     {
@@ -43,7 +47,6 @@ class MigrateRoomsToProductsCommand extends Command
         try {
             $buildingMap = $this->migrateBuildings();
             $roomMap     = $this->migrateRooms($roomType->id, $buildingMap);
-            $this->migrateAmenities($roomMap);
 
             $this->assertCounts($buildingMap, $roomMap);
 
@@ -221,31 +224,6 @@ class MigrateRoomsToProductsCommand extends Command
     }
 
     /** @param  array<int, string>  $roomMap */
-    private function migrateAmenities(array $roomMap): void
-    {
-        $amenityMap = [];
-
-        Amenity::query()->orderBy('id')->each(function (Amenity $amenity) use (&$amenityMap) {
-            $new = RoomAmenity::firstOrCreate(
-                ['partner_id' => HomestayBridge::PARTNER_ID, 'name' => $amenity->name],
-                ['amenity_type' => 'minihouse', 'icon' => $amenity->image, 'status' => true, 'sort_order' => 0]
-            );
-
-            $amenityMap[$amenity->id] = $new->id;
-        });
-
-        DB::table('minihouse_room_amenity')->orderBy('room_id')->each(function ($row) use ($roomMap, $amenityMap) {
-            $productId  = $roomMap[$row->room_id] ?? null;
-            $amenityId  = $amenityMap[$row->amenity_id] ?? null;
-
-            if (! $productId || ! $amenityId) {
-                return;
-            }
-
-            RoomAmenityAssign::firstOrCreate(['room_id' => $productId, 'amenity_id' => $amenityId]);
-        }, 200);
-    }
-
     /**
      * @param  array<int, int>  $buildingMap
      * @param  array<int, string>  $roomMap
