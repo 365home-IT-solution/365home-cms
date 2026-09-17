@@ -5,6 +5,27 @@ Tài liệu API đầy đủ của module MiniHouse, viết theo đúng thứ t�
 Muốn hiểu tổng quan kiến trúc/luồng nghiệp vụ trước khi đọc từng endpoint, xem file riêng "MiniHouse
 — Báo cáo dự án".
 
+## ⚠️ Thay đổi API (2026-09-17): `id` của Phòng đổi từ số sang chuỗi
+
+Sau khi gộp bảng "Phòng"/"Toà nhà" của MiniHouse vào chung `products`/`categories` với Home (đồng bộ
+kiến trúc dữ liệu, không đổi nghiệp vụ), **`id` của một Phòng** (trước là số nguyên tự tăng, VD `19`)
+**nay là chuỗi ULID 26 ký tự** (VD `"01m2mvj21h665yct00txv10grx"`), giống hệt cách Home định danh
+`products.id`. Đây là **thay đổi ngược tương thích** (breaking change) — client cần đổi mọi nơi coi
+`room id`/`room_id` là số (kiểu dữ liệu, `parseInt`, so sánh `===` với số...) sang xử lý chuỗi.
+
+Ảnh hưởng mọi request/response có `room_id` (Phòng), **KHÔNG** ảnh hưởng `building_id` (Toà nhà —
+vẫn là số nguyên như cũ, không đổi):
+
+- `GET/POST/PUT/DELETE /rooms*` — trường `id` trong response.
+- `GET /tenants*`, `POST /tenants`, `PUT /tenants/{id}` — trường `room_id`/`new_room_id`.
+- `GET/POST/PUT /contracts*` — trường `room_id`.
+- `GET/POST /metering-readings*`, `GET/POST /reminders*` — trường `room_id`.
+- Mọi validate `room_id`/`amenity_ids` phía server đã đổi tương ứng (`exists:products,id` thay vì
+  `exists:minihouse_rooms,id`).
+
+Toàn bộ ví dụ JSON trong tài liệu này đã cập nhật theo id kiểu chuỗi mới. Không có thay đổi nào khác
+về hành vi/luồng nghiệp vụ (Phòng/Toà nhà vẫn đúng 100% API cũ ở mọi field khác).
+
 ## 1. Xác thực (Admin)
 
 Dùng **chung** hệ đăng nhập admin của Home — không có endpoint đăng nhập riêng cho MiniHouse.
@@ -232,7 +253,7 @@ Quyền: `view_any_rooms` / `create_rooms` / `update_rooms` / `delete_rooms`.
 ```json
 {
   "data": [
-    { "id": 19, "code": "A-01", "floor": 1, "building_id": 2, "building_name": "Toà nhà A - Quận 1", "price": 3200000, "status": "bao_tri" }
+    { "id": "01m2mvj21h665yct00txv10grx", "code": "A-01", "floor": 1, "building_id": 2, "building_name": "Toà nhà A - Quận 1", "price": 3200000, "status": "bao_tri" }
   ],
   "...": "phân trang"
 }
@@ -243,7 +264,7 @@ Quyền: `view_any_rooms` / `create_rooms` / `update_rooms` / `delete_rooms`.
 ```json
 {
   "data": {
-    "id": 19,
+    "id": "01m2mvj21h665yct00txv10grx",
     "building_id": 2,
     "building_name": "Toà nhà A - Quận 1",
     "code": "A-01",
@@ -317,7 +338,7 @@ Quyền: `view_any_tenants` / `create_tenants` / `update_tenants` / `delete_tena
 `search` khớp `fullname`, `id_card_number`, `phone`.
 
 ```json
-{ "data": [{ "id": 26, "fullname": "Trần Thị Bình", "phone": "0912345678", "id_card_number": "012345678901", "room_id": 22, "room_code": "A-04" }] }
+{ "data": [{ "id": 26, "fullname": "Trần Thị Bình", "phone": "0912345678", "id_card_number": "012345678901", "room_id": "01m2mvj2p8x1w6h3g5z8k0qte2", "room_code": "A-04" }] }
 ```
 
 ### `GET /tenants/{id}`
@@ -341,7 +362,7 @@ Quyền: `view_any_tenants` / `create_tenants` / `update_tenants` / `delete_tena
     "emergency_contact_phone": null,
     "residence_declared": false,
     "residence_declared_at": null,
-    "room_id": 22,
+    "room_id": "01m2mvj2p8x1w6h3g5z8k0qte2",
     "room_code": "A-04",
     "note": null,
     "created_at": "...", "updated_at": "..."
@@ -361,7 +382,7 @@ khẩu thay vì OTP mỗi lần — xem mục 15 — field này không hiện tr
   "id_card_number": "079123456789",
   "date_of_birth": "1998-05-20",
   "gender": "nam",
-  "room_id": 20
+  "room_id": "01m2mvj39kq2j7y4h6a1m2nwe3"
 }
 ```
 
@@ -382,7 +403,7 @@ nâng cao bên dưới đều dùng chung quyền `update_contracts`).
 `status`: `active` | `expired` | `cancelled`.
 
 ```json
-{ "data": [{ "id": 26, "room_id": 22, "room_code": "A-04", "tenant_id": 26, "tenant_name": "Trần Thị Bình", "start_date": "2026-06-01", "end_date": "2027-09-06", "monthly_price": 3800000, "status": "active" }] }
+{ "data": [{ "id": 26, "room_id": "01m2mvj2p8x1w6h3g5z8k0qte2", "room_code": "A-04", "tenant_id": 26, "tenant_name": "Trần Thị Bình", "start_date": "2026-06-01", "end_date": "2027-09-06", "monthly_price": 3800000, "status": "active" }] }
 ```
 
 ### `GET /contracts/{id}`
@@ -391,7 +412,7 @@ nâng cao bên dưới đều dùng chung quyền `update_contracts`).
 {
   "data": {
     "id": 26,
-    "room_id": 22, "room_code": "A-04",
+    "room_id": "01m2mvj2p8x1w6h3g5z8k0qte2", "room_code": "A-04",
     "building_id": 2, "building_name": "Toà nhà A - Quận 1",
     "tenant_id": 26, "tenant_name": "Trần Thị Bình",
     "start_date": "2026-06-01", "end_date": "2027-09-06",
@@ -410,7 +431,7 @@ nâng cao bên dưới đều dùng chung quyền `update_contracts`).
 
 ```json
 {
-  "room_id": 20,
+  "room_id": "01m2mvj39kq2j7y4h6a1m2nwe3",
   "tenant_id": 30,
   "start_date": "2026-09-10",
   "end_date": "2027-09-09",
@@ -533,7 +554,7 @@ toà nhà, tài khoản vẫn phải được quản lý toà đích mới chuy�
 
 ```json
 {
-  "new_room_id": 20,
+  "new_room_id": "01m2mvj39kq2j7y4h6a1m2nwe3",
   "transfer_at": "2026-09-10",
   "new_monthly_price": 3500000
 }
@@ -545,7 +566,7 @@ toà nhà, tài khoản vẫn phải được quản lý toà đích mới chuy�
 {
   "data": {
     "id": 40,
-    "room_id": 20, "room_code": "A-02",
+    "room_id": "01m2mvj39kq2j7y4h6a1m2nwe3", "room_code": "A-02",
     "tenant_id": 26, "tenant_name": "Trần Thị Bình",
     "start_date": "2026-09-10", "end_date": "2027-09-06",
     "monthly_price": 3500000, "deposit_amount": 3800000,
@@ -658,7 +679,7 @@ có hoá đơn tháng đó — không báo lỗi, liệt kê ở `skipped`. Có 
   "created": [
     { "id": 12, "contract_id": 25, "room_code": "A-03", "month": "2026-11", "total_amount": 3600000, "amount_paid": null, "remaining": 3600000, "status": "unpaid" }
   ],
-  "skipped": [{ "contract_id": 26, "room_id": 22 }]
+  "skipped": [{ "contract_id": 26, "room_id": "01m2mvj2p8x1w6h3g5z8k0qte2" }]
 }
 ```
 
@@ -836,7 +857,7 @@ GET /reminders?is_done=&type=&per_page=
 `type`: `thu_tien` | `het_han_hop_dong` | `bao_tri` | `khac`.
 
 ```json
-{ "data": [{ "id": 4, "title": "Thu tiền phòng A-03 tháng 11", "content": null, "remind_date": "2026-11-01", "type": "thu_tien", "room_id": 21, "room_code": "A-03", "contract_id": null, "is_done": false }] }
+{ "data": [{ "id": 4, "title": "Thu tiền phòng A-03 tháng 11", "content": null, "remind_date": "2026-11-01", "type": "thu_tien", "room_id": "01m2mvj47rz3k8y5j7b2n3oxg4", "room_code": "A-03", "contract_id": null, "is_done": false }] }
 ```
 
 ```
