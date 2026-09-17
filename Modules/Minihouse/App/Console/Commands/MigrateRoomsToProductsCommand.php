@@ -8,7 +8,6 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Modules\Category\Entities\Category;
-use Modules\Minihouse\App\Models\Building;
 use Modules\Minihouse\App\Models\Room;
 use Modules\Minihouse\App\Support\HomestayBridge;
 use Modules\Product\App\Models\Product;
@@ -78,11 +77,13 @@ class MigrateRoomsToProductsCommand extends Command
     {
         $map = [];
 
-        // withTrashed() CỐ Ý — toà đã xoá mềm vẫn phải có category tương ứng để giữ toàn vẹn khoá
-        // ngoại cho các bảng con còn tham chiếu building_id của nó (Category không hỗ trợ xoá mềm,
-        // nên dùng status=false làm trạng thái "ẩn" tương đương, phù hợp luôn với việc
-        // Product::scopeActiveBranch() lọc theo categories.status khi hiển thị phòng Home).
-        Building::withTrashed()->orderBy('id')->each(function (Building $building) use (&$map) {
+        // Đọc THẲNG bảng thô `minihouse_buildings` qua query builder, KHÔNG qua Eloquent model
+        // Modules\Minihouse\App\Models\Building nữa — model đó đã bị refactor thành class con trực
+        // tiếp của Category ($table='categories', xem Building::class), nên Building::withTrashed()
+        // giờ đọc nhầm sang bảng categories (luôn rỗng ở bước này) chứ không còn thấy dữ liệu cũ.
+        // Query builder không áp global scope/soft-delete nào nên tự nhiên đã lấy đủ cả bản ghi đã
+        // xoá mềm, không cần withTrashed().
+        DB::table('minihouse_buildings')->orderBy('id')->get()->each(function (object $building) use (&$map) {
             // KHÔNG dùng Category::firstOrCreate(['legacy_minihouse_building_id' => ...], [...]) —
             // cột này KHÔNG có trong Category::$fillable (cố tình, chỉ là cột tra cứu tạm cho đợt
             // gộp này, không muốn thêm vĩnh viễn vào $fillable của model gốc) nên gán qua mass-
@@ -176,7 +177,10 @@ class MigrateRoomsToProductsCommand extends Command
     {
         $map = [];
 
-        Room::withTrashed()->orderBy('id')->each(function (Room $room) use ($roomTypeId, $buildingMap, &$map) {
+        // Lý do đọc thẳng bảng thô qua query builder thay vì Modules\Minihouse\App\Models\Room —
+        // xem chú thích ở migrateBuildings(): Room cũng đã bị refactor thành class con trực tiếp
+        // của Product ($table='products'), Room::withTrashed() giờ đọc nhầm sang bảng products.
+        DB::table('minihouse_rooms')->orderBy('id')->get()->each(function (object $room) use ($roomTypeId, $buildingMap, &$map) {
             $categoryId = $buildingMap[$room->building_id] ?? null;
 
             // Cùng lý do như Category ở migrateBuildings() — legacy_minihouse_room_id không nằm
@@ -211,7 +215,10 @@ class MigrateRoomsToProductsCommand extends Command
                     'position_row'  => $room->position_row,
                     'position_col'  => $room->position_col,
                     'status'        => $room->status,
-                    'photos'        => $room->photos ? json_encode($room->photos) : null,
+                    // $room->photos đã LÀ chuỗi JSON thô từ cột JSON của query builder (không qua
+                    // Eloquent cast 'array' như bản Room model cũ) — ghi thẳng, KHÔNG json_encode()
+                    // lại lần nữa (sẽ double-encode thành chuỗi lồng chuỗi sai định dạng).
+                    'photos'        => $room->photos,
                     'created_at'    => $room->created_at,
                     'updated_at'    => now(),
                 ]
@@ -230,8 +237,8 @@ class MigrateRoomsToProductsCommand extends Command
      */
     private function assertCounts(array $buildingMap, array $roomMap): void
     {
-        $expectedBuildings = Building::withTrashed()->count();
-        $expectedRooms     = Room::withTrashed()->count();
+        $expectedBuildings = DB::table('minihouse_buildings')->count();
+        $expectedRooms     = DB::table('minihouse_rooms')->count();
 
         if (count($buildingMap) !== $expectedBuildings) {
             throw new \RuntimeException("Lệch số toà nhà: mong {$expectedBuildings}, có " . count($buildingMap));
