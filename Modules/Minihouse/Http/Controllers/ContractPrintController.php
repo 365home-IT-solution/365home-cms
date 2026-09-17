@@ -34,7 +34,7 @@ class ContractPrintController extends Controller
             // Room dùng SoftDeletes riêng — quan hệ mặc định sẽ trả về null nếu phòng bị xoá mềm
             // (dù hợp đồng vẫn còn), chặn nhầm quyền xem hợp đồng lịch sử hợp lệ (cùng lỗi lớp đã
             // gặp và sửa ở InvoiceContentRenderer/InvoicePrintController).
-            $buildingId = Room::withoutGlobalScopes()->find($contract->room_id)?->building_id;
+            $buildingId = Room::withoutGlobalScope('activeBuilding')->find($contract->room_id)?->building_id;
 
             abort_unless($buildingId && in_array($buildingId, $user->rootBuildingIds()), 403);
         }

@@ -52,7 +52,7 @@ class Reminder extends Model
     public function resolveBuildingId(): ?int
     {
         if ($this->room_id) {
-            return Room::withoutGlobalScopes()->find($this->room_id)?->building_id;
+            return Room::withoutGlobalScope('activeBuilding')->find($this->room_id)?->building_id;
         }
 
         if ($this->contract_id) {

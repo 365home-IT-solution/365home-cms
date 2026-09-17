@@ -438,17 +438,25 @@ public function getFilamentAvatarUrl(): ?string
     public function rootBuildingIds(): array
     {
         if ($this->isSuperAdmin()) {
-            return \Modules\Minihouse\App\Models\Building::withoutGlobalScopes()->pluck('id')->all();
+            // CHỈ bỏ đúng scope 'activeBuilding' (xem lý do dưới), KHÔNG dùng withoutGlobalScopes()
+            // (bỏ HẾT scope) — Building giờ VẬT LÝ là categories (gộp MiniHouse-Homestay), bỏ hết
+            // scope sẽ bỏ luôn scope 'minihouse_buildings_only' (nhận diện đâu là Toà nhà MiniHouse
+            // thật) khiến hàm này trả về TOÀN BỘ category của cả hệ thống, kể cả chi nhánh Homestay
+            // — bug thật đã gặp: nút "Chuyển đổi toà nhà" ở panel MiniHouse hiện luôn cả chi nhánh
+            // Homestay cho tài khoản super_admin.
+            return \Modules\Minihouse\App\Models\Building::withoutGlobalScope('activeBuilding')->pluck('id')->all();
         }
 
-        // ->withoutGlobalScopes() BẮT BUỘC ở đây — minihouseBuildings() là quan hệ tới Building, mà
-        // Building có global scope riêng (ScopedToActiveBuilding) đọc lại CHÍNH rootBuildingIds() này
-        // để tính activeBuildingIds(). Thiếu dòng này thì mọi tài khoản KHÔNG PHẢI super_admin gọi
-        // rootBuildingIds() sẽ đệ quy vô hạn ngay khi query Building (rootBuildingIds() -> query
-        // Building -> scope Building -> rootBuildingIds() -> ...), sập panel với OOM.
+        // ->withoutGlobalScope('activeBuilding') BẮT BUỘC ở đây — minihouseBuildings() là quan hệ tới
+        // Building, mà Building có global scope riêng (ScopedToActiveBuilding) đọc lại CHÍNH
+        // rootBuildingIds() này để tính activeBuildingIds(). Thiếu dòng này thì mọi tài khoản KHÔNG
+        // PHẢI super_admin gọi rootBuildingIds() sẽ đệ quy vô hạn ngay khi query Building
+        // (rootBuildingIds() -> query Building -> scope Building -> rootBuildingIds() -> ...), sập
+        // panel với OOM. CHỈ bỏ đúng scope này (không dùng withoutGlobalScopes() bỏ hết) để giữ lại
+        // scope 'minihouse_buildings_only' — xem lý do ở nhánh super_admin phía trên.
         // Building giờ VẬT LÝ là categories (gộp MiniHouse-Homestay) — 'minihouse_buildings.id'
         // (tên bảng cũ) không còn đúng, đổi thành 'categories.id'.
-        $assignedBuildingIds = $this->minihouseBuildings()->withoutGlobalScopes()->pluck('categories.id')->all();
+        $assignedBuildingIds = $this->minihouseBuildings()->withoutGlobalScope('activeBuilding')->pluck('categories.id')->all();
 
         $assignedZoneIds = $this->minihouseZones()->pluck('minihouse_zones.id')->all();
 
@@ -457,7 +465,7 @@ public function getFilamentAvatarUrl(): ?string
         // ->whereIn('zone_id', ...) được nữa, phải lọc qua subquery tới đúng bảng phụ đó.
         $buildingIdsFromZones = empty($assignedZoneIds)
             ? []
-            : \Modules\Minihouse\App\Models\Building::withoutGlobalScopes()
+            : \Modules\Minihouse\App\Models\Building::withoutGlobalScope('activeBuilding')
                 ->whereIn('id', function ($q) use ($assignedZoneIds) {
                     $q->select('category_id')->from('minihouse_building_settings')
                         ->whereIn('zone_id', $assignedZoneIds);

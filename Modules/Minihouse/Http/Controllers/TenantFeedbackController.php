@@ -18,7 +18,7 @@ class TenantFeedbackController extends Controller
     public function create(Request $request): View
     {
         $room = $request->integer('room')
-            ? Room::withoutGlobalScopes()->find($request->integer('room'))
+            ? Room::withoutGlobalScope('activeBuilding')->find($request->integer('room'))
             : null;
 
         return view('minihouse::feedback.create', ['room' => $room]);

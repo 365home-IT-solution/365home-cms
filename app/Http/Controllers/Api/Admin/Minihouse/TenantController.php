@@ -89,7 +89,7 @@ class TenantController extends Controller
         // room_id CÓ giá trị thì phòng đó phải thuộc toà được phép — room_id null (chưa gán phòng)
         // thì tạo được bình thường, không có toà nào để kiểm tra.
         if (! empty($data['room_id'])) {
-            $room = Room::withoutGlobalScopes()->find($data['room_id']);
+            $room = Room::withoutGlobalScope('activeBuilding')->find($data['room_id']);
 
             if (! $room || ! $this->isBuildingAllowed($request, $room->building_id)) {
                 return response()->json(['message' => 'Không có quyền gán khách thuê vào phòng của toà nhà này.'], 403);
@@ -133,7 +133,7 @@ class TenantController extends Controller
         ]);
 
         if (array_key_exists('room_id', $data) && ! empty($data['room_id'])) {
-            $room = Room::withoutGlobalScopes()->find($data['room_id']);
+            $room = Room::withoutGlobalScope('activeBuilding')->find($data['room_id']);
 
             if (! $room || ! $this->isBuildingAllowed($request, $room->building_id)) {
                 return response()->json(['message' => 'Không có quyền chuyển khách thuê sang phòng của toà nhà này.'], 403);

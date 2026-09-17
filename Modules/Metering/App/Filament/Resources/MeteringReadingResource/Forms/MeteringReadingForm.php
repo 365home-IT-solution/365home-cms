@@ -175,7 +175,7 @@ class MeteringReadingForm
     /** @return array{0: float, 1: float} */
     private static function unitPricesForRoom(string $roomId): array
     {
-        $room = Room::withoutGlobalScopes()->with('building')->find($roomId);
+        $room = Room::withoutGlobalScope('activeBuilding')->with('building')->find($roomId);
 
         if (! $room) {
             return [0.0, 0.0];

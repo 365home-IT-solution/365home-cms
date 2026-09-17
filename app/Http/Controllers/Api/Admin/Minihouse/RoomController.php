@@ -54,7 +54,7 @@ class RoomController extends Controller
             return response()->json(['message' => 'Không có quyền xem phòng.'], 403);
         }
 
-        $room = Room::withoutGlobalScopes()->with('building:id,name', 'amenities:id,name')->find($id);
+        $room = Room::withoutGlobalScope('activeBuilding')->with('building:id,name', 'amenities:id,name')->find($id);
 
         if (! $room || ! $this->isBuildingAllowed($request, $room->building_id)) {
             return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
@@ -126,7 +126,7 @@ class RoomController extends Controller
             return response()->json(['message' => 'Không có quyền sửa phòng.'], 403);
         }
 
-        $room = Room::withoutGlobalScopes()->find($id);
+        $room = Room::withoutGlobalScope('activeBuilding')->find($id);
 
         if (! $room || ! $this->isBuildingAllowed($request, $room->building_id)) {
             return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
@@ -203,7 +203,7 @@ class RoomController extends Controller
             return response()->json(['message' => 'Không có quyền xoá phòng.'], 403);
         }
 
-        $room = Room::withoutGlobalScopes()->find($id);
+        $room = Room::withoutGlobalScope('activeBuilding')->find($id);
 
         if (! $room || ! $this->isBuildingAllowed($request, $room->building_id)) {
             return response()->json(['message' => 'Không tìm thấy phòng.'], 404);

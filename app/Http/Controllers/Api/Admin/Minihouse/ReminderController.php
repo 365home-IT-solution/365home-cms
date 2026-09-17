@@ -76,7 +76,7 @@ class ReminderController extends Controller
         ]);
 
         if (! empty($data['room_id'])) {
-            $room = Room::withoutGlobalScopes()->find($data['room_id']);
+            $room = Room::withoutGlobalScope('activeBuilding')->find($data['room_id']);
 
             if (! $room || ! $this->isBuildingAllowed($request, $room->building_id)) {
                 return response()->json(['message' => 'Không có quyền tạo nhắc việc cho phòng của toà nhà này.'], 403);

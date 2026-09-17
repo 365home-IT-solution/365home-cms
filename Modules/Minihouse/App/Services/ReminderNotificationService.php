@@ -115,7 +115,7 @@ class ReminderNotificationService
                 }
 
                 $repeatDays = $reminder->resolveBuildingId()
-                    ? Building::withoutGlobalScopes()->find($reminder->resolveBuildingId())?->payment_reminder_repeat_days
+                    ? Building::withoutGlobalScope('activeBuilding')->find($reminder->resolveBuildingId())?->payment_reminder_repeat_days
                     : null;
 
                 if (! $repeatDays) {

@@ -45,7 +45,7 @@ class BuildingController extends Controller
             return response()->json(['message' => 'Không tìm thấy toà nhà.'], 404);
         }
 
-        $building = Building::withoutGlobalScopes()->find($id);
+        $building = Building::withoutGlobalScope('activeBuilding')->find($id);
 
         if (! $building) {
             return response()->json(['message' => 'Không tìm thấy toà nhà.'], 404);
@@ -87,7 +87,7 @@ class BuildingController extends Controller
             return response()->json(['message' => 'Không tìm thấy toà nhà.'], 404);
         }
 
-        $building = Building::withoutGlobalScopes()->find($id);
+        $building = Building::withoutGlobalScope('activeBuilding')->find($id);
 
         if (! $building) {
             return response()->json(['message' => 'Không tìm thấy toà nhà.'], 404);
@@ -108,7 +108,7 @@ class BuildingController extends Controller
             return response()->json(['message' => 'Không tìm thấy toà nhà.'], 404);
         }
 
-        $building = Building::withoutGlobalScopes()->find($id);
+        $building = Building::withoutGlobalScope('activeBuilding')->find($id);
 
         if (! $building) {
             return response()->json(['message' => 'Không tìm thấy toà nhà.'], 404);

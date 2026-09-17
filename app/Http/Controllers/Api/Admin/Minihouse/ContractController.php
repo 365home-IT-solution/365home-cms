@@ -85,7 +85,7 @@ class ContractController extends Controller
             'custom_reason'        => 'nullable|string|max:255',
         ]);
 
-        $room = Room::withoutGlobalScopes()->find($data['room_id']);
+        $room = Room::withoutGlobalScope('activeBuilding')->find($data['room_id']);
 
         if (! $room || ! $this->isBuildingAllowed($request, $room->building_id)) {
             return response()->json(['message' => 'Không có quyền tạo hợp đồng cho phòng của toà nhà này.'], 403);
@@ -143,7 +143,7 @@ class ContractController extends Controller
         ]);
 
         if (isset($data['room_id'])) {
-            $room = Room::withoutGlobalScopes()->find($data['room_id']);
+            $room = Room::withoutGlobalScope('activeBuilding')->find($data['room_id']);
 
             if (! $room || ! $this->isBuildingAllowed($request, $room->building_id)) {
                 return response()->json(['message' => 'Không có quyền chuyển hợp đồng sang phòng của toà nhà này.'], 403);
@@ -392,7 +392,7 @@ class ContractController extends Controller
             'new_monthly_price'  => 'required|numeric|min:0',
         ]);
 
-        $newRoom = Room::withoutGlobalScopes()->find($data['new_room_id']);
+        $newRoom = Room::withoutGlobalScope('activeBuilding')->find($data['new_room_id']);
 
         if (! $newRoom || $newRoom->status !== Room::STATUS_EMPTY || $newRoom->id === $old->room_id) {
             return response()->json(['message' => 'Phòng mới phải đang "Trống" và khác phòng hiện tại.'], 422);

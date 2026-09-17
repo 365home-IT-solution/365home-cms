@@ -19,7 +19,7 @@ class AnnouncementForm
                 ->schema([
                     Select::make('building_id')
                         ->label('Gửi cho')
-                        ->options(Building::withoutGlobalScopes()->pluck('name', 'id'))
+                        ->options(Building::withoutGlobalScope('activeBuilding')->pluck('name', 'id'))
                         ->placeholder('Tất cả toà nhà')
                         ->searchable(),
                     TextInput::make('title')
