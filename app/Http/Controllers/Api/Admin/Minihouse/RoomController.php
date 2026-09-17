@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Modules\Minihouse\App\Exceptions\CannotDeleteReferencedRecordException;
 use Modules\Minihouse\App\Models\Room;
 
 class RoomController extends Controller
@@ -209,7 +210,14 @@ class RoomController extends Controller
             return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
         }
 
-        $room->delete();
+        // Room::booted() ném CannotDeleteReferencedRecordException nếu phòng còn Hợp đồng (kể cả đã
+        // hết hạn) tham chiếu tới — bắt lại ở đây để trả 422 thân thiện thay vì lỗi 500 (cùng pattern
+        // InvoiceController::destroy() bắt CannotDeletePaidInvoiceException).
+        try {
+            $room->delete();
+        } catch (CannotDeleteReferencedRecordException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         return response()->json(['message' => 'Đã xoá phòng.']);
     }

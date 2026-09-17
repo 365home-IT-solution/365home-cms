@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Modules\Minihouse\App\Exceptions\CannotDeleteReferencedRecordException;
 use Modules\Minihouse\App\Models\Building;
 
 // Toà nhà — xem Modules\Minihouse\App\Filament\Resources\BuildingResource cho bản Filament tương
@@ -114,7 +115,14 @@ class BuildingController extends Controller
             return response()->json(['message' => 'Không tìm thấy toà nhà.'], 404);
         }
 
-        $building->delete();
+        // Building::booted() ném CannotDeleteReferencedRecordException nếu toà nhà còn Phòng thuộc
+        // về nó (đúng hành vi panel Filament) — bắt lại ở đây để trả 422 thân thiện thay vì lỗi 500
+        // (cùng pattern InvoiceController::destroy() bắt CannotDeletePaidInvoiceException).
+        try {
+            $building->delete();
+        } catch (CannotDeleteReferencedRecordException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         return response()->json(['message' => 'Đã xoá toà nhà.']);
     }
