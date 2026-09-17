@@ -59,10 +59,23 @@ Content-Type: application/json
     "partner_id": null,
     "partner_name": null,
     "is_super_admin": false,
+    "access": { "homestay": true, "minihouse": true },
     "categories": []
   }
 }
 ```
+
+> **`access`** (mới thêm 2026-09-17) — cho biết tài khoản vừa đăng nhập dùng được panel/API nào,
+> tính bằng đúng `User::canAccessPanel()` (hàm Filament tự gọi để chặn đăng nhập panel — không phải
+> logic suy diễn riêng, luôn khớp hành vi thật):
+> - `access.minihouse = true` nếu là Super Admin **hoặc** có quyền `access_minihouse` (qua vai trò
+>   "Quản lý MiniHouse").
+> - `access.homestay = true` nếu tài khoản có ít nhất 1 vai trò thật (không phải `panel_user` mặc
+>   định) và (không thuộc đối tác nào, hoặc đối tác đã `approved`).
+> - Super Admin và một số tài khoản có thể `true` **cả hai** cùng lúc (VD: tài khoản chỉ được cấp
+>   vai trò "Quản lý MiniHouse" vẫn có `access.homestay = true`, vì vai trò đó vẫn tính là "có vai
+>   trò thật" theo điều kiện ở trên — dù không có quyền thao tác cụ thể nào bên panel Homestay). FE
+>   nên dựa vào cờ tương ứng với panel/app mình đang chạy, không giả định 2 cờ luôn loại trừ nhau.
 
 **Response `401`** — sai email/mật khẩu:
 
