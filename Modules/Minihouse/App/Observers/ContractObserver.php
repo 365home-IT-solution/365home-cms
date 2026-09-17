@@ -90,7 +90,9 @@ class ContractObserver
     // đúng ngày đó (VD tạo hợp đồng start_date tương lai 1 tuần trước, không ai đụng vào hợp đồng
     // giữa chừng — nếu chỉ dựa vào sự kiện Contract thì phòng sẽ mãi kẹt ở "Đã đặt cọc" quá ngày dọn
     // vào thật).
-    public function syncRoom(?int $roomId): void
+    // room_id giờ là chuỗi ULID (Room::class giờ là 1 dòng products, xem Room.php) — trước đây là
+    // bigint tự tăng nên type hint là ?int, phải nới thành ?string.
+    public function syncRoom(?string $roomId): void
     {
         $room = Room::find($roomId);
 

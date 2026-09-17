@@ -50,7 +50,7 @@ class SurchargeController extends Controller
         }
 
         $data = $request->validate([
-            'building_id' => 'required|integer|exists:minihouse_buildings,id',
+            'building_id' => 'required|integer|exists:categories,id',
             'name'        => 'required|string|max:255',
             'amount'      => 'required|numeric|min:0',
             'note'        => 'nullable|string',

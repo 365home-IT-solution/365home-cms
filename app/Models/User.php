@@ -446,14 +446,22 @@ public function getFilamentAvatarUrl(): ?string
         // để tính activeBuildingIds(). Thiếu dòng này thì mọi tài khoản KHÔNG PHẢI super_admin gọi
         // rootBuildingIds() sẽ đệ quy vô hạn ngay khi query Building (rootBuildingIds() -> query
         // Building -> scope Building -> rootBuildingIds() -> ...), sập panel với OOM.
-        $assignedBuildingIds = $this->minihouseBuildings()->withoutGlobalScopes()->pluck('minihouse_buildings.id')->all();
+        // Building giờ VẬT LÝ là categories (gộp MiniHouse-Homestay) — 'minihouse_buildings.id'
+        // (tên bảng cũ) không còn đúng, đổi thành 'categories.id'.
+        $assignedBuildingIds = $this->minihouseBuildings()->withoutGlobalScopes()->pluck('categories.id')->all();
 
         $assignedZoneIds = $this->minihouseZones()->pluck('minihouse_zones.id')->all();
 
+        // zone_id KHÔNG PHẢI cột thật trên categories nữa (uỷ quyền qua bảng phụ
+        // minihouse_building_settings, xem Building::getAttribute()) — không lọc trực tiếp
+        // ->whereIn('zone_id', ...) được nữa, phải lọc qua subquery tới đúng bảng phụ đó.
         $buildingIdsFromZones = empty($assignedZoneIds)
             ? []
             : \Modules\Minihouse\App\Models\Building::withoutGlobalScopes()
-                ->whereIn('zone_id', $assignedZoneIds)
+                ->whereIn('id', function ($q) use ($assignedZoneIds) {
+                    $q->select('category_id')->from('minihouse_building_settings')
+                        ->whereIn('zone_id', $assignedZoneIds);
+                })
                 ->pluck('id')
                 ->all();
 

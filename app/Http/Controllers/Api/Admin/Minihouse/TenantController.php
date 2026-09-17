@@ -32,7 +32,7 @@ class TenantController extends Controller
             ->withoutGlobalScopes()
             ->with('room:id,code,building_id')
             ->whereHas('room', fn ($q) => $q->whereIn('building_id', $permitted))
-            ->when($request->filled('room_id'), fn ($q) => $q->where('room_id', $request->integer('room_id')))
+            ->when($request->filled('room_id'), fn ($q) => $q->where('room_id', $request->input('room_id')))
             ->when($request->filled('search'), fn ($q) => $q->where(fn ($q2) => $q2
                 ->where('fullname', 'like', '%' . $request->string('search') . '%')
                 ->orWhere('id_card_number', 'like', '%' . $request->string('search') . '%')
@@ -82,7 +82,7 @@ class TenantController extends Controller
             'workplace'                => 'nullable|string|max:255',
             'emergency_contact_name'   => 'nullable|string|max:255',
             'emergency_contact_phone'  => 'nullable|string|max:20',
-            'room_id'                  => 'nullable|integer|exists:minihouse_rooms,id',
+            'room_id'                  => 'nullable|string|exists:products,id',
             'note'                     => 'nullable|string',
         ]);
 
@@ -128,7 +128,7 @@ class TenantController extends Controller
             'workplace'                => 'nullable|string|max:255',
             'emergency_contact_name'   => 'nullable|string|max:255',
             'emergency_contact_phone'  => 'nullable|string|max:20',
-            'room_id'                  => 'nullable|integer|exists:minihouse_rooms,id',
+            'room_id'                  => 'nullable|string|exists:products,id',
             'note'                     => 'nullable|string',
         ]);
 

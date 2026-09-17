@@ -40,7 +40,12 @@ class ZoneTable
                     ->extraCellAttributes(['style' => 'max-width: 190px; width: 100%; overflow: hidden;']),
 
                 TextColumn::make('name')->label('Tên khu vực')->searchable()->sortable()->visibleFrom('md'),
-                TextColumn::make('buildings_count')->label('Số toà nhà')->counts('buildings')->sortable()->visibleFrom('md'),
+                // KHÔNG dùng ->counts('buildings') (withCount qua quan hệ Eloquent chuẩn) — từ khi
+                // gộp Building vào categories, zone_id nằm ở bảng phụ minihouse_building_settings
+                // (KHÔNG phải cột trực tiếp trên categories), Zone::buildings() vì vậy trả về 1
+                // Eloquent\Builder tự dựng bằng subquery thay vì 1 Relation thật, withCount() không
+                // dùng được — tính trực tiếp bằng ->state() thay thế.
+                TextColumn::make('buildings_count')->label('Số toà nhà')->state(fn (Zone $record) => $record->buildings()->count())->sortable(false)->visibleFrom('md'),
                 TextColumn::make('note')->label('Ghi chú')->limit(50)->visibleFrom('md'),
                 TextColumn::make('created_at')->label('Ngày tạo')->dateTime('d/m/Y')->sortable()->visibleFrom('md'),
             ])

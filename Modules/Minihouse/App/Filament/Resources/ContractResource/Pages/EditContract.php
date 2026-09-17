@@ -270,7 +270,7 @@ class EditContract extends EditRecord
                         Select::make('new_room_id')
                             ->label('Phòng mới')
                             ->options(fn () => Room::query()
-                                ->where('status', Room::STATUS_EMPTY)
+                                ->whereHas('detail', fn ($q) => $q->where('status', Room::STATUS_EMPTY))
                                 ->where('id', '!=', $record->room_id)
                                 ->with('building')
                                 ->get()

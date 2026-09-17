@@ -39,7 +39,7 @@ class MeteringReadingController extends Controller
             ->withoutGlobalScopes()
             ->with('room:id,code,building_id,floor')
             ->whereHas('room', fn ($q) => $q->whereIn('building_id', $permitted))
-            ->when($request->filled('room_id'), fn ($q) => $q->where('room_id', $request->integer('room_id')))
+            ->when($request->filled('room_id'), fn ($q) => $q->where('room_id', $request->input('room_id')))
             ->when($request->filled('month'), fn ($q) => $q->whereDate('month', Carbon::parse($request->string('month'))->startOfMonth()))
             ->orderByDesc('month')
             ->paginate((int) $request->integer('per_page', 20));
@@ -73,7 +73,7 @@ class MeteringReadingController extends Controller
         }
 
         $data = $request->validate([
-            'room_id'      => 'required|integer|exists:minihouse_rooms,id',
+            'room_id'      => 'required|string|exists:products,id',
             'month'        => 'required|date',
             'electric_end' => 'required|numeric|min:0',
             'water_end'    => 'required|numeric|min:0',

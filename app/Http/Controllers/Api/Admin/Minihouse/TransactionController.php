@@ -82,7 +82,7 @@ class TransactionController extends Controller
         }
 
         $data = $request->validate([
-            'building_id'      => 'required|integer|exists:minihouse_buildings,id',
+            'building_id'      => 'required|integer|exists:categories,id',
             'contract_id'      => 'nullable|integer|exists:minihouse_contracts,id',
             'type'             => ['required', Rule::in([Transaction::TYPE_IN, Transaction::TYPE_OUT])],
             'category'         => ['nullable', Rule::in([Transaction::CATEGORY_REPAIR, Transaction::CATEGORY_OPERATION, Transaction::CATEGORY_OTHER])],
@@ -119,7 +119,7 @@ class TransactionController extends Controller
         }
 
         $data = $request->validate([
-            'building_id'      => 'sometimes|required|integer|exists:minihouse_buildings,id',
+            'building_id'      => 'sometimes|required|integer|exists:categories,id',
             'contract_id'      => 'nullable|integer|exists:minihouse_contracts,id',
             'type'             => ['sometimes', Rule::in([Transaction::TYPE_IN, Transaction::TYPE_OUT])],
             'category'         => ['nullable', Rule::in([Transaction::CATEGORY_REPAIR, Transaction::CATEGORY_OPERATION, Transaction::CATEGORY_OTHER])],

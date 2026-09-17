@@ -184,9 +184,14 @@ class Room extends Product
         return $this->hasMany(PanoramaScene::class, 'room_id')->orderBy('sort_order');
     }
 
+    // Dùng hệ Amenity CHUNG của Home (Modules\Product\App\Models\RoomAmenity, bảng room_amenities +
+    // pivot product_amenity) — KHÔNG PHẢI Modules\Minihouse\App\Models\Amenity/minihouse_room_amenity
+    // cũ nữa: pivot cũ có cột room_id kiểu bigint trỏ minihouse_rooms, không tương thích với id
+    // kiểu ULID mới của Room (đã đổi hẳn sang products). Giai đoạn 2 (data migration) đã chuyển toàn
+    // bộ minihouse_amenities/minihouse_room_amenity cũ sang RoomAmenity/product_amenity rồi.
     public function amenities(): BelongsToMany
     {
-        return $this->belongsToMany(Amenity::class, 'minihouse_room_amenity');
+        return $this->belongsToMany(\Modules\Product\App\Models\RoomAmenity::class, 'product_amenity', 'product_id', 'amenity_id');
     }
 
     public function assets(): HasMany

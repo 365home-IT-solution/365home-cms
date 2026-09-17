@@ -67,7 +67,7 @@ class ReminderController extends Controller
             'content'               => 'nullable|string',
             'remind_date'           => 'required|date',
             'type'                  => ['required', Rule::in([Reminder::TYPE_PAYMENT, Reminder::TYPE_CONTRACT, Reminder::TYPE_MAINTENANCE, Reminder::TYPE_OTHER])],
-            'room_id'               => 'nullable|integer|exists:minihouse_rooms,id',
+            'room_id'               => 'nullable|string|exists:products,id',
             'contract_id'           => 'nullable|integer|exists:minihouse_contracts,id',
             'invoice_id'            => 'nullable|integer|exists:minihouse_invoices,id',
             // Chỉ có ý nghĩa với "Nhắc bảo trì" — đánh dấu "Đã xử lý" thì ReminderObserver tự sinh

@@ -27,7 +27,7 @@ class TenantFeedbackController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'room_id'      => ['nullable', 'integer', 'exists:minihouse_rooms,id'],
+            'room_id'      => ['nullable', 'string', 'exists:products,id'],
             'tenant_name'  => ['nullable', 'string', 'max:255'],
             'tenant_phone' => ['nullable', 'string', 'max:20'],
             'rating'       => ['required', 'integer', 'min:1', 'max:5'],

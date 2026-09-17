@@ -190,10 +190,13 @@ class Dashboard extends FilamentDashboard
         // Nhóm "hiện trạng" — KHÔNG phụ thuộc kỳ đang lọc ở trên (tỷ lệ lấp đầy/hợp đồng hiệu lực/
         // nợ đều là ảnh chụp TẠI THỜI ĐIỂM XEM, đổi tab kỳ không đổi số này) — trước đây nằm ở
         // MinihouseStatsWidget riêng, giờ gộp vào cùng 1 khối với KPI theo kỳ để đỡ rối mắt.
+        // status KHÔNG PHẢI cột thật trên products nữa (uỷ quyền qua bảng phụ minihouse_room_details,
+        // xem Room::getAttribute()) — lọc qua whereHas('detail', ...) thay vì where('status', ...)
+        // trực tiếp (đã từng gây lỗi "Unknown column 'status'").
         $totalRooms    = Room::count();
-        $rentedRooms   = Room::where('status', Room::STATUS_RENTED)->count();
-        $reservedRooms = Room::where('status', Room::STATUS_RESERVED)->count();
-        $emptyRooms    = Room::where('status', Room::STATUS_EMPTY)->count();
+        $rentedRooms   = Room::whereHas('detail', fn ($q) => $q->where('status', Room::STATUS_RENTED))->count();
+        $reservedRooms = Room::whereHas('detail', fn ($q) => $q->where('status', Room::STATUS_RESERVED))->count();
+        $emptyRooms    = Room::whereHas('detail', fn ($q) => $q->where('status', Room::STATUS_EMPTY))->count();
 
         $unpaidInvoiceTotal = (float) Invoice::whereIn('status', [Invoice::STATUS_UNPAID, Invoice::STATUS_PARTIAL])
             ->sum(DB::raw('total_amount - amount_paid'));

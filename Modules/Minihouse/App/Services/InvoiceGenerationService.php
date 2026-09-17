@@ -42,9 +42,16 @@ class InvoiceGenerationService
         $contracts = Contract::query()
             ->where('status', Contract::STATUS_ACTIVE)
             ->when(filled($buildingIds), fn ($q) => $q->whereHas('room', fn ($q2) => $q2->whereIn('building_id', $buildingIds)))
-            ->whereHas('room.building', fn ($q) => $q->where(fn ($q2) => $q2
-                ->whereNull('billing_cycle_type')
-                ->orWhere('billing_cycle_type', Building::BILLING_CYCLE_CALENDAR_MONTH)))
+            // billing_cycle_type nằm ở bảng phụ minihouse_building_settings (uỷ quyền qua
+            // Building::getAttribute(), xem Building.php) — KHÔNG PHẢI cột thật trên categories, nên
+            // không lọc trực tiếp qua whereHas('room.building', ...) như trước được nữa (từng gây lỗi
+            // "Unknown column billing_cycle_type"). Lọc qua subquery tới đúng bảng phụ đó.
+            ->whereHas('room', fn ($q) => $q->whereIn('building_id', function ($q2) {
+                $q2->select('category_id')->from('minihouse_building_settings')
+                    ->where(fn ($q3) => $q3
+                        ->whereNull('billing_cycle_type')
+                        ->orWhere('billing_cycle_type', Building::BILLING_CYCLE_CALENDAR_MONTH));
+            }))
             // Hợp đồng đã kết thúc trước khi tháng này bắt đầu, hoặc chưa tới ngày bắt đầu — không
             // có ngày nào thuộc kỳ này để tính tiền phòng.
             ->where(fn ($q) => $q->whereNull('end_date')->orWhereDate('end_date', '>=', $periodStart))
@@ -108,7 +115,10 @@ class InvoiceGenerationService
         $contracts = Contract::query()
             ->where('status', Contract::STATUS_ACTIVE)
             ->when(filled($buildingIds), fn ($q) => $q->whereHas('room', fn ($q2) => $q2->whereIn('building_id', $buildingIds)))
-            ->whereHas('room.building', fn ($q) => $q->where('billing_cycle_type', Building::BILLING_CYCLE_ANNIVERSARY))
+            ->whereHas('room', fn ($q) => $q->whereIn('building_id', function ($q2) {
+                $q2->select('category_id')->from('minihouse_building_settings')
+                    ->where('billing_cycle_type', Building::BILLING_CYCLE_ANNIVERSARY);
+            }))
             ->whereDate('start_date', '<=', $today)
             ->with(['room.building'])
             ->get();
