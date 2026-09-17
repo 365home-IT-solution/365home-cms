@@ -24,8 +24,9 @@ use Modules\Product\App\Models\RoomType;
 // Room::create([...]), Room::STATUS_*...) để ~80 file đang dùng class này (Filament Resource, API
 // Controller, Observer, Seeder, test) KHÔNG PHẢI SỬA GÌ — field không tồn tại trên products
 // (floor/position_row/position_col/status/photos) được uỷ quyền qua RoomDetail (bảng
-// minihouse_room_details) trong getAttribute()/setAttribute() bên dưới; field đổi tên
-// (code<->name, area<->room_area_sqm, note<->description) forward thẳng sang cột thật của Product.
+// minihouse_room_details) bằng accessor/mutator (getXAttribute/setXAttribute) chuẩn của Eloquent bên
+// dưới; field đổi tên (code<->name, area<->room_area_sqm, note<->description) forward thẳng sang
+// cột thật của Product.
 // building_id LÀ CỘT THẬT trên products (xem migration add_minihouse_building_id_to_products) nên
 // không cần uỷ quyền — 4 trait ScopedToActiveBuilding* lọc SQL trực tiếp vẫn hoạt động y hệt.
 class Room extends Product
@@ -44,12 +45,6 @@ class Room extends Product
     // tự suy nhầm thành bảng "rooms" (số nhiều của "Room") thay vì "products".
     protected $table = 'products';
 
-    // key hiển thị cũ => cột thật trên products
-    private const RENAMED = ['code' => 'name', 'area' => 'room_area_sqm', 'note' => 'description'];
-
-    // key hiển thị cũ không tồn tại trên products => uỷ quyền qua RoomDetail
-    private const DETAIL_FIELDS = ['floor', 'position_row', 'position_col', 'status', 'photos'];
-
     protected $fillable = ['building_id', 'code', 'floor', 'position_row', 'position_col', 'area', 'price', 'status', 'note', 'photos'];
 
     protected $appends = ['code', 'area', 'note', 'floor', 'position_row', 'position_col', 'status', 'photos'];
@@ -57,40 +52,104 @@ class Room extends Product
     /** Giá trị vừa set() nhưng chưa flush xuống RoomDetail (flush ở sự kiện saved(), xem booted()). */
     private array $pendingDetail = [];
 
-    public function getAttribute($key)
+    // Dùng ĐÚNG quy ước accessor/mutator chuẩn của Eloquent (getXAttribute/setXAttribute) — KHÔNG
+    // override getAttribute()/setAttribute() ở tầng thấp như bản trước: Eloquent tự gọi thẳng
+    // get{X}Attribute() ở nhiều chỗ khác NGOÀI property access thông thường (VD
+    // attributesToArray()/toArray() xử lý $appends bằng cách gọi trực tiếp mutateAttribute() ->
+    // $this->getCodeAttribute(), KHÔNG đi qua getAttribute() — đã tự kiểm chứng: Filament
+    // EditRecord::fillForm() gọi $record->attributesToArray() lúc tải trang Sửa, ném lỗi "Call to
+    // undefined method getCodeAttribute()" vì bản override cũ chỉ bắt được property access, không
+    // bắt được đường gọi trực tiếp này).
+    public function getCodeAttribute(): ?string
     {
-        if (isset(self::RENAMED[$key])) {
-            $value = parent::getAttribute(self::RENAMED[$key]);
-
-            // area vốn cast 'float' bên Room cũ (không hiện ép buộc ",00" giả như decimal:2 của
-            // Product.room_area_sqm) — ép lại kiểu ở đây để giữ đúng hành vi hiển thị cũ.
-            return $key === 'area' && $value !== null ? (float) $value : $value;
-        }
-
-        if (in_array($key, self::DETAIL_FIELDS, true)) {
-            if (array_key_exists($key, $this->pendingDetail)) {
-                return $this->pendingDetail[$key];
-            }
-
-            return $this->detail?->{$key} ?? ($key === 'status' ? self::STATUS_EMPTY : null);
-        }
-
-        return parent::getAttribute($key);
+        return $this->attributes['name'] ?? null;
     }
 
-    public function setAttribute($key, $value)
+    public function setCodeAttribute(?string $value): void
     {
-        if (isset(self::RENAMED[$key])) {
-            return parent::setAttribute(self::RENAMED[$key], $value);
+        $this->attributes['name'] = $value;
+    }
+
+    // 'float' như Room cũ (không hiện ép buộc ",00" giả như decimal:2 của Product.room_area_sqm).
+    public function getAreaAttribute(): ?float
+    {
+        return isset($this->attributes['room_area_sqm']) ? (float) $this->attributes['room_area_sqm'] : null;
+    }
+
+    public function setAreaAttribute(?float $value): void
+    {
+        $this->attributes['room_area_sqm'] = $value;
+    }
+
+    public function getNoteAttribute(): ?string
+    {
+        return $this->attributes['description'] ?? null;
+    }
+
+    public function setNoteAttribute(?string $value): void
+    {
+        $this->attributes['description'] = $value;
+    }
+
+    // floor/position_row/position_col/status/photos KHÔNG tồn tại trên products — uỷ quyền qua
+    // RoomDetail (bảng minihouse_room_details), đệm ở $pendingDetail cho tới khi flush ở saved().
+    public function getFloorAttribute(): ?int
+    {
+        return $this->detailValue('floor');
+    }
+
+    public function setFloorAttribute($value): void
+    {
+        $this->pendingDetail['floor'] = $value;
+    }
+
+    public function getPositionRowAttribute(): ?int
+    {
+        return $this->detailValue('position_row');
+    }
+
+    public function setPositionRowAttribute($value): void
+    {
+        $this->pendingDetail['position_row'] = $value;
+    }
+
+    public function getPositionColAttribute(): ?int
+    {
+        return $this->detailValue('position_col');
+    }
+
+    public function setPositionColAttribute($value): void
+    {
+        $this->pendingDetail['position_col'] = $value;
+    }
+
+    public function getStatusAttribute(): string
+    {
+        return $this->detailValue('status') ?? self::STATUS_EMPTY;
+    }
+
+    public function setStatusAttribute($value): void
+    {
+        $this->pendingDetail['status'] = $value;
+    }
+
+    public function getPhotosAttribute(): ?array
+    {
+        return $this->detailValue('photos');
+    }
+
+    public function setPhotosAttribute($value): void
+    {
+        $this->pendingDetail['photos'] = $value;
+    }
+
+    private function detailValue(string $key)
+    {
+        if (array_key_exists($key, $this->pendingDetail)) {
+            return $this->pendingDetail[$key];
         }
 
-        if (in_array($key, self::DETAIL_FIELDS, true)) {
-            $this->pendingDetail[$key] = $value;
-
-            return $this;
-        }
-
-        return parent::setAttribute($key, $value);
+        return $this->detail?->{$key};
     }
 
     public function detail(): HasOne
@@ -114,10 +173,6 @@ class Room extends Product
             $room->room_type_id ??= RoomType::where('slug', RoomType::MINIHOUSE_SLUG)->value('id');
             $room->styles       ??= 2;
             $room->is_in_stock  ??= true;
-
-            if (! $room->name && $room->getAttribute('name')) {
-                // đã set qua RENAMED (code) — không cần gì thêm
-            }
 
             if (! $room->slug) {
                 $room->slug = self::generateUniqueSlug($room->name ?: 'phong');

@@ -21,8 +21,9 @@ use Modules\Minihouse\App\Support\HomestayBridge;
 //
 // GIỮ NGUYÊN 100% API cũ ($building->address/$building->owner_name/$building->payos_client_id...,
 // Building::create([...])) để toàn bộ code đang dùng class này KHÔNG PHẢI SỬA GÌ — field không tồn
-// tại trên categories được uỷ quyền qua BuildingSetting (bảng minihouse_building_settings) trong
-// getAttribute()/setAttribute() bên dưới; 'note' forward sang cột 'description' thật của Category.
+// tại trên categories được uỷ quyền qua BuildingSetting (bảng minihouse_building_settings) bằng
+// accessor/mutator (getXAttribute/setXAttribute) chuẩn của Eloquent bên dưới; 'note' forward sang
+// cột 'description' thật của Category.
 class Building extends Category
 {
     use SoftDeletes;
@@ -42,12 +43,17 @@ class Building extends Category
     // sẽ tự suy nhầm thành bảng "buildings" (số nhiều của "Building") thay vì "categories".
     protected $table = 'categories';
 
-    private const RENAMED = ['note' => 'description'];
-
-    private const DETAIL_FIELDS = [
-        'zone_id', 'address', 'province', 'ward',
-        'electric_unit_price', 'water_unit_price',
-        'payment_method',
+    // Category::$fillable KHÔNG có các cột riêng của Building (zone_id/address/owner_*/payos_*/...)
+    // — PHẢI khai báo lại tường minh ở đây, nếu không mass-assignment (Building::create([...])) sẽ
+    // ÂM THẦM bỏ qua toàn bộ các key này (không lỗi, không warning) vì Eloquent chỉ gọi
+    // set{X}Attribute() cho các key nằm trong $fillable, khiến $pendingDetail luôn rỗng và
+    // minihouse_building_settings không bao giờ được ghi (bug thật đã gặp: zone_id truyền vào
+    // Building::create() bị rơi mất, khiến guard "không thể xoá Zone còn Toà nhà" không phát hiện
+    // được toà nhà nào cả).
+    protected $fillable = [
+        'name', 'slug', 'description', 'parent_id', 'sort_order',
+        'zone_id', 'address', 'province', 'ward', 'note',
+        'electric_unit_price', 'water_unit_price', 'payment_method',
         'billing_cycle_type', 'payment_reminder_days_before', 'payment_reminder_repeat_days',
         'fixed_due_day', 'contract_expiry_reminder_days_before',
         'owner_name', 'owner_phone', 'owner_id_card_number', 'owner_email', 'owner_address',
@@ -55,27 +61,6 @@ class Building extends Category
         'payos_client_id', 'payos_api_key', 'payos_checksum_key',
         'momo_partner_code', 'momo_access_key', 'momo_secret_key',
         'vnpay_tmn_code', 'vnpay_hash_secret', 'payment_sandbox',
-    ];
-
-    // 'province'/'ward' hiển thị (chuỗi tự do, giữ API cũ) map sang cột *_raw của BuildingSetting —
-    // liên kết THẬT với bảng provinces/province_branches của Home được đồng bộ ở saved() bên dưới.
-    private const DETAIL_COLUMN_MAP = ['province' => 'province_name_raw', 'ward' => 'ward_raw'];
-
-    protected $fillable = [
-        'zone_id',
-        'name', 'address', 'province', 'ward',
-        'electric_unit_price', 'water_unit_price',
-        'note', 'image',
-        'payment_method',
-        'billing_cycle_type', 'payment_reminder_days_before', 'payment_reminder_repeat_days', 'fixed_due_day',
-        'contract_expiry_reminder_days_before',
-        'owner_name', 'owner_phone', 'owner_id_card_number', 'owner_email', 'owner_address',
-        'owner_bank_bin', 'owner_bank_name',
-        'owner_bank_account_number', 'owner_bank_account_holder',
-        'payos_client_id', 'payos_api_key', 'payos_checksum_key',
-        'momo_partner_code', 'momo_access_key', 'momo_secret_key',
-        'vnpay_tmn_code', 'vnpay_hash_secret',
-        'payment_sandbox',
     ];
 
     protected $appends = [
@@ -92,39 +77,327 @@ class Building extends Category
 
     private array $pendingDetail = [];
 
-    public function getAttribute($key)
+    // Dung DUNG quy uoc accessor/mutator chuan cua Eloquent (getXAttribute/setXAttribute) - KHONG
+    // override getAttribute()/setAttribute() o tang thap nhu ban truoc: attributesToArray() (Filament
+    // EditRecord::fillForm() goi khi tai trang Sua) xu ly $appends bang cach goi THANG
+    // get{X}Attribute(), KHONG di qua getAttribute() - ban override cu chi bat duoc property access
+    // thong thuong, nem loi "Call to undefined method" o duong goi truc tiep nay (da tu kiem chung).
+    public function getNoteAttribute(): ?string
     {
-        if (isset(self::RENAMED[$key])) {
-            return parent::getAttribute(self::RENAMED[$key]);
-        }
-
-        if (in_array($key, self::DETAIL_FIELDS, true)) {
-            if (array_key_exists($key, $this->pendingDetail)) {
-                return $this->pendingDetail[$key];
-            }
-
-            $column = self::DETAIL_COLUMN_MAP[$key] ?? $key;
-
-            return $this->detail?->{$column};
-        }
-
-        return parent::getAttribute($key);
+        return $this->attributes['description'] ?? null;
     }
 
-    public function setAttribute($key, $value)
+    public function setNoteAttribute(?string $value): void
     {
-        if (isset(self::RENAMED[$key])) {
-            return parent::setAttribute(self::RENAMED[$key], $value);
+        $this->attributes['description'] = $value;
+    }
+
+    public function getAddressAttribute(): ?string
+    {
+        return $this->detailValue('address');
+    }
+
+    public function setAddressAttribute($value): void
+    {
+        $this->pendingDetail['address'] = $value;
+    }
+
+    public function getPaymentMethodAttribute(): ?string
+    {
+        return $this->detailValue('payment_method');
+    }
+
+    public function setPaymentMethodAttribute($value): void
+    {
+        $this->pendingDetail['payment_method'] = $value;
+    }
+
+    public function getBillingCycleTypeAttribute(): ?string
+    {
+        return $this->detailValue('billing_cycle_type');
+    }
+
+    public function setBillingCycleTypeAttribute($value): void
+    {
+        $this->pendingDetail['billing_cycle_type'] = $value;
+    }
+
+    public function getOwnerNameAttribute(): ?string
+    {
+        return $this->detailValue('owner_name');
+    }
+
+    public function setOwnerNameAttribute($value): void
+    {
+        $this->pendingDetail['owner_name'] = $value;
+    }
+
+    public function getOwnerPhoneAttribute(): ?string
+    {
+        return $this->detailValue('owner_phone');
+    }
+
+    public function setOwnerPhoneAttribute($value): void
+    {
+        $this->pendingDetail['owner_phone'] = $value;
+    }
+
+    public function getOwnerIdCardNumberAttribute(): ?string
+    {
+        return $this->detailValue('owner_id_card_number');
+    }
+
+    public function setOwnerIdCardNumberAttribute($value): void
+    {
+        $this->pendingDetail['owner_id_card_number'] = $value;
+    }
+
+    public function getOwnerEmailAttribute(): ?string
+    {
+        return $this->detailValue('owner_email');
+    }
+
+    public function setOwnerEmailAttribute($value): void
+    {
+        $this->pendingDetail['owner_email'] = $value;
+    }
+
+    public function getOwnerAddressAttribute(): ?string
+    {
+        return $this->detailValue('owner_address');
+    }
+
+    public function setOwnerAddressAttribute($value): void
+    {
+        $this->pendingDetail['owner_address'] = $value;
+    }
+
+    public function getOwnerBankBinAttribute(): ?string
+    {
+        return $this->detailValue('owner_bank_bin');
+    }
+
+    public function setOwnerBankBinAttribute($value): void
+    {
+        $this->pendingDetail['owner_bank_bin'] = $value;
+    }
+
+    public function getOwnerBankNameAttribute(): ?string
+    {
+        return $this->detailValue('owner_bank_name');
+    }
+
+    public function setOwnerBankNameAttribute($value): void
+    {
+        $this->pendingDetail['owner_bank_name'] = $value;
+    }
+
+    public function getOwnerBankAccountNumberAttribute(): ?string
+    {
+        return $this->detailValue('owner_bank_account_number');
+    }
+
+    public function setOwnerBankAccountNumberAttribute($value): void
+    {
+        $this->pendingDetail['owner_bank_account_number'] = $value;
+    }
+
+    public function getOwnerBankAccountHolderAttribute(): ?string
+    {
+        return $this->detailValue('owner_bank_account_holder');
+    }
+
+    public function setOwnerBankAccountHolderAttribute($value): void
+    {
+        $this->pendingDetail['owner_bank_account_holder'] = $value;
+    }
+
+    public function getPayosClientIdAttribute(): ?string
+    {
+        return $this->detailValue('payos_client_id');
+    }
+
+    public function setPayosClientIdAttribute($value): void
+    {
+        $this->pendingDetail['payos_client_id'] = $value;
+    }
+
+    public function getPayosApiKeyAttribute(): ?string
+    {
+        return $this->detailValue('payos_api_key');
+    }
+
+    public function setPayosApiKeyAttribute($value): void
+    {
+        $this->pendingDetail['payos_api_key'] = $value;
+    }
+
+    public function getPayosChecksumKeyAttribute(): ?string
+    {
+        return $this->detailValue('payos_checksum_key');
+    }
+
+    public function setPayosChecksumKeyAttribute($value): void
+    {
+        $this->pendingDetail['payos_checksum_key'] = $value;
+    }
+
+    public function getMomoPartnerCodeAttribute(): ?string
+    {
+        return $this->detailValue('momo_partner_code');
+    }
+
+    public function setMomoPartnerCodeAttribute($value): void
+    {
+        $this->pendingDetail['momo_partner_code'] = $value;
+    }
+
+    public function getMomoAccessKeyAttribute(): ?string
+    {
+        return $this->detailValue('momo_access_key');
+    }
+
+    public function setMomoAccessKeyAttribute($value): void
+    {
+        $this->pendingDetail['momo_access_key'] = $value;
+    }
+
+    public function getMomoSecretKeyAttribute(): ?string
+    {
+        return $this->detailValue('momo_secret_key');
+    }
+
+    public function setMomoSecretKeyAttribute($value): void
+    {
+        $this->pendingDetail['momo_secret_key'] = $value;
+    }
+
+    public function getVnpayTmnCodeAttribute(): ?string
+    {
+        return $this->detailValue('vnpay_tmn_code');
+    }
+
+    public function setVnpayTmnCodeAttribute($value): void
+    {
+        $this->pendingDetail['vnpay_tmn_code'] = $value;
+    }
+
+    public function getVnpayHashSecretAttribute(): ?string
+    {
+        return $this->detailValue('vnpay_hash_secret');
+    }
+
+    public function setVnpayHashSecretAttribute($value): void
+    {
+        $this->pendingDetail['vnpay_hash_secret'] = $value;
+    }
+
+    public function getZoneIdAttribute(): ?int
+    {
+        return ($v = $this->detailValue('zone_id')) !== null ? (int) $v : null;
+    }
+
+    public function setZoneIdAttribute($value): void
+    {
+        $this->pendingDetail['zone_id'] = $value;
+    }
+
+    public function getPaymentReminderDaysBeforeAttribute(): ?int
+    {
+        return ($v = $this->detailValue('payment_reminder_days_before')) !== null ? (int) $v : null;
+    }
+
+    public function setPaymentReminderDaysBeforeAttribute($value): void
+    {
+        $this->pendingDetail['payment_reminder_days_before'] = $value;
+    }
+
+    public function getPaymentReminderRepeatDaysAttribute(): ?int
+    {
+        return ($v = $this->detailValue('payment_reminder_repeat_days')) !== null ? (int) $v : null;
+    }
+
+    public function setPaymentReminderRepeatDaysAttribute($value): void
+    {
+        $this->pendingDetail['payment_reminder_repeat_days'] = $value;
+    }
+
+    public function getFixedDueDayAttribute(): ?int
+    {
+        return ($v = $this->detailValue('fixed_due_day')) !== null ? (int) $v : null;
+    }
+
+    public function setFixedDueDayAttribute($value): void
+    {
+        $this->pendingDetail['fixed_due_day'] = $value;
+    }
+
+    public function getContractExpiryReminderDaysBeforeAttribute(): ?int
+    {
+        return ($v = $this->detailValue('contract_expiry_reminder_days_before')) !== null ? (int) $v : null;
+    }
+
+    public function setContractExpiryReminderDaysBeforeAttribute($value): void
+    {
+        $this->pendingDetail['contract_expiry_reminder_days_before'] = $value;
+    }
+
+    public function getElectricUnitPriceAttribute(): ?float
+    {
+        return ($v = $this->detailValue('electric_unit_price')) !== null ? (float) $v : null;
+    }
+
+    public function setElectricUnitPriceAttribute($value): void
+    {
+        $this->pendingDetail['electric_unit_price'] = $value;
+    }
+
+    public function getWaterUnitPriceAttribute(): ?float
+    {
+        return ($v = $this->detailValue('water_unit_price')) !== null ? (float) $v : null;
+    }
+
+    public function setWaterUnitPriceAttribute($value): void
+    {
+        $this->pendingDetail['water_unit_price'] = $value;
+    }
+
+    public function getPaymentSandboxAttribute(): bool
+    {
+        return (bool) $this->detailValue('payment_sandbox');
+    }
+
+    public function setPaymentSandboxAttribute($value): void
+    {
+        $this->pendingDetail['payment_sandbox'] = $value;
+    }
+
+    public function getProvinceAttribute(): ?string
+    {
+        return $this->detailValue('province_name_raw');
+    }
+
+    public function setProvinceAttribute($value): void
+    {
+        $this->pendingDetail['province_name_raw'] = $value;
+    }
+
+    public function getWardAttribute(): ?string
+    {
+        return $this->detailValue('ward_raw');
+    }
+
+    public function setWardAttribute($value): void
+    {
+        $this->pendingDetail['ward_raw'] = $value;
+    }
+    private function detailValue(string $key)
+    {
+        if (array_key_exists($key, $this->pendingDetail)) {
+            return $this->pendingDetail[$key];
         }
 
-        if (in_array($key, self::DETAIL_FIELDS, true)) {
-            $column                      = self::DETAIL_COLUMN_MAP[$key] ?? $key;
-            $this->pendingDetail[$column] = $value;
-
-            return $this;
-        }
-
-        return parent::setAttribute($key, $value);
+        return $this->detail?->{$key};
     }
 
     public function detail(): HasOne

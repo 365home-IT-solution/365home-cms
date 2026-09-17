@@ -37,7 +37,7 @@ class MeteringReadingForm
                     ->schema([
                         Select::make('room_id')
                             ->label('Phòng')
-                            ->relationship('room', 'code')
+                            ->relationship('room', 'name')
                             ->searchable()
                             ->preload()
                             ->required()

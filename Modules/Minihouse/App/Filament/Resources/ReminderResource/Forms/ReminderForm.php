@@ -80,7 +80,7 @@ class ReminderForm
                         ->label('Phòng liên quan')
                         // withoutGlobalScopes() — tránh hiện ID thô khi bộ lọc header đang khác toà
                         // với phòng đã gán (cùng lỗi đã gặp ở InvoiceForm.contract_id).
-                        ->relationship('room', 'code', fn ($query) => $query->withoutGlobalScopes())
+                        ->relationship('room', 'name', fn ($query) => $query->withoutGlobalScopes())
                         ->searchable()
                         ->preload(),
                     Select::make('contract_id')

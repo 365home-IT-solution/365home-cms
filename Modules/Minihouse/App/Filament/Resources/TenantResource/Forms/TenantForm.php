@@ -76,7 +76,7 @@ class TenantForm
                             // phòng/gia hạn qua đúng trang Hợp đồng, không sửa trực tiếp ở đây.
                             Select::make('room_id')
                                 ->label('Phòng đang ở')
-                                ->relationship('room', 'code')
+                                ->relationship('room', 'name')
                                 ->visible(fn (string $operation) => $operation === 'edit')
                                 ->disabled()
                                 ->dehydrated(false)
