@@ -38,7 +38,7 @@ class ContractController extends Controller
             ->with(['room:id,code,building_id', 'tenant:id,fullname'])
             ->whereHas('room', fn ($q) => $q->whereIn('building_id', $permitted))
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
-            ->when($request->filled('room_id'), fn ($q) => $q->where('room_id', $request->integer('room_id')))
+            ->when($request->filled('room_id'), fn ($q) => $q->where('room_id', $request->input('room_id')))
             ->when($request->filled('tenant_id'), fn ($q) => $q->where('tenant_id', $request->integer('tenant_id')))
             ->orderByDesc('created_at')
             ->paginate((int) $request->integer('per_page', 20));
@@ -72,7 +72,7 @@ class ContractController extends Controller
         }
 
         $data = $request->validate([
-            'room_id'              => 'required|integer|exists:minihouse_rooms,id',
+            'room_id'              => 'required|string|exists:products,id',
             'tenant_id'            => 'required|integer|exists:minihouse_tenants,id',
             'start_date'           => 'required|date',
             'end_date'             => 'nullable|date|after:start_date',
@@ -85,7 +85,7 @@ class ContractController extends Controller
             'custom_reason'        => 'nullable|string|max:255',
         ]);
 
-        $room = Room::withoutGlobalScopes()->find($data['room_id']);
+        $room = Room::withoutGlobalScope('activeBuilding')->find($data['room_id']);
 
         if (! $room || ! $this->isBuildingAllowed($request, $room->building_id)) {
             return response()->json(['message' => 'Không có quyền tạo hợp đồng cho phòng của toà nhà này.'], 403);
@@ -129,7 +129,7 @@ class ContractController extends Controller
         }
 
         $data = $request->validate([
-            'room_id'              => 'sometimes|required|integer|exists:minihouse_rooms,id',
+            'room_id'              => 'sometimes|required|string|exists:products,id',
             'tenant_id'            => 'sometimes|required|integer|exists:minihouse_tenants,id',
             'start_date'           => 'sometimes|required|date',
             'end_date'             => 'nullable|date|after:start_date',
@@ -143,7 +143,7 @@ class ContractController extends Controller
         ]);
 
         if (isset($data['room_id'])) {
-            $room = Room::withoutGlobalScopes()->find($data['room_id']);
+            $room = Room::withoutGlobalScope('activeBuilding')->find($data['room_id']);
 
             if (! $room || ! $this->isBuildingAllowed($request, $room->building_id)) {
                 return response()->json(['message' => 'Không có quyền chuyển hợp đồng sang phòng của toà nhà này.'], 403);
@@ -387,12 +387,12 @@ class ContractController extends Controller
         }
 
         $data = $request->validate([
-            'new_room_id'        => 'required|integer|exists:minihouse_rooms,id',
+            'new_room_id'        => 'required|string|exists:products,id',
             'transfer_at'        => 'required|date',
             'new_monthly_price'  => 'required|numeric|min:0',
         ]);
 
-        $newRoom = Room::withoutGlobalScopes()->find($data['new_room_id']);
+        $newRoom = Room::withoutGlobalScope('activeBuilding')->find($data['new_room_id']);
 
         if (! $newRoom || $newRoom->status !== Room::STATUS_EMPTY || $newRoom->id === $old->room_id) {
             return response()->json(['message' => 'Phòng mới phải đang "Trống" và khác phòng hiện tại.'], 422);

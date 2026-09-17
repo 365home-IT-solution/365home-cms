@@ -59,6 +59,21 @@
         }
         .zoom-controls button:hover{ color:var(--primary); border-color:var(--primary); }
 
+        .room-focus-bar{
+            position:absolute; top:12px; left:12px; right:12px; z-index:6;
+            display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+            background:rgba(255,255,255,.96); border:1px solid var(--border); border-radius:10px;
+            padding:9px 12px; box-shadow:0 4px 14px rgba(15,23,42,.12);
+        }
+        .room-focus-bar strong{ flex:1; font-size:13.5px; color:var(--text); font-weight:700; }
+        .room-focus-bar button{
+            font-family:inherit; font-size:12.5px; font-weight:600; cursor:pointer;
+            border-radius:7px; padding:6px 11px; border:1px solid var(--border); background:#fff; color:var(--text-dim);
+        }
+        .room-focus-bar button:hover{ color:var(--primary); border-color:var(--primary); }
+        .room-focus-bar button.primary{ background:var(--primary); border-color:var(--primary); color:#fff; }
+        .room-focus-bar button.primary:hover{ background:var(--primary-dark); border-color:var(--primary-dark); }
+
         .legend{ display:flex; flex-wrap:wrap; gap:16px; margin-top:16px; font-size:12.5px; color:var(--text-dim); }
         .legend span{ display:inline-flex; align-items:center; gap:7px; }
         .legend i{ width:9px; height:9px; border-radius:50%; display:inline-block; flex:none; }
@@ -83,13 +98,18 @@
         <button type="button" id="btn-topdown">Nhìn từ trên xuống</button>
         <button type="button" id="btn-side">Nhìn ngang</button>
         <button type="button" id="btn-fullscreen">Toàn màn hình</button>
-        <span class="hint">Chuột trái/1 ngón: xoay · Chuột phải/2 ngón: di chuyển · Cuộn/chụm 2 ngón: phóng to · Bấm 1 phòng để tới gần · Bấm đúp để mở tour 360° thật</span>
+        <span class="hint">Chuột trái/1 ngón: xoay · Chuột phải/2 ngón: di chuyển · Cuộn/chụm 2 ngón: phóng to · Bấm 1 phòng để vào xem riêng sơ đồ chi tiết phòng đó</span>
     </div>
 
     <div class="stage" id="stage">
         <div class="zoom-controls">
             <button type="button" id="btn-zoom-in" title="Phóng to">+</button>
             <button type="button" id="btn-zoom-out" title="Thu nhỏ">−</button>
+        </div>
+        <div class="room-focus-bar" id="room-focus-bar" hidden>
+            <button type="button" id="room-focus-back">← Toàn bộ toà nhà</button>
+            <strong id="room-focus-title"></strong>
+            <button type="button" id="room-focus-tour" class="primary">Xem tour 360° thật</button>
         </div>
     </div>
 
@@ -102,7 +122,7 @@
     </div>
 
     <div class="note">
-        <b>Sơ đồ TỰ SINH từ đúng dữ liệu 360° hiện có</b> — vị trí từng phòng lấy từ toạ độ lưới thật (vị trí/thứ tự phòng đã khai báo), không phải suy từ ảnh chụp. Tường phòng được phủ ẢNH 360° THẬT của chính phòng đó (cắt từ ảnh chụp thật, không phải màu vẽ) nhưng do ảnh chụp không đo góc chính xác từng bức tường nên chỉ là XẤP XỈ — bấm đúp vào 1 phòng để xem đúng, đầy đủ bằng tour 360° thật. Không phải mô hình quét 3D có chiều sâu như Matterport — kích thước khối và nội thất mang tính minh hoạ.
+        <b>Sơ đồ TỰ SINH từ đúng dữ liệu 360° hiện có</b> — vị trí từng phòng lấy từ toạ độ lưới thật (vị trí/thứ tự phòng đã khai báo), không phải suy từ ảnh chụp. Bấm vào 1 phòng để vào xem RIÊNG sơ đồ chi tiết phòng đó (ẩn hết phòng/hành lang khác, lia camera cận cảnh) — bấm "Xem tour 360° thật" trong thanh công cụ hiện ra để xem đúng, đầy đủ bằng ảnh chụp thật. Không phải mô hình quét 3D có chiều sâu như Matterport — kích thước khối và nội thất mang tính minh hoạ, không phải đo đạc thật.
     </div>
 </div>
 
@@ -227,12 +247,17 @@
         }
 
         // 1 khối hộp ĐẶC đơn giản (nội thất, buồng phụ, sàn gác, bệ ban công...) — tâm world (x,z),
-        // ĐÁY đặt đúng groundY, cao h (mọc lên theo +Y).
-        function addSimpleBox(w, h, d, x, groundY, z, colorHex, opts){
+        // ĐÁY đặt đúng groundY, cao h (mọc lên theo +Y). roomId (tuỳ chọn): gắn userData.roomId để
+        // chế độ "xem riêng 1 phòng" (setFocusRoom() phía dưới) biết object nào thuộc phòng nào mà
+        // ẩn/hiện — truyền `null` cho các khối DÙNG CHUNG/nối giữa nhiều phòng (hành lang, cầu thang,
+        // chấm nối...) để chúng luôn bị ẩn khi đang xem riêng 1 phòng bất kỳ; KHÔNG truyền gì (bỏ
+        // qua tham số) cho các khối không liên quan tới phòng nào cả (ánh sáng, control...).
+        function addSimpleBox(w, h, d, x, groundY, z, colorHex, opts, roomId){
             const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), materialFor(colorHex, opts));
             mesh.position.set(x, groundY + h / 2, z);
             mesh.castShadow = true;
             mesh.receiveShadow = true;
+            if (roomId !== undefined) mesh.userData.roomId = roomId;
             scene.add(mesh);
             return mesh;
         }
@@ -241,67 +266,43 @@
         // chính) để nhìn XUYÊN từ trên xuống thấy nội thất/buồng phụ bên trong, giống đúng kiểu "cắt
         // mái nhìn từ trên" (dollhouse view) của Matterport — KHÁC BoxGeometry đặc (không khoét được),
         // nên phải tự ghép rời sàn + 4 tường + mái tuỳ chọn.
-        function addRoom3D(gx, gz, w, d, h, floorColor, wallColor, hasRoof, groundY){
+        function addRoom3D(gx, gz, w, d, h, floorColor, wallColor, hasRoof, groundY, roomId){
             const WALL_T = 4, FLOOR_T = 3;
-            addSimpleBox(w, FLOOR_T, d, gx, groundY, gz, floorColor);
-            // Gom 4 tường theo ĐÚNG thứ tự sau/trước/trái/phải — applyRoomPhotoTexture() dựa vào thứ
-            // tự này để biết mesh nào ứng với dải ảnh nào (xem giải thích ở đó).
+            addSimpleBox(w, FLOOR_T, d, gx, groundY, gz, floorColor, null, roomId);
+            // Gom 4 tường theo ĐÚNG thứ tự sau/trước/trái/phải.
             const wallMeshes = [
-                addSimpleBox(w, h, WALL_T, gx, groundY, gz - d / 2, wallColor), // sau (-Z)
-                addSimpleBox(w, h, WALL_T, gx, groundY, gz + d / 2, wallColor), // trước (+Z)
-                addSimpleBox(WALL_T, h, d, gx - w / 2, groundY, gz, wallColor), // trái (-X)
-                addSimpleBox(WALL_T, h, d, gx + w / 2, groundY, gz, wallColor), // phải (+X)
+                addSimpleBox(w, h, WALL_T, gx, groundY, gz - d / 2, wallColor, null, roomId), // sau (-Z)
+                addSimpleBox(w, h, WALL_T, gx, groundY, gz + d / 2, wallColor, null, roomId), // trước (+Z)
+                addSimpleBox(WALL_T, h, d, gx - w / 2, groundY, gz, wallColor, null, roomId), // trái (-X)
+                addSimpleBox(WALL_T, h, d, gx + w / 2, groundY, gz, wallColor, null, roomId), // phải (+X)
             ];
             if (hasRoof) {
-                addSimpleBox(w, FLOOR_T, d, gx, groundY + h - FLOOR_T, gz, floorColor);
+                addSimpleBox(w, FLOOR_T, d, gx, groundY + h - FLOOR_T, gz, floorColor, null, roomId);
             }
             return { wallMeshes };
         }
 
         // ==================================================================================
-        // ---- Phủ ẢNH 360° THẬT lên 4 tường phòng (thay màu phẳng) ----
-        // Kỹ thuật: cắt ảnh gốc thành 4 dải dọc bằng nhau (mỗi dải ~90° ngang ảnh equirectangular),
-        // lấy đúng DẢI GIỮA theo chiều cao (28%-72%) để tránh vùng cực trên/dưới của ảnh 360° (méo rất
-        // nặng khi "duỗi phẳng" — nhìn sẽ vỡ hình nếu lấy nguyên ảnh). Đây là XẤP XỈ, KHÔNG PHẢI hiệu
-        // chỉnh chính xác — ảnh chụp từ 1 điểm bất kỳ trong phòng, hệ thống không có dữ liệu đo góc
-        // thật giữa ảnh và từng bức tường cụ thể, nên không đảm bảo đúng 100% nội dung của ĐÚNG bức
-        // tường đó — nhưng vẫn là ẢNH THẬT của chính phòng này, thực hơn hẳn màu phẳng đơn sắc.
+        // ---- Cửa sổ trang trí gắn trên tường xa (đối diện cửa ra vào) ----
+        // Trước đây thử cắt ảnh 360° thật dán lên tường (cắt 4 dải theo góc, lấy dải giữa để tránh méo
+        // 2 cực) nhưng nhìn giống "dán ảnh ngoài vào" chứ không tự nhiên — người dùng phản hồi muốn
+        // đẹp/chi tiết hơn theo đúng phong cách dựng hình (màu sắc + khối), không phải ảnh chụp cắt
+        // dán. Bỏ hẳn kỹ thuật đó, thay bằng 1 khung cửa sổ kính (khối mờ + viền) gắn nổi trên mặt
+        // tường — chi tiết kiến trúc đơn giản nhưng làm tường bớt trống trải, đúng tinh thần "dựng
+        // hình" nhất quán với toàn bộ sơ đồ thay vì trộn lẫn ảnh thật.
         // ==================================================================================
-        function loadImageAsync(url){
-            return new Promise((resolve, reject) => {
-                const img = new Image();
-                img.onload = () => resolve(img);
-                img.onerror = reject;
-                img.src = url;
-            });
-        }
+        function addWindow3D(wallCenterX, wallCenterZ, groundY, roomH, w, faceAxis, roomId){
+            const winW = Math.min(w * 0.42, 34), winH = roomH * 0.42;
+            const winY = groundY + roomH * 0.52;
+            const frameT = 3;
+            const depth = faceAxis === 'x' ? [winW, frameT] : [frameT, winW];
 
-        function cropWallTexture(img, quadrantIndex){
-            const srcW = img.naturalWidth, srcH = img.naturalHeight;
-            const bandW = srcW / 4;
-            const srcX = quadrantIndex * bandW;
-            const srcY = srcH * 0.28, srcH2 = srcH * 0.44;
-
-            const canvas = document.createElement('canvas');
-            canvas.width = 512; canvas.height = 256;
-            canvas.getContext('2d').drawImage(img, srcX, srcY, bandW, srcH2, 0, 0, canvas.width, canvas.height);
-            return new THREE.CanvasTexture(canvas);
-        }
-
-        // Tải ảnh 360° thật của phòng (n.thumbnail — PHP đã trả sẵn URL) rồi thay MATERIAL của 4
-        // tường đã vẽ (màu phẳng) bằng texture cắt từ đúng ảnh đó — chạy BẤT ĐỒNG BỘ (ảnh tải qua
-        // mạng), phòng vẫn hiện màu phẳng bình thường cho tới khi tải xong, KHÔNG chặn hiển thị sơ đồ.
-        // Ảnh lỗi/không tải được -> giữ nguyên màu phẳng, không làm hỏng cả sơ đồ.
-        async function applyRoomPhotoTexture(thumbnailUrl, wallMeshes){
-            try {
-                const img = await loadImageAsync(thumbnailUrl);
-                wallMeshes.forEach((mesh, i) => {
-                    mesh.material = new THREE.MeshStandardMaterial({ map: cropWallTexture(img, i), roughness: 0.9, metalness: 0.02 });
-                });
-            } catch (e) {
-                // eslint-disable-next-line no-console
-                console.warn('Không tải được ảnh 360° để phủ tường:', thumbnailUrl, e);
-            }
+            addSimpleBox(depth[0], winH, depth[1], wallCenterX, winY - winH / 2, wallCenterZ, 0x7dd3fc, { transparent: true, opacity: 0.55, roughness: 0.15, metalness: 0.2, emissive: 0x38bdf8, emissiveIntensity: 0.12 }, roomId);
+            const frameOpts = { roughness: 0.5 };
+            const fw = faceAxis === 'x' ? winW + 4 : frameT + 2;
+            const fd = faceAxis === 'x' ? frameT + 2 : winW + 4;
+            addSimpleBox(fw, 3, fd, wallCenterX, winY + winH / 2, wallCenterZ, 0xffffff, frameOpts, roomId);
+            addSimpleBox(fw, 3, fd, wallCenterX, winY - winH / 2, wallCenterZ, 0xffffff, frameOpts, roomId);
         }
 
         // Nhãn chữ nổi (tên phòng, "WC", "Cầu thang"...) — Three.js không có text dựng sẵn nhẹ, dùng
@@ -313,7 +314,7 @@
         // tự bật/tắt .visible mỗi khung hình theo khoảng cách camera->nhãn — không cần đụng gì tới vị
         // trí/dữ liệu nhãn đã tính, chỉ thêm 1 lớp ẩn/hiện theo zoom.
         const labelSprites = [];
-        function addLabel3D(x, topY, z, text, maxDist){
+        function addLabel3D(x, topY, z, text, maxDist, roomId){
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             const fontSize = 28;
@@ -335,6 +336,7 @@
             sprite.position.set(x, topY, z);
             sprite.renderOrder = 999;
             sprite.userData.maxDist = maxDist ?? 900;
+            if (roomId !== undefined) sprite.userData.roomId = roomId;
             scene.add(sprite);
             labelSprites.push(sprite);
             return sprite;
@@ -343,7 +345,7 @@
         // Chấm bấm mở tour 360° — Sprite hình tròn (vẽ tròn lên canvas) kèm userData.tourUrl để
         // raycaster xử lý khi bấm (xem phần "Bấm để xem 360°/di chuyển" phía dưới).
         const colorMap = { amber: '#f59e0b', teal: '#0d9488', pink: '#db2777', sky: '#0284c7' };
-        function addDot3D(x, y, z, colorKey, label, sceneId){
+        function addDot3D(x, y, z, colorKey, label, sceneId, roomId){
             const canvas = document.createElement('canvas');
             canvas.width = 64; canvas.height = 64;
             const ctx = canvas.getContext('2d');
@@ -361,6 +363,7 @@
             sprite.renderOrder = 999;
             sprite.userData.tourUrl = TOUR_BASE + '/' + sceneId;
             sprite.userData.tooltip = label;
+            if (roomId !== undefined) sprite.userData.roomId = roomId;
             scene.add(sprite);
             return sprite;
         }
@@ -382,50 +385,66 @@
         function metaFor(kind){ return KIND_META[kind] || KIND_META.other; }
 
         // Cầu thang thật dạng bậc thang xiên — GIỮ NGUYÊN logic bản CSS, chỉ đổi Y-up (cộng thay vì trừ).
-        function drawStaircase3D(gx, zStart, zEnd, baseGroundY, totalRise, stepCount, stepWidth){
+        function drawStaircase3D(gx, zStart, zEnd, baseGroundY, totalRise, stepCount, stepWidth, roomId){
             const stepRun = (zEnd - zStart) / stepCount;
             const stepRise = totalRise / stepCount;
             const stepThickness = Math.max(4, totalRise / stepCount * 0.4);
             for (let i = 0; i < stepCount; i++){
                 const stepZ = zStart + stepRun * (i + 0.5);
                 const stepTopY = baseGroundY + stepRise * (i + 1);
-                addSimpleBox(stepWidth, stepThickness, Math.abs(stepRun) + 2, gx, stepTopY - stepThickness, stepZ, 0xa8a29e);
+                addSimpleBox(stepWidth, stepThickness, Math.abs(stepRun) + 2, gx, stepTopY - stepThickness, stepZ, 0xa8a29e, null, roomId);
             }
         }
 
-        // Nội thất minh hoạ — GIỮ NGUYÊN Ý TƯỞNG bản CSS (mỗi món ghép từ 2-3 khối thành 1 hình dạng
-        // riêng), chỉ đổi sang addSimpleBox() + có ánh sáng/đổ bóng thật thay vì màu phẳng.
-        function drawFurnitureHint3D(kind, cx, cz, groundY, boxW, boxD){
+        // Nội thất minh hoạ — mỗi món ghép từ nhiều khối nhỏ thành 1 hình dạng dễ nhận ra hơn (thêm
+        // gối/chăn cho giường, nắp/bồn cho WC, mặt bếp+máy hút mùi cho bếp...) — vẫn chỉ là khối minh
+        // hoạ (không phải nội thất đo đạc thật), nhưng chi tiết hơn hẳn khối đặc đơn sắc trước đây.
+        function drawFurnitureHint3D(kind, cx, cz, groundY, boxW, boxD, roomId){
             if (kind === 'wc') {
-                addSimpleBox(Math.min(16, boxW * 0.4), 16, Math.min(14, boxD * 0.35), cx - boxW * 0.18, groundY, cz + boxD * 0.18, 0xffffff);
-                addSimpleBox(Math.min(14, boxW * 0.3), 10, Math.min(10, boxD * 0.25), cx + boxW * 0.22, groundY, cz - boxD * 0.22, 0xffffff);
+                // Bồn cầu: đế + nắp bệt 2 tầng.
+                addSimpleBox(Math.min(16, boxW * 0.4), 12, Math.min(14, boxD * 0.35), cx - boxW * 0.18, groundY, cz + boxD * 0.18, 0xffffff, { roughness: 0.25 }, roomId);
+                addSimpleBox(Math.min(13, boxW * 0.32), 6, Math.min(11, boxD * 0.28), cx - boxW * 0.18, groundY + 12, cz + boxD * 0.16, 0xf1f5f9, { roughness: 0.2 }, roomId);
+                // Bồn rửa: mặt bồn + chân đỡ.
+                addSimpleBox(Math.min(14, boxW * 0.3), 4, Math.min(10, boxD * 0.25), cx + boxW * 0.22, groundY + 20, cz - boxD * 0.22, 0xffffff, { roughness: 0.2 }, roomId);
+                addSimpleBox(4, 20, 4, cx + boxW * 0.22, groundY, cz - boxD * 0.22, 0xd4d4d8, {}, roomId);
             } else if (kind === 'bedroom') {
                 const bedW = boxW * 0.8, bedD = boxD * 0.75;
-                addSimpleBox(bedW, 16, bedD, cx, groundY, cz, 0x93c5fd);
-                addSimpleBox(bedW * 0.85, 20, bedD * 0.22, cx, groundY + 16, cz - bedD * 0.32, 0xeff6ff);
+                addSimpleBox(bedW, 16, bedD, cx, groundY, cz, 0x93c5fd, {}, roomId); // nệm
+                addSimpleBox(bedW, 4, bedD * 0.55, cx, groundY + 16, cz + bedD * 0.15, 0xfef3c7, { roughness: 0.6 }, roomId); // chăn kéo nửa dưới
+                addSimpleBox(bedW * 0.85, 20, bedD * 0.22, cx, groundY + 16, cz - bedD * 0.32, 0xeff6ff, {}, roomId); // gối/đầu giường
+                addSimpleBox(bedW * 0.22, 8, bedD * 0.18, cx - bedW * 0.3, groundY + 20, cz - bedD * 0.3, 0xffffff, {}, roomId); // gối nhỏ
             } else if (kind === 'kitchen') {
-                addSimpleBox(boxW * 0.85, 26, boxD * 0.35, cx - boxW * 0.05, groundY, cz - boxD * 0.25, 0x78716c);
-                addSimpleBox(Math.min(18, boxW * 0.35), 34, Math.min(16, boxD * 0.35), cx + boxW * 0.28, groundY, cz + boxD * 0.22, 0xd4d4d8, { metalness: 0.4, roughness: 0.4 });
+                addSimpleBox(boxW * 0.85, 26, boxD * 0.35, cx - boxW * 0.05, groundY, cz - boxD * 0.25, 0x78716c, {}, roomId); // mặt bếp
+                addSimpleBox(boxW * 0.5, 3, boxD * 0.32, cx - boxW * 0.1, groundY + 26, cz - boxD * 0.25, 0x1c1917, { roughness: 0.3, metalness: 0.3 }, roomId); // bếp từ
+                addSimpleBox(Math.min(18, boxW * 0.35), 34, Math.min(16, boxD * 0.35), cx + boxW * 0.28, groundY, cz + boxD * 0.22, 0xd4d4d8, { metalness: 0.4, roughness: 0.4 }, roomId); // tủ lạnh
+                addSimpleBox(boxW * 0.4, 3, 10, cx - boxW * 0.05, groundY + 50, cz - boxD * 0.25, 0xa8a29e, { metalness: 0.5 }, roomId); // máy hút mùi
             } else if (kind === 'storage') {
-                addSimpleBox(boxW * 0.85, 36, boxD * 0.6, cx, groundY, cz, 0xa16207);
+                addSimpleBox(boxW * 0.85, 36, boxD * 0.6, cx, groundY, cz, 0xa16207, {}, roomId);
+                addSimpleBox(2, 36, boxD * 0.6, cx, groundY, cz, 0x78350f, {}, roomId); // đường ghép cánh tủ
             }
         }
 
-        // Góc sinh hoạt (sofa/bàn trà/kệ TV) ngay trên sàn phòng — GIỮ NGUYÊN Ý TƯỞNG bản CSS.
-        function drawLivingArea3D(gx, gz, r, groundY, insideSide){
+        // Góc sinh hoạt (sofa/bàn trà/kệ TV) ngay trên sàn phòng — thêm gối tựa + chân bàn cho chi
+        // tiết hơn bản trước (chỉ 4 khối đặc).
+        function drawLivingArea3D(gx, gz, r, groundY, insideSide, roomId){
             const farX = insideSide === 'left' ? gx + r.w * 0.22 : gx - r.w * 0.22;
             const sofaW = 44, sofaD = 22;
-            addSimpleBox(sofaW, 14, sofaD, farX, groundY, gz, 0x44403c);
-            addSimpleBox(sofaW, 24, sofaD * 0.35, farX, groundY + 14, gz - sofaD * 0.32, 0x57534e);
-            addSimpleBox(20, 10, 14, farX, groundY, gz + sofaD * 0.9, 0x78350f);
+            addSimpleBox(sofaW, 14, sofaD, farX, groundY, gz, 0x44403c, {}, roomId);
+            addSimpleBox(sofaW, 24, sofaD * 0.35, farX, groundY + 14, gz - sofaD * 0.32, 0x57534e, {}, roomId);
+            addSimpleBox(10, 8, 8, farX - sofaW * 0.3, groundY + 14, gz + sofaD * 0.28, 0xc4b5fd, {}, roomId); // gối tựa
+            addSimpleBox(10, 8, 8, farX + sofaW * 0.3, groundY + 14, gz + sofaD * 0.28, 0xfca5a5, {}, roomId); // gối tựa
+            addSimpleBox(20, 8, 14, farX, groundY, gz + sofaD * 0.9, 0x78350f, {}, roomId); // mặt bàn trà
+            addSimpleBox(2, 8, 2, farX - 7, groundY, gz + sofaD * 0.9 - 5, 0x44403c, {}, roomId); // chân bàn
+            addSimpleBox(2, 8, 2, farX + 7, groundY, gz + sofaD * 0.9 + 5, 0x44403c, {}, roomId); // chân bàn
             const tvX = insideSide === 'left' ? gx - r.w * 0.3 : gx + r.w * 0.3;
-            addSimpleBox(10, 18, 30, tvX, groundY, gz, 0x1c1917);
+            addSimpleBox(10, 18, 30, tvX, groundY, gz, 0x1c1917, { metalness: 0.3, roughness: 0.4 }, roomId);
+            addSimpleBox(4, 4, 20, tvX, groundY - 2, gz, 0x57534e, {}, roomId); // chân kệ TV
         }
 
         // Cửa hé mở thật — dùng THREE.Group làm bản lề (pivot), xoay CẢ NHÓM quanh trục Y thật, đúng
         // vật lý 1 cánh cửa xoay quanh bản lề — chuẩn xác hơn hẳn cách "transform-origin" mô phỏng của
         // CSS trước đây.
-        function addDoor3D(wallCenterX, wallCenterZ, groundY, doorW, doorH, facingSign, hingeSide){
+        function addDoor3D(wallCenterX, wallCenterZ, groundY, doorW, doorH, facingSign, hingeSide, roomId){
             const hingeX = wallCenterX + hingeSide * (doorW / 2);
             const pivot = new THREE.Group();
             pivot.position.set(hingeX, groundY + doorH / 2, wallCenterZ);
@@ -440,6 +459,7 @@
             leaf.castShadow = true;
             leaf.receiveShadow = true;
             pivot.add(leaf);
+            if (roomId !== undefined) pivot.userData.roomId = roomId;
             scene.add(pivot);
         }
 
@@ -465,20 +485,20 @@
                 const meta = metaFor(s.kind);
                 const cellX = startX + i * (boxW + MARGIN);
 
-                const mesh = addSimpleBox(boxW, boxH, boxD, cellX, groundY, edgeZ, meta.fill);
+                const mesh = addSimpleBox(boxW, boxH, boxD, cellX, groundY, edgeZ, meta.fill, null, parent.id);
                 mesh.userData.tourUrl = TOUR_BASE + '/' + s.id;
                 mesh.userData.tooltip = s.label;
-                addLabel3D(cellX, groundY + boxH + 8, edgeZ, meta.label || s.label, SATELLITE_LABEL_DIST);
-                drawFurnitureHint3D(s.kind, cellX, edgeZ, groundY + boxH, boxW, boxD);
+                addLabel3D(cellX, groundY + boxH + 8, edgeZ, meta.label || s.label, SATELLITE_LABEL_DIST, parent.id);
+                drawFurnitureHint3D(s.kind, cellX, edgeZ, groundY + boxH, boxW, boxD, parent.id);
 
                 if (s.kind === 'wc' || s.kind === 'bedroom') {
                     const doorWallZ = edgeZ - nearSign * (boxD / 2);
-                    addDoor3D(cellX, doorWallZ, groundY, Math.min(20, boxW * 0.55), Math.min(boxH - 4, 34), -nearSign, -1);
+                    addDoor3D(cellX, doorWallZ, groundY, Math.min(20, boxW * 0.55), Math.min(boxH - 4, 34), -nearSign, -1, parent.id);
                 }
             });
         }
 
-        // ---- 'elevated': Gác lửng — GIỮ NGUYÊN logic bản CSS (sàn nâng + lan can + cầu thang) ----
+        // ---- 'elevated': Gác lửng (sàn nâng + lan can + cầu thang) ----
         function drawElevatedCluster(list, parent, pr, px, pz, groundY){
             if (! list.length) return;
             const nearSign = parent.y < 0 ? 1 : -1;
@@ -493,23 +513,23 @@
                 const platGroundY = groundY + rise;
                 const cz = pz + farSign * (pr.d / 2 - platD / 2 - 2);
 
-                const platMesh = addSimpleBox(platW, platH, platD, px, platGroundY, cz, meta.fill);
+                const platMesh = addSimpleBox(platW, platH, platD, px, platGroundY, cz, meta.fill, null, parent.id);
                 platMesh.userData.tourUrl = TOUR_BASE + '/' + s.id;
                 platMesh.userData.tooltip = s.label;
 
                 const railH = 26;
                 const railZ = cz - farSign * (platD / 2);
-                addSimpleBox(platW, railH, 2, px, platGroundY + platH, railZ, 0x78716c, { transparent: true, opacity: 0.65 });
+                addSimpleBox(platW, railH, 2, px, platGroundY + platH, railZ, 0x78716c, { transparent: true, opacity: 0.65 }, parent.id);
 
-                addLabel3D(px, platGroundY + platH + railH + 10, cz, meta.label || s.label, SATELLITE_LABEL_DIST);
-                drawFurnitureHint3D('bedroom', px, cz, platGroundY + platH, platW * 0.7, platD * 0.7);
+                addLabel3D(px, platGroundY + platH + railH + 10, cz, meta.label || s.label, SATELLITE_LABEL_DIST, parent.id);
+                drawFurnitureHint3D('bedroom', px, cz, platGroundY + platH, platW * 0.7, platD * 0.7, parent.id);
 
                 const stairZStart = pz + nearSign * (pr.d / 2 - 12);
-                drawStaircase3D(px, stairZStart, railZ, groundY, rise, 8, Math.min(40, platW * 0.4));
+                drawStaircase3D(px, stairZStart, railZ, groundY, rise, 8, Math.min(40, platW * 0.4), parent.id);
             });
         }
 
-        // ---- 'attached': Ban công/Sân phơi — GIỮ NGUYÊN logic bản CSS ----
+        // ---- 'attached': Ban công/Sân phơi ----
         function drawAttachedCluster(list, parent, pr, px, pz, groundY){
             if (! list.length) return;
             const n = list.length;
@@ -523,10 +543,10 @@
                 const cz = pz + outwardSign * (pr.d / 2 + platD / 2);
                 const boxW = Math.max(30, cellW * 0.85);
 
-                const mesh = addSimpleBox(boxW, platH, platD, cx, groundY, cz, meta.fill);
+                const mesh = addSimpleBox(boxW, platH, platD, cx, groundY, cz, meta.fill, null, parent.id);
                 mesh.userData.tourUrl = TOUR_BASE + '/' + s.id;
                 mesh.userData.tooltip = s.label;
-                addLabel3D(cx, groundY + platH + 8, cz, meta.label || s.label, SATELLITE_LABEL_DIST);
+                addLabel3D(cx, groundY + platH + 8, cz, meta.label || s.label, SATELLITE_LABEL_DIST, parent.id);
             });
         }
 
@@ -545,52 +565,59 @@
         });
 
         // ---- Vẽ khối chính (hành lang + phòng) ----
+        // roomCenters: lưu lại tâm/kích thước từng PHÒNG (không tính hành lang) để setFocusRoom() phía
+        // dưới biết đặt camera vào đúng vị trí khi bấm "vào xem riêng phòng này".
         const roomMeshes = [];
+        const roomCenters = {};
         layout.nodes.forEach(n => {
             const r = rectFor(n);
             const gx = n.x * SCALE, gz = n.y * SCALE;
             const groundY = groundYFor(n);
             const floorColor = n.isCommon ? 0xd6d3d1 : 0xfde68a;
             const wallColor = n.isCommon ? 0xa8a29e : 0xeab308;
-            const built = addRoom3D(gx, gz, r.w, r.d, r.h, floorColor, wallColor, n.isCommon, groundY);
-            // Phủ ảnh 360° THẬT của phòng lên 4 tường (thay màu phẳng) — chỉ áp dụng cho PHÒNG (không
-            // phải hành lang, ít ý nghĩa hơn) và khi đã có ảnh (n.thumbnail luôn có nếu building có
-            // dữ liệu 360°, nhưng vẫn kiểm tra cho chắc).
-            if (! n.isCommon && n.thumbnail) {
-                applyRoomPhotoTexture(n.thumbnail, built.wallMeshes);
-            }
+            // Hành lang dùng roomId=null (luôn ẩn khi đang xem riêng 1 phòng bất kỳ); phòng dùng đúng
+            // n.id để setFocusRoom() giữ lại được khi bấm vào chính phòng đó.
+            addRoom3D(gx, gz, r.w, r.d, r.h, floorColor, wallColor, n.isCommon, groundY, n.isCommon ? null : n.id);
 
             // Lớp phủ TRONG SUỐT đúng diện tích sàn — vùng bấm (raycaster xử lý ở phần sự kiện click
-            // bên dưới): BẤM 1 LẦN = di chuyển camera tới gần; BẤM ĐÚP = mở luôn tour 360° THẬT của
-            // đúng phòng đó (Pannellum, ảnh chụp thật) — đúng ý "vào xem riêng từng phòng".
+            // bên dưới): bấm 1 phòng = vào xem RIÊNG sơ đồ chi tiết phòng đó (setFocusRoom()), không
+            // phải chỉ lia camera lại gần trong lúc vẫn thấy cả toà nhà xung quanh.
             const clickTarget = new THREE.Mesh(
                 new THREE.PlaneGeometry(r.w, r.d),
                 new THREE.MeshBasicMaterial({ visible: false })
             );
             clickTarget.rotation.x = -Math.PI / 2;
             clickTarget.position.set(gx, groundY + 4, gz);
-            clickTarget.userData.flyTo = { x: gx, z: gz };
-            clickTarget.userData.tourUrl = TOUR_BASE + '/' + n.id;
+            if (! n.isCommon) {
+                clickTarget.userData.enterRoom = n.id;
+                clickTarget.userData.roomId = n.id;
+            }
             scene.add(clickTarget);
             roomMeshes.push(clickTarget);
 
             if (! n.isCommon) {
-                drawLivingArea3D(gx, gz, r, groundY, roomInsideSide[n.id] || 'right');
+                const insideSide = roomInsideSide[n.id] || 'right';
+                drawLivingArea3D(gx, gz, r, groundY, insideSide, n.id);
 
                 const doorNearSign = n.y < 0 ? 1 : -1;
                 const doorWallZ = gz + doorNearSign * (r.d / 2);
-                const insideSide = roomInsideSide[n.id] || 'right';
                 const doorSide = insideSide === 'left' ? 'right' : 'left';
                 const doorX = doorSide === 'left' ? (gx - r.w / 2 + DOOR_RESERVE / 2) : (gx + r.w / 2 - DOOR_RESERVE / 2);
                 const hingeSide = doorSide === 'left' ? -1 : 1;
-                addDoor3D(doorX, doorWallZ, groundY, 24, 48, doorNearSign, hingeSide);
+                addDoor3D(doorX, doorWallZ, groundY, 24, 48, doorNearSign, hingeSide, n.id);
+
+                // Cửa sổ trang trí trên tường XA (đối diện cửa ra vào) — xem addWindow3D().
+                addWindow3D(gx, gz - doorNearSign * (r.d / 2), groundY, r.h, r.w, 'x', n.id);
+
+                roomCenters[n.id] = { x: gx, y: groundY, z: gz, w: r.w, d: r.d, h: r.h };
             }
 
             const roomLabel = (! n.isCommon && n.area) ? `${n.label} · ${n.area} m²` : n.label;
-            addLabel3D(gx, groundY + r.h + 14, gz, roomLabel, ROOM_LABEL_DIST);
+            addLabel3D(gx, groundY + r.h + 14, gz, roomLabel, ROOM_LABEL_DIST, n.isCommon ? null : n.id);
         });
 
-        // ---- Cạnh nối (hành lang<->phòng cùng tầng, cầu thang khác tầng) ----
+        // ---- Cạnh nối (hành lang<->phòng cùng tầng, cầu thang khác tầng) — luôn thuộc "chung", ẩn khi
+        // đang xem riêng 1 phòng (roomId=null, xem setFocusRoom()) ----
         layout.edges.forEach(e => {
             const a = nodeById[e.fromId], b = nodeById[e.toId];
             if (! a || ! b) return;
@@ -607,17 +634,17 @@
                 const shaftGroundY = groundYFor(lo);
                 const shaftHeight = groundYFor(hi) - groundYFor(lo);
 
-                const shaftMesh = addSimpleBox(SHAFT_W, shaftHeight, SHAFT_W, midX, shaftGroundY, midZ, 0xc4b5fd);
+                const shaftMesh = addSimpleBox(SHAFT_W, shaftHeight, SHAFT_W, midX, shaftGroundY, midZ, 0xc4b5fd, null, null);
                 shaftMesh.userData.tourUrl = TOUR_BASE + '/' + b.id;
                 shaftMesh.userData.tooltip = e.label || ('Đến ' + b.label);
-                addLabel3D(midX, shaftGroundY + shaftHeight + 10, midZ, 'Cầu thang', STAIR_LABEL_DIST);
+                addLabel3D(midX, shaftGroundY + shaftHeight + 10, midZ, 'Cầu thang', STAIR_LABEL_DIST, null);
                 return;
             }
 
             const groundY = groundYFor(a);
             const midX = (a.x + b.x) / 2 * SCALE, midZ = (a.y + b.y) / 2 * SCALE;
             const midH = Math.max(rectFor(a).h, rectFor(b).h) * 0.5;
-            addDot3D(midX, groundY + midH, midZ, e.kind === 'corridor' ? 'amber' : 'teal', e.label || ('Đến ' + b.label), b.id);
+            addDot3D(midX, groundY + midH, midZ, e.kind === 'corridor' ? 'amber' : 'teal', e.label || ('Đến ' + b.label), b.id, null);
         });
 
         // ---- Không gian con (WC/Phòng ngủ/Bếp/Kho/Gác lửng/Ban công/Sân phơi...) ----
@@ -633,7 +660,7 @@
             drawInsideCluster(byCategory('inside'), parent, pr, px, pz, groundY, roomInsideSide[parentId]);
             drawElevatedCluster(byCategory('elevated'), parent, pr, px, pz, groundY);
             drawAttachedCluster(byCategory('attached'), parent, pr, px, pz, groundY);
-            byCategory('dot').forEach(s => addDot3D(s.x * SCALE, groundY + 34, s.y * SCALE, metaFor(s.kind).color, s.label, s.id));
+            byCategory('dot').forEach(s => addDot3D(s.x * SCALE, groundY + 34, s.y * SCALE, metaFor(s.kind).color, s.label, s.id, parent.id));
         });
 
         // Chú thích ĐỘNG theo đúng loại không gian con thực có trong toà nhà — GIỮ NGUYÊN ý tưởng
@@ -649,10 +676,10 @@
         });
 
         // ==================================================================================
-        // ---- Bấm để mở tour 360° (WC/bếp/phòng ngủ/gác lửng/ban công/chấm nối) HOẶC "đi tới" 1
-        // phòng (lia camera + zoom cận cảnh, xem controls.target) — raycaster tìm đối tượng bị bấm.
-        // Phân biệt BẤM THẬT với KÉO CHUỘT (OrbitControls) bằng ngưỡng di chuyển nhỏ giữa
-        // pointerdown/pointerup, tránh mở nhầm tour khi người dùng chỉ đang xoay/di chuyển camera.
+        // ---- Bấm để mở tour 360° (WC/bếp/phòng ngủ/gác lửng/ban công/chấm nối) HOẶC vào xem RIÊNG
+        // sơ đồ chi tiết 1 phòng (setFocusRoom()) — raycaster tìm đối tượng bị bấm. Phân biệt BẤM THẬT
+        // với KÉO CHUỘT (OrbitControls) bằng ngưỡng di chuyển nhỏ giữa pointerdown/pointerup, tránh
+        // mở nhầm khi người dùng chỉ đang xoay/di chuyển camera.
         // ==================================================================================
         const raycaster = new THREE.Raycaster();
         const pointerNdc = new THREE.Vector2();
@@ -664,12 +691,6 @@
             pointerNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
         }
 
-        // Vệ tinh (WC/bếp/ban công...) CHỈ có tourUrl -> bấm 1 lần mở tour luôn (giữ nguyên hành vi
-        // cũ). Phòng có CẢ HAI (flyTo + tourUrl) -> bấm 1 lần = tới gần (flyTo), bấm ĐÚP vào ĐÚNG
-        // phòng đó trong khoảng 450ms mới mở tour thật — tránh mở tour ngay khi chỉ định xem sơ đồ.
-        let lastClickObj = null, lastClickTime = 0;
-        const DOUBLE_CLICK_MS = 450;
-
         renderer.domElement.addEventListener('pointerdown', e => { downX = e.clientX; downY = e.clientY; });
         renderer.domElement.addEventListener('pointerup', e => {
             if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return; // đang kéo, không phải bấm
@@ -677,42 +698,71 @@
             setPointerFromEvent(e);
             raycaster.setFromCamera(pointerNdc, camera);
             const hits = raycaster.intersectObjects(scene.children, false);
-            const hit = hits.find(h => h.object.userData && (h.object.userData.tourUrl || h.object.userData.flyTo));
+            const hit = hits.find(h => h.object.visible && h.object.userData && (h.object.userData.tourUrl || h.object.userData.enterRoom));
             if (! hit) return;
 
             const obj = hit.object;
-            const now = performance.now();
-            const isDoubleClick = obj === lastClickObj && (now - lastClickTime) < DOUBLE_CLICK_MS;
-            lastClickObj = obj;
-            lastClickTime = now;
-
-            if (obj.userData.flyTo && obj.userData.tourUrl) {
-                if (isDoubleClick) {
-                    window.open(obj.userData.tourUrl, '_blank');
-                } else {
-                    flyTo(obj.userData.flyTo.x, obj.userData.flyTo.z);
-                }
+            if (obj.userData.enterRoom) {
+                setFocusRoom(obj.userData.enterRoom);
             } else if (obj.userData.tourUrl) {
                 window.open(obj.userData.tourUrl, '_blank');
-            } else if (obj.userData.flyTo) {
-                flyTo(obj.userData.flyTo.x, obj.userData.flyTo.z);
             }
         });
 
-        // "Đi tới" 1 vị trí world — dịch cả target LẪN camera theo cùng 1 vector để giữ nguyên góc
-        // nhìn hiện tại (chỉ đổi VỊ TRÍ đứng, không đổi HƯỚNG nhìn), đồng thời kéo gần camera lại
-        // (dolly) để có hiệu ứng "tới gần xem cận cảnh" thay vì chỉ dịch ngang.
-        function flyTo(worldX, worldZ){
-            const newTarget = new THREE.Vector3(worldX, controls.target.y, worldZ);
-            const offset = camera.position.clone().sub(controls.target);
-            offset.multiplyScalar(0.55); // kéo gần lại ~45% khoảng cách hiện tại mỗi lần bấm
-            if (offset.length() < controls.minDistance * 1.2) {
-                offset.setLength(controls.minDistance * 1.2);
-            }
-            camera.position.copy(newTarget).add(offset);
-            controls.target.copy(newTarget);
+        // ==================================================================================
+        // ---- Chế độ "xem riêng 1 phòng": ẩn hết phần còn lại của toà nhà (hành lang/phòng khác/cầu
+        // thang), chỉ giữ lại đúng khối phòng đã bấm + nội thất/buồng phụ của nó, đồng thời lia camera
+        // vào gần, đúng ý "vào xem sơ đồ từng phòng luôn, chứ không phải xem sơ đồ toàn bộ toà" — MỌI
+        // object 3D thuộc về 1 phòng đều đã được gắn userData.roomId khi tạo (xem addSimpleBox()/
+        // addLabel3D()/addDot3D()/addDoor3D() ở trên); object dùng chung (hành lang/cầu thang/chấm
+        // nối) được gắn roomId=null nên luôn bị ẩn ở đây.
+        // ==================================================================================
+        let focusedRoomId = null;
+        const focusBar = document.getElementById('room-focus-bar');
+        const focusBarTitle = document.getElementById('room-focus-title');
+        const focusTourBtn = document.getElementById('room-focus-tour');
+
+        function setFocusRoom(roomId){
+            const center = roomCenters[roomId];
+            if (! center) return;
+            focusedRoomId = roomId;
+
+            scene.traverse(obj => {
+                if (! obj.userData || ! ('roomId' in obj.userData)) return;
+                obj.visible = obj.userData.roomId === roomId;
+            });
+
+            const node = nodeById[roomId];
+            focusBarTitle.textContent = node ? ((node.area ? `${node.label} · ${node.area} m²` : node.label)) : '';
+            focusTourBtn.onclick = () => window.open(TOUR_BASE + '/' + roomId, '_blank');
+            focusBar.hidden = false;
+
+            flyIntoRoom(center);
+        }
+
+        function exitFocusRoom(){
+            focusedRoomId = null;
+            scene.traverse(obj => {
+                if (! obj.userData || ! ('roomId' in obj.userData)) return;
+                obj.visible = true;
+            });
+            focusBar.hidden = true;
+            controls.target.copy(DEFAULT_TARGET);
+            camera.position.copy(DEFAULT_CAMERA_POS);
             controls.update();
         }
+
+        // Đặt camera ở góc 3/4 cận cảnh, đúng khung riêng của phòng — đủ gần để thấy rõ nội thất/cửa
+        // sổ vừa vẽ, không còn phòng/hành lang khác chen vào tầm nhìn.
+        function flyIntoRoom(center){
+            const target = new THREE.Vector3(center.x, center.y + center.h * 0.35, center.z);
+            const dist = Math.max(center.w, center.d) * 1.15;
+            camera.position.set(center.x + dist * 0.62, center.y + center.h * 1.7, center.z + dist * 0.78);
+            controls.target.copy(target);
+            controls.update();
+        }
+
+        document.getElementById('room-focus-back').addEventListener('click', exitFocusRoom);
 
         // ==================================================================================
         // ---- Nút điều khiển ----
@@ -727,6 +777,7 @@
         }
 
         document.getElementById('btn-reset').addEventListener('click', () => {
+            if (focusedRoomId) { exitFocusRoom(); return; }
             controls.target.copy(DEFAULT_TARGET);
             camera.position.copy(DEFAULT_CAMERA_POS);
             controls.update();

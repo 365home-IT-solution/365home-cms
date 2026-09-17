@@ -32,7 +32,7 @@ class TenantController extends Controller
             ->withoutGlobalScopes()
             ->with('room:id,code,building_id')
             ->whereHas('room', fn ($q) => $q->whereIn('building_id', $permitted))
-            ->when($request->filled('room_id'), fn ($q) => $q->where('room_id', $request->integer('room_id')))
+            ->when($request->filled('room_id'), fn ($q) => $q->where('room_id', $request->input('room_id')))
             ->when($request->filled('search'), fn ($q) => $q->where(fn ($q2) => $q2
                 ->where('fullname', 'like', '%' . $request->string('search') . '%')
                 ->orWhere('id_card_number', 'like', '%' . $request->string('search') . '%')
@@ -82,14 +82,14 @@ class TenantController extends Controller
             'workplace'                => 'nullable|string|max:255',
             'emergency_contact_name'   => 'nullable|string|max:255',
             'emergency_contact_phone'  => 'nullable|string|max:20',
-            'room_id'                  => 'nullable|integer|exists:minihouse_rooms,id',
+            'room_id'                  => 'nullable|string|exists:products,id',
             'note'                     => 'nullable|string',
         ]);
 
         // room_id CÓ giá trị thì phòng đó phải thuộc toà được phép — room_id null (chưa gán phòng)
         // thì tạo được bình thường, không có toà nào để kiểm tra.
         if (! empty($data['room_id'])) {
-            $room = Room::withoutGlobalScopes()->find($data['room_id']);
+            $room = Room::withoutGlobalScope('activeBuilding')->find($data['room_id']);
 
             if (! $room || ! $this->isBuildingAllowed($request, $room->building_id)) {
                 return response()->json(['message' => 'Không có quyền gán khách thuê vào phòng của toà nhà này.'], 403);
@@ -128,12 +128,12 @@ class TenantController extends Controller
             'workplace'                => 'nullable|string|max:255',
             'emergency_contact_name'   => 'nullable|string|max:255',
             'emergency_contact_phone'  => 'nullable|string|max:20',
-            'room_id'                  => 'nullable|integer|exists:minihouse_rooms,id',
+            'room_id'                  => 'nullable|string|exists:products,id',
             'note'                     => 'nullable|string',
         ]);
 
         if (array_key_exists('room_id', $data) && ! empty($data['room_id'])) {
-            $room = Room::withoutGlobalScopes()->find($data['room_id']);
+            $room = Room::withoutGlobalScope('activeBuilding')->find($data['room_id']);
 
             if (! $room || ! $this->isBuildingAllowed($request, $room->building_id)) {
                 return response()->json(['message' => 'Không có quyền chuyển khách thuê sang phòng của toà nhà này.'], 403);

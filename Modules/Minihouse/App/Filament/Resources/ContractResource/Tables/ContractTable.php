@@ -94,7 +94,7 @@ class ContractTable
             ->filters([
                 SelectFilter::make('room_id')
                     ->label('Phòng')
-                    ->options(fn () => Room::query()->pluck('code', 'id')),
+                    ->options(fn () => Room::query()->get()->pluck('code', 'id')),
                 SelectFilter::make('status')
                     ->label('Trạng thái')
                     ->options([

@@ -161,7 +161,7 @@ class InvoiceController extends Controller
         $data = $request->validate([
             'month'          => 'required|date',
             'building_ids'   => 'nullable|array',
-            'building_ids.*' => 'integer|exists:minihouse_buildings,id',
+            'building_ids.*' => 'integer|exists:categories,id',
         ]);
 
         $permitted = $this->permittedBuildingIds($request);

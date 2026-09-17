@@ -18,7 +18,7 @@ class TenantFeedbackController extends Controller
     public function create(Request $request): View
     {
         $room = $request->integer('room')
-            ? Room::withoutGlobalScopes()->find($request->integer('room'))
+            ? Room::withoutGlobalScope('activeBuilding')->find($request->integer('room'))
             : null;
 
         return view('minihouse::feedback.create', ['room' => $room]);
@@ -27,7 +27,7 @@ class TenantFeedbackController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            'room_id'      => ['nullable', 'integer', 'exists:minihouse_rooms,id'],
+            'room_id'      => ['nullable', 'string', 'exists:products,id'],
             'tenant_name'  => ['nullable', 'string', 'max:255'],
             'tenant_phone' => ['nullable', 'string', 'max:20'],
             'rating'       => ['required', 'integer', 'min:1', 'max:5'],

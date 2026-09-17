@@ -48,7 +48,7 @@ class TenantFeedbackTable
                     ->options([1 => '★', 2 => '★★', 3 => '★★★', 4 => '★★★★', 5 => '★★★★★']),
                 SelectFilter::make('room_id')
                     ->label('Phòng')
-                    ->options(fn () => Room::query()->pluck('code', 'id')),
+                    ->options(fn () => Room::query()->get()->pluck('code', 'id')),
                 TernaryFilter::make('is_reviewed')
                     ->label('Trạng thái xử lý')
                     ->placeholder('Tất cả')

@@ -182,11 +182,14 @@ class RoomForm
                 return;
             }
 
+            // floor/position_row/position_col KHÔNG PHẢI cột thật trên products (uỷ quyền qua bảng
+            // phụ minihouse_room_details, xem Room::getAttribute()) — lọc qua whereHas('detail', ...).
             $conflict = Room::query()
                 ->where('building_id', $get('building_id'))
-                ->where('floor', $get('floor'))
-                ->where('position_row', $row)
-                ->where('position_col', $col)
+                ->whereHas('detail', fn ($q) => $q
+                    ->where('floor', $get('floor'))
+                    ->where('position_row', $row)
+                    ->where('position_col', $col))
                 ->when($record, fn ($query) => $query->whereKeyNot($record->getKey()))
                 ->exists();
 

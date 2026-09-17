@@ -240,7 +240,7 @@ class FinanceReports extends Page implements HasForms
 
         $roomsQuery = Room::query()->when($this->buildingId(), fn ($q, $buildingId) => $q->where('building_id', $buildingId));
         $totalRooms = (clone $roomsQuery)->count();
-        $rentedRooms = (clone $roomsQuery)->where('status', Room::STATUS_RENTED)->count();
+        $rentedRooms = (clone $roomsQuery)->whereHas('detail', fn ($q) => $q->where('status', Room::STATUS_RENTED))->count();
 
         return [
             'collected'       => $collected,

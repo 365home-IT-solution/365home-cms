@@ -163,7 +163,7 @@ class MeteringReading extends Model
     // tiếp từ hoá đơn GẦN NHẤT của phòng (dữ liệu cũ trước khi có module Metering); không có gì cả
     // thì mặc định 0. Dùng chung bởi creating() (tạo mới) và deleted() (nối lại dây chuyền sau khi
     // xoá 1 log ở giữa).
-    private static function computeStartValues(int $roomId, Carbon $month): array
+    private static function computeStartValues(string $roomId, Carbon $month): array
     {
         $previous = static::latestBefore($roomId, $month);
 
@@ -182,7 +182,7 @@ class MeteringReading extends Model
     // Lấy log ghi số GẦN NHẤT trước 1 tháng cho trước, của đúng phòng đó — dùng để tự điền
     // electric_start/water_start của log tháng mới bằng electric_end/water_end của tháng trước, mirror
     // đúng cơ chế "start kỳ mới = end kỳ trước" hiện có trong InvoiceGenerationService.
-    public static function latestBefore(int $roomId, Carbon $month): ?self
+    public static function latestBefore(string $roomId, Carbon $month): ?self
     {
         return static::query()
             ->where('room_id', $roomId)
@@ -193,7 +193,7 @@ class MeteringReading extends Model
 
     // Log GẦN NHẤT ngay SAU 1 tháng cho trước, của đúng phòng đó — dùng để đẩy chỉ số cuối kỳ vừa sửa
     // xuống làm chỉ số đầu kỳ của log kế tiếp (xem booted() ở trên).
-    public static function nextAfter(int $roomId, Carbon $month): ?self
+    public static function nextAfter(string $roomId, Carbon $month): ?self
     {
         return static::query()
             ->where('room_id', $roomId)
@@ -204,7 +204,7 @@ class MeteringReading extends Model
 
     // Log của đúng phòng + đúng tháng (khớp period_start của hoá đơn) — dùng bởi
     // InvoiceGenerationService để lấy sẵn electric_start/end, water_start/end khi sinh hoá đơn.
-    public static function forRoomAndMonth(int $roomId, Carbon $month): ?self
+    public static function forRoomAndMonth(string $roomId, Carbon $month): ?self
     {
         return static::query()
             ->where('room_id', $roomId)

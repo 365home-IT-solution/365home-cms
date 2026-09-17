@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Modules\Minihouse\App\Exceptions\CannotDeleteReferencedRecordException;
 use Modules\Minihouse\App\Models\Room;
 
 class RoomController extends Controller
@@ -33,9 +34,13 @@ class RoomController extends Controller
             ->with('building:id,name')
             ->whereIn('building_id', $permitted)
             ->when($request->filled('building_id'), fn ($q) => $q->where('building_id', $request->integer('building_id')))
-            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
-            ->when($request->filled('search'), fn ($q) => $q->where('code', 'like', '%' . $request->string('search') . '%'))
-            ->orderBy('building_id')->orderBy('floor')->orderBy('code')
+            // status/floor/code KHÔNG PHẢI cột thật trên products (uỷ quyền qua bảng phụ
+            // minihouse_room_details/cột name, xem Room::getAttribute()) — lọc/sắp xếp qua
+            // whereHas('detail', ...) và cột thật 'name' thay vì 'code'/'status'/'floor' trực tiếp.
+            ->when($request->filled('status'), fn ($q) => $q->whereHas('detail', fn ($q2) => $q2->where('status', $request->input('status'))))
+            ->when($request->filled('search'), fn ($q) => $q->where('name', 'like', '%' . $request->input('search') . '%'))
+            ->orderBy('building_id')
+            ->orderBy('name')
             ->paginate((int) $request->integer('per_page', 20));
 
         $rooms->getCollection()->transform(fn (Room $r) => $this->toListItem($r));
@@ -44,13 +49,13 @@ class RoomController extends Controller
     }
 
     // GET /api/admin/minihouse/rooms/{id}
-    public function show(Request $request, int $id): JsonResponse
+    public function show(Request $request, string $id): JsonResponse
     {
         if (! $this->hasPermission($request, 'view_any_rooms')) {
             return response()->json(['message' => 'Không có quyền xem phòng.'], 403);
         }
 
-        $room = Room::withoutGlobalScopes()->with('building:id,name', 'amenities:id,name')->find($id);
+        $room = Room::withoutGlobalScope('activeBuilding')->with('building:id,name', 'amenities:id,name')->find($id);
 
         if (! $room || ! $this->isBuildingAllowed($request, $room->building_id)) {
             return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
@@ -67,7 +72,7 @@ class RoomController extends Controller
         }
 
         $data = $request->validate([
-            'building_id'   => 'required|integer|exists:minihouse_buildings,id',
+            'building_id'   => 'required|integer|exists:categories,id',
             'code'          => 'required|string|max:255',
             'floor'         => 'nullable|integer|min:1',
             'position_row'  => 'nullable|integer|min:1',
@@ -93,9 +98,10 @@ class RoomController extends Controller
         if (
             filled($data['position_row'] ?? null) && filled($data['position_col'] ?? null)
             && Room::where('building_id', $data['building_id'])
-                ->where('floor', $data['floor'] ?? null)
-                ->where('position_row', $data['position_row'])
-                ->where('position_col', $data['position_col'])
+                ->whereHas('detail', fn ($q) => $q
+                    ->where('floor', $data['floor'] ?? null)
+                    ->where('position_row', $data['position_row'])
+                    ->where('position_col', $data['position_col']))
                 ->exists()
         ) {
             return response()->json(['message' => 'Đã có phòng khác ở đúng vị trí (hàng ' . $data['position_row'] . ', cột ' . $data['position_col'] . ') của tầng này.'], 422);
@@ -115,20 +121,20 @@ class RoomController extends Controller
     }
 
     // PUT/PATCH /api/admin/minihouse/rooms/{id}
-    public function update(Request $request, int $id): JsonResponse
+    public function update(Request $request, string $id): JsonResponse
     {
         if (! $this->hasPermission($request, 'update_rooms')) {
             return response()->json(['message' => 'Không có quyền sửa phòng.'], 403);
         }
 
-        $room = Room::withoutGlobalScopes()->find($id);
+        $room = Room::withoutGlobalScope('activeBuilding')->find($id);
 
         if (! $room || ! $this->isBuildingAllowed($request, $room->building_id)) {
             return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
         }
 
         $data = $request->validate([
-            'building_id'   => 'sometimes|required|integer|exists:minihouse_buildings,id',
+            'building_id'   => 'sometimes|required|integer|exists:categories,id',
             'code'          => 'sometimes|required|string|max:255',
             'floor'         => 'nullable|integer|min:1',
             'position_row'  => 'nullable|integer|min:1',
@@ -157,9 +163,10 @@ class RoomController extends Controller
         if (
             filled($effectiveRow) && filled($effectiveCol)
             && Room::where('building_id', $effectiveBuildingId)
-                ->where('floor', $effectiveFloor)
-                ->where('position_row', $effectiveRow)
-                ->where('position_col', $effectiveCol)
+                ->whereHas('detail', fn ($q) => $q
+                    ->where('floor', $effectiveFloor)
+                    ->where('position_row', $effectiveRow)
+                    ->where('position_col', $effectiveCol))
                 ->whereKeyNot($room->getKey())
                 ->exists()
         ) {
@@ -191,19 +198,26 @@ class RoomController extends Controller
     }
 
     // DELETE /api/admin/minihouse/rooms/{id}
-    public function destroy(Request $request, int $id): JsonResponse
+    public function destroy(Request $request, string $id): JsonResponse
     {
         if (! $this->hasPermission($request, 'delete_rooms')) {
             return response()->json(['message' => 'Không có quyền xoá phòng.'], 403);
         }
 
-        $room = Room::withoutGlobalScopes()->find($id);
+        $room = Room::withoutGlobalScope('activeBuilding')->find($id);
 
         if (! $room || ! $this->isBuildingAllowed($request, $room->building_id)) {
             return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
         }
 
-        $room->delete();
+        // Room::booted() ném CannotDeleteReferencedRecordException nếu phòng còn Hợp đồng (kể cả đã
+        // hết hạn) tham chiếu tới — bắt lại ở đây để trả 422 thân thiện thay vì lỗi 500 (cùng pattern
+        // InvoiceController::destroy() bắt CannotDeletePaidInvoiceException).
+        try {
+            $room->delete();
+        } catch (CannotDeleteReferencedRecordException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
 
         return response()->json(['message' => 'Đã xoá phòng.']);
     }

@@ -38,7 +38,7 @@ class BuildingSwitcher extends Component
         // withoutGlobalScopes() — Building tự lọc theo toà nhà đang chọn (ScopedToActiveBuilding),
         // ở đây cần liệt kê đúng những toà ĐƯỢC PHÉP (permittedBuildingIds() đã tính đúng rồi),
         // không để scope lọc chồng thêm lần nữa theo lựa chọn CŨ đang lưu trong session.
-        return Building::withoutGlobalScopes()->whereIn('id', $ids)->orderBy('name')->get(['id', 'name']);
+        return Building::withoutGlobalScope('activeBuilding')->whereIn('id', $ids)->orderBy('name')->get(['id', 'name']);
     }
 
     public function selectAll(): void

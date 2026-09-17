@@ -36,7 +36,7 @@ class NotifyExpiringContractsCommand extends Command
         $checked = 0;
 
         foreach ($buildingIds as $buildingId => $daysBefore) {
-            $roomIds = Room::withoutGlobalScopes()->where('building_id', $buildingId)->pluck('id');
+            $roomIds = Room::withoutGlobalScope('activeBuilding')->where('building_id', $buildingId)->pluck('id');
 
             $expiringContracts = Contract::withoutGlobalScopes()
                 ->where('status', Contract::STATUS_ACTIVE)

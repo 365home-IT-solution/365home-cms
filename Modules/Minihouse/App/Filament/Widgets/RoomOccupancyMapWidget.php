@@ -32,12 +32,15 @@ class RoomOccupancyMapWidget extends Widget
 
     public function getViewData(): array
     {
+        // floor/code KHÔNG PHẢI cột thật trên products (uỷ quyền qua bảng phụ minihouse_room_details/
+        // cột name, xem Room::getAttribute()) — không ORDER BY trực tiếp ở SQL được nữa, sắp xếp lại
+        // trong PHP sau khi lấy dữ liệu (số phòng trong 1 toà nhà nhỏ, không đáng ngại về hiệu năng).
         $rooms = Room::query()
-            ->with('building')
-            ->orderBy('building_id')
-            ->orderByRaw('floor IS NULL, floor')
-            ->orderBy('code')
-            ->get();
+            ->with(['building', 'detail'])
+            ->get()
+            ->sort(fn ($a, $b) => [$a->building_id, $a->floor ?? PHP_INT_MAX, (string) $a->code]
+                <=> [$b->building_id, $b->floor ?? PHP_INT_MAX, (string) $b->code])
+            ->values();
 
         // Hợp đồng "Đang hiệu lực" hiện tại của MỌI phòng — tra 1 lần theo room_id thay vì query lại
         // cho từng phòng trong vòng lặp bên dưới (tránh N+1 khi toà nhà có nhiều chục phòng).
@@ -139,7 +142,7 @@ class RoomOccupancyMapWidget extends Widget
     // Khoá/Mở khoá nhanh 1 phòng ngay từ menu trên sơ đồ — đổi qua lại Trống <-> Đã khoá, không
     // cần mở hẳn trang Sửa phòng chỉ để đổi 1 trường. Không đụng phòng đang có khách ở (đang thuê
     // luôn đi qua đúng hợp đồng, không có menu này — xem room-card.blade.php).
-    public function toggleRoomRepair(int $roomId): void
+    public function toggleRoomRepair(string $roomId): void
     {
         $room = Room::find($roomId);
 
@@ -160,7 +163,9 @@ class RoomOccupancyMapWidget extends Widget
     // giữa lúc đang chọn.
     public function bulkToggleRepair(array $roomIds): void
     {
-        $rooms = Room::whereIn('id', $roomIds)->whereNotIn('status', [Room::STATUS_RENTED, Room::STATUS_RESERVED])->get();
+        $rooms = Room::whereIn('id', $roomIds)
+            ->whereHas('detail', fn ($q) => $q->whereNotIn('status', [Room::STATUS_RENTED, Room::STATUS_RESERVED]))
+            ->get();
 
         foreach ($rooms as $room) {
             $room->update([

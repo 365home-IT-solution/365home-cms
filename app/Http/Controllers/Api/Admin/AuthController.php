@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use Filament\Facades\Filament;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -74,7 +75,22 @@ class AuthController extends Controller
             'partner_id'     => $user->partner_id,
             'partner_name'   => $user->partner?->name,
             'is_super_admin' => $user->isSuperAdmin(),
+            'access'         => $this->panelAccess($user),
             'categories'     => $this->branchCategories($user),
+        ];
+    }
+
+    // Login/me dùng CHUNG 1 endpoint cho cả Homestay và MiniHouse (2 panel Filament riêng nhưng cùng
+    // bảng `users`) — không có "room_type" ở tầng tài khoản, chỉ có ở tầng Phòng
+    // (Modules\Product\App\Models\RoomType). FE cần biết tài khoản này được dùng cho panel nào để tự
+    // điều hướng, đặc biệt với super_admin (đăng nhập được CẢ HAI, không thể trả về 1 giá trị duy
+    // nhất) — dùng ĐÚNG User::canAccessPanel() (cùng hàm Filament tự gọi khi chặn đăng nhập panel) để
+    // đảm bảo kết quả không bao giờ lệch với hành vi thật của panel.
+    private function panelAccess(User $user): array
+    {
+        return [
+            'homestay'  => $user->canAccessPanel(Filament::getPanel('admin')),
+            'minihouse' => $user->canAccessPanel(Filament::getPanel('minihouse-admin')),
         ];
     }
 

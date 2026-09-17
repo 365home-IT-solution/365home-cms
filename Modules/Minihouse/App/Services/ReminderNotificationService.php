@@ -55,7 +55,9 @@ class ReminderNotificationService
             $query->where(function ($q) use ($buildingId) {
                 $q->whereHas('roles', fn ($q2) => $q2->where('name', config('filament-shield.super_admin.name')))
                     ->orWhereDoesntHave('minihouseBuildings')
-                    ->orWhereHas('minihouseBuildings', fn ($q2) => $q2->where('minihouse_buildings.id', $buildingId));
+                    // Building giờ VẬT LÝ là categories (gộp MiniHouse-Homestay) — 'minihouse_
+                    // buildings.id' (tên bảng cũ) không còn đúng, đổi thành 'categories.id'.
+                    ->orWhereHas('minihouseBuildings', fn ($q2) => $q2->where('categories.id', $buildingId));
             });
         }
 
@@ -113,7 +115,7 @@ class ReminderNotificationService
                 }
 
                 $repeatDays = $reminder->resolveBuildingId()
-                    ? Building::withoutGlobalScopes()->find($reminder->resolveBuildingId())?->payment_reminder_repeat_days
+                    ? Building::withoutGlobalScope('activeBuilding')->find($reminder->resolveBuildingId())?->payment_reminder_repeat_days
                     : null;
 
                 if (! $repeatDays) {

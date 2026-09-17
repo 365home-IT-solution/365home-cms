@@ -38,6 +38,7 @@ class PanoramaSceneForm
                         ->label('Phòng (để trống nếu là sảnh/hành lang chung)')
                         ->options(fn (Get $get) => Room::query()
                             ->where('building_id', $get('building_id'))
+                            ->get()
                             ->pluck('code', 'id'))
                         ->searchable()
                         ->disabled(fn (Get $get) => blank($get('building_id')))

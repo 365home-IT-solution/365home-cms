@@ -76,7 +76,7 @@ class TenantForm
                             // phòng/gia hạn qua đúng trang Hợp đồng, không sửa trực tiếp ở đây.
                             Select::make('room_id')
                                 ->label('Phòng đang ở')
-                                ->relationship('room', 'code')
+                                ->relationship('room', 'name')
                                 ->visible(fn (string $operation) => $operation === 'edit')
                                 ->disabled()
                                 ->dehydrated(false)
@@ -90,7 +90,7 @@ class TenantForm
                             Select::make('new_room_id')
                                 ->label('Phòng thuê')
                                 ->visible(fn (string $operation) => $operation === 'create')
-                                ->options(fn () => Room::where('status', Room::STATUS_EMPTY)
+                                ->options(fn () => Room::whereHas('detail', fn ($q) => $q->where('status', Room::STATUS_EMPTY))
                                     ->with('building')
                                     ->get()
                                     ->mapWithKeys(fn (Room $r) => [$r->id => "{$r->building?->name} - {$r->code}"]))

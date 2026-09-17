@@ -37,7 +37,7 @@ class MeteringReadingForm
                     ->schema([
                         Select::make('room_id')
                             ->label('Phòng')
-                            ->relationship('room', 'code')
+                            ->relationship('room', 'name')
                             ->searchable()
                             ->preload()
                             ->required()
@@ -121,7 +121,7 @@ class MeteringReadingForm
             return new HtmlString('<p class="text-sm text-gray-500 dark:text-gray-400">Phòng này chưa có Số điện nước nào.</p>');
         }
 
-        [$electricPrice, $waterPrice] = static::unitPricesForRoom((int) $roomId);
+        [$electricPrice, $waterPrice] = static::unitPricesForRoom($roomId);
 
         $currentMonth = filled($get('month')) ? Carbon::parse($get('month'))->startOfMonth()->toDateString() : null;
 
@@ -173,9 +173,9 @@ class MeteringReadingForm
     // để TÍNH THAM KHẢO "Thành tiền" trong bảng lịch sử — hoá đơn thật vẫn tự tính lại theo giá tại
     // đúng thời điểm lập, có thể khác nếu giá đã đổi từ đó tới nay.
     /** @return array{0: float, 1: float} */
-    private static function unitPricesForRoom(int $roomId): array
+    private static function unitPricesForRoom(string $roomId): array
     {
-        $room = Room::withoutGlobalScopes()->with('building')->find($roomId);
+        $room = Room::withoutGlobalScope('activeBuilding')->with('building')->find($roomId);
 
         if (! $room) {
             return [0.0, 0.0];

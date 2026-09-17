@@ -62,7 +62,7 @@ class TenantTable
             ->filters([
                 SelectFilter::make('room_id')
                     ->label('Phòng đang ở')
-                    ->options(fn () => Room::query()->pluck('code', 'id')),
+                    ->options(fn () => Room::query()->get()->pluck('code', 'id')),
                 TernaryFilter::make('room_id')
                     ->label('Đang thuê phòng?')
                     ->nullable()

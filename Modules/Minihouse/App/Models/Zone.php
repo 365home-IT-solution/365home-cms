@@ -2,8 +2,8 @@
 
 namespace Modules\Minihouse\App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Minihouse\App\Exceptions\CannotDeleteReferencedRecordException;
 use Modules\Minihouse\App\Models\Concerns\LogsMinihouseActivity;
@@ -22,9 +22,18 @@ class Zone extends Model
 
     protected $fillable = ['name', 'note'];
 
-    public function buildings(): HasMany
+    // KHÔNG PHẢI hasMany() chuẩn — zone_id nằm ở bảng phụ minihouse_building_settings (uỷ quyền qua
+    // Building::getAttribute(), xem Building.php), KHÔNG PHẢI 1 cột thật trên categories, nên Eloquent
+    // không thể tự JOIN/WHERE trực tiếp categories.zone_id (từng gây lỗi "Unknown column
+    // cms_categories.zone_id"). Trả về Eloquent\Builder tự dựng bằng subquery — vẫn dùng được
+    // ->exists()/->count()/->get() bình thường, chỉ KHÔNG dùng được với ->withCount()/->counts() của
+    // Filament (xem ZoneTable::table(), đã đổi cột đó sang ->state() tính trực tiếp).
+    public function buildings(): Builder
     {
-        return $this->hasMany(Building::class);
+        return Building::query()->whereIn(
+            'id',
+            BuildingSetting::where('zone_id', $this->id)->pluck('category_id')
+        );
     }
 
     // Zone dùng SoftDeletes — xoá chỉ set deleted_at, KHÔNG kích hoạt cascade FK thật ở CSDL. Còn Toà

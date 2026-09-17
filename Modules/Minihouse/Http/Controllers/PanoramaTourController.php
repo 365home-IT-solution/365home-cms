@@ -22,7 +22,7 @@ class PanoramaTourController extends Controller
     // lấy phòng đầu tiên theo thứ tự sort_order).
     public function show(Request $request, int $building): View
     {
-        $buildingModel = Building::withoutGlobalScopes()->findOrFail($building);
+        $buildingModel = Building::withoutGlobalScope('activeBuilding')->findOrFail($building);
 
         $entryScene = PanoramaScene::where('building_id', $building)
             ->where('is_published', true)
@@ -42,7 +42,7 @@ class PanoramaTourController extends Controller
     // trang quản trị, hoặc dán QR riêng trong từng phòng).
     public function scene(Request $request, int $building, int $scene): View
     {
-        $buildingModel = Building::withoutGlobalScopes()->findOrFail($building);
+        $buildingModel = Building::withoutGlobalScope('activeBuilding')->findOrFail($building);
 
         $sceneModel = PanoramaScene::where('building_id', $building)->findOrFail($scene);
 
@@ -98,7 +98,7 @@ class PanoramaTourController extends Controller
     // cách suy toạ độ từ góc yaw thật của từng hotspot.
     public function floorplan(Request $request, int $building, PanoramaFloorPlanLayoutService $layoutService): View
     {
-        $buildingModel = Building::withoutGlobalScopes()->findOrFail($building);
+        $buildingModel = Building::withoutGlobalScope('activeBuilding')->findOrFail($building);
 
         $layout = $layoutService->build($buildingModel);
 
