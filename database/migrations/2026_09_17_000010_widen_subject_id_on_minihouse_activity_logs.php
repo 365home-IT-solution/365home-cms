@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 // minihouse_activity_logs.subject_id was unsignedBigInteger (mọi model MiniHouse trước đây đều dùng
 // id tự tăng). Sau khi gộp Room vào products, Room.id là chuỗi ULID (26 ký tự) — không vừa cột
@@ -12,6 +13,12 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Bảng có thể chưa tồn tại nếu môi trường này nạp migration module SAU migration gộp này —
+        // bỏ qua hẳn, không có cột nào để nới kiểu.
+        if (! Schema::hasTable('minihouse_activity_logs')) {
+            return;
+        }
+
         $table = DB::getTablePrefix() . 'minihouse_activity_logs';
         DB::statement("ALTER TABLE `{$table}` MODIFY `subject_id` VARCHAR(36) NULL");
     }

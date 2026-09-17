@@ -14,6 +14,14 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Bảng có thể chưa tồn tại nếu môi trường này chạy migration module MUỘN HƠN migration gộp
+        // này (thứ tự nạp migration giữa "database/migrations" gốc và migration module phụ thuộc vào
+        // cách nwidart/laravel-modules đăng ký, không phải lúc nào cũng đảm bảo y hệt mọi môi
+        // trường) — bỏ qua hẳn, không có gì để đổi kiểu cột.
+        if (! Schema::hasTable('minihouse_room_amenity')) {
+            return;
+        }
+
         $prefix        = DB::getTablePrefix();
         $physicalTable = $prefix . 'minihouse_room_amenity';
         $productsTbl   = $prefix . 'products';
@@ -26,6 +34,28 @@ return new class extends Migration
 
         if ($column && $column->type === 'char') {
             return; // đã chạy rồi (idempotent)
+        }
+
+        // Cột room_id chưa từng tồn tại (bảng vừa được nwidart tạo mới vừa lúc, hoặc bị lệch thứ tự
+        // migrate so với môi trường dev) — không có dữ liệu cũ nào để chuyển, tạo thẳng đúng cột đích
+        // (char36, trỏ products) rồi dừng, bỏ qua toàn bộ phần đổi tên/backfill bên dưới.
+        if (! $column) {
+            $hasPrimaryKey = DB::selectOne(
+                "SELECT 1 FROM information_schema.TABLE_CONSTRAINTS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_TYPE = 'PRIMARY KEY'",
+                [$physicalTable]
+            );
+
+            Schema::table('minihouse_room_amenity', function (Blueprint $table) use ($hasPrimaryKey) {
+                $table->char('room_id', 36);
+                $table->foreign('room_id')->references('id')->on('products')->cascadeOnDelete();
+
+                if (! $hasPrimaryKey) {
+                    $table->primary(['room_id', 'amenity_id']);
+                }
+            });
+
+            return;
         }
 
         Schema::table('minihouse_room_amenity', function (Blueprint $table) {
