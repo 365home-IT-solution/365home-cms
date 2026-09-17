@@ -21,7 +21,7 @@ class AssetTypeTableResponsiveRowTest extends TestCase
         $this->assertNotNull($admin);
         AssetType::create(['name' => 'May Lanh Test']);
 
-        $response = $this->actingAs($admin)->get('/minihouse/admin/asset-types');
+        $response = $this->actingAs($admin)->get('/minihouse-admin/asset-types');
 
         $response->assertOk();
         $html = $response->getContent();

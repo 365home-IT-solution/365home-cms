@@ -31,7 +31,7 @@ class UserTableResponsiveRowTest extends TestCase
         // qua role) hoặc super_admin — thiếu dòng này thì tài khoản test không hiện trong danh sách.
         $user->givePermissionTo('access_minihouse');
 
-        $response = $this->actingAs($admin)->get('/minihouse/admin/users');
+        $response = $this->actingAs($admin)->get('/minihouse-admin/users');
 
         $response->assertOk();
         $html = $response->getContent();

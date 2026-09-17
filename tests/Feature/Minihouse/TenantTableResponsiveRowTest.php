@@ -37,7 +37,7 @@ class TenantTableResponsiveRowTest extends TestCase
         $this->assertNotNull($admin);
         $this->makeTenant();
 
-        $response = $this->actingAs($admin)->get('/minihouse/admin/tenants');
+        $response = $this->actingAs($admin)->get('/minihouse-admin/tenants');
 
         $response->assertOk();
         $html = $response->getContent();

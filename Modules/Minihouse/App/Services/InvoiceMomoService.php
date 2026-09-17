@@ -92,7 +92,7 @@ class InvoiceMomoService
         $requestId  = $orderId . '-' . random_int(1000, 9999);
         $amountInt  = (int) round($amount);
         $orderInfo  = substr('Thanh toan hoa don thue phong #' . $invoice->id, 0, 255);
-        $redirectUrl = $redirectUrl ?? url('/minihouse/admin/invoices/' . $invoice->id . '/edit');
+        $redirectUrl = $redirectUrl ?? url('/minihouse-admin/invoices/' . $invoice->id . '/edit');
         $ipnUrl      = route('api.minihouse.webhook.momo');
         $requestType = 'captureWallet';
         $extraData   = '';

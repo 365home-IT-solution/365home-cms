@@ -21,7 +21,7 @@ class ReminderPageRegressionTest extends TestCase
         $this->assertNotNull($staffWithNoName, 'Expected the known cc490099-... user with NULL fullname to exist.');
 
         $this->actingAs($admin)
-            ->get('/minihouse/admin/reminders')
+            ->get('/minihouse-admin/reminders')
             ->assertOk();
     }
 }

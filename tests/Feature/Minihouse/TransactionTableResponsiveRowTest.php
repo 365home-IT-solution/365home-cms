@@ -38,7 +38,7 @@ class TransactionTableResponsiveRowTest extends TestCase
         $this->assertNotNull($admin);
         $this->makeTransaction();
 
-        $response = $this->actingAs($admin)->get('/minihouse/admin/transactions');
+        $response = $this->actingAs($admin)->get('/minihouse-admin/transactions');
 
         $response->assertOk();
         $html = $response->getContent();

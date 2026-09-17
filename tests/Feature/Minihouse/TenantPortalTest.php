@@ -369,7 +369,7 @@ class TenantPortalTest extends TestCase
             return str_contains($request->url(), 'test-payment.momo.vn')
                 && isset($body['redirectUrl'])
                 && str_contains($body['redirectUrl'], 'minihouse/portal/invoices/' . $this->invoice->id)
-                && ! str_contains($body['redirectUrl'], 'minihouse/admin');
+                && ! str_contains($body['redirectUrl'], 'minihouse-admin');
         });
     }
 
@@ -394,7 +394,7 @@ class TenantPortalTest extends TestCase
         // Portal's own invoice page, not the staff admin edit page.
         parse_str(parse_url($this->invoice->vnpay_payment_url, PHP_URL_QUERY), $query);
         $this->assertStringContainsString('minihouse/portal/invoices/' . $this->invoice->id, $query['vnp_ReturnUrl']);
-        $this->assertStringNotContainsString('minihouse/admin', $query['vnp_ReturnUrl']);
+        $this->assertStringNotContainsString('minihouse-admin', $query['vnp_ReturnUrl']);
     }
 
     public function test_pay_already_paid_invoice_redirects_with_info(): void

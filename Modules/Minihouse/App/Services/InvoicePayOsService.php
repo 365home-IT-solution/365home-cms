@@ -114,8 +114,8 @@ class InvoicePayOsService
             'orderCode'   => $orderCode,
             'amount'      => (int) round($amount),
             'description' => substr('TT HD ' . $invoice->id, 0, 25),
-            'returnUrl'   => $returnUrl ?? url('/minihouse/admin/invoices/' . $invoice->id . '/edit'),
-            'cancelUrl'   => $returnUrl ?? url('/minihouse/admin/invoices/' . $invoice->id . '/edit'),
+            'returnUrl'   => $returnUrl ?? url('/minihouse-admin/invoices/' . $invoice->id . '/edit'),
+            'cancelUrl'   => $returnUrl ?? url('/minihouse-admin/invoices/' . $invoice->id . '/edit'),
             'expiredAt'   => $expiredAt->timestamp,
         ]);
 

@@ -45,7 +45,7 @@ class InvoiceTableResponsiveRowTest extends TestCase
         $this->assertNotNull($admin);
         $this->makeInvoice();
 
-        $response = $this->actingAs($admin)->get('/minihouse/admin/invoices');
+        $response = $this->actingAs($admin)->get('/minihouse-admin/invoices');
 
         $response->assertOk();
         $html = $response->getContent();

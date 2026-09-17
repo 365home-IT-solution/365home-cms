@@ -114,7 +114,7 @@ class InvoiceReadinessForPortalTest extends TestCase
 
         $notReady = $this->makeIncompleteInvoice();
 
-        $response = $this->actingAs($admin)->get('/minihouse/admin/invoices');
+        $response = $this->actingAs($admin)->get('/minihouse-admin/invoices');
         $response->assertOk();
 
         $this->assertFalse($notReady->isReadyForTenant());

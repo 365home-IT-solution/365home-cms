@@ -22,7 +22,7 @@ class ZoneTableResponsiveRowTest extends TestCase
 
         Zone::create(['name' => 'Khu Vực Test ' . uniqid(), 'note' => 'Ghi chú test']);
 
-        $response = $this->actingAs($admin)->get('/minihouse/admin/zones');
+        $response = $this->actingAs($admin)->get('/minihouse-admin/zones');
 
         $response->assertOk();
         $html = $response->getContent();

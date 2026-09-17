@@ -109,7 +109,7 @@ class ResidenceDeclarationService
                     ['type' => 'minihouse_residence_declaration', 'residence_declaration_id' => $declaration->id],
                     'heroicon-o-identification',
                     $declaration->isOverdue() ? 'danger' : 'warning',
-                    url('/minihouse/admin/residence-declarations/' . $declaration->id . '/edit'),
+                    url('/minihouse-admin/residence-declarations/' . $declaration->id . '/edit'),
                 );
             }
 

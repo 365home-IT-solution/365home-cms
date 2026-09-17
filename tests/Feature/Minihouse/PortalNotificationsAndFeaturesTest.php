@@ -308,7 +308,7 @@ class PortalNotificationsAndFeaturesTest extends TestCase
         $this->assertNotNull($admin);
 
         $this->actingAs($admin)
-            ->get('/minihouse/admin/announcements')
+            ->get('/minihouse-admin/announcements')
             ->assertOk();
     }
 

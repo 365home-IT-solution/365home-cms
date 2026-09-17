@@ -37,7 +37,7 @@ class SurchargeTableResponsiveRowTest extends TestCase
         $this->assertNotNull($admin);
         $this->makeSurcharge();
 
-        $response = $this->actingAs($admin)->get('/minihouse/admin/surcharges');
+        $response = $this->actingAs($admin)->get('/minihouse-admin/surcharges');
 
         $response->assertOk();
         $html = $response->getContent();

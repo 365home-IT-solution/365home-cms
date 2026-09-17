@@ -40,7 +40,7 @@ class TenantFeedbackTableResponsiveRowTest extends TestCase
         $this->assertNotNull($admin);
         $this->makeFeedback();
 
-        $response = $this->actingAs($admin)->get('/minihouse/admin/tenant-feedbacks');
+        $response = $this->actingAs($admin)->get('/minihouse-admin/tenant-feedbacks');
 
         $response->assertOk();
         $html = $response->getContent();

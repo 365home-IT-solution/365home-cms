@@ -25,7 +25,7 @@ use Modules\Minihouse\App\Livewire\BuildingSwitcher;
 use Modules\Minihouse\App\Support\ActiveBuildingScope;
 
 // Panel RIÊNG cho MiniHouse (quản lý cho thuê theo tháng) — dùng chung App\Models\User/guard 'web'
-// với panel Home (App\Providers\Filament\AdminPanelProvider, id='admin', path='homestay/admin'): KHÔNG
+// với panel Home (App\Providers\Filament\AdminPanelProvider, id='admin', path='home-admin'): KHÔNG
 // tách tài khoản, chỉ tách ROUTE — user nào được cấp quyền 'access_minihouse' (trực tiếp hoặc qua
 // vai trò "Quản lý MiniHouse", xem MinihousePermissionSeeder) mới đăng nhập được vào đây, xem
 // App\Models\User::canAccessPanel(). Không có ->registration() vì Home cũng không cho tự đăng ký
@@ -65,14 +65,8 @@ class MinihouseAdminPanelProvider extends PanelProvider
     public function panel(Panel $panel): Panel
     {
         return $panel
-            // GIỮ NGUYÊN id('minihouse-admin') dù đường dẫn đổi — id này là căn cứ để nhiều nơi khác
-            // (App\Models\User::canAccessPanel(), Modules\Minihouse\App\Support\ActiveBuildingScope
-            // ::isPanelActive(), render hook ở trên) nhận diện ĐANG Ở panel MiniHouse; đổi id sẽ phải
-            // sửa lại toàn bộ các chỗ đó. Chỉ đổi path() (URL thật) từ /minihouse-admin sang
-            // /minihouse/admin — không đụng gì tới quyền/scope toà nhà, vốn đều dựa vào id, không
-            // dựa vào path.
             ->id('minihouse-admin')
-            ->path('minihouse/admin')
+            ->path('minihouse-admin')
             ->login()
             ->passwordReset()
             ->brandName('MiniHouse')

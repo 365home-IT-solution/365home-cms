@@ -38,7 +38,7 @@ class RoomTableResponsiveRowTest extends TestCase
         $this->assertNotNull($admin);
         $this->makeRoom();
 
-        $response = $this->actingAs($admin)->get('/minihouse/admin/rooms');
+        $response = $this->actingAs($admin)->get('/minihouse-admin/rooms');
 
         $response->assertOk();
         $html = $response->getContent();

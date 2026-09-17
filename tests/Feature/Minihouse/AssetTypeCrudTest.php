@@ -37,12 +37,12 @@ class AssetTypeCrudTest extends TestCase
         $admin = User::role('super_admin')->first();
         $this->assertNotNull($admin);
 
-        $response = $this->actingAs($admin)->get('/minihouse/admin/asset-types/create');
+        $response = $this->actingAs($admin)->get('/minihouse-admin/asset-types/create');
         $response->assertOk();
 
         $assetType = AssetType::create(['name' => 'Tu lanh ' . uniqid()]);
 
-        $response = $this->actingAs($admin)->get("/minihouse/admin/asset-types/{$assetType->id}/edit");
+        $response = $this->actingAs($admin)->get("/minihouse-admin/asset-types/{$assetType->id}/edit");
         $response->assertOk();
         $response->assertSee('Tu lanh');
     }

@@ -21,7 +21,7 @@ class AmenityTableResponsiveRowTest extends TestCase
         $this->assertNotNull($admin);
         Amenity::create(['name' => 'Wifi Miễn Phí Test']);
 
-        $response = $this->actingAs($admin)->get('/minihouse/admin/amenities');
+        $response = $this->actingAs($admin)->get('/minihouse-admin/amenities');
 
         $response->assertOk();
         $html = $response->getContent();

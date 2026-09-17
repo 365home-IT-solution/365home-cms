@@ -24,7 +24,7 @@ class BuildingTableResponsiveRowTest extends TestCase
         $zone = Zone::create(['name' => 'Z' . uniqid()]);
         Building::create(['zone_id' => $zone->id, 'name' => 'Toà Nhà Test', 'address' => '99 Lê Lợi']);
 
-        $response = $this->actingAs($admin)->get('/minihouse/admin/buildings');
+        $response = $this->actingAs($admin)->get('/minihouse-admin/buildings');
 
         $response->assertOk();
         $html = $response->getContent();

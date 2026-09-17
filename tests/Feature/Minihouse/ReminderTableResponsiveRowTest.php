@@ -39,7 +39,7 @@ class ReminderTableResponsiveRowTest extends TestCase
         $this->assertNotNull($admin);
         $this->makeReminder();
 
-        $response = $this->actingAs($admin)->get('/minihouse/admin/reminders');
+        $response = $this->actingAs($admin)->get('/minihouse-admin/reminders');
 
         $response->assertOk();
         $html = $response->getContent();

@@ -3,7 +3,6 @@
 use App\Http\Controllers\Api\Admin\AuthController as AdminAuthController;
 use App\Http\Controllers\Api\Admin\BookingController as AdminBookingController;
 use App\Http\Controllers\Api\Admin\BranchController as AdminBranchController;
-use App\Http\Controllers\Api\Admin\BulkPriceController as AdminBulkPriceController;
 use App\Http\Controllers\Api\Admin\CategoryController as AdminCategoryController;
 use App\Http\Controllers\Api\Admin\CccdController as AdminCccdController;
 use App\Http\Controllers\Api\Admin\ChatController as AdminChatController;
@@ -23,7 +22,6 @@ use App\Http\Controllers\Api\Admin\NotificationController as AdminNotificationCo
 use App\Http\Controllers\Api\Admin\OrderController;
 use App\Http\Controllers\Api\Admin\OrderPaymentController;
 use App\Http\Controllers\Api\Admin\PositionController;
-use App\Http\Controllers\Api\Admin\PriceBoardController as AdminPriceBoardController;
 use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
 use App\Http\Controllers\Api\Admin\PromotionController as AdminPromotionController;
 use App\Http\Controllers\Api\Admin\PushNotificationController as AdminPushNotificationController;
@@ -344,42 +342,6 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::get('rooms/{id}/promotions',    [AdminRoomPromotionController::class, 'index'])->name('rooms.promotions.index');
     Route::post('rooms/{id}/promotions',   [AdminRoomPromotionController::class, 'store'])->name('rooms.promotions.store');
     Route::delete('rooms/{id}/promotions/{promotionId}', [AdminRoomPromotionController::class, 'destroy'])->name('rooms.promotions.destroy');
-    Route::post('rooms/bulk-price', [AdminBulkPriceController::class, 'update'])->name('rooms.bulk-price');
-});
-
-/*
-|--------------------------------------------------------------------------
-| Bảng giá (đặt tên, có thời hạn) — /api/admin/price-boards
-|--------------------------------------------------------------------------
-| Bản API của Modules\Book\App\Filament\Resources\PriceBoardResource — xem
-| App\Services\PriceBoardSyncService để biết cơ chế áp/khôi phục giá theo ngày hiệu lực. Quyền: CHỈ
-| super_admin hoặc user có quyền Shield riêng resource này (view_any_price::board/
-| create_price::board/update_price::board/delete_price::board).
-|
-| GET    /api/admin/price-boards                → danh sách (search=&is_active=&pricing_mode=&per_page=)
-| GET    /api/admin/price-boards/{id}            → chi tiết, kèm items[] (phòng + giá/điều kiện)
-| POST   /api/admin/price-boards                 → tạo (xem PriceBoardController::store() để biết field
-|                                                    theo pricing_mode override/adjustment)
-| PUT/PATCH /api/admin/price-boards/{id}         → sửa, field như tạo, tất cả 'sometimes'
-| DELETE /api/admin/price-boards/{id}            → xoá, tự tính lại giá đúng cho phòng đã gắn
-| POST   /api/admin/price-boards/{id}/apply      → áp NGAY giá của bảng, bất kể ngày hiệu lực/is_active
-| PATCH  /api/admin/price-boards/{id}/active     → bật/tắt nhanh { "is_active": true|false }
-| GET    /api/admin/price-boards/{id}/history    → lịch sử thay đổi giá (price_board_price_logs)
-|
-| POST /api/admin/rooms/bulk-price (đăng ký ở group phía trên) → bản API của "Sửa giá hàng loạt"
-|                          (HasBookingHeaderActions::applyBulkPriceUpdate) — ghi thẳng giá xuống
-|                          products/room_time_slots, KHÔNG qua bảng giá nào. CHỈ super_admin.
-|--------------------------------------------------------------------------
-*/
-Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/price-boards')->name('api.admin.price-boards.')->group(function () {
-    Route::get('/',               [AdminPriceBoardController::class, 'index'])->name('index');
-    Route::get('{id}',            [AdminPriceBoardController::class, 'show'])->name('show')->whereNumber('id');
-    Route::post('/',              [AdminPriceBoardController::class, 'store'])->name('store');
-    Route::match(['put', 'patch'], '{id}', [AdminPriceBoardController::class, 'update'])->name('update')->whereNumber('id');
-    Route::delete('{id}',         [AdminPriceBoardController::class, 'destroy'])->name('destroy')->whereNumber('id');
-    Route::post('{id}/apply',     [AdminPriceBoardController::class, 'apply'])->name('apply')->whereNumber('id');
-    Route::patch('{id}/active',   [AdminPriceBoardController::class, 'setActive'])->name('active')->whereNumber('id');
-    Route::get('{id}/history',    [AdminPriceBoardController::class, 'history'])->name('history')->whereNumber('id');
 });
 
 /*
