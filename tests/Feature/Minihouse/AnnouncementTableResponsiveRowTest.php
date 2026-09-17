@@ -32,7 +32,7 @@ class AnnouncementTableResponsiveRowTest extends TestCase
             'created_by' => $admin->id,
         ]);
 
-        $response = $this->actingAs($admin)->get('/minihouse-admin/announcements');
+        $response = $this->actingAs($admin)->get('/minihouse/admin/announcements');
 
         $response->assertOk();
         $html = $response->getContent();
