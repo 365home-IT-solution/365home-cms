@@ -88,7 +88,7 @@ public function getFilamentAvatarUrl(): ?string
 
     public function canAccessPanel(Panel $panel): bool
     {
-        // Panel /minihouse-admin dùng CHUNG bảng users với Home (không tách tài khoản riêng) — chỉ
+        // Panel /minihouse/admin dùng CHUNG bảng users với Home (không tách tài khoản riêng) — chỉ
         // super_admin hoặc user có quyền 'access_minihouse' (cấp qua vai trò "Quản lý MiniHouse",
         // xem MinihousePermissionSeeder) mới đăng nhập được vào panel này. Không áp các điều kiện
         // partner_id/role bên dưới (chỉ dành riêng cho panel Home).

@@ -68,9 +68,12 @@ class AdminPanelProvider extends PanelProvider
             // GIỮ NGUYÊN id('admin') dù đường dẫn đổi — id này là gốc của TOÀN BỘ tên route
             // filament.admin.* dùng khắp dự án (route('filament.admin.resources.orders.edit', ...)...
             // ở hàng trăm chỗ); đổi id sẽ làm sập tất cả các route đó. Chỉ đổi path() (URL thật gõ
-            // trên trình duyệt) từ /admin sang /home-admin để tách biệt với /minihouse-admin mới.
+            // trên trình duyệt) — trước là /home-admin, nay /homestay/admin. Đã xác nhận qua
+            // route:list + test HTTP thật: route Filament (đăng ký sớm hơn) không bị route công khai
+            // "/{type}/{location?}" (Modules\BladeThemeV1, "homestay" cũng là 1 giá trị {type} hợp
+            // lệ) nuốt mất — Laravel khớp route theo ĐÚNG thứ tự đăng ký, Filament luôn thắng trước.
             ->id('admin')
-            ->path('home-admin')
+            ->path('homestay/admin')
             ->login(Login::class)
             ->passwordReset(RequestPasswordReset::class)
             ->emailVerification()

@@ -18,7 +18,7 @@ class DashboardRoomMapRenderTest extends TestCase
         $admin = User::role('super_admin')->first();
         $this->assertNotNull($admin);
 
-        $response = $this->actingAs($admin)->get('/minihouse-admin');
+        $response = $this->actingAs($admin)->get('/minihouse/admin');
         $response->assertOk();
     }
 }

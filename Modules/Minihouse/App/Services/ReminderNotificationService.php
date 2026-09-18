@@ -149,8 +149,8 @@ class ReminderNotificationService
                 // KHÔNG dùng ReminderResource::getUrl() — cần Filament::getCurrentPanel() để suy ra
                 // đúng route, nhưng lệnh này thường chạy từ console (cron/artisan), không có panel
                 // context nào đang active → "Route [...] not defined." Ghép thẳng path panel đã
-                // biết trước (xem MinihouseAdminPanelProvider::path('minihouse-admin')).
-                url('/minihouse-admin/reminders/' . $reminder->id . '/edit'),
+                // biết trước (xem MinihouseAdminPanelProvider::path('minihouse/admin')).
+                url('/minihouse/admin/reminders/' . $reminder->id . '/edit'),
             );
         }
 

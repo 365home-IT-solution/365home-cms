@@ -38,7 +38,7 @@ class ActivityLogTableResponsiveRowTest extends TestCase
         $this->assertNotNull($admin);
         $this->makeActivityLog();
 
-        $response = $this->actingAs($admin)->get('/minihouse-admin/activity-logs');
+        $response = $this->actingAs($admin)->get('/minihouse/admin/activity-logs');
 
         $response->assertOk();
         $html = $response->getContent();

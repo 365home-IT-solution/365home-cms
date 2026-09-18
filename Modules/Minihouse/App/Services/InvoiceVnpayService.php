@@ -77,7 +77,7 @@ class InvoiceVnpayService
             'vnp_OrderInfo'  => self::stripDiacritics('Thanh toan hoa don thue phong so ' . $invoice->id),
             'vnp_OrderType'  => 'other',
             'vnp_Locale'     => 'vn',
-            'vnp_ReturnUrl'  => $returnUrl ?? url('/minihouse-admin/invoices/' . $invoice->id . '/edit'),
+            'vnp_ReturnUrl'  => $returnUrl ?? url('/minihouse/admin/invoices/' . $invoice->id . '/edit'),
             'vnp_IpAddr'     => $clientIp,
             'vnp_CreateDate' => $createdAt->format('YmdHis'),
             'vnp_ExpireDate' => $expiredAt->format('YmdHis'),

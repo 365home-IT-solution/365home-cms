@@ -8,21 +8,23 @@ use Modules\Minihouse\Http\Controllers\Portal\TenantAuthController;
 use Modules\Minihouse\Http\Controllers\Portal\TenantPortalController;
 use Modules\Minihouse\Http\Controllers\TenantFeedbackController;
 
-// Route thường (ngoài Filament) — panel /minihouse-admin tự đăng ký route qua
-// App\Providers\Filament\MinihouseAdminPanelProvider, không cần khai báo thêm ở đây.
+// Route thường (ngoài Filament) — panel /minihouse/admin tự đăng ký route qua
+// App\Providers\Filament\MinihouseAdminPanelProvider, không cần khai báo thêm ở đây. Đặt 3 route in
+// dưới đây CÙNG TIỀN TỐ /minihouse/admin (dù không phải route Filament) chỉ để URL nhất quán với
+// panel — mọi nơi gọi tới đều qua route(), không có chỗ nào build URL này bằng chuỗi tay.
 
 Route::middleware('auth')
-    ->get('/minihouse-admin/contracts/{contract}/print', [ContractPrintController::class, 'show'])
+    ->get('/minihouse/admin/contracts/{contract}/print', [ContractPrintController::class, 'show'])
     ->name('minihouse.contracts.print');
 
 Route::middleware('auth')
-    ->get('/minihouse-admin/invoices/{invoice}/print', [InvoicePrintController::class, 'show'])
+    ->get('/minihouse/admin/invoices/{invoice}/print', [InvoicePrintController::class, 'show'])
     ->name('minihouse.invoices.print');
 
 // Đặt TRƯỚC {invoice} ở trên trong route file không quan trọng vì path khác nhau ("print-bulk" so
 // với "{invoice}/print") — không đụng route-model-binding của route show().
 Route::middleware('auth')
-    ->get('/minihouse-admin/invoices/print-bulk', [InvoicePrintController::class, 'bulk'])
+    ->get('/minihouse/admin/invoices/print-bulk', [InvoicePrintController::class, 'bulk'])
     ->name('minihouse.invoices.print-bulk');
 
 // Kênh phản hồi/đánh giá khách thuê — CÔNG KHAI, không qua middleware 'auth' (khách quét QR/mở link

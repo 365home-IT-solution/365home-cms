@@ -40,7 +40,7 @@ class ContractTableResponsiveRowTest extends TestCase
         $this->assertNotNull($admin);
         $this->makeContract();
 
-        $response = $this->actingAs($admin)->get('/minihouse-admin/contracts');
+        $response = $this->actingAs($admin)->get('/minihouse/admin/contracts');
 
         $response->assertOk();
         $html = $response->getContent();

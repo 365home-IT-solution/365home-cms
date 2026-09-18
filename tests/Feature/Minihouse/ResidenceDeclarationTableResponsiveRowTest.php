@@ -51,7 +51,7 @@ class ResidenceDeclarationTableResponsiveRowTest extends TestCase
         $this->assertNotNull($admin);
         $this->makeDeclaration();
 
-        $response = $this->actingAs($admin)->get('/minihouse-admin/residence-declarations');
+        $response = $this->actingAs($admin)->get('/minihouse/admin/residence-declarations');
 
         $response->assertOk();
         $html = $response->getContent();
