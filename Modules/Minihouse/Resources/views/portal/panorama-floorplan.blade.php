@@ -65,6 +65,10 @@
             background:rgba(255,255,255,.96); border:1px solid var(--border); border-radius:10px;
             padding:9px 12px; box-shadow:0 4px 14px rgba(15,23,42,.12);
         }
+        /* .room-focus-bar{display:flex} có cùng độ ưu tiên CSS với [hidden]{display:none} của trình
+           duyệt và đứng SAU trong cascade nên thắng — thanh này bị lộ ra dù thuộc tính "hidden" đã bật.
+           Khai lại rõ ràng ở đây để chắc chắn ẩn đúng khi chưa bấm vào phòng nào. */
+        .room-focus-bar[hidden]{ display:none; }
         .room-focus-bar strong{ flex:1; font-size:13.5px; color:var(--text); font-weight:700; }
         .room-focus-bar button{
             font-family:inherit; font-size:12.5px; font-weight:600; cursor:pointer;
@@ -151,7 +155,10 @@
         const minFloor = floorNumbers.length ? Math.min(...floorNumbers) : 1;
         function groundYFor(n){ return ((n.floor ?? 1) - minFloor) * FLOOR_HEIGHT; }
 
-        const ROOM_W = 128, ROOM_D = 78, ROOM_H = 60;
+        // Tăng từ 128x78 -> 170x102 để có chỗ dàn buồng phụ (WC/Bếp/Phòng ngủ/Gác lửng...) không bị
+        // chồng lấn ở phòng có nhiều buồng phụ cùng lúc — xem PanoramaFloorPlanLayoutService::COL_UNIT/
+        // ROW_UNIT đã tăng tương ứng để không làm các phòng đè lên nhau trên sơ đồ tổng thể.
+        const ROOM_W = 170, ROOM_D = 102, ROOM_H = 60;
         const DOOR_RESERVE = 48;
 
         // Ngưỡng khoảng cách camera->nhãn để HIỆN/ẨN (xem addLabel3D + animate() phía dưới) — tên
@@ -331,7 +338,9 @@
 
             const texture = new THREE.CanvasTexture(canvas);
             const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false }));
-            const scaleFactor = 0.45;
+            // Phản hồi: nhãn quá to, che mất cả sơ đồ khi xem riêng 1 phòng (camera lại gần) — giảm hẳn
+            // scale (0.45 -> 0.22) để nhãn chỉ còn là 1 chú thích nhỏ cạnh khối phòng, không áp đảo.
+            const scaleFactor = 0.22;
             sprite.scale.set(canvas.width * scaleFactor, canvas.height * scaleFactor, 1);
             sprite.position.set(x, topY, z);
             sprite.renderOrder = 999;
@@ -377,7 +386,10 @@
             bedroom:     { category: 'inside',   fill: 0xe0e7ff, color: 0x4f46e5, colorCss: '#4f46e5', label: 'Phòng ngủ' },
             kitchen:     { category: 'inside',   fill: 0xfed7aa, color: 0xea580c, colorCss: '#ea580c', label: 'Bếp' },
             storage:     { category: 'inside',   fill: 0xe7e5e4, color: 0x57534e, colorCss: '#57534e', label: 'Kho' },
-            mezzanine:   { category: 'elevated', fill: 0xfde68a, color: 0xb45309, colorCss: '#b45309', label: 'Gác lửng' },
+            // Phản hồi: fill của Gác lửng trùng Y HỆT màu sàn phòng (0xfde68a) -> nhìn từ trên xuống,
+            // sàn nâng của gác BỊ CHÌM vào sàn chính, không phân biệt nổi "gác ở đâu". Đổi sang màu nâu
+            // cam khác hẳn màu sàn để luôn nổi bật.
+            mezzanine:   { category: 'elevated', fill: 0xf59e42, color: 0xb45309, colorCss: '#b45309', label: 'Gác lửng' },
             balcony:     { category: 'attached', fill: 0xbae6fd, color: 0x0284c7, colorCss: '#0284c7', label: 'Ban công' },
             drying_yard: { category: 'attached', fill: 0x99f6e4, color: 0x0d9488, colorCss: '#0d9488', label: 'Sân phơi' },
             other:       { category: 'dot',      fill: null,     color: 0x0284c7, colorCss: '#0284c7', label: null },
@@ -396,50 +408,6 @@
             }
         }
 
-        // Nội thất minh hoạ — mỗi món ghép từ nhiều khối nhỏ thành 1 hình dạng dễ nhận ra hơn (thêm
-        // gối/chăn cho giường, nắp/bồn cho WC, mặt bếp+máy hút mùi cho bếp...) — vẫn chỉ là khối minh
-        // hoạ (không phải nội thất đo đạc thật), nhưng chi tiết hơn hẳn khối đặc đơn sắc trước đây.
-        function drawFurnitureHint3D(kind, cx, cz, groundY, boxW, boxD, roomId){
-            if (kind === 'wc') {
-                // Bồn cầu: đế + nắp bệt 2 tầng.
-                addSimpleBox(Math.min(16, boxW * 0.4), 12, Math.min(14, boxD * 0.35), cx - boxW * 0.18, groundY, cz + boxD * 0.18, 0xffffff, { roughness: 0.25 }, roomId);
-                addSimpleBox(Math.min(13, boxW * 0.32), 6, Math.min(11, boxD * 0.28), cx - boxW * 0.18, groundY + 12, cz + boxD * 0.16, 0xf1f5f9, { roughness: 0.2 }, roomId);
-                // Bồn rửa: mặt bồn + chân đỡ.
-                addSimpleBox(Math.min(14, boxW * 0.3), 4, Math.min(10, boxD * 0.25), cx + boxW * 0.22, groundY + 20, cz - boxD * 0.22, 0xffffff, { roughness: 0.2 }, roomId);
-                addSimpleBox(4, 20, 4, cx + boxW * 0.22, groundY, cz - boxD * 0.22, 0xd4d4d8, {}, roomId);
-            } else if (kind === 'bedroom') {
-                const bedW = boxW * 0.8, bedD = boxD * 0.75;
-                addSimpleBox(bedW, 16, bedD, cx, groundY, cz, 0x93c5fd, {}, roomId); // nệm
-                addSimpleBox(bedW, 4, bedD * 0.55, cx, groundY + 16, cz + bedD * 0.15, 0xfef3c7, { roughness: 0.6 }, roomId); // chăn kéo nửa dưới
-                addSimpleBox(bedW * 0.85, 20, bedD * 0.22, cx, groundY + 16, cz - bedD * 0.32, 0xeff6ff, {}, roomId); // gối/đầu giường
-                addSimpleBox(bedW * 0.22, 8, bedD * 0.18, cx - bedW * 0.3, groundY + 20, cz - bedD * 0.3, 0xffffff, {}, roomId); // gối nhỏ
-            } else if (kind === 'kitchen') {
-                addSimpleBox(boxW * 0.85, 26, boxD * 0.35, cx - boxW * 0.05, groundY, cz - boxD * 0.25, 0x78716c, {}, roomId); // mặt bếp
-                addSimpleBox(boxW * 0.5, 3, boxD * 0.32, cx - boxW * 0.1, groundY + 26, cz - boxD * 0.25, 0x1c1917, { roughness: 0.3, metalness: 0.3 }, roomId); // bếp từ
-                addSimpleBox(Math.min(18, boxW * 0.35), 34, Math.min(16, boxD * 0.35), cx + boxW * 0.28, groundY, cz + boxD * 0.22, 0xd4d4d8, { metalness: 0.4, roughness: 0.4 }, roomId); // tủ lạnh
-                addSimpleBox(boxW * 0.4, 3, 10, cx - boxW * 0.05, groundY + 50, cz - boxD * 0.25, 0xa8a29e, { metalness: 0.5 }, roomId); // máy hút mùi
-            } else if (kind === 'storage') {
-                addSimpleBox(boxW * 0.85, 36, boxD * 0.6, cx, groundY, cz, 0xa16207, {}, roomId);
-                addSimpleBox(2, 36, boxD * 0.6, cx, groundY, cz, 0x78350f, {}, roomId); // đường ghép cánh tủ
-            }
-        }
-
-        // Góc sinh hoạt (sofa/bàn trà/kệ TV) ngay trên sàn phòng — thêm gối tựa + chân bàn cho chi
-        // tiết hơn bản trước (chỉ 4 khối đặc).
-        function drawLivingArea3D(gx, gz, r, groundY, insideSide, roomId){
-            const farX = insideSide === 'left' ? gx + r.w * 0.22 : gx - r.w * 0.22;
-            const sofaW = 44, sofaD = 22;
-            addSimpleBox(sofaW, 14, sofaD, farX, groundY, gz, 0x44403c, {}, roomId);
-            addSimpleBox(sofaW, 24, sofaD * 0.35, farX, groundY + 14, gz - sofaD * 0.32, 0x57534e, {}, roomId);
-            addSimpleBox(10, 8, 8, farX - sofaW * 0.3, groundY + 14, gz + sofaD * 0.28, 0xc4b5fd, {}, roomId); // gối tựa
-            addSimpleBox(10, 8, 8, farX + sofaW * 0.3, groundY + 14, gz + sofaD * 0.28, 0xfca5a5, {}, roomId); // gối tựa
-            addSimpleBox(20, 8, 14, farX, groundY, gz + sofaD * 0.9, 0x78350f, {}, roomId); // mặt bàn trà
-            addSimpleBox(2, 8, 2, farX - 7, groundY, gz + sofaD * 0.9 - 5, 0x44403c, {}, roomId); // chân bàn
-            addSimpleBox(2, 8, 2, farX + 7, groundY, gz + sofaD * 0.9 + 5, 0x44403c, {}, roomId); // chân bàn
-            const tvX = insideSide === 'left' ? gx - r.w * 0.3 : gx + r.w * 0.3;
-            addSimpleBox(10, 18, 30, tvX, groundY, gz, 0x1c1917, { metalness: 0.3, roughness: 0.4 }, roomId);
-            addSimpleBox(4, 4, 20, tvX, groundY - 2, gz, 0x57534e, {}, roomId); // chân kệ TV
-        }
 
         // Cửa hé mở thật — dùng THREE.Group làm bản lề (pivot), xoay CẢ NHÓM quanh trục Y thật, đúng
         // vật lý 1 cánh cửa xoay quanh bản lề — chuẩn xác hơn hẳn cách "transform-origin" mô phỏng của
@@ -463,38 +431,48 @@
             scene.add(pivot);
         }
 
-        // ---- 'inside': WC/Phòng ngủ/Bếp/Kho — GIỮ NGUYÊN logic bố trí bản CSS ----
+        // ---- 'inside': WC/Phòng ngủ/Bếp/Kho ----
+        // Phản hồi trực quan: phòng có NHIỀU buồng phụ "inside" cùng lúc (VD A-01 có cả WC+Bếp+Phòng
+        // ngủ = 3 buồng) bị bản cũ nhồi chung 1 hàng ngang -> mỗi khối co lại còn ~20 đơn vị, dính sát
+        // nhau thành 1 đống không phân biệt nổi khối nào là khối nào khi xem thật. Sửa: quá 2 buồng thì
+        // xếp 2 HÀNG (gần cửa / sâu vào trong) thay vì ép hết vào 1 hàng — mỗi khối nhờ vậy to hơn hẳn,
+        // dễ đọc hơn, không cần đổi kích thước phòng (ROOM_W) nên không ảnh hưởng khoảng cách giữa các
+        // phòng trên sơ đồ tổng thể toà nhà.
         function drawInsideCluster(list, parent, pr, px, pz, groundY, insideSide){
             if (! list.length) return;
 
-            const MARGIN = 6, MAX_BOX_W = 40;
-            const n = list.length;
-            const boxD = Math.min(34, pr.d / 3);
-            const boxH = 40;
+            const MARGIN = 10, MAX_BOX_W = 44;
             const nearSign = parent.y < 0 ? 1 : -1;
-            const edgeZ = pz + nearSign * (pr.d / 2 - boxD / 2 - MARGIN);
-
             const usableW = pr.w - DOOR_RESERVE;
             const usableCenterX = insideSide === 'left' ? (px - DOOR_RESERVE / 2) : (px + DOOR_RESERVE / 2);
-            const idealTotalW = n * MAX_BOX_W + (n - 1) * MARGIN;
-            const boxW = idealTotalW > usableW ? Math.max(20, (usableW - MARGIN * (n - 1)) / n) : MAX_BOX_W;
-            const totalW = n * boxW + (n - 1) * MARGIN;
-            const startX = usableCenterX - totalW / 2 + boxW / 2;
 
-            list.forEach((s, i) => {
-                const meta = metaFor(s.kind);
-                const cellX = startX + i * (boxW + MARGIN);
+            const rows = list.length > 2
+                ? [list.slice(0, Math.ceil(list.length / 2)), list.slice(Math.ceil(list.length / 2))]
+                : [list];
+            const boxD = Math.min(34, pr.d / (rows.length + 1));
 
-                const mesh = addSimpleBox(boxW, boxH, boxD, cellX, groundY, edgeZ, meta.fill, null, parent.id);
-                mesh.userData.tourUrl = TOUR_BASE + '/' + s.id;
-                mesh.userData.tooltip = s.label;
-                addLabel3D(cellX, groundY + boxH + 8, edgeZ, meta.label || s.label, SATELLITE_LABEL_DIST, parent.id);
-                drawFurnitureHint3D(s.kind, cellX, edgeZ, groundY + boxH, boxW, boxD, parent.id);
+            rows.forEach((row, rowIndex) => {
+                if (! row.length) return;
+                const rowZ = pz + nearSign * (pr.d / 2 - boxD / 2 - MARGIN - rowIndex * (boxD + MARGIN));
+                const idealTotalW = row.length * MAX_BOX_W + (row.length - 1) * MARGIN;
+                const boxW = idealTotalW > usableW ? Math.max(28, (usableW - MARGIN * (row.length - 1)) / row.length) : MAX_BOX_W;
+                const totalW = row.length * boxW + (row.length - 1) * MARGIN;
+                const startX = usableCenterX - totalW / 2 + boxW / 2;
+                const boxH = 46;
 
-                if (s.kind === 'wc' || s.kind === 'bedroom') {
-                    const doorWallZ = edgeZ - nearSign * (boxD / 2);
-                    addDoor3D(cellX, doorWallZ, groundY, Math.min(20, boxW * 0.55), Math.min(boxH - 4, 34), -nearSign, -1, parent.id);
-                }
+                row.forEach((s, i) => {
+                    const meta = metaFor(s.kind);
+                    const cellX = startX + i * (boxW + MARGIN);
+
+                    const mesh = addSimpleBox(boxW, boxH, boxD, cellX, groundY, rowZ, meta.fill, null, parent.id);
+                    mesh.userData.tourUrl = TOUR_BASE + '/' + s.id;
+                    mesh.userData.tooltip = s.label;
+
+                    if (s.kind === 'wc' || s.kind === 'bedroom') {
+                        const doorWallZ = rowZ - nearSign * (boxD / 2);
+                        addDoor3D(cellX, doorWallZ, groundY, Math.min(20, boxW * 0.55), Math.min(boxH - 4, 34), -nearSign, -1, parent.id);
+                    }
+                });
             });
         }
 
@@ -521,9 +499,6 @@
                 const railZ = cz - farSign * (platD / 2);
                 addSimpleBox(platW, railH, 2, px, platGroundY + platH, railZ, 0x78716c, { transparent: true, opacity: 0.65 }, parent.id);
 
-                addLabel3D(px, platGroundY + platH + railH + 10, cz, meta.label || s.label, SATELLITE_LABEL_DIST, parent.id);
-                drawFurnitureHint3D('bedroom', px, cz, platGroundY + platH, platW * 0.7, platD * 0.7, parent.id);
-
                 const stairZStart = pz + nearSign * (pr.d / 2 - 12);
                 drawStaircase3D(px, stairZStart, railZ, groundY, rise, 8, Math.min(40, platW * 0.4), parent.id);
             });
@@ -546,7 +521,6 @@
                 const mesh = addSimpleBox(boxW, platH, platD, cx, groundY, cz, meta.fill, null, parent.id);
                 mesh.userData.tourUrl = TOUR_BASE + '/' + s.id;
                 mesh.userData.tooltip = s.label;
-                addLabel3D(cx, groundY + platH + 8, cz, meta.label || s.label, SATELLITE_LABEL_DIST, parent.id);
             });
         }
 
@@ -597,7 +571,6 @@
 
             if (! n.isCommon) {
                 const insideSide = roomInsideSide[n.id] || 'right';
-                drawLivingArea3D(gx, gz, r, groundY, insideSide, n.id);
 
                 const doorNearSign = n.y < 0 ? 1 : -1;
                 const doorWallZ = gz + doorNearSign * (r.d / 2);
@@ -612,8 +585,12 @@
                 roomCenters[n.id] = { x: gx, y: groundY, z: gz, w: r.w, d: r.d, h: r.h };
             }
 
-            const roomLabel = (! n.isCommon && n.area) ? `${n.label} · ${n.area} m²` : n.label;
-            addLabel3D(gx, groundY + r.h + 14, gz, roomLabel, ROOM_LABEL_DIST, n.isCommon ? null : n.id);
+            // Phản hồi: (1) nhãn đang hiện TÊN CẢNH 360° ("Toàn cảnh phòng") giống nhau ở nhiều phòng,
+            // không phân biệt được phòng nào — đổi sang MÃ PHÒNG thật (n.roomCode, VD "A-01"); (2) chỉ
+            // ghi chú PHÒNG, hành lang/cầu thang/sảnh không ghi chữ gì cả (đỡ che sơ đồ).
+            if (! n.isCommon) {
+                addLabel3D(gx, groundY + r.h + 14, gz, n.roomCode || n.label, ROOM_LABEL_DIST, n.id);
+            }
         });
 
         // ---- Cạnh nối (hành lang<->phòng cùng tầng, cầu thang khác tầng) — luôn thuộc "chung", ẩn khi
@@ -637,7 +614,6 @@
                 const shaftMesh = addSimpleBox(SHAFT_W, shaftHeight, SHAFT_W, midX, shaftGroundY, midZ, 0xc4b5fd, null, null);
                 shaftMesh.userData.tourUrl = TOUR_BASE + '/' + b.id;
                 shaftMesh.userData.tooltip = e.label || ('Đến ' + b.label);
-                addLabel3D(midX, shaftGroundY + shaftHeight + 10, midZ, 'Cầu thang', STAIR_LABEL_DIST, null);
                 return;
             }
 
@@ -811,9 +787,15 @@
         window.addEventListener('resize', resizeRenderer);
 
         // ---- Vòng lặp render ----
+        // Khi đang xem riêng 1 phòng (focusedRoomId != null), CHỈ hiện nhãn của đúng phòng đó — nếu
+        // không, nhãn của phòng/hành lang khác vẫn lọt qua vì chúng nằm trong bán kính maxDist tính
+        // theo khoảng cách camera (phát hiện lúc kiểm tra trực quan: nhãn "Hành lang tầng 1/2",
+        // "Toàn cảnh phòng ..." của các phòng khác vẫn hiện chồng chéo dù đã bấm vào xem riêng 1 phòng).
         function updateLabelVisibility(){
             labelSprites.forEach(sprite => {
-                sprite.visible = camera.position.distanceTo(sprite.position) <= sprite.userData.maxDist;
+                sprite.visible = focusedRoomId !== null
+                    ? sprite.userData.roomId === focusedRoomId
+                    : camera.position.distanceTo(sprite.position) <= sprite.userData.maxDist;
             });
         }
 

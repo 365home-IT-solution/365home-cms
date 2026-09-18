@@ -18,8 +18,13 @@ use Modules\Minihouse\App\Models\PanoramaScene;
 // thay vì trống trơn.
 class PanoramaFloorPlanLayoutService
 {
-    private const COL_UNIT = 3.2;   // khoảng cách giữa 2 CỘT phòng (dọc theo hành lang)
-    private const ROW_UNIT = 2.6;   // khoảng cách từ hành lang tới hàng phòng trên/dưới
+    // Phản hồi trực quan: phòng nhiều buồng phụ (VD A-01 có cả WC+Bếp+Phòng ngủ+Ban công+Gác lửng) bị
+    // khối ROOM_W/ROOM_D cố định (128x78, xem panorama-floorplan.blade.php) ép quá chật, các buồng phụ
+    // đè lên nhau không phân biệt nổi. Tăng ROOM_W/ROOM_D bên JS lên 170x102 để có chỗ dàn buồng phụ —
+    // PHẢI tăng COL_UNIT/ROW_UNIT tương ứng ở ĐÂY để giữ đúng khoảng hở giữa các phòng trên sơ đồ tổng
+    // thể toà nhà (không đổi thì phòng sẽ chồng lấn nhau vì khối to hơn nhưng khoảng cách tâm không đổi).
+    private const COL_UNIT = 4.2;   // khoảng cách giữa 2 CỘT phòng (dọc theo hành lang)
+    private const ROW_UNIT = 3.15;  // khoảng cách từ hành lang tới hàng phòng trên/dưới
     private const UNIT = 3.6;       // (đường suy yaw dự phòng) khoảng cách giữa 2 điểm CHÍNH trên lưới
     private const SATELLITE_UNIT = 1.5; // khoảng cách từ 1 phòng tới điểm PHỤ của chính nó (VD nhà vệ sinh)
 
@@ -136,6 +141,11 @@ class PanoramaFloorPlanLayoutService
             $nodes[] = [
                 'id'        => $scene->id,
                 'label'     => $scene->title,
+                // Mã phòng thật (VD "A-01") — khách phản hồi nhãn trên sơ đồ đang hiện tên CẢNH 360°
+                // ("Toàn cảnh phòng") giống hệt nhau ở NHIỀU phòng khác nhau, không phân biệt được phòng
+                // nào là phòng nào; ưu tiên hiện mã phòng thật trên sơ đồ, giữ $scene->title chỉ để
+                // dùng nội bộ (VD tiêu đề thanh "xem riêng 1 phòng").
+                'roomCode'  => $scene->room?->code,
                 'isCommon'  => $scene->room_id === null,
                 'floor'     => $floorOfPrimary[$id],
                 'x'         => $positions[$id]['x'],

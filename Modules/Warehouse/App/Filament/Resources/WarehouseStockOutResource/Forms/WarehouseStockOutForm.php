@@ -21,6 +21,7 @@ use Illuminate\Support\Number;
 use Illuminate\Support\Str;
 use Modules\Category\Entities\Category;
 use Modules\Warehouse\App\Filament\Support\CurrentUserDisplay;
+use Modules\Warehouse\App\Filament\Support\WarehouseBarcodeScan;
 use Modules\Warehouse\App\Filament\Support\WarehouseCardStyle;
 use Modules\Warehouse\App\Filament\Support\WarehouseItemOptions;
 use Modules\Warehouse\App\Filament\Support\WarehouseRoomOptions;
@@ -93,6 +94,18 @@ class WarehouseStockOutForm
                         ->hiddenLabel()
                         ->content(WarehouseCardStyle::styleBlock('fi-warehouse-stockout-repeater'))
                         ->extraAttributes(['class' => 'hidden']),
+
+                    // Quét/nhập mã vạch — thêm nhanh vật tư vào phiếu bằng camera điện thoại hoặc máy
+                    // quét mã vạch vật lý. "reason" (Lý do xuất) vẫn phải chọn tay sau khi thêm — mã
+                    // vạch không thể tự suy ra lý do xuất, giữ nguyên yêu cầu bắt buộc như dòng thêm
+                    // thủ công qua modal "Thêm vật tư".
+                    WarehouseBarcodeScan::field(fn (WarehouseItem $item) => [
+                        'warehouse_item_id'  => $item->id,
+                        'quantity'           => 1,
+                        'reason'             => null,
+                        'note'               => null,
+                        '_original_quantity' => 0,
+                    ]),
 
                     // Ô tìm nhanh theo tên — lọc bằng JS thuần, không qua Livewire (gõ tới đâu
                     // ẩn/hiện thẻ ngay tới đó). Chỉ hiện khi ĐÃ có thẻ.
