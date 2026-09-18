@@ -163,17 +163,13 @@ class OrdersSheetByCategory implements FromCollection, WithHeadings, WithMapping
         return [
             'STT',
             'Ngày tháng',
-            'Tên đơn vị',
-            'Tên khách đặt / Chuyển khoản',
-            'Thông tin người dùng',
+            'Mã số thuế/Số CCCD',
+            'Tên khách đặt phòng/Tên khách chuyển khoản',
+            'Địa chỉ',
             'Loại phòng khách đặt',
-            'SL',
-            'ĐVT',
-            'Dịch vụ đi kèm (SL x Đơn giá)',
-            'Đơn giá phòng',
-            'Thành tiền (Phòng + Dịch vụ)',
-            'Khách thực trả (Sau giảm giá)',
-            'Tình trạng xuất hóa đơn',
+            'Số lượng',
+            'Đơn vị tính (Ngày, giờ, đêm)',
+            'Số tiền khách đã thanh toán',
         ];
     }
 
@@ -182,19 +178,20 @@ class OrdersSheetByCategory implements FromCollection, WithHeadings, WithMapping
         $this->rowNumber++;
 
         $date         = $order->created_at ? Carbon::parse($order->created_at)->format('d/m/Y') : '';
-        $unitName     = $this->category ? $this->category->name : '';
-        $customerName = $order->buyer_name;
-        $userInfo     = $this->sanitizeVal($order->note_for_admin, true);
+        $buyerName    = $this->sanitizeVal($order->buyer_name);
+        $cccdFullName = $this->sanitizeVal($order->cccd_data['full_name'] ?? null);
+        // Ghép tên khách nhập tay và tên trên CCCD (chỉ ghép khi cả 2 khác nhau và cùng tồn tại)
+        $customerName = ($buyerName && $cccdFullName && $buyerName !== $cccdFullName)
+            ? "{$buyerName} - {$cccdFullName}"
+            : ($buyerName ?: $cccdFullName);
+        $cccdNumber   = $this->sanitizeVal($order->cccd_data['cccd'] ?? null);
+        $address      = $this->sanitizeVal($order->buyer_address ?: ($order->cccd_data['address'] ?? null));
 
         $items     = $order->items ?? collect();
         $slotCount = $items->count();
 
-        // --- Gộp thông tin từng khung giờ ---
+        // --- Gộp tên loại phòng từng khung giờ ---
         $roomTypeLines = [];
-        $quantityLines = [];
-        $unitLines     = [];
-        $priceLines    = [];
-        $roomSubtotal  = 0;
 
         foreach ($items as $item) {
             $roomType = $item->product->name ?? 'N/A';
@@ -216,46 +213,14 @@ class OrdersSheetByCategory implements FromCollection, WithHeadings, WithMapping
             }
             if ($label) $roomType .= ' - ' . $label;
             $roomTypeLines[] = $roomType;
-
-            $isOvernight = stripos($label, 'Qua đêm') !== false;
-            $unit        = 'Lượt';
-            $quantity    = 1;
-
-            if ($item->checkin_date && $item->checkout_date) {
-                $checkin  = Carbon::parse($item->checkin_date);
-                $checkout = Carbon::parse($item->checkout_date);
-                if ($isOvernight) {
-                    $unit     = 'Giờ';
-                    $quantity = round($checkout->diffInMinutes($checkin) / 60, 1);
-                } else {
-                    $unit     = 'Phút';
-                    $quantity = $checkout->diffInMinutes($checkin);
-                }
-            } else {
-                $quantity = $item->quantity;
-            }
-
-            $quantityLines[] = $quantity;
-            $unitLines[]     = $unit;
-            $priceLines[]    = number_format($item->price, 0, ',', '.') . '₫';
-
-            $roomSubtotal += ($item->price * $item->quantity) + ($item->extra_fee ?? 0);
         }
 
-        // --- Dịch vụ đi kèm ---
-        $servicesText  = '';
-        $servicesTotal = 0;
-        if ($order->services && $order->services->count() > 0) {
-            $servicesText = $order->services->map(function ($svc) {
-                return "• " . $svc->service_name . " (x" . $svc->quantity . ") - " . number_format($svc->price, 0, ',', '.') . "₫";
-            })->implode("\n");
-            $servicesTotal = $order->services->sum('subtotal');
-        }
+        [$quantity, $unit] = $this->computeStayInfo($items);
 
-        // --- Thành tiền (Cột K) ---
-        $finalRowTotal = $roomSubtotal + $servicesTotal;
+        // --- Dịch vụ đi kèm (chỉ dùng để tính tổng, không xuất riêng cột) ---
+        $servicesTotal = $order->services ? $order->services->sum('subtotal') : 0;
 
-        // --- Khách thực trả (Cột L) ---
+        // --- Số tiền khách đã thanh toán ---
         // Ưu tiên: dùng amount đã lưu trong order (chính xác nhất, đã bao gồm mọi loại giảm giá)
         if (!empty($order->amount) && $order->amount > 0) {
             $sumPaid = $order->amount;
@@ -264,27 +229,101 @@ class OrdersSheetByCategory implements FromCollection, WithHeadings, WithMapping
             $sumPaid = $this->calculateSumPaid($items, $slotCount, $servicesTotal);
         }
 
-        // --- Gộp nhiều dòng bằng xuống dòng ---
         $roomTypeStr = implode("\n", $roomTypeLines);
-        $quantityStr = implode("\n", $quantityLines);
-        $unitStr     = implode("\n", $unitLines);
-        $priceStr    = implode("\n", $priceLines);
 
         return [
             $this->rowNumber,
             $date,
-            $unitName,
+            $cccdNumber,
             $customerName,
-            $userInfo,
+            $address,
             $roomTypeStr,
-            $quantityStr,
-            $unitStr,
-            $servicesText,
-            $priceStr,
-            $finalRowTotal,
+            $quantity,
+            $unit,
             $sumPaid,
-            'Chưa xuất',
         ];
+    }
+
+    /**
+     * Tính Số lượng + Đơn vị tính thể hiện thời gian khách ở, dựa trên toàn bộ
+     * khung giờ (item) của đơn:
+     * - 1 khung, qua đêm            → tính theo Giờ
+     * - 1 khung, không qua đêm      → tính theo Phút
+     * - Nhiều khung, trong cùng 1 ngày (tổng thời gian ≤ 24h) → tính theo Giờ
+     * - Nhiều khung, trải qua nhiều ngày (tổng thời gian > 24h) → tính theo Ngày (kèm giờ lẻ)
+     */
+    protected function computeStayInfo(Collection $items): array
+    {
+        if ($items->isEmpty()) {
+            return ['', ''];
+        }
+
+        $checkins  = [];
+        $checkouts = [];
+        $hasOvernight = false;
+
+        foreach ($items as $item) {
+            if (!$item->checkin_date || !$item->checkout_date) {
+                continue;
+            }
+
+            $checkin  = Carbon::parse($item->checkin_date);
+            $checkout = Carbon::parse($item->checkout_date);
+            $checkins[]  = $checkin;
+            $checkouts[] = $checkout;
+
+            $label = $item->slot_label ?? '';
+            if ($item->product && $item->product->roomTimeSlots) {
+                foreach ($item->product->roomTimeSlots as $rts) {
+                    if ($rts->timeSlot &&
+                        $checkin->format('H:i') === Carbon::parse($rts->timeSlot->start_time)->format('H:i') &&
+                        $checkout->format('H:i') === Carbon::parse($rts->timeSlot->end_time)->format('H:i')) {
+                        $label = $rts->timeSlot->label;
+                        break;
+                    }
+                }
+            }
+            if (stripos($label, 'Qua đêm') !== false) {
+                $hasOvernight = true;
+            }
+        }
+
+        if (empty($checkins)) {
+            // Không có mốc giờ (item bán theo lượt) → dùng tổng số lượng đã đặt
+            return [$items->sum('quantity'), 'Lượt'];
+        }
+
+        $firstCheckin = min($checkins);
+        $lastCheckout = max($checkouts);
+        $totalMinutes = $firstCheckin->diffInMinutes($lastCheckout);
+        $itemCount    = $items->count();
+
+        // Nhiều khung, trải qua nhiều ngày (> 24h)
+        if ($itemCount > 1 && $totalMinutes > 24 * 60) {
+            $days          = intdiv($totalMinutes, 24 * 60);
+            $remainMinutes = $totalMinutes % (24 * 60);
+            $remainHours   = intdiv($remainMinutes, 60);
+            $remainMins    = $remainMinutes % 60;
+
+            $quantity = "{$days} ngày";
+            if ($remainHours > 0) $quantity .= " {$remainHours} giờ";
+            if ($remainMins > 0)  $quantity .= " {$remainMins} phút";
+
+            return [$quantity, 'Ngày'];
+        }
+
+        // 1 khung qua đêm, hoặc nhiều khung trong cùng 1 ngày → tính theo Giờ
+        if ($hasOvernight || $itemCount > 1) {
+            $hours   = intdiv($totalMinutes, 60);
+            $minutes = $totalMinutes % 60;
+
+            $quantity = $minutes > 0 ? "{$hours} giờ {$minutes} phút" : $hours;
+
+            return [$quantity, 'Giờ'];
+        }
+
+        // 1 khung, không qua đêm → tính theo Phút
+        return [$totalMinutes, 'Phút'];
     }
 
     /**
@@ -352,36 +391,34 @@ class OrdersSheetByCategory implements FromCollection, WithHeadings, WithMapping
                 $highestRow = $sheet->getHighestRow();
 
                 // Header
-                $sheet->getStyle('A1:M1')->applyFromArray([
+                $sheet->getStyle('A1:I1')->applyFromArray([
                     'font'      => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
                     'fill'      => ['fillType' => 'solid', 'startColor' => ['rgb' => '00B050']],
                     'alignment' => ['horizontal' => 'center', 'vertical' => 'center', 'wrapText' => true],
                 ]);
 
                 if ($highestRow >= 2) {
-                    // Format tiền tệ cột K, L
-                    $sheet->getStyle('K2:L' . $highestRow)->getNumberFormat()->setFormatCode('#,##0"₫"');
+                    // Format tiền tệ cột I (Số tiền khách đã thanh toán)
+                    $sheet->getStyle('I2:I' . $highestRow)->getNumberFormat()->setFormatCode('#,##0"₫"');
 
-                    // Border + căn giữa dọc (A–M = 13 cột)
-                    $sheet->getStyle('A1:M' . $highestRow)->applyFromArray([
+                    // Border + căn giữa dọc (A–I = 9 cột)
+                    $sheet->getStyle('A1:I' . $highestRow)->applyFromArray([
                         'borders'   => ['allBorders' => ['borderStyle' => 'thin']],
                         'alignment' => ['vertical' => 'center'],
                     ]);
 
                     // WrapText cho các cột đa dòng
-                    foreach (['E', 'F', 'G', 'H', 'I', 'J'] as $col) {
+                    foreach (['E', 'F'] as $col) {
                         $sheet->getStyle($col . '2:' . $col . $highestRow)
                               ->getAlignment()->setWrapText(true);
                     }
 
-                    $sheet->getColumnDimension('F')->setWidth(35);
-                    $sheet->getColumnDimension('I')->setWidth(35);
                     $sheet->getColumnDimension('E')->setWidth(30);
-                    $sheet->getColumnDimension('J')->setWidth(18);
+                    $sheet->getColumnDimension('F')->setWidth(35);
                 }
 
-                $fixedCols = ['E', 'F', 'I', 'J'];
-                foreach (range('A', 'M') as $col) {
+                $fixedCols = ['E', 'F'];
+                foreach (range('A', 'I') as $col) {
                     if (!in_array($col, $fixedCols)) {
                         $sheet->getColumnDimension($col)->setAutoSize(true);
                     }
