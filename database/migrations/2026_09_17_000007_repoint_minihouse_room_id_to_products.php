@@ -32,6 +32,12 @@ return new class extends Migration
 
     private function repoint(string $table, bool $nullable, string $onDelete): void
     {
+        // Bảng có thể chưa tồn tại nếu môi trường này nạp migration module SAU migration gộp này —
+        // bỏ qua hẳn, không có gì để repoint.
+        if (! Schema::hasTable($table)) {
+            return;
+        }
+
         // Raw SQL KHÔNG tự thêm tiền tố bảng (vd 'cms_') — phải tự ghép DB::getTablePrefix().
         $prefix        = DB::getTablePrefix();
         $physicalTable = $prefix . $table;
@@ -45,6 +51,19 @@ return new class extends Migration
         );
 
         if ($column && $column->type === 'char') {
+            return;
+        }
+
+        // Cột room_id chưa từng tồn tại trên bảng này ở môi trường này (lệch thứ tự migrate module so
+        // với dev, hoặc bảng vừa được tạo mới đúng lúc) — không có dữ liệu cũ để backfill, tạo thẳng
+        // đúng cột đích rồi dừng.
+        if (! $column) {
+            Schema::table($table, function (Blueprint $t) use ($nullable, $onDelete) {
+                $t->char('room_id', 36)->nullable($nullable);
+                $fk = $t->foreign('room_id')->references('id')->on('products');
+                $onDelete === 'cascade' ? $fk->cascadeOnDelete() : $fk->nullOnDelete();
+            });
+
             return;
         }
 

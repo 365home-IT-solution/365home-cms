@@ -32,11 +32,30 @@ return new class extends Migration
 
     private function repoint(string $table, string $onDelete): void
     {
+        // Bảng có thể chưa tồn tại nếu môi trường này nạp migration module SAU migration gộp này —
+        // bỏ qua hẳn, không có gì để repoint.
+        if (! Schema::hasTable($table)) {
+            return;
+        }
+
         // Raw SQL (UPDATE/information_schema) KHÔNG tự thêm tiền tố bảng (vd 'cms_') như
         // Schema::table()/->on()/->constrained() làm — phải tự ghép DB::getTablePrefix().
         $prefix        = DB::getTablePrefix();
         $physicalTable = $prefix . $table;
         $categoriesTbl = $prefix . 'categories';
+
+        // Cột building_id chưa từng tồn tại trên bảng này ở môi trường hiện tại — không có gì để
+        // remap giá trị/FK, bỏ qua (khác với trường hợp "$fk rỗng nhưng cột vẫn có" đã xử lý bên
+        // dưới — đó là cột tồn tại nhưng thiếu ràng buộc khoá ngoại thật).
+        $columnExists = DB::selectOne(
+            "SELECT 1 FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = 'building_id'",
+            [$physicalTable]
+        );
+
+        if (! $columnExists) {
+            return;
+        }
 
         // Idempotent: nếu FK đã trỏ categories rồi (chạy lại migration) thì bỏ qua.
         $fk = DB::selectOne(

@@ -14,6 +14,12 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Bảng thuộc module Metering — có thể chưa tồn tại nếu module đó nạp migration SAU migration
+        // gộp này trên môi trường hiện tại. Bỏ qua hẳn, không có gì để repoint.
+        if (! Schema::hasTable('metering_readings')) {
+            return;
+        }
+
         $prefix        = DB::getTablePrefix();
         $physicalTable = $prefix . 'metering_readings';
         $productsTbl   = $prefix . 'products';
@@ -26,6 +32,19 @@ return new class extends Migration
 
         if ($column && $column->type === 'char') {
             return; // đã chạy rồi (idempotent)
+        }
+
+        // Cột room_id chưa từng tồn tại (bảng vừa được module Metering tạo mới đúng lúc, hoặc lệch
+        // thứ tự migrate so với dev) — không có dữ liệu cũ để backfill, tạo thẳng đúng cột đích rồi
+        // dừng, bỏ qua toàn bộ phần đổi tên/backfill bên dưới.
+        if (! $column) {
+            Schema::table('metering_readings', function (Blueprint $table) {
+                $table->char('room_id', 36);
+                $table->foreign('room_id')->references('id')->on('products')->cascadeOnDelete();
+                $table->unique(['room_id', 'month']);
+            });
+
+            return;
         }
 
         Schema::table('metering_readings', function (Blueprint $table) {
