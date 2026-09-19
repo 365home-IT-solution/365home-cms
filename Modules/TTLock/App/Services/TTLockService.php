@@ -569,6 +569,434 @@ class TTLockService
     }
 
     // =========================================================
+    // Lịch sử mở/khoá của 1 ổ khóa (bao gồm cả sự kiện quẹt thẻ, kể cả thẻ CHƯA đăng ký bị từ chối) —
+    // dùng để TEST xem quẹt 1 thẻ mới có báo được số thẻ (field keyboardPwd) về cloud hay không, mà
+    // KHÔNG cần server public nhận callback (endpoint này chủ động HỎI cloud, không phải NHẬN đẩy).
+    // POST /v3/lockRecord/list
+    // =========================================================
+
+    public function getLockRecords(int $lockId, int $pageNo = 1, int $pageSize = 20, int $startDate = 0, int $endDate = 0): array
+    {
+        $token = $this->getAccessToken();
+
+        if (!$token) {
+            Log::error('TTLock getLockRecords: no access token');
+            return [];
+        }
+
+        try {
+            $response = Http::timeout(20)->withOptions([
+                'verify' => false,
+            ])->get("{$this->apiBase}/v3/lockRecord/list", [
+                'clientId'    => $this->clientId,
+                'accessToken' => $token,
+                'lockId'      => $lockId,
+                'startDate'   => $startDate,
+                'endDate'     => $endDate,
+                'pageNo'      => $pageNo,
+                'pageSize'    => $pageSize,
+                'date'        => (int) round(microtime(true) * 1000),
+            ]);
+
+            $data = $response->json();
+
+            if (!$response->successful() || !isset($data['list'])) {
+                Log::error('TTLock getLockRecords failed', ['lockId' => $lockId, 'response' => $data]);
+                return [];
+            }
+
+            return $data['list'];
+
+        } catch (\Exception $e) {
+            Log::error('TTLock getLockRecords exception', ['lockId' => $lockId, 'error' => $e->getMessage()]);
+            return [];
+        }
+    }
+
+    // =========================================================
+    // Gọi 1 endpoint GET dạng danh sách (list) của TTLock và TỰ ĐỘNG duyệt hết mọi trang — mọi
+    // endpoint list (thẻ, mã mở, vân tay, ekey) đều giới hạn tối đa pageSize=100/lần gọi, dùng chung
+    // 1 vòng lặp ở đây thay vì lặp lại riêng từng hàm. Dừng khi trang trả về ít hơn pageSize (đã hết)
+    // hoặc rỗng — không dựa vào field "pages" vì tên field không đồng nhất giữa các endpoint.
+    // =========================================================
+
+    private function paginateAll(string $path, array $extraParams, int $pageSize = 100): array
+    {
+        $token = $this->getAccessToken();
+
+        if (!$token) {
+            Log::error("TTLock paginateAll({$path}): no access token");
+            return [];
+        }
+
+        $all = [];
+        $pageNo = 1;
+
+        do {
+            try {
+                $response = Http::timeout(20)->withOptions([
+                    'verify' => false,
+                ])->get("{$this->apiBase}{$path}", array_filter(array_merge($extraParams, [
+                    'clientId'    => $this->clientId,
+                    'accessToken' => $token,
+                    'pageNo'      => $pageNo,
+                    'pageSize'    => $pageSize,
+                    'date'        => (int) round(microtime(true) * 1000),
+                ]), fn ($v) => $v !== null));
+
+                $data = $response->json();
+
+                if (!$response->successful() || !isset($data['list'])) {
+                    Log::error("TTLock paginateAll({$path}) failed", ['params' => $extraParams, 'response' => $data]);
+                    break;
+                }
+
+                $all = array_merge($all, $data['list']);
+                $gotCount = count($data['list']);
+                $pageNo++;
+            } catch (\Exception $e) {
+                Log::error("TTLock paginateAll({$path}) exception", ['params' => $extraParams, 'error' => $e->getMessage()]);
+                break;
+            }
+        } while ($gotCount >= $pageSize);
+
+        return $all;
+    }
+
+    // =========================================================
+    // Danh sách mã mở (passcode) đã tạo cho 1 khóa — TỰ ĐỘNG LẤY HẾT MỌI TRANG (API giới hạn
+    // pageSize tối đa 100/lần gọi — phát hiện thật: 1 khóa dùng lâu ngày có > 100 mã, chỉ lấy trang 1
+    // sẽ làm RỚT mất các mã cũ hơn, gây hiểu lầm "thiếu mã" dù thực ra API vẫn còn dữ liệu ở trang
+    // sau). Xem paginateAll().
+    // GET /v3/lock/listKeyboardPwd
+    // =========================================================
+
+    public function listKeyboardPwds(int $lockId, int $pageSize = 100): array
+    {
+        return $this->paginateAll('/v3/lock/listKeyboardPwd', [
+            'lockId' => $lockId,
+        ], $pageSize);
+    }
+
+    // =========================================================
+    // Danh sách "ekey" (thành viên có quyền truy cập) — theo TOÀN BỘ tài khoản, mỗi bản ghi tự có
+    // lockId/lockAlias riêng — lọc theo lockId phía gọi (API gốc chỉ lọc được theo lockAlias/groupId,
+    // không lọc thẳng theo lockId).
+    // GET /v3/key/list
+    // =========================================================
+
+    public function listEkeys(?string $lockAlias = null, int $pageSize = 100): array
+    {
+        return $this->paginateAll('/v3/key/list', [
+            'lockAlias' => $lockAlias,
+        ], $pageSize);
+    }
+
+    // =========================================================
+    // Vân tay — CÙNG BẢN CHẤT với thẻ IC (xem addIcCard() bên dưới): fingerprintNumber PHẢI đã biết
+    // trước, đọc được CHỈ qua SDK Bluetooth (app/thiết bị riêng), API này chỉ đăng ký + đồng bộ cloud.
+    // Xác nhận qua doc thật https://euopen.ttlock.com/doc/api/v3/fingerprint/add — KHÔNG có tham số
+    // addType (không có đường "qua Gateway" như thẻ/passcode), fingerprintType: 1=thường, 4=định kỳ.
+    // POST /v3/fingerprint/add
+    // =========================================================
+
+    public function addFingerprint(
+        int    $lockId,
+        string $fingerprintNumber,
+        int    $startDate = 0,
+        int    $endDate   = 0,
+        string $name      = '',
+        int    $fingerprintType = 1
+    ): ?array {
+        $token = $this->getAccessToken();
+
+        if (!$token) {
+            Log::error('TTLock addFingerprint: no access token');
+            return null;
+        }
+
+        $params = [
+            'clientId'         => $this->clientId,
+            'accessToken'      => $token,
+            'lockId'           => $lockId,
+            'fingerprintNumber' => $fingerprintNumber,
+            'fingerprintType'  => $fingerprintType,
+            'date'             => (int) round(microtime(true) * 1000),
+        ];
+
+        if ($name !== '') {
+            $params['fingerprintName'] = $name;
+        }
+        if ($startDate > 0) {
+            $params['startDate'] = $startDate;
+        }
+        if ($endDate > 0) {
+            $params['endDate'] = $endDate;
+        }
+
+        try {
+            $response = Http::timeout(20)->withOptions([
+                'verify' => false,
+            ])->asForm()->post("{$this->apiBase}/v3/fingerprint/add", $params);
+
+            $data = $response->json();
+
+            Log::info('TTLock addFingerprint response', [
+                'lockId' => $lockId,
+                'status' => $response->status(),
+                'data'   => $data,
+            ]);
+
+            if ($response->successful() && (($data['errcode'] ?? -1) === 0 || isset($data['fingerprintId']))) {
+                return ['fingerprintId' => (int) ($data['fingerprintId'] ?? 0)];
+            }
+
+            Log::error('TTLock addFingerprint failed', ['lockId' => $lockId, 'response' => $data]);
+            return null;
+
+        } catch (\Exception $e) {
+            Log::error('TTLock addFingerprint exception', ['lockId' => $lockId, 'error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    // =========================================================
+    // Danh sách vân tay đã cấp cho 1 khóa
+    // POST /v3/fingerprint/list
+    // =========================================================
+
+    public function listFingerprints(int $lockId, int $pageSize = 100): array
+    {
+        return $this->paginateAll('/v3/fingerprint/list', [
+            'lockId' => $lockId,
+        ], $pageSize);
+    }
+
+    // =========================================================
+    // Xóa vân tay khỏi khóa — dùng fingerprintId (id bản ghi), không phải fingerprintNumber, cùng quy
+    // ước với deleteIcCard().
+    // POST /v3/fingerprint/delete
+    // =========================================================
+
+    public function deleteFingerprint(int $lockId, int $fingerprintId, int $deleteType = 2): bool
+    {
+        $token = $this->getAccessToken();
+
+        if (!$token) {
+            Log::error('TTLock deleteFingerprint: no access token');
+            return false;
+        }
+
+        try {
+            $response = Http::timeout(15)->withOptions([
+                'verify' => false,
+            ])->asForm()->post("{$this->apiBase}/v3/fingerprint/delete", [
+                'clientId'      => $this->clientId,
+                'accessToken'   => $token,
+                'lockId'        => $lockId,
+                'fingerprintId' => $fingerprintId,
+                'deleteType'    => $deleteType,
+                'date'          => (int) round(microtime(true) * 1000),
+            ]);
+
+            $data = $response->json();
+
+            Log::info('TTLock deleteFingerprint response', [
+                'lockId'        => $lockId,
+                'fingerprintId' => $fingerprintId,
+                'status'        => $response->status(),
+                'data'          => $data,
+            ]);
+
+            return $response->successful() && (($data['errcode'] ?? -1) === 0);
+
+        } catch (\Exception $e) {
+            Log::error('TTLock deleteFingerprint exception', ['lockId' => $lockId, 'error' => $e->getMessage()]);
+            return false;
+        }
+    }
+
+    // =========================================================
+    // Đổi thời hạn hiệu lực của vân tay đã cấp
+    // POST /v3/fingerprint/changePeriod
+    // =========================================================
+
+    public function changeFingerprintPeriod(
+        int $lockId,
+        int $fingerprintId,
+        int $startDate,
+        int $endDate = 0,
+        int $changeType = 2
+    ): bool {
+        $token = $this->getAccessToken();
+
+        if (!$token) {
+            Log::error('TTLock changeFingerprintPeriod: no access token');
+            return false;
+        }
+
+        $params = [
+            'clientId'      => $this->clientId,
+            'accessToken'   => $token,
+            'lockId'        => $lockId,
+            'fingerprintId' => $fingerprintId,
+            'startDate'     => $startDate,
+            'changeType'    => $changeType,
+            'date'          => (int) round(microtime(true) * 1000),
+        ];
+
+        if ($endDate > 0) {
+            $params['endDate'] = $endDate;
+        }
+
+        try {
+            $response = Http::timeout(20)->withOptions([
+                'verify' => false,
+            ])->asForm()->post("{$this->apiBase}/v3/fingerprint/changePeriod", $params);
+
+            $data = $response->json();
+
+            Log::info('TTLock changeFingerprintPeriod response', [
+                'lockId'        => $lockId,
+                'fingerprintId' => $fingerprintId,
+                'status'        => $response->status(),
+                'data'          => $data,
+            ]);
+
+            return $response->successful() && (($data['errcode'] ?? -1) === 0);
+
+        } catch (\Exception $e) {
+            Log::error('TTLock changeFingerprintPeriod exception', ['lockId' => $lockId, 'error' => $e->getMessage()]);
+            return false;
+        }
+    }
+
+    // =========================================================
+    // Cấp thẻ từ (IC card) cho 1 khóa — số thẻ (cardNumber) PHẢI đã biết trước (đọc bằng app TTLock/
+    // đầu đọc riêng) — API này KHÔNG có khả năng tự đọc thẻ mới, chỉ đăng ký 1 số thẻ đã biết vào
+    // khóa + đặt thời hạn hiệu lực. Xác nhận qua doc thật: https://euopen.ttlock.com/doc/api/v3/identityCard/add
+    // POST /v3/identityCard/add
+    // =========================================================
+
+    public function addIcCard(
+        int    $lockId,
+        string $cardNumber,
+        int    $startDate = 0,
+        int    $endDate   = 0,
+        string $name      = '',
+        int    $addType   = 2 // 2 = qua Gateway (không cần điện thoại đứng cạnh khóa lúc gọi API)
+    ): ?array {
+        $token = $this->getAccessToken();
+
+        if (!$token) {
+            Log::error('TTLock addIcCard: no access token');
+            return null;
+        }
+
+        $params = [
+            'clientId'    => $this->clientId,
+            'accessToken' => $token,
+            'lockId'      => $lockId,
+            'cardNumber'  => $cardNumber,
+            'addType'     => $addType,
+            'date'        => (int) round(microtime(true) * 1000),
+        ];
+
+        if ($name !== '') {
+            $params['cardName'] = $name;
+        }
+        if ($startDate > 0) {
+            $params['startDate'] = $startDate;
+        }
+        if ($endDate > 0) {
+            $params['endDate'] = $endDate;
+        }
+
+        try {
+            $response = Http::timeout(20)->withOptions([
+                'verify' => false,
+            ])->asForm()->post("{$this->apiBase}/v3/identityCard/add", $params);
+
+            $data = $response->json();
+
+            Log::info('TTLock addIcCard response', [
+                'lockId'     => $lockId,
+                'cardNumber' => $cardNumber,
+                'status'     => $response->status(),
+                'data'       => $data,
+            ]);
+
+            if ($response->successful() && (($data['errcode'] ?? -1) === 0 || isset($data['cardId']))) {
+                return ['cardId' => (int) ($data['cardId'] ?? 0)];
+            }
+
+            Log::error('TTLock addIcCard failed', ['lockId' => $lockId, 'response' => $data]);
+            return null;
+
+        } catch (\Exception $e) {
+            Log::error('TTLock addIcCard exception', ['lockId' => $lockId, 'error' => $e->getMessage()]);
+            return null;
+        }
+    }
+
+    // =========================================================
+    // Danh sách thẻ từ đã cấp cho 1 khóa
+    // POST /v3/identityCard/list
+    // =========================================================
+
+    public function listIcCards(int $lockId, int $pageSize = 100): array
+    {
+        return $this->paginateAll('/v3/identityCard/list', [
+            'lockId' => $lockId,
+        ], $pageSize);
+    }
+
+    // =========================================================
+    // Xóa thẻ từ khỏi khóa — CHÚ Ý: dùng cardId (id bản ghi, trả về từ addIcCard()/listIcCards()),
+    // KHÔNG PHẢI cardNumber (số thẻ vật lý) — đã xác nhận thật qua doc
+    // https://euopen.ttlock.com/doc/api/v3/identityCard/delete (khác addIcCard() nhận cardNumber).
+    // POST /v3/identityCard/delete
+    // =========================================================
+
+    public function deleteIcCard(int $lockId, int $cardId, int $deleteType = 2): bool
+    {
+        $token = $this->getAccessToken();
+
+        if (!$token) {
+            Log::error('TTLock deleteIcCard: no access token');
+            return false;
+        }
+
+        try {
+            $response = Http::timeout(15)->withOptions([
+                'verify' => false,
+            ])->asForm()->post("{$this->apiBase}/v3/identityCard/delete", [
+                'clientId'    => $this->clientId,
+                'accessToken' => $token,
+                'lockId'      => $lockId,
+                'cardId'      => $cardId,
+                'deleteType'  => $deleteType,
+                'date'        => (int) round(microtime(true) * 1000),
+            ]);
+
+            $data = $response->json();
+
+            Log::info('TTLock deleteIcCard response', [
+                'lockId' => $lockId,
+                'cardId' => $cardId,
+                'status' => $response->status(),
+                'data'   => $data,
+            ]);
+
+            return $response->successful() && (($data['errcode'] ?? -1) === 0);
+
+        } catch (\Exception $e) {
+            Log::error('TTLock deleteIcCard exception', ['lockId' => $lockId, 'error' => $e->getMessage()]);
+            return false;
+        }
+    }
+
+    // =========================================================
     // Xóa mã passcode khỏi khóa
     // POST /v3/keyboardPwd/delete
     // =========================================================

@@ -46,6 +46,33 @@ Route::post('lock/callback', [LockRecordCallbackController::class, 'handle'])
 
 /*
 |--------------------------------------------------------------------------
+| TTLock Card App (Flutter) — app riêng quản lý thẻ/mã/vân tay TTLock tại
+| cửa (đọc thẻ IC/vân tay mới qua Bluetooth). Xác thực bằng header
+| X-Card-App-Token (xem AuthorizeTtlockCardApp), không qua phiên đăng nhập
+| panel. Đầy đủ CRUD mirror đúng panel Filament (LockDetail.php).
+|--------------------------------------------------------------------------
+*/
+Route::prefix('ttlock-card-app')->middleware('ttlock.card-app')->group(function () {
+    Route::get('locks', [\App\Http\Controllers\Api\TtlockCardAppController::class, 'listLocks']);
+    Route::post('lock-data', [\App\Http\Controllers\Api\TtlockCardAppController::class, 'getLockData']);
+    Route::post('unlock', [\App\Http\Controllers\Api\TtlockCardAppController::class, 'remoteUnlock']);
+    Route::get('records', [\App\Http\Controllers\Api\TtlockCardAppController::class, 'listRecords']);
+
+    Route::get('cards', [\App\Http\Controllers\Api\TtlockCardAppController::class, 'listCards']);
+    Route::post('cards', [\App\Http\Controllers\Api\TtlockCardAppController::class, 'registerCard']);
+    Route::delete('cards', [\App\Http\Controllers\Api\TtlockCardAppController::class, 'deleteCard']);
+
+    Route::get('passcodes', [\App\Http\Controllers\Api\TtlockCardAppController::class, 'listPasscodes']);
+    Route::post('passcodes', [\App\Http\Controllers\Api\TtlockCardAppController::class, 'issuePasscode']);
+    Route::delete('passcodes', [\App\Http\Controllers\Api\TtlockCardAppController::class, 'deletePasscode']);
+
+    Route::get('fingerprints', [\App\Http\Controllers\Api\TtlockCardAppController::class, 'listFingerprints']);
+    Route::post('fingerprints', [\App\Http\Controllers\Api\TtlockCardAppController::class, 'registerFingerprint']);
+    Route::delete('fingerprints', [\App\Http\Controllers\Api\TtlockCardAppController::class, 'deleteFingerprint']);
+});
+
+/*
+|--------------------------------------------------------------------------
 | Zalo OTP Auth
 | POST /api/auth/send-otp   → Gửi OTP về Zalo của khách
 | POST /api/auth/verify-otp → Xác nhận OTP, trả Sanctum token
