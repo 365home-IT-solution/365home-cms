@@ -4,14 +4,19 @@ namespace App\Providers;
 
 use App\Listeners\ResizeOversizedMedia;
 use App\Listeners\StoreOriginalImageDimensions;
+use App\Models\AskUser;
 use App\Models\Customer;
+use App\Models\Event;
 use App\Models\Province;
 use App\Models\User;
+use App\Observers\AppPageObserver;
+use App\Observers\AskUserObserver;
 use App\Observers\BannerObserver;
 use App\Observers\BranchObserver;
 use App\Observers\CategoryObserver;
 use App\Observers\CouponObserver;
 use App\Observers\CustomerObserver;
+use App\Observers\EventObserver;
 use App\Observers\OrderObserver;
 use App\Observers\PopupImageObserver;
 use App\Observers\PostObserver;
@@ -32,6 +37,7 @@ use Modules\Product\App\Models\Product;
 use Modules\Promotion\App\Models\Coupon;
 use Modules\Promotion\App\Models\Promotion;
 use Modules\SettingCompany\Entities\Branch;
+use Modules\AppPage\App\Models\AppPage;
 use Modules\AppPage\App\Models\Banner;
 use Modules\AppPage\App\Models\PopupImage;
 use App\Models\Role;
@@ -75,6 +81,9 @@ class EventServiceProvider extends ServiceProvider
         Banner::observe(BannerObserver::class);
         PopupImage::observe(PopupImageObserver::class);
         Province::observe(ProvinceObserver::class);
+        Event::observe(EventObserver::class);
+        AskUser::observe(AskUserObserver::class);
+        AppPage::observe(AppPageObserver::class);
     }
 
     /**

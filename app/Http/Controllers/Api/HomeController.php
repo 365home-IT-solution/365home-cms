@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Concerns\BuildsRoomCard;
 use App\Http\Concerns\ResolvesProvince;
 use App\Models\Province;
+use App\Support\ImagePresetUrls;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -360,6 +361,7 @@ class HomeController extends Controller
             'id'           => $index + 1,
             'sort_order'   => $index + 1,
             'icon_url'     => $icon ? Storage::disk('public')->url($icon) : null,
+            'icon_thumbnail' => ImagePresetUrls::build($icon, 'public'),
             'title'        => $data['title'] ?? null,
             'view_all_url' => $province ? '/s/' . $province->slug : null,
             'rooms'        => [],

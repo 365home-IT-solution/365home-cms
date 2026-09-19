@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Support\ImagePresetUrls;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Storage;
 
@@ -35,5 +36,10 @@ class Event extends Model
         }
 
         return Storage::disk($this->disk ?? 'public')->url($this->image);
+    }
+
+    public function getThumbnailAttribute(): ?array
+    {
+        return ImagePresetUrls::build($this->image, $this->disk ?? 'public', $this->image_width, $this->image_height);
     }
 }

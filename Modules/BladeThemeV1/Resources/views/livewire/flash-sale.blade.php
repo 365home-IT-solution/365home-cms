@@ -402,6 +402,79 @@
         </div>
     </template>
 
+    {{-- ============== NỘI DUNG SEO TĨNH: Giới thiệu / Vì sao chọn / Loại hình lưu trú / FAQ ==============
+         Server-render thuần (không qua Alpine/x-if/x-for), luôn có mặt trong HTML gốc trả về cho
+         crawler ngay cả khi JS chưa chạy. Dữ kiện thương hiệu (tên/địa chỉ/SĐT/email) lấy đúng theo
+         LodgingBusiness schema ở components/seo.blade.php — không tự bịa số liệu/khuyến mãi cụ thể.
+         Card/FAQ dùng chung 2 component components/seo-content/{feature-grid,faq-accordion}.blade.php
+         (cũng được tái sử dụng ở product/search.blade.php và livewire/product-detail.blade.php) —
+         sửa giao diện thì sửa ở đó, không lặp lại markup riêng cho từng trang. --}}
+    @if (request()->is('/'))
+        <section class="py-8 sm:py-10 bg-white">
+            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
+                <h2 class="text-2xl font-bold text-gray-900 mb-3">Về 365 Home</h2>
+                <p class="text-gray-600 leading-relaxed">
+                    365 Home là hệ thống đặt phòng trực tuyến với đa dạng loại hình lưu trú: khách sạn,
+                    nhà nghỉ, villa, căn hộ, mini house và homestay, hỗ trợ đặt theo giờ hoặc theo ngày
+                    tuỳ nhu cầu. Chi nhánh 365 Home Cần Thơ toạ lạc tại An Bình, Xuân Thủy, Ninh Kiều,
+                    Cần Thơ, cùng hệ thống đang mở rộng thêm nhiều khu vực khác. Toàn bộ quy trình tìm
+                    phòng, xem giá, đặt và thanh toán đều thực hiện trực tiếp trên website hoặc ứng
+                    dụng di động 365 Home, giúp khách chủ động thời gian nhận/trả phòng mà không cần
+                    gọi điện đặt trước.
+                </p>
+            </div>
+        </section>
+
+        <section class="py-6 sm:py-8 bg-white">
+            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
+                <x-bladethemev1::seo-content.feature-grid title="Vì sao chọn 365 Home" :show-icon="false" :items="[
+                    ['icon' => 'home', 'title' => 'Đa dạng loại hình', 'text' => 'Khách sạn, nhà nghỉ, villa, căn hộ, mini house, homestay — nhiều lựa chọn phù hợp mọi nhu cầu và ngân sách.'],
+                    ['icon' => 'clock', 'title' => 'Đặt phòng linh hoạt', 'text' => 'Chọn thuê theo giờ hoặc theo ngày, xác nhận đặt phòng ngay trên website hoặc ứng dụng, không cần gọi điện trước.'],
+                    ['icon' => 'shield', 'title' => 'Khoá thông minh, an toàn', 'text' => 'Nhiều phòng được trang bị khoá điện tử, hỗ trợ quản lý và mở khoá từ xa, đảm bảo an ninh cho khách lưu trú.'],
+                    ['icon' => 'device', 'title' => 'Ứng dụng 365 Home', 'text' => 'Đặt phòng, theo dõi đơn và nhận ưu đãi mọi lúc trên ứng dụng di động, tải miễn phí trên App Store và Google Play.'],
+                ]" />
+            </div>
+        </section>
+
+        <section class="py-6 sm:py-8 bg-gray-50">
+            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
+                <x-bladethemev1::seo-content.feature-grid title="Các loại hình lưu trú tại 365 Home" :columns="3" :items="[
+                    ['image' => 'images/hotel-176.webp', 'title' => 'Khách sạn', 'text' => 'Phòng nghỉ đầy đủ tiện nghi theo tiêu chuẩn khách sạn, phù hợp cho cả lưu trú ngắn ngày và dài ngày.'],
+                    ['image' => 'images/motel-176.webp', 'title' => 'Nhà nghỉ', 'text' => 'Lựa chọn tiết kiệm cho nhu cầu nghỉ ngơi theo giờ hoặc qua đêm, thủ tục nhận phòng nhanh gọn.'],
+                    ['image' => 'images/villa-176.webp', 'title' => 'Villa', 'text' => 'Không gian riêng tư, rộng rãi, phù hợp cho nhóm bạn, gia đình hoặc tổ chức sự kiện nhỏ.'],
+                    ['image' => 'images/apartment-176.webp', 'title' => 'Căn hộ', 'text' => 'Đầy đủ tiện nghi như ở nhà, phù hợp cho khách lưu trú dài ngày hoặc theo tuần/tháng.'],
+                    ['image' => 'images/minihouse-176.webp', 'title' => 'Mini house', 'text' => 'Mô hình nhà nhỏ khép kín, riêng tư, mức giá hợp lý, phù hợp cho cặp đôi hoặc khách đi một mình.'],
+                    ['image' => 'images/homestay-176.webp', 'title' => 'Homestay', 'text' => 'Không gian gần gũi, ấm cúng, mang trải nghiệm lưu trú theo phong cách địa phương.'],
+                ]" />
+            </div>
+        </section>
+
+        {{-- Cố tình dùng dạng PHP-inline MỘT DÒNG (không dùng dạng khối có từ khoá đóng riêng) —
+             file này đã có sẵn nhiều chỗ dùng dạng một dòng tương tự, không đóng bằng từ khoá khối
+             (VD $criticalBanner/$criticalBannerSrcset ở đầu file). Bộ nén Blade ghép directive MỞ
+             với từ khoá ĐÓNG DẠNG KHỐI đầu tiên tìm thấy trong TOÀN BỘ file bằng 1 regex non-greedy
+             duy nhất — kể cả bên trong comment — không quan tâm khối nào đang lồng khối nào. Nếu
+             thêm cặp mở/đóng dạng khối ở đây (hoặc gõ literal từ khoá đó ra trong comment), nó sẽ
+             bị ghép nhầm với directive một dòng ở tít phía trên, nuốt trọn nội dung ở giữa thành 1
+             khối PHP vỡ cú pháp (đã xảy ra thực tế). Vì vậy không thêm từ khoá đóng dạng khối mới
+             vào file này dưới bất kỳ hình thức nào — chỉ dùng dạng một dòng như dưới đây. JSON-LD
+             FAQPage giờ do component faq-accordion tự phát (xem components/seo-content/), không
+             cần tính $homeFaqSchema riêng ở đây nữa. --}}
+        @php($homeFaqs = [
+            ['q' => '365 Home có những loại hình lưu trú nào?', 'a' => 'Hệ thống 365 Home cung cấp nhiều loại hình lưu trú gồm khách sạn, nhà nghỉ, villa, căn hộ, mini house và homestay, hỗ trợ đặt phòng theo giờ hoặc theo ngày.'],
+            ['q' => 'Đặt phòng theo giờ tại 365 Home như thế nào?', 'a' => 'Khách chọn khung giờ nhận/trả phòng phù hợp ngay trên website hoặc ứng dụng 365 Home, hệ thống xác nhận đặt phòng ngay mà không cần gọi điện trước.'],
+            ['q' => 'Có thể hủy hoặc đổi lịch đặt phòng không?', 'a' => 'Chính sách hủy/đổi lịch có thể khác nhau theo từng loại phòng và thời điểm đặt, được hiển thị rõ trong bước đặt phòng trước khi thanh toán. Khách có thể liên hệ hotline để được hỗ trợ thêm.'],
+            ['q' => '365 Home có ứng dụng di động không?', 'a' => 'Có. Ứng dụng 365 Home có trên App Store và Google Play, cho phép đặt phòng, theo dõi đơn đặt và nhận ưu đãi.'],
+            ['q' => 'An ninh phòng ở 365 Home ra sao?', 'a' => 'Nhiều phòng/chi nhánh được trang bị khoá điện tử thông minh, hỗ trợ quản lý và mở khoá từ xa, giúp đảm bảo an toàn và thuận tiện cho khách lưu trú.'],
+            ['q' => 'Liên hệ 365 Home bằng cách nào?', 'a' => 'Khách có thể liên hệ qua hotline +84 939 174 365, email 365home.cantho@gmail.com hoặc các kênh mạng xã hội chính thức của 365 Home.'],
+        ])
+        <section class="py-6 sm:py-8 bg-white">
+            <div class="max-w-3xl mx-auto px-4 sm:px-6">
+                <x-bladethemev1::seo-content.faq-accordion :items="$homeFaqs" />
+            </div>
+        </section>
+    @endif
+
     <style>
         {{-- scrollbar-width:none (Firefox) thiếu trước đây — chỉ có -ms-overflow-style (IE/Edge cũ)
              và ::-webkit-scrollbar (Chrome/Safari), nên vẫn còn hiện thanh scroll ngang ở Firefox

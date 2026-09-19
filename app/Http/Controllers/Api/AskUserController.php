@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Models\AskUser;
+use App\Support\ImagePresetUrls;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Storage;
@@ -25,6 +26,7 @@ class AskUserController extends Controller
                 'image_url' => ! empty($item['image'])
                     ? Storage::disk('public')->url($item['image'])
                     : null,
+                'thumbnail' => ImagePresetUrls::build($item['image'] ?? null, 'public'),
             ])
             ->values()
             ->toArray();

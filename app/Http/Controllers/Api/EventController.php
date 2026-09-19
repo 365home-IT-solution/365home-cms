@@ -25,6 +25,7 @@ class EventController extends Controller
                 'title'       => $event->title,
                 'description' => $event->description,
                 'image_url'   => $event->image_url,
+                'thumbnail'   => $event->thumbnail,
             ])
             ->values();
 

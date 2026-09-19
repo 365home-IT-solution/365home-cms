@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Services\PromotionCalculator;
+use App\Support\MediaThumbnailUrls;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -1063,6 +1064,7 @@ class OrderController extends Controller
             'room_slug'                 => $firstItem?->product?->slug,
             'room_name'                 => $roomName,
             'room_thumbnail'            => $this->getRoomThumbnail($firstItem?->product),
+            'thumbnail'                 => $this->getRoomThumbnailVariants($firstItem?->product),
             'checkin'                   => $firstItem?->checkin_date?->format('Y-m-d H:i'),
             'checkout'                  => $lastItem?->checkout_date?->format('Y-m-d H:i'),
             'final_amount'              => (int) $order->full_amount,
@@ -1171,6 +1173,7 @@ class OrderController extends Controller
                 'slug'      => $product?->slug,
                 'name'      => $product?->name,
                 'thumbnail' => $this->getRoomThumbnail($product),
+                'thumbnail_variants' => $this->getRoomThumbnailVariants($product),
             ],
             'slots'           => $slots,
             'services'        => $services,
@@ -1540,5 +1543,18 @@ class OrderController extends Controller
               ?? $product->getFirstMedia();
 
         return $media?->getUrl();
+    }
+
+    private function getRoomThumbnailVariants(?\Modules\Product\App\Models\Product $product): ?array
+    {
+        if (! $product) {
+            return null;
+        }
+
+        $media = $product->getFirstMedia('Ảnh bìa')
+              ?? $product->getFirstMedia('Ảnh chính')
+              ?? $product->getFirstMedia();
+
+        return MediaThumbnailUrls::build($media);
     }
 }
