@@ -77,13 +77,17 @@ class ManageInvoice extends SettingsPage
                 Forms\Components\Section::make('Mẫu số / Ký hiệu hoá đơn')
                     ->description('Chuỗi đã đăng ký chính thức với MISA và cơ quan thuế — sai chuỗi này hoá đơn sẽ bị từ chối phát hành.')
                     ->schema([
+                        Forms\Components\TextInput::make('invoice_type_code')
+                            ->label('Loại mẫu hoá đơn')
+                            ->placeholder('01GTKT'),
+
                         Forms\Components\TextInput::make('invoice_template_code')
                             ->label('Mẫu số')
-                            ->placeholder('1'),
+                            ->placeholder('01GTKT0/001'),
 
                         Forms\Components\TextInput::make('invoice_series')
                             ->label('Ký hiệu')
-                            ->placeholder('C25TYY'),
+                            ->placeholder('1C25TYY'),
 
                         Forms\Components\TextInput::make('default_vat_rate')
                             ->label('Thuế suất GTGT mặc định (%)')
@@ -91,7 +95,7 @@ class ManageInvoice extends SettingsPage
                             ->step(0.01)
                             ->suffix('%'),
                     ])
-                    ->columns(3),
+                    ->columns(4),
 
                 Forms\Components\Section::make('Ký số')
                     ->description('Quyết định cách ký hoá đơn trước khi phát hành — hỏi bộ phận tích hợp MISA nếu chưa rõ công ty đang dùng loại nào.')

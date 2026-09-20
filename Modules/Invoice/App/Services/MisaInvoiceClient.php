@@ -7,6 +7,7 @@ namespace Modules\Invoice\App\Services;
 use App\Settings\InvoiceSettings;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Modules\Invoice\App\Models\Invoice;
 use RuntimeException;
 
@@ -101,9 +102,14 @@ class MisaInvoiceClient
     }
 
     /**
-     * TODO: điền đúng field JSON theo Postman collection/spec MISA gửi khi có AppID thật — hiện
-     * $buildCreateInvoicePayload() chỉ là khung với TÊN trường suy đoán hợp lý, CHƯA xác nhận đúng
-     * với MISA. Endpoint + cách gọi (header, auth) đã đúng theo tài liệu công khai.
+     * Body dựng theo đúng field-level spec object EInvoice + ví dụ InsertInvoiceParam
+     * (doc.meinvoice.vn/webapi/Description/Entity/EInvoice.html — trang "tích hợp nhanh" v2).
+     * LƯU Ý: đây là spec của luồng "tích hợp nhanh" (đẩy dữ liệu vào MISA meInvoice webapp), có thể
+     * khác đôi chút với schema riêng của endpoint "tích hợp sâu" v3 (/itg/invoicepublishing/
+     * createinvoice) đang gọi bên dưới — hai luồng dùng chung 1 bộ field cho dữ liệu hoá đơn (buyer/
+     * seller/line item) theo tài liệu MISA, nhưng CHƯA có xác nhận 100% giống nhau ở endpoint v3.
+     * Nếu MISA phản hồi lỗi "thiếu trường"/"sai định dạng" khi test thật với AppID, đối chiếu lại
+     * với Postman collection họ cấp riêng cho tài khoản tích hợp API để chỉnh theo.
      */
     private function createInvoice(Invoice $invoice): array
     {
@@ -125,28 +131,53 @@ class MisaInvoiceClient
         return $body['Data'];
     }
 
-    // CHƯA XÁC NHẬN — tên trường dưới đây là suy đoán từ mô tả chung của MISA, không phải spec
-    // chính thức. Phải thay bằng đúng field name MISA cấp trước khi dùng thật.
     private function buildCreateInvoicePayload(Invoice $invoice): array
     {
         $invoice->loadMissing('lines');
 
+        // IsMoreVATRate: hoá đơn có nhiều thuế suất khác nhau giữa các dòng — khi đó KHÔNG set 1
+        // VATRate chung ở mức data{} (để trống/0), thuế suất thật lấy từng dòng trong detail[].
+        $distinctRates = $invoice->lines->pluck('vat_rate')->unique();
+        $isMoreVatRate = $distinctRates->count() > 1;
+        $singleVatRate = $isMoreVatRate ? 0 : (float) $distinctRates->first();
+
         return [
-            'invoiceTemplateCode' => $this->settings->invoice_template_code,
-            'invoiceSeries'       => $this->settings->invoice_series,
-            'buyerName'           => $invoice->buyer_name,
-            'buyerTaxCode'        => $invoice->buyer_tax_code,
-            'buyerAddress'        => $invoice->buyer_address,
-            'buyerEmail'          => $invoice->buyer_email,
-            'items'               => $invoice->lines->map(fn ($line) => [
-                'description' => $line->description,
-                'unit'        => $line->unit,
-                'quantity'    => (float) $line->quantity,
-                'unitPrice'   => (int) $line->unit_price,
-                'vatRate'     => (float) $line->vat_rate,
-                'amount'      => (int) $line->amount,
-            ])->values()->all(),
-            'totalAmount' => (int) $invoice->total_amount,
+            'data' => [
+                'RefID'                 => (string) Str::uuid(),
+                'RefType'               => 0,
+                'InvTypeCode'           => $this->settings->invoice_type_code,
+                'InvTemplateNo'         => $this->settings->invoice_template_code,
+                'InvSeries'             => $this->settings->invoice_series,
+                'InvNo'                 => '<Chưa cấp số>',
+                'InvDate'               => ($invoice->created_at ?? now())->toIso8601String(),
+                'CompanyTaxCode'        => $this->settings->tax_code,
+                'AccountObjectName'     => $invoice->buyer_name,
+                'AccountObjectAddress'  => $invoice->buyer_address,
+                'AccountObjectTaxCode'  => $invoice->buyer_tax_code,
+                'ReceiverEmail'         => $invoice->buyer_email,
+                'ReceiverMobile'        => $invoice->buyer_phone,
+                'PaymentMethod'         => $invoice->order?->payment_method ?: 'TM/CK',
+                'CurrencyCode'          => 'VND',
+                'ExchangeRate'          => 1,
+                'TotalSaleAmount'       => (int) $invoice->subtotal_amount,
+                'TotalVATAmount'        => (int) $invoice->vat_amount,
+                'TotalAmount'           => (int) $invoice->total_amount,
+                'VATRate'               => $singleVatRate,
+                'IsMoreVATRate'         => $isMoreVatRate,
+                'PublishStatus'         => 0,
+            ],
+            'detail' => $invoice->lines->values()->map(fn ($line, $index) => [
+                'RefDetailID'       => (string) Str::uuid(),
+                'InventoryItemID'   => $line->order_item_id ? (string) $line->order_item_id : 'LINE-' . $line->id,
+                'InventoryItemCode' => $line->order_item_id ? (string) $line->order_item_id : 'LINE-' . $line->id,
+                'InventoryItemName' => $line->description,
+                'UnitName'          => $line->unit,
+                'Quantity'          => (float) $line->quantity,
+                'UnitPrice'         => (int) $line->unit_price,
+                'Amount'            => (int) $line->amount,
+                'VATRate'           => (float) $line->vat_rate,
+                'SortOrder'         => $index,
+            ])->all(),
         ];
     }
 

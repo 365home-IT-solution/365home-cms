@@ -29,7 +29,12 @@ class InvoiceSettings extends Settings
 
     public ?string $password;
 
-    // Mẫu số / Ký hiệu hoá đơn đã đăng ký với MISA (VD "1", "C25TYY").
+    // Mẫu số / Ký hiệu hoá đơn đã đăng ký với MISA. Theo đúng field-level spec object EInvoice
+    // (doc.meinvoice.vn/webapi/Description/Entity/EInvoice.html): InvTypeCode là "loại mẫu" (VD
+    // "01GTKT" — hoá đơn GTGT thường), InvTemplateNo là mẫu số ĐẦY ĐỦ (VD "01GTKT0/001"), InvSeries
+    // là ký hiệu (VD "AB/19E" hoặc theo Nghị định 70/2025 dạng mới "1C25TYY").
+    public ?string $invoice_type_code;
+
     public ?string $invoice_template_code;
 
     public ?string $invoice_series;
@@ -60,6 +65,7 @@ class InvoiceSettings extends Settings
             && filled($this->tax_code)
             && filled($this->username)
             && filled($this->password)
+            && filled($this->invoice_type_code)
             && filled($this->invoice_template_code)
             && filled($this->invoice_series);
     }
