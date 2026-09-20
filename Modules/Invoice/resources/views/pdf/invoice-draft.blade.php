@@ -41,6 +41,23 @@
 
     <table class="meta-table">
         <tr>
+            <td class="meta-label">Đơn vị bán hàng:</td>
+            <td colspan="3"><strong>{{ $seller?->name ?: '(Chưa cấu hình Thông tin công ty)' }}</strong></td>
+        </tr>
+        <tr>
+            <td class="meta-label">Mã số thuế:</td>
+            <td>{{ $seller?->tax_code ?: '—' }}</td>
+            <td class="meta-label">Điện thoại:</td>
+            <td>{{ $seller?->phone ?: '—' }}</td>
+        </tr>
+        <tr>
+            <td class="meta-label">Địa chỉ:</td>
+            <td colspan="3">{{ $seller?->address ?: '—' }}</td>
+        </tr>
+    </table>
+
+    <table class="meta-table" style="margin-top: 10px;">
+        <tr>
             <td class="meta-label">Mã đơn hàng:</td>
             <td><strong>{{ $invoice->order?->order_code ?? '—' }}</strong></td>
             <td class="meta-label">Ngày tạo bản nháp:</td>
@@ -105,6 +122,8 @@
             <td class="value">{{ number_format((int) $invoice->total_amount, 0, ',', '.') }} đ</td>
         </tr>
     </table>
+
+    <p style="font-style: italic; margin-top: 4px;">Số tiền viết bằng chữ: {{ $amountText }}</p>
 
     <p class="footer-note">
         Bản nháp được tạo tự động từ đơn hàng {{ $invoice->order?->order_code }} trong hệ thống 365 Home.
