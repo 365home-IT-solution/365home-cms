@@ -8,6 +8,7 @@ use Filament\Notifications\Notification;
 use Filament\Support\Enums\FontWeight;
 use Filament\Tables\Actions\Action;
 use Modules\Payment\App\Filament\Resources\OrderResource\Tables\Actions\AssignAccessCodeAction;
+use Modules\Payment\App\Filament\Resources\OrderResource\Tables\Actions\IssueInvoiceDraftAction;
 use Modules\Payment\App\Filament\Resources\OrderResource\Tables\Actions\OpenGateAction;
 use PayOS\PayOS;
 use Filament\Tables\Columns\BadgeColumn;
@@ -804,7 +805,7 @@ class OrderTable
         return new HtmlString($html);
     }),
                 ],
-                OrderAction::action(static::gateActions())
+                OrderAction::action(array_merge(static::gateActions(), [IssueInvoiceDraftAction::make()]))
             ), position: ActionsPosition::BeforeCells)
             ->bulkActions(OrderBulkAction::bulkActions());
     }

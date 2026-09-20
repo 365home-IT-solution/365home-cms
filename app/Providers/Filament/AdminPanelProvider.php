@@ -166,6 +166,7 @@ class AdminPanelProvider extends PanelProvider
                 FormPlugin::make(),
 //                ThemeStudioPlugin::make(),
                 PaymentPlugin::make(),
+                \Modules\Invoice\App\Filament\InvoicePlugin::make(),
                 SettingCompanyPlugin::make(),
                 AccessCodePlugin::make(),
                 ZnsPlugin::make(),

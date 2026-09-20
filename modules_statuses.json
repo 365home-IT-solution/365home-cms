@@ -28,5 +28,6 @@
     "Employee": true,
     "Warehouse": true,
     "Minihouse": true,
-    "Metering": true
+    "Metering": true,
+    "Invoice": true
 }
