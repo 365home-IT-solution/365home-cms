@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Admin\AuthController as AdminAuthController;
 use App\Http\Controllers\Api\Admin\BookingController as AdminBookingController;
 use App\Http\Controllers\Api\Admin\BranchController as AdminBranchController;
+use App\Http\Controllers\Api\Admin\CameraController as AdminCameraController;
 use App\Http\Controllers\Api\Admin\CategoryController as AdminCategoryController;
 use App\Http\Controllers\Api\Admin\CccdController as AdminCccdController;
 use App\Http\Controllers\Api\Admin\ChatController as AdminChatController;
@@ -854,6 +855,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/cccd')->name('ap
 | phiếu nhập/xuất/kiểm kê. Xem docblock từng Controller để biết chi tiết field & quy tắc nghiệp vụ
 | (chặn xuất vượt tồn, tồn kho tự cộng/trừ theo phiếu...).
 |
+| GET    /api/admin/warehouse/scan              → ?code=<mã quét được>&branch_id= — tra 1 vật tư
+|                                                   theo mã QR/mã vạch đọc được (so khớp cột "sku"),
+|                                                   CHỈ TRA CỨU không tự thêm vào phiếu nào — xem
+|                                                   docblock WarehouseItemController::scan().
 | GET    /api/admin/warehouse/categories       → ?all=1  |  POST/PUT/DELETE
 | GET    /api/admin/warehouse/units             → ?all=1  |  POST/PUT/DELETE
 | GET    /api/admin/warehouse/items             → ?search=&category_id=&unit_id=&low_stock=1&all=&per_page=
@@ -864,6 +869,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/cccd')->name('ap
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/warehouse')->name('api.admin.warehouse.')->group(function () {
+    Route::get('scan', [WarehouseItemController::class, 'scan'])->name('scan');
+
     Route::prefix('categories')->name('categories.')->group(function () {
         Route::get('/', [WarehouseCategoryController::class, 'index'])->name('index');
         Route::post('/', [WarehouseCategoryController::class, 'store'])->name('store');
@@ -909,4 +916,67 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/warehouse')->nam
         Route::put('/{id}', [WarehouseStockCheckController::class, 'update'])->name('update')->whereNumber('id');
         Route::delete('/{id}', [WarehouseStockCheckController::class, 'destroy'])->name('destroy')->whereNumber('id');
     });
+});
+
+/*
+|--------------------------------------------------------------------------
+| Camera — Xem camera trực tiếp cho app riêng (App\Models\Camera, cùng dữ liệu với menu "Camera" và
+| trang "Xem camera" trên CMS — App\Filament\Pages\CameraMonitor). Camera là danh mục THAM CHIẾU tới
+| nguồn có sẵn trong Frigate (server NVR riêng, ngoài dự án này) qua "stream_key" — xem docblock
+| App\Models\Camera và App\Http\Controllers\Api\Admin\CameraController.
+|
+| Cách hoạt động: server 365home-cms tự đăng nhập Frigate bằng tài khoản cấu hình sẵn (Cấu hình web
+| > Camera trên CMS, App\Settings\CameraSettings + App\Services\FrigateSessionClient) — app/KHÔNG
+| BAO GIỜ cần biết tài khoản Frigate. Mỗi camera trả về sẵn 1 "ws_url" — 1 địa chỉ WebSocket đã ký
+| token (App\Support\CameraWsToken, hạn dùng 12 tiếng), app chỉ cần mở kết nối WebSocket tới đúng
+| địa chỉ đó là nhận được luồng video, không cần gọi thêm API nào khác để "đăng nhập" camera.
+|
+| GET /api/admin/cameras          → Toàn bộ camera trong phạm vi tài khoản (super_admin: tất cả;
+|                                    tài khoản thường: đúng đối tác + chi nhánh được phép xem — cùng
+|                                    phạm vi App\Models\User::effectiveBranchIds()).
+|                                    ?status=1 (mặc định) chỉ lấy camera đang bật, ?status=all lấy cả
+|                                    camera đang tắt, ?status=0 chỉ lấy camera đang tắt.
+|                                    ?branch_id= lọc thêm đúng 1 chi nhánh cụ thể.
+|                                    Response:
+|                                    {
+|                                      "go2rtc_configured": true,   // false = CMS chưa cấu hình
+|                                                                   // server Frigate, "data" sẽ có
+|                                                                   // ws_url = null cho mọi camera
+|                                      "data": [
+|                                        {
+|                                          "id": 14,
+|                                          "name": "Lầu 1 (254)",
+|                                          "branch": { "id": 167, "name": "254 Xuân Thủy, An Bình, Cần Thơ" },
+|                                          "status": true,
+|                                          "ws_url": "wss://<domain>/ws/camera-proxy?token=<đã ký, hạn 12h>",
+|                                          "note": null
+|                                        },
+|                                        ...
+|                                      ]
+|                                    }
+| GET /api/admin/cameras/{id}     → 1 camera, kèm ws_url MỚI (dùng để làm mới token khi token cũ đã
+|                                    hết hạn sau 12 tiếng, không cần gọi lại toàn bộ danh sách).
+|
+| Phát video từ "ws_url": đây là giao thức riêng của go2rtc (MSE-qua-WebSocket), KHÔNG PHẢI file
+| video phát trực tiếp qua <video src=...> hay HLS thông thường — client phải:
+|   1. Mở kết nối WebSocket tới "ws_url".
+|   2. Gửi lên 1 tin nhắn JSON dạng văn bản: {"type":"mse","value":"<danh sách codec, phân cách bởi
+|      dấu phẩy, KHÔNG có mime prefix>"} — ví dụ value:
+|      "avc1.640029,avc1.64002A,avc1.640033,hvc1.1.6.L153.B0,mp4a.40.2,mp4a.40.5,flac,opus"
+|      (danh sách đầy đủ mọi codec go2rtc có thể trả, gửi hết 1 lần, server tự chọn đúng codec camera
+|      đang có sẵn — không cần app tự dò codec).
+|   3. Server trả về 1 tin JSON xác nhận {"type":"mse","value":"video/mp4; codecs=\"...\""} rồi bắt
+|      đầu gửi liên tục các khung NHỊ PHÂN (dữ liệu video fragment MP4) — nối các khung này vào
+|      MediaSource/SourceBuffer (Web) hoặc thư viện tương đương hỗ trợ "fragmented MP4 qua WebSocket"
+|      phía app (Android/iOS/React Native/Flutter — KHÔNG có sẵn <video-rtc> như bản web, cần tìm/
+|      viết client tương thích giao thức này riêng cho app, xem public/vendor/go2rtc/video-rtc.js để
+|      đối chiếu THAM KHẢO cách web đang làm nếu cần viết lại bằng ngôn ngữ khác).
+| Không tự đoán/viết lại giao thức này khác đi — sai lệch dù nhỏ (thứ tự bước, định dạng chuỗi
+| "value") khiến go2rtc không phản hồi gì mà không báo lỗi rõ ràng, đã tự xác nhận qua thực tế khi
+| làm trang web.
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/cameras')->name('api.admin.cameras.')->group(function () {
+    Route::get('/', [AdminCameraController::class, 'index'])->name('index');
+    Route::get('/{id}', [AdminCameraController::class, 'show'])->name('show')->whereNumber('id');
 });

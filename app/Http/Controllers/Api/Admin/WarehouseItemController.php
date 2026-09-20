@@ -24,6 +24,57 @@ use Modules\Warehouse\App\Models\WarehouseItem;
 class WarehouseItemController extends Controller
 {
     /**
+     * GET /api/admin/warehouse/scan?code=<mã quét được>&branch_id=<tuỳ chọn>
+     * Tra 1 vật tư theo ĐÚNG mã quét được từ camera/máy quét mã vạch (QR hoặc barcode thường —
+     * KHÔNG phân biệt loại mã, chỉ so khớp NGUYÊN VĂN chuỗi đọc được với cột "sku" của vật tư,
+     * cùng cơ chế với Modules\Warehouse\App\Filament\Support\WarehouseBarcodeScan::handle() đang
+     * dùng ở web). CHỈ TRA CỨU, không tự thêm vào phiếu nào — app tự quyết định dùng kết quả này để
+     * thêm vào danh sách đang tạo (phiếu nhập/xuất/kiểm kê) rồi gọi POST tương ứng khi hoàn tất.
+     *
+     * "branch_id": nên truyền khi tài khoản quản lý nhiều chi nhánh và đang thao tác trên phiếu của
+     * 1 chi nhánh cụ thể — vật tư trùng SKU ở CHI NHÁNH KHÁC sẽ không khớp. Bỏ trống nếu vật tư
+     * không trùng SKU giữa các chi nhánh, hoặc tài khoản chỉ quản lý đúng 1 chi nhánh.
+     */
+    public function scan(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $data = $request->validate([
+            'code'      => 'required|string|max:255',
+            'branch_id' => 'nullable|integer',
+        ]);
+
+        $query = WarehouseItem::query()
+            ->with(['category:id,name', 'unit:id,name'])
+            ->where('sku', $data['code'])
+            ->where('status', true);
+
+        if (! $user->isSuperAdmin()) {
+            $query->where('partner_id', $user->partner_id);
+
+            $branchIds = $user->rootProductCategoryIds();
+            if (! empty($branchIds)) {
+                $query->whereIn('branch_id', $branchIds);
+            }
+        }
+
+        if (! empty($data['branch_id'])) {
+            $query->where('branch_id', $data['branch_id']);
+        }
+
+        $item = $query->first();
+
+        if (! $item) {
+            return response()->json([
+                'message' => "Không tìm thấy vật tư với mã: {$data['code']}",
+            ], 404);
+        }
+
+        return response()->json(['data' => $item]);
+    }
+
+    /**
      * GET /api/admin/warehouse/items
      * Query params: search (tên/sku), category_id, unit_id, low_stock=1, all=1 (lấy cả vật tư ngừng
      * dùng), per_page (mặc định 20)

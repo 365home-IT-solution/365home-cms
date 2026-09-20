@@ -289,11 +289,28 @@ Quyền: `view_any_rooms` / `create_rooms` / `update_rooms` / `delete_rooms`.
     "status": "bao_tri",
     "note": null,
     "photos": ["minihouse/rooms/abc.jpg"],
+    "video": { "url": "https://..." },
+    "panorama_scenes": [
+      { "id": 686, "title": "Tổng thể phòng", "image_path": "minihouse/panoramas/....jpg", "thumbnail_path": "...", "initial_yaw": 0, "initial_pitch": 0 }
+    ],
     "amenities": [{ "id": 1, "name": "Máy lạnh" }],
+    "tenants": [{ "id": 13525, "fullname": "Nguyễn Công Toàn", "phone": "0769628651" }],
+    "owner": {
+      "name": "Nguyễn Văn A",
+      "phone": "0769628651",
+      "bank_name": "VietinBank",
+      "bank_account_number": "100876574685",
+      "bank_account_holder": "NGUYEN MINH QUANG"
+    },
     "created_at": "...", "updated_at": "..."
   }
 }
 ```
+
+`tenants`: khách ĐANG Ở phòng này (room_id trỏ thẳng), mảng rỗng nếu phòng đang trống. `owner`:
+thông tin chủ nhà + tài khoản ngân hàng nhận tiền — lấy từ Toà nhà (không nhập lại theo từng
+phòng). `video`: `null` nếu chưa gán video. `panorama_scenes`: ảnh 360° nội thất đã publish (rỗng
+nếu phòng chưa có tour 360°).
 
 ### `POST /rooms`
 
