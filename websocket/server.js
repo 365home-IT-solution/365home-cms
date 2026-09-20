@@ -1,6 +1,9 @@
 const express = require('express');
 const http    = require('http');
-const { Server } = require('socket.io');
+const crypto  = require('crypto');
+const { URL } = require('url');
+const { Server }  = require('socket.io');
+const WebSocket    = require('ws');
 
 const app    = express();
 const server = http.createServer(app);
@@ -8,6 +11,10 @@ const server = http.createServer(app);
 const WS_PORT       = process.env.WS_PORT       || 3001;
 const INTERNAL_KEY  = process.env.WS_INTERNAL_KEY || 'change-me-in-env';
 const ALLOWED_ORIGIN = process.env.WS_ALLOWED_ORIGIN || '*';
+// Địa chỉ Laravel gọi NGƯỢC LẠI (Node → Laravel) để xin cookie phiên Frigate hiện có — khác chiều
+// với INTERNAL_KEY vốn dùng cho Laravel → Node, nhưng dùng CHUNG giá trị khoá bí mật đó (xem
+// App\Support\CameraWsToken — Laravel ký token cho trình duyệt bằng đúng khoá này).
+const LARAVEL_INTERNAL_URL = process.env.LARAVEL_INTERNAL_URL || 'http://127.0.0.1';
 
 const io = new Server(server, {
     cors: {
@@ -535,6 +542,175 @@ app.post('/internal/notify-all', (req, res) => {
 // ── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => {
     res.json({ status: 'ok', connections: io.engine.clientsCount });
+});
+
+// ── Camera proxy (xem camera Frigate trực tiếp trên web) ─────────────────────
+// Trình duyệt (365home-cms.test) không thể tự nói chuyện WebSocket với Frigate: (1) khác domain
+// nên không tự có cookie phiên đăng nhập Frigate, (2) tài khoản/mật khẩu Frigate không được phép lộ
+// ra trình duyệt. Proxy này đứng giữa: xác minh token do Laravel ký (App\Support\CameraWsToken),
+// xin cookie phiên hiện có từ Laravel (route nội bộ /internal/frigate-session — Laravel tự lo việc
+// đăng nhập/cache, xem App\Services\FrigateSessionClient), rồi mở 1 kết nối WebSocket THAY MẶT
+// trình duyệt sang đúng endpoint go2rtc dùng bên trong Frigate (xác nhận thực tế qua DevTools:
+// wss://<frigate>/live/mse/api/ws?src=<stream_key>), chuyển tiếp dữ liệu nhị phân 2 chiều nguyên
+// vẹn. Trình duyệt phát video bằng client CHÍNH THỨC của go2rtc (public/vendor/go2rtc/video-rtc.js,
+// custom element <video-rtc>) — không tự chế lại giao thức MSE-qua-WebSocket ở đây.
+function verifyCameraToken(token) {
+    if (!token || !token.includes('.')) return null;
+
+    const dotIndex   = token.lastIndexOf('.');
+    const payloadB64 = token.slice(0, dotIndex);
+    const signature  = token.slice(dotIndex + 1);
+
+    const expected = crypto.createHmac('sha256', INTERNAL_KEY).update(payloadB64).digest('hex');
+
+    // timingSafeEqual đòi hỏi 2 buffer CÙNG ĐỘ DÀI — chữ ký sai độ dài (giả mạo/hỏng) phải coi là
+    // KHÔNG khớp thay vì làm crash hàm này.
+    const sigBuf = Buffer.from(signature, 'hex');
+    const expBuf = Buffer.from(expected, 'hex');
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+        return null;
+    }
+
+    try {
+        const payload = JSON.parse(Buffer.from(payloadB64, 'base64').toString('utf8'));
+        if (!payload.stream_key || !payload.base_url || !payload.exp) return null;
+        if (payload.exp * 1000 < Date.now()) return null; // hết hạn — chỉ dùng được ngay lúc tải trang
+        return payload;
+    } catch (e) {
+        return null;
+    }
+}
+
+async function fetchFrigateSessionCookie() {
+    const resp = await fetch(`${LARAVEL_INTERNAL_URL}/internal/frigate-session`, {
+        method: 'POST',
+        headers: { 'x-internal-key': INTERNAL_KEY },
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.cookie) {
+        throw new Error(data.error || `Laravel trả về lỗi (HTTP ${resp.status})`);
+    }
+    return data.cookie;
+}
+
+// perMessageDeflate: false — thư viện `ws` MẶC ĐỊNH nén mọi khung qua permessage-deflate. Với
+// video (khung nhị phân ~10-300KB liên tục), việc nén/giải nén 2 LẦN (Frigate→proxy rồi
+// proxy→trình duyệt đều tự nén lại) tốn CPU/độ trễ đáng kể, biểu hiện ra ngoài là video giật/khựng
+// lặp lại theo chu kỳ vài giây (đã tự đo: qua proxy chỉ được ~2,4 khung/giây, kết nối thẳng không
+// qua proxy được ~12 khung/giây — cùng 1 camera, cùng thời điểm). Dữ liệu H.264/H.265 đã nén sẵn
+// (video), nén thêm lần nữa gần như không giảm dung lượng mà chỉ tốn thêm thời gian xử lý.
+const cameraWss = new WebSocket.Server({ noServer: true, perMessageDeflate: false });
+
+// Chỉ nhận upgrade WebSocket đúng path '/camera-proxy' — socket.io tự lọc riêng path '/socket.io/'
+// của nó, 2 listener 'upgrade' trên CÙNG 1 http server không xung đột nhau (mỗi bên tự bỏ qua
+// path không phải của mình).
+server.on('upgrade', (request, socket, head) => {
+    let pathname;
+    try {
+        pathname = new URL(request.url, 'http://localhost').pathname;
+    } catch (e) {
+        return;
+    }
+
+    if (pathname !== '/camera-proxy') return;
+
+    cameraWss.handleUpgrade(request, socket, head, (ws) => {
+        cameraWss.emit('connection', ws, request);
+    });
+});
+
+cameraWss.on('connection', (clientWs, request) => {
+    // video-rtc.js gửi ngay JSON chọn codec ({type:'mse', value:...}) NGAY khi kết nối WebSocket vừa
+    // mở — không biết/không quan tâm việc phía sau ta còn phải xin cookie (1 lượt HTTP call) rồi
+    // mới mở được kết nối upstream. PHẢI đăng ký clientWs.on('message', ...) NGAY LẬP TỨC, TRƯỚC
+    // MỌI await bên dưới — event 'message' của thư viện `ws` KHÔNG có cơ chế queue cho listener gắn
+    // muộn, gắn sau 1 await (dù chỉ vài ms) là mất trắng tin nhắn đến sớm, hỏng luôn handshake MSE
+    // (đã tự xác nhận bug này qua kịch bản test client gửi ngay lúc 'open').
+    const pendingFromClient = [];
+    let upstreamWs = null;
+    let closed = false;
+
+    // QUAN TRỌNG: thư viện `ws` giao cả khung TEXT lẫn BINARY cho callback 'message' dưới dạng
+    // Buffer như nhau — PHẢI tự đọc tham số thứ 2 `isBinary` và truyền lại đúng `{binary: isBinary}`
+    // khi gửi tiếp, nếu không `.send(buffer)` mặc định LUÔN gửi dạng BINARY frame. go2rtc phân biệt
+    // rạch ròi: JSON handshake (chọn codec) bắt buộc là khung TEXT, dữ liệu video là khung BINARY —
+    // gửi nhầm khung JSON handshake thành binary khiến go2rtc không parse được, im lặng không phản
+    // hồi gì (đã tự xác nhận bug này: kết nối lên thẳng Frigate thật thành công nhưng không có khung
+    // hình nào trả về, cho tới khi sửa đúng chỗ này).
+    clientWs.on('message', (data, isBinary) => {
+        const frame = { data, isBinary };
+        if (upstreamWs && upstreamWs.readyState === WebSocket.OPEN) {
+            upstreamWs.send(data, { binary: isBinary });
+        } else {
+            pendingFromClient.push(frame);
+        }
+    });
+
+    const closeBoth = (code, reason) => {
+        if (closed) return;
+        closed = true;
+        try { clientWs.close(code, reason); } catch (e) {}
+        if (upstreamWs) { try { upstreamWs.close(); } catch (e) {} }
+    };
+
+    clientWs.on('close', () => closeBoth(1000, 'client closed'));
+    clientWs.on('error', () => closeBoth(1011, 'client error'));
+
+    (async () => {
+        const { searchParams } = new URL(request.url, 'http://localhost');
+        const payload = verifyCameraToken(searchParams.get('token'));
+
+        if (!payload) {
+            console.log('[CameraProxy] token không hợp lệ/hết hạn — đóng kết nối');
+            closeBoth(4001, 'Invalid or expired token');
+            return;
+        }
+
+        let cookie;
+        try {
+            cookie = await fetchFrigateSessionCookie();
+        } catch (e) {
+            console.error('[CameraProxy] không lấy được cookie phiên Frigate:', e.message);
+            closeBoth(4002, 'Cannot get Frigate session');
+            return;
+        }
+
+        if (closed) return; // trình duyệt đã đóng kết nối trong lúc ta còn đang chờ xin cookie ở trên
+
+        const upstreamBase = payload.base_url.replace(/^http/, 'ws').replace(/\/$/, '');
+        const upstreamUrl  = `${upstreamBase}/live/mse/api/ws?src=${encodeURIComponent(payload.stream_key)}`;
+
+        console.log(`[CameraProxy] connecting upstream: src=${payload.stream_key}`);
+
+        upstreamWs = new WebSocket(upstreamUrl, { headers: { Cookie: cookie }, perMessageDeflate: false });
+        upstreamWs.binaryType = 'arraybuffer';
+
+        upstreamWs.on('open', () => {
+            // Tắt thuật toán Nagle trên cả 2 socket — mặc định Nagle gộp các gói tin nhỏ lại rồi mới
+            // gửi (chờ ACK hoặc đủ kích thước), gây trễ thêm vài chục-vài trăm ms mỗi khung hình khi
+            // relay qua lại liên tục kiểu proxy này. `_socket` không phải API chính thức của `ws`
+            // nhưng là cách dùng phổ biến/được khuyến nghị trong cộng đồng cho đúng mục đích này.
+            if (upstreamWs._socket) upstreamWs._socket.setNoDelay(true);
+            if (clientWs._socket) clientWs._socket.setNoDelay(true);
+
+            console.log(`[CameraProxy] upstream connected: src=${payload.stream_key}`);
+            while (pendingFromClient.length > 0) {
+                const frame = pendingFromClient.shift();
+                upstreamWs.send(frame.data, { binary: frame.isBinary });
+            }
+        });
+
+        upstreamWs.on('message', (data, isBinary) => {
+            if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data, { binary: isBinary });
+        });
+
+        upstreamWs.on('close', (code) => closeBoth(1000, `upstream closed (${code})`));
+
+        upstreamWs.on('error', (err) => {
+            console.error(`[CameraProxy] upstream error (src=${payload.stream_key}):`, err.message);
+            closeBoth(1011, 'upstream error');
+        });
+    })();
 });
 
 server.listen(WS_PORT, () => {

@@ -55,7 +55,9 @@ class RoomController extends Controller
             return response()->json(['message' => 'Không có quyền xem phòng.'], 403);
         }
 
-        $room = Room::withoutGlobalScope('activeBuilding')->with('building:id,name', 'amenities:id,name')->find($id);
+        $room = Room::withoutGlobalScope('activeBuilding')
+            ->with(['building:id,name', 'amenities:id,name', 'tenants', 'panoramaScenes' => fn ($q) => $q->where('is_published', true)])
+            ->find($id);
 
         if (! $room || ! $this->isBuildingAllowed($request, $room->building_id)) {
             return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
@@ -238,21 +240,60 @@ class RoomController extends Controller
     private function toDetailItem(Room $room): array
     {
         return [
-            'id'            => $room->id,
-            'building_id'   => $room->building_id,
-            'building_name' => $room->building?->name,
-            'code'          => $room->code,
-            'floor'         => $room->floor,
-            'position_row'  => $room->position_row,
-            'position_col'  => $room->position_col,
-            'area'          => $room->area,
-            'price'         => $room->price,
-            'status'        => $room->status,
-            'note'          => $room->note,
-            'photos'        => $room->photos,
-            'amenities'     => $room->amenities->map(fn ($a) => ['id' => $a->id, 'name' => $a->name]),
-            'created_at'    => $room->created_at?->toIso8601String(),
-            'updated_at'    => $room->updated_at?->toIso8601String(),
+            'id'              => $room->id,
+            'building_id'     => $room->building_id,
+            'building_name'   => $room->building?->name,
+            'code'            => $room->code,
+            'floor'           => $room->floor,
+            'position_row'    => $room->position_row,
+            'position_col'    => $room->position_col,
+            'area'            => $room->area,
+            'price'           => $room->price,
+            'status'          => $room->status,
+            'note'            => $room->note,
+            'photos'          => $room->photos,
+            'video'           => $this->toVideo($room),
+            'panorama_scenes' => $room->relationLoaded('panoramaScenes')
+                ? $room->panoramaScenes->map(fn ($s) => [
+                    'id'              => $s->id,
+                    'title'           => $s->title,
+                    'image_path'      => $s->image_path,
+                    'thumbnail_path'  => $s->thumbnail_path,
+                    'initial_yaw'     => $s->initial_yaw,
+                    'initial_pitch'   => $s->initial_pitch,
+                ])
+                : [],
+            'amenities'       => $room->amenities->map(fn ($a) => ['id' => $a->id, 'name' => $a->name]),
+            // Khách thuê ĐANG Ở phòng này (room_id trỏ thẳng, khách đã trả phòng thì room_id đã về
+            // null/phòng khác nên không lọt vào đây) — thêm để client không phải gọi thêm API
+            // /tenants?room_id= riêng chỉ để biết phòng này ai đang ở.
+            'tenants'         => $room->relationLoaded('tenants')
+                ? $room->tenants->map(fn ($t) => [
+                    'id'    => $t->id,
+                    'fullname' => $t->fullname,
+                    'phone'    => $t->phone,
+                ])
+                : [],
+            // Thông tin chủ nhà/tài khoản nhận tiền lấy THẲNG từ toà nhà (module chủ nhà quản lý
+            // riêng, xem Building::getOwner*Attribute()) — KHÔNG lưu lặp lại theo từng phòng để tránh
+            // phải nhập lại nhiều lần và tránh lệch dữ liệu giữa các phòng cùng toà.
+            'owner'           => [
+                'name'                 => $room->building?->owner_name,
+                'phone'                => $room->building?->owner_phone,
+                'bank_name'            => $room->building?->owner_bank_name,
+                'bank_account_number'  => $room->building?->owner_bank_account_number,
+                'bank_account_holder'  => $room->building?->owner_bank_account_holder,
+            ],
+            'created_at'      => $room->created_at?->toIso8601String(),
+            'updated_at'      => $room->updated_at?->toIso8601String(),
         ];
+    }
+
+    private function toVideo(Room $room): ?array
+    {
+        $setting = is_array($room->setting_video_room) ? $room->setting_video_room : [];
+        $url     = $setting['url'] ?? null;
+
+        return $url ? ['url' => $url] : null;
     }
 }

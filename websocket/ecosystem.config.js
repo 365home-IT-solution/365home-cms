@@ -27,6 +27,10 @@ module.exports = {
                 WS_PORT:          readEnv('WS_PORT')          || 3001,
                 WS_INTERNAL_KEY:  readEnv('WS_INTERNAL_KEY'),
                 WS_ALLOWED_ORIGIN: readEnv('WS_ALLOWED_ORIGIN') || 'https://365home.vn',
+                // Node gọi NGƯỢC vào Laravel (route nội bộ /internal/frigate-session, xem
+                // CameraProxy trong server.js) — dùng địa chỉ nội bộ (localhost/127.0.0.1 nếu cùng
+                // máy) thay vì domain public để tránh vòng qua Internet/CDN không cần thiết.
+                LARAVEL_INTERNAL_URL: readEnv('LARAVEL_INTERNAL_URL') || readEnv('APP_URL') || 'http://127.0.0.1',
             },
             error_file: '/home/dev/.pm2/logs/365home-ws-error.log',
             out_file:   '/home/dev/.pm2/logs/365home-ws-out.log',

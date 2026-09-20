@@ -30,7 +30,7 @@ class TenantController extends Controller
 
         $tenants = Tenant::query()
             ->withoutGlobalScopes()
-            ->with('room:id,code,building_id')
+            ->with('room:id,name,building_id')
             ->whereHas('room', fn ($q) => $q->whereIn('building_id', $permitted))
             ->when($request->filled('room_id'), fn ($q) => $q->where('room_id', $request->input('room_id')))
             ->when($request->filled('search'), fn ($q) => $q->where(fn ($q2) => $q2

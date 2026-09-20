@@ -35,7 +35,7 @@ class ContractController extends Controller
 
         $contracts = Contract::query()
             ->withoutGlobalScopes()
-            ->with(['room:id,code,building_id', 'tenant:id,fullname'])
+            ->with(['room:id,name,building_id', 'tenant:id,fullname'])
             ->whereHas('room', fn ($q) => $q->whereIn('building_id', $permitted))
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
             ->when($request->filled('room_id'), fn ($q) => $q->where('room_id', $request->input('room_id')))

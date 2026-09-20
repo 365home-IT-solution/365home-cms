@@ -1049,6 +1049,27 @@ Route::middleware(['auth', 'web', 'throttle:120,1', \App\Http\Middleware\MarkAdm
     })->name('admin.monthly-revenue');
 });
 
+// Nội bộ: Node WebSocket proxy (websocket/server.js, endpoint /camera-proxy) gọi vào đây để xin
+// cookie phiên Frigate hiện có — KHÔNG dùng middleware 'auth' (Node gọi server-to-server, không có
+// phiên đăng nhập Filament nào cả), tự bảo vệ bằng khoá bí mật dùng chung X-Internal-Key (đã có sẵn
+// cho chiều ngược lại Laravel → Node, xem app/Services/OrderRealtimeService.php và tương tự). Xem
+// App\Models\Camera::wsProxyUrl() (nơi tạo token cho trình duyệt) và App\Services\
+// FrigateSessionClient (nơi thật sự đăng nhập Frigate).
+Route::post('/internal/frigate-session', function (\Illuminate\Http\Request $request) {
+    if (! hash_equals((string) config('services.websocket.internal_key'), (string) $request->header('x-internal-key'))) {
+        return response()->json(['error' => 'Forbidden'], 403);
+    }
+
+    $error  = null;
+    $cookie = app(\App\Services\FrigateSessionClient::class)->getSessionCookie(false, $error);
+
+    if ($cookie === null) {
+        return response()->json(['error' => $error], 502);
+    }
+
+    return response()->json(['cookie' => $cookie]);
+});
+
 // Ký hợp đồng điện tử — trang CÔNG KHAI (không cần đăng nhập CMS), đối tác nhận link qua email
 // từ super_admin (xem PartnerForm::contractTab()). Rate-limit để chặn brute-force token/OTP.
 Route::middleware(['web', 'throttle:30,1'])->prefix('hop-dong')->group(function () {

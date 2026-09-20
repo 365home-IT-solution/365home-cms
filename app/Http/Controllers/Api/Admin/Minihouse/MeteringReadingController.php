@@ -37,7 +37,7 @@ class MeteringReadingController extends Controller
 
         $readings = MeteringReading::query()
             ->withoutGlobalScopes()
-            ->with('room:id,code,building_id,floor')
+            ->with('room:id,name,building_id')
             ->whereHas('room', fn ($q) => $q->whereIn('building_id', $permitted))
             ->when($request->filled('room_id'), fn ($q) => $q->where('room_id', $request->input('room_id')))
             ->when($request->filled('month'), fn ($q) => $q->whereDate('month', Carbon::parse($request->string('month'))->startOfMonth()))
@@ -56,7 +56,7 @@ class MeteringReadingController extends Controller
             return response()->json(['message' => 'Không có quyền xem Số điện nước.'], 403);
         }
 
-        $reading = MeteringReading::withoutGlobalScopes()->with('room:id,code,building_id,floor')->find($id);
+        $reading = MeteringReading::withoutGlobalScopes()->with('room:id,name,building_id')->find($id);
 
         if (! $reading || ! $this->isBuildingAllowed($request, $reading->room?->building_id)) {
             return response()->json(['message' => 'Không tìm thấy log Số điện nước.'], 404);

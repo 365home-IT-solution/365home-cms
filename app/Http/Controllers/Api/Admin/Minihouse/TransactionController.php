@@ -34,7 +34,7 @@ class TransactionController extends Controller
 
         $transactions = Transaction::query()
             ->withoutGlobalScopes()
-            ->with(['building:id,name', 'contract.room:id,code'])
+            ->with(['building:id,name', 'contract.room:id,name'])
             ->whereIn('building_id', $permitted)
             ->when($request->filled('building_id'), fn ($q) => $q->where('building_id', $request->integer('building_id')))
             ->when($request->filled('type'), fn ($q) => $q->where('type', $request->string('type')))
