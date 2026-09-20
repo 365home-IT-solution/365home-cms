@@ -91,6 +91,10 @@ return [
         'username'       => env('TTLOCK_USERNAME'),
         'password'       => env('TTLOCK_PASSWORD'), // MD5 lowercase
         'api_base'       => env('TTLOCK_API_BASE', 'https://euapi.ttlock.com'),
+        // Token dùng riêng cho app Flutter "Đọc thẻ TTLock" (Modules/TTLock) xác thực khi gọi
+        // API lấy lockData/đăng ký thẻ — KHÔNG phải tài khoản đăng nhập panel, chỉ 1 chuỗi bí mật
+        // cố định app nhúng sẵn lúc build (xem TtlockCardAppController + AuthorizeTtlockCardApp).
+        'card_app_token' => env('TTLOCK_CARD_APP_TOKEN'),
     ],
 
     'ocr_space' => [

@@ -12,6 +12,7 @@ class TTLockServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->loadMigrationsFrom(module_path($this->moduleName, 'Database/migrations'));
+        $this->loadViewsFrom(module_path($this->moduleName, 'resources/views'), $this->moduleNameLower);
     }
 
     public function register(): void

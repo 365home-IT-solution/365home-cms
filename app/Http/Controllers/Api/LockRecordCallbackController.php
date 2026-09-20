@@ -125,9 +125,18 @@ public function handle(Request $request)
         $username         = $record['username'] ?? '';
         $keyboardPwd      = $record['keyboardPwd'] ?? '';
 
-        // Bỏ qua các thao tác thất bại
+        // Bỏ qua các thao tác thất bại — TẠM THỜI log kèm keyboardPwd (theo tài liệu TTLock, trường
+        // này chứa "Passcode, số thẻ IC, hoặc địa chỉ vòng tay") để kiểm tra xem quẹt 1 THẺ CHƯA
+        // ĐĂNG KÝ (bị từ chối mở, success=0) có báo được số thẻ về đây không — nếu có, sẽ dùng để
+        // hiện "số thẻ vừa quẹt" ngay trên web, khỏi cần mở app TTLock đọc thẻ nữa. Xoá dòng log
+        // debug này sau khi xác nhận xong (xem ghi chú ở PR/trao đổi liên quan).
         if ($success !== 1) {
-            Log::info('TTLock callback: ignored failed record', ['recordType' => $recordType, 'lockId' => $lockId]);
+            Log::info('TTLock callback: ignored failed record', [
+                'recordType'  => $recordType,
+                'lockId'      => $lockId,
+                'keyboardPwd' => $keyboardPwd,
+                'raw'         => $record,
+            ]);
             return;
         }
 
@@ -138,6 +147,18 @@ public function handle(Request $request)
                 'lockId'     => $lockId,
             ]);
             return;
+        }
+
+        // TẠM THỜI: log MỌI record có keyboardPwd không rỗng nhưng KHÔNG khớp định dạng passcode đặt
+        // phòng (không chứa "Order #...") — nghi là số thẻ IC thay vì mã passcode, để đối chiếu khi
+        // test quẹt thẻ mới thật tại cửa.
+        if (! preg_match('/Order #\d+/i', $username)) {
+            Log::info('TTLock callback: keyboardPwd không khớp mã đặt phòng — có thể là số thẻ IC', [
+                'recordType'  => $recordType,
+                'lockId'      => $lockId,
+                'keyboardPwd' => $keyboardPwd,
+                'username'    => $username,
+            ]);
         }
 
         $lockTime = $lockDateMs > 0
