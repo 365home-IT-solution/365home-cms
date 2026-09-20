@@ -137,6 +137,18 @@ class WarehouseCardStyle
         ));
     }
 
+    // Nhãn "Đã kiểm"/"Chưa kiểm" cho từng thẻ ở phiếu Kiểm kê kho — "Đếm được" mặc định ĐÃ bằng sẵn
+    // tồn hệ thống (để sửa nhanh khi khớp), nên nếu KHÔNG có nhãn này, nhân viên có thể bấm "Tạo"
+    // luôn mà chưa đếm thật món nào vẫn trông như đã khớp 100%, không phát hiện được sai lệch thật.
+    // "Đã kiểm" chỉ bật lên khi ô "Đếm được" THỰC SỰ được đụng tới (quét mã hoặc tự gõ sửa tay) — xem
+    // 'checked' trong WarehouseStockCheckForm.
+    public static function checkedBadge(bool $checked): HtmlString
+    {
+        return $checked
+            ? new HtmlString('<span class="inline-flex items-center gap-1 mb-2 text-xs font-medium text-success-700 dark:text-success-400"><svg class="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg> Đã kiểm</span>')
+            : new HtmlString('<span class="inline-flex items-center gap-1 mb-2 text-xs font-medium text-warning-700 dark:text-warning-400"><svg class="h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg> Chưa kiểm</span>');
+    }
+
     // "Tồn kho" hiện tại của vật tư — tô màu theo trạng thái so với mức tối thiểu (min_quantity),
     // dùng class success/warning/danger CÓ SẴN của Filament (đã đăng ký theo GeneralSettings::
     // site_theme, tự đổi đúng sắc độ theo sáng/tối), không dùng hex cứng.

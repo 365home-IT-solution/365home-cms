@@ -21,6 +21,7 @@ use Illuminate\Support\Number;
 use Illuminate\Support\Str;
 use Modules\Category\Entities\Category;
 use Modules\Warehouse\App\Filament\Support\CurrentUserDisplay;
+use Modules\Warehouse\App\Filament\Support\WarehouseBarcodeScan;
 use Modules\Warehouse\App\Filament\Support\WarehouseCardStyle;
 use Modules\Warehouse\App\Filament\Support\WarehouseItemOptions;
 use Modules\Warehouse\App\Filament\Support\WarehouseRoomOptions;
@@ -93,6 +94,34 @@ class WarehouseStockOutForm
                         ->hiddenLabel()
                         ->content(WarehouseCardStyle::styleBlock('fi-warehouse-stockout-repeater'))
                         ->extraAttributes(['class' => 'hidden']),
+
+                    // Chọn 1 LẦN trước khi quét hàng loạt — mọi dòng được TẠO MỚI qua quét mã vạch
+                    // (bên dưới) tự nhận đúng lý do này, khỏi phải bấm chọn tay lại cho từng dòng khi
+                    // quét chục món liền (yêu cầu thực tế: quét 10 món thì không thể bắt chọn tay 10
+                    // lần). KHÔNG ép buộc cùng 1 lý do cho cả phiếu — mỗi dòng vẫn tự sửa riêng được
+                    // (VD 9 món dùng bình thường, 1 món hư hỏng thì đổi riêng dòng đó), chỉ là điền
+                    // SẴN thay vì để trống bắt chọn từ đầu.
+                    Select::make('default_reason')
+                        ->label('Lý do (áp dụng cho vật tư quét tiếp theo)')
+                        ->options(WarehouseStockOut::REASONS)
+                        // Mặc định "Hao hụt / Hư hỏng" — đúng nhu cầu thực tế đa số phiếu xuất đang
+                        // lập, khỏi phải bấm chọn tay nữa. Vẫn đổi được bình thường nếu phiếu này
+                        // thật ra là lý do khác (VD dùng cho khách/phòng).
+                        ->default('damaged')
+                        ->dehydrated(false)
+                        ->live()
+                        ->helperText('Chọn trước khi quét — vật tư quét mới tự điền đúng lý do này, vẫn đổi được riêng từng dòng.'),
+
+                    // Quét/nhập mã vạch — thêm nhanh vật tư vào phiếu bằng camera điện thoại hoặc máy
+                    // quét mã vạch vật lý. "reason" lấy từ ô "default_reason" ở trên (nếu đã chọn),
+                    // không thì để trống như cũ — bắt chọn tay ngay lúc đó.
+                    WarehouseBarcodeScan::field(fn (WarehouseItem $item, Get $get) => [
+                        'warehouse_item_id'  => $item->id,
+                        'quantity'           => 1,
+                        'reason'             => $get('default_reason'),
+                        'note'               => null,
+                        '_original_quantity' => 0,
+                    ]),
 
                     // Ô tìm nhanh theo tên — lọc bằng JS thuần, không qua Livewire (gõ tới đâu
                     // ẩn/hiện thẻ ngay tới đó). Chỉ hiện khi ĐÃ có thẻ.
@@ -224,10 +253,23 @@ class WarehouseStockOutForm
                             ->action(function (array $data, Repeater $component): void {
                                 $items = $component->getState() ?? [];
 
+                                // KHÔNG dùng Get $get ở đây — Get/Set bên trong ->action() của
+                                // Repeater::addAction() resolve theo schema RIÊNG của modal picker,
+                                // KHÔNG thấy được field 'default_reason' ở form NGOÀI (đã xác nhận
+                                // thực tế: bấm "Thêm" không báo lỗi gì nhưng KHÔNG thêm được dòng
+                                // nào — $get() âm thầm trả về giá trị sai/rỗng). Đọc thẳng
+                                // $component->getLivewire()->data, CÙNG kỹ thuật đã dùng ở
+                                // WarehouseItemOptions::resolveOuterFormScope() cho đúng
+                                // partner_id/branch_id của form ngoài.
+                                $defaultReason = $component->getLivewire()->data['default_reason'] ?? null;
+
                                 foreach (WarehouseItemOptions::pickerSelectedIds($data) as $warehouseItemId) {
                                     $items[(string) Str::uuid()] = [
                                         'warehouse_item_id'  => $warehouseItemId,
-                                        'reason'             => null,
+                                        // Cùng nguồn "default_reason" với đường quét mã vạch — chọn
+                                        // nhiều vật tư 1 lúc qua modal này cũng khỏi phải chọn tay
+                                        // lại lý do cho từng dòng nếu đã chọn sẵn ở trên.
+                                        'reason'             => $defaultReason,
                                         'quantity'           => null,
                                         'note'               => null,
                                         '_original_quantity' => 0,

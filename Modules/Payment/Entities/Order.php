@@ -179,13 +179,27 @@ class Order extends Model implements Eventable
 
             $user = auth()->user();
 
-            // super_admin PHẢI luôn xem được MỌI chi nhánh (không riêng gì nút "Chuyển đổi chi
-            // nhánh" hiện đang chọn gì) — cùng quy ước isSuperAdmin() bypass với scope 'partner'
-            // của BelongsToPartner. Thiếu điều kiện này khiến effectiveBranchIds()/
-            // rootProductCategoryIds() (chỉ trả về category_type='product', parent_id NULL) vô
-            // tình lọc bỏ mọi đơn có category_id KHÔNG rơi đúng vào tập category gốc kiểu
-            // 'product' đó — dù super_admin đáng lẽ phải thấy hết, không phụ thuộc taxonomy này.
-            if (! $user instanceof User || $user->isSuperAdmin()) {
+            if (! $user instanceof User) {
+                return;
+            }
+
+            // super_admin MẶC ĐỊNH xem MỌI chi nhánh — effectiveBranchIds()/rootProductCategoryIds()
+            // (chỉ trả về category_type='product', parent_id NULL) có thể vô tình lọc bỏ mọi đơn có
+            // category_id KHÔNG rơi đúng vào tập category gốc kiểu 'product' đó, nên KHÔNG dùng 2
+            // hàm này khi chưa lọc gì. NHƯNG khi super_admin chủ động thu hẹp qua nút "Chuyển đổi chi
+            // nhánh", phải tôn trọng lựa chọn đó — trước đây bypass vô điều kiện khiến switcher mất
+            // tác dụng với danh sách đơn hàng (cùng bug đã xác nhận ở BelongsToBranch). Dùng thẳng
+            // session (không qua effectiveBranchIds()) để tránh đúng rủi ro taxonomy nêu trên khi bộ
+            // lọc đang thực sự áp dụng.
+            if ($user->isSuperAdmin()) {
+                $selectedBranchIds = session('active_branch_ids');
+
+                if (empty($selectedBranchIds)) {
+                    return;
+                }
+
+                $builder->whereIn('orders.category_id', $selectedBranchIds);
+
                 return;
             }
 

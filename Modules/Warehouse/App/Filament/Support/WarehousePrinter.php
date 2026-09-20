@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Modules\Warehouse\App\Filament\Support;
 
+use BaconQrCode\Renderer\GDLibRenderer;
+use BaconQrCode\Writer;
 use Illuminate\Support\Collection;
 use Modules\Warehouse\App\Models\WarehouseStockCheck;
 use Modules\Warehouse\App\Models\WarehouseStockIn;
@@ -68,6 +70,41 @@ class WarehousePrinter
         ])->render();
 
         return static::download($html, 'danh-sach-ton-kho-' . now()->format('Ymd-His'));
+    }
+
+    // "In mã QR" — mỗi vật tư 1 thẻ có QR encode ĐÚNG giá trị "sku" (khớp chính xác với cách
+    // WarehouseBarcodeScan tra vật tư khi quét — xem WarehouseBarcodeScan::handle()), dùng để in ra
+    // giấy làm thẻ test quét (camera điện thoại/máy quét mã vạch) khi chưa có tem mã vạch thật của
+    // NCC dán sẵn trên hàng. Bỏ qua vật tư chưa có SKU vì không có gì để encode.
+    public static function qrCodes(Collection $items, int $copies = 1): StreamedResponse
+    {
+        $items = $items->filter(fn ($item) => filled($item->sku))->values();
+        $copies = max(1, min($copies, 500));
+
+        $qrImages = [];
+        foreach ($items as $item) {
+            $qrImages[$item->id] = static::qrPng((string) $item->sku);
+        }
+
+        // 1 bản = thẻ lớn (1 mã/hàng, có tên); nhiều bản = tem nhỏ xếp lưới để in ra cắt dán.
+        $view = $copies > 1 ? 'warehouse::pdf.qr-stickers' : 'warehouse::pdf.qr-codes';
+
+        $html = view($view, [
+            'items'    => $items,
+            'qrImages' => $qrImages,
+            'copies'   => $copies,
+        ])->render();
+
+        return static::download($html, 'ma-qr-vat-tu-' . now()->format('Ymd-His'));
+    }
+
+    // PNG base64 của mã QR encode đúng chuỗi $text (SKU) — dùng cho PDF in và ô xem trước ở form vật tư.
+    public static function qrPng(string $text): string
+    {
+        // 400px thật (hiện nhỏ/to qua CSS) — đủ nét khi in ra giấy.
+        $writer = new Writer(new GDLibRenderer(400, 4));
+
+        return base64_encode($writer->writeString($text));
     }
 
     protected static function download(string $html, string $code): StreamedResponse

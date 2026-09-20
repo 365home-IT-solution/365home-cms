@@ -32,11 +32,28 @@ trait BelongsToBranch
 
             $user = auth()->user();
 
-            // super_admin PHẢI luôn xem được MỌI chi nhánh, không phụ thuộc effectiveBranchIds()/
+            if (! $user instanceof User) {
+                return;
+            }
+
+            // super_admin MẶC ĐỊNH xem MỌI chi nhánh, không phụ thuộc effectiveBranchIds()/
             // rootProductCategoryIds() (chỉ trả về category gốc category_type='product' — có thể
-            // KHÔNG phủ hết mọi chi nhánh thật trong hệ thống nếu dữ liệu category lệch taxonomy)
-            // — cùng quy ước isSuperAdmin() bypass với scope 'partner' của BelongsToPartner.
-            if (! $user instanceof User || $user->isSuperAdmin()) {
+            // KHÔNG phủ hết mọi chi nhánh thật trong hệ thống nếu dữ liệu category lệch taxonomy).
+            // NHƯNG khi super_admin chủ động thu hẹp qua nút "Chuyển đổi chi nhánh" ở header, PHẢI
+            // tôn trọng đúng lựa chọn đó — trước đây bypass VÔ ĐIỀU KIỆN khiến switcher không có tác
+            // dụng gì với vật tư/phiếu kho khi đăng nhập bằng super_admin (xác nhận thật qua ảnh
+            // chụp: chọn đúng 1 chi nhánh nhưng danh sách vẫn hiện đủ mọi chi nhánh). Dùng THẲNG
+            // session (không qua effectiveBranchIds()/rootProductCategoryIds()) khi đang lọc, để
+            // không dính đúng rủi ro taxonomy nêu trên.
+            if ($user->isSuperAdmin()) {
+                $selectedBranchIds = session('active_branch_ids');
+
+                if (empty($selectedBranchIds)) {
+                    return;
+                }
+
+                $builder->whereIn($builder->getModel()->getTable() . '.branch_id', $selectedBranchIds);
+
                 return;
             }
 

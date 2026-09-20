@@ -24,9 +24,33 @@ trait BelongsToActiveBranchCategories
 
             $user = auth()->user();
 
-            // super_admin PHẢI luôn xem được MỌI chi nhánh, cùng quy ước isSuperAdmin() bypass với
-            // scope 'partner' của BelongsToPartner — xem giải thích chi tiết ở BelongsToBranch.
-            if (! $user instanceof User || $user->isSuperAdmin()) {
+            if (! $user instanceof User) {
+                return;
+            }
+
+            // super_admin MẶC ĐỊNH xem MỌI chi nhánh — NHƯNG khi chủ động thu hẹp qua nút "Chuyển
+            // đổi chi nhánh" ở header, phải tôn trọng lựa chọn đó thay vì bypass vô điều kiện (bug
+            // đã xác nhận thực tế — xem giải thích chi tiết ở BelongsToBranch, cùng khung điều kiện).
+            // Dùng thẳng session để tránh rủi ro effectiveBranchIds()/rootProductCategoryIds() thiếu
+            // taxonomy khi bộ lọc đang thực sự áp dụng.
+            if ($user->isSuperAdmin()) {
+                $selectedBranchIds = session('active_branch_ids');
+
+                if (empty($selectedBranchIds)) {
+                    return;
+                }
+
+                $categoryIds = $user->visibleProductCategoryIds($selectedBranchIds);
+
+                if (empty($categoryIds)) {
+                    return;
+                }
+
+                $builder->whereHas(
+                    'categories',
+                    fn ($query) => $query->whereIn('categories.id', $categoryIds)
+                );
+
                 return;
             }
 

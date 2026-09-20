@@ -20,6 +20,7 @@ use Illuminate\Support\Number;
 use Illuminate\Support\Str;
 use Modules\Category\Entities\Category;
 use Modules\Warehouse\App\Filament\Support\CurrentUserDisplay;
+use Modules\Warehouse\App\Filament\Support\WarehouseBarcodeScan;
 use Modules\Warehouse\App\Filament\Support\WarehouseCardStyle;
 use Modules\Warehouse\App\Models\WarehouseItem;
 
@@ -76,6 +77,21 @@ class WarehouseStockCheckForm
                         ->content(WarehouseCardStyle::styleBlock('fi-warehouse-check-repeater'))
                         ->extraAttributes(['class' => 'hidden']),
 
+                    // Quét mã vạch = +1 vào "Đếm được" của ĐÚNG thẻ vật tư đó (mọi thẻ đã liệt kê sẵn
+                    // ở dưới — khác Nhập/Xuất kho là quét để TẠO dòng mới, ở đây quét chỉ để TĂNG ĐẾM
+                    // 1 dòng đã có). Vật tư quét trúng nhưng KHÔNG có trong danh sách hiện tại (VD sai
+                    // chi nhánh/đối tác, hoặc vừa được kích hoạt sau khi mở phiếu) mới tạo dòng mới,
+                    // với "Đếm được" bắt đầu từ 1 giống hệt lượt quét đầu tiên của 1 vật tư mới.
+                    WarehouseBarcodeScan::field(fn (WarehouseItem $item) => [
+                        'warehouse_item_id' => $item->id,
+                        'system_quantity'   => $item->quantity,
+                        'actual_quantity'   => 1,
+                        'note'              => null,
+                        // Quét = chắc chắn đã đếm thật món này — đánh dấu "Đã kiểm" ngay (xem
+                        // WarehouseCardStyle::checkedBadge()).
+                        'checked'           => true,
+                    ], quantityField: 'actual_quantity'),
+
                     // Ô tìm nhanh theo tên — phiếu kiểm kê liệt kê TOÀN BỘ vật tư của đối tác (có
                     // thể vài chục thẻ), khó dò tay từng thẻ. Lọc bằng JS thuần (không qua
                     // Livewire) nên gõ tới đâu ẩn/hiện thẻ ngay tới đó, không delay round-trip.
@@ -100,6 +116,12 @@ class WarehouseStockCheckForm
                         ->extraAttributes(['class' => 'fi-warehouse-check-repeater'])
                         ->grid(['default' => 1, 'sm' => 2, 'md' => 3, 'lg' => 4, 'xl' => 5])
                         ->schema([
+                            // Nhãn "Đã kiểm"/"Chưa kiểm" — xem giải thích đầy đủ ở
+                            // WarehouseCardStyle::checkedBadge() và field 'checked'.
+                            Placeholder::make('checked_badge_display')
+                                ->hiddenLabel()
+                                ->content(fn (Get $get) => WarehouseCardStyle::checkedBadge((bool) $get('checked'))),
+
                             // "warehouse_item_id" luôn được ghi trực tiếp sẵn (từ afterFill() ở
                             // Create/EditWarehouseStockCheck) nên KHÔNG cần Select chọn tên nữa —
                             // toàn bộ 94 thẻ đều đã có sẵn đúng vật tư. Chỉ khi bấm "+ Thêm dòng" để
@@ -107,6 +129,10 @@ class WarehouseStockCheckForm
                             // lúc đó Select xuất hiện thay cho tên, biến mất ngay khi đã chọn xong.
                             Hidden::make('warehouse_item_id')
                                 ->required(),
+
+                            Hidden::make('checked')
+                                ->default(false)
+                                ->dehydrated(false),
 
                             Select::make('warehouse_item_id_picker')
                                 ->label('Chọn vật tư')
@@ -134,6 +160,10 @@ class WarehouseStockCheckForm
                                     $set('warehouse_item_id', $state);
                                     $set('system_quantity', $quantity);
                                     $set('actual_quantity', $quantity);
+                                    // Vừa chọn xong, "Đếm được" vẫn chỉ đang tự điền theo tồn hệ
+                                    // thống — CHƯA phải đếm thật, giữ "Chưa kiểm" cho tới khi tự sửa
+                                    // tay số này (xem afterStateUpdated của 'actual_quantity').
+                                    $set('checked', false);
                                 }),
 
                             // Tồn HT bên trái, Đếm được bên phải — Ô "Đếm được" rộng hơn ~25px cho
@@ -161,6 +191,12 @@ class WarehouseStockCheckForm
                                         ->minValue(0)
                                         ->required()
                                         ->live(onBlur: true)
+                                        // Tự tay sửa số này = chắc chắn đã đếm thật — đánh dấu "Đã
+                                        // kiểm" (xem WarehouseCardStyle::checkedBadge()). Quét mã
+                                        // vạch KHÔNG đi qua đường này (xử lý thẳng ở
+                                        // WarehouseBarcodeScan::handle()), 2 đường đều dẫn tới cùng
+                                        // 1 kết quả 'checked' => true.
+                                        ->afterStateUpdated(fn (Set $set) => $set('checked', true))
                                         ->hint(function (Get $get) {
                                             $diff = round((float) $get('actual_quantity') - (float) $get('system_quantity'), 2);
 
@@ -223,6 +259,10 @@ class WarehouseStockCheckForm
                 'warehouse_item_id' => $item->id,
                 'system_quantity'   => $item->quantity,
                 'actual_quantity'   => $item->quantity,
+                // "Đếm được" ở đây CHỈ là số hệ thống điền sẵn để sửa nhanh khi khớp — CHƯA có
+                // nghĩa là đã đếm thật. false cho tới khi người dùng THỰC SỰ đụng vào ô này (quét
+                // mã hoặc tự sửa tay), xem checkedBadge()/afterStateUpdated() của 'actual_quantity'.
+                'checked'           => false,
             ])
             ->toArray();
     }

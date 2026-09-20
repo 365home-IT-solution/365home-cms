@@ -19,6 +19,7 @@ use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
 use Modules\Category\Entities\Category;
 use Modules\Warehouse\App\Filament\Support\CurrentUserDisplay;
+use Modules\Warehouse\App\Filament\Support\WarehouseBarcodeScan;
 use Modules\Warehouse\App\Filament\Support\WarehouseCardStyle;
 use Modules\Warehouse\App\Filament\Support\WarehouseItemOptions;
 use Modules\Warehouse\App\Models\WarehouseItem;
@@ -73,6 +74,15 @@ class WarehouseStockInForm
                         ->hiddenLabel()
                         ->content(WarehouseCardStyle::styleBlock('fi-warehouse-stockin-repeater'))
                         ->extraAttributes(['class' => 'hidden']),
+
+                    // Quét/nhập mã vạch — thêm nhanh vật tư vào phiếu bằng camera điện thoại hoặc máy
+                    // quét mã vạch vật lý, không cần mở modal "Thêm vật tư" tìm tay từng món.
+                    WarehouseBarcodeScan::field(fn (WarehouseItem $item) => [
+                        'warehouse_item_id' => $item->id,
+                        'quantity'          => 1,
+                        'unit_price'        => $item->unit_price ?? 0,
+                        'note'              => null,
+                    ]),
 
                     // Ô tìm nhanh theo tên — lọc bằng JS thuần, không qua Livewire (gõ tới đâu
                     // ẩn/hiện thẻ ngay tới đó). Chỉ hiện khi ĐÃ có thẻ (Repeater rỗng thì không có

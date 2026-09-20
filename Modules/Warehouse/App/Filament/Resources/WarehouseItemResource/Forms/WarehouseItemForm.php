@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Modules\Warehouse\App\Filament\Resources\WarehouseItemResource\Forms;
 
 use Filament\Forms\Components\Grid;
+use Filament\Forms\Components\Group;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
@@ -15,7 +16,10 @@ use Filament\Forms\Form;
 use Filament\Forms\Get;
 use Filament\Forms\Set;
 use Illuminate\Support\Number;
+use Illuminate\Support\HtmlString;
 use Modules\Category\Entities\Category;
+use Modules\Warehouse\App\Filament\Support\WarehousePrinter;
+use Modules\Warehouse\App\Models\WarehouseItem;
 
 class WarehouseItemForm
 {
@@ -97,46 +101,55 @@ class WarehouseItemForm
                     ->minValue(0)
                     ->prefix('₫'),
 
-                TextInput::make('quantity')
-                    ->label('Tồn kho hiện tại')
-                    ->numeric()
-                    ->default(0)
-                    ->live(onBlur: true)
-                    ->helperText('Chỉ nên chỉnh trực tiếp khi khởi tạo dữ liệu ban đầu — sau đó số này sẽ được cập nhật tự động qua phiếu nhập / xuất / kiểm kê. Mọi lần sửa trực tiếp tại đây đều được ghi lại vào "Lịch sử biến động" bên dưới (ai sửa, lúc nào, từ bao nhiêu → bao nhiêu).'),
-
-                // Tách tồn kho tổng thành "Đang dùng" (tự nhập) + "Dự phòng" (tự tính = tổng -
-                // đang dùng, luôn khớp, không lưu cột riêng — xem WarehouseItem::getQuantityReserveAttribute()).
-                // Số liệu NHẬP TAY để theo dõi/báo cáo — KHÔNG tự động theo phiếu nhập/xuất/kiểm kê
-                // (các phiếu đó chỉ đổi tổng "Tồn kho hiện tại" ở trên).
+                // Cột trái: các ô số liệu tồn kho. Cột phải: mã QR to (xem trước SKU đang lưu).
                 Grid::make(['default' => 1, 'lg' => 2])
                     ->schema([
-                        TextInput::make('quantity_in_use')
-                            ->label('Đang sử dụng')
-                            ->numeric()
-                            ->minValue(0)
-                            ->default(0)
-                            ->live(onBlur: true)
-                            ->maxValue(fn (Get $get) => (float) $get('quantity'))
-                            ->helperText('Không được lớn hơn Tồn kho hiện tại.'),
+                        Group::make([
+                            TextInput::make('quantity')
+                                ->label('Tồn kho hiện tại')
+                                ->numeric()
+                                ->default(0)
+                                ->live(onBlur: true)
+                                ->helperText('Chỉ nên chỉnh trực tiếp khi khởi tạo dữ liệu ban đầu — sau đó số này sẽ được cập nhật tự động qua phiếu nhập / xuất / kiểm kê. Mọi lần sửa trực tiếp tại đây đều được ghi lại vào "Lịch sử biến động" bên dưới (ai sửa, lúc nào, từ bao nhiêu → bao nhiêu).'),
 
-                        Placeholder::make('quantity_reserve_display')
-                            ->label('Dự phòng')
-                            ->content(fn (Get $get) => Number::format(
-                                max(0, (float) $get('quantity') - (float) $get('quantity_in_use')),
-                                maxPrecision: 2
-                            )),
+                            // "Đang dùng" tự nhập; "Dự phòng" tự tính = tổng - đang dùng (không lưu cột riêng —
+                            // xem WarehouseItem::getQuantityReserveAttribute()). NHẬP TAY để theo dõi/báo cáo,
+                            // không tự đổi theo phiếu nhập/xuất/kiểm kê.
+                            TextInput::make('quantity_in_use')
+                                ->label('Đang sử dụng')
+                                ->numeric()
+                                ->minValue(0)
+                                ->default(0)
+                                ->live(onBlur: true)
+                                ->maxValue(fn (Get $get) => (float) $get('quantity'))
+                                ->helperText('Không được lớn hơn Tồn kho hiện tại.'),
+
+                            TextInput::make('min_quantity')
+                                ->label('Ngưỡng tồn tối thiểu')
+                                ->numeric()
+                                ->default(0)
+                                ->helperText('Cảnh báo khi tồn kho chạm ngưỡng này.'),
+
+                            Placeholder::make('quantity_reserve_display')
+                                ->label('Dự phòng')
+                                ->content(fn (Get $get) => Number::format(
+                                    max(0, (float) $get('quantity') - (float) $get('quantity_in_use')),
+                                    maxPrecision: 2
+                                )),
+
+                            Toggle::make('status')
+                                ->label('Đang sử dụng')
+                                ->default(true),
+                        ]),
+
+                        Placeholder::make('qr_preview')
+                            ->label('Mã QR')
+                            ->content(fn (?WarehouseItem $record) => $record && filled($record->sku)
+                                ? new HtmlString('<img src="data:image/png;base64,' . WarehousePrinter::qrPng((string) $record->sku) . '" alt="QR ' . e($record->sku) . '" style="width:100%;max-width:400px;aspect-ratio:1/1;background:#fff;">')
+                                : 'Nhập SKU và lưu để có mã QR.')
+                            ->visibleOn('edit'),
                     ])
                     ->columnSpanFull(),
-
-                TextInput::make('min_quantity')
-                    ->label('Ngưỡng tồn tối thiểu')
-                    ->numeric()
-                    ->default(0)
-                    ->helperText('Cảnh báo khi tồn kho chạm ngưỡng này.'),
-
-                Toggle::make('status')
-                    ->label('Đang sử dụng')
-                    ->default(true),
 
                 Textarea::make('description')
                     ->label('Ghi chú')

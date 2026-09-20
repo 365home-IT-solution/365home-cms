@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Modules\Warehouse\App\Filament\Resources\WarehouseItemResource\Tables;
 
 use App\Filament\Support\PartnerTableHelpers;
+use Filament\Forms\Components\TextInput;
 use Filament\Tables\Actions\Action;
+use Filament\Tables\Actions\BulkAction;
 use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Actions\DeleteBulkAction;
 use Filament\Tables\Actions\EditAction;
@@ -14,6 +16,8 @@ use Filament\Tables\Columns\ToggleColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Collection;
+use Modules\Warehouse\App\Filament\Support\WarehousePrinter;
 use Modules\Warehouse\App\Models\WarehouseCategory;
 use Modules\Warehouse\App\Models\WarehouseItem;
 
@@ -142,10 +146,38 @@ class WarehouseItemTable
                             ->limit(50)
                             ->get(),
                     ])),
+                // In thẻ QR cho ĐÚNG 1 vật tư — chủ động in lẻ khi cần thêm/thay thẻ test cho 1
+                // món, không cần tick chọn rồi dùng bulk action bên dưới.
+                Action::make('printQr')
+                    ->label('In mã QR')
+                    ->icon('heroicon-o-qr-code')
+                    ->color('gray')
+                    ->visible(fn (WarehouseItem $record) => filled($record->sku))
+                    ->form([
+                        TextInput::make('copies')
+                            ->label('Số tem mỗi vật tư')
+                            ->helperText('1 = thẻ lớn có tên. Từ 2 trở lên = tem nhỏ xếp lưới, mỗi vật tư một trang, để in ra cắt dán.')
+                            ->numeric()->integer()->minValue(1)->maxValue(500)->default(1)->required(),
+                    ])
+                    ->action(fn (WarehouseItem $record, array $data) => WarehousePrinter::qrCodes(new Collection([$record]), (int) $data['copies'])),
                 EditAction::make(),
                 DeleteAction::make(),
             ])
             ->bulkActions([
+                // Chọn nhiều vật tư rồi in hàng loạt — đúng nhu cầu "chủ động chọn vật tư nào để
+                // test" + "in ra hàng loạt" sau này khi cần thêm thẻ test hoặc thay tem mã vạch cũ.
+                BulkAction::make('printQr')
+                    ->label('In mã QR')
+                    ->icon('heroicon-o-qr-code')
+                    ->color('gray')
+                    ->form([
+                        TextInput::make('copies')
+                            ->label('Số tem mỗi vật tư')
+                            ->helperText('1 = thẻ lớn có tên. Từ 2 trở lên = tem nhỏ xếp lưới, mỗi vật tư một trang, để in ra cắt dán.')
+                            ->numeric()->integer()->minValue(1)->maxValue(500)->default(1)->required(),
+                    ])
+                    ->action(fn (Collection $records, array $data) => WarehousePrinter::qrCodes($records, (int) $data['copies']))
+                    ->deselectRecordsAfterCompletion(),
                 DeleteBulkAction::make(),
             ]);
     }
