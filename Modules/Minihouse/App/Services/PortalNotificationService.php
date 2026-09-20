@@ -54,6 +54,14 @@ class PortalNotificationService
             ])->all()
         );
 
+        static::pushMany($tenants, $title, $body, $link);
+    }
+
+    // Dùng khi 1 nơi khác TỰ bulk-insert PortalNotification (không qua notify()/notifyContractTenants()
+    // ở trên, VD AnnouncementObserver — insert() thẳng để nhanh với số lượng khách lớn) nhưng vẫn cần
+    // kênh Thông báo đẩy đi kèm — tách riêng để không phải viết lại đúng vòng lặp try/catch này lần nữa.
+    public static function pushMany(iterable $tenants, string $title, ?string $body, ?string $link): void
+    {
         foreach ($tenants as $tenant) {
             static::pushToTenant($tenant, $title, $body, $link);
         }
