@@ -241,6 +241,8 @@ class EditOrder extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
+            \Modules\Payment\App\Filament\Resources\OrderResource\Tables\Actions\IssueInvoiceDraftAction::makeForHeader(),
+
             // =========================================================
             // Thanh toán lại — đơn PayOS bị "failed"/"cancelled_payment": tạo QR mới gửi khách,
             // đơn tự chuyển về "pending" chờ thanh toán. Khi khách quét & trả tiền, webhook PayOS

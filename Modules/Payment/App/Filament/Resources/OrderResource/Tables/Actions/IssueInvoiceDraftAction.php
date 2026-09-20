@@ -4,24 +4,38 @@ declare(strict_types=1);
 
 namespace Modules\Payment\App\Filament\Resources\OrderResource\Tables\Actions;
 
+use Filament\Actions\MountableAction;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
-use Filament\Tables\Actions\Action;
 use Modules\Invoice\App\Models\Invoice;
-use Modules\Invoice\App\Models\InvoiceLine;
 use Modules\Payment\Entities\Order;
 
 // Điểm khởi tạo DUY NHẤT cho 1 Invoice (xem InvoiceResource::canCreate() = false) — snapshot ngay
 // tại thời điểm bấm nút, KHÔNG tham chiếu sống tới Order/OrderItem sau đó. Hoá đơn tạo ra ở đây
 // luôn ở trạng thái Invoice::STATUS_DRAFT — CHƯA gọi MISA, CHƯA có giá trị pháp lý (xem
 // Modules\Invoice\App\Services\MisaInvoiceClient và view pdf/invoice-draft.blade.php).
+//
+// Dùng CHUNG 1 định nghĩa cho cả nút trên danh sách đơn hàng (Tables\Actions\Action, xem make())
+// VÀ nút ở trang chi tiết đơn hàng (Actions\Action, xem makeForHeader()) — 2 class action này khác
+// namespace nhưng cùng kế thừa Filament\Actions\MountableAction nên dùng chung được toàn bộ
+// label/icon/form/action qua configure(), tránh chép lại 2 lần cùng 1 logic nghiệp vụ.
 class IssueInvoiceDraftAction
 {
-    public static function make(): Action
+    public static function make(): \Filament\Tables\Actions\Action
     {
-        return Action::make('issueInvoiceDraft')
+        return static::configure(\Filament\Tables\Actions\Action::make('issueInvoiceDraft'));
+    }
+
+    public static function makeForHeader(): \Filament\Actions\Action
+    {
+        return static::configure(\Filament\Actions\Action::make('issueInvoiceDraft'));
+    }
+
+    private static function configure(MountableAction $action): MountableAction
+    {
+        return $action
             ->label('Xuất hoá đơn (nháp)')
             ->icon('heroicon-o-document-text')
             ->color('gray')
