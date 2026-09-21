@@ -150,13 +150,9 @@
                 <div class="book-slot-th" x-show="Math.floor({{ $loop->index }} / slotsPerPage) === slotPage">
                     <span class="book-slot-time-start">{{ $startTime->format('H:i') }}</span><span class="book-slot-time-sep">&nbsp;–&nbsp;</span><br class="book-slot-time-br"><span class="book-slot-time-end">{{ $endTime->format('H:i') }}</span>
                     @if($isOvernight)
-                        <svg class="book-slot-icon" style="color:#1e3a8a" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-                            <path fill-rule="evenodd" d="M9.528 1.718a.75.75 0 0 1 .162.819A8.97 8.97 0 0 0 9 6a9 9 0 0 0 9 9 8.97 8.97 0 0 0 3.463-.69.75.75 0 0 1 .981.98 10.503 10.503 0 0 1-9.694 6.46c-5.799 0-10.5-4.7-10.5-10.5 0-4.368 2.667-8.112 6.46-9.694a.75.75 0 0 1 .818.162Z" clip-rule="evenodd" />
-                        </svg>
+                        <svg class="book-slot-icon" style="color:#1e3a8a" viewBox="0 0 24 24" fill="currentColor"><use href="#bk-moon"/></svg>
                     @else
-                        <svg class="book-slot-icon" style="color:#eab308" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor">
-                            <path d="M8 1a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 1ZM10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM12.95 4.11a.75.75 0 1 0-1.06-1.06l-1.062 1.06a.75.75 0 0 0 1.061 1.062l1.06-1.061ZM15 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 15 8ZM11.89 12.95a.75.75 0 0 0 1.06-1.06l-1.06-1.062a.75.75 0 0 0-1.062 1.061l1.061 1.06ZM8 12a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 12ZM5.172 11.89a.75.75 0 0 0-1.061-1.062L3.05 11.89a.75.75 0 1 0 1.06 1.06l1.06-1.06ZM4 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 4 8ZM4.11 5.172A.75.75 0 0 0 5.173 4.11L4.11 3.05a.75.75 0 1 0-1.06 1.06l1.06 1.06Z" />
-                        </svg>
+                        <svg class="book-slot-icon" style="color:#eab308" viewBox="0 0 16 16" fill="currentColor"><use href="#bk-sun"/></svg>
                     @endif
                 </div>
                 @endforeach

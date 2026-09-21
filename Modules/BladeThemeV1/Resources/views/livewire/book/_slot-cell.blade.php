@@ -131,52 +131,56 @@
     // lớn" (>2MB) ở chi nhánh 8 phòng. Đã chuyển 4 field này ra data-room-meta, render 1
     // lần/phòng (book/_desktop-grid.blade.php, book/_mobile.blade.php) — toggleSlot() ở
     // book.blade.php tự đọc lại + merge vào $slot lúc click, giữ nguyên object cuối cùng như cũ.
+
+    // Phần còn lại của $slot (giá, khuyến mãi, giờ bắt đầu/kết thúc...) cũng KHÔNG nhúng vào @click
+    // của từng ô nữa: mobile (book/_mobile.blade.php) + desktop (book/_desktop-grid.blade.php) cùng
+    // render 1 ô 2 lần, mỗi lần ~700 ký tự JSON — chiếm >50% HTML trang chủ (tỷ lệ text/HTML thấp
+    // bị Semrush cảnh báo). Gom vào $slotMap (ArrayObject khai báo ở book.blade.php), render 1 lần
+    // duy nhất thành <script type="application/json" data-slot-map>; toggleSlot() tra lại theo
+    // roomId|timeslotId|date lấy từ data-* của ô. Ép kiểu số (+ 0) để khớp với literal số mà @click
+    // cũ in ra (giá từ DB có thể là chuỗi decimal, json_encode sẽ ra chuỗi thay vì số).
+    $slotMap[$room->id . '|' . $roomTimeSlot->timeSlot->id . '|' . $date['date']] = [
+        'startTime'          => (string) $roomTimeSlot->timeSlot->start_time,
+        'endTime'            => (string) $roomTimeSlot->timeSlot->end_time,
+        'price'              => $finalPrice + 0,
+        'originalPrice'      => $priceData['price_after_increase'] + 0,
+        'basePrice'          => $originalPrice + 0,
+        'increaseAmount'     => ($priceData['increase_amount'] ?? 0) + 0,
+        'promoDiscount'      => $totalDiscount + 0,
+        'hasDiscount'        => (bool) $hasDiscountPromotion,
+        'hasIncrease'        => (bool) $hasIncreasePromotion,
+        'isIncrease'         => (bool) $isIncrease,
+        'overNight'          => (int) ($roomTimeSlot->over_night ?? 0),
+        'discountPromotions' => $discountPromotionsData,
+        'increasePromotions' => $increasePromotionsData,
+    ];
+
+    // Ảnh/nhãn khuyến mãi phủ lên ô — dựng sẵn thành 1 chuỗi thay vì 5 khối @if: mỗi @if trong
+    // component Livewire bị chèn thêm 1 cặp comment <!--[if BLOCK]--> vào HTML (5 cặp/ô x hàng trăm
+    // ô = phần đáng kể của HTML trang chủ). Điều kiện và markup giữ NGUYÊN như bản @if cũ.
+    $overlayHtml = '';
+    if ($hasIncreasePromotion && $displayPromotion && $displayPromotion->image) {
+        $overlayHtml .= '<div class="promotion-corner-image"><img src="' . e(asset('storage/' . $displayPromotion->image))
+            . '" alt="' . e($displayPromotion->name) . '" class="corner-img"></div>';
+    }
+    if ($hasIncreasePromotion && $displayPromotion && $displayPromotion->lable_client) {
+        $overlayHtml .= '<div class="promotion-center-label">' . $displayPromotion->lable_client . '</div>';
+    }
+    if ($hasDiscountPromotion && !$hasIncreasePromotion && $displayDiscountPromotion && !empty($displayDiscountPromotion['image'])) {
+        $overlayHtml .= '<div class="promotion-corner-image"><img src="' . e(asset('storage/' . $displayDiscountPromotion['image']))
+            . '" alt="' . e($displayDiscountPromotion['name']) . '" class="corner-img"></div>';
+    }
+    if ($hasDiscountPromotion && !$hasIncreasePromotion && $displayDiscountPromotion && !empty($displayDiscountPromotion['lable_client'])) {
+        $overlayHtml .= '<div class="promotion-center-label">' . $displayDiscountPromotion['lable_client'] . '</div>';
+    }
+    if (str_contains($classes, 'held')) {
+        $overlayHtml .= '<div class="lock-icon" title="' . e('Đang được ' . $heldByName . ' xử lý cho 1 đơn khác')
+            . '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"'
+            . ' stroke-linejoin="round"><rect x="4" y="11" width="16" height="9" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg></div>';
+    }
 @endphp
 <div class="selectable {{ $classes }}"
     style="{{ !$isSelectable ? 'pointer-events:none;opacity:0.55;' : 'cursor:pointer;' }}{{ $orderColor ? '--order-color:' . $orderColor . ';' : '' }}"
     data-room-id="{{ $room->id }}" data-timeslot-id="{{ $roomTimeSlot->timeSlot->id }}" data-date="{{ $date['date'] }}"
-    data-iso-date="{{ \Carbon\Carbon::createFromFormat('d-m-Y', $date['date'])->format('Y-m-d') }}"
-    @click="toggleSlot($el, {
-        date: '{{ $date['date'] }}',
-        startTime: '{{ $roomTimeSlot->timeSlot->start_time }}',
-        endTime: '{{ $roomTimeSlot->timeSlot->end_time }}',
-        timeslotId: '{{ $roomTimeSlot->timeSlot->id }}',
-        roomId: '{{ $room->id }}',
-        price: {{ $finalPrice }},
-        originalPrice: {{ $priceData['price_after_increase'] }},
-        basePrice: {{ $originalPrice }},
-        increaseAmount: {{ $priceData['increase_amount'] ?? 0 }},
-        promoDiscount: {{ $totalDiscount }},
-        hasDiscount: {{ $hasDiscountPromotion ? 'true' : 'false' }},
-        hasIncrease: {{ $hasIncreasePromotion ? 'true' : 'false' }},
-        isIncrease: {{ $isIncrease ? 'true' : 'false' }},
-        overNight: {{ $roomTimeSlot->over_night ?? 0 }},
-        discountPromotions: {{ json_encode($discountPromotionsData) }},
-        increasePromotions: {{ json_encode($increasePromotionsData) }}
-    })">
-    @if ($hasIncreasePromotion && $displayPromotion && $displayPromotion->image)
-    <div class="promotion-corner-image">
-        <img src="{{ asset('storage/' . $displayPromotion->image) }}" alt="{{ $displayPromotion->name }}" class="corner-img">
-    </div>
-    @endif
-    @if ($hasIncreasePromotion && $displayPromotion && $displayPromotion->lable_client)
-    <div class="promotion-center-label">{!! $displayPromotion->lable_client !!}</div>
-    @endif
-    @if ($hasDiscountPromotion && !$hasIncreasePromotion && $displayDiscountPromotion && !empty($displayDiscountPromotion['image']))
-    <div class="promotion-corner-image">
-        <img src="{{ asset('storage/' . $displayDiscountPromotion['image']) }}" alt="{{ $displayDiscountPromotion['name'] }}" class="corner-img">
-    </div>
-    @endif
-    @if ($hasDiscountPromotion && !$hasIncreasePromotion && $displayDiscountPromotion && !empty($displayDiscountPromotion['lable_client']))
-    <div class="promotion-center-label">{!! $displayDiscountPromotion['lable_client'] !!}</div>
-    @endif
-    @if (str_contains($classes, 'held'))
-    <div class="lock-icon" title="Đang được {{ $heldByName }} xử lý cho 1 đơn khác">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round">
-            <rect x="4" y="11" width="16" height="9" rx="2" />
-            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-        </svg>
-    </div>
-    @endif
-</div>
+    data-iso-date="{{ $slotDateYmd }}"
+    @click="toggleSlot($el)">{!! $overlayHtml !!}</div>
