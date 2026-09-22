@@ -56,7 +56,8 @@ class Building extends Category
         'electric_unit_price', 'water_unit_price', 'payment_method',
         'billing_cycle_type', 'payment_reminder_days_before', 'payment_reminder_repeat_days',
         'fixed_due_day', 'contract_expiry_reminder_days_before',
-        'owner_name', 'owner_phone', 'owner_id_card_number', 'owner_email', 'owner_address',
+        'owner_name', 'owner_phone', 'owner_id_card_number', 'owner_id_card_issued_date', 'owner_id_card_issued_place',
+        'owner_email', 'owner_address',
         'owner_bank_bin', 'owner_bank_name', 'owner_bank_account_number', 'owner_bank_account_holder',
         'payos_client_id', 'payos_api_key', 'payos_checksum_key',
         'momo_partner_code', 'momo_access_key', 'momo_secret_key',
@@ -68,7 +69,8 @@ class Building extends Category
         'electric_unit_price', 'water_unit_price', 'payment_method',
         'billing_cycle_type', 'payment_reminder_days_before', 'payment_reminder_repeat_days',
         'fixed_due_day', 'contract_expiry_reminder_days_before',
-        'owner_name', 'owner_phone', 'owner_id_card_number', 'owner_email', 'owner_address',
+        'owner_name', 'owner_phone', 'owner_id_card_number', 'owner_id_card_issued_date', 'owner_id_card_issued_place',
+        'owner_email', 'owner_address',
         'owner_bank_bin', 'owner_bank_name', 'owner_bank_account_number', 'owner_bank_account_holder',
         'payos_client_id', 'payos_api_key', 'payos_checksum_key',
         'momo_partner_code', 'momo_access_key', 'momo_secret_key',
@@ -150,6 +152,26 @@ class Building extends Category
     public function setOwnerIdCardNumberAttribute($value): void
     {
         $this->pendingDetail['owner_id_card_number'] = $value;
+    }
+
+    public function getOwnerIdCardIssuedDateAttribute(): ?string
+    {
+        return $this->detailValue('owner_id_card_issued_date');
+    }
+
+    public function setOwnerIdCardIssuedDateAttribute($value): void
+    {
+        $this->pendingDetail['owner_id_card_issued_date'] = $value;
+    }
+
+    public function getOwnerIdCardIssuedPlaceAttribute(): ?string
+    {
+        return $this->detailValue('owner_id_card_issued_place');
+    }
+
+    public function setOwnerIdCardIssuedPlaceAttribute($value): void
+    {
+        $this->pendingDetail['owner_id_card_issued_place'] = $value;
     }
 
     public function getOwnerEmailAttribute(): ?string

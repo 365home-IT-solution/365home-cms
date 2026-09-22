@@ -49,6 +49,7 @@ class Tenant extends Model implements AuthenticatableContract, HasName
 
     protected $fillable = [
         'fullname', 'phone', 'password', 'id_card_number', 'id_card_front', 'id_card_back',
+        'id_card_issued_date', 'id_card_issued_place',
         'date_of_birth', 'gender', 'nationality', 'document_type', 'hometown', 'permanent_address',
         'occupation', 'workplace',
         'emergency_contact_name', 'emergency_contact_phone',
@@ -66,6 +67,7 @@ class Tenant extends Model implements AuthenticatableContract, HasName
 
     protected $casts = [
         'date_of_birth'          => 'date',
+        'id_card_issued_date'    => 'date',
         'residence_declared'     => 'boolean',
         'residence_declared_at'  => 'date',
         'password'               => 'hashed',

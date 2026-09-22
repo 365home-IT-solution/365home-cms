@@ -16,6 +16,7 @@ use Modules\Minihouse\App\Models\ContractTenant;
 use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\Room;
 use Modules\Minihouse\App\Models\Transaction;
+use Modules\Minihouse\App\Services\ContractDocumentService;
 use Modules\Minihouse\App\Services\ContractEarlyEndService;
 
 // CRUD cơ bản cho Hợp đồng + 4 luồng nghiệp vụ nâng cao mirror ĐÚNG logic bản Filament (xem
@@ -278,6 +279,10 @@ class ContractController extends Controller
 
         $this->recordDepositRefundTransaction($contract, (float) $data['deposit_refunded_amount'], 'Hoàn cọc khi thanh lý hợp đồng #' . $contract->id);
 
+        // Hợp đồng điện tử (nếu có) đang dở dang thì huỷ theo — đã signed rồi thì KHÔNG đụng, xem
+        // ContractDocumentService::cancelIfUnsigned().
+        app(ContractDocumentService::class)->cancelIfUnsigned($contract->document);
+
         return response()->json([
             'data'              => $this->toDetailItem($contract->fresh(['room' => fn ($q) => $q->withoutGlobalScopes(), 'room.building' => fn ($q) => $q->withoutGlobalScopes(), 'tenant' => fn ($q) => $q->withoutGlobalScopes()])),
             'suggested_refund'  => $suggested,
@@ -338,6 +343,10 @@ class ContractController extends Controller
         ContractEarlyEndService::reprorate($contract, Carbon::parse($data['checkout_at']));
 
         $this->recordDepositRefundTransaction($contract, (float) $depositRefunded, 'Hoàn cọc khi huỷ hợp đồng #' . $contract->id);
+
+        // Hợp đồng điện tử (nếu có) đang dở dang thì huỷ theo — đã signed rồi thì KHÔNG đụng, xem
+        // ContractDocumentService::cancelIfUnsigned().
+        app(ContractDocumentService::class)->cancelIfUnsigned($contract->document);
 
         return response()->json([
             'data'              => $this->toDetailItem($contract->fresh(['room' => fn ($q) => $q->withoutGlobalScopes(), 'room.building' => fn ($q) => $q->withoutGlobalScopes(), 'tenant' => fn ($q) => $q->withoutGlobalScopes()])),
