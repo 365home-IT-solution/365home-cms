@@ -86,8 +86,8 @@ class TenantController extends Controller
             // 'hashed' tự băm, không cần Hash::make() ở đây.
             'password'                 => 'nullable|string|min:6',
             'id_card_number'           => 'nullable|string|max:20',
-            'id_card_front'            => 'nullable|string|max:2048',
-            'id_card_back'             => 'nullable|string|max:2048',
+            'id_card_front'            => $this->idCardFileRules($request, 'id_card_front'),
+            'id_card_back'             => $this->idCardFileRules($request, 'id_card_back'),
             'date_of_birth'            => 'nullable|date',
             'gender'                   => ['nullable', Rule::in([Tenant::GENDER_MALE, Tenant::GENDER_FEMALE, Tenant::GENDER_OTHER])],
             'hometown'                 => 'nullable|string|max:255',
@@ -99,6 +99,8 @@ class TenantController extends Controller
             'room_id'                  => 'nullable|string|exists:products,id',
             'note'                     => 'nullable|string',
         ]);
+
+        $data = $this->storeIdCardUploads($request, $data);
 
         // room_id CÓ giá trị thì phòng đó phải thuộc toà được phép — room_id null (chưa gán phòng)
         // thì tạo được bình thường, không có toà nào để kiểm tra.
@@ -115,7 +117,10 @@ class TenantController extends Controller
         return response()->json(['data' => $this->toDetailItem($tenant->fresh(['room' => fn ($q) => $q->withoutGlobalScopes()]))], 201);
     }
 
-    // PUT/PATCH /api/admin/minihouse/tenants/{id}
+    // PUT/PATCH /api/admin/minihouse/tenants/{id} — VÀ CŨNG NHẬN POST cùng URL (xem routes/
+    // api_minihouse.php) vì PHP KHÔNG tự parse được multipart/form-data (ảnh CCCD) gửi qua PUT/PATCH
+    // (giới hạn của chính PHP, không phải Laravel) — Postman/nhiều client chỉ đính kèm file được qua
+    // POST. Route POST trỏ thẳng vào CÙNG hàm này, không tách logic riêng.
     public function update(Request $request, int $id): JsonResponse
     {
         if (! $this->hasPermission($request, 'update_tenants')) {
@@ -135,8 +140,8 @@ class TenantController extends Controller
             // update() không đụng gì tới mật khẩu hiện có, đúng ngữ nghĩa 'sometimes'.
             'password'                 => 'sometimes|nullable|string|min:6',
             'id_card_number'           => 'nullable|string|max:20',
-            'id_card_front'            => 'nullable|string|max:2048',
-            'id_card_back'             => 'nullable|string|max:2048',
+            'id_card_front'            => $this->idCardFileRules($request, 'id_card_front'),
+            'id_card_back'             => $this->idCardFileRules($request, 'id_card_back'),
             'date_of_birth'            => 'nullable|date',
             'gender'                   => ['nullable', Rule::in([Tenant::GENDER_MALE, Tenant::GENDER_FEMALE, Tenant::GENDER_OTHER])],
             'hometown'                 => 'nullable|string|max:255',
@@ -148,6 +153,8 @@ class TenantController extends Controller
             'room_id'                  => 'nullable|string|exists:products,id',
             'note'                     => 'nullable|string',
         ]);
+
+        $data = $this->storeIdCardUploads($request, $data);
 
         if (array_key_exists('room_id', $data) && ! empty($data['room_id'])) {
             $room = Room::withoutGlobalScope('activeBuilding')->find($data['room_id']);
@@ -186,6 +193,32 @@ class TenantController extends Controller
         $tenant->delete();
 
         return response()->json(['message' => 'Đã xoá khách thuê.']);
+    }
+
+    // 'id_card_front'/'id_card_back' nhận CẢ 2 kiểu: string (đường dẫn đã upload sẵn ở nơi khác —
+    // cách Filament FileUpload gửi lên, xem TenantForm) HOẶC file ảnh thật (multipart/form-data —
+    // cách Postman/app di động gửi trực tiếp). Đổi rule tuỳ theo request THẬT SỰ có file hay không —
+    // không dùng chung 1 bộ rule cho cả 2 trường hợp vì 'image' sẽ từ chối 1 chuỗi path bình thường.
+    private function idCardFileRules(Request $request, string $field): array
+    {
+        return $request->hasFile($field)
+            ? ['nullable', 'image', 'max:5120']
+            : ['nullable', 'string', 'max:2048'];
+    }
+
+    // Lưu ảnh CCCD thật gửi qua multipart (nếu có) vào đúng thư mục Filament đang dùng
+    // ('minihouse/tenants', disk 'public' — xem TenantForm::id_card_front/back) rồi ghi đè lại
+    // $data bằng đường dẫn vừa lưu, để Tenant::create()/update() ở dưới xử lý giống hệt trường hợp
+    // client gửi sẵn 1 chuỗi path — không cần 2 nhánh xử lý khác nhau ở nơi gọi.
+    private function storeIdCardUploads(Request $request, array $data): array
+    {
+        foreach (['id_card_front', 'id_card_back'] as $field) {
+            if ($request->hasFile($field)) {
+                $data[$field] = $request->file($field)->store('minihouse/tenants', 'public');
+            }
+        }
+
+        return $data;
     }
 
     // Khách CHƯA có phòng (room_id null) coi như luôn "được phép" xem/sửa (không thuộc riêng toà

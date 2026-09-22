@@ -66,6 +66,11 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
 
     Route::apiResource('tenants', TenantController::class)->except(['show'])->parameters(['tenants' => 'id']);
     Route::get('tenants/{id}', [TenantController::class, 'show'])->name('tenants.show');
+    // POST cùng URL PATCH/PUT ở trên, trỏ ĐÚNG vào TenantController::update() — PHP không tự parse
+    // được multipart/form-data (ảnh CCCD) gửi qua PUT/PATCH (giới hạn của PHP, không phải Laravel),
+    // Postman/nhiều client chỉ đính kèm file được qua POST. Đặt SAU apiResource nên không đụng route
+    // POST /tenants (store, không có {id}) đã đăng ký ở trên.
+    Route::post('tenants/{id}', [TenantController::class, 'update'])->name('tenants.update.post');
 
     Route::apiResource('contracts', ContractController::class)->except(['show'])->parameters(['contracts' => 'id']);
     Route::get('contracts/{id}', [ContractController::class, 'show'])->name('contracts.show');
