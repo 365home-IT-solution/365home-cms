@@ -551,6 +551,17 @@ class Building extends Category
 
     // Đồng bộ liên kết THẬT với bảng provinces/province_branches của Home mỗi khi 'province' đổi —
     // giữ đúng tinh thần Giai đoạn 2 (migrateBuildings()), áp dụng cho cả sửa tay qua BuildingForm.
+    //
+    // BUG THẬT đã gặp (2026-09-22, qua ContractDocumentService::update() — save() Building để ghi 2
+    // field CCCD chủ trọ, KHÔNG liên quan gì tới tỉnh/thành, vẫn kích hoạt saved() → syncProvinceLink()
+    // chạy lại y hệt): Province::firstOrCreate(['name' => $provinceName], ...) tra theo TÊN, nhưng
+    // 'name' của Building là text tự do (gõ tay/chọn qua BuildingForm) — có thể KHÁC ký tự với 1 dòng
+    // provinces ĐÃ CÓ SẴN (khoảng trắng/viết hoa/tiền tố "TP."/chuẩn hoá Unicode dấu khác nhau) dù
+    // CÙNG slugify ra 1 giá trị. Laravel's createOrFirst() (Eloquent Builder@createOrFirst, Laravel
+    // 10) tự bắt UniqueConstraintViolationException rồi thử where($attributes)->first() lại — NHƯNG
+    // vẫn tra theo 'name' y hệt, không khớp được dòng đã tồn tại (chỉ khớp SLUG, không khớp NAME) →
+    // ném lại đúng exception gốc, vỡ 500 cho request KHÔNG hề đụng gì tới tỉnh/thành. Tự tra thêm
+    // theo slug làm lưới an toàn — không đổi hành vi đường thường (vẫn ưu tiên khớp NAME trước).
     private static function syncProvinceLink(Building $building): void
     {
         $provinceName = $building->province;
@@ -559,10 +570,25 @@ class Building extends Category
             return;
         }
 
-        $province = Province::firstOrCreate(
-            ['name' => $provinceName],
-            ['slug' => Str::slug($provinceName)]
-        );
+        $slug = Str::slug($provinceName);
+
+        $province = Province::where('name', $provinceName)->first()
+            ?? Province::where('slug', $slug)->first();
+
+        if (! $province) {
+            try {
+                $province = Province::create(['name' => $provinceName, 'slug' => $slug]);
+            } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+                // Tiến trình khác vừa tạo xong đúng lúc ta insert (race) — tra lại lần cuối theo cả
+                // 2 khoá trước khi chịu thua (ném lại y hệt exception gốc nếu vẫn không tìm thấy).
+                $province = Province::where('slug', $slug)->first()
+                    ?? Province::where('name', $provinceName)->first();
+
+                if (! $province) {
+                    throw $e;
+                }
+            }
+        }
 
         ProvinceBranch::firstOrCreate([
             'province_id'  => $province->id,
