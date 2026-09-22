@@ -180,8 +180,8 @@ class ContractDocumentService
             $doc->sent_at         = now();
             $doc->save();
 
-            $this->logEvent($doc, ContractDocumentEvent::EVENT_SEALED, ContractDocumentEvent::ACTOR_ADMIN, (string) $actor->id, $actor->fullname ?? $actor->name, ['hash' => $doc->sealed_hash], $request);
-            $this->logEvent($doc, ContractDocumentEvent::EVENT_SENT, ContractDocumentEvent::ACTOR_ADMIN, (string) $actor->id, $actor->fullname ?? $actor->name, null, $request);
+            $this->logEvent($doc, ContractDocumentEvent::EVENT_SEALED, ContractDocumentEvent::ACTOR_ADMIN, (string) $actor->id, $this->actorName($actor), ['hash' => $doc->sealed_hash], $request);
+            $this->logEvent($doc, ContractDocumentEvent::EVENT_SENT, ContractDocumentEvent::ACTOR_ADMIN, (string) $actor->id, $this->actorName($actor), null, $request);
         });
 
         if ($contract->tenant) {
@@ -277,7 +277,7 @@ class ContractDocumentService
                 'party'                => ContractSignature::PARTY_TENANT,
                 'signer_type'          => ContractSignature::SIGNER_TYPE_TENANT,
                 'signer_id'            => (string) $tenant->id,
-                'signer_name'          => $payload['signer_name'] ?? $tenant->fullname,
+                'signer_name'          => filled($payload['signer_name'] ?? null) ? $payload['signer_name'] : $tenant->fullname,
                 'signer_phone'         => $tenant->phone,
                 'signature_path'       => $signature['path'],
                 // Hash của file mà khách ĐÃ KÝ LÊN — bản niêm phong gốc, chưa có chữ ký nào.
@@ -339,7 +339,7 @@ class ContractDocumentService
                 'party'                => ContractSignature::PARTY_OWNER,
                 'signer_type'          => ContractSignature::SIGNER_TYPE_ADMIN,
                 'signer_id'            => (string) $actor->id,
-                'signer_name'          => $payload['signer_name'] ?? ($actor->fullname ?? $actor->name),
+                'signer_name'          => filled($payload['signer_name'] ?? null) ? $payload['signer_name'] : $this->actorName($actor),
                 'signer_phone'         => $actor->phone ?? null,
                 'signature_path'       => $signature['path'],
                 // Hash của file mà chủ ĐÃ KÝ LÊN — bản đã có sẵn chữ ký khách, trước khi chủ ký.
@@ -357,7 +357,7 @@ class ContractDocumentService
             $doc->status         = ContractDocument::STATUS_SIGNED;
             $doc->save();
 
-            $this->logEvent($doc, ContractDocumentEvent::EVENT_SIGNED_BY_OWNER, ContractDocumentEvent::ACTOR_ADMIN, (string) $actor->id, $actor->fullname ?? $actor->name, null, $request);
+            $this->logEvent($doc, ContractDocumentEvent::EVENT_SIGNED_BY_OWNER, ContractDocumentEvent::ACTOR_ADMIN, (string) $actor->id, $this->actorName($actor), null, $request);
             $this->logEvent($doc, ContractDocumentEvent::EVENT_FINALIZED, ContractDocumentEvent::ACTOR_SYSTEM, null, null, null, $request);
         });
 
@@ -393,7 +393,7 @@ class ContractDocumentService
             'status'          => ContractDocument::STATUS_DRAFT,
         ]);
 
-        $this->logEvent($doc, ContractDocumentEvent::EVENT_RECALLED, ContractDocumentEvent::ACTOR_ADMIN, (string) $actor->id, $actor->fullname ?? $actor->name, null, $request);
+        $this->logEvent($doc, ContractDocumentEvent::EVENT_RECALLED, ContractDocumentEvent::ACTOR_ADMIN, (string) $actor->id, $this->actorName($actor), null, $request);
 
         return $doc->refresh();
     }
@@ -565,11 +565,22 @@ class ContractDocumentService
         return "minihouse/contracts/{$doc->contract_id}/{$doc->id}";
     }
 
+    // "final.pdf" dùng CHUNG 1 đường dẫn xuyên suốt 3 lần ghi đè (niêm phong → khách ký → chủ ký) —
+    // trình duyệt/app/CDN có thể cache theo URL, lần đổi nội dung SAU không tự làm mới nếu không đổi
+    // URL (bug thật gặp khi test: xem lại pdf_url cũ tưởng thiếu chữ ký chủ trọ, thật ra file server
+    // đã đúng, chỉ là bản cache cũ). Gắn ?v=<12 ký tự đầu hash hiện tại> để mỗi lần nội dung đổi là
+    // 1 URL khác hẳn, ép trình duyệt/CDN tải lại thay vì phục vụ bản cache.
     private function currentPdfUrl(ContractDocument $doc): ?string
     {
         $path = $doc->final_pdf_path ?: $doc->sealed_pdf_path;
 
-        return $path ? Storage::disk('public')->url($path) : null;
+        if (! $path) {
+            return null;
+        }
+
+        $hash = $doc->final_hash ?: $doc->sealed_hash;
+
+        return Storage::disk('public')->url($path) . ($hash ? '?v=' . substr($hash, 0, 12) : '');
     }
 
     /**
@@ -670,6 +681,22 @@ class ContractDocumentService
         }
 
         return $payload;
+    }
+
+    // BUG THẬT đã gặp (2026-09-22): "$actor->fullname ?? $actor->name" — App\Models\User KHÔNG có
+    // cột 'name' (chỉ có 'fullname', xem User::$fillable), nên $actor->name LUÔN là null vô nghĩa;
+    // và toán tử "??" chỉ rơi xuống vế sau khi vế trước là NULL — 1 tài khoản có fullname='' (chuỗi
+    // rỗng, không phải null, VD tài khoản super_admin seed sẵn chưa điền tên) khiến "??" KHÔNG rơi
+    // xuống đâu cả, ghi thẳng chuỗi rỗng làm signer_name/actor_name (triệu chứng: chữ ký chủ trọ lưu
+    // đúng file nhưng tên hiện rỗng). Dùng filled()/fallback qua email thay vì "??" + cột không tồn
+    // tại.
+    private function actorName(User $actor): string
+    {
+        if (filled($actor->fullname)) {
+            return $actor->fullname;
+        }
+
+        return $actor->email ?? ('#' . $actor->id);
     }
 
     private function maskPhone(?string $phone): ?string

@@ -114,6 +114,25 @@ class ContractDocumentSigningFlowTest extends TestCase
         $this->assertSame($hashAfterTenantSign, $ownerSignature->signed_document_hash);
         $this->assertSame(hash('sha256', Storage::disk('public')->get($doc->final_pdf_path)), $doc->final_hash);
 
+        // Bug thật đã gặp: "$actor->fullname ?? $actor->name" không rơi xuống fallback khi fullname
+        // là chuỗi rỗng (User không có cột 'name' — $actor->name luôn null vô nghĩa) — khoá lại
+        // signer_name không bao giờ là chuỗi rỗng dù tài khoản admin chưa điền fullname.
+        $this->assertNotSame('', $ownerSignature->signer_name);
+        $this->assertNotEmpty($ownerSignature->signer_name);
+
+        // Cả 2 chữ ký phải cùng nhúng được vào bản render (tenant + owner), không chỉ lưu file suông.
+        $service = app(\Modules\Minihouse\App\Services\ContractDocumentService::class);
+        $signaturesForRender = $service->signaturesForRender($doc);
+        $this->assertNotNull($signaturesForRender['tenant']['image_url']);
+        $this->assertNotNull($signaturesForRender['owner']['image_url']);
+        $html = \Modules\Minihouse\App\Services\ContractDocumentRenderer::render($service->buildFields($doc), $signaturesForRender);
+        $this->assertSame(2, substr_count($html, '<img src='));
+
+        // pdf_url phải đổi theo nội dung (chống cache trình duyệt/CDN phục vụ nhầm bản cũ khi
+        // final.pdf bị ghi đè cùng 1 đường dẫn qua từng lần ký) — query ?v= phải khác nhau.
+        $ownerFields = $service->buildFields($doc, includeInternal: true);
+        $this->assertStringContainsString('?v=' . substr($doc->final_hash, 0, 12), $ownerFields['pdf_url']);
+
         // 5) Hợp đồng gốc kết thúc SAU KHI đã signed — bản ký KHÔNG được đụng vào (mục 6).
         $this->withHeaders($adminHeaders)->postJson("/api/admin/minihouse/contracts/{$contract->id}/checkout", [
             'checkout_at' => now()->toDateString(), 'deposit_refunded_amount' => 0,
