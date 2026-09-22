@@ -18,6 +18,21 @@ class MinihouseZaloTokenService
     private const CACHE_REFRESH_TOKEN = 'minihouse_zalo_refresh_token';
     private const LOCK_KEY            = 'minihouse_zalo_token_refresh';
 
+    // BUG THẬT đã gặp (2026-09-22): refresh() ưu tiên đọc CACHE_REFRESH_TOKEN trước
+    // ZaloSetting->refresh_token ("Cache::get(...) ?? $settings->refresh_token") — đúng cho đường đi
+    // BÌNH THƯỜNG (mỗi lần refresh() thành công LUÔN ghi đồng thời cả Cache lẫn DB, xem cuối hàm
+    // refresh()), nhưng khi refresh_token bị Zalo thu hồi hẳn (network lỗi giữa chừng, hoặc 2 tiến
+    // trình cùng refresh 1 lúc — xem comment ở callZaloRefresh()) và admin vào ZaloSettingsPage dán
+    // tay refresh_token MỚI, trang đó chỉ update() DB — Cache (TTL 3 tháng) vẫn còn giữ token CŨ đã
+    // chết, nên request kế tiếp vẫn ưu tiên đọc Cache → tiếp tục gửi token chết lên Zalo → vẫn lỗi y
+    // hệt "Invalid refresh token" dù đã nhập token mới. ZaloSettingsPage::save() PHẢI gọi flushCache()
+    // ngay sau khi lưu để lần gọi getAccessToken() kế tiếp bắt buộc đọc lại từ DB.
+    public static function flushCache(): void
+    {
+        Cache::forget(self::CACHE_ACCESS_TOKEN);
+        Cache::forget(self::CACHE_REFRESH_TOKEN);
+    }
+
     public function getAccessToken(): string
     {
         $cached = Cache::get(self::CACHE_ACCESS_TOKEN);

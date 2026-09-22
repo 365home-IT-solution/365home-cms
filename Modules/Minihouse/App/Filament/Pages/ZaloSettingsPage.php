@@ -10,6 +10,7 @@ use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Modules\Minihouse\App\Models\ZaloSetting;
+use Modules\Minihouse\App\Services\MinihouseZaloTokenService;
 
 // Cấu hình Zalo OA/ZNS RIÊNG cho MiniHouse — CHỈ super_admin truy cập được (chứa bí mật gọi API thay
 // mặt cả hệ thống, giống mức nhạy cảm của RoleResource). Hoàn toàn TÁCH BIỆT khỏi Zalo OA của Home —
@@ -100,8 +101,16 @@ class ZaloSettingsPage extends Page implements HasForms
 
         ZaloSetting::current()->update($data);
 
+        // Bug thật đã gặp (2026-09-22): dán Refresh Token MỚI ở đây chỉ ghi xuống DB — Cache
+        // (TTL 3 tháng, xem MinihouseZaloTokenService) vẫn giữ token CŨ đã bị Zalo thu hồi, nên
+        // request gửi OTP kế tiếp vẫn ưu tiên đọc Cache → vẫn gửi token chết lên Zalo → vẫn lỗi y
+        // hệt dù vừa lưu token mới. Xoá cache ngay sau khi lưu để lần gọi getAccessToken() kế tiếp
+        // bắt buộc refresh lại bằng đúng giá trị vừa nhập.
+        MinihouseZaloTokenService::flushCache();
+
         Notification::make()
             ->title('Đã lưu cấu hình Zalo')
+            ->body('Đã xoá access/refresh token cũ trong bộ nhớ đệm — lần gửi OTP/ZNS kế tiếp sẽ dùng Refresh Token vừa nhập.')
             ->success()
             ->send();
     }
