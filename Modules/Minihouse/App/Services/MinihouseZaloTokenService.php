@@ -84,9 +84,14 @@ class MinihouseZaloTokenService
     // $settings PHẢI được đọc trong CÙNG transaction đã lockForUpdate() ở getAccessToken() — refresh_
     // token lấy TRỰC TIẾP từ đó (KHÔNG còn ưu tiên đọc Cache::get(CACHE_REFRESH_TOKEN) như bản cũ),
     // vì Cache có thể không dùng chung giữa các tiến trình còn DB (đã khoá) thì luôn đúng và mới nhất.
+    // config('minihouse_zalo.refresh_token_override') là van xả khẩn cấp CHỈ set được qua biến môi
+    // trường server (KHÔNG có ở panel admin — xem config/minihouse_zalo.php) — ưu tiên nó nếu có,
+    // dùng khi refresh_token trong DB đã chết mà chưa kịp/không tiện vào Cấu hình Zalo dán lại. Token
+    // MỚI sau khi refresh vẫn lưu thẳng vào DB như thường ở cuối hàm này, nên chỉ cần dùng ĐÚNG 1 lần
+    // là hệ thống tự quay về dùng DB cho các lần sau.
     private function refresh(ZaloSetting $settings): string
     {
-        $refreshToken = $settings->refresh_token;
+        $refreshToken = config('minihouse_zalo.refresh_token_override') ?: $settings->refresh_token;
 
         if (! $settings->app_id || ! $settings->app_secret || ! $refreshToken) {
             throw new \RuntimeException('Chưa cấu hình đủ Zalo OA cho MiniHouse (App ID/App Secret/Refresh Token) — vào mục Cấu hình Zalo để thêm.');

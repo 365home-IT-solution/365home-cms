@@ -91,4 +91,27 @@ class MinihouseZaloTokenServiceTest extends TestCase
 
         Http::assertSentCount(3);
     }
+
+    // Van xả khẩn cấp (MINIHOUSE_ZALO_REFRESH_TOKEN_OVERRIDE, xem config/minihouse_zalo.php) — dùng
+    // khi refresh_token trong DB đã chết mà chưa kịp vào panel dán lại. Khoá lại: (1) override được
+    // gửi lên Zalo thay vì refresh_token (đã chết) đang lưu trong DB, (2) token MỚI Zalo cấp lại vẫn
+    // lưu THẲNG vào DB như bình thường — request sau không cần override nữa vẫn refresh được.
+    public function test_refresh_token_override_is_used_instead_of_dead_db_value(): void
+    {
+        $settings = $this->seedSettings();
+        $settings->update(['refresh_token' => 'dead-token-in-db']);
+
+        config(['minihouse_zalo.refresh_token_override' => 'override-token-from-env']);
+
+        Http::fake([
+            'oauth.zaloapp.com/*' => Http::response(['access_token' => 'new-access-token', 'refresh_token' => 'new-refresh-token', 'expires_in' => 3600], 200),
+        ]);
+
+        $token = (new MinihouseZaloTokenService())->getAccessToken();
+
+        $this->assertSame('new-access-token', $token);
+        Http::assertSent(fn ($request) => $request['refresh_token'] === 'override-token-from-env');
+
+        $this->assertSame('new-refresh-token', ZaloSetting::current()->refresh_token);
+    }
 }
