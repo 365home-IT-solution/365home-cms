@@ -36,7 +36,7 @@ class CustomerOrderCountExport implements FromCollection, WithHeadings, WithMapp
             ->where('exclude_from_stats', false)
             ->whereNotNull('buyer_phone')
             ->where('buyer_phone', '!=', '')
-            ->select('id', 'buyer_phone', 'buyer_name', 'created_at', 'status', 'amount');
+            ->select('id', 'buyer_phone', 'buyer_name', 'created_at', 'status', 'amount', 'customer_id');
 
         if (!empty($this->filters['date_from'])) {
             $query->where('created_at', '>=', Carbon::parse($this->filters['date_from']));
@@ -46,6 +46,11 @@ class CustomerOrderCountExport implements FromCollection, WithHeadings, WithMapp
         }
         if (!empty($this->filters['status'])) {
             $query->where('status', $this->filters['status']);
+        }
+        if (!empty($this->filters['account_status']) && $this->filters['account_status'] === 'has_account') {
+            $query->whereNotNull('customer_id');
+        } elseif (!empty($this->filters['account_status']) && $this->filters['account_status'] === 'no_account') {
+            $query->whereNull('customer_id');
         }
 
         if ($this->allowedBranchIds !== null) {

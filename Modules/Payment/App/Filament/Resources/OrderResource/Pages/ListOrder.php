@@ -72,6 +72,13 @@ class ListOrder extends ListRecords
                         ->timezone('Asia/Ho_Chi_Minh')
                         ->displayFormat('d/m/Y H:i'),
                     Select::make('status')->label('Trạng thái')->options(['pending' => 'Đang chờ','paid' => 'Đã thanh toán','deposit' => 'Đã đặt cọc','failed' => 'Thất bại','cancelled_payment' => 'Hủy QR','refunded' => 'Hoàn tiền']),
+                    Select::make('account_status')
+                        ->label('Loại khách hàng')
+                        ->placeholder('Tất cả')
+                        ->options([
+                            'has_account' => 'Khách đã có tài khoản',
+                            'no_account'  => 'Khách không có tài khoản',
+                        ]),
                 ])
                 ->action(function (array $data) {
                     $fileName = 'khach_hang_' . now()->format('Y-m-d_His') . '.xlsx';
