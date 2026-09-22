@@ -180,27 +180,25 @@ class MinihouseZaloService
     private function sendZns(?int $reminderId, string $phone, ?string $recipientName, string $templateId, array $templateData): array
     {
         $formattedPhone = $this->formatPhoneNumber($phone);
+        // app_secret giờ dùng CHUNG với Home (config('zalo.app_secret'), .env ZALO_APP_SECRET) —
+        // không còn đọc ZaloSetting->app_secret của MiniHouse nữa, xem MinihouseZaloTokenService.
+        $appSecret      = config('zalo.app_secret');
+        $trackingId     = $reminderId !== null ? (string) $reminderId : ('otp-' . now()->timestamp . '-' . random_int(1000, 9999));
 
         try {
             $accessToken = $this->tokenService->getAccessToken();
-            // app_secret giờ dùng CHUNG với Home (config('zalo.app_secret'), .env ZALO_APP_SECRET) —
-            // không còn đọc ZaloSetting->app_secret của MiniHouse nữa, xem MinihouseZaloTokenService.
-            $appSecret   = config('zalo.app_secret');
+            $response    = $this->requestZns($formattedPhone, $templateId, $templateData, $trackingId, $accessToken, $appSecret);
+            $result      = $response->json();
 
-            $response = Http::timeout(30)
-                ->withHeaders([
-                    'access_token' => $accessToken,
-                    'Content-Type' => 'application/json',
-                ])
-                ->post('https://business.openapi.zalo.me/message/template', [
-                    'phone'           => $formattedPhone,
-                    'template_id'     => $templateId,
-                    'template_data'   => $templateData,
-                    'tracking_id'     => $reminderId !== null ? (string) $reminderId : ('otp-' . now()->timestamp . '-' . random_int(1000, 9999)),
-                    'appsecret_proof' => hash_hmac('sha256', $accessToken, $appSecret),
-                ]);
-
-            $result = $response->json();
+            // Token bị Zalo từ chối (vd bị thu hồi ngoài dự kiến, xem ZaloTokenService) — ép
+            // refresh token mới rồi thử gửi lại ĐÚNG 1 LẦN, thay vì fail hẳn và lặp lại y hệt lỗi
+            // này cho tới khi Cache tự hết hạn (tối đa 1 giờ, khiến MỌI OTP/nhắc việc trong giờ đó
+            // đều lỗi).
+            if (\App\Services\ZaloTokenService::isInvalidTokenError($result['error'] ?? null)) {
+                $accessToken = $this->tokenService->getAccessToken(forceRefresh: true);
+                $response    = $this->requestZns($formattedPhone, $templateId, $templateData, $trackingId, $accessToken, $appSecret);
+                $result      = $response->json();
+            }
 
             if ($response->successful() && (int) ($result['error'] ?? -1) === 0) {
                 ZaloNotification::create([
@@ -248,6 +246,22 @@ class MinihouseZaloService
 
             return ['success' => false, 'error' => $e->getMessage()];
         }
+    }
+
+    private function requestZns(string $formattedPhone, string $templateId, array $templateData, string $trackingId, string $accessToken, ?string $appSecret)
+    {
+        return Http::timeout(30)
+            ->withHeaders([
+                'access_token' => $accessToken,
+                'Content-Type' => 'application/json',
+            ])
+            ->post('https://business.openapi.zalo.me/message/template', [
+                'phone'           => $formattedPhone,
+                'template_id'     => $templateId,
+                'template_data'   => $templateData,
+                'tracking_id'     => $trackingId,
+                'appsecret_proof' => hash_hmac('sha256', $accessToken, $appSecret),
+            ]);
     }
 
     // Zalo OA dùng CHUNG với Home — cấu hình đủ hay chưa giờ xét theo config('zalo.*') (.env của

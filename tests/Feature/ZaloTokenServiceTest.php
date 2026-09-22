@@ -101,4 +101,35 @@ class ZaloTokenServiceTest extends TestCase
 
         Http::assertSent(fn ($request) => $request['refresh_token'] === 'old-refresh-token');
     }
+
+    // Bug thật đã sửa (2026-09-22): Zalo có thể thu hồi access_token ngoài dự kiến dù Cache/DB vẫn
+    // ghi "chưa hết hạn" theo thời gian — trước đây getAccessToken() không có cách nào ép bỏ qua
+    // Cache/DB để refresh lại thật sự, khiến nơi gọi (ZaloOtpService/MinihouseZaloService) cứ nhận
+    // lại đúng token đã bị từ chối cho tới khi Cache tự hết hạn (tối đa 1 giờ).
+    public function test_force_refresh_ignores_cache_and_unexpired_db_token(): void
+    {
+        Cache::put('zalo_access_token', 'stale-cached-token', now()->addHour());
+        $settings = $this->seedSettings();
+        $settings->access_token = 'stale-db-token';
+        $settings->access_token_expires_at = now()->addHour()->timestamp;
+        $settings->save();
+
+        Http::fake([
+            'oauth.zaloapp.com/*' => Http::response(['access_token' => 'brand-new-token', 'expires_in' => 3600], 200),
+        ]);
+
+        $token = app(ZaloTokenService::class)->getAccessToken(forceRefresh: true);
+
+        $this->assertSame('brand-new-token', $token);
+        $this->assertSame('brand-new-token', Cache::get('zalo_access_token'));
+        Http::assertSent(fn ($request) => $request['refresh_token'] === 'old-refresh-token');
+    }
+
+    public function test_is_invalid_token_error_matches_known_zalo_codes(): void
+    {
+        $this->assertTrue(ZaloTokenService::isInvalidTokenError(-124));
+        $this->assertTrue(ZaloTokenService::isInvalidTokenError('-124'));
+        $this->assertFalse(ZaloTokenService::isInvalidTokenError(0));
+        $this->assertFalse(ZaloTokenService::isInvalidTokenError(null));
+    }
 }

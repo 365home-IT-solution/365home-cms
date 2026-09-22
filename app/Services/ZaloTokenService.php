@@ -37,31 +37,56 @@ use Illuminate\Support\Facades\Log;
  */
 class ZaloTokenService
 {
-    public function getAccessToken(): string
+    // Zalo trả về mã lỗi này khi access_token bị TỪ CHỐI ở tầng gửi ZNS (vd -124 "Access token
+    // invalid") — có thể do Zalo thu hồi ngoài dự kiến dù cache/DB vẫn tưởng còn hạn (xem BUG THẬT
+    // ở đầu file: 2 tiến trình giẫm chân nhau khi refresh). Nơi gọi (ZaloOtpService,
+    // MinihouseZaloService, ZaloZnsService) dùng chung định nghĩa này để biết khi nào cần ép
+    // refresh lại rồi thử gửi lại đúng 1 lần, thay vì fail hẳn rồi lặp lại y hệt cho tới khi Cache
+    // tự hết hạn (tối đa 1 giờ, khiến MỌI request OTP trong giờ đó đều lỗi).
+    public const INVALID_TOKEN_ERROR_CODES = [-124];
+
+    public static function isInvalidTokenError(mixed $errorCode): bool
     {
-        $cached = Cache::get('zalo_access_token');
-        if ($cached) {
-            return $cached;
+        return in_array((int) $errorCode, self::INVALID_TOKEN_ERROR_CODES, true);
+    }
+
+    public function getAccessToken(bool $forceRefresh = false): string
+    {
+        if (! $forceRefresh) {
+            $cached = Cache::get('zalo_access_token');
+            if ($cached) {
+                return $cached;
+            }
+        } else {
+            // Token vừa bị Zalo từ chối — xoá cache để không ai khác đọc lại đúng token hỏng này
+            // trong lúc ta refresh.
+            Cache::forget('zalo_access_token');
         }
 
-        return DB::transaction(function () {
+        return DB::transaction(function () use ($forceRefresh) {
             // Khoá THẬT trên bảng settings (group='zalo') — xem giải thích ở đầu file. Tiến trình
             // khác có thể đang giữ khoá này để refresh; ta CHỜ (transaction lock) tới khi họ xong
             // rồi mới đọc tiếp — không đọc song song với 1 refresh đang dở dang.
             DB::table('settings')->where('group', 'zalo')->lockForUpdate()->get();
 
-            // Tiến trình vừa đợi khoá có thể đã có token mới do tiến trình giữ khoá
-            // trước đó refresh xong — kiểm tra lại trước khi tự refresh thêm lần nữa.
-            $cached = Cache::get('zalo_access_token');
-            if ($cached) {
-                return $cached;
+            if (! $forceRefresh) {
+                // Tiến trình vừa đợi khoá có thể đã có token mới do tiến trình giữ khoá
+                // trước đó refresh xong — kiểm tra lại trước khi tự refresh thêm lần nữa.
+                $cached = Cache::get('zalo_access_token');
+                if ($cached) {
+                    return $cached;
+                }
             }
+
+            $settings = $this->loadSettingsSafely();
 
             // Cache trống nhưng DB vẫn còn access_token chưa hết hạn (vd Redis vừa mất dữ liệu
             // ngay sau deploy) — dùng lại luôn, không cần gọi Zalo, đồng thời nạp lại vào Cache.
-            $settings = $this->loadSettingsSafely();
+            // BỎ QUA nhánh này khi $forceRefresh=true: Zalo vừa báo token này bị từ chối, dù DB
+            // ghi "chưa hết hạn" theo thời gian cũng không còn đáng tin — phải refresh mới thật sự.
             if (
-                $settings
+                ! $forceRefresh
+                && $settings
                 && $settings->access_token
                 && $settings->access_token_expires_at
                 && $settings->access_token_expires_at > now()->timestamp
