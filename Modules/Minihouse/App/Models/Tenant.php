@@ -57,10 +57,12 @@ class Tenant extends Model implements AuthenticatableContract, HasName
         'room_id', 'note',
     ];
 
-    // 'password' KHÔNG bao giờ hiện trong form quản trị (TenantForm không có field này) — chỉ được
-    // ghi qua đúng 1 nơi: TenantPortalController::updatePassword(), khách thuê tự đặt cho CHÍNH mình
-    // sau khi đã đăng nhập (bằng OTP hoặc mật khẩu cũ). Nullable — khách chưa từng đặt vẫn đăng nhập
-    // OTP bình thường, Portal luôn cho chọn 1 trong 2 cách (xem TenantAuthController).
+    // 'password' ghi được từ 2 nơi: (1) TenantForm/TenantController — ADMIN đặt/đổi hộ khi tạo tài
+    // khoản Portal cho khách hoặc khách quên mật khẩu; (2) TenantPortalController::updatePassword() —
+    // khách thuê TỰ đặt cho CHÍNH mình sau khi đã đăng nhập (bằng OTP hoặc mật khẩu cũ). Nullable —
+    // khách chưa từng có mật khẩu vẫn đăng nhập OTP bình thường, Portal luôn cho chọn 1 trong 2 cách
+    // (xem TenantAuthController). SĐT (cột `phone`) vẫn là "tài khoản" đăng nhập duy nhất — không có
+    // username riêng.
     protected $hidden = [
         'password', 'remember_token',
     ];

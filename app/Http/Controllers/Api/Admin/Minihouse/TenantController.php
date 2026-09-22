@@ -71,6 +71,11 @@ class TenantController extends Controller
         $data = $request->validate([
             'fullname'                 => 'required|string|max:255',
             'phone'                    => 'nullable|string|max:20',
+            // Mật khẩu đăng nhập Portal khách thuê (SĐT ở trên vẫn là "tài khoản", không có username
+            // riêng) — tuỳ chọn, admin đặt hộ khi tạo tài khoản cho khách; để trống thì khách vẫn
+            // đăng nhập được bằng OTP như bình thường (xem Tenant.php). Tenant::$casts 'password' =>
+            // 'hashed' tự băm, không cần Hash::make() ở đây.
+            'password'                 => 'nullable|string|min:6',
             'id_card_number'           => 'nullable|string|max:20',
             'id_card_front'            => 'nullable|string|max:2048',
             'id_card_back'             => 'nullable|string|max:2048',
@@ -117,6 +122,9 @@ class TenantController extends Controller
         $data = $request->validate([
             'fullname'                 => 'sometimes|required|string|max:255',
             'phone'                    => 'nullable|string|max:20',
+            // Chỉ đổi khi client THẬT SỰ gửi field này — bỏ qua (không có trong $data) thì
+            // update() không đụng gì tới mật khẩu hiện có, đúng ngữ nghĩa 'sometimes'.
+            'password'                 => 'sometimes|nullable|string|min:6',
             'id_card_number'           => 'nullable|string|max:20',
             'id_card_front'            => 'nullable|string|max:2048',
             'id_card_back'             => 'nullable|string|max:2048',
@@ -138,6 +146,14 @@ class TenantController extends Controller
             if (! $room || ! $this->isBuildingAllowed($request, $room->building_id)) {
                 return response()->json(['message' => 'Không có quyền chuyển khách thuê sang phòng của toà nhà này.'], 403);
             }
+        }
+
+        // Gửi "password": null/"" (VD client tự serialize nguyên form, ô mật khẩu để trống) KHÔNG
+        // được xoá mật khẩu hiện có — cùng ngữ nghĩa "để trống = giữ nguyên" như TenantForm
+        // (dehydrated(fn ($state) => filled($state))), khác các field khác vẫn cho null đi qua bình
+        // thường.
+        if (array_key_exists('password', $data) && blank($data['password'])) {
+            unset($data['password']);
         }
 
         $tenant->update($data);

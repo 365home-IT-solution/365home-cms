@@ -38,7 +38,20 @@ class TenantForm
                                 ->tel()
                                 ->maxLength(20)
                                 ->regex('/^(0[0-9]{9,10}|\+84[0-9]{9,10})$/')
-                                ->validationMessages(['regex' => 'Số điện thoại không đúng định dạng (VD: 0912345678).']),
+                                ->validationMessages(['regex' => 'Số điện thoại không đúng định dạng (VD: 0912345678).'])
+                                ->helperText('Cũng là "tài khoản" đăng nhập Portal khách thuê — không có username riêng.'),
+                            // Chỉ đổi khi ADMIN chủ động gõ vào — dehydrated(false) khi để trống lúc
+                            // Sửa để KHÔNG gửi field này lên request, giữ nguyên mật khẩu Portal hiện
+                            // có (đúng pattern UserForm đang dùng cho tài khoản nhân viên). Không
+                            // required — khách vẫn đăng nhập OTP bình thường nếu chưa có mật khẩu nào,
+                            // Portal cho khách TỰ đặt/đổi sau khi đăng nhập (xem Tenant.php).
+                            TextInput::make('password')
+                                ->label('Mật khẩu Portal')
+                                ->password()
+                                ->revealable()
+                                ->dehydrated(fn ($state) => filled($state))
+                                ->rules(['min:6'])
+                                ->helperText('Để trống = giữ nguyên (Sửa) hoặc chưa đặt mật khẩu, khách vẫn đăng nhập được bằng OTP. Gõ vào để đặt mới/đổi mật khẩu.'),
                             TextInput::make('id_card_number')
                                 ->label('Số CCCD/CMND')
                                 ->maxLength(20)
