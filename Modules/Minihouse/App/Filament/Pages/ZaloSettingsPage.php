@@ -2,6 +2,7 @@
 
 namespace Modules\Minihouse\App\Filament\Pages;
 
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -10,21 +11,24 @@ use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Modules\Minihouse\App\Models\ZaloSetting;
-use Modules\Minihouse\App\Services\MinihouseZaloTokenService;
 
-// Cấu hình Zalo OA/ZNS RIÊNG cho MiniHouse — CHỈ super_admin truy cập được (chứa bí mật gọi API thay
-// mặt cả hệ thống, giống mức nhạy cảm của RoleResource). Hoàn toàn TÁCH BIỆT khỏi Zalo OA của Home —
-// trang này KHÔNG đọc/ghi app/Settings/ZaloSettings.php hay config/services.php 'zalo' của Home, chỉ
-// đọc/ghi ZaloSetting (bảng minihouse_zalo_settings) — xem MinihouseZaloService,
-// MinihouseZaloTokenService.
+// Cấu hình ZNS cho MiniHouse — CHỈ super_admin truy cập được. KHÔNG còn phần "Tài khoản Zalo OA"
+// (App ID/App Secret/Refresh Token) ở trang này nữa: MiniHouse dùng CHUNG 1 Zalo OA với Home (xem
+// MinihouseZaloTokenService — uỷ quyền cho App\Services\ZaloTokenService), tài khoản OA đó cấu hình
+// qua .env (ZALO_APP_ID/APP_SECRET/REFRESH_TOKEN) của toàn hệ thống, không sửa ở đây được nữa — trước
+// đây có 2 nơi quản lý ĐỘC LẬP (ở đây + .env) cùng cầm refresh_token gốc, refresh_token của Zalo chỉ
+// dùng 1 lần nên 2 bên liên tục giẫm chân nhau, làm CẢ Home lẫn MiniHouse bị lỗi "Invalid refresh
+// token." lặp lại (xem docs/be-minihouse-contract-signing.md). Trang này giờ CHỈ còn 4 mẫu ZNS
+// Template ID RIÊNG của MiniHouse (đọc/ghi bảng minihouse_zalo_settings qua ZaloSetting) — vẫn cần
+// duyệt riêng dù chung 1 OA, không liên quan gì tới việc quản lý token.
 class ZaloSettingsPage extends Page implements HasForms
 {
     use InteractsWithForms;
 
     protected static ?string $navigationIcon  = 'heroicon-o-chat-bubble-left-right';
     protected static ?string $navigationGroup = 'Hệ thống';
-    protected static ?string $navigationLabel = 'Cấu hình Zalo';
-    protected static ?string $title           = 'Cấu hình Zalo OA/ZNS (MiniHouse)';
+    protected static ?string $navigationLabel = 'Mẫu ZNS MiniHouse';
+    protected static ?string $title           = 'Mẫu tin ZNS (MiniHouse)';
     protected static ?int $navigationSort     = 96;
 
     protected static string $view = 'minihouse::filament.pages.zalo-settings';
@@ -39,7 +43,6 @@ class ZaloSettingsPage extends Page implements HasForms
     public function mount(): void
     {
         $this->form->fill(ZaloSetting::current()->only([
-            'app_id', 'app_secret', 'refresh_token',
             'template_payment_reminder', 'template_contract_expiry', 'template_maintenance', 'template_otp',
         ]));
     }
@@ -49,23 +52,10 @@ class ZaloSettingsPage extends Page implements HasForms
         return $form
             ->schema([
                 Section::make('Tài khoản Zalo OA')
-                    ->description('Lấy từ developers.zalo.me — ứng dụng liên kết với Zalo OA riêng của MiniHouse (khác OA của Home).')
-                    ->columns(2)
                     ->schema([
-                        TextInput::make('app_id')
-                            ->label('App ID')
-                            ->maxLength(255),
-                        TextInput::make('app_secret')
-                            ->label('App Secret')
-                            ->password()
-                            ->revealable()
-                            ->maxLength(255),
-                        TextInput::make('refresh_token')
-                            ->label('Refresh Token')
-                            ->password()
-                            ->revealable()
-                            ->helperText('Lấy từ bước xác thực OAuth 1 lần với Zalo OA — hệ thống tự làm mới Access Token từ đây, không cần nhập tay Access Token.')
-                            ->columnSpanFull(),
+                        Placeholder::make('shared_oa_note')
+                            ->label('')
+                            ->content('Toà nhà MiniHouse hiện dùng CHUNG 1 Zalo OA với hệ thống Home — cấu hình App ID/App Secret/Refresh Token nằm trong biến môi trường (.env) của server, liên hệ đội kỹ thuật nếu cần đổi.'),
                     ]),
 
                 Section::make('Mẫu tin ZNS (đã được Zalo duyệt)')
@@ -101,16 +91,8 @@ class ZaloSettingsPage extends Page implements HasForms
 
         ZaloSetting::current()->update($data);
 
-        // Bug thật đã gặp (2026-09-22): dán Refresh Token MỚI ở đây chỉ ghi xuống DB — Cache
-        // (TTL 3 tháng, xem MinihouseZaloTokenService) vẫn giữ token CŨ đã bị Zalo thu hồi, nên
-        // request gửi OTP kế tiếp vẫn ưu tiên đọc Cache → vẫn gửi token chết lên Zalo → vẫn lỗi y
-        // hệt dù vừa lưu token mới. Xoá cache ngay sau khi lưu để lần gọi getAccessToken() kế tiếp
-        // bắt buộc refresh lại bằng đúng giá trị vừa nhập.
-        MinihouseZaloTokenService::flushCache();
-
         Notification::make()
-            ->title('Đã lưu cấu hình Zalo')
-            ->body('Đã xoá access/refresh token cũ trong bộ nhớ đệm — lần gửi OTP/ZNS kế tiếp sẽ dùng Refresh Token vừa nhập.')
+            ->title('Đã lưu mẫu ZNS')
             ->success()
             ->send();
     }

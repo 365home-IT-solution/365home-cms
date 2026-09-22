@@ -51,10 +51,16 @@ Ghi lại ở đây vì đều lộ ra TỪ việc test luồng ký, dù nguyên
 - **`Building::syncProvinceLink()`** ném 500 khi save() Building vì lý do bất kỳ (không chỉ đổi
   tỉnh/thành) nếu bảng `provinces` có sẵn 1 dòng cùng slug nhưng khác tên — đã sửa tự tra thêm theo
   slug. Xem `Modules/Minihouse/App/Models/Building.php`.
-- **`MinihouseZaloTokenService`** — 2 bug: (1) cache token cũ không bị xoá khi admin dán refresh_token
-  mới qua panel; (2) race condition đa container do dùng `Cache::lock()` thay vì khoá DB thật — đã
-  sửa cả 2, thêm `config/minihouse_zalo.php` (`refresh_token_override`, chỉ set qua biến môi trường
-  server, không có UI) làm van xả khẩn cấp khi refresh_token DB bị Zalo thu hồi.
+- **`MinihouseZaloTokenService`** — 3 bug liên tiếp: (1) cache token cũ không bị xoá khi admin dán
+  refresh_token mới qua panel; (2) race condition đa container do dùng `Cache::lock()` thay vì khoá
+  DB thật; (3) **gốc rễ thật sự**: production dùng CHUNG đúng 1 Zalo OA cho cả Home lẫn MiniHouse,
+  nhưng code giả định 2 OA riêng — 2 nơi quản lý refresh_token ĐỘC LẬP cùng cầm 1 token gốc (refresh_
+  token của Zalo chỉ dùng được 1 lần) liên tục giẫm chân nhau, làm CẢ Home lẫn MiniHouse lỗi "Invalid
+  refresh token." lặp lại vô tận. Sửa (1)(2) trước không đủ — chỉ hết hẳn sau khi **hợp nhất về đúng
+  1 nơi quản lý token**: `MinihouseZaloTokenService` giờ chỉ uỷ quyền cho `App\Services\ZaloTokenService`
+  (của Home), không tự refresh/lưu token riêng nữa. `ZaloSettingsPage` (MiniHouse) bỏ hẳn phần App
+  ID/App Secret/Refresh Token, chỉ còn 4 mẫu ZNS Template ID riêng. Nếu sau này MiniHouse có Zalo OA
+  THẬT SỰ riêng, tách lại bằng cách khôi phục implementation cũ từ lịch sử git.
 - **`ZaloSetting::current()`** không đảm bảo đúng 1 dòng `id=1` do `id` không nằm trong `$fillable`
   — đã sửa dùng `forceCreate()`.
 
