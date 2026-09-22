@@ -4,15 +4,19 @@ namespace App\Services;
 
 use App\Settings\ZaloSettings;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
  * Nguồn refresh access_token/refresh_token DUY NHẤT cho Zalo OA — dùng chung bởi
- * ZaloOtpService (OTP đăng nhập) và ZaloZnsService (thông báo đặt phòng), vì cả 2
- * cùng chia sẻ 1 Zalo OA. Refresh_token của Zalo chỉ dùng được đúng 1 lần (dùng
+ * ZaloOtpService (OTP đăng nhập), ZaloZnsService (thông báo đặt phòng), VÀ
+ * Modules\Minihouse\App\Services\MinihouseZaloTokenService (MiniHouse dùng CHUNG đúng 1 Zalo OA
+ * với Home, xem lịch sử sửa 2026-09-22 "hợp nhất về đúng 1 nơi quản lý token" — trước đó MiniHouse
+ * tự giữ 1 bản refresh_token riêng, 2 nơi độc lập giẫm chân nhau làm cả 2 bên lỗi liên tục). Vì cả
+ * 2 hệ thống cùng chia sẻ 1 Zalo OA. Refresh_token của Zalo chỉ dùng được đúng 1 lần (dùng
  * xong bị Zalo thu hồi, cấp token mới) nên bắt buộc phải khoá khi refresh — nếu để
- * 2 service tự refresh độc lập như trước, 2 tiến trình có thể cùng đọc 1
+ * 2 tiến trình tự refresh độc lập, có thể cùng đọc 1
  * refresh_token cũ và một bên sẽ bị Zalo từ chối.
  *
  * Cache (Redis/file) là nơi đọc NHANH cho mọi request, nhưng KHÔNG bền vững — nếu cache bị mất
@@ -20,6 +24,16 @@ use Illuminate\Support\Facades\Log;
  * refresh_token của Zalo dùng 1 lần nên .env không tự phục hồi được. ZaloSettings (bảng `settings`,
  * mã hoá — cùng cơ chế MailSettings đang dùng) là lớp lưu BỀN VỮNG phía sau Cache: mọi lần refresh
  * thành công đều ghi xuống đây, và khi Cache trống sẽ đọc lại từ đây trước khi phải tự refresh mới.
+ *
+ * BUG THẬT đã gặp (2026-09-22, log "Access token invalid" -124 ngay sau khi hợp nhất MiniHouse vào
+ * đây): Cache::lock() chỉ loại trừ lẫn nhau đúng nghĩa NẾU mọi tiến trình gọi hàm này dùng CHUNG 1
+ * backend cache — web/queue/cron/MiniHouse có thể chạy ở container/tiến trình khác nhau, nếu
+ * CACHE_DRIVER không thật sự dùng chung (file/array riêng từng container) thì lock không có tác
+ * dụng xuyên container: 2 bên cùng refresh gần lúc nhau, bên sau cầm access_token/refresh_token đã
+ * bị Zalo thu hồi bởi bên trước. Đổi sang khoá THẬT ở tầng DB (lockForUpdate() ngay trên bảng
+ * `settings`, group='zalo') — MySQL luôn dùng chung thật sự bất kể có bao nhiêu container, đây là
+ * chốt chặn DUY NHẤT đảm bảo đúng trên mọi cấu hình hạ tầng (cùng cách đã sửa cho
+ * MinihouseZaloTokenService trước khi hợp nhất — xem lịch sử git).
  */
 class ZaloTokenService
 {
@@ -30,8 +44,13 @@ class ZaloTokenService
             return $cached;
         }
 
-        return Cache::lock('zalo_token_refresh', 10)->block(5, function () {
-            // Tiến trình vừa đợi lock có thể đã có token mới do tiến trình giữ lock
+        return DB::transaction(function () {
+            // Khoá THẬT trên bảng settings (group='zalo') — xem giải thích ở đầu file. Tiến trình
+            // khác có thể đang giữ khoá này để refresh; ta CHỜ (transaction lock) tới khi họ xong
+            // rồi mới đọc tiếp — không đọc song song với 1 refresh đang dở dang.
+            DB::table('settings')->where('group', 'zalo')->lockForUpdate()->get();
+
+            // Tiến trình vừa đợi khoá có thể đã có token mới do tiến trình giữ khoá
             // trước đó refresh xong — kiểm tra lại trước khi tự refresh thêm lần nữa.
             $cached = Cache::get('zalo_access_token');
             if ($cached) {
@@ -74,10 +93,15 @@ class ZaloTokenService
         }
     }
 
+    // $settings PHẢI được đọc trong CÙNG transaction đã lockForUpdate() ở getAccessToken() —
+    // refresh_token ưu tiên lấy từ ĐÓ (DB, đã khoá nên luôn mới nhất), KHÔNG còn ưu tiên đọc
+    // Cache::get('zalo_refresh_token') như bản cũ (Cache có thể không dùng chung giữa các tiến
+    // trình, xem BUG THẬT ở đầu file) — config('zalo.refresh_token') (.env) là lưới an toàn CHÓT
+    // CÙNG, chỉ dùng khi DB cũng trống hẳn (VD lần đầu deploy, chưa refresh lần nào).
     private function refresh(?ZaloSettings $settings = null): string
     {
         $settings ??= $this->loadSettingsSafely();
-        $refreshToken = Cache::get('zalo_refresh_token') ?? $settings?->refresh_token ?? config('zalo.refresh_token');
+        $refreshToken = $settings?->refresh_token ?: config('zalo.refresh_token');
 
         if (! $refreshToken) {
             throw new \RuntimeException('Zalo refresh_token chưa được cấu hình.');
@@ -101,10 +125,8 @@ class ZaloTokenService
         $expiresIn = $data['expires_in'] ?? 3600;
         Cache::put('zalo_access_token', $data['access_token'], now()->addSeconds($expiresIn));
 
-        if (isset($data['refresh_token'])) {
-            Cache::put('zalo_refresh_token', $data['refresh_token'], now()->addMonths(3));
-        }
-
+        // Không còn ghi 'zalo_refresh_token' vào Cache nữa — refresh() giờ chỉ đọc DB (xem comment
+        // ở refresh()), giữ Cache nguyên văn cũ chỉ tổ gây hiểu nhầm còn dùng.
         if ($settings) {
             try {
                 $settings->access_token = $data['access_token'];
