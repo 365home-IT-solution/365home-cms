@@ -16,10 +16,14 @@ class TenantController extends Controller
 {
     use ScopesToMinihouseBuilding;
 
-    // GET /api/admin/minihouse/tenants?search=&room_id=&per_page=
-    // LƯU Ý: khách thuê KHÔNG đang ở phòng nào (room_id null — đã trả phòng) sẽ không hiện trong
-    // danh sách lọc theo toà — giống hệt hành vi ScopedToActiveBuildingViaRoom bên panel Filament
-    // (xem session trước: "tenant với room_id null bị ẩn khi có bộ lọc toà nhà đang bật").
+    // GET /api/admin/minihouse/tenants?search=&room_id=&has_room=&per_page=
+    // Mặc định trả về CẢ khách thuê chưa/không còn phòng (room_id null) LẪN khách đang ở phòng thuộc
+    // toà được phép — giống đúng ranh giới "được phép xem" của tenantAllowed() bên dưới (khách không
+    // có phòng thì không thuộc toà nào để chặn). Muốn CHỈ xem khách đã có phòng thì truyền
+    // has_room=1 (has_room=0 để lọc ngược lại, chỉ khách chưa có phòng).
+    // LƯU Ý PHÂN QUYỀN: điều kiện lọc theo $permitted KHÔNG được bỏ/nới lỏng bằng param — đây là
+    // ranh giới toà nhà được quản lý (xem ScopesToMinihouseBuilding), bỏ nó đi sẽ lộ khách thuê của
+    // toà khác qua API dù tài khoản chỉ được gán 1 toà.
     public function index(Request $request): JsonResponse
     {
         if (! $this->hasPermission($request, 'view_any_tenants')) {
@@ -31,7 +35,12 @@ class TenantController extends Controller
         $tenants = Tenant::query()
             ->withoutGlobalScopes()
             ->with('room:id,name,building_id')
-            ->whereHas('room', fn ($q) => $q->whereIn('building_id', $permitted))
+            ->where(fn ($q) => $q
+                ->whereNull('room_id')
+                ->orWhereHas('room', fn ($q2) => $q2->whereIn('building_id', $permitted)))
+            ->when($request->filled('has_room'), fn ($q) => $request->boolean('has_room')
+                ? $q->whereNotNull('room_id')
+                : $q->whereNull('room_id'))
             ->when($request->filled('room_id'), fn ($q) => $q->where('room_id', $request->input('room_id')))
             ->when($request->filled('search'), fn ($q) => $q->where(fn ($q2) => $q2
                 ->where('fullname', 'like', '%' . $request->string('search') . '%')
