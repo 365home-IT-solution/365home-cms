@@ -23,6 +23,7 @@ use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\Room;
 use Modules\Minihouse\App\Models\Transaction;
 use Modules\Minihouse\App\Services\ContractContentRenderer;
+use Modules\Minihouse\App\Services\ContractDocumentService;
 use Modules\Minihouse\App\Services\ContractEarlyEndService;
 
 class EditContract extends EditRecord
@@ -163,6 +164,10 @@ class EditContract extends EditRecord
 
                     $this->recordDepositRefundTransaction($this->record, (float) ($data['deposit_refunded_amount'] ?? 0), 'Hoàn cọc khi thanh lý hợp đồng #' . $this->record->id);
 
+                    // Hợp đồng điện tử (nếu có) đang dở dang thì huỷ theo — đã signed rồi thì KHÔNG
+                    // đụng, xem ContractDocumentService::cancelIfUnsigned() (mirror đúng bản API).
+                    app(ContractDocumentService::class)->cancelIfUnsigned($this->record->document);
+
                     $this->refreshFormData(['status', 'checkout_at', 'deposit_refunded_amount', 'deposit_deduction_reason', 'checkout_handover_file']);
 
                     Notification::make()
@@ -243,6 +248,10 @@ class EditContract extends EditRecord
                     $this->reprorateInvoicesOnEarlyEnd($this->record, Carbon::parse($data['checkout_at']));
 
                     $this->recordDepositRefundTransaction($this->record, (float) ($data['deposit_refunded_amount'] ?? 0), 'Hoàn cọc khi huỷ hợp đồng #' . $this->record->id);
+
+                    // Hợp đồng điện tử (nếu có) đang dở dang thì huỷ theo — đã signed rồi thì KHÔNG
+                    // đụng, xem ContractDocumentService::cancelIfUnsigned() (mirror đúng bản API).
+                    app(ContractDocumentService::class)->cancelIfUnsigned($this->record->document);
 
                     $this->refreshFormData(['status', 'checkout_at', 'deposit_refunded_amount', 'deposit_deduction_reason']);
 

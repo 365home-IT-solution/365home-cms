@@ -18,6 +18,27 @@
     },
 
     toggleSlot(el, slot) {
+        // Ô giờ (book/_slot-cell.blade.php) chỉ gọi toggleSlot($el) — giá/khuyến mãi/giờ nằm trong
+        // 1 bảng JSON dùng chung (data-slot-map, render 1 lần ở book-panel bên dưới) thay vì nhúng
+        // lặp lại trong @click của từng ô. Tra theo roomId|timeslotId|date lấy từ data-* của ô.
+        // Vẫn nhận tham số slot để tương thích nếu nơi khác truyền vào object đầy đủ.
+        if (!slot) {
+            const cellData = el.dataset;
+            const mapEl = el.closest('[data-room-ids]')?.querySelector('[data-slot-map]');
+            if (!mapEl) { return; }
+            const rawMap = mapEl.textContent;
+            if (mapEl._rawMap !== rawMap) {
+                mapEl._rawMap = rawMap;
+                mapEl._slotMap = JSON.parse(rawMap);
+            }
+            // Bảng nén dạng { k: [tên trường...], s: { khoá ô: [giá trị...] } } — tên trường chỉ khai
+            // báo 1 lần thay vì lặp lại ở từng ô (xem chỗ in data-slot-map bên dưới).
+            const entry = mapEl._slotMap.s[cellData.roomId + '|' + cellData.timeslotId + '|' + cellData.date];
+            if (!entry) { return; }
+            slot = { date: cellData.date, timeslotId: cellData.timeslotId, roomId: cellData.roomId };
+            mapEl._slotMap.k.forEach((name, i) => { slot[name] = entry[i]; });
+        }
+
         // is_activated/totalSlotsInRoom/fullBookingDiscountValue/bulkDiscountRules không còn
         // nhúng thẳng trong @click của từng ô (xem book/_slot-cell.blade.php) — đọc lại từ
         // data-room-meta trên wrapper của phòng (book/_desktop-grid.blade.php,
@@ -242,6 +263,12 @@
 }" x-on:book-category-changed.window="resetSelection()"
     class="{{ $generalSettings->holiday_theme_active ? 'holiday-theme' : '' }}"
     data-room-ids="{{ implode(',', $this->roomIds) }}">
+    {{-- Sprite icon khung giờ (mặt trời/mặt trăng) — mỗi bảng có hàng chục tiêu đề khung giờ (mobile + desktop),
+         trước đây in nguyên ~800 ký tự path SVG cho từng cái. Đặt NGOÀI wire:loading.remove để luôn có mặt. --}}
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+        <symbol id="bk-moon" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M9.528 1.718a.75.75 0 0 1 .162.819A8.97 8.97 0 0 0 9 6a9 9 0 0 0 9 9 8.97 8.97 0 0 0 3.463-.69.75.75 0 0 1 .981.98 10.503 10.503 0 0 1-9.694 6.46c-5.799 0-10.5-4.7-10.5-10.5 0-4.368 2.667-8.112 6.46-9.694a.75.75 0 0 1 .818.162Z" clip-rule="evenodd"/></symbol>
+        <symbol id="bk-sun" viewBox="0 0 16 16"><path d="M8 1a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 1ZM10.5 8a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0ZM12.95 4.11a.75.75 0 1 0-1.06-1.06l-1.062 1.06a.75.75 0 0 0 1.061 1.062l1.06-1.061ZM15 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 15 8ZM11.89 12.95a.75.75 0 0 0 1.06-1.06l-1.06-1.062a.75.75 0 0 0-1.062 1.061l1.061 1.06ZM8 12a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 12ZM5.172 11.89a.75.75 0 0 0-1.061-1.062L3.05 11.89a.75.75 0 1 0 1.06 1.06l1.06-1.06ZM4 8a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 4 8ZM4.11 5.172A.75.75 0 0 0 5.173 4.11L4.11 3.05a.75.75 0 1 0-1.06 1.06l1.06 1.06Z"/></symbol>
+    </svg>
     <div class="w-full mx-auto">
         @include('bladethemev1::livewire.book._header')
 
@@ -279,9 +306,23 @@
                          tính) — luôn xếp dọc (cả mobile lẫn desktop). Trên mobile, bảng tính giá này
                          bị ẩn và thay bằng bottom sheet (bên dưới) để không chiếm chỗ khi chưa chọn
                          khung giờ. --}}
+                    @php $slotMap = new \ArrayObject(); @endphp
                     <div class="book-panel">
                         @include('bladethemev1::livewire.book._mobile')
                         @include('bladethemev1::livewire.book._desktop-grid')
+
+                        {{-- Dữ liệu từng ô giờ do book/_slot-cell.blade.php gom vào $slotMap — in ra 1 LẦN
+                             (JSON_HEX_TAG chặn chuỗi </script> trong nhãn khuyến mãi phá thẻ). --}}
+                        @php
+                            // Mọi ô do cùng 1 đoạn code dựng nên => cùng thứ tự trường; tên trường lấy từ ô đầu
+                            // tiên, mỗi ô chỉ giữ mảng giá trị (toggleSlot() ghép lại thành object như cũ).
+                            $slotMapRows = $slotMap->getArrayCopy();
+                            $slotMapPayload = [
+                                'k' => $slotMapRows ? array_keys(reset($slotMapRows)) : [],
+                                's' => array_map('array_values', $slotMapRows),
+                            ];
+                        @endphp
+                        <script type="application/json" data-slot-map>{!! json_encode($slotMapPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) !!}</script>
 
                         <div class="book-pricing-desktop">
                             @include('bladethemev1::livewire.book._pricing')

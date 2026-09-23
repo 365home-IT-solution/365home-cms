@@ -4,8 +4,15 @@ namespace Modules\Minihouse\App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-// Cấu hình Zalo OA/ZNS RIÊNG của MiniHouse — luôn CHỈ 1 DÒNG duy nhất (id=1), dùng ZaloSetting::
-// current() để lấy/tạo, giống pattern PaymentConfiguration của Home nhưng bảng riêng, không chung.
+// Cấu hình ZNS của MiniHouse — luôn CHỈ 1 DÒNG duy nhất (id=1), dùng ZaloSetting::current() để
+// lấy/tạo, giống pattern PaymentConfiguration của Home nhưng bảng riêng, không chung.
+//
+// app_id/app_secret/access_token/refresh_token/access_token_expires_at KHÔNG còn dùng cho việc
+// refresh/gọi Zalo nữa (xem MinihouseZaloTokenService — đã đổi sang uỷ quyền cho App\Services\
+// ZaloTokenService của Home, vì thực tế production dùng CHUNG 1 Zalo OA cho cả 2 hệ thống, 2 nơi
+// quản lý độc lập từng làm refresh_token giẫm chân nhau). Giữ lại cột (không xoá schema) phòng khi
+// MiniHouse có Zalo OA THẬT SỰ riêng sau này — chỉ 4 cột template_* (ZNS Template ID riêng của
+// MiniHouse) là còn đang dùng thật.
 class ZaloSetting extends Model
 {
     protected $table = 'minihouse_zalo_settings';
@@ -24,9 +31,18 @@ class ZaloSetting extends Model
         'access_token_expires_at' => 'datetime',
     ];
 
+    // BUG THẬT phát hiện 2026-09-22 (khi debug lock đua refresh token): firstOrCreate(['id' => 1])
+    // KHÔNG thật sự đảm bảo dòng tạo mới có id=1 — 'id' không nằm trong $fillable, nên create() bên
+    // trong firstOrCreate() ÂM THẦM bỏ qua ['id' => 1] (mass-assignment guard), để MySQL tự auto-
+    // increment. Bình thường vẫn "vô tình đúng" vì bảng này chỉ có 1 dòng DUY NHẤT tạo từ lúc bảng
+    // còn trống (auto-increment tự nhiên ra đúng 1) — nhưng nếu dòng đó từng bị xoá tay 1 lần, lần gọi
+    // current() kế tiếp sẽ tạo dòng MỚI với id KHÁC 1, rồi từ đó current() không bao giờ tìm lại được
+    // (luôn where('id', 1), không khớp) — cứ mỗi lần gọi lại tạo thêm 1 dòng rác mới. Dùng
+    // forceCreate() (bỏ qua $fillable đúng mục đích) để ép id=1 thật sự, và tra theo dòng ĐẦU TIÊN có
+    // sẵn (không cứng where id=1) để tự phục hồi được nếu lỡ đã có dòng rác id khác từ bug cũ.
     public static function current(): self
     {
-        return static::firstOrCreate(['id' => 1]);
+        return static::query()->first() ?? static::forceCreate(['id' => 1]);
     }
 
     public function isConfigured(): bool

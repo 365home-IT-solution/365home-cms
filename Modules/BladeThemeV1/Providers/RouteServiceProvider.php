@@ -47,7 +47,7 @@ class RouteServiceProvider extends ServiceProvider
      */
     protected function mapWebRoutes()
     {
-        Route::middleware('web')
+        Route::middleware(['web', \Modules\BladeThemeV1\Http\Middleware\MinifyHtml::class])
             ->namespace($this->moduleNamespace)
             ->group(module_path('BladeThemeV1', '/Routes/web.php'));
     }

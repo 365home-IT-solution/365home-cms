@@ -110,16 +110,21 @@ class ZaloOtpService
             return false;
         }
 
-        $response = Http::withHeaders([
-            'access_token' => $accessToken,
-            'Content-Type' => 'application/json',
-        ])->post(config('zalo.zns_url'), [
-            'phone'           => $phone,
-            'template_id'     => config('zalo.otp_template_id'),
-            'template_data'   => ['otp' => $otp],
-            'tracking_id'     => 'otp_' . time(),
-            'appsecret_proof' => hash_hmac('sha256', $accessToken, config('zalo.app_secret')),
-        ]);
+        $response = $this->requestZns($phone, $otp, $accessToken);
+
+        // Token bị Zalo từ chối (vd bị thu hồi ngoài dự kiến, xem ZaloTokenService) — ép refresh
+        // token mới rồi thử gửi lại ĐÚNG 1 LẦN, thay vì fail hẳn và lặp lại y hệt lỗi này cho tới
+        // khi Cache tự hết hạn (tối đa 1 giờ, khiến MỌI OTP trong giờ đó đều lỗi).
+        if (ZaloTokenService::isInvalidTokenError($response->json('error'))) {
+            try {
+                $accessToken = $this->tokenService->getAccessToken(forceRefresh: true);
+            } catch (\Throwable $e) {
+                Log::critical('Zalo OTP: không làm mới được access token sau khi bị từ chối', ['message' => $e->getMessage()]);
+                return false;
+            }
+
+            $response = $this->requestZns($phone, $otp, $accessToken);
+        }
 
         if (! $response->successful() || ($response->json('error') !== 0)) {
             Log::error('Zalo ZNS failed', [
@@ -130,6 +135,20 @@ class ZaloOtpService
         }
 
         return true;
+    }
+
+    private function requestZns(string $phone, string $otp, string $accessToken)
+    {
+        return Http::withHeaders([
+            'access_token' => $accessToken,
+            'Content-Type' => 'application/json',
+        ])->post(config('zalo.zns_url'), [
+            'phone'           => $phone,
+            'template_id'     => config('zalo.otp_template_id'),
+            'template_data'   => ['otp' => $otp],
+            'tracking_id'     => 'otp_' . time(),
+            'appsecret_proof' => hash_hmac('sha256', $accessToken, config('zalo.app_secret')),
+        ]);
     }
 
     private function otpKey(string $phone): string

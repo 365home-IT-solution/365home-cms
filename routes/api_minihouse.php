@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\Admin\Minihouse\AmenityController;
 use App\Http\Controllers\Api\Admin\Minihouse\AnnouncementController;
 use App\Http\Controllers\Api\Admin\Minihouse\BuildingController;
 use App\Http\Controllers\Api\Admin\Minihouse\ContractController;
+use App\Http\Controllers\Api\Admin\Minihouse\ContractDocumentController;
 use App\Http\Controllers\Api\Admin\Minihouse\InvoiceController;
 use App\Http\Controllers\Api\Admin\Minihouse\InvoicePaymentController;
 use App\Http\Controllers\Api\Admin\Minihouse\MeteringReadingController;
@@ -14,6 +15,9 @@ use App\Http\Controllers\Api\Admin\Minihouse\RoomController;
 use App\Http\Controllers\Api\Admin\Minihouse\SurchargeController;
 use App\Http\Controllers\Api\Admin\Minihouse\TenantController;
 use App\Http\Controllers\Api\Admin\Minihouse\TransactionController;
+use App\Http\Controllers\Api\Minihouse\ContractDocumentPreviewController;
+use App\Http\Controllers\Api\Minihouse\ContractVerifyController;
+use App\Http\Controllers\Api\Minihouse\Portal\ContractDocumentPortalController;
 use App\Http\Controllers\Api\Minihouse\Portal\TenantAuthApiController;
 use App\Http\Controllers\Api\Minihouse\Portal\TenantPortalApiController;
 use Illuminate\Support\Facades\Route;
@@ -63,6 +67,11 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
 
     Route::apiResource('tenants', TenantController::class)->except(['show'])->parameters(['tenants' => 'id']);
     Route::get('tenants/{id}', [TenantController::class, 'show'])->name('tenants.show');
+    // POST cùng URL PATCH/PUT ở trên, trỏ ĐÚNG vào TenantController::update() — PHP không tự parse
+    // được multipart/form-data (ảnh CCCD) gửi qua PUT/PATCH (giới hạn của PHP, không phải Laravel),
+    // Postman/nhiều client chỉ đính kèm file được qua POST. Đặt SAU apiResource nên không đụng route
+    // POST /tenants (store, không có {id}) đã đăng ký ở trên.
+    Route::post('tenants/{id}', [TenantController::class, 'update'])->name('tenants.update.post');
 
     Route::apiResource('contracts', ContractController::class)->except(['show'])->parameters(['contracts' => 'id']);
     Route::get('contracts/{id}', [ContractController::class, 'show'])->name('contracts.show');
@@ -70,6 +79,15 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
     Route::post('contracts/{id}/checkout', [ContractController::class, 'checkout'])->name('contracts.checkout');
     Route::post('contracts/{id}/cancel', [ContractController::class, 'cancel'])->name('contracts.cancel');
     Route::post('contracts/{id}/transfer-room', [ContractController::class, 'transferRoom'])->name('contracts.transfer-room');
+
+    // Hợp đồng điện tử (Mức A) — xem docs/be-minihouse-contract-signing.md mục 4 và
+    // ContractDocumentController.
+    Route::get('contracts/{id}/document', [ContractDocumentController::class, 'show'])->name('contracts.document.show');
+    Route::patch('contracts/{id}/document', [ContractDocumentController::class, 'update'])->name('contracts.document.update');
+    Route::post('contracts/{id}/document/send', [ContractDocumentController::class, 'send'])->name('contracts.document.send');
+    Route::post('contracts/{id}/document/sign', [ContractDocumentController::class, 'sign'])->name('contracts.document.sign');
+    Route::post('contracts/{id}/document/recall', [ContractDocumentController::class, 'recall'])->name('contracts.document.recall');
+    Route::get('contracts/{id}/document/audit', [ContractDocumentController::class, 'audit'])->name('contracts.document.audit');
 
     Route::post('invoices/generate', [InvoiceController::class, 'generate'])->name('invoices.generate');
     Route::apiResource('invoices', InvoiceController::class)->except(['show'])->parameters(['invoices' => 'id']);
@@ -129,6 +147,18 @@ Route::post('minihouse/webhook/momo', [\App\Http\Controllers\Api\Minihouse\MomoW
 Route::get('minihouse/webhook/vnpay', [\App\Http\Controllers\Api\Minihouse\VnpayIpnController::class, 'handle'])
     ->name('api.minihouse.webhook.vnpay');
 
+// Tra cứu công khai hợp đồng điện tử đã ký (mục 9) — không cần đăng nhập, chỉ cần đúng mã.
+Route::get('minihouse/contract-verify/{code}', [ContractVerifyController::class, 'show'])
+    ->middleware('throttle:30,1')
+    ->name('api.minihouse.contract-verify');
+
+// Xem trước HTML hợp đồng điện tử qua link CÓ CHỮ KÝ (Laravel signed route, tự hết hạn — xem
+// ContractDocumentPreviewController) — dùng cho html_url trả về ở GET .../document, KHÔNG qua
+// auth:sanctum vì app mở link này trong WebView, không tự gắn được header Authorization.
+Route::get('minihouse/contract-document/{document}/html', [ContractDocumentPreviewController::class, 'html'])
+    ->middleware('signed')
+    ->name('api.minihouse.contract-document.html');
+
 /*
 |--------------------------------------------------------------------------
 | MiniHouse — API Portal khách thuê (app di động/bên thứ 3)
@@ -159,6 +189,9 @@ Route::prefix('minihouse/portal')->name('api.minihouse.portal.')->group(function
         Route::get('payments', [TenantPortalApiController::class, 'payments'])->name('payments.index');
         Route::get('contracts', [TenantPortalApiController::class, 'contracts'])->name('contracts.index');
         Route::get('contracts/{contract}', [TenantPortalApiController::class, 'showContract'])->name('contracts.show');
+        Route::get('contracts/{contract}/document', [ContractDocumentPortalController::class, 'show'])->name('contracts.document.show');
+        Route::post('contracts/{contract}/document/otp', [ContractDocumentPortalController::class, 'otp'])->name('contracts.document.otp');
+        Route::post('contracts/{contract}/document/sign', [ContractDocumentPortalController::class, 'sign'])->name('contracts.document.sign');
         Route::post('feedback', [TenantPortalApiController::class, 'storeFeedback'])->name('feedback.store');
         Route::post('password', [TenantPortalApiController::class, 'updatePassword'])->name('password.update');
         Route::post('push-token', [TenantPortalApiController::class, 'registerPushToken'])->name('push-token.register');

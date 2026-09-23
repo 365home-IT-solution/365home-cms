@@ -49,6 +49,7 @@ class Tenant extends Model implements AuthenticatableContract, HasName
 
     protected $fillable = [
         'fullname', 'phone', 'password', 'id_card_number', 'id_card_front', 'id_card_back',
+        'id_card_issued_date', 'id_card_issued_place',
         'date_of_birth', 'gender', 'nationality', 'document_type', 'hometown', 'permanent_address',
         'occupation', 'workplace',
         'emergency_contact_name', 'emergency_contact_phone',
@@ -56,16 +57,19 @@ class Tenant extends Model implements AuthenticatableContract, HasName
         'room_id', 'note',
     ];
 
-    // 'password' KHÔNG bao giờ hiện trong form quản trị (TenantForm không có field này) — chỉ được
-    // ghi qua đúng 1 nơi: TenantPortalController::updatePassword(), khách thuê tự đặt cho CHÍNH mình
-    // sau khi đã đăng nhập (bằng OTP hoặc mật khẩu cũ). Nullable — khách chưa từng đặt vẫn đăng nhập
-    // OTP bình thường, Portal luôn cho chọn 1 trong 2 cách (xem TenantAuthController).
+    // 'password' ghi được từ 2 nơi: (1) TenantForm/TenantController — ADMIN đặt/đổi hộ khi tạo tài
+    // khoản Portal cho khách hoặc khách quên mật khẩu; (2) TenantPortalController::updatePassword() —
+    // khách thuê TỰ đặt cho CHÍNH mình sau khi đã đăng nhập (bằng OTP hoặc mật khẩu cũ). Nullable —
+    // khách chưa từng có mật khẩu vẫn đăng nhập OTP bình thường, Portal luôn cho chọn 1 trong 2 cách
+    // (xem TenantAuthController). SĐT (cột `phone`) vẫn là "tài khoản" đăng nhập duy nhất — không có
+    // username riêng.
     protected $hidden = [
         'password', 'remember_token',
     ];
 
     protected $casts = [
         'date_of_birth'          => 'date',
+        'id_card_issued_date'    => 'date',
         'residence_declared'     => 'boolean',
         'residence_declared_at'  => 'date',
         'password'               => 'hashed',

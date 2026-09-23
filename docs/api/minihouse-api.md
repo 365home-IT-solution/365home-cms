@@ -359,13 +359,14 @@ DELETE /amenities/{id}       → { "message": "Đã xoá tiện ích." }
 
 Quyền: `view_any_tenants` / `create_tenants` / `update_tenants` / `delete_tenants`.
 
-> Khách **chưa có phòng nào** (`room_id = null` — đã trả phòng) sẽ **không hiện** khi lọc theo toà
-> nhà ở danh sách (đúng hành vi bên panel Filament) — vẫn xem/sửa được trực tiếp qua `GET/PUT
-> /tenants/{id}` vì không thuộc riêng toà nào để mà chặn.
+> Danh sách mặc định trả về CẢ khách **chưa/không còn phòng** (`room_id = null`) LẪN khách đang ở
+> phòng thuộc toà được phép — khách không có phòng không thuộc riêng toà nào nên không bị chặn.
+> Muốn chỉ xem khách **đã có phòng**, truyền `has_room=1` (`has_room=0` để lọc ngược lại).
 
-### `GET /tenants?search=&room_id=&per_page=`
+### `GET /tenants?search=&room_id=&has_room=&per_page=`
 
-`search` khớp `fullname`, `id_card_number`, `phone`.
+`search` khớp `fullname`, `id_card_number`, `phone`. `has_room=1` chỉ lấy khách đang có phòng,
+`has_room=0` chỉ lấy khách chưa/không còn phòng.
 
 ```json
 { "data": [{ "id": 26, "fullname": "Trần Thị Bình", "phone": "0912345678", "id_card_number": "012345678901", "room_id": "01m2mvj2p8x1w6h3g5z8k0qte2", "room_code": "A-04" }] }

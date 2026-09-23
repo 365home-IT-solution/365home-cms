@@ -16,10 +16,14 @@ class TenantController extends Controller
 {
     use ScopesToMinihouseBuilding;
 
-    // GET /api/admin/minihouse/tenants?search=&room_id=&per_page=
-    // LƯU Ý: khách thuê KHÔNG đang ở phòng nào (room_id null — đã trả phòng) sẽ không hiện trong
-    // danh sách lọc theo toà — giống hệt hành vi ScopedToActiveBuildingViaRoom bên panel Filament
-    // (xem session trước: "tenant với room_id null bị ẩn khi có bộ lọc toà nhà đang bật").
+    // GET /api/admin/minihouse/tenants?search=&room_id=&has_room=&per_page=
+    // Mặc định trả về CẢ khách thuê chưa/không còn phòng (room_id null) LẪN khách đang ở phòng thuộc
+    // toà được phép — giống đúng ranh giới "được phép xem" của tenantAllowed() bên dưới (khách không
+    // có phòng thì không thuộc toà nào để chặn). Muốn CHỈ xem khách đã có phòng thì truyền
+    // has_room=1 (has_room=0 để lọc ngược lại, chỉ khách chưa có phòng).
+    // LƯU Ý PHÂN QUYỀN: điều kiện lọc theo $permitted KHÔNG được bỏ/nới lỏng bằng param — đây là
+    // ranh giới toà nhà được quản lý (xem ScopesToMinihouseBuilding), bỏ nó đi sẽ lộ khách thuê của
+    // toà khác qua API dù tài khoản chỉ được gán 1 toà.
     public function index(Request $request): JsonResponse
     {
         if (! $this->hasPermission($request, 'view_any_tenants')) {
@@ -31,7 +35,12 @@ class TenantController extends Controller
         $tenants = Tenant::query()
             ->withoutGlobalScopes()
             ->with('room:id,name,building_id')
-            ->whereHas('room', fn ($q) => $q->whereIn('building_id', $permitted))
+            ->where(fn ($q) => $q
+                ->whereNull('room_id')
+                ->orWhereHas('room', fn ($q2) => $q2->whereIn('building_id', $permitted)))
+            ->when($request->filled('has_room'), fn ($q) => $request->boolean('has_room')
+                ? $q->whereNotNull('room_id')
+                : $q->whereNull('room_id'))
             ->when($request->filled('room_id'), fn ($q) => $q->where('room_id', $request->input('room_id')))
             ->when($request->filled('search'), fn ($q) => $q->where(fn ($q2) => $q2
                 ->where('fullname', 'like', '%' . $request->string('search') . '%')
@@ -71,9 +80,14 @@ class TenantController extends Controller
         $data = $request->validate([
             'fullname'                 => 'required|string|max:255',
             'phone'                    => 'nullable|string|max:20',
+            // Mật khẩu đăng nhập Portal khách thuê (SĐT ở trên vẫn là "tài khoản", không có username
+            // riêng) — tuỳ chọn, admin đặt hộ khi tạo tài khoản cho khách; để trống thì khách vẫn
+            // đăng nhập được bằng OTP như bình thường (xem Tenant.php). Tenant::$casts 'password' =>
+            // 'hashed' tự băm, không cần Hash::make() ở đây.
+            'password'                 => 'nullable|string|min:6',
             'id_card_number'           => 'nullable|string|max:20',
-            'id_card_front'            => 'nullable|string|max:2048',
-            'id_card_back'             => 'nullable|string|max:2048',
+            'id_card_front'            => $this->idCardFileRules($request, 'id_card_front'),
+            'id_card_back'             => $this->idCardFileRules($request, 'id_card_back'),
             'date_of_birth'            => 'nullable|date',
             'gender'                   => ['nullable', Rule::in([Tenant::GENDER_MALE, Tenant::GENDER_FEMALE, Tenant::GENDER_OTHER])],
             'hometown'                 => 'nullable|string|max:255',
@@ -85,6 +99,8 @@ class TenantController extends Controller
             'room_id'                  => 'nullable|string|exists:products,id',
             'note'                     => 'nullable|string',
         ]);
+
+        $data = $this->storeIdCardUploads($request, $data);
 
         // room_id CÓ giá trị thì phòng đó phải thuộc toà được phép — room_id null (chưa gán phòng)
         // thì tạo được bình thường, không có toà nào để kiểm tra.
@@ -101,7 +117,10 @@ class TenantController extends Controller
         return response()->json(['data' => $this->toDetailItem($tenant->fresh(['room' => fn ($q) => $q->withoutGlobalScopes()]))], 201);
     }
 
-    // PUT/PATCH /api/admin/minihouse/tenants/{id}
+    // PUT/PATCH /api/admin/minihouse/tenants/{id} — VÀ CŨNG NHẬN POST cùng URL (xem routes/
+    // api_minihouse.php) vì PHP KHÔNG tự parse được multipart/form-data (ảnh CCCD) gửi qua PUT/PATCH
+    // (giới hạn của chính PHP, không phải Laravel) — Postman/nhiều client chỉ đính kèm file được qua
+    // POST. Route POST trỏ thẳng vào CÙNG hàm này, không tách logic riêng.
     public function update(Request $request, int $id): JsonResponse
     {
         if (! $this->hasPermission($request, 'update_tenants')) {
@@ -117,9 +136,12 @@ class TenantController extends Controller
         $data = $request->validate([
             'fullname'                 => 'sometimes|required|string|max:255',
             'phone'                    => 'nullable|string|max:20',
+            // Chỉ đổi khi client THẬT SỰ gửi field này — bỏ qua (không có trong $data) thì
+            // update() không đụng gì tới mật khẩu hiện có, đúng ngữ nghĩa 'sometimes'.
+            'password'                 => 'sometimes|nullable|string|min:6',
             'id_card_number'           => 'nullable|string|max:20',
-            'id_card_front'            => 'nullable|string|max:2048',
-            'id_card_back'             => 'nullable|string|max:2048',
+            'id_card_front'            => $this->idCardFileRules($request, 'id_card_front'),
+            'id_card_back'             => $this->idCardFileRules($request, 'id_card_back'),
             'date_of_birth'            => 'nullable|date',
             'gender'                   => ['nullable', Rule::in([Tenant::GENDER_MALE, Tenant::GENDER_FEMALE, Tenant::GENDER_OTHER])],
             'hometown'                 => 'nullable|string|max:255',
@@ -132,12 +154,22 @@ class TenantController extends Controller
             'note'                     => 'nullable|string',
         ]);
 
+        $data = $this->storeIdCardUploads($request, $data);
+
         if (array_key_exists('room_id', $data) && ! empty($data['room_id'])) {
             $room = Room::withoutGlobalScope('activeBuilding')->find($data['room_id']);
 
             if (! $room || ! $this->isBuildingAllowed($request, $room->building_id)) {
                 return response()->json(['message' => 'Không có quyền chuyển khách thuê sang phòng của toà nhà này.'], 403);
             }
+        }
+
+        // Gửi "password": null/"" (VD client tự serialize nguyên form, ô mật khẩu để trống) KHÔNG
+        // được xoá mật khẩu hiện có — cùng ngữ nghĩa "để trống = giữ nguyên" như TenantForm
+        // (dehydrated(fn ($state) => filled($state))), khác các field khác vẫn cho null đi qua bình
+        // thường.
+        if (array_key_exists('password', $data) && blank($data['password'])) {
+            unset($data['password']);
         }
 
         $tenant->update($data);
@@ -161,6 +193,32 @@ class TenantController extends Controller
         $tenant->delete();
 
         return response()->json(['message' => 'Đã xoá khách thuê.']);
+    }
+
+    // 'id_card_front'/'id_card_back' nhận CẢ 2 kiểu: string (đường dẫn đã upload sẵn ở nơi khác —
+    // cách Filament FileUpload gửi lên, xem TenantForm) HOẶC file ảnh thật (multipart/form-data —
+    // cách Postman/app di động gửi trực tiếp). Đổi rule tuỳ theo request THẬT SỰ có file hay không —
+    // không dùng chung 1 bộ rule cho cả 2 trường hợp vì 'image' sẽ từ chối 1 chuỗi path bình thường.
+    private function idCardFileRules(Request $request, string $field): array
+    {
+        return $request->hasFile($field)
+            ? ['nullable', 'image', 'max:5120']
+            : ['nullable', 'string', 'max:2048'];
+    }
+
+    // Lưu ảnh CCCD thật gửi qua multipart (nếu có) vào đúng thư mục Filament đang dùng
+    // ('minihouse/tenants', disk 'public' — xem TenantForm::id_card_front/back) rồi ghi đè lại
+    // $data bằng đường dẫn vừa lưu, để Tenant::create()/update() ở dưới xử lý giống hệt trường hợp
+    // client gửi sẵn 1 chuỗi path — không cần 2 nhánh xử lý khác nhau ở nơi gọi.
+    private function storeIdCardUploads(Request $request, array $data): array
+    {
+        foreach (['id_card_front', 'id_card_back'] as $field) {
+            if ($request->hasFile($field)) {
+                $data[$field] = $request->file($field)->store('minihouse/tenants', 'public');
+            }
+        }
+
+        return $data;
     }
 
     // Khách CHƯA có phòng (room_id null) coi như luôn "được phép" xem/sửa (không thuộc riêng toà

@@ -159,15 +159,16 @@ class TenantPortalTest extends TestCase
     {
         Http::fake(['*openapi.zalo.me*' => Http::response(['error' => 0, 'data' => ['msg_id' => 'abc']], 200)]);
 
-        $zaloSettings = ZaloSetting::current();
-        $zaloSettings->fill([
-            'app_id' => 'test_app',
-            'app_secret' => 'test_secret',
-            'access_token' => 'tok',
-            'refresh_token' => 'rtok',
-            'access_token_expires_at' => now()->addHour(),
-            'template_otp' => '999999',
-        ])->save();
+        // Zalo OA giờ dùng CHUNG với Home (config('zalo.*'), KHÔNG còn đọc ZaloSetting->app_id/
+        // app_secret/refresh_token nữa — xem MinihouseZaloService::sharedOaConfigured() và lịch sử
+        // sửa 2026-09-22 "hợp nhất về đúng 1 nơi quản lý token"). Giả lập đã cấu hình bằng config()
+        // + seed thẳng access_token vào Cache CHUNG của Home (App\Services\ZaloTokenService dùng key
+        // 'zalo_access_token') để khỏi phải giả lập cả bước trao đổi OAuth thật (domain khác hẳn,
+        // oauth.zaloapp.com, không nằm trong Http::fake() ở trên).
+        config(['zalo.app_id' => 'test_app', 'zalo.app_secret' => 'test_secret']);
+        Cache::put('zalo_access_token', 'test-access-token', now()->addHour());
+
+        ZaloSetting::current()->update(['template_otp' => '999999']);
 
         $response = $this->post(route('minihouse.portal.login.request-otp'), ['phone' => $this->tenantPrimary->phone]);
 

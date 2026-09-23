@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Minihouse\App\Models\Concerns\LogsMinihouseActivity;
 use Modules\Minihouse\App\Models\Concerns\ScopedToActiveBuildingViaRoom;
@@ -110,5 +111,12 @@ class Contract extends Model
     public function transferredFrom(): BelongsTo
     {
         return $this->belongsTo(self::class, 'transferred_from_contract_id');
+    }
+
+    // Hợp đồng điện tử (Mức A — ký khách thuê rồi ký chốt chủ trọ) — xem ContractDocumentService.
+    // Tối đa 1 bản/hợp đồng (contract_id unique), tự tạo "draft" khi lần đầu GET .../document.
+    public function document(): HasOne
+    {
+        return $this->hasOne(ContractDocument::class);
     }
 }
