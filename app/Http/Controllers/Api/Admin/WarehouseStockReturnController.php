@@ -11,6 +11,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Exists;
+use Illuminate\Validation\ValidationException;
+use Modules\Warehouse\App\Models\WarehouseItem;
 use Modules\Warehouse\App\Models\WarehouseStockOutItem;
 use Modules\Warehouse\App\Models\WarehouseStockReturn;
 
@@ -85,7 +87,8 @@ class WarehouseStockReturnController extends Controller
      * WarehouseStockReturn::creating().)
      * Mỗi dòng PHẢI có "warehouse_stock_out_item_id" (hoàn có truy vết, khuyến nghị — hệ thống tự
      * chặn hoàn vượt số đã xuất) HOẶC "warehouse_item_id" (hoàn không truy vết, không giới hạn).
-     * "partner_id": BẮT BUỘC nếu gọi bằng tài khoản super_admin; bỏ qua với tài khoản đối tác thường.
+     * partner_id và branch_id đều được suy ra từ vật tư của dòng đầu tiên — đồng nhất với
+     * WarehouseStockOut/In/CheckController (không cần super_admin tự truyền nữa).
      */
     public function store(Request $request): JsonResponse
     {
@@ -96,20 +99,14 @@ class WarehouseStockReturnController extends Controller
             return response()->json(['message' => 'Tài khoản không thuộc đối tác nào.'], 403);
         }
 
-        $branchIds       = $user->isSuperAdmin() ? [] : $user->rootProductCategoryIds();
-        $requireBranchId = $user->isSuperAdmin() || count($branchIds) > 1;
+        [$partnerId, $branchId] = $this->warehouseContext($request, $user);
 
         $data = $request->validate($this->rules(
-            requirePartnerId: $user->isSuperAdmin(),
-            partnerId: $user->isSuperAdmin() ? null : $user->partner_id,
-            requireBranchId: $requireBranchId,
-            branchIds: $branchIds,
+            requirePartnerId: false,
+            partnerId: $partnerId,
+            branchIds: [$branchId],
+            branchId: $branchId,
         ));
-
-        $partnerId = $user->isSuperAdmin() ? $data['partner_id'] : $user->partner_id;
-        $branchId  = $user->isSuperAdmin()
-            ? $data['branch_id']
-            : ($data['branch_id'] ?? ($branchIds[0] ?? null));
 
         try {
             $stockReturn = DB::transaction(function () use ($data, $partnerId, $branchId, $user) {
@@ -148,7 +145,7 @@ class WarehouseStockReturnController extends Controller
             return $stockReturn;
         }
 
-        $data = $request->validate($this->rules(requirePartnerId: false, partnerId: $stockReturn->partner_id, isUpdate: true));
+        $data = $request->validate($this->rules(requirePartnerId: false, partnerId: $stockReturn->partner_id, branchId: $stockReturn->branch_id, isUpdate: true));
 
         try {
             DB::transaction(function () use ($stockReturn, $data) {
@@ -200,9 +197,19 @@ class WarehouseStockReturnController extends Controller
         return $line;
     }
 
-    private function rules(bool $requirePartnerId, ?string $partnerId, bool $requireBranchId = false, array $branchIds = [], bool $isUpdate = false): array
+    private function rules(bool $requirePartnerId, ?string $partnerId, bool $requireBranchId = false, array $branchIds = [], ?int $branchId = null, bool $isUpdate = false): array
     {
         $scopePartner = fn (Exists $rule) => $partnerId ? $rule->where('partner_id', $partnerId) : $rule;
+        $scopeWarehouseItem = function (Exists $rule) use ($partnerId, $branchId) {
+            if ($partnerId) {
+                $rule->where('partner_id', $partnerId);
+            }
+            if ($branchId) {
+                $rule->where('branch_id', $branchId);
+            }
+
+            return $rule;
+        };
 
         $branchRule = Rule::exists('categories', 'id')->where('category_type', 'product')->whereNull('parent_id');
         if (! empty($branchIds)) {
@@ -210,7 +217,7 @@ class WarehouseStockReturnController extends Controller
         }
 
         return [
-            'partner_id'  => [$requirePartnerId ? 'required' : 'sometimes', 'uuid', Rule::exists('partners', 'id')],
+            'partner_id'  => [$requirePartnerId ? 'required' : 'sometimes', 'nullable', 'uuid', Rule::exists('partners', 'id')],
             'branch_id'   => [$requireBranchId ? 'required' : 'sometimes', 'integer', $branchRule],
             'product_id'  => 'nullable|uuid|exists:products,id',
             'employee_id' => ['nullable', 'integer', $scopePartner(Rule::exists('employees', 'id'))],
@@ -220,11 +227,38 @@ class WarehouseStockReturnController extends Controller
             'items.*.warehouse_stock_out_item_id'        => ['nullable', 'integer', Rule::exists('warehouse_stock_out_items', 'id')],
             'items.*.warehouse_item_id'                  => [
                 'required_without:items.*.warehouse_stock_out_item_id',
-                'nullable', 'integer', $scopePartner(Rule::exists('warehouse_items', 'id')),
+                'nullable', 'integer', $scopeWarehouseItem(Rule::exists('warehouse_items', 'id')),
             ],
             'items.*.quantity' => 'required|numeric|min:0.01',
             'items.*.note'     => 'nullable|string|max:255',
         ];
+    }
+
+    // Đồng nhất WarehouseStockOut/In/CheckController::warehouseContext() — suy partner_id/branch_id
+    // từ vật tư của DÒNG ĐẦU TIÊN, áp dụng cho MỌI tài khoản kể cả super_admin (không cần tự truyền
+    // partner_id/branch_id nữa). Dòng đầu có thể chỉ có "warehouse_stock_out_item_id" (chưa có
+    // warehouse_item_id) — tra ngược lại đúng vật tư của dòng xuất gốc trong trường hợp đó.
+    private function warehouseContext(Request $request, User $user): array
+    {
+        $firstLine = (array) data_get($request->input('items', []), '0', []);
+        $itemId = (int) ($firstLine['warehouse_item_id'] ?? 0);
+
+        if (! $itemId && ! empty($firstLine['warehouse_stock_out_item_id'])) {
+            $itemId = (int) WarehouseStockOutItem::whereKey($firstLine['warehouse_stock_out_item_id'])->value('warehouse_item_id');
+        }
+
+        $item = WarehouseItem::query()->find($itemId);
+
+        if (! $item || empty($item->partner_id) || empty($item->branch_id)) {
+            throw ValidationException::withMessages(['items.0.warehouse_item_id' => 'Vật tư không hợp lệ hoặc chưa thuộc kho nào.']);
+        }
+
+        $allowedBranches = $user->rootProductCategoryIds();
+        if (! $user->isSuperAdmin() && ($item->partner_id !== $user->partner_id || (! empty($allowedBranches) && ! in_array((int) $item->branch_id, array_map('intval', $allowedBranches), true)))) {
+            throw ValidationException::withMessages(['items.0.warehouse_item_id' => 'Vật tư không thuộc phạm vi tài khoản.']);
+        }
+
+        return [$item->partner_id, (int) $item->branch_id];
     }
 
     private function findOwned(Request $request, int $id): WarehouseStockReturn|JsonResponse

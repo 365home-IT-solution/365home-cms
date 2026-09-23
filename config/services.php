@@ -110,4 +110,12 @@ return [
         'public_url'   => env('WS_PUBLIC_URL', env('WS_SERVER_URL', 'http://localhost:3001')),
         'internal_key' => env('WS_INTERNAL_KEY', ''),
     ],
+
+    // Binary ffmpeg dùng để chuyển mã (transcode) đoạn ghi hình camera H.265/HEVC sang H.264 khi
+    // phát lại — trình duyệt desktop thường không giải mã được H.265 qua MSE. Mặc định 'ffmpeg' (dò
+    // theo PATH hệ thống, đúng cho server thật sau khi `apt install ffmpeg`) — chỉ cần đổi
+    // FFMPEG_BINARY trong .env nếu server cài ở đường dẫn khác PATH mặc định.
+    'ffmpeg' => [
+        'binary' => env('FFMPEG_BINARY', 'ffmpeg'),
+    ],
 ];

@@ -92,7 +92,25 @@ class WarehouseStockReturnForm
                             Select::make('warehouse_stock_out_item_id')
                                 ->label('Hoàn từ dòng đã xuất (khuyến nghị)')
                                 ->helperText('Chọn đúng dòng đã xuất trước đó để hệ thống tự chặn hoàn nhiều hơn số đã xuất. Để trống nếu hoàn hàng không rõ nguồn gốc xuất.')
-                                ->options(fn (Get $get) => self::returnableStockOutItemOptions($get))
+                                ->options(fn (Get $get) => self::returnableStockOutItemOptions($get, $get('id')))
+                                // BẮT BUỘC khi dùng ->searchable() — Filament CHỈ tra nhãn hiển thị
+                                // của giá trị ĐANG CHỌN SẴN (lúc mở lại 1 dòng đã lưu) trong đúng
+                                // danh sách options() TRẢ VỀ TẠI THỜI ĐIỂM ĐÓ; nếu giá trị đó không
+                                // có mặt trong list (dù vì lý do gì — hết hạn mức, đổi phạm vi chi
+                                // nhánh, hay bất kỳ thay đổi nào sau khi phiếu đã lưu), ô hiện thẳng
+                                // ID số thô thay vì tên (bug thực tế đã xác nhận qua ảnh chụp: ô
+                                // hiện "18"/"19" thay vì "PX...— Tên vật tư"). getOptionLabelUsing()
+                                // tra nhãn TRỰC TIẾP từ DB, không phụ thuộc options() còn chứa giá
+                                // trị đó hay không — luôn đúng bất kể trường hợp nào.
+                                ->getOptionLabelUsing(function ($value) {
+                                    $line = WarehouseStockOutItem::with(['item:id,name', 'stockOut:id,code'])->find($value);
+
+                                    if (! $line) {
+                                        return null;
+                                    }
+
+                                    return sprintf('%s — %s', $line->stockOut?->code, $line->item?->name);
+                                })
                                 ->searchable()
                                 ->live()
                                 ->afterStateUpdated(function ($state, Set $set) {
@@ -109,7 +127,10 @@ class WarehouseStockReturnForm
                                 ->schema([
                                     Select::make('warehouse_item_id')
                                         ->label('Vật tư')
-                                        ->options(fn (Get $get) => WarehouseItemOptions::grouped($get('../../partner_id'), $get('../../branch_id')))
+                                        ->options(fn (Get $get) => self::warehouseItemOptionsWithCurrent($get))
+                                        // Cùng lý do ở Select 'warehouse_stock_out_item_id' bên trên
+                                        // — tra nhãn trực tiếp từ DB, không phụ thuộc options().
+                                        ->getOptionLabelUsing(fn ($value) => WarehouseItem::withoutGlobalScopes()->find($value)?->name)
                                         ->searchable()
                                         ->required()
                                         ->live()
@@ -173,10 +194,18 @@ class WarehouseStockReturnForm
     // '../../' mới thoát ra tới field cấp form gốc, KHÁC với addAction()->form() (modal riêng
     // không thấy field ngoài) — ở đây Get vẫn hoạt động bình thường vì Repeater::schema() render
     // trực tiếp trong cùng 1 form, không phải modal tách biệt.
-    private static function returnableStockOutItemOptions(Get $get): array
+    //
+    // $selfReturnItemId: ID CHÍNH dòng hoàn đang sửa (Get 'id' — chỉ có giá trị khi SỬA 1 dòng đã
+    // lưu, rỗng khi thêm dòng mới). BẮT BUỘC truyền vào để loại trừ CHÍNH nó khi tính "đã hoàn" —
+    // thiếu bước này, số lượng CHÍNH dòng đang sửa bị tính 2 lần vào "đã hoàn" của dòng xuất gốc,
+    // khiến "còn có thể hoàn" tụt về 0/âm ngay cả khi vẫn hợp lệ → dòng xuất gốc bị loại khỏi danh
+    // sách lựa chọn → Select không tìm được nhãn cho giá trị đang lưu, hiện ra ID thô thay vì tên
+    // (bug thực tế đã xác nhận qua ảnh chụp: ô hiện "18"/"19" thay vì "PX...— Tên vật tư").
+    private static function returnableStockOutItemOptions(Get $get, int|string|null $selfReturnItemId): array
     {
         $partnerId = $get('../../partner_id');
         $branchId  = $get('../../branch_id');
+        $currentId = $get('warehouse_stock_out_item_id');
 
         return WarehouseStockOutItem::query()
             ->with(['item:id,name', 'stockOut:id,code,partner_id,branch_id'])
@@ -189,10 +218,12 @@ class WarehouseStockReturnForm
                 }
             })
             ->get()
-            ->map(function (WarehouseStockOutItem $line) {
-                $returnable = self::returnableQuantity($line->id);
+            ->map(function (WarehouseStockOutItem $line) use ($selfReturnItemId, $currentId) {
+                $returnable = self::returnableQuantity($line->id, $selfReturnItemId);
 
-                if ($returnable <= 0.0001) {
+                // Vẫn giữ lại đúng dòng ĐANG ĐƯỢC CHỌN dù tính ra hết số dư (VD 0 vì chính nó đã
+                // dùng hết) — không thì Select mất nhãn, hiện ID thô như bug đã gặp.
+                if ($returnable <= 0.0001 && (string) $line->id !== (string) $currentId) {
                     return null;
                 }
 
@@ -200,7 +231,7 @@ class WarehouseStockReturnForm
                     '%s — %s (còn %s)',
                     $line->stockOut?->code,
                     $line->item?->name,
-                    Number::format($returnable, maxPrecision: 2)
+                    Number::format(max($returnable, 0), maxPrecision: 2)
                 );
 
                 return [$line->id => $label];
@@ -208,6 +239,32 @@ class WarehouseStockReturnForm
             ->filter()
             ->collapse()
             ->all();
+    }
+
+    // Cùng nguyên tắc trên: đảm bảo vật tư ĐANG ĐƯỢC GÁN cho dòng này luôn có mặt trong danh sách,
+    // kể cả khi WarehouseItemOptions::grouped() lọc mất nó (VD vật tư đã bị tắt "Đang sử dụng", hoặc
+    // đổi sang chi nhánh khác sau khi phiếu xuất gốc đã tạo) — tránh Select hiện ID thô thay vì tên.
+    private static function warehouseItemOptionsWithCurrent(Get $get): array
+    {
+        $options = WarehouseItemOptions::grouped($get('../../partner_id'), $get('../../branch_id'));
+        $currentId = $get('warehouse_item_id');
+
+        if (blank($currentId)) {
+            return $options;
+        }
+
+        foreach ($options as $group) {
+            if (array_key_exists((string) $currentId, $group) || array_key_exists((int) $currentId, $group)) {
+                return $options;
+            }
+        }
+
+        $name = WarehouseItem::withoutGlobalScopes()->find($currentId)?->name;
+        if ($name) {
+            $options['Khác (ngoài phạm vi hiện tại)'][$currentId] = $name;
+        }
+
+        return $options;
     }
 
     private static function returnableQuantity(int|string $stockOutItemId, int|string|null $excludeReturnItemId = null): float

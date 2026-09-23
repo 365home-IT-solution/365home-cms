@@ -14,6 +14,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Modules\Warehouse\App\Filament\Support\CurrentUserDisplay;
 use Modules\Warehouse\App\Filament\Support\WarehousePrinter;
+use Modules\Warehouse\App\Filament\Support\WarehouseStockOutReturnAction;
 use Modules\Warehouse\App\Models\WarehouseStockOut;
 
 class WarehouseStockOutTable
@@ -101,6 +102,19 @@ class WarehouseStockOutTable
                     ->icon('heroicon-o-printer')
                     ->color('gray')
                     ->action(fn (WarehouseStockOut $record) => WarehousePrinter::stockOut($record)),
+                // Hoàn trả NGAY TẠI danh sách — hiện popup đúng các dòng đã xuất của phiếu này, sửa
+                // số lượng hoàn trực tiếp, không cần qua menu/resource riêng nào — xem
+                // WarehouseStockOutReturnAction (dùng chung cho cả đây lẫn EditWarehouseStockOut).
+                Action::make('return_to_stock')
+                    ->label('Hoàn trả')
+                    ->icon('heroicon-o-arrow-uturn-left')
+                    ->color('warning')
+                    ->visible(fn () => auth()->user()?->can('create_warehouse::stock::return') ?? false)
+                    ->modalHeading(fn (WarehouseStockOut $record) => "Hoàn trả kho — Phiếu {$record->code}")
+                    ->modalSubmitActionLabel('Hoàn trả')
+                    ->modalWidth('2xl')
+                    ->form(fn (WarehouseStockOut $record) => WarehouseStockOutReturnAction::formSchema($record))
+                    ->action(fn (array $data, WarehouseStockOut $record) => WarehouseStockOutReturnAction::handle($data, $record)),
                 EditAction::make(),
                 DeleteAction::make(),
             ])

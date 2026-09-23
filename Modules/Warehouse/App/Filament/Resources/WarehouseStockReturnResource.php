@@ -12,6 +12,10 @@ use Modules\Warehouse\App\Filament\Resources\WarehouseStockReturnResource\Pages;
 use Modules\Warehouse\App\Filament\Resources\WarehouseStockReturnResource\Tables\WarehouseStockReturnTable;
 use Modules\Warehouse\App\Models\WarehouseStockReturn;
 
+// Vẫn hiện trên menu (theo yêu cầu "dễ quản lý hơn") nhưng CHỈ để XEM/QUẢN LÝ danh sách đã tạo —
+// KHÔNG có nút "Tạo mới" (xem ListWarehouseStockReturn) vì tạo hoàn trả giờ đi qua popup "Hoàn trả"
+// gắn thẳng ở Phiếu xuất kho (xem WarehouseStockOutReturnAction), đơn giản hơn nhiều so với việc
+// phải vào 1 resource riêng rồi tự tìm đúng dòng xuất trong danh sách dropdown toàn hệ thống.
 class WarehouseStockReturnResource extends Resource
 {
     protected static ?string $model = WarehouseStockReturn::class;

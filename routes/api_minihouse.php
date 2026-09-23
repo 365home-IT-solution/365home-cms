@@ -20,6 +20,11 @@ use App\Http\Controllers\Api\Minihouse\ContractVerifyController;
 use App\Http\Controllers\Api\Minihouse\Portal\ContractDocumentPortalController;
 use App\Http\Controllers\Api\Minihouse\Portal\TenantAuthApiController;
 use App\Http\Controllers\Api\Minihouse\Portal\TenantPortalApiController;
+use App\Http\Controllers\Api\Minihouse\Public\AmenityController as PublicAmenityController;
+use App\Http\Controllers\Api\Minihouse\Public\BuildingController as PublicBuildingController;
+use App\Http\Controllers\Api\Minihouse\Public\RentalInquiryController;
+use App\Http\Controllers\Api\Minihouse\Public\RoomController as PublicRoomController;
+use App\Http\Controllers\Api\Minihouse\Public\ZoneController as PublicZoneController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -161,6 +166,35 @@ Route::get('minihouse/contract-document/{document}/html', [ContractDocumentPrevi
 
 /*
 |--------------------------------------------------------------------------
+| MiniHouse — API trang tìm phòng CÔNG KHAI (chưa đăng nhập, chưa là khách thuê)
+|--------------------------------------------------------------------------
+| Dành cho người XEM/TÌM phòng còn trống (như trang chủ Home cho khách đặt phòng ngắn hạn) — KHÔNG
+| cần Bearer token nào. Chỉ liệt kê Toà nhà đang bật + Phòng đang "Trống" (Room::scopeAvailable()),
+| không lộ trường nội bộ (chủ nhà, tài khoản ngân hàng, khoá cổng thanh toán...). Kết thúc bằng 1
+| "lead" (RentalInquiryController::store) để nhân viên tự gọi lại tư vấn — MiniHouse không có khái
+| niệm đặt phòng/thanh toán online ngay như Home, hợp đồng luôn do nhân viên tạo tay sau khi chốt.
+|--------------------------------------------------------------------------
+*/
+Route::prefix('minihouse/public')->name('api.minihouse.public.')->middleware('throttle:60,1')->group(function () {
+    Route::get('zones', [PublicZoneController::class, 'index'])->name('zones.index');
+    Route::get('amenities', [PublicAmenityController::class, 'index'])->name('amenities.index');
+
+    Route::get('buildings', [PublicBuildingController::class, 'index'])->name('buildings.index');
+    Route::get('buildings/{id}', [PublicBuildingController::class, 'show'])->whereNumber('id')->name('buildings.show');
+
+    Route::get('rooms', [PublicRoomController::class, 'index'])->name('rooms.index');
+    Route::get('rooms/{id}', [PublicRoomController::class, 'show'])->name('rooms.show');
+
+    // Throttle CHẶT hơn hẳn (5 lần/phút/IP, cùng mức với TenantFeedbackController::store) — endpoint
+    // GHI DỮ LIỆU công khai không đăng nhập, không giới hạn thì 1 script có thể spam hàng loạt lead
+    // giả cho nhân viên gọi nhầm.
+    Route::post('rental-inquiries', [RentalInquiryController::class, 'store'])
+        ->middleware('throttle:5,1')
+        ->name('rental-inquiries.store');
+});
+
+/*
+|--------------------------------------------------------------------------
 | MiniHouse — API Portal khách thuê (app di động/bên thứ 3)
 |--------------------------------------------------------------------------
 | Bản API của Portal web (session, Modules\Minihouse\Http\Controllers\Portal\*, prefix
@@ -183,16 +217,24 @@ Route::prefix('minihouse/portal')->name('api.minihouse.portal.')->group(function
 
         Route::get('dashboard', [TenantPortalApiController::class, 'dashboard'])->name('dashboard');
         Route::get('notifications', [TenantPortalApiController::class, 'notifications'])->name('notifications');
+        Route::get('notifications/unread-count', [TenantPortalApiController::class, 'unreadNotificationCount'])->name('notifications.unread-count');
         Route::get('invoices', [TenantPortalApiController::class, 'invoices'])->name('invoices.index');
         Route::get('invoices/{invoice}', [TenantPortalApiController::class, 'showInvoice'])->name('invoices.show');
+        Route::get('invoices/{invoice}/pdf', [TenantPortalApiController::class, 'invoicePdf'])->name('invoices.pdf');
         Route::post('invoices/{invoice}/pay', [TenantPortalApiController::class, 'payInvoice'])->name('invoices.pay');
         Route::get('payments', [TenantPortalApiController::class, 'payments'])->name('payments.index');
         Route::get('contracts', [TenantPortalApiController::class, 'contracts'])->name('contracts.index');
         Route::get('contracts/{contract}', [TenantPortalApiController::class, 'showContract'])->name('contracts.show');
+        Route::get('contracts/{contract}/pdf', [TenantPortalApiController::class, 'contractPdf'])->name('contracts.pdf');
+        Route::post('contracts/{contract}/renewal-request', [TenantPortalApiController::class, 'requestRenewal'])->name('contracts.renewal-request');
+        Route::post('contracts/{contract}/checkout-request', [TenantPortalApiController::class, 'requestCheckout'])->name('contracts.checkout-request');
         Route::get('contracts/{contract}/document', [ContractDocumentPortalController::class, 'show'])->name('contracts.document.show');
         Route::post('contracts/{contract}/document/otp', [ContractDocumentPortalController::class, 'otp'])->name('contracts.document.otp');
         Route::post('contracts/{contract}/document/sign', [ContractDocumentPortalController::class, 'sign'])->name('contracts.document.sign');
+        Route::get('feedback', [TenantPortalApiController::class, 'feedback'])->name('feedback.index');
         Route::post('feedback', [TenantPortalApiController::class, 'storeFeedback'])->name('feedback.store');
+        Route::get('profile', [TenantPortalApiController::class, 'profile'])->name('profile.show');
+        Route::put('profile', [TenantPortalApiController::class, 'updateProfile'])->name('profile.update');
         Route::post('password', [TenantPortalApiController::class, 'updatePassword'])->name('password.update');
         Route::post('push-token', [TenantPortalApiController::class, 'registerPushToken'])->name('push-token.register');
         Route::delete('push-token', [TenantPortalApiController::class, 'unregisterPushToken'])->name('push-token.unregister');

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\Minihouse\Portal;
 
 use App\Http\Controllers\Controller;
+use App\Services\PdfSigning\ContractPdfRenderer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -12,10 +13,15 @@ use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\InvoicePayment;
 use Modules\Minihouse\App\Models\PortalNotification;
+use Modules\Minihouse\App\Models\ResidenceDeclaration;
 use Modules\Minihouse\App\Models\Tenant;
+use Modules\Minihouse\App\Models\TenantFeedback;
 use Modules\Minihouse\App\Models\TenantPushToken;
+use Modules\Minihouse\App\Services\ContractContentRenderer;
+use Modules\Minihouse\App\Services\InvoiceContentRenderer;
 use Modules\Minihouse\App\Services\TenantPortalService;
 use Modules\Minihouse\Http\Controllers\Portal\Concerns\InteractsWithTenantPortalData;
+use Symfony\Component\HttpFoundation\Response;
 
 // Bản API (token Sanctum, cho app di động/bên thứ 3) của
 // Modules\Minihouse\Http\Controllers\Portal\TenantPortalController (web, session) — dùng CHUNG
@@ -161,6 +167,8 @@ class TenantPortalApiController extends Controller
             'checkout_handover_file' => 'Biên bản bàn giao (lúc trả phòng)',
         ];
 
+        $room = $contract->room;
+
         return response()->json(['data' => array_merge($this->contractSummary($contract), [
             'deposit_amount'           => (float) $contract->deposit_amount,
             'checkout_at'              => $contract->checkout_at?->toDateString(),
@@ -169,7 +177,172 @@ class TenantPortalApiController extends Controller
             'files' => collect($files)->mapWithKeys(fn ($label, $field) => [
                 $field => $contract->{$field} ? ['label' => $label, 'url' => Storage::disk('public')->url($contract->{$field})] : null,
             ])->filter()->values(),
+            // Phòng đang thuê — ảnh/tiện ích/tài sản trong phòng, để app hiện được ngay trong màn
+            // "Hợp đồng của tôi" thay vì khách phải tự nhớ đã có gì trong phòng.
+            'room' => $room ? [
+                'photos'    => $room->photos ?? [],
+                'amenities' => $room->amenities->map(fn ($a) => ['id' => $a->id, 'name' => $a->name, 'image' => $a->image]),
+                'assets'    => $room->assets->map(fn ($a) => ['id' => $a->id, 'name' => $a->name, 'condition' => $a->condition, 'note' => $a->note]),
+            ] : null,
+            // Lịch sử gia hạn (nhân viên tạo qua ContractController::renew()) — khách xem lại giá/ngày
+            // đã thay đổi qua từng lần gia hạn.
+            'renewals' => $contract->renewals()->orderByDesc('created_at')->get()->map(fn ($r) => [
+                'old_end_date'      => $r->old_end_date?->toDateString(),
+                'new_end_date'      => $r->new_end_date?->toDateString(),
+                'old_monthly_price' => (float) $r->old_monthly_price,
+                'new_monthly_price' => (float) $r->new_monthly_price,
+                'note'              => $r->note,
+                'created_at'        => $r->created_at->toIso8601String(),
+            ]),
+            // Khách tự xem đã được khai báo lưu trú (Bộ Công an) hay chưa — CHỈ trạng thái, không
+            // lộ toàn bộ hồ sơ (CCCD, quê quán...) đã khai.
+            'residence_declaration' => ($declaration = ResidenceDeclaration::where('contract_id', $contract->id)
+                ->where('tenant_id', $this->tenant($request)->id)->first())
+                ? ['is_declared' => $declaration->isDeclared(), 'declared_at' => $declaration->declared_at?->toIso8601String()]
+                : null,
+            // Cờ khách đã gửi yêu cầu gia hạn/trả phòng trước đó chưa (để app hiện "Đã gửi yêu cầu,
+            // đang chờ nhân viên liên hệ" thay vì lại hiện nút gửi tiếp).
+            'renewal_requested_at'  => $contract->renewal_requested_at?->toIso8601String(),
+            'checkout_requested_at' => $contract->checkout_requested_at?->toIso8601String(),
         ])]);
+    }
+
+    // POST /api/minihouse/portal/contracts/{id}/renewal-request — CHỈ đánh dấu + ghi chú, KHÔNG tự
+    // gia hạn — nhân viên thấy cờ này trên panel rồi tự liên hệ, gọi ContractController::renew()
+    // như bình thường khi chốt xong điều khoản mới.
+    public function requestRenewal(Request $request, int $id): JsonResponse
+    {
+        $contract = TenantPortalService::tenantContracts($this->tenant($request))->firstWhere('id', $id);
+        abort_unless($contract, 403);
+
+        if ($contract->status !== Contract::STATUS_ACTIVE) {
+            return response()->json(['message' => 'Chỉ gửi được yêu cầu cho hợp đồng đang hiệu lực.'], 422);
+        }
+
+        $data = $request->validate(['note' => 'nullable|string|max:1000']);
+
+        $contract->update([
+            'renewal_requested_at' => now(),
+            'renewal_request_note' => $data['note'] ?? null,
+        ]);
+
+        return response()->json(['message' => 'Đã gửi yêu cầu gia hạn. Nhân viên sẽ liên hệ lại với bạn.']);
+    }
+
+    // POST /api/minihouse/portal/contracts/{id}/checkout-request — cùng nguyên tắc trên, cho trả
+    // phòng sớm/không tiếp tục thuê.
+    public function requestCheckout(Request $request, int $id): JsonResponse
+    {
+        $contract = TenantPortalService::tenantContracts($this->tenant($request))->firstWhere('id', $id);
+        abort_unless($contract, 403);
+
+        if ($contract->status !== Contract::STATUS_ACTIVE) {
+            return response()->json(['message' => 'Chỉ gửi được yêu cầu cho hợp đồng đang hiệu lực.'], 422);
+        }
+
+        $data = $request->validate(['note' => 'nullable|string|max:1000']);
+
+        $contract->update([
+            'checkout_requested_at' => now(),
+            'checkout_request_note' => $data['note'] ?? null,
+        ]);
+
+        return response()->json(['message' => 'Đã gửi yêu cầu trả phòng. Nhân viên sẽ liên hệ lại với bạn.']);
+    }
+
+    // GET /api/minihouse/portal/contracts/{id}/pdf — bản PDF hợp đồng ĐANG LƯU (contract_content),
+    // dùng CHUNG renderer với ContractPrintController (nhân viên) — KHÔNG thể tái dùng thẳng
+    // controller đó vì nó xác thực theo guard "web" (App\Models\User), ở đây guard "tenant".
+    public function contractPdf(Request $request, int $id): Response
+    {
+        $contract = TenantPortalService::tenantContracts($this->tenant($request))->firstWhere('id', $id);
+        abort_unless($contract, 403);
+
+        $pdf = ContractPdfRenderer::render(ContractContentRenderer::renderPrintable($contract));
+
+        return response($pdf, 200, [
+            'Content-Type'        => 'application/pdf',
+            'Content-Disposition' => "inline; filename=\"hop-dong-{$contract->id}.pdf\"",
+        ]);
+    }
+
+    // GET /api/minihouse/portal/invoices/{id}/pdf — phiếu thu PDF, KHÔNG kèm QR thanh toán (khách
+    // dùng nút "Thanh toán" (payInvoice()) riêng để lấy QR/link cổng thanh toán mới nhất — nhúng lại
+    // QR ở đây dễ lệch với link thật đang hiệu lực). Chỉ để in/lưu làm chứng từ.
+    public function invoicePdf(Request $request, int $id): Response
+    {
+        $invoice = $this->findOwnedInvoice($this->tenant($request), $id);
+
+        $pdf = ContractPdfRenderer::render(InvoiceContentRenderer::renderPrintable($invoice, null));
+
+        return response($pdf, 200, [
+            'Content-Type'        => 'application/pdf',
+            'Content-Disposition' => "inline; filename=\"phieu-thu-hoa-don-{$invoice->id}.pdf\"",
+        ]);
+    }
+
+    // GET /api/minihouse/portal/feedback — lịch sử phản hồi CHÍNH khách này đã gửi (storeFeedback()
+    // chỉ tạo mới, trước đây không có cách nào xem lại đã gửi gì/khi nào).
+    public function feedback(Request $request): JsonResponse
+    {
+        $feedbacks = TenantFeedback::where('tenant_id', $this->tenant($request)->id)
+            ->orderByDesc('created_at')
+            ->paginate((int) $request->integer('per_page', 20));
+
+        return response()->json([
+            'data' => collect($feedbacks->items())->map(fn (TenantFeedback $f) => [
+                'id' => $f->id, 'rating' => $f->rating, 'content' => $f->content,
+                'created_at' => $f->created_at->toIso8601String(),
+            ]),
+            'meta' => $this->paginationMeta($feedbacks),
+        ]);
+    }
+
+    // GET /api/minihouse/portal/notifications/unread-count — đếm NHANH, KHÔNG kèm đánh dấu đã đọc
+    // (khác notifications() ở trên, tự mark-all-read khi liệt kê) — dùng để hiện chấm đỏ badge trên
+    // icon chuông mà KHÔNG làm mất trạng thái "chưa đọc" trước khi khách thực sự mở ra xem.
+    public function unreadNotificationCount(Request $request): JsonResponse
+    {
+        $count = PortalNotification::where('tenant_id', $this->tenant($request)->id)->whereNull('read_at')->count();
+
+        return response()->json(['data' => ['unread_count' => $count]]);
+    }
+
+    // GET /api/minihouse/portal/profile
+    public function profile(Request $request): JsonResponse
+    {
+        $tenant = $this->tenant($request);
+
+        return response()->json(['data' => [
+            'id'                       => $tenant->id,
+            'fullname'                 => $tenant->fullname,
+            'phone'                    => $tenant->phone,
+            'date_of_birth'            => $tenant->date_of_birth?->toDateString(),
+            'gender'                   => $tenant->gender,
+            'nationality'              => $tenant->nationality,
+            'id_card_number'           => $tenant->id_card_number,
+            'hometown'                 => $tenant->hometown,
+            'permanent_address'        => $tenant->permanent_address,
+            'occupation'               => $tenant->occupation,
+            'workplace'                => $tenant->workplace,
+            'emergency_contact_name'   => $tenant->emergency_contact_name,
+            'emergency_contact_phone'  => $tenant->emergency_contact_phone,
+        ]]);
+    }
+
+    // PUT /api/minihouse/portal/profile — CHỈ cho tự sửa "liên hệ khẩn cấp", KHÔNG cho sửa CCCD/họ
+    // tên/SĐT (thông tin định danh pháp lý — phải do nhân viên xác minh giấy tờ rồi mới sửa qua
+    // panel, tự ý cho khách đổi sẽ sai lệch hồ sơ khai báo lưu trú/hợp đồng đã ký).
+    public function updateProfile(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'emergency_contact_name'  => 'nullable|string|max:255',
+            'emergency_contact_phone' => 'nullable|string|max:20',
+        ]);
+
+        $this->tenant($request)->update($data);
+
+        return response()->json(['message' => 'Đã cập nhật thông tin.']);
     }
 
     // POST /api/minihouse/portal/feedback

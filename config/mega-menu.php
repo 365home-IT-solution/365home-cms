@@ -17,7 +17,7 @@ return [
         'Quản lý giá & khuyến mãi' => ['Hệ thống giá', 'Bảng giá', 'Khuyến mãi & Giảm giá'],
         'Nội dung & Marketing' => ['Bài viết', 'Danh mục bài viết'],
         'Quản lý khách hàng' => ['Tin nhắn', 'Khách hàng', 'Hạng thành viên', 'Tư vấn khách hàng'],
-        'Quản lý kho' => ['Danh mục vật tư', 'Phiếu nhập kho', 'Phiếu xuất kho', 'Phiếu kiểm kê', 'Nhóm vật tư', 'Đơn vị tính'],
+        'Quản lý kho' => ['Danh mục vật tư', 'Phiếu nhập kho', 'Phiếu xuất kho', 'Phiếu hoàn trả kho', 'Phiếu kiểm kê', 'Nhóm vật tư', 'Đơn vị tính'],
         'Thông báo' => ['Gửi thông báo đến khách'],
         'Đối tác & Báo cáo' => ['Đối tác', 'Thống kê lương'],
     ],

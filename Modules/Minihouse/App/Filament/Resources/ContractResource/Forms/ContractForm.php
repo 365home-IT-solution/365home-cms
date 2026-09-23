@@ -8,6 +8,7 @@ use Filament\Forms\Components\Actions\Action;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\RichEditor;
 use Filament\Forms\Components\Select;
@@ -30,6 +31,39 @@ class ContractForm
     public static function form(Form $form): Form
     {
         return $form->schema([
+            // Khách thuê tự gửi "muốn gia hạn"/"muốn trả phòng" từ Portal (xem migration
+            // add_tenant_requests_to_minihouse_contracts_table) — CHỈ hiện khi có, để không chiếm chỗ
+            // vô ích ở mọi hợp đồng khác. Cờ tự xoá khi nhân viên bấm Gia hạn/Thanh lý thật (xem
+            // ContractController::renew()/checkout()).
+            Placeholder::make('tenant_requests_notice')
+                ->hiddenLabel()
+                ->visible(fn (?Contract $record) => $record && ($record->renewal_requested_at || $record->checkout_requested_at))
+                ->content(function (?Contract $record) {
+                    $parts = [];
+
+                    if ($record?->renewal_requested_at) {
+                        $parts[] = sprintf(
+                            '⚠ Khách yêu cầu GIA HẠN lúc %s%s',
+                            $record->renewal_requested_at->format('d/m/Y H:i'),
+                            $record->renewal_request_note ? ' — "' . e($record->renewal_request_note) . '"' : ''
+                        );
+                    }
+
+                    if ($record?->checkout_requested_at) {
+                        $parts[] = sprintf(
+                            '⚠ Khách yêu cầu TRẢ PHÒNG lúc %s%s',
+                            $record->checkout_requested_at->format('d/m/Y H:i'),
+                            $record->checkout_request_note ? ' — "' . e($record->checkout_request_note) . '"' : ''
+                        );
+                    }
+
+                    return new \Illuminate\Support\HtmlString(
+                        '<div class="rounded-lg border border-warning-300 bg-warning-50 px-4 py-2 text-sm font-medium text-warning-700 dark:border-warning-800 dark:bg-warning-950 dark:text-warning-400">'
+                        . implode('<br>', $parts) . '</div>'
+                    );
+                })
+                ->columnSpanFull(),
+
             Tabs::make('Contract')
                 ->columnSpanFull()
                 ->tabs([

@@ -34,6 +34,7 @@ class Camera extends Model
         'branch_id',
         'name',
         'stream_key',
+        'frigate_camera_name',
         'rtsp_url',
         'note',
         'status',
@@ -54,6 +55,14 @@ class Camera extends Model
     // không tự có (khác domain). Node proxy tự xin cookie đó từ Laravel (FrigateSessionClient qua
     // route nội bộ /internal/frigate-session) rồi làm cầu nối 2 chiều. Token ký ngắn hạn
     // (CameraWsToken) để Node xác minh yêu cầu hợp lệ mà không cần tự truy vấn CSDL/CameraSettings.
+    // Tên camera dùng cho API lịch sử ghi hình/sự kiện của CHÍNH FRIGATE (khác API xem trực tiếp —
+    // xem giải thích ở migration add_frigate_camera_name_to_cameras_table) — mặc định dùng lại
+    // stream_key nếu không khai báo riêng, đúng cho đa số camera cùng tên ở cả 2 nơi.
+    public function frigateCameraName(): string
+    {
+        return $this->frigate_camera_name ?: $this->stream_key;
+    }
+
     public function wsProxyUrl(): ?string
     {
         $settings = app(CameraSettings::class);

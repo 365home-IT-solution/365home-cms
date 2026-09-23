@@ -62,12 +62,6 @@ class WarehouseBarcodeScan
                 // Enter là ký tự KẾT THÚC chuẩn của hầu hết máy quét mã vạch — ép blur() để chốt giá
                 // trị ngay, không cần người dùng tự bấm ra ngoài ô.
                 'x-on:keydown.enter.prevent'  => '$el.blur()',
-                // Tự focus ngay khi trang vừa mở — máy quét mã vạch vật lý gõ được luôn, không cần
-                // bấm chuột vào ô trước. Focus LẠI sau mỗi lượt quét được xử lý ở cuối
-                // afterStateUpdated() bên dưới (qua $livewire->js(...)) — input này không đổi danh
-                // tính DOM qua mỗi lần Livewire re-render nên x-init CHỈ chạy đúng 1 lần lúc mount,
-                // không tự lặp lại sau mỗi lượt quét.
-                'x-init'                      => 'if (! document.querySelector(\'.fi-modal-open\')) { $el.focus() }',
             ])
             ->suffixIcon('heroicon-o-camera')
             ->suffixAction(

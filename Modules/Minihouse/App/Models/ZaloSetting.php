@@ -4,15 +4,8 @@ namespace Modules\Minihouse\App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
-// Cấu hình ZNS của MiniHouse — luôn CHỈ 1 DÒNG duy nhất (id=1), dùng ZaloSetting::current() để
-// lấy/tạo, giống pattern PaymentConfiguration của Home nhưng bảng riêng, không chung.
-//
-// app_id/app_secret/access_token/refresh_token/access_token_expires_at KHÔNG còn dùng cho việc
-// refresh/gọi Zalo nữa (xem MinihouseZaloTokenService — đã đổi sang uỷ quyền cho App\Services\
-// ZaloTokenService của Home, vì thực tế production dùng CHUNG 1 Zalo OA cho cả 2 hệ thống, 2 nơi
-// quản lý độc lập từng làm refresh_token giẫm chân nhau). Giữ lại cột (không xoá schema) phòng khi
-// MiniHouse có Zalo OA THẬT SỰ riêng sau này — chỉ 4 cột template_* (ZNS Template ID riêng của
-// MiniHouse) là còn đang dùng thật.
+// Cấu hình Zalo OA/ZNS RIÊNG của MiniHouse — luôn CHỈ 1 DÒNG duy nhất (id=1), dùng ZaloSetting::
+// current() để lấy/tạo, giống pattern PaymentConfiguration của Home nhưng bảng riêng, không chung.
 class ZaloSetting extends Model
 {
     protected $table = 'minihouse_zalo_settings';
