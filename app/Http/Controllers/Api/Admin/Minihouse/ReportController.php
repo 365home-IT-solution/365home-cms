@@ -12,6 +12,7 @@ use Modules\Minihouse\App\Services\Report\ContractReportService;
 use Modules\Minihouse\App\Services\Report\FinancialReportService;
 use Modules\Minihouse\App\Services\Report\MinihouseReportPeriod;
 use Modules\Minihouse\App\Services\Report\RoomReportService;
+use Modules\Minihouse\App\Services\Report\TenantReportService;
 
 // Bộ API báo cáo MiniHouse — mirror đúng tinh thần Modules\Dashboard\Http\Controllers\ReportController
 // bên Home (1 endpoint/1 báo cáo, cùng convention tham số filter/start_date/end_date/building_id),
@@ -45,9 +46,92 @@ class ReportController extends Controller
         [$start, $end] = $this->resolvePeriod($request);
 
         return response()->json(['data' => [
+            'period'              => $this->periodPayload($request, $start, $end),
+            'stats'               => FinancialReportService::stats($buildingIds, $start, $end),
+            'by_building'         => FinancialReportService::byBuilding($buildingIds, $start, $end),
+            // Chuỗi theo ngày/tháng để FE vẽ biểu đồ xu hướng — xem ngưỡng chia ngày/tháng ở
+            // FinancialReportService::MAX_DAYS_FOR_DAILY_BREAKDOWN.
+            'time_series'         => FinancialReportService::timeSeries($buildingIds, $start, $end),
+            'expense_by_category' => FinancialReportService::expenseByCategory($buildingIds, $start, $end),
+            'payment_methods'     => FinancialReportService::collectedByPaymentMethod($buildingIds, $start, $end),
+        ]]);
+    }
+
+    // GET /api/admin/minihouse/reports/rankings?filter=&start_date=&end_date=&building_id=&limit=
+    // Top phòng/khách thuê theo tiền ĐÃ THU trong kỳ — tương đương "room report"/"customer report"
+    // bên Home, gộp chung 1 endpoint (giống Dashboard::rankings bên Home) vì cùng ý nghĩa "xếp hạng".
+    public function rankings(Request $request): JsonResponse
+    {
+        if (! $this->hasPermission($request, 'view_any_reports')) {
+            return response()->json(['message' => 'Không có quyền xem báo cáo.'], 403);
+        }
+
+        $buildingIds = $this->resolveBuildingIds($request);
+
+        if ($buildingIds === null) {
+            return response()->json(['message' => 'Không có quyền xem toà nhà này.'], 403);
+        }
+
+        [$start, $end] = $this->resolvePeriod($request);
+        $limit = max(1, min(50, (int) $request->integer('limit', 10)));
+
+        if (empty($buildingIds)) {
+            return response()->json(['data' => [
+                'period'      => $this->periodPayload($request, $start, $end),
+                'top_rooms'   => [],
+                'top_tenants' => [],
+            ]]);
+        }
+
+        return response()->json(['data' => [
             'period'      => $this->periodPayload($request, $start, $end),
-            'stats'       => FinancialReportService::stats($buildingIds, $start, $end),
-            'by_building' => FinancialReportService::byBuilding($buildingIds, $start, $end),
+            'top_rooms'   => RoomReportService::topRooms($buildingIds, $start, $end, $limit),
+            'top_tenants' => TenantReportService::topTenants($buildingIds, $start, $end, $limit),
+        ]]);
+    }
+
+    // GET /api/admin/minihouse/reports/overview?building_id=
+    // Gộp nhanh các KPI chính từ 4 báo cáo còn lại thành 1 lần gọi — tương đương Dashboard::overview
+    // bên Home, dùng cho trang tổng quan không cần gọi riêng từng API con.
+    public function overview(Request $request): JsonResponse
+    {
+        if (! $this->hasPermission($request, 'view_any_reports')) {
+            return response()->json(['message' => 'Không có quyền xem báo cáo.'], 403);
+        }
+
+        $buildingIds = $this->resolveBuildingIds($request);
+
+        if ($buildingIds === null) {
+            return response()->json(['message' => 'Không có quyền xem toà nhà này.'], 403);
+        }
+
+        [$start, $end] = MinihouseReportPeriod::resolve('this_month');
+
+        if (empty($buildingIds)) {
+            return response()->json(['data' => [
+                'period'         => ['start_date' => $start->toDateString(), 'end_date' => $end->toDateString()],
+                'financial'      => ['collected' => 0, 'expense' => 0, 'profit' => 0, 'uncollected' => 0],
+                'occupancy_rate' => 0,
+                'total_debt'     => 0,
+                'expiring_soon_count' => 0,
+            ]]);
+        }
+
+        $stats = FinancialReportService::stats($buildingIds, $start, $end);
+        $debts = FinancialReportService::tenantDebts($buildingIds);
+        $contracts = ContractReportService::summary($buildingIds, $start, $end);
+
+        return response()->json(['data' => [
+            'period'    => ['start_date' => $start->toDateString(), 'end_date' => $end->toDateString()],
+            'financial' => [
+                'collected'   => $stats['collected'],
+                'expense'     => $stats['expense'],
+                'profit'      => $stats['profit'],
+                'uncollected' => $stats['uncollected'],
+            ],
+            'occupancy_rate'      => $stats['occupancy_rate'],
+            'total_debt'          => array_sum(array_column($debts, 'total_debt')),
+            'expiring_soon_count' => count($contracts['expiring_soon']),
         ]]);
     }
 
@@ -178,7 +262,10 @@ class ReportController extends Controller
                 'collected' => 0, 'invoiced_total' => 0, 'uncollected' => 0, 'expense' => 0,
                 'profit' => 0, 'total_rooms' => 0, 'rented_rooms' => 0, 'occupancy_rate' => 0,
             ],
-            'by_building' => [],
+            'by_building'         => [],
+            'time_series'         => [],
+            'expense_by_category' => [],
+            'payment_methods'     => [],
         ];
     }
 }

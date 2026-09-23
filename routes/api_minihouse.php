@@ -104,10 +104,12 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
     // room/customer/financial); MiniHouse thay bằng đúng 4 báo cáo khớp nghiệp vụ cho thuê dài hạn
     // (financial/debts/occupancy/contracts) — không có khái niệm "lễ tân/đặt phòng theo ngày".
     Route::prefix('reports')->name('reports.')->group(function () {
+        Route::get('overview', [ReportController::class, 'overview'])->name('overview');
         Route::get('financial', [ReportController::class, 'financial'])->name('financial');
         Route::get('debts', [ReportController::class, 'debts'])->name('debts');
         Route::get('occupancy', [ReportController::class, 'occupancy'])->name('occupancy');
         Route::get('contracts', [ReportController::class, 'contracts'])->name('contracts');
+        Route::get('rankings', [ReportController::class, 'rankings'])->name('rankings');
     });
 });
 
