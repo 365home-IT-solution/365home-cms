@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\Admin\Minihouse\InvoiceController;
 use App\Http\Controllers\Api\Admin\Minihouse\InvoicePaymentController;
 use App\Http\Controllers\Api\Admin\Minihouse\MeteringReadingController;
 use App\Http\Controllers\Api\Admin\Minihouse\ReminderController;
+use App\Http\Controllers\Api\Admin\Minihouse\ReportController;
 use App\Http\Controllers\Api\Admin\Minihouse\ResidenceDeclarationController;
 use App\Http\Controllers\Api\Admin\Minihouse\RoomController;
 use App\Http\Controllers\Api\Admin\Minihouse\SurchargeController;
@@ -97,6 +98,17 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
     Route::post('residence-declarations/{id}/mark-declared', [ResidenceDeclarationController::class, 'markDeclared'])->name('residence-declarations.mark-declared');
 
     Route::apiResource('announcements', AnnouncementController::class)->only(['index', 'store', 'destroy'])->parameters(['announcements' => 'id']);
+
+    // Báo cáo — mirror tinh thần Modules\Dashboard\Http\Controllers\ReportController bên Home (Home
+    // dùng đủ 7 báo cáo theo nghiệp vụ đặt phòng ngắn hạn: receptionist/end-of-day/booking/revenue/
+    // room/customer/financial); MiniHouse thay bằng đúng 4 báo cáo khớp nghiệp vụ cho thuê dài hạn
+    // (financial/debts/occupancy/contracts) — không có khái niệm "lễ tân/đặt phòng theo ngày".
+    Route::prefix('reports')->name('reports.')->group(function () {
+        Route::get('financial', [ReportController::class, 'financial'])->name('financial');
+        Route::get('debts', [ReportController::class, 'debts'])->name('debts');
+        Route::get('occupancy', [ReportController::class, 'occupancy'])->name('occupancy');
+        Route::get('contracts', [ReportController::class, 'contracts'])->name('contracts');
+    });
 });
 
 // Webhook PayOS — công khai, KHÔNG qua auth:sanctum/admin.api vì PayOS gọi thẳng vào đây, không có
