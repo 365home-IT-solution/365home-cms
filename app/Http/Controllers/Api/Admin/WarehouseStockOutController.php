@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Exists;
 use Illuminate\Validation\ValidationException;
-use Modules\Category\Entities\Category;
+use Modules\Warehouse\App\Models\WarehouseItem;
 use Modules\Warehouse\App\Models\WarehouseStockOut;
 
 // Phiếu xuất kho (WarehouseStockOutResource ở Filament). Tạo/xoá dòng chi tiết LUÔN đi qua Eloquent
@@ -94,7 +94,7 @@ class WarehouseStockOutController extends Controller
      *         items: [{ warehouse_item_id, reason, quantity, note? }] }
      * ("issued_at" KHÔNG nhận từ client — luôn chốt cứng = thời điểm lưu, xem
      * WarehouseStockOut::creating().)
-     * Với super_admin, chỉ cần truyền branch_id; partner_id được suy ra từ chi nhánh.
+     * partner_id và branch_id đều được suy ra từ warehouse_item_id đầu tiên.
      */
     public function store(Request $request): JsonResponse
     {
@@ -109,21 +109,12 @@ class WarehouseStockOutController extends Controller
         // gán. Thiếu bước này thì phiếu lưu với partner_id RỖNG, không đối tác nào thấy được (đã
         // xác nhận thực tế qua panel Filament — cùng lý do vừa sửa ở
         // WarehouseStockOutForm::partnerInput()).
-        $branchIds = $user->isSuperAdmin() ? [] : $user->rootProductCategoryIds();
-        $requireBranchId = $user->isSuperAdmin() || count($branchIds) > 1;
-
-        $branchId = $user->isSuperAdmin()
-            ? $this->superAdminBranch($request)
-            : ($request->integer('branch_id') ?: ($branchIds[0] ?? null));
-        $partnerId = $user->isSuperAdmin()
-            ? Category::query()->findOrFail($branchId)->partner_id
-            : $user->partner_id;
+        [$partnerId, $branchId] = $this->warehouseContext($request, $user);
 
         $data = $request->validate($this->rules(
             requirePartnerId: false,
             partnerId: $partnerId,
-            requireBranchId: $requireBranchId,
-            branchIds: $branchIds,
+            branchIds: [$branchId],
             branchId: $branchId,
         ));
 
@@ -241,16 +232,21 @@ class WarehouseStockOutController extends Controller
         ];
     }
 
-    private function superAdminBranch(Request $request): int
+    private function warehouseContext(Request $request, User $user): array
     {
-        $branchId = $request->integer('branch_id');
-        $branch = Category::query()->where('category_type', 'product')->whereNull('parent_id')->find($branchId);
+        $itemId = (int) data_get($request->input('items', []), '0.warehouse_item_id', 0);
+        $item = WarehouseItem::query()->find($itemId);
 
-        if (! $branch || empty($branch->partner_id)) {
-            throw ValidationException::withMessages(['branch_id' => 'Chi nhánh không hợp lệ hoặc chưa thuộc đối tác nào.']);
+        if (! $item || empty($item->partner_id) || empty($item->branch_id)) {
+            throw ValidationException::withMessages(['items.0.warehouse_item_id' => 'Vật tư không hợp lệ hoặc chưa thuộc kho nào.']);
         }
 
-        return (int) $branch->id;
+        $allowedBranches = $user->rootProductCategoryIds();
+        if (! $user->isSuperAdmin() && ($item->partner_id !== $user->partner_id || (! empty($allowedBranches) && ! in_array((int) $item->branch_id, array_map('intval', $allowedBranches), true)))) {
+            throw ValidationException::withMessages(['items.0.warehouse_item_id' => 'Vật tư không thuộc phạm vi tài khoản.']);
+        }
+
+        return [$item->partner_id, (int) $item->branch_id];
     }
 
     private function findOwned(Request $request, int $id): WarehouseStockOut|JsonResponse
