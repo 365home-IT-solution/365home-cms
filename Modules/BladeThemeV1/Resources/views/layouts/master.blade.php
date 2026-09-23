@@ -6,8 +6,13 @@
     $metaTags = [
         'canonical' => $generalSettings->canonical,
         // Per-page override (e.g. account page passes seoData.robots = 'noindex, follow' so a
-        // private, user-specific page doesn't get indexed) — falls back to the global setting.
-        'robots' => (isset($seoData) && !empty($seoData['robots'])) ? $seoData['robots'] : $generalSettings->robots,
+        // private, user-specific page doesn't get indexed) — falls back to a hardcoded
+        // 'index, follow', NOT $generalSettings->robots. That Filament setting (Cài đặt chung >
+        // SEO > Robots) defaults to 'noindex, nofollow' on fresh installs/resets (see
+        // database/settings/2025_01_01_000017_create_general_settings.php) and one accidental
+        // change there would silently noindex the entire site. Hardcoding the default removes
+        // that single point of failure; pages that genuinely need noindex still opt in per-page.
+        'robots' => (isset($seoData) && !empty($seoData['robots'])) ? $seoData['robots'] : 'index, follow',
         'og_type' => $generalSettings->og_type,
         'og_url' => $generalSettings->og_url,
         'og_title' => $generalSettings->og_title,

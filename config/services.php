@@ -105,6 +105,15 @@ return [
         'key' => env('GOOGLE_MAPS_API_KEY'),
     ],
 
+    // IndexNow (indexnow.org): instant new/updated-URL notification consumed by Bing, Yandex,
+    // Seznam and Naver — NOT by Google (Google has no public equivalent for regular articles; it
+    // only relies on sitemap re-crawl + manual "Request Indexing" in Search Console). Key file is
+    // served at GET /{key}.txt (see Modules/BladeThemeV1/Routes/web.php) as required by the
+    // protocol. Empty key disables the feature entirely (see App\Jobs\SubmitUrlToIndexNow).
+    'indexnow' => [
+        'key' => env('INDEXNOW_KEY'),
+    ],
+
     'websocket' => [
         'url'          => env('WS_SERVER_URL', 'http://localhost:3001'),
         'public_url'   => env('WS_PUBLIC_URL', env('WS_SERVER_URL', 'http://localhost:3001')),

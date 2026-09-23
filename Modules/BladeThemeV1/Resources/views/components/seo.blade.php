@@ -31,6 +31,9 @@
     <meta property="og:locale"      content="{{ $ogLocale }}">
     @if($ogImage)
         <meta property="og:image" content="{{ $ogImage }}">
+        {{-- og:image:alt: dùng seo_title (tiêu đề hiển thị) làm alt, cùng nguồn dữ liệu với alt
+             của ảnh đại diện ở post-detail.blade.php (post->title). --}}
+        <meta property="og:image:alt" content="{{ $ogTitle }}">
     @endif
 
     {{-- Article --}}
@@ -48,6 +51,7 @@
     <meta name="twitter:description" content="{{ $ogDesc }}">
     @if($ogImage)
         <meta name="twitter:image" content="{{ $ogImage }}">
+        <meta name="twitter:image:alt" content="{{ $ogTitle }}">
     @endif
     @if($gs->twitter_site ?? '')
         <meta name="twitter:site"    content="{{ $gs->twitter_site }}">

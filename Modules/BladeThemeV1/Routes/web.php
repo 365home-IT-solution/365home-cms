@@ -58,6 +58,15 @@ Route::get('/sitemap.xml', [SitemapController::class, 'index'])->name('sitemap')
 Route::get('/robots.txt',  [SitemapController::class, 'robots'])->name('robots');
 Route::get('/llms.txt',    [SitemapController::class, 'llmsTxt'])->name('llms');
 
+// IndexNow key verification file — protocol yêu cầu GET /{key}.txt trả về đúng key (xem
+// App\Services\IndexNowService, config/services.php). Không đăng ký route nếu chưa cấu hình
+// INDEXNOW_KEY để tránh lộ 1 URL vô nghĩa/404 khi tính năng đang tắt.
+if (config('services.indexnow.key')) {
+    Route::get('/' . config('services.indexnow.key') . '.txt', fn () => response(config('services.indexnow.key'), 200)
+        ->header('Content-Type', 'text/plain; charset=utf-8'))
+        ->name('indexnow.key');
+}
+
 // Static routes TRƯỚC dynamic routes để tránh conflict
 Route::get('/bai-viet/{slug}', [BladeThemeV1Controller::class, 'postDetail'])->name('post.detail');
 Route::get('/s/{location?}', [BladeThemeV1Controller::class, 'searchProduct'])->name('product.search');

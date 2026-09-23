@@ -85,6 +85,7 @@ class SEO extends Component
     {
         $this->content = $record['content'] ?? $this->content;
         $this->title = $record['title'] ?? $this->title;
+        $this->seoTitle = $record['seo_title'] ?? $this->seoTitle;
         $this->description = $record['seo_description'] ?? $this->description;
         $this->slug = $record['slug'] ?? $this->slug;
         $this->focusKeyword = $this->extractFocusKeywords($record['seo_keywords'] ?? '');
@@ -105,6 +106,7 @@ class SEO extends Component
         $this->initializeAnalyses();
         $this->content = $data['content'] ?? $this->content;
         $this->title = $data['title'] ?? $this->title;
+        $this->seoTitle = $data['seo_title'] ?? $this->seoTitle;
         $this->description = $data['description'] ?? $this->description;
         $this->slug = $data['url'] ?? $this->slug;
         $this->focusKeyword = $this->extractFocusKeywords($data['focusKeyword'] ?? '');
@@ -314,6 +316,15 @@ class SEO extends Component
         return $str;
     }
 
+    // str_word_count() chỉ nhận a-z/A-Z (+'/-), đếm sai hoàn toàn với tiếng Việt có dấu — dùng
+    // regex Unicode \S+ thay thế (đã áp dụng đúng trong analyzeSecondaryKeywords(), giờ dùng
+    // chung cho mọi chỗ đếm từ khác để nhất quán).
+    protected function countWords(string $text): int
+    {
+        preg_match_all('/\S+/u', trim($text), $matches);
+        return count($matches[0]);
+    }
+
     protected function removeVietnameseTones(string $str): string
     {
         $patterns = [
@@ -365,7 +376,13 @@ class SEO extends Component
 
     protected function analyzeTitle()
     {
-        if (empty($this->title)) {
+        // Chấm theo seo_title (thẻ <title> thật hiển thị ngoài SERP/trình duyệt), không phải
+        // $this->title (H1 bài viết) — 2 field độc lập, trước đây bị nhầm lẫn khiến điểm không
+        // phản ánh đúng thẻ <title> thực tế render ở trang chi tiết. Rơi về $this->title chỉ khi
+        // seo_title thực sự trống, khớp hành vi fallback ở BladeThemeV1Controller::postDetail().
+        $titleToAnalyze = trim((string) $this->seoTitle) !== '' ? $this->seoTitle : $this->title;
+
+        if (empty($titleToAnalyze)) {
             $this->analyses['title'] = [
                 'score' => 0,
                 'message' => 'Thêm từ khóa chính vào tiêu đề SEO',
@@ -374,17 +391,17 @@ class SEO extends Component
             return;
         }
 
-        $hasPrimaryKeyword = $this->containsKeyword($this->title);
+        $hasPrimaryKeyword = $this->containsKeyword($titleToAnalyze);
         $secondaryKeywords = $this->getSecondaryKeywords();
         $hasSecondaryKeyword = false;
         foreach ($secondaryKeywords as $keyword) {
-            if (str_contains(strtolower($this->title), strtolower($keyword))) {
+            if ($this->fieldContainsKeyword($titleToAnalyze, $keyword)) {
                 $hasSecondaryKeyword = true;
                 break;
             }
         }
 
-        $length = Str::length($this->title);
+        $length = Str::length($titleToAnalyze);
         $score = 0;
         $message = '';
         $status = '';
@@ -427,7 +444,7 @@ class SEO extends Component
         $secondaryKeywords = $this->getSecondaryKeywords();
         $hasSecondaryKeyword = false;
         foreach ($secondaryKeywords as $keyword) {
-            if (str_contains(strtolower($this->description), strtolower($keyword))) {
+            if ($this->fieldContainsKeyword($this->description, $keyword)) {
                 $hasSecondaryKeyword = true;
                 break;
             }
@@ -438,9 +455,11 @@ class SEO extends Component
         $status = '';
         $message = '';
 
-        if ($length < 120 || $length > 160) {
+        // Khớp với helper text + maxLength(160) ở seoDescriptionField() trong PostForm.php —
+        // trước đây 2 nơi lệch nhau (120-160 vs 150-160), giờ dùng chung 1 mốc "tối ưu".
+        if ($length < 150 || $length > 160) {
             $score = 33;
-            $message = "Độ dài meta description không phù hợp (nên từ 120-160 ký tự)";
+            $message = "Độ dài meta description không phù hợp (nên từ 150-160 ký tự)";
             $status = 'warning';
         } else {
             if ($hasPrimaryKeyword) {
@@ -476,7 +495,7 @@ class SEO extends Component
         $secondaryKeywords = $this->getSecondaryKeywords();
         $hasSecondaryKeyword = false;
         foreach ($secondaryKeywords as $keyword) {
-            if (str_contains(strtolower($this->slug), strtolower($keyword))) {
+            if ($this->fieldContainsKeyword($this->slug, $keyword)) {
                 $hasSecondaryKeyword = true;
                 break;
             }
@@ -511,7 +530,7 @@ class SEO extends Component
         }
 
         $plainContent = $this->cleanText($this->content);
-        $totalWords = str_word_count($plainContent);
+        $totalWords = $this->countWords($plainContent);
 
         if ($totalWords > 300) {
             $wordsToCheck = ceil($totalWords * 0.1); // Lấy 10%
@@ -548,11 +567,16 @@ class SEO extends Component
         }
 
         $plainContent = $this->cleanText($this->content);
-        $wordCount = str_word_count($plainContent);
+        $wordCount = $this->countWords($plainContent);
 
         // Phân tích từ khóa chính note
         $primaryKeyword = $this->getPrimaryKeyword();
-        $primaryCount = substr_count(strtolower($plainContent), strtolower($primaryKeyword));
+        // mb_strtolower, không phải strtolower() — strtolower() làm hỏng chữ hoa có dấu tiếng
+        // Việt (byte-based, không multibyte-safe) nên có thể không khớp được từ khóa viết hoa.
+        $primaryCount = substr_count(
+            mb_strtolower($plainContent, 'UTF-8'),
+            mb_strtolower($primaryKeyword, 'UTF-8')
+        );
         $primaryDensity = $wordCount > 0 ? ($primaryCount / $wordCount) * 100 : 0;
 
         // Đánh giá mật độ từ khóa chính
@@ -640,30 +664,11 @@ class SEO extends Component
     //note
     protected function analyzeImages()
     {
-        if (empty($this->content)) {
-            $this->advancedAnalyses['images'] = [
-                'score' => 0,
-                'message' => 'Thêm hình ảnh với từ khóa chính làm văn bản thay thế',
-                'status' => 'error'
-            ];
-            return;
-        }
-
-        preg_match_all('/<img[^>]+>/i', $this->content, $matches);
+        preg_match_all('/<img[^>]+>/i', $this->content ?? '', $matches);
         $images = $matches[0] ?? [];
-
-        if (empty($images)) {
-            $this->advancedAnalyses['images'] = [
-                'score' => 0,
-                'message' => 'Thêm hình ảnh với từ khóa chính làm văn bản thay thế',
-                'status' => 'error'
-            ];
-            return;
-        }
 
         $imagesWithPrimaryKeyword = 0;
         $imagesWithAlt = 0;
-        $totalImages = count($images);
 
         foreach ($images as $img) {
             preg_match('/alt=["\'](.*?)["\']/i', $img, $alt);
@@ -672,6 +677,18 @@ class SEO extends Component
                 if ($this->containsKeyword($alt[1])) {
                     $imagesWithPrimaryKeyword++;
                 }
+            }
+        }
+
+        // Ảnh đại diện ("Ảnh chính") là bắt buộc (postImageField() minItems(1)) và không có ô
+        // nhập alt riêng — alt của nó luôn tự động lấy theo tiêu đề bài (post-detail.blade.php,
+        // og:image:alt trong seo.blade.php), không phải input admin gõ tay. Tính nó vào đây như 1
+        // ảnh có alt = $this->title để điểm phản ánh đúng ảnh thật sự hiển thị ngoài trang (ảnh
+        // đại diện/OG image), thay vì chỉ nhìn ảnh chèn tay trong nội dung bài.
+        if (!empty($this->title)) {
+            $imagesWithAlt++;
+            if ($this->containsKeyword($this->title)) {
+                $imagesWithPrimaryKeyword++;
             }
         }
 
@@ -801,7 +818,7 @@ class SEO extends Component
         $paragraphDetails = [];
 
         foreach ($paragraphs as $index => $paragraph) {
-            $wordCount = str_word_count($paragraph);
+            $wordCount = $this->countWords($paragraph);
             $paragraphDetails[] = [
                 'index' => $index + 1,
                 'wordCount' => $wordCount,
@@ -890,7 +907,7 @@ class SEO extends Component
 
     protected function analyzeContentLength()
     {
-        $wordCount = str_word_count(strip_tags($this->content));
+        $wordCount = $this->countWords(strip_tags($this->content));
         $score = 0;
         $message = '';
         $status = 'error';

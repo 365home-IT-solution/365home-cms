@@ -294,6 +294,7 @@ class ManageGeneral extends SettingsPage
                                             ->columnSpan(1),
                                         Forms\Components\Select::make('robots')
                                             ->label('Robots')
+                                            ->helperText('Không còn ảnh hưởng thẻ meta robots ngoài trang — giá trị đó nay được set cứng "index, follow" trong code để tránh vô tình noindex cả site. Trang cần noindex (vd trang cá nhân) được set riêng trong code, không qua đây.')
                                             ->options([
                                                 'index, follow' => 'Index, Follow',
                                                 'noindex, follow' => 'No Index, Follow',
