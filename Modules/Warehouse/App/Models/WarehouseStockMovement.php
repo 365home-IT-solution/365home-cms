@@ -8,6 +8,7 @@ use App\Models\Concerns\BelongsToPartner;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Str;
 
 // Model CHỈ ĐỌC (backed bởi SQL VIEW `warehouse_stock_movements`, xem migration
 // 2026_08_15_000003) — gộp lịch sử biến động tồn kho từ CẢ 3 nguồn (nhập/xuất/kiểm kê) thành 1 sổ
@@ -38,6 +39,7 @@ class WarehouseStockMovement extends Model
     public const TYPE_LABELS = [
         'in'         => 'Nhập kho',
         'out'        => 'Xuất kho',
+        'return'     => 'Hoàn trả kho',
         'check'      => 'Kiểm kê',
         'adjustment' => 'Điều chỉnh thủ công',
     ];
@@ -50,5 +52,33 @@ class WarehouseStockMovement extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    // "Lý do" (chỉ dòng xuất kho) + "Phòng" (xuất/hoàn trả gắn 1 phòng cụ thể) — VIEW không có sẵn
+    // 2 trường này, phải tra lại đúng dòng chi tiết gốc qua "id" dạng "{prefix}-{id dòng gốc}".
+    // Dùng CHUNG cho cả API (WarehouseItemController::movements()) lẫn Filament (RelationManager +
+    // modal lịch sử ở danh sách vật tư) — tránh viết trùng 2 lần cùng 1 cách tra cứu.
+    public function reason(): ?string
+    {
+        if ($this->type !== 'out') {
+            return null;
+        }
+
+        $line = WarehouseStockOutItem::find((int) Str::afterLast($this->id, '-'));
+
+        return $line?->reason ? (WarehouseStockOut::REASONS[$line->reason] ?? $line->reason) : null;
+    }
+
+    public function product(): ?array
+    {
+        $rawId = (int) Str::afterLast($this->id, '-');
+
+        $room = match ($this->type) {
+            'out'    => WarehouseStockOutItem::with('stockOut.room:id,name')->find($rawId)?->stockOut?->room,
+            'return' => WarehouseStockReturnItem::with('stockReturn.room:id,name')->find($rawId)?->stockReturn?->room,
+            default  => null,
+        };
+
+        return $room ? ['id' => $room->id, 'name' => $room->name] : null;
     }
 }

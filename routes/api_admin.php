@@ -4,6 +4,9 @@ use App\Http\Controllers\Api\Admin\AuthController as AdminAuthController;
 use App\Http\Controllers\Api\Admin\BookingController as AdminBookingController;
 use App\Http\Controllers\Api\Admin\BranchController as AdminBranchController;
 use App\Http\Controllers\Api\Admin\CameraController as AdminCameraController;
+use App\Http\Controllers\Api\Admin\CameraRecordingController;
+use App\Http\Controllers\Api\Admin\CameraSettingsController;
+use App\Http\Controllers\Api\CameraMediaProxyController;
 use App\Http\Controllers\Api\Admin\CategoryController as AdminCategoryController;
 use App\Http\Controllers\Api\Admin\CccdController as AdminCccdController;
 use App\Http\Controllers\Api\Admin\ChatController as AdminChatController;
@@ -45,6 +48,7 @@ use App\Http\Controllers\Api\Admin\WarehouseItemController;
 use App\Http\Controllers\Api\Admin\WarehouseStockCheckController;
 use App\Http\Controllers\Api\Admin\WarehouseStockInController;
 use App\Http\Controllers\Api\Admin\WarehouseStockOutController;
+use App\Http\Controllers\Api\Admin\WarehouseStockReturnController;
 use App\Http\Controllers\Api\Admin\WarehouseUnitController;
 use Illuminate\Support\Facades\Route;
 
@@ -862,9 +866,16 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/cccd')->name('ap
 | GET    /api/admin/warehouse/categories       → ?all=1  |  POST/PUT/DELETE
 | GET    /api/admin/warehouse/units             → ?all=1  |  POST/PUT/DELETE
 | GET    /api/admin/warehouse/items             → ?search=&category_id=&unit_id=&low_stock=1&all=&per_page=
-|                                                   GET/{id}  |  POST/PUT/DELETE
+|                                                   GET/{id} (kèm qr_code_base64)  |  POST/PUT/DELETE
+| GET    /api/admin/warehouse/items/{id}/qrcode      → PNG mã QR encode "sku" (Content-Type: image/png)
+| GET    /api/admin/warehouse/items/{id}/movements   → ?per_page= — lịch sử biến động tồn kho (nhập/
+|                                                        xuất/hoàn trả/kiểm kê/điều chỉnh), mới nhất trước
 | GET    /api/admin/warehouse/stock-ins         → ?search=&per_page=  |  GET/{id}  |  POST/PUT/DELETE
 | GET    /api/admin/warehouse/stock-outs        → ?search=&reason=&room_id=&per_page=  |  GET/{id}  |  POST/PUT/DELETE
+| GET    /api/admin/warehouse/stock-returns     → ?search=&room_id=&per_page=  |  GET/{id}  |  POST/PUT/DELETE
+|                                                   (hoàn trả hàng khách không dùng về kho — mỗi dòng
+|                                                   nên truyền warehouse_stock_out_item_id để hệ
+|                                                   thống tự chặn hoàn vượt số đã xuất)
 | GET    /api/admin/warehouse/stock-checks      → ?search=&per_page=  |  GET/{id}  |  POST/PUT/DELETE
 |--------------------------------------------------------------------------
 */
@@ -888,6 +899,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/warehouse')->nam
     Route::prefix('items')->name('items.')->group(function () {
         Route::get('/', [WarehouseItemController::class, 'index'])->name('index');
         Route::get('/{id}', [WarehouseItemController::class, 'show'])->name('show')->whereNumber('id');
+        Route::get('/{id}/qrcode', [WarehouseItemController::class, 'qrcode'])->name('qrcode')->whereNumber('id');
+        Route::get('/{id}/movements', [WarehouseItemController::class, 'movements'])->name('movements')->whereNumber('id');
         Route::post('/', [WarehouseItemController::class, 'store'])->name('store');
         Route::put('/{id}', [WarehouseItemController::class, 'update'])->name('update')->whereNumber('id');
         Route::delete('/{id}', [WarehouseItemController::class, 'destroy'])->name('destroy')->whereNumber('id');
@@ -907,6 +920,14 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/warehouse')->nam
         Route::post('/', [WarehouseStockOutController::class, 'store'])->name('store');
         Route::put('/{id}', [WarehouseStockOutController::class, 'update'])->name('update')->whereNumber('id');
         Route::delete('/{id}', [WarehouseStockOutController::class, 'destroy'])->name('destroy')->whereNumber('id');
+    });
+
+    Route::prefix('stock-returns')->name('stock-returns.')->group(function () {
+        Route::get('/', [WarehouseStockReturnController::class, 'index'])->name('index');
+        Route::get('/{id}', [WarehouseStockReturnController::class, 'show'])->name('show')->whereNumber('id');
+        Route::post('/', [WarehouseStockReturnController::class, 'store'])->name('store');
+        Route::put('/{id}', [WarehouseStockReturnController::class, 'update'])->name('update')->whereNumber('id');
+        Route::delete('/{id}', [WarehouseStockReturnController::class, 'destroy'])->name('destroy')->whereNumber('id');
     });
 
     Route::prefix('stock-checks')->name('stock-checks.')->group(function () {
@@ -979,4 +1000,28 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/warehouse')->nam
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/cameras')->name('api.admin.cameras.')->group(function () {
     Route::get('/', [AdminCameraController::class, 'index'])->name('index');
     Route::get('/{id}', [AdminCameraController::class, 'show'])->name('show')->whereNumber('id');
+    Route::post('/', [AdminCameraController::class, 'store'])->name('store');
+    Route::match(['put', 'patch'], '/{id}', [AdminCameraController::class, 'update'])->name('update')->whereNumber('id');
+    Route::delete('/{id}', [AdminCameraController::class, 'destroy'])->name('destroy')->whereNumber('id');
+
+    // Xem lại lịch sử ghi hình + ghi hình thủ công — xem App\Services\FrigateApiClient để biết
+    // đúng endpoint Frigate thật đứng sau các route này.
+    Route::get('/{id}/recordings/summary', [CameraRecordingController::class, 'summary'])->name('recordings.summary')->whereNumber('id');
+    Route::get('/{id}/recordings', [CameraRecordingController::class, 'index'])->name('recordings.index')->whereNumber('id');
+    Route::get('/{id}/playback-url', [CameraRecordingController::class, 'playbackUrl'])->name('playback-url')->whereNumber('id');
+    Route::post('/{id}/recording/start', [CameraRecordingController::class, 'start'])->name('recording.start')->whereNumber('id');
+    Route::post('/{id}/recording/{eventId}/stop', [CameraRecordingController::class, 'stop'])->name('recording.stop')->whereNumber('id');
+});
+
+// Proxy phát lại lịch sử ghi hình (HLS) — CÔNG KHAI (không qua auth:sanctum, xem lý do ở
+// App\Http\Controllers\Api\CameraMediaProxyController), tự bảo vệ bằng CameraMediaToken ký hạn ngắn.
+Route::get('camera-media/{token}/{filename}', [CameraMediaProxyController::class, 'stream'])
+    ->where('filename', '.*')
+    ->name('api.camera-media.stream');
+
+// Cấu hình server go2rtc/Frigate DÙNG CHUNG toàn hệ thống — xem giải thích quyền hạn ở
+// App\Http\Controllers\Api\Admin\CameraSettingsController (chỉ super_admin/page_ManageCamera).
+Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/camera-settings')->name('api.admin.camera-settings.')->group(function () {
+    Route::get('/', [CameraSettingsController::class, 'show'])->name('show');
+    Route::match(['put', 'patch'], '/', [CameraSettingsController::class, 'update'])->name('update');
 });
