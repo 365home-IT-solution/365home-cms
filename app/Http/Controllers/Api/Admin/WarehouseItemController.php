@@ -11,7 +11,15 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Exists;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Str;
+use Modules\Warehouse\App\Filament\Support\WarehousePrinter;
 use Modules\Warehouse\App\Models\WarehouseItem;
+use Modules\Warehouse\App\Models\WarehouseStockCheckItem;
+use Modules\Warehouse\App\Models\WarehouseStockInItem;
+use Modules\Warehouse\App\Models\WarehouseStockMovement;
+use Modules\Warehouse\App\Models\WarehouseStockOut;
+use Modules\Warehouse\App\Models\WarehouseStockOutItem;
+use Modules\Warehouse\App\Models\WarehouseStockReturnItem;
 
 // Danh mục vật tư (WarehouseItemResource ở Filament). Phạm vi: super_admin thấy & sửa mọi vật tư;
 // user thường chỉ thấy/sửa vật tư thuộc đúng đối tác mình (global scope BelongsToPartner không áp
@@ -130,6 +138,9 @@ class WarehouseItemController extends Controller
 
     /**
      * GET /api/admin/warehouse/items/{id}
+     * Response kèm "qr_code_base64" (PNG mã hoá đúng "sku" — null nếu vật tư chưa có sku) để app
+     * hiển thị ngay không cần gọi thêm request — dùng chung hàm sinh QR với PDF in tem
+     * (WarehousePrinter::qrPng(), cùng 1 nội dung mã cho cả in giấy lẫn hiển thị trên app).
      */
     public function show(Request $request, int $id): JsonResponse
     {
@@ -138,7 +149,175 @@ class WarehouseItemController extends Controller
             return $item;
         }
 
+        $item->setAttribute('qr_code_base64', filled($item->sku) ? WarehousePrinter::qrPng($item->sku) : null);
+
         return response()->json(['data' => $item]);
+    }
+
+    /**
+     * GET /api/admin/warehouse/items/{id}/qrcode
+     * Trả THẲNG file ảnh PNG (Content-Type: image/png) mã QR encode "sku" — dùng khi cần nhúng
+     * trực tiếp qua <img src="..."> hoặc gửi cho máy in tem, không cần tự decode base64 phía app.
+     */
+    public function qrcode(Request $request, int $id)
+    {
+        $item = $this->findOwned($request, $id);
+        if (! $item instanceof WarehouseItem) {
+            return $item;
+        }
+
+        if (blank($item->sku)) {
+            return response()->json(['message' => 'Vật tư chưa có mã SKU để tạo mã QR.'], 422);
+        }
+
+        return response(base64_decode(WarehousePrinter::qrPng($item->sku)), 200, [
+            'Content-Type' => 'image/png',
+        ]);
+    }
+
+    /**
+     * GET /api/admin/warehouse/items/{id}/movements
+     * Query params: per_page (mặc định 20)
+     * Lịch sử biến động tồn kho của 1 vật tư, gộp từ mọi nguồn (nhập/xuất/hoàn trả/kiểm kê/điều
+     * chỉnh thủ công) qua VIEW warehouse_stock_movements (WarehouseStockMovement), mới nhất trước.
+     * Trang CUỐI CÙNG (lastPage) có thêm 1 dòng ẢO type="initial" đại diện tồn khởi tạo lúc tạo vật
+     * tư (nếu có) — KHÔNG phải 1 phiếu thật nên không tính vào "per_page"/tổng số dòng.
+     */
+    public function movements(Request $request, int $id): JsonResponse
+    {
+        $item = $this->findOwned($request, $id);
+        if (! $item instanceof WarehouseItem) {
+            return $item;
+        }
+
+        $movements = WarehouseStockMovement::query()
+            ->where('warehouse_item_id', $id)
+            ->orderByDesc('occurred_at')
+            ->orderByDesc('entry_created_at')
+            ->orderByDesc('id')
+            ->paginate($request->integer('per_page', 20));
+
+        $rows = collect($movements->items());
+
+        // Truy vết chi tiết từng loại phiếu THEO LÔ (gom id trước, fetch 1 lần/loại) — tránh N+1 khi
+        // 1 trang có hàng chục dòng lịch sử. "id" của mỗi dòng có dạng "{prefix}-{id dòng chi tiết
+        // gốc}" (xem VIEW) — KHÔNG phải id của phiếu (document), chỉ dùng để tra lại đúng dòng gốc.
+        $idsByType = $rows->groupBy('type')->map(fn ($group) => $group->map(
+            fn (WarehouseStockMovement $m) => (int) Str::afterLast($m->id, '-')
+        )->all());
+
+        $outLines = WarehouseStockOutItem::whereIn('id', $idsByType->get('out', []))
+            ->with(['stockOut:id,code,product_id', 'stockOut.room:id,name'])
+            ->get()->keyBy('id');
+
+        $returnLines = WarehouseStockReturnItem::whereIn('id', $idsByType->get('return', []))
+            ->with(['stockReturn:id,code,product_id', 'stockReturn.room:id,name'])
+            ->get()->keyBy('id');
+
+        $inLines = WarehouseStockInItem::whereIn('id', $idsByType->get('in', []))
+            ->with('stockIn:id,code')
+            ->get()->keyBy('id');
+
+        $checkLines = WarehouseStockCheckItem::whereIn('id', $idsByType->get('check', []))
+            ->with('stockCheck:id,code')
+            ->get()->keyBy('id');
+
+        $userIds = $rows->pluck('created_by')->filter()->unique()->all();
+        $users   = User::whereIn('id', $userIds)->get(['id', 'fullname', 'email'])->keyBy('id');
+
+        $typeMap = [
+            'in'         => 'stock_in',
+            'out'        => 'stock_out',
+            'return'     => 'stock_return',
+            'check'      => 'stock_check',
+            'adjustment' => 'manual_edit',
+        ];
+
+        $data = $rows->map(function (WarehouseStockMovement $m) use ($outLines, $returnLines, $inLines, $checkLines, $users, $typeMap) {
+            $rawId    = (int) Str::afterLast($m->id, '-');
+            $document = null;
+            $reason   = null;
+            $product  = null;
+
+            if ($m->type === 'out' && ($line = $outLines->get($rawId))) {
+                $document = ['id' => $line->stockOut?->id, 'code' => $m->document_code, 'type' => 'stock_out'];
+                $reason   = WarehouseStockOut::REASONS[$line->reason] ?? $line->reason;
+                $product  = $line->stockOut?->room ? ['id' => $line->stockOut->room->id, 'name' => $line->stockOut->room->name] : null;
+            } elseif ($m->type === 'return' && ($line = $returnLines->get($rawId))) {
+                $document = ['id' => $line->stockReturn?->id, 'code' => $m->document_code, 'type' => 'stock_return'];
+                $product  = $line->stockReturn?->room ? ['id' => $line->stockReturn->room->id, 'name' => $line->stockReturn->room->name] : null;
+            } elseif ($m->type === 'in' && ($line = $inLines->get($rawId))) {
+                $document = ['id' => $line->stockIn?->id, 'code' => $m->document_code, 'type' => 'stock_in'];
+            } elseif ($m->type === 'check' && ($line = $checkLines->get($rawId))) {
+                $document = ['id' => $line->stockCheck?->id, 'code' => $m->document_code, 'type' => 'stock_check'];
+            }
+            // type 'adjustment' (sửa tay): document luôn null — không phát sinh từ 1 phiếu nào.
+
+            $user = $users->get($m->created_by);
+
+            return [
+                'id'               => $m->id,
+                'type'             => $typeMap[$m->type] ?? $m->type,
+                'change'           => (float) $m->quantity_change,
+                'quantity_before'  => round((float) $m->balance_after - (float) $m->quantity_change, 2),
+                'quantity_after'   => (float) $m->balance_after,
+                'document'         => $document,
+                'reason'           => $reason,
+                'product'          => $product,
+                'note'             => $m->note,
+                'user'             => $user ? ['id' => $user->id, 'fullname' => $user->fullname ?: Str::before($user->email, '@')] : null,
+                'created_at'       => $m->entry_created_at?->toIso8601String(),
+            ];
+        })->values();
+
+        // Dòng ẢO "initial" — tồn kho khởi tạo lúc tạo vật tư (nhập tay lúc tạo, KHÔNG qua phiếu
+        // nhập nào nên không có mặt trong VIEW) — chỉ thêm ở TRANG CUỐI, và chỉ khi dòng CŨ NHẤT
+        // trong toàn bộ lịch sử có "quantity_before" > 0 (tức còn tồn chưa giải thích được bởi bất
+        // kỳ phiếu nào trước đó).
+        if ($movements->currentPage() === $movements->lastPage()) {
+            $oldest = $data->last();
+
+            if ($oldest && (float) $oldest['quantity_before'] > 0.0001) {
+                $data->push([
+                    'id'              => 'initial-' . $item->id,
+                    'type'            => 'initial',
+                    'change'          => (float) $oldest['quantity_before'],
+                    'quantity_before' => 0,
+                    'quantity_after'  => (float) $oldest['quantity_before'],
+                    'document'        => null,
+                    'reason'          => null,
+                    'product'         => null,
+                    'note'            => 'Tồn khởi tạo lúc tạo vật tư',
+                    'user'            => null,
+                    'created_at'      => $item->created_at?->toIso8601String(),
+                ]);
+            } elseif (! $oldest && (float) $item->quantity > 0.0001) {
+                // Vật tư CHƯA từng phát sinh phiếu nào — toàn bộ tồn hiện tại là tồn khởi tạo.
+                $data->push([
+                    'id'              => 'initial-' . $item->id,
+                    'type'            => 'initial',
+                    'change'          => (float) $item->quantity,
+                    'quantity_before' => 0,
+                    'quantity_after'  => (float) $item->quantity,
+                    'document'        => null,
+                    'reason'          => null,
+                    'product'         => null,
+                    'note'            => 'Tồn khởi tạo lúc tạo vật tư',
+                    'user'            => null,
+                    'created_at'      => $item->created_at?->toIso8601String(),
+                ]);
+            }
+        }
+
+        return response()->json([
+            'data' => $data->values(),
+            'meta' => [
+                'current_page' => $movements->currentPage(),
+                'last_page'    => $movements->lastPage(),
+                'per_page'     => $movements->perPage(),
+                'total'        => $movements->total(),
+            ],
+        ]);
     }
 
     /**

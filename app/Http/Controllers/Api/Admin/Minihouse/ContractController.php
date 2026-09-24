@@ -224,6 +224,10 @@ class ContractController extends Controller
         $contract->update([
             'end_date'      => $data['new_end_date'],
             'monthly_price' => $data['new_monthly_price'],
+            // Xoá cờ "khách yêu cầu gia hạn" (nếu có) — đã xử lý xong, không để hiện mãi trên
+            // panel như 1 việc còn tồn đọng.
+            'renewal_requested_at' => null,
+            'renewal_request_note' => null,
         ]);
 
         return response()->json(['data' => $this->toDetailItem($contract->fresh(['room' => fn ($q) => $q->withoutGlobalScopes(), 'room.building' => fn ($q) => $q->withoutGlobalScopes(), 'tenant' => fn ($q) => $q->withoutGlobalScopes()]))]);
@@ -271,6 +275,9 @@ class ContractController extends Controller
         $contract->update([
             ...$data,
             'status' => Contract::STATUS_EXPIRED,
+            // Xoá cờ "khách yêu cầu trả phòng" (nếu có) — đã xử lý xong.
+            'checkout_requested_at' => null,
+            'checkout_request_note' => null,
         ]);
 
         // Rút ngắn/lập bù hoá đơn theo ĐÚNG ngày trả phòng thực tế (khác $reproratedDelta ở trên chỉ

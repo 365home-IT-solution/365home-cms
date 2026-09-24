@@ -11,16 +11,13 @@ use Modules\Minihouse\App\Models\ZaloNotification;
 use Modules\Minihouse\App\Models\ZaloSetting;
 use Modules\Minihouse\App\Support\ReminderRecipientResolver;
 
-// Gửi ZNS (Zalo Notification Service) cho khách thuê MiniHouse — dùng CHUNG 1 Zalo OA với Home
-// (xem MinihouseZaloTokenService — đã đổi sang uỷ quyền cho App\Services\ZaloTokenService, KHÔNG
-// còn tự quản lý app_id/app_secret/refresh_token riêng nữa, sau khi phát hiện 2 nơi quản lý độc lập
-// giẫm chân nhau làm refresh_token của CẢ 2 bên liên tục bị Zalo thu hồi — xem
-// docs/be-minihouse-contract-signing.md và lịch sử git MinihouseZaloTokenService.php). ZaloSetting
-// (bảng minihouse_zalo_settings) giờ CHỈ còn giữ 4 mẫu ZNS Template ID RIÊNG của MiniHouse
-// (template_payment_reminder/template_contract_expiry/template_maintenance/template_otp) — khác mẫu
-// Home đang dùng cho đặt phòng, vẫn cần duyệt riêng dù chung 1 OA. Chưa duyệt/chưa điền Template ID
-// thì bỏ qua, không gửi (không throw ra ngoài, xem ReminderNotificationService::notify() gọi hàm này
-// ở luồng cron, không được để 1 lỗi Zalo làm hỏng cả việc gửi thông báo chuông nội bộ đi kèm).
+// Gửi ZNS (Zalo Notification Service) cho khách thuê MiniHouse — dùng Zalo OA RIÊNG (xem ZaloSetting,
+// MinihouseZaloTokenService), KHÔNG đụng gì tới ZaloZnsService/ZaloSettings của Home. Mỗi loại nhắc
+// việc (Reminder::TYPE_PAYMENT/TYPE_CONTRACT/TYPE_MAINTENANCE) cần 1 mẫu ZNS ĐÃ ĐƯỢC ZALO DUYỆT
+// riêng (template_payment_reminder/template_contract_expiry/template_maintenance ở ZaloSetting) —
+// chưa duyệt/chưa điền Template ID thì bỏ qua, không gửi (không throw ra ngoài, xem
+// ReminderNotificationService::notify() gọi hàm này ở luồng cron, không được để 1 lỗi Zalo làm
+// hỏng cả việc gửi thông báo chuông nội bộ đi kèm).
 class MinihouseZaloService
 {
     public function __construct(private readonly MinihouseZaloTokenService $tokenService)
@@ -29,7 +26,7 @@ class MinihouseZaloService
 
     public function isConfigured(): bool
     {
-        return $this->sharedOaConfigured();
+        return ZaloSetting::current()->isConfigured();
     }
 
     // Xác định NGƯỜI NHẬN đúng nghiệp vụ cho từng loại nhắc việc, rồi gửi. Luôn trả về mảng có
@@ -41,8 +38,8 @@ class MinihouseZaloService
     {
         $settings = ZaloSetting::current();
 
-        if (! $this->sharedOaConfigured()) {
-            return ['success' => false, 'skipped' => true, 'reason' => 'Chưa cấu hình tài khoản Zalo OA (App ID/App Secret/Refresh Token trong .env của hệ thống) — liên hệ đội kỹ thuật.'];
+        if (! $settings->isConfigured()) {
+            return ['success' => false, 'skipped' => true, 'reason' => 'Chưa cấu hình tài khoản Zalo OA (App ID/App Secret/Refresh Token) — vào mục "Cấu hình Zalo".'];
         }
 
         $templateId = $settings->templateFor($reminder->type);
@@ -74,8 +71,8 @@ class MinihouseZaloService
     {
         $settings = ZaloSetting::current();
 
-        if (! $this->sharedOaConfigured()) {
-            return ['success' => false, 'skipped' => true, 'reason' => 'Chưa cấu hình tài khoản Zalo OA (App ID/App Secret/Refresh Token trong .env của hệ thống) — liên hệ đội kỹ thuật.'];
+        if (! $settings->isConfigured()) {
+            return ['success' => false, 'skipped' => true, 'reason' => 'Chưa cấu hình tài khoản Zalo OA (App ID/App Secret/Refresh Token) — vào mục "Cấu hình Zalo".'];
         }
 
         if (! $settings->template_otp) {
@@ -180,9 +177,9 @@ class MinihouseZaloService
     private function sendZns(?int $reminderId, string $phone, ?string $recipientName, string $templateId, array $templateData): array
     {
         $formattedPhone = $this->formatPhoneNumber($phone);
-        // app_secret giờ dùng CHUNG với Home (config('zalo.app_secret'), .env ZALO_APP_SECRET) —
-        // không còn đọc ZaloSetting->app_secret của MiniHouse nữa, xem MinihouseZaloTokenService.
-        $appSecret      = config('zalo.app_secret');
+        // Zalo OA RIÊNG của MiniHouse — app_secret đọc từ ZaloSetting (bảng minihouse_zalo_settings),
+        // KHÔNG dùng chung config('zalo.*') của Home nữa (2 Zalo OA khác nhau, xem ZaloSetting).
+        $appSecret      = ZaloSetting::current()->app_secret;
         $trackingId     = $reminderId !== null ? (string) $reminderId : ('otp-' . now()->timestamp . '-' . random_int(1000, 9999));
 
         try {
@@ -262,15 +259,6 @@ class MinihouseZaloService
                 'tracking_id'     => $trackingId,
                 'appsecret_proof' => hash_hmac('sha256', $accessToken, $appSecret),
             ]);
-    }
-
-    // Zalo OA dùng CHUNG với Home — cấu hình đủ hay chưa giờ xét theo config('zalo.*') (.env của
-    // toàn hệ thống, do App\Services\ZaloTokenService quản lý), KHÔNG còn xét ZaloSetting->app_id/
-    // app_secret/refresh_token của riêng MiniHouse nữa (2 nơi giữ độc lập là nguồn gốc bug refresh_
-    // token giẫm chân nhau đã gặp).
-    private function sharedOaConfigured(): bool
-    {
-        return filled(config('zalo.app_id')) && filled(config('zalo.app_secret'));
     }
 
     private function formatPhoneNumber(string $phone): string

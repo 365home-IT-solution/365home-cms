@@ -73,6 +73,12 @@ class CameraResource extends Resource
                 ->maxLength(255)
                 ->unique(ignoreRecord: true),
 
+            TextInput::make('frigate_camera_name')
+                ->label('Tên camera trong Frigate (chỉ điền nếu KHÁC tên nguồn ở trên)')
+                ->placeholder('VD: 254-Lau-1')
+                ->helperText('Dùng cho API xem lại lịch sử/ghi hình — Frigate có thể đặt tên camera khác với "Tên nguồn" go2rtc ở trên (khác hoa/thường/dấu gạch). Để trống nếu 2 tên giống hệt nhau.')
+                ->maxLength(255),
+
             // Đa số camera của bạn ĐÃ khai báo sẵn trong Frigate (thấy ở "Enable/Disable Cameras")
             // — không cần nhập lại RTSP ở đây. Chỉ điền khi thêm 1 camera THẬT SỰ MỚI mà Frigate
             // chưa biết tới, lúc đó hệ thống mới gọi API khai báo nguồn giúp bạn.

@@ -30,6 +30,10 @@ class Contract extends Model
         'contract_content', 'contract_file', 'handover_file', 'deposit_receipt_file',
         'checkout_at', 'deposit_refunded_amount', 'deposit_deduction_reason', 'checkout_handover_file',
         'transferred_to_contract_id', 'transferred_from_contract_id',
+        // Khách thuê tự gửi từ Portal (web/API) — CHỈ đánh dấu để nhân viên thấy & tự xử lý, xem
+        // giải thích đầy đủ ở migration add_tenant_requests_to_minihouse_contracts_table.
+        'renewal_requested_at', 'renewal_request_note',
+        'checkout_requested_at', 'checkout_request_note',
     ];
 
     // float cho các cột tiền — tránh 'decimal:2' luôn ép hiện đủ 2 số lẻ (VD "3000000.00") dù giá
@@ -43,6 +47,8 @@ class Contract extends Model
         'deposit_refunded_amount'  => 'float',
         'electric_unit_price'      => 'float',
         'water_unit_price'         => 'float',
+        'renewal_requested_at'     => 'datetime',
+        'checkout_requested_at'    => 'datetime',
     ];
 
     public function room(): BelongsTo

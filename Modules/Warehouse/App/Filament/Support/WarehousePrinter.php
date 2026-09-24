@@ -10,6 +10,7 @@ use Illuminate\Support\Collection;
 use Modules\Warehouse\App\Models\WarehouseStockCheck;
 use Modules\Warehouse\App\Models\WarehouseStockIn;
 use Modules\Warehouse\App\Models\WarehouseStockOut;
+use Modules\Warehouse\App\Models\WarehouseStockReturn;
 use Modules\Warehouse\App\Support\WarehousePdfRenderer;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -39,6 +40,18 @@ class WarehousePrinter
         ])->render();
 
         return static::download($html, $stockOut->code);
+    }
+
+    public static function stockReturn(WarehouseStockReturn $stockReturn): StreamedResponse
+    {
+        $stockReturn->loadMissing(['items.item.unit', 'items.stockOutItem.stockOut', 'employee', 'room', 'partner', 'creator']);
+
+        $html = view('warehouse::pdf.stock-return', [
+            'stockReturn' => $stockReturn,
+            'creatorName' => CurrentUserDisplay::forUser($stockReturn->creator),
+        ])->render();
+
+        return static::download($html, $stockReturn->code);
     }
 
     public static function stockCheck(WarehouseStockCheck $stockCheck): StreamedResponse

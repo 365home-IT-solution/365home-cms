@@ -267,4 +267,11 @@ class Room extends Product
     {
         return $this->contracts()->where('status', Contract::STATUS_ACTIVE)->exists();
     }
+
+    // Dùng cho trang tìm phòng công khai (Api\Minihouse\Public\*) — status uỷ quyền qua RoomDetail
+    // (xem detailValue() ở trên) nên không lọc trực tiếp cột "status" được, phải whereHas('detail').
+    public function scopeAvailable(\Illuminate\Database\Eloquent\Builder $query): void
+    {
+        $query->whereHas('detail', fn ($q) => $q->where('status', self::STATUS_EMPTY));
+    }
 }

@@ -38,6 +38,7 @@ class MovementsRelationManager extends RelationManager
                     ->color(fn (string $state): string => match ($state) {
                         'in'         => 'success',
                         'out'        => 'danger',
+                        'return'     => 'info',
                         'check'      => 'warning',
                         'adjustment' => 'gray',
                         default      => 'gray',
@@ -47,6 +48,21 @@ class MovementsRelationManager extends RelationManager
                     ->label('Số phiếu')
                     ->searchable()
                     ->fontFamily('mono'),
+
+                // Chỉ có giá trị ở dòng xuất kho (WarehouseStockMovement::reason()) — tra lại đúng
+                // dòng chi tiết gốc, xem giải thích đầy đủ ở đó.
+                TextColumn::make('reason')
+                    ->label('Lý do')
+                    ->getStateUsing(fn (WarehouseStockMovement $record) => $record->reason())
+                    ->placeholder('—')
+                    ->toggleable(),
+
+                // Phòng gắn với dòng xuất/hoàn trả (nếu có) — xem WarehouseStockMovement::product().
+                TextColumn::make('product')
+                    ->label('Phòng')
+                    ->getStateUsing(fn (WarehouseStockMovement $record) => $record->product()['name'] ?? null)
+                    ->placeholder('—')
+                    ->toggleable(),
 
                 TextColumn::make('quantity_change')
                     ->label('Biến động')

@@ -14,6 +14,8 @@
                     <th class="py-2 pe-3 font-medium">Ngày chứng từ</th>
                     <th class="py-2 pe-3 font-medium">Loại</th>
                     <th class="py-2 pe-3 font-medium">Số phiếu</th>
+                    <th class="py-2 pe-3 font-medium">Lý do</th>
+                    <th class="py-2 pe-3 font-medium">Phòng</th>
                     <th class="py-2 pe-3 text-right font-medium">Biến động</th>
                     <th class="py-2 pe-3 text-right font-medium">Tồn sau</th>
                     <th class="py-2 pe-3 font-medium">Người thực hiện</th>
@@ -26,6 +28,7 @@
                         $typeColor = match ($movement->type) {
                             'in'         => 'success',
                             'out'        => 'danger',
+                            'return'     => 'info',
                             'check'      => 'warning',
                             default      => 'gray',
                         };
@@ -42,6 +45,12 @@
                         </td>
                         <td class="py-2 pe-3 font-mono text-gray-700 dark:text-gray-300">
                             {{ $movement->document_code ?? '—' }}
+                        </td>
+                        <td class="py-2 pe-3 text-gray-700 dark:text-gray-300">
+                            {{ $movement->reason() ?? '—' }}
+                        </td>
+                        <td class="py-2 pe-3 text-gray-700 dark:text-gray-300">
+                            {{ $movement->product()['name'] ?? '—' }}
                         </td>
                         <td @class([
                             'py-2 pe-3 text-right font-semibold whitespace-nowrap',
