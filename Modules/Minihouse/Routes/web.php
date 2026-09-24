@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use Modules\Minihouse\Http\Controllers\ContractPrintController;
 use Modules\Minihouse\Http\Controllers\InvoicePrintController;
 use Modules\Minihouse\Http\Controllers\PanoramaTourController;
+use Modules\Minihouse\Http\Controllers\Portal\ChatPortalController;
 use Modules\Minihouse\Http\Controllers\Portal\TenantAuthController;
 use Modules\Minihouse\Http\Controllers\Portal\TenantPortalController;
 use Modules\Minihouse\Http\Controllers\TenantFeedbackController;
@@ -90,5 +91,11 @@ Route::prefix('minihouse/portal')->name('minihouse.portal.')->group(function () 
         Route::get('/payments', [TenantPortalController::class, 'payments'])->name('payments.index');
         Route::get('/contracts', [TenantPortalController::class, 'contracts'])->name('contracts.index');
         Route::get('/contracts/{contract}', [TenantPortalController::class, 'showContract'])->name('contracts.show');
+
+        // Chat với nhân viên toà nhà — xem ChatPortalController.
+        Route::get('/chat', [ChatPortalController::class, 'show'])->name('chat.show');
+        Route::get('/chat/messages', [ChatPortalController::class, 'messages'])->name('chat.messages');
+        Route::post('/chat/messages', [ChatPortalController::class, 'send'])->name('chat.send');
+        Route::post('/chat/read', [ChatPortalController::class, 'read'])->name('chat.read');
     });
 });

@@ -65,7 +65,20 @@
                                         —
                                     @endif
                                 </td>
-                                <td class="px-3 py-2 text-right">
+                                <td class="px-3 py-2 text-right whitespace-nowrap">
+                                    @php $lockLabel = $lock['lockAlias'] ?? $lock['lockName'] ?? "Lock #{$lock['lockId']}"; @endphp
+                                    <x-filament::button
+                                        size="xs"
+                                        color="danger"
+                                        icon="heroicon-o-lock-open"
+                                        wire:click="unlockNow({{ $lock['categoryId'] }}, {{ $lock['lockId'] }}, @js($lockLabel))"
+                                        wire:confirm="Mở khóa ngay '{{ $lockLabel }}'? Lệnh sẽ gửi tới khóa NGAY LẬP TỨC, không hoàn tác được."
+                                        wire:loading.attr="disabled"
+                                        wire:target="unlockNow"
+                                    >
+                                        Mở khóa ngay
+                                    </x-filament::button>
+
                                     <x-filament::button
                                         size="xs"
                                         color="gray"

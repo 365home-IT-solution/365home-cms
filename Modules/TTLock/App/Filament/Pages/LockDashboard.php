@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Modules\TTLock\App\Filament\Pages;
 
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Illuminate\Support\Facades\Log;
 use Modules\TTLock\App\Services\TTLockService;
 use Modules\TTLock\Entities\TtlockAccount;
 
@@ -38,6 +40,44 @@ class LockDashboard extends Page
     public function mount(): void
     {
         $this->locks = $this->loadAllLocks();
+    }
+
+    // Mở khóa NGAY từ trang danh sách tổng — KHÔNG gắn với đơn hàng/booking nào (khác
+    // OpenGateAction bên Modules\Payment, chỉ mở được khóa gắn với 1 đơn ĐANG paid/deposit). Trang
+    // này liệt kê TOÀN BỘ khóa mọi chi nhánh nên cần mở được bất kỳ khóa nào, bất kỳ lúc nào, phục
+    // vụ tình huống khẩn/kỹ thuật (không phải luồng khách thuê phòng thông thường) — cùng quyền
+    // page_LockDashboard đang gác cả trang, KHÔNG thêm quyền riêng vì đây vẫn là 1 hành động trên
+    // đúng trang đó.
+    public function unlockNow(int $categoryId, int $lockId, ?string $lockName = null): void
+    {
+        $ttlock = TTLockService::forCategory($categoryId);
+
+        if (! $ttlock) {
+            Notification::make()->title('Chi nhánh này chưa kết nối tài khoản TTLock.')->danger()->send();
+
+            return;
+        }
+
+        $success = $ttlock->remoteUnlock($lockId);
+
+        Log::info('TTLock LockDashboard: mở khóa trực tiếp từ danh sách', [
+            'category_id' => $categoryId,
+            'lock_id'     => $lockId,
+            'admin'       => auth()->user()?->email,
+            'success'     => $success,
+        ]);
+
+        if ($success) {
+            Notification::make()->title('Đã gửi lệnh mở khóa — "' . ($lockName ?? "Lock #{$lockId}") . '"')->success()->send();
+
+            return;
+        }
+
+        Notification::make()
+            ->title('Không mở được khóa')
+            ->body('Kiểm tra khóa còn kết nối mạng không, hoặc tính năng "Mở khóa từ xa" đã bật trong app Sciener chưa (cài đặt khóa > Remote Unlock).')
+            ->danger()
+            ->send();
     }
 
     /**

@@ -6,6 +6,7 @@ namespace Modules\Warehouse\App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class WarehouseStockOutItem extends Model
 {
@@ -99,5 +100,28 @@ class WarehouseStockOutItem extends Model
     public function item(): BelongsTo
     {
         return $this->belongsTo(WarehouseItem::class, 'warehouse_item_id');
+    }
+
+    // BUG THẬT phát hiện qua rà soát: dòng xuất kho KHÔNG có cách nào tự biết đã được hoàn trả bao
+    // nhiêu — chiều liên kết duy nhất trước đây là WarehouseStockReturnItem::stockOutItem() (hoàn
+    // trỏ NGƯỢC về dòng xuất), nhưng không có chiều XUÔI (dòng xuất trỏ TỚI các lần đã hoàn), nên
+    // API/giao diện phiếu xuất không hiển thị được đã hoàn bao nhiêu — nhân viên nhìn 1 phiếu xuất
+    // không biết nó đã được hoàn 1 phần/toàn bộ hay chưa. Thêm quan hệ này để show() ở
+    // WarehouseStockOutController eager-load và tính returned_quantity/remaining_returnable.
+    public function returnItems(): HasMany
+    {
+        return $this->hasMany(WarehouseStockReturnItem::class, 'warehouse_stock_out_item_id');
+    }
+
+    public function returnedQuantity(): float
+    {
+        return (float) ($this->relationLoaded('returnItems')
+            ? $this->returnItems->sum('quantity')
+            : $this->returnItems()->sum('quantity'));
+    }
+
+    public function remainingReturnable(): float
+    {
+        return max(0.0, (float) $this->quantity - $this->returnedQuantity());
     }
 }

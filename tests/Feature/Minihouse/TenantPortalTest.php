@@ -159,16 +159,20 @@ class TenantPortalTest extends TestCase
     {
         Http::fake(['*openapi.zalo.me*' => Http::response(['error' => 0, 'data' => ['msg_id' => 'abc']], 200)]);
 
-        // Zalo OA giờ dùng CHUNG với Home (config('zalo.*'), KHÔNG còn đọc ZaloSetting->app_id/
-        // app_secret/refresh_token nữa — xem MinihouseZaloService::sharedOaConfigured() và lịch sử
-        // sửa 2026-09-22 "hợp nhất về đúng 1 nơi quản lý token"). Giả lập đã cấu hình bằng config()
-        // + seed thẳng access_token vào Cache CHUNG của Home (App\Services\ZaloTokenService dùng key
-        // 'zalo_access_token') để khỏi phải giả lập cả bước trao đổi OAuth thật (domain khác hẳn,
-        // oauth.zaloapp.com, không nằm trong Http::fake() ở trên).
-        config(['zalo.app_id' => 'test_app', 'zalo.app_secret' => 'test_secret']);
-        Cache::put('zalo_access_token', 'test-access-token', now()->addHour());
-
-        ZaloSetting::current()->update(['template_otp' => '999999']);
+        // MiniHouse dùng Zalo OA RIÊNG của mình (ZaloSetting, bảng minihouse_zalo_settings) — bản
+        // hợp nhất-về-chung-OA-với-Home ngày 2026-09-22 đã bị revert ngày 2026-09-23 sau khi xác
+        // nhận MiniHouse thật sự có 1 Zalo OA khác hẳn Home (xem MinihouseZaloTokenService). Giả lập
+        // đã cấu hình đủ app_id/app_secret/refresh_token + seed thẳng access_token vào Cache RIÊNG
+        // của MiniHouse ('minihouse_zalo_access_token', xem MinihouseZaloTokenService::CACHE_ACCESS_TOKEN)
+        // để khỏi phải giả lập cả bước trao đổi OAuth thật (domain khác hẳn, oauth.zaloapp.com,
+        // không nằm trong Http::fake() ở trên).
+        ZaloSetting::current()->update([
+            'app_id'        => 'test_app',
+            'app_secret'    => 'test_secret',
+            'refresh_token' => 'test_refresh_token',
+            'template_otp'  => '999999',
+        ]);
+        Cache::put('minihouse_zalo_access_token', 'test-access-token', now()->addHour());
 
         $response = $this->post(route('minihouse.portal.login.request-otp'), ['phone' => $this->tenantPrimary->phone]);
 

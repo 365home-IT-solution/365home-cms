@@ -7,7 +7,6 @@ namespace App\Models;
 use App\Models\Concerns\BelongsToBranch;
 use App\Models\Concerns\BelongsToPartner;
 use App\Services\Go2RtcClient;
-use App\Settings\CameraSettings;
 use App\Support\CameraWsToken;
 use Illuminate\Database\Eloquent\Model;
 
@@ -24,7 +23,7 @@ class Camera extends Model
         // đó, nếu không sẽ làm gãy luồng thật Frigate đang chạy dù chỉ đang xoá 1 dòng tham chiếu.
         static::deleted(function (Camera $camera) {
             if (filled($camera->rtsp_url)) {
-                app(Go2RtcClient::class)->deleteStream($camera->stream_key);
+                Go2RtcClient::forPartner($camera->partner_id)->deleteStream($camera->stream_key);
             }
         });
     }
@@ -54,7 +53,7 @@ class Camera extends Model
     // wss://.../live/mse/api/ws?src=...), yêu cầu cookie phiên đăng nhập Frigate mà trình duyệt
     // không tự có (khác domain). Node proxy tự xin cookie đó từ Laravel (FrigateSessionClient qua
     // route nội bộ /internal/frigate-session) rồi làm cầu nối 2 chiều. Token ký ngắn hạn
-    // (CameraWsToken) để Node xác minh yêu cầu hợp lệ mà không cần tự truy vấn CSDL/CameraSettings.
+    // (CameraWsToken) để Node xác minh yêu cầu hợp lệ mà không cần tự truy vấn CSDL/CameraSetting.
     // Tên camera dùng cho API lịch sử ghi hình/sự kiện của CHÍNH FRIGATE (khác API xem trực tiếp —
     // xem giải thích ở migration add_frigate_camera_name_to_cameras_table) — mặc định dùng lại
     // stream_key nếu không khai báo riêng, đúng cho đa số camera cùng tên ở cả 2 nơi.
@@ -65,7 +64,9 @@ class Camera extends Model
 
     public function wsProxyUrl(): ?string
     {
-        $settings = app(CameraSettings::class);
+        // MỖI ĐỐI TÁC 1 server Frigate riêng (App\Models\CameraSetting) — luôn resolve theo ĐÚNG
+        // partner_id của camera này, KHÔNG còn 1 cấu hình go2rtc dùng chung toàn hệ thống nữa.
+        $settings = CameraSetting::forPartner($this->partner_id);
 
         if (! $settings->isConfigured()) {
             return null;
@@ -84,7 +85,7 @@ class Camera extends Model
         // viễn cho tới khi người dùng tự tải lại trang. Đã tự xác nhận đúng lỗi này qua log thật:
         // "token không hợp lệ/hết hạn" xuất hiện đúng sau khoảng 1 phút xem camera. 12 tiếng đủ cho
         // 1 ca làm việc xem liên tục, hết hạn thì tải lại trang "Xem camera" là có token mới.
-        $token = CameraWsToken::issue($this->stream_key, (string) $settings->base_url, ttlSeconds: 12 * 3600);
+        $token = CameraWsToken::issue($this->stream_key, (string) $settings->base_url, (string) $this->partner_id, ttlSeconds: 12 * 3600);
 
         return "{$wsBase}/camera-proxy?token=" . urlencode($token);
     }

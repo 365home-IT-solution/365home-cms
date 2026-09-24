@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Admin\Minihouse\AmenityController;
 use App\Http\Controllers\Api\Admin\Minihouse\AnnouncementController;
 use App\Http\Controllers\Api\Admin\Minihouse\BuildingController;
+use App\Http\Controllers\Api\Admin\Minihouse\ChatController as AdminChatController;
 use App\Http\Controllers\Api\Admin\Minihouse\ContractController;
 use App\Http\Controllers\Api\Admin\Minihouse\ContractDocumentController;
 use App\Http\Controllers\Api\Admin\Minihouse\InvoiceController;
@@ -17,6 +18,7 @@ use App\Http\Controllers\Api\Admin\Minihouse\TenantController;
 use App\Http\Controllers\Api\Admin\Minihouse\TransactionController;
 use App\Http\Controllers\Api\Minihouse\ContractDocumentPreviewController;
 use App\Http\Controllers\Api\Minihouse\ContractVerifyController;
+use App\Http\Controllers\Api\Minihouse\Portal\ChatController as PortalChatController;
 use App\Http\Controllers\Api\Minihouse\Portal\ContractDocumentPortalController;
 use App\Http\Controllers\Api\Minihouse\Portal\TenantAuthApiController;
 use App\Http\Controllers\Api\Minihouse\Portal\TenantPortalApiController;
@@ -134,6 +136,16 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
         Route::get('contracts', [ReportController::class, 'contracts'])->name('contracts');
         Route::get('rankings', [ReportController::class, 'rankings'])->name('rankings');
     });
+
+    // Chat khách thuê <-> nhân viên (phía nhân viên) — mirror api.admin.chat.* của Home, xem
+    // App\Http\Controllers\Api\Admin\Minihouse\ChatController.
+    Route::prefix('chat')->name('chat.')->group(function () {
+        Route::get('/', [AdminChatController::class, 'index'])->name('index');
+        Route::get('{id}', [AdminChatController::class, 'show'])->name('show');
+        Route::get('{id}/messages', [AdminChatController::class, 'messages'])->name('messages');
+        Route::post('{id}/messages', [AdminChatController::class, 'send'])->name('send');
+        Route::post('{id}/read', [AdminChatController::class, 'read'])->name('read');
+    });
 });
 
 // Webhook PayOS — công khai, KHÔNG qua auth:sanctum/admin.api vì PayOS gọi thẳng vào đây, không có
@@ -238,5 +250,12 @@ Route::prefix('minihouse/portal')->name('api.minihouse.portal.')->group(function
         Route::post('password', [TenantPortalApiController::class, 'updatePassword'])->name('password.update');
         Route::post('push-token', [TenantPortalApiController::class, 'registerPushToken'])->name('push-token.register');
         Route::delete('push-token', [TenantPortalApiController::class, 'unregisterPushToken'])->name('push-token.unregister');
+
+        // Chat khách thuê <-> nhân viên (phía khách thuê) — mirror api.chat.* của Home, xem
+        // App\Http\Controllers\Api\Minihouse\Portal\ChatController.
+        Route::get('chat', [PortalChatController::class, 'show'])->name('chat.show');
+        Route::get('chat/messages', [PortalChatController::class, 'messages'])->name('chat.messages');
+        Route::post('chat/messages', [PortalChatController::class, 'send'])->name('chat.send');
+        Route::post('chat/read', [PortalChatController::class, 'read'])->name('chat.read');
     });
 });

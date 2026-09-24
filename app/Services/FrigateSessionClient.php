@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Settings\CameraSettings;
+use App\Models\CameraSetting;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -15,17 +15,32 @@ use Illuminate\Support\Facades\Log;
 // Node tự thay mặt người dùng mở kết nối WebSocket sang Frigate, tránh việc trình duyệt phải tự
 // đăng nhập Frigate (vốn không khả thi vì Frigate và 365home-cms khác domain — cookie không tự gửi
 // kèm qua domain khác).
+//
+// MỖI ĐỐI TÁC 1 server Frigate riêng (App\Models\CameraSetting, thay cho App\Settings\CameraSettings
+// dùng chung cũ) — class này giờ KHÔNG còn là service DI dùng chung 1 instance cho mọi partner, phải
+// tạo qua forPartner() để gắn đúng cấu hình + cache session RIÊNG của partner đó (2 partner khác
+// server Frigate mà dùng chung 1 cookie phiên sẽ đăng nhập nhầm/ghi đè cookie lẫn nhau).
 class FrigateSessionClient
 {
-    private const CACHE_KEY = 'frigate_session_cookie';
+    private const CACHE_KEY_PREFIX = 'frigate_session_cookie:';
 
     // Phiên đăng nhập không có TTL rõ ràng phía Frigate — cache 6 tiếng rồi tự đăng nhập lại, ngắn
     // hơn nhiều so với thời gian phiên JWT thường sống, tránh trường hợp phiên hết hạn giữa chừng
     // mà không hay biết cho tới khi có người xem camera bị lỗi.
     private const CACHE_TTL_SECONDS = 6 * 3600;
 
-    public function __construct(private readonly CameraSettings $settings)
+    public function __construct(private readonly CameraSetting $settings)
     {
+    }
+
+    public static function forPartner(?string $partnerId): self
+    {
+        return new self(CameraSetting::forPartner($partnerId));
+    }
+
+    private function cacheKey(): string
+    {
+        return self::CACHE_KEY_PREFIX . ($this->settings->partner_id ?? 'none');
     }
 
     // Trả về chuỗi header "Cookie: ..." để gắn vào request lấy luồng video, hoặc null nếu chưa cấu
@@ -39,7 +54,7 @@ class FrigateSessionClient
         }
 
         if (! $forceRelogin) {
-            $cached = Cache::get(self::CACHE_KEY);
+            $cached = Cache::get($this->cacheKey());
 
             if ($cached !== null) {
                 return $cached;
@@ -101,13 +116,13 @@ class FrigateSessionClient
 
         $cookie = implode('; ', $cookiePairs);
 
-        Cache::put(self::CACHE_KEY, $cookie, self::CACHE_TTL_SECONDS);
+        Cache::put($this->cacheKey(), $cookie, self::CACHE_TTL_SECONDS);
 
         return $cookie;
     }
 
     public function forgetSession(): void
     {
-        Cache::forget(self::CACHE_KEY);
+        Cache::forget($this->cacheKey());
     }
 }

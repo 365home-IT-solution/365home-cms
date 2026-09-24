@@ -12,20 +12,25 @@ use App\Support\CameraMediaToken;
 // CMS) đều gọi qua đây, tránh viết lại 2 lần cùng 1 logic nghiệp vụ (map Camera -> tên Frigate, ký
 // token phát lại...). Bản thân service này chỉ là lớp mỏng gọi FrigateApiClient — xem class đó để
 // biết chính xác endpoint Frigate thật.
+//
+// MỖI CAMERA có thể thuộc đối tác dùng server Frigate KHÁC NHAU (App\Models\CameraSetting) — không
+// còn 1 FrigateApiClient dùng chung, phải tự tạo đúng client theo partner_id của TỪNG camera đang
+// thao tác (frigateFor()).
 class CameraRecordingService
 {
-    public function __construct(private readonly FrigateApiClient $frigate)
+    private function frigateFor(Camera $camera): FrigateApiClient
     {
+        return FrigateApiClient::forPartner($camera->partner_id);
     }
 
     public function recordingsSummary(Camera $camera, string $timezone = 'Asia/Ho_Chi_Minh'): array
     {
-        return $this->frigate->recordingsSummary($camera->frigateCameraName(), $timezone);
+        return $this->frigateFor($camera)->recordingsSummary($camera->frigateCameraName(), $timezone);
     }
 
     public function recordings(Camera $camera, ?float $after = null, ?float $before = null): array
     {
-        return $this->frigate->recordings($camera->frigateCameraName(), $after, $before);
+        return $this->frigateFor($camera)->recordings($camera->frigateCameraName(), $after, $before);
     }
 
     /**
@@ -42,9 +47,12 @@ class CameraRecordingService
     {
         $frigatePathPrefix = "/vod/{$camera->frigateCameraName()}/start/{$after}/end/{$before}";
 
-        $isHevc = $this->isHevc($frigatePathPrefix);
+        $isHevc = $this->isHevc($camera, $frigatePathPrefix);
 
-        $token = CameraMediaToken::issue($frigatePathPrefix, ttlSeconds: 3 * 3600, transcode: $isHevc);
+        // partner_id ký kèm token — CameraMediaProxyController cần biết ĐÚNG partner nào để resolve
+        // lại CameraSetting/FrigateSessionClient của đúng server Frigate camera này thuộc về (mỗi
+        // đối tác giờ có thể dùng server khác nhau).
+        $token = CameraMediaToken::issue($frigatePathPrefix, (string) $camera->partner_id, ttlSeconds: 3 * 3600, transcode: $isHevc);
 
         $filename = $isHevc ? 'stream.mp4' : 'master.m3u8';
 
@@ -55,7 +63,7 @@ class CameraRecordingService
     // (lỗi kết nối/Frigate chưa cấu hình) thì coi như KHÔNG phải HEVC (an toàn hơn: cứ thử phát HLS
     // thẳng trước, tệ nhất là lặp lại đúng lỗi "NotSupportedError" đã biết, còn hơn bắt mọi lần lỗi
     // mạng đều phải chuyển mã tốn CPU oan).
-    private function isHevc(string $frigatePathPrefix): bool
+    private function isHevc(Camera $camera, string $frigatePathPrefix): bool
     {
         // frigatePathPrefix dạng "/vod/{camera}/start/{a}/end/{b}" — tách lại tham số để gọi đúng
         // chữ ký FrigateApiClient::masterPlaylistText(cameraName, after, before).
@@ -63,7 +71,7 @@ class CameraRecordingService
             return false;
         }
 
-        $result = $this->frigate->masterPlaylistText($m[1], (float) $m[2], (float) $m[3]);
+        $result = $this->frigateFor($camera)->masterPlaylistText($m[1], (float) $m[2], (float) $m[3]);
 
         if (! $result['success']) {
             return false;
@@ -79,11 +87,11 @@ class CameraRecordingService
         bool $includeRecording = true,
         ?int $preCapture = null,
     ): array {
-        return $this->frigate->createManualEvent($camera->frigateCameraName(), $label, $duration, $includeRecording, $preCapture);
+        return $this->frigateFor($camera)->createManualEvent($camera->frigateCameraName(), $label, $duration, $includeRecording, $preCapture);
     }
 
-    public function stopRecording(string $eventId): array
+    public function stopRecording(Camera $camera, string $eventId): array
     {
-        return $this->frigate->endManualEvent($eventId);
+        return $this->frigateFor($camera)->endManualEvent($eventId);
     }
 }

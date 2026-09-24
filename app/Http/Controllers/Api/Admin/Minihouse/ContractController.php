@@ -212,23 +212,29 @@ class ContractController extends Controller
             'note'              => 'nullable|string',
         ]);
 
-        $contract->renewals()->create([
-            'old_end_date'      => $contract->end_date,
-            'new_end_date'      => $data['new_end_date'],
-            'old_monthly_price' => $contract->monthly_price,
-            'new_monthly_price' => $data['new_monthly_price'],
-            'note'              => $data['note'] ?? null,
-            'created_by'        => $request->user()->id,
-        ]);
+        // DB::transaction — ghi lịch sử gia hạn + cập nhật hợp đồng phải ĐI CÙNG NHAU: nếu update()
+        // thất bại giữa chừng (lỗi DB bất kỳ), dòng ContractRenewal vẫn commit riêng sẽ để lại lịch
+        // sử "đã gia hạn" trong khi hợp đồng thật vẫn giữ end_date/monthly_price CŨ — lịch sử và
+        // trạng thái sống lệch nhau, không tự phát hiện được qua giao diện.
+        DB::transaction(function () use ($contract, $data, $request) {
+            $contract->renewals()->create([
+                'old_end_date'      => $contract->end_date,
+                'new_end_date'      => $data['new_end_date'],
+                'old_monthly_price' => $contract->monthly_price,
+                'new_monthly_price' => $data['new_monthly_price'],
+                'note'              => $data['note'] ?? null,
+                'created_by'        => $request->user()->id,
+            ]);
 
-        $contract->update([
-            'end_date'      => $data['new_end_date'],
-            'monthly_price' => $data['new_monthly_price'],
-            // Xoá cờ "khách yêu cầu gia hạn" (nếu có) — đã xử lý xong, không để hiện mãi trên
-            // panel như 1 việc còn tồn đọng.
-            'renewal_requested_at' => null,
-            'renewal_request_note' => null,
-        ]);
+            $contract->update([
+                'end_date'      => $data['new_end_date'],
+                'monthly_price' => $data['new_monthly_price'],
+                // Xoá cờ "khách yêu cầu gia hạn" (nếu có) — đã xử lý xong, không để hiện mãi trên
+                // panel như 1 việc còn tồn đọng.
+                'renewal_requested_at' => null,
+                'renewal_request_note' => null,
+            ]);
+        });
 
         return response()->json(['data' => $this->toDetailItem($contract->fresh(['room' => fn ($q) => $q->withoutGlobalScopes(), 'room.building' => fn ($q) => $q->withoutGlobalScopes(), 'tenant' => fn ($q) => $q->withoutGlobalScopes()]))]);
     }
@@ -272,23 +278,31 @@ class ContractController extends Controller
 
         $data['deposit_refunded_amount'] ??= $suggested;
 
-        $contract->update([
-            ...$data,
-            'status' => Contract::STATUS_EXPIRED,
-            // Xoá cờ "khách yêu cầu trả phòng" (nếu có) — đã xử lý xong.
-            'checkout_requested_at' => null,
-            'checkout_request_note' => null,
-        ]);
+        // DB::transaction — BẮT BUỘC, mirror transferRoom() bên dưới: nếu thiếu, Contract::update()
+        // (status=expired) commit ngay lập tức và ContractObserver::syncRoom() LẬP TỨC trả phòng về
+        // "Trống" (bookable ngay) TRƯỚC KHI reprorate()/hoàn cọc/huỷ hợp đồng điện tử chạy xong — một
+        // lỗi DB giữa chừng ở các bước sau sẽ để lại phòng đã trống nhưng hoá đơn chưa rút ngắn, cọc
+        // chưa hoàn, hợp đồng điện tử chưa huỷ, trong khi 1 request khác có thể đã tạo hợp đồng MỚI
+        // trên đúng phòng đó.
+        DB::transaction(function () use ($contract, $data) {
+            $contract->update([
+                ...$data,
+                'status' => Contract::STATUS_EXPIRED,
+                // Xoá cờ "khách yêu cầu trả phòng" (nếu có) — đã xử lý xong.
+                'checkout_requested_at' => null,
+                'checkout_request_note' => null,
+            ]);
 
-        // Rút ngắn/lập bù hoá đơn theo ĐÚNG ngày trả phòng thực tế (khác $reproratedDelta ở trên chỉ
-        // tính thử theo hôm nay để gợi ý hoàn cọc) — xem ContractEarlyEndService.
-        ContractEarlyEndService::reprorate($contract, Carbon::parse($data['checkout_at']));
+            // Rút ngắn/lập bù hoá đơn theo ĐÚNG ngày trả phòng thực tế (khác $reproratedDelta ở trên
+            // chỉ tính thử theo hôm nay để gợi ý hoàn cọc) — xem ContractEarlyEndService.
+            ContractEarlyEndService::reprorate($contract, Carbon::parse($data['checkout_at']));
 
-        $this->recordDepositRefundTransaction($contract, (float) $data['deposit_refunded_amount'], 'Hoàn cọc khi thanh lý hợp đồng #' . $contract->id);
+            $this->recordDepositRefundTransaction($contract, (float) $data['deposit_refunded_amount'], 'Hoàn cọc khi thanh lý hợp đồng #' . $contract->id);
 
-        // Hợp đồng điện tử (nếu có) đang dở dang thì huỷ theo — đã signed rồi thì KHÔNG đụng, xem
-        // ContractDocumentService::cancelIfUnsigned().
-        app(ContractDocumentService::class)->cancelIfUnsigned($contract->document);
+            // Hợp đồng điện tử (nếu có) đang dở dang thì huỷ theo — đã signed rồi thì KHÔNG đụng, xem
+            // ContractDocumentService::cancelIfUnsigned().
+            app(ContractDocumentService::class)->cancelIfUnsigned($contract->document);
+        });
 
         return response()->json([
             'data'              => $this->toDetailItem($contract->fresh(['room' => fn ($q) => $q->withoutGlobalScopes(), 'room.building' => fn ($q) => $q->withoutGlobalScopes(), 'tenant' => fn ($q) => $q->withoutGlobalScopes()])),
@@ -339,21 +353,26 @@ class ContractController extends Controller
         // tiền tố rõ ràng), giống hệt EditContract::cancelContract() bên Filament.
         $note = 'Lý do huỷ: ' . $data['cancel_reason'] . (filled($data['deposit_deduction_reason'] ?? null) ? '. Trừ cọc: ' . $data['deposit_deduction_reason'] : '');
 
-        $contract->update([
-            'checkout_at'              => $data['checkout_at'],
-            'deposit_refunded_amount'  => $depositRefunded,
-            'deposit_deduction_reason' => $note,
-            'status'                   => Contract::STATUS_CANCELLED,
-        ]);
+        // DB::transaction — xem giải thích ở checkout(): status đổi thành cancelled cũng khiến
+        // ContractObserver trả phòng về "Trống" ngay lập tức, phải cùng transaction với reprorate()/
+        // hoàn cọc/huỷ hợp đồng điện tử để tránh lệch dữ liệu nếu 1 bước sau lỗi giữa chừng.
+        DB::transaction(function () use ($contract, $data, $depositRefunded, $note) {
+            $contract->update([
+                'checkout_at'              => $data['checkout_at'],
+                'deposit_refunded_amount'  => $depositRefunded,
+                'deposit_deduction_reason' => $note,
+                'status'                   => Contract::STATUS_CANCELLED,
+            ]);
 
-        // Rút ngắn/lập bù hoá đơn theo ĐÚNG ngày huỷ thực tế — xem ContractEarlyEndService.
-        ContractEarlyEndService::reprorate($contract, Carbon::parse($data['checkout_at']));
+            // Rút ngắn/lập bù hoá đơn theo ĐÚNG ngày huỷ thực tế — xem ContractEarlyEndService.
+            ContractEarlyEndService::reprorate($contract, Carbon::parse($data['checkout_at']));
 
-        $this->recordDepositRefundTransaction($contract, (float) $depositRefunded, 'Hoàn cọc khi huỷ hợp đồng #' . $contract->id);
+            $this->recordDepositRefundTransaction($contract, (float) $depositRefunded, 'Hoàn cọc khi huỷ hợp đồng #' . $contract->id);
 
-        // Hợp đồng điện tử (nếu có) đang dở dang thì huỷ theo — đã signed rồi thì KHÔNG đụng, xem
-        // ContractDocumentService::cancelIfUnsigned().
-        app(ContractDocumentService::class)->cancelIfUnsigned($contract->document);
+            // Hợp đồng điện tử (nếu có) đang dở dang thì huỷ theo — đã signed rồi thì KHÔNG đụng, xem
+            // ContractDocumentService::cancelIfUnsigned().
+            app(ContractDocumentService::class)->cancelIfUnsigned($contract->document);
+        });
 
         return response()->json([
             'data'              => $this->toDetailItem($contract->fresh(['room' => fn ($q) => $q->withoutGlobalScopes(), 'room.building' => fn ($q) => $q->withoutGlobalScopes(), 'tenant' => fn ($q) => $q->withoutGlobalScopes()])),

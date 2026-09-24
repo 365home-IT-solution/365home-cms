@@ -1,19 +1,41 @@
 const express = require('express');
 const http    = require('http');
+const https   = require('https');
+const fs      = require('fs');
 const crypto  = require('crypto');
 const { URL } = require('url');
 const { Server }  = require('socket.io');
 const WebSocket    = require('ws');
 
-const app    = express();
-const server = http.createServer(app);
+const app = express();
+
+// BUG THẬT đã gặp (2026-09-24): trang admin luôn tải qua HTTPS (Herd tự cấp domain .test kèm TLS),
+// nhưng server này trước đây LUÔN chạy http.createServer() trần — App\Models\Camera::wsProxyUrl()
+// tự suy "ws://" từ "http://" (WS_PUBLIC_URL), khiến trình duyệt cố nối "ws://" (không mã hoá) từ 1
+// trang "https://" — bị chính sách Mixed Content của trình duyệt CHẶN CỨNG ngay lập tức (không có
+// lỗi rõ ràng nào ngoài "WebSocket connection ... failed"), camera đen mãi mãi dù server/token đều
+// đúng. Sửa: cho phép chạy HTTPS/WSS thật bằng chứng chỉ ĐÃ CÓ SẴN của Herd cho chính domain đang
+// dùng (WS_TLS_CERT/WS_TLS_KEY trỏ tới file .crt/.key trong
+// %USERPROFILE%\.config\herd\config\valet\Certificates\<domain>.test.{crt,key}) — trình duyệt đã
+// tin cậy CA cục bộ của Herd nên không cần thêm bước tự ký/cài đặt gì khác. KHÔNG bắt buộc (server
+// production thật có thể đã có TLS ở tầng reverse proxy phía trước, lúc đó cứ để HTTP trần như cũ).
+const TLS_CERT_PATH = process.env.WS_TLS_CERT;
+const TLS_KEY_PATH  = process.env.WS_TLS_KEY;
+const useTls = !!(TLS_CERT_PATH && TLS_KEY_PATH && fs.existsSync(TLS_CERT_PATH) && fs.existsSync(TLS_KEY_PATH));
+
+const server = useTls
+    ? https.createServer({ cert: fs.readFileSync(TLS_CERT_PATH), key: fs.readFileSync(TLS_KEY_PATH) }, app)
+    : http.createServer(app);
 
 const WS_PORT       = process.env.WS_PORT       || 3001;
 const INTERNAL_KEY  = process.env.WS_INTERNAL_KEY || 'change-me-in-env';
 const ALLOWED_ORIGIN = process.env.WS_ALLOWED_ORIGIN || '*';
 // Địa chỉ Laravel gọi NGƯỢC LẠI (Node → Laravel) để xin cookie phiên Frigate hiện có — khác chiều
 // với INTERNAL_KEY vốn dùng cho Laravel → Node, nhưng dùng CHUNG giá trị khoá bí mật đó (xem
-// App\Support\CameraWsToken — Laravel ký token cho trình duyệt bằng đúng khoá này).
+// App\Support\CameraWsToken — Laravel ký token cho trình duyệt bằng đúng khoá này). PHẢI là domain
+// thật (VD https://365home-cms.test), KHÔNG dùng IP trần (http://127.0.0.1) — Herd định tuyến nhiều
+// site trên CÙNG 1 cổng theo tên miền/SNI, gọi thẳng IP sẽ lạc sang site khác (trả về HTML thay vì
+// JSON), đã tự xác nhận qua log thật "Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON".
 const LARAVEL_INTERNAL_URL = process.env.LARAVEL_INTERNAL_URL || 'http://127.0.0.1';
 
 const io = new Server(server, {
@@ -120,6 +142,30 @@ io.on('connection', (socket) => {
 
     socket.on('unsubscribe:chat-admin', () => {
         socket.leave('chat:admin');
+    });
+
+    // Chat MiniHouse (khách thuê <-> nhân viên toà nhà) — phòng RIÊNG "mh-chat:*", tách hẳn khỏi
+    // "chat:*" của Home dù dùng chung server này, tránh admin đang mở màn hình chat Home nhận nhầm
+    // tín hiệu của MiniHouse (2 nghiệp vụ khác nhau, xem Modules\Minihouse\App\Services\
+    // MinihouseChatRealtimeService).
+    socket.on('subscribe:mh-chat', ({ conversation_id }) => {
+        if (conversation_id) {
+            socket.join(`mh-chat:${conversation_id}`);
+        }
+    });
+
+    socket.on('unsubscribe:mh-chat', ({ conversation_id }) => {
+        if (conversation_id) {
+            socket.leave(`mh-chat:${conversation_id}`);
+        }
+    });
+
+    socket.on('subscribe:mh-chat-admin', () => {
+        socket.join('mh-chat:admin');
+    });
+
+    socket.on('unsubscribe:mh-chat-admin', () => {
+        socket.leave('mh-chat:admin');
     });
 
     // Subscribe to admin notification bell (đơn hàng mới/đổi trạng thái...) — phòng CHUNG cho mọi
@@ -381,6 +427,68 @@ app.post('/internal/chat-read', (req, res) => {
     return res.json({ ok: true });
 });
 
+// ── Chat MiniHouse — 3 endpoint mirror y hệt 3 cái trên, chỉ đổi tiền tố phòng "mh-chat" và
+// event "mhchat.*" để tách hẳn khỏi chat Home (xem Modules\Minihouse\App\Services\
+// MinihouseChatRealtimeService, gọi vào đây thay vì App\Services\ChatRealtimeService) ──────────
+app.post('/internal/mh-chat-message', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { conversation_id, message } = req.body;
+    if (!conversation_id || !message) {
+        return res.status(422).json({ error: 'Missing conversation_id or message' });
+    }
+
+    const channel = `mh-chat:${conversation_id}`;
+    io.to(channel).emit('mhchat.message', { conversation_id, message });
+    console.log(`[WS] MH Chat message: conv=${conversation_id} sender=${message.sender_type} → ${channel}`);
+
+    return res.json({ ok: true });
+});
+
+app.post('/internal/mh-chat-list-update', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { conversation_id, last_message_preview, last_message_at, admin_unread, tenant } = req.body;
+    if (!conversation_id) {
+        return res.status(422).json({ error: 'Missing conversation_id' });
+    }
+
+    io.to('mh-chat:admin').emit('mhchat.list_update', {
+        conversation_id,
+        last_message_preview,
+        last_message_at,
+        admin_unread,
+        tenant,
+    });
+    console.log(`[WS] MH Chat list update: conv=${conversation_id} admin_unread=${admin_unread}`);
+
+    return res.json({ ok: true });
+});
+
+app.post('/internal/mh-chat-read', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { conversation_id, read_by } = req.body;
+    if (!conversation_id || !read_by) {
+        return res.status(422).json({ error: 'Missing conversation_id or read_by' });
+    }
+
+    const channel = `mh-chat:${conversation_id}`;
+    io.to(channel).emit('mhchat.read', { conversation_id, read_by });
+    console.log(`[WS] MH Chat read: conv=${conversation_id} read_by=${read_by}`);
+
+    return res.json({ ok: true });
+});
+
 // ── Admin notification — báo "có thông báo mới", client tự gọi lại REST API để lấy nội dung ──
 app.post('/internal/admin-notify', (req, res) => {
     const key = req.headers['x-internal-key'];
@@ -573,7 +681,10 @@ function verifyCameraToken(token) {
 
     try {
         const payload = JSON.parse(Buffer.from(payloadB64, 'base64').toString('utf8'));
-        if (!payload.stream_key || !payload.base_url || !payload.exp) return null;
+        // partner_id — mỗi đối tác có thể dùng server Frigate RIÊNG (App\Models\CameraSetting bên
+        // Laravel); bắt buộc có để fetchFrigateSessionCookie() biết xin phiên đăng nhập của ĐÚNG
+        // server nào, không còn 1 server go2rtc dùng chung toàn hệ thống như trước.
+        if (!payload.stream_key || !payload.base_url || !payload.partner_id || !payload.exp) return null;
         if (payload.exp * 1000 < Date.now()) return null; // hết hạn — chỉ dùng được ngay lúc tải trang
         return payload;
     } catch (e) {
@@ -581,10 +692,11 @@ function verifyCameraToken(token) {
     }
 }
 
-async function fetchFrigateSessionCookie() {
+async function fetchFrigateSessionCookie(partnerId) {
     const resp = await fetch(`${LARAVEL_INTERNAL_URL}/internal/frigate-session`, {
         method: 'POST',
-        headers: { 'x-internal-key': INTERNAL_KEY },
+        headers: { 'x-internal-key': INTERNAL_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partner_id: partnerId }),
     });
     const data = await resp.json();
     if (!resp.ok || !data.cookie) {
@@ -668,7 +780,7 @@ cameraWss.on('connection', (clientWs, request) => {
 
         let cookie;
         try {
-            cookie = await fetchFrigateSessionCookie();
+            cookie = await fetchFrigateSessionCookie(payload.partner_id);
         } catch (e) {
             console.error('[CameraProxy] không lấy được cookie phiên Frigate:', e.message);
             closeBoth(4002, 'Cannot get Frigate session');
@@ -714,5 +826,5 @@ cameraWss.on('connection', (clientWs, request) => {
 });
 
 server.listen(WS_PORT, () => {
-    console.log(`[WS] Server running on port ${WS_PORT}`);
+    console.log(`[WS] Server running on port ${WS_PORT} (${useTls ? 'HTTPS/WSS' : 'HTTP/WS'})`);
 });

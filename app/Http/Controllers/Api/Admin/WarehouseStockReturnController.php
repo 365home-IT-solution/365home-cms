@@ -74,7 +74,17 @@ class WarehouseStockReturnController extends Controller
             'room', 'employee', 'creator:id,fullname,email',
             'items.item:id,name,warehouse_unit_id', 'items.item.unit:id,name',
             'items.stockOutItem.stockOut:id,code',
+            'items.stockOutItem.returnItems',
         ]);
+
+        // Còn hoàn được bao nhiêu NỮA từ đúng dòng xuất gốc (đã trừ luôn dòng hoàn đang xem) — chỉ
+        // có khi dòng hoàn này CÓ truy vết phiếu xuất (warehouse_stock_out_item_id), cùng công thức
+        // WarehouseStockOutItem::remainingReturnable() đang dùng ở chi tiết phiếu XUẤT.
+        $stockReturn->items->each(function ($item) {
+            if ($item->stockOutItem) {
+                $item->setAttribute('remaining_returnable', $item->stockOutItem->remainingReturnable());
+            }
+        });
 
         return response()->json(['data' => $stockReturn]);
     }
@@ -219,7 +229,11 @@ class WarehouseStockReturnController extends Controller
         return [
             'partner_id'  => [$requirePartnerId ? 'required' : 'sometimes', 'nullable', 'uuid', Rule::exists('partners', 'id')],
             'branch_id'   => [$requireBranchId ? 'required' : 'sometimes', 'integer', $branchRule],
-            'product_id'  => 'nullable|uuid|exists:products,id',
+            // KHÔNG ép định dạng 'uuid' — products.id sinh dạng ULID (VD "01kn0ty0getffwhtpv0bjta15m",
+            // 26 ký tự), không khớp regex UUID chuẩn của Laravel dù cột CSDL vẫn là char(36) (đủ chỗ
+            // chứa cả 2 dạng) — validate('uuid') sẽ luôn báo lỗi sai cho MỌI product_id hợp lệ thực
+            // tế (cùng lớp lỗi đã gặp ở RentalInquiryController::store()).
+            'product_id'  => 'nullable|string|exists:products,id',
             'employee_id' => ['nullable', 'integer', $scopePartner(Rule::exists('employees', 'id'))],
             'returned_by' => 'nullable|string|max:255',
             'note'        => 'nullable|string',

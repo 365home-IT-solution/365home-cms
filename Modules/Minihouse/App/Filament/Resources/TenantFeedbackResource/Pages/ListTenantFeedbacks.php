@@ -8,4 +8,9 @@ use Modules\Minihouse\App\Filament\Resources\TenantFeedbackResource;
 class ListTenantFeedbacks extends ListRecords
 {
     protected static string $resource = TenantFeedbackResource::class;
+
+    protected function authorizeAccess(): void
+    {
+        abort_unless(static::getResource()::canViewAny(), 403);
+    }
 }

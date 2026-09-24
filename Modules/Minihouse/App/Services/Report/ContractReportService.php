@@ -45,8 +45,15 @@ class ContractReportService
 
         $now = Carbon::now();
 
+        // withoutGlobalScope('activeBuilding') — CHỈ bỏ scope lọc theo toà (đã tự lọc lại bằng
+        // scopeToBuilding() bên dưới), KHÔNG dùng withoutGlobalScopes() (không tham số) như các
+        // metric ở trên: hàm đó xoá LUÔN CẢ SoftDeletingScope của Contract, khiến hợp đồng đã bị
+        // soft-delete (VD staff xoá nhầm 1 hợp đồng còn "active") vẫn bị đếm là "đang hiệu lực"/"sắp
+        // hết hạn" dù không còn hiển thị ở bất kỳ đâu khác trong hệ thống — BUG THẬT phát hiện qua
+        // review: khác các số liệu "kết thúc/huỷ trong kỳ" (cố ý giữ nguyên cả hợp đồng đã bị dọn để
+        // không bỏ sót lịch sử), 1 bản ghi đã bị xoá không thể còn là "đang hiệu lực" được.
         $expiringSoon = self::scopeToBuilding(
-            Contract::query()->withoutGlobalScopes()
+            Contract::query()->withoutGlobalScope('activeBuilding')
                 ->where('status', Contract::STATUS_ACTIVE)
                 ->whereBetween('end_date', [$now->toDateString(), $now->copy()->addDays($expiringSoonDays)->toDateString()]),
             $buildingIds,
@@ -65,7 +72,7 @@ class ContractReportService
             ->all();
 
         $activeContracts = self::scopeToBuilding(
-            Contract::query()->withoutGlobalScopes()->where('status', Contract::STATUS_ACTIVE),
+            Contract::query()->withoutGlobalScope('activeBuilding')->where('status', Contract::STATUS_ACTIVE),
             $buildingIds,
         )->count();
 

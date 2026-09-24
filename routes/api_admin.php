@@ -42,6 +42,7 @@ use App\Http\Controllers\Api\Admin\ServiceController as AdminServiceController;
 use App\Http\Controllers\Api\Admin\TagController as AdminTagController;
 use App\Http\Controllers\Api\Admin\TimeSlotController as AdminTimeSlotController;
 use App\Http\Controllers\Api\Admin\TimeSlotHoldController as AdminTimeSlotHoldController;
+use App\Http\Controllers\Api\Admin\TtlockLockController;
 use App\Http\Controllers\Api\Admin\UnlockController as AdminUnlockController;
 use App\Http\Controllers\Api\Admin\WarehouseCategoryController;
 use App\Http\Controllers\Api\Admin\WarehouseItemController;
@@ -347,6 +348,12 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::get('rooms/{id}/promotions',    [AdminRoomPromotionController::class, 'index'])->name('rooms.promotions.index');
     Route::post('rooms/{id}/promotions',   [AdminRoomPromotionController::class, 'store'])->name('rooms.promotions.store');
     Route::delete('rooms/{id}/promotions/{promotionId}', [AdminRoomPromotionController::class, 'destroy'])->name('rooms.promotions.destroy');
+
+    // Mở BẤT KỲ khóa TTLock nào (mọi chi nhánh), KHÔNG cần gắn đơn hàng/phòng — bản API của nút
+    // "Mở khóa ngay" trên Modules\TTLock\App\Filament\Pages\LockDashboard, xem
+    // App\Http\Controllers\Api\Admin\TtlockLockController.
+    Route::get('ttlock/locks', [TtlockLockController::class, 'index'])->name('ttlock.locks.index');
+    Route::post('ttlock/locks/unlock', [TtlockLockController::class, 'unlock'])->name('ttlock.locks.unlock');
 });
 
 /*
@@ -947,7 +954,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/warehouse')->nam
 | App\Models\Camera và App\Http\Controllers\Api\Admin\CameraController.
 |
 | Cách hoạt động: server 365home-cms tự đăng nhập Frigate bằng tài khoản cấu hình sẵn (Cấu hình web
-| > Camera trên CMS, App\Settings\CameraSettings + App\Services\FrigateSessionClient) — app/KHÔNG
+| > Camera trên CMS, App\Models\CameraSetting — RIÊNG TỪNG ĐỐI TÁC — + App\Services\
+| FrigateSessionClient) — app/KHÔNG
 | BAO GIỜ cần biết tài khoản Frigate. Mỗi camera trả về sẵn 1 "ws_url" — 1 địa chỉ WebSocket đã ký
 | token (App\Support\CameraWsToken, hạn dùng 12 tiếng), app chỉ cần mở kết nối WebSocket tới đúng
 | địa chỉ đó là nhận được luồng video, không cần gọi thêm API nào khác để "đăng nhập" camera.
@@ -1019,9 +1027,10 @@ Route::get('camera-media/{token}/{filename}', [CameraMediaProxyController::class
     ->where('filename', '.*')
     ->name('api.camera-media.stream');
 
-// Cấu hình server go2rtc/Frigate DÙNG CHUNG toàn hệ thống — xem giải thích quyền hạn ở
+// Cấu hình server go2rtc/Frigate RIÊNG TỪNG ĐỐI TÁC — xem giải thích quyền hạn ở
 // App\Http\Controllers\Api\Admin\CameraSettingsController (chỉ super_admin/page_ManageCamera).
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/camera-settings')->name('api.admin.camera-settings.')->group(function () {
+    Route::get('partners', [CameraSettingsController::class, 'partners'])->name('partners');
     Route::get('/', [CameraSettingsController::class, 'show'])->name('show');
     Route::match(['put', 'patch'], '/', [CameraSettingsController::class, 'update'])->name('update');
 });

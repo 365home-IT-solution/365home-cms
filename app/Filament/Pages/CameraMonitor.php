@@ -6,15 +6,16 @@ namespace App\Filament\Pages;
 
 use App\Models\Camera;
 use App\Services\CameraRecordingService;
-use App\Settings\CameraSettings;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 
 // Trang xem trực tiếp camera công ty — nhúng luồng phát ra từ go2rtc (chạy độc lập hoặc lõi bên
 // trong Frigate) qua thẻ <video>, KHÔNG chứa logic ghi hình/AI gì ở đây. Chỉ liệt kê camera đang
 // "status = true", lọc theo chi nhánh đang active y hệt các trang Warehouse (BelongsToBranch tự
-// áp global scope). Cần CameraSettings::$base_url (Cấu hình web > Camera) đã được điền — chưa có
-// giá trị thật thì trang chỉ hiện hướng dẫn, không có link camera nào để nhúng bừa.
+// áp global scope). MỖI ĐỐI TÁC có thể dùng server Frigate RIÊNG (App\Models\CameraSetting) — không
+// còn 1 cờ "đã cấu hình go2rtc" chung cho CẢ TRANG (super_admin có thể xem camera của nhiều đối tác
+// cùng lúc, mỗi đối tác cấu hình khác nhau); tình trạng "chưa cấu hình" giờ hiện RIÊNG từng ô camera
+// (xem camera-monitor.blade.php, dựa vào Camera::wsProxyUrl() trả null hay không).
 //
 // Ghi hình thủ công (nút "Ghi hình" trên mỗi camera) đã đổi sang GHI HOÀN TOÀN Ở TRÌNH DUYỆT — dùng
 // MediaRecorder bắt luồng từ chính thẻ <video> đang phát (video.captureStream()), tự tải file .webm
@@ -39,11 +40,6 @@ class CameraMonitor extends Page
             ->where('status', true)
             ->orderBy('name')
             ->get();
-    }
-
-    public function getGo2rtcConfigured(): bool
-    {
-        return app(CameraSettings::class)->isConfigured();
     }
 
     // Gọi từ Alpine qua $wire.loadPlayback(...) (Livewire 3 hỗ trợ await trực tiếp kết quả trả về)

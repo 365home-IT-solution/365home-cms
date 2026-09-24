@@ -128,7 +128,7 @@ class CameraRecordingController extends Controller
             return response()->json(['message' => 'Không tìm thấy.'], 404);
         }
 
-        $result = $this->recording->stopRecording($eventId);
+        $result = $this->recording->stopRecording($camera, $eventId);
 
         return $this->respond($result);
     }

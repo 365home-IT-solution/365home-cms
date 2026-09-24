@@ -187,11 +187,22 @@ class InvoiceGenerationService
         $effectiveEnd   = ($contract->end_date && $contract->end_date->lt($periodEnd)) ? $contract->end_date->copy() : $periodEnd->copy();
 
         $daysInPeriod = $effectiveStart->diffInDays($effectiveEnd) + 1;
-        $daysInMonth  = $periodStart->daysInMonth;
+        // BUG THẬT đã gặp: trước đây so $daysInPeriod với $periodStart->daysInMonth (số ngày của
+        // THÁNG DƯƠNG LỊCH chứa periodStart) — với chu kỳ "theo ngày thuê" (BILLING_CYCLE_ANNIVERSARY,
+        // cycleEnd = cycleStart->addMonthNoOverflow()->subDay()), 1 chu kỳ ĐẦY ĐỦ KHÔNG hề trùng số
+        // ngày với tháng dương lịch chứa ngày bắt đầu — VD hợp đồng bắt đầu 31/1: chu kỳ đầy đủ chạy
+        // 31/1 → 27/2 (28 ngày, addMonthNoOverflow từ 31/1 ra 28/2 rồi -1 ngày), nhưng
+        // periodStart->daysInMonth (tháng 1) = 31, khiến code hiểu NHẦM là chu kỳ bị hụt 3 ngày và
+        // tính giá theo tỷ lệ (2.709.677đ) dù khách đã ở TRỌN VẸN, KHÔNG NGẮT QUÃNG cả chu kỳ — thiếu
+        // thu lặp lại ở MỌI chu kỳ sau đó của hợp đồng này. Sửa: so $daysInPeriod với chính số ngày
+        // THẬT của chu kỳ đang lập ($periodStart..$periodEnd, trước khi bị cắt bởi ngày bắt đầu/kết
+        // thúc hợp đồng) — 1 chu kỳ không bị cắt luôn có $daysInPeriod == $fullCycleDays bất kể rơi
+        // vào tháng nào, chỉ prorate đúng phần bị cắt thật sự (hợp đồng bắt đầu/kết thúc giữa chu kỳ).
+        $fullCycleDays = $periodStart->diffInDays($periodEnd) + 1;
 
-        $roomPrice = $daysInPeriod >= $daysInMonth
+        $roomPrice = $daysInPeriod >= $fullCycleDays
             ? (float) $contract->monthly_price
-            : round(((float) $contract->monthly_price / $daysInMonth) * $daysInPeriod, 0);
+            : round(((float) $contract->monthly_price / $fullCycleDays) * $daysInPeriod, 0);
 
         $electricPrice = $contract->electric_unit_price ?: $contract->room?->building?->electric_unit_price;
         $waterPrice    = $contract->water_unit_price ?: $contract->room?->building?->water_unit_price;

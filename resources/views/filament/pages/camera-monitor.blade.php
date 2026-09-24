@@ -1,13 +1,13 @@
 <x-filament-panels::page>
     @php($cameras = $this->getCameras())
-    @php($configured = $this->getGo2rtcConfigured())
 
-    @if (! $configured)
-        <div class="rounded-xl border border-warning-300 bg-warning-50 p-4 text-sm text-warning-700 dark:border-warning-700 dark:bg-warning-950 dark:text-warning-300">
-            Chưa cấu hình server go2rtc/Frigate. Vào menu "Cấu hình web &gt; Camera" điền địa chỉ
-            server rồi tải lại trang này.
-        </div>
-    @elseif ($cameras->isEmpty())
+    {{--
+        Mỗi đối tác có thể dùng server Frigate RIÊNG (App\Models\CameraSetting) — không còn 1 cờ
+        "đã cấu hình go2rtc" chung cho CẢ TRANG (super_admin xem camera nhiều đối tác cùng lúc, mỗi
+        đối tác cấu hình khác nhau). Camera nào chưa cấu hình xong thì tự hiện thông báo NGAY TRÊN Ô
+        của chính camera đó (nhánh @else bên dưới, dựa vào Camera::wsProxyUrl() trả null hay không).
+    --}}
+    @if ($cameras->isEmpty())
         <div class="rounded-xl border border-gray-200 bg-white p-6 text-center text-sm text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">
             Chưa có camera nào đang hoạt động. Vào menu "Camera" để thêm.
         </div>

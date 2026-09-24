@@ -16,6 +16,8 @@ class EditCamera extends EditRecord
 
     private ?string $originalStreamKey = null;
 
+    private ?string $originalPartnerId = null;
+
     protected function getHeaderActions(): array
     {
         return [DeleteAction::make()];
@@ -25,7 +27,11 @@ class EditCamera extends EditRecord
     {
         // Ghi nhớ stream_key CŨ trước khi Filament ghi đè — nếu người dùng đổi tên nguồn, phải xoá
         // đăng ký cũ trên go2rtc, không thì server go2rtc tồn đọng 1 nguồn "mồ côi" không ai dùng.
+        // Ghi nhớ luôn partner_id CŨ — mỗi đối tác có thể dùng server go2rtc RIÊNG (App\Models\
+        // CameraSetting), nếu người dùng đổi camera sang chi nhánh của đối tác KHÁC thì nguồn cũ
+        // phải xoá trên server go2rtc CŨ (của partner cũ), không phải server mới.
         $this->originalStreamKey = $this->record->getOriginal('stream_key');
+        $this->originalPartnerId = $this->record->getOriginal('partner_id');
     }
 
     protected function afterSave(): void
@@ -37,13 +43,11 @@ class EditCamera extends EditRecord
             return;
         }
 
-        $client = app(Go2RtcClient::class);
-
         if ($this->originalStreamKey !== null && $this->originalStreamKey !== $this->record->stream_key) {
-            $client->deleteStream($this->originalStreamKey);
+            Go2RtcClient::forPartner($this->originalPartnerId)->deleteStream($this->originalStreamKey);
         }
 
-        $error = $client->addStream($this->record->stream_key, $this->record->rtsp_url);
+        $error = Go2RtcClient::forPartner($this->record->partner_id)->addStream($this->record->stream_key, $this->record->rtsp_url);
 
         if ($error !== null) {
             Notification::make()
