@@ -4,36 +4,87 @@ declare(strict_types=1);
 
 namespace App\Filament\Pages\Setting;
 
-use App\Settings\CameraSettings;
+use App\Models\CameraSetting;
+use App\Models\Partner;
 use BezhanSalleh\FilamentShield\Traits\HasPageShield;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
-use Filament\Pages\SettingsPage;
+use Filament\Pages\Page;
 use Filament\Support\Facades\FilamentView;
 use Illuminate\Contracts\Support\Htmlable;
 
 use function Filament\Support\is_app_url;
 
 // Cấu hình địa chỉ server go2rtc/Frigate ngay trong web — thay cho việc phải sửa .env + restart
-// server (App\Settings\CameraSettings). Nhân viên vận hành chỉ cần vào đây đổi địa chỉ khi đổi
-// mạng/server, không cần quyền SSH.
-class ManageCamera extends SettingsPage
+// server. Yêu cầu 2026-09-24: nhiều đối tác giờ có server Frigate RIÊNG (trước đây CHỈ 1 server dùng
+// CHUNG cho mọi đối tác, App\Settings\CameraSettings) — trang này giờ đọc/ghi App\Models\CameraSetting
+// (bảng phụ 1-1 theo partner_id).
+//
+// KHÔNG dùng Filament\Pages\SettingsPage (Spatie Settings, chỉ hợp với "1 dòng cấu hình DUY NHẤT
+// toàn hệ thống") nữa — chuyển sang Page thường tự quản lý form theo ĐÚNG đối tác đang thao tác:
+// tài khoản thường tự động bind vào đối tác của chính mình (không có lựa chọn nào khác, không cho
+// đổi field); super_admin thấy thêm 1 Select để CHỌN đối tác cần cấu hình trước khi form còn lại
+// hiện ra (super_admin không có "đối tác của chính họ" để mặc định).
+class ManageCamera extends Page
 {
+    use Forms\Concerns\InteractsWithForms;
     use HasPageShield;
-
-    protected static string $settings = CameraSettings::class;
 
     protected static ?int $navigationSort = 97;
 
     protected static ?string $navigationIcon = 'heroicon-o-video-camera';
+
+    protected static string $view = 'filament.pages.setting.manage-camera';
+
+    public ?string $partnerId = null;
+
+    public ?array $data = [];
+
+    public function mount(): void
+    {
+        $user = auth()->user();
+
+        // Tài khoản thường: KHÔNG có lựa chọn nào khác ngoài đối tác của chính mình — gán sẵn +
+        // nạp luôn form, không cần bước "chọn đối tác" nào cả.
+        if (! $user->isSuperAdmin()) {
+            $this->partnerId = $user->partner_id;
+            $this->fillFormForPartner();
+        }
+
+        // super_admin: chưa chọn đối tác nào — form còn lại (base_url/tài khoản Frigate) CHƯA hiện,
+        // xem manage-camera.blade.php.
+    }
+
+    public function updatedPartnerId(): void
+    {
+        $this->fillFormForPartner();
+    }
+
+    private function fillFormForPartner(): void
+    {
+        if (blank($this->partnerId)) {
+            $this->form->fill([]);
+
+            return;
+        }
+
+        $this->form->fill(CameraSetting::forPartner($this->partnerId)->only([
+            'base_url', 'api_key', 'username', 'password',
+        ]));
+    }
+
+    public function partnerOptions(): array
+    {
+        return Partner::query()->orderBy('name')->pluck('name', 'id')->all();
+    }
 
     public function form(Form $form): Form
     {
         return $form
             ->schema([
                 Forms\Components\Section::make('Server go2rtc / Frigate')
-                    ->description('Địa chỉ server chuyển đổi luồng camera (đặt tại nơi có camera hoặc VPS đã kết nối VPN tới camera). Trang "Xem camera" và mục "Camera" dùng địa chỉ này để dựng link phát trực tiếp.')
+                    ->description('Địa chỉ server chuyển đổi luồng camera CỦA ĐỐI TÁC NÀY (đặt tại nơi có camera hoặc VPS đã kết nối VPN tới camera) — mỗi đối tác có thể dùng 1 server hoàn toàn riêng, không chung với đối tác khác. Trang "Xem camera" và mục "Camera" dùng địa chỉ này để dựng link phát trực tiếp.')
                     ->schema([
                         Forms\Components\TextInput::make('base_url')
                             ->label('Địa chỉ server')
@@ -67,11 +118,19 @@ class ManageCamera extends SettingsPage
             ->statePath('data');
     }
 
-    public function save(CameraSettings $settings = null): void
+    public function save(): void
     {
+        if (blank($this->partnerId)) {
+            Notification::make()->title('Chưa chọn đối tác cần cấu hình.')->danger()->send();
+
+            return;
+        }
+
         $data = $this->form->getState();
 
+        $settings = CameraSetting::forPartner($this->partnerId);
         $settings->fill($data);
+        $settings->partner_id = $this->partnerId;
         $settings->save();
 
         Notification::make()->title('Đã lưu cấu hình camera.')->success()->send();

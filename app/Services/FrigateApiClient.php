@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Settings\CameraSettings;
+use App\Models\CameraSetting;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
@@ -15,12 +15,19 @@ use Illuminate\Support\Facades\Http;
 // frigate/api/defs/request/events_body.py — bản dev, tháng 9/2026), KHÔNG đoán tên field.
 //
 // Dùng chung cơ chế đăng nhập cookie với FrigateSessionClient (Frigate không có API key tĩnh).
+// MỖI ĐỐI TÁC 1 server Frigate riêng (App\Models\CameraSetting) — tạo qua forPartner(), KHÔNG còn
+// resolve qua DI container như 1 service dùng chung toàn hệ thống nữa.
 class FrigateApiClient
 {
     public function __construct(
-        private readonly CameraSettings $settings,
+        private readonly CameraSetting $settings,
         private readonly FrigateSessionClient $session,
     ) {
+    }
+
+    public static function forPartner(?string $partnerId): self
+    {
+        return new self(CameraSetting::forPartner($partnerId), FrigateSessionClient::forPartner($partnerId));
     }
 
     // GET /api/{camera_name}/recordings/summary?timezone= — tổng hợp THEO GIỜ: có ghi hình/motion/

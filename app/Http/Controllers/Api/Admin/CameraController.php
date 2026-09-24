@@ -6,9 +6,9 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Camera;
+use App\Models\CameraSetting;
 use App\Models\User;
 use App\Services\Go2RtcClient;
-use App\Settings\CameraSettings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -54,9 +54,11 @@ class CameraController extends Controller
 
         $cameras = $query->orderBy('name')->get();
 
+        // KHÔNG còn 1 cờ "go2rtc_configured" chung cho cả danh sách — mỗi đối tác có thể dùng
+        // server Frigate RIÊNG (App\Models\CameraSetting), super_admin xem camera của NHIỀU đối tác
+        // cùng lúc nên tình trạng cấu hình phải tính THEO TỪNG camera (xem transform()).
         return response()->json([
-            'go2rtc_configured' => app(CameraSettings::class)->isConfigured(),
-            'data'              => $cameras->map(fn (Camera $camera) => $this->transform($camera)),
+            'data' => $cameras->map(fn (Camera $camera) => $this->transform($camera)),
         ]);
     }
 
@@ -253,7 +255,7 @@ class CameraController extends Controller
             return null;
         }
 
-        $client = app(Go2RtcClient::class);
+        $client = Go2RtcClient::forPartner($camera->partner_id);
 
         if ($originalStreamKey !== null && $originalStreamKey !== $camera->stream_key) {
             $client->deleteStream($originalStreamKey);
@@ -276,9 +278,10 @@ class CameraController extends Controller
                 'id'   => $camera->branch->id,
                 'name' => $camera->branch->name,
             ] : null,
-            'status'     => $camera->status,
-            'ws_url'     => $camera->wsProxyUrl(),
-            'note'       => $camera->note,
+            'status'             => $camera->status,
+            'ws_url'             => $camera->wsProxyUrl(),
+            'go2rtc_configured'  => CameraSetting::forPartner($camera->partner_id)->isConfigured(),
+            'note'               => $camera->note,
         ];
     }
 }

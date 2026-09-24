@@ -51,13 +51,30 @@ class MinihouseReportPeriod
 
     private static function resolveCustomRange(Carbon $now, ?string $startDate, ?string $endDate): array
     {
-        $start = $startDate ? Carbon::parse($startDate)->startOfDay() : $now->copy()->startOfMonth()->startOfDay();
-        $end   = $endDate ? Carbon::parse($endDate)->endOfDay() : $now->copy()->endOfDay();
+        $start = $startDate ? self::parseOrFail($startDate, 'start_date')->startOfDay() : $now->copy()->startOfMonth()->startOfDay();
+        $end   = $endDate ? self::parseOrFail($endDate, 'end_date')->endOfDay() : $now->copy()->endOfDay();
 
         if ($start->gt($end)) {
             [$start, $end] = [$end, $start];
         }
 
         return [$start, $end];
+    }
+
+    // BUG THẬT phát hiện qua review: Carbon::parse() không được bắt lỗi trước đây — trên trang
+    // Filament vô hại vì input chỉ tới từ DatePicker (luôn hợp lệ), nhưng endpoint API mới
+    // (ReportController) nhận thẳng start_date/end_date từ query string của app di động — 1 chuỗi
+    // không phải ngày hợp lệ (VD "not-a-date") ném thẳng CarbonException không bắt được, trả 500 thô
+    // thay vì lỗi validate rõ ràng. Ném ValidationException để Laravel tự trả 422 kèm thông báo cho
+    // cả 2 nơi gọi (Filament lẫn API) thay vì để crash.
+    private static function parseOrFail(string $value, string $field): Carbon
+    {
+        try {
+            return Carbon::parse($value);
+        } catch (\Throwable $e) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                $field => "Giá trị \"{$field}\" không phải ngày hợp lệ.",
+            ]);
+        }
     }
 }

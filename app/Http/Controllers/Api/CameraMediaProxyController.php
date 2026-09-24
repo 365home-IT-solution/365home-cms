@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\CameraSetting;
 use App\Services\FrigateSessionClient;
-use App\Settings\CameraSettings;
 use App\Support\CameraMediaToken;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -30,12 +30,9 @@ use Symfony\Component\Process\Process;
 //          ffmpeg chạy xong).
 class CameraMediaProxyController extends Controller
 {
-    public function __construct(
-        private readonly CameraSettings $settings,
-        private readonly FrigateSessionClient $session,
-    ) {
-    }
-
+    // KHÔNG còn constructor-inject CameraSettings/FrigateSessionClient dùng chung 1 instance nữa —
+    // mỗi đối tác có thể có server Frigate riêng (App\Models\CameraSetting), nên phải resolve LẠI
+    // theo partner_id ký trong CameraMediaToken ở mỗi request (xem stream()).
     public function stream(Request $request, string $token, string $filename): StreamedResponse|Response
     {
         $claims = CameraMediaToken::verify($token);
@@ -44,30 +41,33 @@ class CameraMediaProxyController extends Controller
             return response('Token không hợp lệ hoặc đã hết hạn.', 401);
         }
 
-        $cookie = $this->session->getSessionCookie(error: $error);
+        $settings = CameraSetting::forPartner($claims['partner_id']);
+        $session  = FrigateSessionClient::forPartner($claims['partner_id']);
+
+        $cookie = $session->getSessionCookie(error: $error);
 
         if ($cookie === null) {
             return response($error ?? 'Chưa cấu hình kết nối Frigate.', 502);
         }
 
         if ($claims['transcode']) {
-            return $this->streamTranscoded($claims['path'], $cookie);
+            return $this->streamTranscoded($claims['path'], $cookie, $settings);
         }
 
-        return $this->streamPassthrough($claims['path'], $filename, $cookie, $request->header('Range'));
+        return $this->streamPassthrough($claims['path'], $filename, $cookie, $request->header('Range'), $settings, $session);
     }
 
     // Chuyển tiếp NGUYÊN VĂN — camera H.264, trình duyệt tự phát HLS được, không cần đụng gì thêm.
     // Forward nguyên header Range (bắt buộc để tua/seek hoạt động đúng) và trả nguyên Content-Range/
     // Accept-Ranges/206 Partial Content nếu Frigate/nginx trả về.
-    private function streamPassthrough(string $pathPrefix, string $filename, string $cookie, ?string $range): StreamedResponse|Response
+    private function streamPassthrough(string $pathPrefix, string $filename, string $cookie, ?string $range, CameraSetting $settings, FrigateSessionClient $session): StreamedResponse|Response
     {
-        $url = rtrim((string) $this->settings->base_url, '/') . $pathPrefix . '/' . $filename;
+        $url = rtrim((string) $settings->base_url, '/') . $pathPrefix . '/' . $filename;
 
         $upstream = $this->fetch($url, $cookie, $range);
 
         if ($upstream->status() === 401) {
-            $retryCookie = $this->session->getSessionCookie(forceRelogin: true, error: $error);
+            $retryCookie = $session->getSessionCookie(forceRelogin: true, error: $error);
 
             if ($retryCookie === null) {
                 return response($error ?? 'Phiên đăng nhập Frigate hết hạn.', 502);
@@ -116,9 +116,9 @@ class CameraMediaProxyController extends Controller
     // cho MỌI request con — hành vi chuẩn của demuxer HLS trong ffmpeg, không cần tự lo từng file).
     // Output "-movflags frag_keyframe+empty_moov" — MP4 PHÂN MẢNH, phát được ngay khi đang ghi ra
     // pipe (không phải đợi ffmpeg chạy xong mới có "moov atom" như MP4 thường).
-    private function streamTranscoded(string $pathPrefix, string $cookie): StreamedResponse|Response
+    private function streamTranscoded(string $pathPrefix, string $cookie, CameraSetting $settings): StreamedResponse|Response
     {
-        $inputUrl = rtrim((string) $this->settings->base_url, '/') . $pathPrefix . '/master.m3u8';
+        $inputUrl = rtrim((string) $settings->base_url, '/') . $pathPrefix . '/master.m3u8';
 
         $binary = (string) config('services.ffmpeg.binary', 'ffmpeg');
 

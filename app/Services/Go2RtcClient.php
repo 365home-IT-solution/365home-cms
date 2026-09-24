@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Settings\CameraSettings;
+use App\Models\CameraSetting;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -14,10 +14,17 @@ use Illuminate\Support\Facades\Log;
 //   PUT  /api/streams?name=<key>&src=<rtsp-url>   (thêm/ghi đè 1 nguồn)
 //   DELETE /api/streams?src=<key>                 (xoá 1 nguồn)
 // Nếu server go2rtc thay đổi API (VD phiên bản Frigate khác), chỉ cần sửa 2 hàm trong lớp này.
+//
+// MỖI ĐỐI TÁC 1 server go2rtc/Frigate riêng (App\Models\CameraSetting) — tạo qua forPartner().
 class Go2RtcClient
 {
-    public function __construct(private readonly CameraSettings $settings)
+    public function __construct(private readonly CameraSetting $settings)
     {
+    }
+
+    public static function forPartner(?string $partnerId): self
+    {
+        return new self(CameraSetting::forPartner($partnerId));
     }
 
     public function isConfigured(): bool

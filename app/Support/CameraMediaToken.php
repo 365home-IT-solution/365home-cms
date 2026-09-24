@@ -14,6 +14,10 @@ namespace App\Support;
 // nhiều đoạn .ts/.m4s, trình duyệt tự suy đường dẫn tương đối từ nội dung .m3u8) — ký cố định
 // "thư mục", để tên file là tham số route RIÊNG không nằm trong chữ ký, tránh phải cấp lại token
 // cho từng file lẻ trong cùng 1 phiên xem.
+//
+// partner_id — mỗi đối tác có thể dùng 1 server Frigate riêng (App\Models\CameraSetting);
+// CameraMediaProxyController cần định danh này để resolve đúng base_url/cookie phiên khi phát lại,
+// KHÔNG còn 1 cấu hình go2rtc dùng chung toàn hệ thống như trước.
 class CameraMediaToken
 {
     // $transcode=true: đoạn ghi hình này là H.265/HEVC (trình duyệt desktop không giải mã được qua
@@ -21,12 +25,13 @@ class CameraMediaToken
     // Quyết định này đưa ra 1 LẦN lúc phát hành token (đã kiểm tra codec thật, xem
     // CameraRecordingService::playbackUrl()), không kiểm tra lại mỗi request để đỡ tốn 1 lượt gọi
     // Frigate cho mỗi file .ts/.m4s trong cùng 1 phiên xem.
-    public static function issue(string $frigatePathPrefix, int $ttlSeconds = 3600, bool $transcode = false): string
+    public static function issue(string $frigatePathPrefix, string $partnerId, int $ttlSeconds = 3600, bool $transcode = false): string
     {
         $payload = base64_encode(json_encode([
-            'path'      => $frigatePathPrefix,
-            'exp'       => time() + $ttlSeconds,
-            'transcode' => $transcode,
+            'path'       => $frigatePathPrefix,
+            'partner_id' => $partnerId,
+            'exp'        => time() + $ttlSeconds,
+            'transcode'  => $transcode,
         ]));
 
         $signature = hash_hmac('sha256', $payload, self::secret());
@@ -35,7 +40,7 @@ class CameraMediaToken
     }
 
     /**
-     * @return array{path: string, transcode: bool}|null null nếu token sai chữ ký/hết hạn.
+     * @return array{path: string, partner_id: string, transcode: bool}|null null nếu token sai chữ ký/hết hạn.
      */
     public static function verify(string $token): ?array
     {
@@ -53,7 +58,7 @@ class CameraMediaToken
 
         $decoded = json_decode((string) base64_decode($payload, true), true);
 
-        if (! is_array($decoded) || ! isset($decoded['path'], $decoded['exp'])) {
+        if (! is_array($decoded) || ! isset($decoded['path'], $decoded['partner_id'], $decoded['exp'])) {
             return null;
         }
 
@@ -62,8 +67,9 @@ class CameraMediaToken
         }
 
         return [
-            'path'      => (string) $decoded['path'],
-            'transcode' => (bool) ($decoded['transcode'] ?? false),
+            'path'       => (string) $decoded['path'],
+            'partner_id' => (string) $decoded['partner_id'],
+            'transcode'  => (bool) ($decoded['transcode'] ?? false),
         ];
     }
 

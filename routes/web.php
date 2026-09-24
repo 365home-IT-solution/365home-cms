@@ -1055,13 +1055,24 @@ Route::middleware(['auth', 'web', 'throttle:120,1', \App\Http\Middleware\MarkAdm
 // cho chiều ngược lại Laravel → Node, xem app/Services/OrderRealtimeService.php và tương tự). Xem
 // App\Models\Camera::wsProxyUrl() (nơi tạo token cho trình duyệt) và App\Services\
 // FrigateSessionClient (nơi thật sự đăng nhập Frigate).
+//
+// partner_id bắt buộc trong body — MỖI ĐỐI TÁC có thể dùng server Frigate RIÊNG (App\Models\
+// CameraSetting), Node lấy giá trị này thẳng từ payload đã xác minh của CameraWsToken (đính kèm
+// khi ký token, xem Camera::wsProxyUrl()) rồi chuyển tiếp qua đây để Laravel biết đăng nhập vào
+// ĐÚNG server nào — trước đây route này đăng nhập vào 1 server go2rtc DUY NHẤT dùng chung.
 Route::post('/internal/frigate-session', function (\Illuminate\Http\Request $request) {
     if (! hash_equals((string) config('services.websocket.internal_key'), (string) $request->header('x-internal-key'))) {
         return response()->json(['error' => 'Forbidden'], 403);
     }
 
+    $partnerId = (string) $request->input('partner_id');
+
+    if ($partnerId === '') {
+        return response()->json(['error' => 'Thiếu partner_id.'], 422);
+    }
+
     $error  = null;
-    $cookie = app(\App\Services\FrigateSessionClient::class)->getSessionCookie(false, $error);
+    $cookie = \App\Services\FrigateSessionClient::forPartner($partnerId)->getSessionCookie(false, $error);
 
     if ($cookie === null) {
         return response()->json(['error' => $error], 502);

@@ -178,6 +178,30 @@ class ZaloZnsService
 
             $result = $response->json();
 
+            // Token bị Zalo từ chối (VD bị thu hồi ngoài dự kiến) — ép refresh token mới rồi thử gửi
+            // lại ĐÚNG 1 LẦN, cùng cơ chế ZaloOtpService/MinihouseZaloService đã có (xem
+            // ZaloTokenService::isInvalidTokenError()) — trước đây class này là 1 trong 3 nơi dùng
+            // chung ZaloTokenService nhưng KHÔNG được gắn retry, nên token bị thu hồi khiến ZNS đặt
+            // phòng/huỷ đơn lỗi ÂM THẦM tới tận khi Cache tự hết hạn (tối đa 1 giờ).
+            if (ZaloTokenService::isInvalidTokenError($result['error'] ?? null)) {
+                $accessToken = $this->tokenService->getAccessToken(forceRefresh: true);
+
+                $response = Http::timeout(30)
+                    ->withHeaders([
+                        'access_token' => $accessToken,
+                        'Content-Type' => 'application/json',
+                    ])
+                    ->post($this->apiUrl, [
+                        'phone'           => $formattedPhone,
+                        'template_id'     => $templateId,
+                        'template_data'   => $templateData,
+                        'tracking_id'     => (string) $orderId,
+                        'appsecret_proof' => hash_hmac('sha256', $accessToken, $this->appSecret),
+                    ]);
+
+                $result = $response->json();
+            }
+
             // Kiểm tra response
             if ($response->successful() && isset($result['error']) && $result['error'] == 0) {
                 $notification->markAsSent(

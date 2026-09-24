@@ -24,7 +24,7 @@ class CreateCamera extends CreateRecord
             return;
         }
 
-        $error = app(Go2RtcClient::class)->addStream($this->record->stream_key, $this->record->rtsp_url);
+        $error = Go2RtcClient::forPartner($this->record->partner_id)->addStream($this->record->stream_key, $this->record->rtsp_url);
 
         if ($error !== null) {
             Notification::make()
