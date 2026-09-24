@@ -6,6 +6,7 @@ use Filament\Actions\Exports\ExportColumn;
 use Filament\Actions\Exports\Exporter;
 use Filament\Actions\Exports\Models\Export;
 use Modules\Minihouse\App\Models\Invoice;
+use Modules\Minihouse\App\Services\InvoiceContentRenderer;
 
 // Xuất Excel danh sách Hoá đơn — gắn qua ExportAction/ExportBulkAction ở InvoiceTable. Xuất số tiền
 // dạng số nguyên thô (không qua Money::format() có "đ"/dấu chấm phân cách) để file Excel tính tổng/
@@ -26,7 +27,11 @@ class InvoiceExporter extends Exporter
             ExportColumn::make('electric_amount')->label('Tiền điện'),
             ExportColumn::make('water_amount')->label('Tiền nước'),
             ExportColumn::make('service_amount')->label('Phụ thu'),
-            ExportColumn::make('total_amount')->label('Tổng tiền'),
+            ExportColumn::make('total_amount')->label('Tổng tiền tháng này'),
+            // Cùng công thức InvoiceContentRenderer::previousDebt()/totalOwed() dùng ở phiếu in/mã
+            // QR/tin Zalo — xem InvoiceTable::table() để biết lý do không lưu field riêng.
+            ExportColumn::make('previous_debt')->label('Nợ tháng trước')->state(fn (Invoice $record) => InvoiceContentRenderer::previousDebt($record)),
+            ExportColumn::make('total_owed')->label('Tổng phải trả')->state(fn (Invoice $record) => InvoiceContentRenderer::totalOwed($record)),
             ExportColumn::make('amount_paid')->label('Đã trả'),
             ExportColumn::make('status')->label('Trạng thái')->formatStateUsing(fn (string $state) => match ($state) {
                 Invoice::STATUS_PAID    => 'Đã thanh toán',

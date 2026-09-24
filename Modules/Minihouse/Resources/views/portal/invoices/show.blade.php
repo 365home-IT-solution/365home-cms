@@ -42,7 +42,7 @@
                     </tr>
                 @endforeach
                 <tr>
-                    <td class="py-2 font-semibold text-gray-900">Tổng cộng</td>
+                    <td class="py-2 font-semibold text-gray-900">Tổng cộng tháng này</td>
                     <td class="py-2 text-right font-semibold text-gray-900">{{ number_format((float) $invoice->total_amount, 0, ',', '.') }}đ</td>
                 </tr>
                 @if ($invoice->amount_paid > 0)
@@ -51,12 +51,27 @@
                         <td class="py-2 text-right text-green-600">{{ number_format((float) $invoice->amount_paid, 0, ',', '.') }}đ</td>
                     </tr>
                 @endif
-                <tr>
-                    <td class="py-2 font-semibold text-gray-900">Còn lại</td>
+                <tr class="border-b border-gray-100">
+                    <td class="py-2 font-semibold text-gray-900">Còn lại (hoá đơn này)</td>
                     <td class="py-2 text-right font-bold {{ $invoice->remainingAmount() > 0 ? 'text-red-600' : 'text-green-600' }}">
                         {{ number_format($invoice->remainingAmount(), 0, ',', '.') }}đ
                     </td>
                 </tr>
+                @php
+                    $previousDebt = \Modules\Minihouse\App\Services\InvoiceContentRenderer::previousDebt($invoice);
+                @endphp
+                @if ($previousDebt > 0)
+                    <tr class="border-b border-gray-100">
+                        <td class="py-2 text-gray-500">Nợ cộng dồn tháng trước</td>
+                        <td class="py-2 text-right text-red-600">{{ number_format($previousDebt, 0, ',', '.') }}đ</td>
+                    </tr>
+                    <tr>
+                        <td class="py-2 font-bold text-gray-900">Tổng phải trả</td>
+                        <td class="py-2 text-right font-bold text-red-600">
+                            {{ number_format(\Modules\Minihouse\App\Services\InvoiceContentRenderer::totalOwed($invoice), 0, ',', '.') }}đ
+                        </td>
+                    </tr>
+                @endif
             </tbody>
         </table>
     </div>

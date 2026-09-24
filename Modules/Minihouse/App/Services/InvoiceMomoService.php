@@ -64,7 +64,8 @@ class InvoiceMomoService
      */
     public static function createPaymentRequest(Invoice $invoice, ?string $redirectUrl = null): array
     {
-        $amount = $invoice->remainingAmount();
+        // Gồm CẢ nợ tháng trước — xem chú thích InvoicePayOsService::createQr().
+        $amount = InvoiceContentRenderer::totalOwed($invoice);
 
         if ($amount <= 0) {
             throw new \RuntimeException('Hoá đơn đã thanh toán đủ, không cần tạo link thanh toán.');

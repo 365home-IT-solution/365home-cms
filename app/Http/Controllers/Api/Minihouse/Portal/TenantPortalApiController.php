@@ -419,6 +419,10 @@ class TenantPortalApiController extends Controller
             'month'           => $invoice->month?->format('m/Y'),
             'room_code'       => $invoice->contract?->room?->code,
             'total_amount'    => (float) $invoice->total_amount,
+            // Nợ cộng dồn từ hoá đơn tháng trước cùng hợp đồng — CÙNG công thức đang dùng ở phiếu in/
+            // mã QR/tin Zalo, SMS nhắc nợ (InvoiceContentRenderer::previousDebt()).
+            'previous_debt'   => InvoiceContentRenderer::previousDebt($invoice),
+            'total_owed'      => InvoiceContentRenderer::totalOwed($invoice),
             'amount_paid'     => (float) $invoice->amount_paid,
             'remaining'       => $invoice->remainingAmount(),
             'status'          => $invoice->status,

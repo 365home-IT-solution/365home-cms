@@ -67,7 +67,10 @@ class InvoicePayOsService
      */
     public static function createQr(Invoice $invoice, ?string $returnUrl = null): array
     {
-        $amount = $invoice->remainingAmount();
+        // Gồm CẢ nợ tháng trước (InvoiceContentRenderer::totalOwed()) — khách quét 1 mã trả hết toàn
+        // bộ, khớp với số hiện trên "Tổng Cộng" của phiếu in. Khi webhook xác nhận, số tiền này được
+        // InvoicePaymentAllocationService chia lại cho đúng nhiều hoá đơn (trả nợ cũ nhất trước).
+        $amount = InvoiceContentRenderer::totalOwed($invoice);
 
         if ($amount <= 0) {
             throw new \RuntimeException('Hoá đơn đã thanh toán đủ, không cần tạo mã QR.');

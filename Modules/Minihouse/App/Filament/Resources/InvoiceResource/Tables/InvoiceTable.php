@@ -24,6 +24,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Collection;
 use Modules\Minihouse\App\Filament\Exports\InvoiceExporter;
 use Modules\Minihouse\App\Models\Invoice;
+use Modules\Minihouse\App\Services\InvoiceContentRenderer;
 use Modules\Minihouse\App\Support\Money;
 
 class InvoiceTable
@@ -53,9 +54,27 @@ class InvoiceTable
                 TextColumn::make('room_price')->label('Tiền phòng')->formatStateUsing(fn ($state) => Money::format($state))->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
                 TextColumn::make('electric_amount')->label('Tiền điện')->formatStateUsing(fn ($state) => Money::format($state))->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
                 TextColumn::make('water_amount')->label('Tiền nước')->formatStateUsing(fn ($state) => Money::format($state))->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
-                TextColumn::make('total_amount')->label('Tổng tiền')->formatStateUsing(fn ($state) => Money::format($state))->sortable()->visibleFrom('md'),
+                TextColumn::make('total_amount')->label('Tổng tiền tháng này')->formatStateUsing(fn ($state) => Money::format($state))->sortable()->visibleFrom('md'),
+                // Nợ CỘNG DỒN từ các hoá đơn tháng trước cùng hợp đồng, chưa/1 phần thanh toán — tính
+                // runtime bằng ĐÚNG công thức đang dùng ở phiếu in/mã QR/tin Zalo nhắc nợ
+                // (InvoiceContentRenderer::previousDebt()), để số hiện ở đây luôn khớp những nơi đó —
+                // KHÔNG lưu field riêng trên Invoice để tránh lệch dữ liệu khi hoá đơn cũ được sửa/thanh
+                // toán sau khi hoá đơn này đã lập.
+                TextColumn::make('previous_debt')
+                    ->label('Nợ tháng trước')
+                    ->state(fn (Invoice $record) => InvoiceContentRenderer::previousDebt($record))
+                    ->formatStateUsing(fn ($state) => Money::format($state))
+                    ->color(fn ($state) => $state > 0 ? 'danger' : null)
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->visibleFrom('md'),
+                TextColumn::make('total_owed')
+                    ->label('Tổng phải trả')
+                    ->state(fn (Invoice $record) => InvoiceContentRenderer::totalOwed($record))
+                    ->formatStateUsing(fn ($state) => Money::format($state))
+                    ->weight('bold')
+                    ->visibleFrom('md'),
                 TextColumn::make('amount_paid')->label('Đã trả')->formatStateUsing(fn ($state) => Money::format($state))->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
-                TextColumn::make('remaining')->label('Còn lại')->state(fn (Invoice $record) => Money::format($record->remainingAmount()))->visibleFrom('md'),
+                TextColumn::make('remaining')->label('Còn lại (hoá đơn này)')->state(fn (Invoice $record) => Money::format($record->remainingAmount()))->visibleFrom('md'),
                 TextColumn::make('status')->label('Trạng thái')->badge()->formatStateUsing(fn (string $state) => match ($state) {
                     Invoice::STATUS_PAID    => 'Đã thanh toán',
                     Invoice::STATUS_PARTIAL => 'Thanh toán 1 phần',
