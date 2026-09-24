@@ -11,6 +11,7 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Modules\Employee\Entities\Employee;
 use Modules\Product\App\Models\Product;
 
@@ -88,6 +89,19 @@ class WarehouseStockOut extends Model
     public function items(): HasMany
     {
         return $this->hasMany(WarehouseStockOutItem::class);
+    }
+
+    // Toàn bộ dòng hoàn trả (mọi phiếu hoàn) trỏ về BẤT KỲ dòng xuất nào của phiếu xuất này — dùng
+    // withExists()/withCount() ở danh sách để biết ngay phiếu xuất nào đã có hoàn trả mà không cần
+    // tải hết items (xem WarehouseStockOutController::index()).
+    public function returnItems(): HasManyThrough
+    {
+        return $this->hasManyThrough(
+            WarehouseStockReturnItem::class,
+            WarehouseStockOutItem::class,
+            'warehouse_stock_out_id',
+            'warehouse_stock_out_item_id',
+        );
     }
 
     public function creator(): BelongsTo

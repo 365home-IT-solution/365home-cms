@@ -38,7 +38,12 @@ class WarehouseStockOutController extends Controller
 
         $query = WarehouseStockOut::query()
             ->with(['room:id,name', 'employee:id,name', 'creator:id,fullname,email'])
-            ->withCount('items');
+            ->withCount('items')
+            // BUG THẬT phát hiện qua rà soát: danh sách phiếu xuất không cho biết phiếu nào ĐÃ được
+            // hoàn trả (dù dữ liệu đã liên kết đúng qua warehouse_stock_out_item_id) — nhân viên
+            // không có cách nào lọc/nhìn nhanh phiếu nào cần chú ý. Thêm has_returns để FE hiện dấu
+            // hiệu ngay trên danh sách, không phải mở từng phiếu ra mới biết.
+            ->withExists('returnItems');
 
         if (! $user->isSuperAdmin()) {
             $query->where('partner_id', $user->partner_id);
@@ -65,6 +70,10 @@ class WarehouseStockOutController extends Controller
 
         $stockOuts->getCollection()->transform(function (WarehouseStockOut $stockOut) {
             $stockOut->setAttribute('reasons_summary', $stockOut->reasonsSummary());
+            // withExists('returnItems') sinh thuộc tính "return_items_exists" (quy ước mặc định của
+            // Eloquent) — đổi tên rõ nghĩa hơn cho API, cùng tên "has_returns" đang dùng ở show().
+            $stockOut->setAttribute('has_returns', (bool) $stockOut->getAttribute('return_items_exists'));
+            unset($stockOut->return_items_exists);
 
             return $stockOut;
         });
@@ -82,8 +91,27 @@ class WarehouseStockOutController extends Controller
             return $stockOut;
         }
 
-        $stockOut->load(['room', 'employee', 'creator:id,fullname,email', 'items.item:id,name,warehouse_unit_id', 'items.item.unit:id,name']);
+        $stockOut->load([
+            'room', 'employee', 'creator:id,fullname,email',
+            'items.item:id,name,warehouse_unit_id', 'items.item.unit:id,name',
+            // BUG THẬT phát hiện qua rà soát: phiếu xuất và phiếu hoàn trả có liên kết ĐÚNG ở tầng
+            // dữ liệu (warehouse_stock_out_item_id, WarehouseStockReturnItem::guardAgainstOverReturn()
+            // đã chặn hoàn vượt số đã xuất) nhưng API chưa BAO GIỜ trả thông tin đó ra ngoài — nhân
+            // viên xem 1 phiếu xuất không biết đã hoàn bao nhiêu/còn hoàn được bao nhiêu. Nạp sẵn
+            // returnItems của từng dòng để tính returned_quantity/remaining_returnable bên dưới,
+            // không phải gọi thêm API nào khác.
+            'items.returnItems',
+        ]);
         $stockOut->setAttribute('reasons_summary', $stockOut->reasonsSummary());
+
+        $stockOut->items->each(function ($item) {
+            $item->setAttribute('returned_quantity', $item->returnedQuantity());
+            $item->setAttribute('remaining_returnable', $item->remainingReturnable());
+            $item->setAttribute('fully_returned', $item->remainingReturnable() <= 0);
+        });
+
+        $stockOut->setAttribute('has_returns', $stockOut->items->sum('returned_quantity') > 0);
+        $stockOut->setAttribute('fully_returned', $stockOut->items->every(fn ($item) => $item->fully_returned));
 
         return response()->json(['data' => $stockOut]);
     }
