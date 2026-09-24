@@ -251,8 +251,10 @@ class ChatController extends Controller
      * Admin gửi tin nhắn cho khách.
      *
      * Body tuỳ chọn 'order_code': chọn đúng khung chat của 1 đơn để trả lời (khớp cách khách hàng
-     * gửi 'order_code' khi nhắn — xem ChatController::send() phía client). Không truyền = giữ
-     * nguyên hành vi cũ (gắn theo order_id đang "trỏ tới" hiện tại của conversation).
+     * gửi 'order_code' khi nhắn — xem ChatController::send() phía client). Không truyền = tin hỗ trợ
+     * chung (order_id = null), khớp khung chat chung của khách (GET /api/chat chỉ lấy tin
+     * order_id IS NULL) và trang Filament CustomerChat. KHÔNG lấy theo $conv->order_id — đó chỉ là
+     * con trỏ "đơn khách thao tác gần nhất", dùng nó sẽ đẩy câu trả lời chung vào khung của đơn đó.
      */
     public function send(Request $request, string $id): JsonResponse
     {
@@ -269,7 +271,7 @@ class ChatController extends Controller
 
         $admin      = $request->user();
         $body       = trim($request->input('body'));
-        $messageOrderId = $conv->order_id;
+        $messageOrderId = null;
 
         if ($request->filled('order_code')) {
             $order = Order::where('order_code', $request->input('order_code'))

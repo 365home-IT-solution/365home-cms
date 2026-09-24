@@ -94,7 +94,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
 |                                    order_code/room_name để biết đang nói về đơn nào.
 | GET  /api/admin/chat/{id}/orders → danh sách các đơn khách đã nhắn hỗ trợ trong hội thoại này
 | POST /api/admin/chat/{id}/messages → admin gửi tin. Body: body (required), order_code (tuỳ chọn —
-|                                    trả lời đúng khung chat của 1 đơn cụ thể)
+|                                    trả lời đúng khung chat của 1 đơn cụ thể; không truyền = tin
+|                                    hỗ trợ chung, order_id = null)
 | POST /api/admin/chat/{id}/read  → đánh dấu admin đã đọc hết tin từ khách
 |--------------------------------------------------------------------------
 */
