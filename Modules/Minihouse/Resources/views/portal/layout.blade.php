@@ -13,6 +13,7 @@
                 <a href="{{ route('minihouse.portal.dashboard') }}" class="font-semibold text-gray-900">MiniHouse</a>
                 <div class="flex items-center gap-4 text-sm">
                     <a href="{{ route('minihouse.portal.dashboard') }}" class="text-gray-600 hover:text-gray-900">Tổng quan</a>
+                    <a href="{{ route('minihouse.portal.chat.show') }}" class="text-gray-600 hover:text-gray-900">Chat</a>
                     <form method="POST" action="{{ route('minihouse.portal.logout') }}">
                         @csrf
                         <button type="submit" class="text-red-600 hover:underline">Đăng xuất</button>

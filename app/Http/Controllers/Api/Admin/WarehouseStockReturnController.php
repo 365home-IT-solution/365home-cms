@@ -74,7 +74,17 @@ class WarehouseStockReturnController extends Controller
             'room', 'employee', 'creator:id,fullname,email',
             'items.item:id,name,warehouse_unit_id', 'items.item.unit:id,name',
             'items.stockOutItem.stockOut:id,code',
+            'items.stockOutItem.returnItems',
         ]);
+
+        // Còn hoàn được bao nhiêu NỮA từ đúng dòng xuất gốc (đã trừ luôn dòng hoàn đang xem) — chỉ
+        // có khi dòng hoàn này CÓ truy vết phiếu xuất (warehouse_stock_out_item_id), cùng công thức
+        // WarehouseStockOutItem::remainingReturnable() đang dùng ở chi tiết phiếu XUẤT.
+        $stockReturn->items->each(function ($item) {
+            if ($item->stockOutItem) {
+                $item->setAttribute('remaining_returnable', $item->stockOutItem->remainingReturnable());
+            }
+        });
 
         return response()->json(['data' => $stockReturn]);
     }

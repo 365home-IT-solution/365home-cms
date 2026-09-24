@@ -144,6 +144,30 @@ io.on('connection', (socket) => {
         socket.leave('chat:admin');
     });
 
+    // Chat MiniHouse (khách thuê <-> nhân viên toà nhà) — phòng RIÊNG "mh-chat:*", tách hẳn khỏi
+    // "chat:*" của Home dù dùng chung server này, tránh admin đang mở màn hình chat Home nhận nhầm
+    // tín hiệu của MiniHouse (2 nghiệp vụ khác nhau, xem Modules\Minihouse\App\Services\
+    // MinihouseChatRealtimeService).
+    socket.on('subscribe:mh-chat', ({ conversation_id }) => {
+        if (conversation_id) {
+            socket.join(`mh-chat:${conversation_id}`);
+        }
+    });
+
+    socket.on('unsubscribe:mh-chat', ({ conversation_id }) => {
+        if (conversation_id) {
+            socket.leave(`mh-chat:${conversation_id}`);
+        }
+    });
+
+    socket.on('subscribe:mh-chat-admin', () => {
+        socket.join('mh-chat:admin');
+    });
+
+    socket.on('unsubscribe:mh-chat-admin', () => {
+        socket.leave('mh-chat:admin');
+    });
+
     // Subscribe to admin notification bell (đơn hàng mới/đổi trạng thái...) — phòng CHUNG cho mọi
     // admin đang mở app/SPA riêng, không phân biệt ai xem được thông báo nào (REST API tự lọc đúng
     // theo user khi client gọi lại GET /api/admin/notifications sau khi nhận event này).
@@ -399,6 +423,68 @@ app.post('/internal/chat-read', (req, res) => {
     const channel = `chat:${conversation_id}`;
     io.to(channel).emit('chat.read', { conversation_id, read_by });
     console.log(`[WS] Chat read: conv=${conversation_id} read_by=${read_by}`);
+
+    return res.json({ ok: true });
+});
+
+// ── Chat MiniHouse — 3 endpoint mirror y hệt 3 cái trên, chỉ đổi tiền tố phòng "mh-chat" và
+// event "mhchat.*" để tách hẳn khỏi chat Home (xem Modules\Minihouse\App\Services\
+// MinihouseChatRealtimeService, gọi vào đây thay vì App\Services\ChatRealtimeService) ──────────
+app.post('/internal/mh-chat-message', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { conversation_id, message } = req.body;
+    if (!conversation_id || !message) {
+        return res.status(422).json({ error: 'Missing conversation_id or message' });
+    }
+
+    const channel = `mh-chat:${conversation_id}`;
+    io.to(channel).emit('mhchat.message', { conversation_id, message });
+    console.log(`[WS] MH Chat message: conv=${conversation_id} sender=${message.sender_type} → ${channel}`);
+
+    return res.json({ ok: true });
+});
+
+app.post('/internal/mh-chat-list-update', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { conversation_id, last_message_preview, last_message_at, admin_unread, tenant } = req.body;
+    if (!conversation_id) {
+        return res.status(422).json({ error: 'Missing conversation_id' });
+    }
+
+    io.to('mh-chat:admin').emit('mhchat.list_update', {
+        conversation_id,
+        last_message_preview,
+        last_message_at,
+        admin_unread,
+        tenant,
+    });
+    console.log(`[WS] MH Chat list update: conv=${conversation_id} admin_unread=${admin_unread}`);
+
+    return res.json({ ok: true });
+});
+
+app.post('/internal/mh-chat-read', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { conversation_id, read_by } = req.body;
+    if (!conversation_id || !read_by) {
+        return res.status(422).json({ error: 'Missing conversation_id or read_by' });
+    }
+
+    const channel = `mh-chat:${conversation_id}`;
+    io.to(channel).emit('mhchat.read', { conversation_id, read_by });
+    console.log(`[WS] MH Chat read: conv=${conversation_id} read_by=${read_by}`);
 
     return res.json({ ok: true });
 });
