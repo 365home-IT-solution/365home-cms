@@ -7,8 +7,13 @@ namespace App\Http\Concerns;
 use App\Models\ProvinceBranch;
 use App\Support\MediaThumbnailUrls;
 use Carbon\Carbon;
+use App\Support\ImagePresetUrls;
+use Illuminate\Support\Facades\Storage;
 use Modules\Category\Entities\Category;
+use Modules\Minihouse\App\Models\Room as MinihouseRoom;
+use Modules\Minihouse\App\Models\RoomDetail;
 use Modules\Product\App\Models\Product;
+use Modules\Product\App\Models\RoomType;
 use Modules\Product\App\Models\TimeSlot;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
@@ -64,10 +69,65 @@ trait BuildsRoomCard
             }
         }
 
+        // Phòng MiniHouse không nằm trong categorizables — gắn toà nhà (1 dòng categories) qua
+        // products.building_id, xem attachMinihouseData().
+        if ($room->relationLoaded('minihouseBuilding') && $building = $room->getRelation('minihouseBuilding')) {
+            return ['id' => $building->id, 'name' => $building->name, 'slug' => $building->slug, 'province_slug' => $building->province_slug];
+        }
+
         return null;
+    }
+
+    private function isMinihouseRoom(Product $room): bool
+    {
+        return $room->roomType?->slug === RoomType::MINIHOUSE_SLUG;
+    }
+
+    // Nạp sẵn (1 truy vấn cho cả danh sách) dữ liệu riêng của phòng MiniHouse mà Product không có
+    // quan hệ: ảnh (minihouse_room_details.photos — phòng MiniHouse không dùng Media Library) và toà
+    // nhà (products.building_id). Gắn bằng setRelation() để mapRoom()/resolveBranch() đọc lại mà
+    // không phát sinh N+1. $rooms phải eager-load 'roomType'.
+    private function attachMinihouseData(\Illuminate\Support\Collection $rooms): void
+    {
+        $minihouseRooms = $rooms->filter(fn (Product $room) => $this->isMinihouseRoom($room));
+
+        if ($minihouseRooms->isEmpty()) {
+            return;
+        }
+
+        $details = RoomDetail::whereIn('product_id', $minihouseRooms->pluck('id'))->get()->keyBy('product_id');
+
+        $buildingIds = $minihouseRooms->pluck('building_id')->filter()->unique()->values();
+        $buildings   = Category::whereIn('id', $buildingIds)->get(['id', 'name', 'slug'])->keyBy('id');
+        $provinceSlugByCat = ProvinceBranch::whereIn('categorie_id', $buildingIds)
+            ->with('province:id,slug')
+            ->get()
+            ->pluck('province.slug', 'categorie_id');
+        foreach ($buildings as $catId => $building) {
+            $building->province_slug = $provinceSlugByCat[$catId] ?? null;
+        }
+
+        foreach ($minihouseRooms as $room) {
+            $room->setRelation('minihouseDetail', $details->get($room->id));
+            $room->setRelation('minihouseBuilding', $room->building_id ? $buildings->get($room->building_id) : null);
+        }
+    }
+
+    // Ảnh phòng MiniHouse: đường dẫn trên disk public (FileUpload 'minihouse/rooms/...' ở RoomForm).
+    private function minihousePhotoPaths(Product $room): array
+    {
+        $detail = $room->relationLoaded('minihouseDetail')
+            ? $room->getRelation('minihouseDetail')
+            : RoomDetail::find($room->id);
+
+        return array_values(array_filter((array) ($detail?->photos ?? [])));
     }
     private function mapRoom(Product $room, ?bool $wishlistStatus = null, ?string $timeFrom = null, ?string $timeTo = null): array
     {
+        if ($this->isMinihouseRoom($room)) {
+            return $this->mapMinihouseRoom($room, $wishlistStatus);
+        }
+
         $badge    = $room->badge;
         $isHourly = (int) $room->styles === 1;
 
@@ -111,6 +171,39 @@ trait BuildsRoomCard
             'rating'          => $room->rating_score !== null ? (float) $room->rating_score : null,
             'wishlist_status' => $wishlistStatus,
             'is_available'    => $room->is_in_stock,
+            'latitude'        => $room->latitude  ? (string) $room->latitude  : null,
+            'longitude'       => $room->longitude ? (string) $room->longitude : null,
+        ];
+    }
+
+    // Card phòng MiniHouse (thuê dài hạn theo hợp đồng) — cùng shape với mapRoom() để FE dùng chung
+    // component, khác ở: giá là "Giá thuê / tháng" (RoomForm của MiniHouse), room_style 'theo_thang',
+    // ảnh lấy từ minihouse_room_details.photos (không dùng Media Library), còn trống theo tình trạng
+    // phòng ("Trống") thay vì is_in_stock (MiniHouse luôn để is_in_stock = true).
+    private function mapMinihouseRoom(Product $room, ?bool $wishlistStatus = null): array
+    {
+        $photos = $this->minihousePhotoPaths($room);
+        $cover  = $photos[0] ?? null;
+        $detail = $room->relationLoaded('minihouseDetail')
+            ? $room->getRelation('minihouseDetail')
+            : RoomDetail::find($room->id);
+
+        return [
+            'id'              => $room->id,
+            'slug'            => $room->slug,
+            'name'            => $room->name,
+            'type_slug'       => $room->roomType?->slug,
+            'thumbnail_url'   => $cover ? Storage::disk('public')->url($cover) : null,
+            'thumbnail'       => ImagePresetUrls::build($cover, 'public'),
+            'room_style'      => 'theo_thang',
+            'badge'           => null,
+            'price'           => [
+                'amount'     => (float) $room->price,
+                'unit_label' => '/ tháng',
+            ],
+            'rating'          => $room->rating_score !== null ? (float) $room->rating_score : null,
+            'wishlist_status' => $wishlistStatus,
+            'is_available'    => ($detail?->status ?? MinihouseRoom::STATUS_EMPTY) === MinihouseRoom::STATUS_EMPTY,
             'latitude'        => $room->latitude  ? (string) $room->latitude  : null,
             'longitude'       => $room->longitude ? (string) $room->longitude : null,
         ];
@@ -201,6 +294,7 @@ trait BuildsRoomCard
             'per_hour'  => '/ giờ',
             'per_night' => '/ đêm',
             'per_day'   => '/ ngày',
+            'per_month' => '/ tháng',
             default     => null,
         };
     }

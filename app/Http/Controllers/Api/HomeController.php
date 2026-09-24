@@ -438,9 +438,13 @@ class HomeController extends Controller
         // wishlist_status luôn null ở đây — kết quả hàm này bị cache dùng chung cho mọi user
         // (xem getRooms() gọi hàm này), trạng thái yêu thích theo từng user được gắn lại sau khi
         // lấy từ cache, không được "đóng băng" theo cache.
-        return $query
+        $rooms = $query
             ->with(['roomTimeSlots.timeSlot', 'media', 'roomType', 'categories'])
-            ->get()
+            ->get();
+
+        $this->attachMinihouseData($rooms);
+
+        return $rooms
             ->map(function ($room) use ($branchLookup) {
                 $card = $this->mapRoom($room, null);
                 $card['branch'] = $this->resolveBranch($room, $branchLookup['cats'], $branchLookup['childMap']);

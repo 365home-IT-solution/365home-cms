@@ -10,7 +10,10 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use App\Support\ImagePresetUrls;
 use Illuminate\Support\Facades\Storage;
+use Modules\Minihouse\App\Models\Room as MinihouseRoom;
+use Modules\Minihouse\App\Models\RoomAsset;
 use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
@@ -34,17 +37,26 @@ class RoomController extends Controller
             ])
             ->first();
 
-        if (! $room) {
+        // Product loại phòng MiniHouse bằng global scope 'exclude_minihouse' → không thấy ở trên thì
+        // thử tìm đúng phòng MiniHouse (trang chi tiết /mini-house/{province}/{branch}/{room}).
+        $minihouseRoom = $room ? null : MinihouseRoom::query()
+            ->where('is_activated', true)
+            ->with(['roomType', 'detail', 'building.zone', 'amenities', 'assets'])
+            ->find($id);
+
+        if (! $room && ! $minihouseRoom) {
             return response()->json(['message' => 'Phòng không tồn tại.'], 404);
         }
 
         $authUser       = auth('sanctum')->user();
         $wishlistStatus = $authUser
-            ? $authUser->wishlists()->where('product_id', $room->id)->exists()
+            ? $authUser->wishlists()->where('product_id', $room?->id ?? $minihouseRoom->id)->exists()
             : null;
 
         return response()->json([
-            'data' => $this->buildRoomDetail($room, $wishlistStatus),
+            'data' => $room
+                ? $this->buildRoomDetail($room, $wishlistStatus)
+                : $this->buildMinihouseRoomDetail($minihouseRoom, $wishlistStatus),
         ]);
     }
 
@@ -449,6 +461,112 @@ class RoomController extends Controller
             'additional_services' => $this->buildServices($room),
             'specials'            => $this->buildSpecials($room),
             'prices'              => $this->buildPrices($room),
+        ];
+    }
+
+    // ─────────────────────────────────────────────
+    // MINIHOUSE — phòng thuê dài hạn theo hợp đồng
+    // ─────────────────────────────────────────────
+
+    // Giữ ĐÚNG các key của buildRoomDetail() (FE dùng chung trang chi tiết), điền theo dữ liệu
+    // MiniHouse: ảnh từ minihouse_room_details.photos (không dùng Media Library), tiện ích từ
+    // minihouse_amenities, giá là "Giá thuê / tháng". Phần riêng của MiniHouse (toà nhà, tầng, diện
+    // tích, tình trạng, tài sản trong phòng, tour 360°...) — đúng các mục ở trang sửa phòng
+    // /minihouse/admin/rooms/{id} — nằm trong key 'minihouse'. Toà nhà CHỈ trả thông tin công khai
+    // (không trả thông tin chủ nhà/tài khoản ngân hàng/khoá cổng thanh toán lưu ở BuildingSetting).
+    private function buildMinihouseRoomDetail(MinihouseRoom $room, ?bool $wishlistStatus): array
+    {
+        $disk     = Storage::disk('public');
+        $photos   = array_values(array_filter((array) ($room->photos ?? [])));
+        $building = $room->building;
+        $status   = $room->status;
+
+        $photoUrls       = array_map(fn ($path) => $disk->url($path), $photos);
+        $photoThumbnails = array_map(fn ($path) => ImagePresetUrls::build($path, 'public'), $photos);
+
+        $scenes         = $room->panoramaScenes()->where('is_published', true)->get();
+        $buildingScenes = $building && $building->panoramaScenes()->where('is_published', true)->exists();
+
+        return [
+            'id'                 => $room->id,
+            'name'               => $room->name,
+            'slug'               => $room->slug,
+            'short_description'  => $room->short_description,
+            'description'        => $room->note,
+            'address'            => $building?->address ?? $room->address,
+            'latitude'           => $room->latitude,
+            'longitude'          => $room->longitude,
+            'main'               => array_slice($photoUrls, 0, 1),
+            'main_thumbnails'    => array_slice($photoThumbnails, 0, 1),
+            'gallery'            => $photoUrls,
+            'gallery_thumbnails' => $photoThumbnails,
+            'wishlist_status'    => $wishlistStatus,
+            'is_available'       => $status === MinihouseRoom::STATUS_EMPTY,
+            'room_type'          => $room->roomType?->slug,
+            'rating'             => $room->rating_score !== null ? (float) $room->rating_score : null,
+            'video'              => null,
+            'amenities'          => $room->amenities->isEmpty() ? [] : [[
+                'type'  => 'minihouse',
+                'items' => $room->amenities->map(fn ($amenity) => [
+                    'id'    => $amenity->id,
+                    'name'  => $amenity->name,
+                    'slug'  => null,
+                    'image' => $amenity->image ? $disk->url($amenity->image) : null,
+                ])->values()->toArray(),
+            ]],
+            'additional_services' => [],
+            'specials'            => [],
+            'prices'              => [
+                'amount'     => (float) $room->price,
+                'unit_label' => '/ tháng',
+            ],
+            'minihouse'           => [
+                'code'         => $room->code,
+                'floor'        => $room->floor,
+                'area'         => $room->area,
+                'price'        => [
+                    'amount'     => (float) $room->price,
+                    'unit_label' => '/ tháng',
+                ],
+                'status'       => $status,
+                'status_label' => match ($status) {
+                    MinihouseRoom::STATUS_EMPTY    => 'Trống',
+                    MinihouseRoom::STATUS_RESERVED => 'Đã đặt cọc',
+                    MinihouseRoom::STATUS_RENTED   => 'Đã thuê',
+                    MinihouseRoom::STATUS_REPAIR   => 'Đã khoá',
+                    default                        => null,
+                },
+                'note'         => $room->note,
+                'position'     => [
+                    'row' => $room->position_row,
+                    'col' => $room->position_col,
+                ],
+                'assets'       => $room->assets->map(fn ($asset) => [
+                    'name'            => $asset->name,
+                    'condition'       => $asset->condition,
+                    'condition_label' => match ($asset->condition) {
+                        RoomAsset::CONDITION_GOOD        => 'Tốt',
+                        RoomAsset::CONDITION_DAMAGED     => 'Hư hỏng',
+                        RoomAsset::CONDITION_MAINTENANCE => 'Đang sửa',
+                        default                          => null,
+                    },
+                    'note'            => $asset->note,
+                ])->values()->toArray(),
+                'building'     => $building ? [
+                    'id'                  => $building->id,
+                    'name'                => $building->name,
+                    'slug'                => $building->slug,
+                    'address'             => $building->address,
+                    'province'            => $building->province,
+                    'ward'                => $building->ward,
+                    'zone'                => $building->zone ? ['id' => $building->zone->id, 'name' => $building->zone->name] : null,
+                    'electric_unit_price' => $building->electric_unit_price,
+                    'water_unit_price'    => $building->water_unit_price,
+                ] : null,
+                'tour_url'     => $scenes->isNotEmpty()
+                    ? route('minihouse.tour.scene', [$room->building_id, $scenes->first()->id])
+                    : ($buildingScenes ? route('minihouse.tour.show', $room->building_id) : null),
+            ],
         ];
     }
 
