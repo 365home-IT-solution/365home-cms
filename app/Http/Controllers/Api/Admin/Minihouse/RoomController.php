@@ -76,6 +76,7 @@ class RoomController extends Controller
         $data = $request->validate([
             'building_id'   => 'required|integer|exists:categories,id',
             'code'          => 'required|string|max:255',
+            'slug'          => 'nullable|string|max:255|unique:products,slug',
             'floor'         => 'nullable|integer|min:1',
             'position_row'  => 'nullable|integer|min:1',
             'position_col'  => 'nullable|integer|min:1',
@@ -83,6 +84,15 @@ class RoomController extends Controller
             'price'         => 'required|numeric|min:0',
             'status'        => ['nullable', Rule::in([Room::STATUS_EMPTY, Room::STATUS_RESERVED, Room::STATUS_RENTED, Room::STATUS_REPAIR])],
             'note'          => 'nullable|string',
+            'address'       => 'nullable|string|max:100',
+            'latitude'      => 'nullable|numeric',
+            'longitude'     => 'nullable|numeric',
+            'map_url'       => 'nullable|url|max:500',
+            'hotline'       => 'nullable|string|max:255',
+            'video'         => 'nullable|array',
+            'video.url'     => 'nullable|string|max:1000',
+            'video.ratio'   => ['nullable', Rule::in(['16:9', '9:16', '4:3'])],
+            'video.title'   => 'nullable|string|max:200',
             'photos'        => 'nullable|array',
             'photos.*'      => 'string',
             'amenity_ids'   => 'nullable|array',
@@ -91,6 +101,17 @@ class RoomController extends Controller
 
         if (! $this->isBuildingAllowed($request, (int) $data['building_id'])) {
             return response()->json(['message' => 'Không có quyền tạo phòng cho toà nhà này.'], 403);
+        }
+
+        // slug bỏ trống thì để Room::booted() tự sinh (mirror hành vi Filament) — không truyền
+        // 'slug' => null vào Room::create() vì cột NOT NULL trên products.
+        if (! filled($data['slug'] ?? null)) {
+            unset($data['slug']);
+        }
+
+        if (array_key_exists('video', $data)) {
+            $data['setting_video_room'] = $data['video'];
+            unset($data['video']);
         }
 
         // Mirror RoomForm::uniquePositionRule() (Filament) — chặn 2 phòng CÙNG toà nhà + CÙNG tầng
@@ -138,6 +159,7 @@ class RoomController extends Controller
         $data = $request->validate([
             'building_id'   => 'sometimes|required|integer|exists:categories,id',
             'code'          => 'sometimes|required|string|max:255',
+            'slug'          => ['nullable', 'string', 'max:255', Rule::unique('products', 'slug')->ignore($room->id)],
             'floor'         => 'nullable|integer|min:1',
             'position_row'  => 'nullable|integer|min:1',
             'position_col'  => 'nullable|integer|min:1',
@@ -145,6 +167,15 @@ class RoomController extends Controller
             'price'         => 'sometimes|required|numeric|min:0',
             'status'        => ['sometimes', Rule::in([Room::STATUS_EMPTY, Room::STATUS_RESERVED, Room::STATUS_RENTED, Room::STATUS_REPAIR])],
             'note'          => 'nullable|string',
+            'address'       => 'nullable|string|max:100',
+            'latitude'      => 'nullable|numeric',
+            'longitude'     => 'nullable|numeric',
+            'map_url'       => 'nullable|url|max:500',
+            'hotline'       => 'nullable|string|max:255',
+            'video'         => 'nullable|array',
+            'video.url'     => 'nullable|string|max:1000',
+            'video.ratio'   => ['nullable', Rule::in(['16:9', '9:16', '4:3'])],
+            'video.title'   => 'nullable|string|max:200',
             'photos'        => 'nullable|array',
             'photos.*'      => 'string',
             'amenity_ids'   => 'nullable|array',
@@ -153,6 +184,11 @@ class RoomController extends Controller
 
         if (isset($data['building_id']) && ! $this->isBuildingAllowed($request, (int) $data['building_id'])) {
             return response()->json(['message' => 'Không có quyền chuyển phòng sang toà nhà này.'], 403);
+        }
+
+        if (array_key_exists('video', $data)) {
+            $data['setting_video_room'] = $data['video'];
+            unset($data['video']);
         }
 
         // Mirror RoomForm::uniquePositionRule() — xem giải thích đầy đủ ở store(). Dùng giá trị MỚI
@@ -251,7 +287,15 @@ class RoomController extends Controller
             'price'           => $room->price,
             'status'          => $room->status,
             'note'            => $room->note,
+            'slug'            => $room->slug,
+            'address'         => $room->address,
+            'latitude'        => $room->latitude,
+            'longitude'       => $room->longitude,
+            'map_url'         => $room->map_url,
+            'hotline'         => $room->hotline,
             'photos'          => $room->photos,
+            'cover'           => $room->getFirstMediaUrl('Ảnh bìa') ?: null,
+            'gallery'         => $room->getMedia('Thư viện')->map(fn ($m) => $m->getUrl())->values(),
             'video'           => $this->toVideo($room),
             'panorama_scenes' => $room->relationLoaded('panoramaScenes')
                 ? $room->panoramaScenes->map(fn ($s) => [
@@ -294,6 +338,10 @@ class RoomController extends Controller
         $setting = is_array($room->setting_video_room) ? $room->setting_video_room : [];
         $url     = $setting['url'] ?? null;
 
-        return $url ? ['url' => $url] : null;
+        return $url ? [
+            'url'   => $url,
+            'ratio' => $setting['ratio'] ?? null,
+            'title' => $setting['title'] ?? null,
+        ] : null;
     }
 }

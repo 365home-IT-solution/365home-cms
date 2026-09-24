@@ -28,6 +28,10 @@ class ChatController extends Controller
         $conversation = $this->chat->conversationFor($this->tenant($request));
         $contractId   = $this->contractId($request);
 
+        if (! $this->chat->contractBelongsToConversation($conversation, $contractId)) {
+            return response()->json(['message' => 'Không tìm thấy luồng chat của hợp đồng này.'], 404);
+        }
+
         $this->chat->markReadByTenant($conversation);
 
         return response()->json([
@@ -45,6 +49,10 @@ class ChatController extends Controller
     public function messages(Request $request): JsonResponse
     {
         $conversation = $this->chat->conversationFor($this->tenant($request));
+
+        if (! $this->chat->contractBelongsToConversation($conversation, $this->contractId($request))) {
+            return response()->json(['message' => 'Không tìm thấy luồng chat của hợp đồng này.'], 404);
+        }
 
         return response()->json(
             $this->chat->olderMessages(
@@ -66,6 +74,11 @@ class ChatController extends Controller
 
         $tenant       = $this->tenant($request);
         $conversation = $this->chat->conversationFor($tenant);
+
+        if (! $this->chat->contractBelongsToConversation($conversation, isset($data['contract_id']) ? (int) $data['contract_id'] : null)) {
+            return response()->json(['message' => 'Hợp đồng này không thuộc tài khoản của bạn.'], 422);
+        }
+
         $message      = $this->chat->send($conversation, 'tenant', (string) $tenant->id, $data['body'], null, $data['contract_id'] ?? null);
 
         return response()->json(['message' => $this->chat->formatMessage($message)], 201);
@@ -77,6 +90,23 @@ class ChatController extends Controller
         $this->chat->markReadByTenant($this->chat->conversationFor($this->tenant($request)));
 
         return response()->json(['ok' => true]);
+    }
+
+    // GET /api/minihouse/portal/chat/threads — các luồng chat (chung + từng hợp đồng/phòng) kèm số tin
+    // chưa đọc và tin cuối mỗi luồng. KHÔNG đánh dấu đã đọc.
+    public function threads(Request $request): JsonResponse
+    {
+        $conversation = $this->chat->conversationFor($this->tenant($request));
+
+        return response()->json(['data' => $this->chat->threads($conversation, 'tenant')]);
+    }
+
+    // GET /api/minihouse/portal/chat/unread — tổng tin chưa đọc để hiện badge, KHÔNG đánh dấu đã đọc.
+    public function unread(Request $request): JsonResponse
+    {
+        $conversation = $this->chat->conversationFor($this->tenant($request));
+
+        return response()->json(['unread' => $this->chat->unreadCount($conversation, 'tenant')]);
     }
 
     private function contractId(Request $request): ?int

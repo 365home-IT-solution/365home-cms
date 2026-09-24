@@ -80,6 +80,10 @@ class ChatController extends Controller
             return $conversation;
         }
 
+        if (! $this->chat->contractBelongsToConversation($conversation, $this->contractId($request))) {
+            return response()->json(['message' => 'Hợp đồng này không thuộc khách của hội thoại.'], 422);
+        }
+
         $this->chat->markReadByAdmin($conversation);
 
         return response()->json([
@@ -110,6 +114,10 @@ class ChatController extends Controller
             return $conversation;
         }
 
+        if (! $this->chat->contractBelongsToConversation($conversation, $this->contractId($request))) {
+            return response()->json(['message' => 'Hợp đồng này không thuộc khách của hội thoại.'], 422);
+        }
+
         return response()->json(
             $this->chat->olderMessages(
                 $conversation,
@@ -137,11 +145,31 @@ class ChatController extends Controller
             'contract_id' => 'nullable|integer',
         ]);
 
+        if (! $this->chat->contractBelongsToConversation($conversation, isset($data['contract_id']) ? (int) $data['contract_id'] : null)) {
+            return response()->json(['message' => 'Hợp đồng này không thuộc khách của hội thoại.'], 422);
+        }
+
         $admin   = $request->user();
         $name    = $admin->fullname ?? $admin->email;
         $message = $this->chat->send($conversation, ChatMessage::SENDER_ADMIN, (string) $admin->id, $data['body'], $name, $data['contract_id'] ?? null);
 
         return response()->json(['message' => $this->chat->formatMessage($message, $name)], 201);
+    }
+
+    // GET /api/admin/minihouse/chat/{id}/contracts — các luồng của khách này (chung + từng hợp đồng/
+    // phòng) kèm số tin khách gửi chưa đọc — mirror GET /api/admin/chat/{id}/orders của Home.
+    public function contracts(Request $request, string $id): JsonResponse
+    {
+        if (! $this->hasPermission($request, 'view_any_tenants')) {
+            return response()->json(['message' => 'Không có quyền xem tin nhắn.'], 403);
+        }
+
+        $conversation = $this->findOwned($request, $id);
+        if ($conversation instanceof JsonResponse) {
+            return $conversation;
+        }
+
+        return response()->json(['data' => $this->chat->threads($conversation, 'admin')]);
     }
 
     // POST /api/admin/minihouse/chat/{id}/read

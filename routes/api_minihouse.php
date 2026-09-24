@@ -142,6 +142,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
     Route::prefix('chat')->name('chat.')->group(function () {
         Route::get('/', [AdminChatController::class, 'index'])->name('index');
         Route::get('{id}', [AdminChatController::class, 'show'])->name('show');
+        Route::get('{id}/contracts', [AdminChatController::class, 'contracts'])->name('contracts');
         Route::get('{id}/messages', [AdminChatController::class, 'messages'])->name('messages');
         Route::post('{id}/messages', [AdminChatController::class, 'send'])->name('send');
         Route::post('{id}/read', [AdminChatController::class, 'read'])->name('read');
@@ -254,6 +255,8 @@ Route::prefix('minihouse/portal')->name('api.minihouse.portal.')->group(function
         // Chat khách thuê <-> nhân viên (phía khách thuê) — mirror api.chat.* của Home, xem
         // App\Http\Controllers\Api\Minihouse\Portal\ChatController.
         Route::get('chat', [PortalChatController::class, 'show'])->name('chat.show');
+        Route::get('chat/threads', [PortalChatController::class, 'threads'])->name('chat.threads');
+        Route::get('chat/unread', [PortalChatController::class, 'unread'])->name('chat.unread');
         Route::get('chat/messages', [PortalChatController::class, 'messages'])->name('chat.messages');
         Route::post('chat/messages', [PortalChatController::class, 'send'])->name('chat.send');
         Route::post('chat/read', [PortalChatController::class, 'read'])->name('chat.read');

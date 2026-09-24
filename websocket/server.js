@@ -50,9 +50,23 @@ app.use(express.json());
 // customer_id → Set of sockets (1 customer có thể dùng nhiều thiết bị)
 const connections = new Map();
 
+// tenant_id (khách thuê MiniHouse) → Set of sockets — mirror `connections` của customer_id ở trên,
+// TÁCH RIÊNG map để id khách thuê (số nguyên) không bao giờ đụng id khách Home (ULID).
+const tenantConnections = new Map();
+
 // ── WebSocket ────────────────────────────────────────────────────────────────
 io.on('connection', (socket) => {
     const customerId = socket.handshake.auth.customer_id;
+    const tenantId = socket.handshake.auth.tenant_id ? String(socket.handshake.auth.tenant_id) : null;
+
+    // Khách thuê MiniHouse đăng ký kênh cá nhân (nhận tin/badge chat kể cả khi CHƯA mở khung chat).
+    if (tenantId) {
+        if (!tenantConnections.has(tenantId)) {
+            tenantConnections.set(tenantId, new Set());
+        }
+        tenantConnections.get(tenantId).add(socket);
+        console.log(`[WS] Connected: tenant=${tenantId} total=${io.engine.clientsCount}`);
+    }
 
     // Authenticated: register for personal notifications
     if (customerId) {
@@ -192,6 +206,13 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
+        if (tenantId) {
+            const tenantSockets = tenantConnections.get(tenantId);
+            if (tenantSockets) {
+                tenantSockets.delete(socket);
+                if (tenantSockets.size === 0) tenantConnections.delete(tenantId);
+            }
+        }
         if (customerId) {
             const sockets = connections.get(customerId);
             if (sockets) {
@@ -487,6 +508,31 @@ app.post('/internal/mh-chat-read', (req, res) => {
     console.log(`[WS] MH Chat read: conv=${conversation_id} read_by=${read_by}`);
 
     return res.json({ ok: true });
+});
+
+// Báo riêng cho 1 khách thuê (mọi thiết bị đang kết nối) có tin chat mới/đã đọc — để app hiện badge
+// chưa đọc ở màn khác ngoài khung chat. Mirror /internal/notify của khách Home (customer_id).
+app.post('/internal/mh-chat-tenant-notify', (req, res) => {
+    const key = req.headers['x-internal-key'];
+    if (key !== INTERNAL_KEY) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const { tenant_id, payload } = req.body;
+    if (!tenant_id || !payload) {
+        return res.status(422).json({ error: 'Missing tenant_id or payload' });
+    }
+
+    const sockets = tenantConnections.get(String(tenant_id));
+
+    if (sockets && sockets.size > 0) {
+        sockets.forEach((socket) => socket.emit('mhchat.notify', payload));
+        console.log(`[WS] MH Chat notify: tenant=${tenant_id} (${sockets.size} socket(s))`);
+    } else {
+        console.log(`[WS] MH Chat notify: tenant=${tenant_id} not connected — skipped`);
+    }
+
+    return res.json({ ok: true, delivered: sockets ? sockets.size : 0 });
 });
 
 // ── Admin notification — báo "có thông báo mới", client tự gọi lại REST API để lấy nội dung ──

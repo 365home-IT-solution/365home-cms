@@ -45,7 +45,14 @@ class Room extends Product
     // tự suy nhầm thành bảng "rooms" (số nhiều của "Room") thay vì "products".
     protected $table = 'products';
 
-    protected $fillable = ['building_id', 'code', 'floor', 'position_row', 'position_col', 'area', 'price', 'status', 'note', 'photos'];
+    protected $fillable = [
+        'building_id', 'code', 'floor', 'position_row', 'position_col', 'area', 'price', 'status', 'note', 'photos',
+        // Cột THẬT có sẵn trên products (không cần accessor/mutator riêng, dùng thẳng như Product) —
+        // PHẢI khai báo lại ở đây vì $fillable của Room hẹp hơn Product, không tự "kế thừa" được field
+        // nào ngoài danh sách này cho mass-assignment (Room::create()/update() sẽ ÂM THẦM bỏ qua các
+        // field không có mặt ở đây, không lỗi, không warning).
+        'slug', 'address', 'latitude', 'longitude', 'map_url', 'hotline', 'setting_video_room',
+    ];
 
     protected $appends = ['code', 'area', 'note', 'floor', 'position_row', 'position_col', 'status', 'photos'];
 
@@ -133,8 +140,24 @@ class Room extends Product
         $this->pendingDetail['status'] = $value;
     }
 
+    // Ảnh nhập qua form (MediaManagerInput, collection "Ảnh bìa" rồi "Thư viện" — giống Home) là NGUỒN
+    // CHÍNH, trả về URL đầy đủ, ảnh bìa đứng đầu để mọi nơi đang lấy photos[0] làm ảnh đại diện vẫn
+    // đúng. Phòng chưa có ảnh nào trong thư viện thì rơi về danh sách đường dẫn cũ lưu ở
+    // minihouse_room_details.photos (dữ liệu tạo trước khi đổi bộ chọn ảnh).
     public function getPhotosAttribute(): ?array
     {
+        if ($this->exists) {
+            $urls = $this->getMedia('Ảnh bìa')
+                ->concat($this->getMedia('Thư viện'))
+                ->map(fn ($media) => $media->getUrl())
+                ->values()
+                ->all();
+
+            if ($urls !== []) {
+                return $urls;
+            }
+        }
+
         return $this->detailValue('photos');
     }
 
@@ -206,7 +229,9 @@ class Room extends Product
         });
     }
 
-    private static function generateUniqueSlug(string $base): string
+    // Public — dùng chung với RoomForm (Filament) để tự gợi ý slug ngay khi nhân viên gõ Mã/Tên
+    // phòng, không đợi tới lúc lưu mới biết slug là gì.
+    public static function generateUniqueSlug(string $base): string
     {
         $slug = 'mh-' . Str::slug($base);
         $i    = 1;
