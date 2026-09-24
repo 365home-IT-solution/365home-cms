@@ -10,6 +10,7 @@ use App\Models\CustomerCheckinDay;
 use App\Models\MembershipTier;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Điểm danh hằng ngày để đủ điều kiện nhận mã khuyến mãi định kỳ của hạng thành viên (xem
@@ -32,31 +33,82 @@ class CustomerCheckinService
             return null;
         }
 
-        $active = CustomerCheckinCycle::where('customer_id', $customer->id)
-            ->whereNull('completed_at')
-            ->latest('id')
-            ->first();
+        // Khoá theo khách để 2 request song song (GET + POST lúc mở app) không cùng đóng chu kỳ
+        // đứt rồi tạo 2 chu kỳ mới.
+        return DB::transaction(function () use ($customer, $tier) {
+            Customer::whereKey($customer->id)->lockForUpdate()->first();
 
-        if ($active) {
-            return $active;
-        }
+            $today = Carbon::today();
 
-        // Nếu chu kỳ trước vừa hoàn thành NGAY HÔM NAY (khách vừa tick đủ ngày), hôm nay đã bị
-        // "dùng" cho chu kỳ cũ (unique customer_id+checkin_date chặn tick lại) — chu kỳ mới phải
-        // bắt đầu từ ngày mai, không thì lịch hiển thị sai (tưởng hôm nay còn trống nhưng thực ra
-        // không tick được nữa).
-        $cycleStart = Carbon::today();
-        if (CustomerCheckinDay::where('customer_id', $customer->id)->whereDate('checkin_date', $cycleStart)->exists()) {
-            $cycleStart = $cycleStart->copy()->addDay();
-        }
+            $active = CustomerCheckinCycle::where('customer_id', $customer->id)
+                ->whereNull('completed_at')
+                ->whereNull('broken_at')
+                ->latest('id')
+                ->first();
 
-        return CustomerCheckinCycle::create([
-            'customer_id'         => $customer->id,
-            'membership_tier_id'  => $tier->id,
-            'days_required'       => max(1, (int) $tier->auto_issue_interval_days),
-            'cycle_start_date'    => $cycleStart,
-            'days_checked'        => 0,
-        ]);
+            if ($active && ! $this->isStreakBroken($active, $today)) {
+                return $active;
+            }
+
+            // Chu kỳ chưa tick lượt nào (khách chỉ mở app xem lịch) thì dời ngày bắt đầu về hôm
+            // nay, không đánh dấu đứt — tránh sinh 1 chu kỳ rỗng mỗi ngày khách mở app mà không tick.
+            if ($active && $active->days_checked === 0) {
+                $active->update(['cycle_start_date' => $today]);
+
+                return $active;
+            }
+
+            if ($active) {
+                $active->update(['broken_at' => now()]);
+            }
+
+            $cycle = CustomerCheckinCycle::create([
+                'customer_id'         => $customer->id,
+                'membership_tier_id'  => $tier->id,
+                'days_required'       => max(1, (int) $tier->auto_issue_interval_days),
+                'cycle_start_date'    => $today,
+                'days_checked'        => 0,
+            ]);
+
+            $todayCheckin = CustomerCheckinDay::where('customer_id', $customer->id)
+                ->whereDate('checkin_date', $today)
+                ->with('cycle')
+                ->first();
+
+            if (! $todayCheckin) {
+                return $cycle;
+            }
+
+            // Nếu chu kỳ trước vừa hoàn thành NGAY HÔM NAY (khách vừa tick đủ ngày), hôm nay đã bị
+            // "dùng" cho chu kỳ cũ (unique customer_id+checkin_date chặn tick lại) — chu kỳ mới phải
+            // bắt đầu từ ngày mai, không thì lịch hiển thị sai (tưởng hôm nay còn trống nhưng thực ra
+            // không tick được nữa).
+            if ($todayCheckin->cycle?->isCompleted()) {
+                $cycle->update(['cycle_start_date' => $today->copy()->addDay()]);
+
+                return $cycle;
+            }
+
+            // Dữ liệu cũ (trước khi có luật đứt chuỗi): hôm nay đã tick vào 1 chu kỳ quá hạn —
+            // chuyển lượt đó sang chu kỳ mới làm Ngày 1 để khách không mất lượt hôm nay.
+            $todayCheckin->cycle?->decrement('days_checked');
+            $todayCheckin->update(['customer_checkin_cycle_id' => $cycle->id]);
+            $cycle->update(['days_checked' => 1]);
+
+            return $cycle;
+        });
+    }
+
+    /**
+     * Chuỗi điểm danh phải liên tục — ngày cần điểm danh tiếp theo luôn là cycle_start_date +
+     * days_checked. Hôm nay đã qua ngày đó nghĩa là khách bỏ lỡ ít nhất 1 ngày: chu kỳ đứt, không
+     * cho tick bù, lần kế tiếp làm lại từ Ngày 1.
+     */
+    private function isStreakBroken(CustomerCheckinCycle $cycle, CarbonInterface $today): bool
+    {
+        $nextDue = $cycle->cycle_start_date->copy()->addDays($cycle->days_checked);
+
+        return $today->greaterThan($nextDue);
     }
 
     /**
@@ -100,11 +152,12 @@ class CustomerCheckinService
 
     /**
      * Tick bù 1 ngày cho khách từ trang admin (CustomerCheckinResource) — dùng khi khách báo lỗi
-     * không điểm danh được. Cho phép chỉ định ngày (mặc định hôm nay).
+     * không điểm danh được. Chỉ tick được hôm nay: chuỗi phải liên tục, ngày đã lỡ không tick bù
+     * được (xem isStreakBroken()).
      */
-    public function adminCheckin(Customer $customer, ?CarbonInterface $date = null): array
+    public function adminCheckin(Customer $customer): array
     {
-        $date  = $date ?: Carbon::today();
+        $date  = Carbon::today();
         $cycle = $this->getOrCreateActiveCycle($customer);
 
         if (! $cycle) {

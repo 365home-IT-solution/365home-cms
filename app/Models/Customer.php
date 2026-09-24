@@ -168,6 +168,7 @@ class Customer extends Authenticatable
     {
         return $this->hasOne(CustomerCheckinCycle::class, 'customer_id')
             ->whereNull('completed_at')
+            ->whereNull('broken_at')
             ->latestOfMany();
     }
 }

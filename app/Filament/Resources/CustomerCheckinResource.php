@@ -12,7 +12,6 @@ use Filament\Resources\Resource;
 use Filament\Tables\Actions\Action;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
-use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 
 class CustomerCheckinResource extends Resource
@@ -80,8 +79,16 @@ class CustomerCheckinResource extends Resource
                 TextColumn::make('status')
                     ->label('Trạng thái')
                     ->badge()
-                    ->state(fn (CustomerCheckinCycle $record) => $record->isCompleted() ? 'Hoàn thành' : 'Đang điểm danh')
-                    ->color(fn (string $state) => $state === 'Hoàn thành' ? 'success' : 'warning'),
+                    ->state(fn (CustomerCheckinCycle $record) => match (true) {
+                        $record->isCompleted() => 'Hoàn thành',
+                        $record->isBroken()    => 'Đứt chuỗi',
+                        default                => 'Đang điểm danh',
+                    })
+                    ->color(fn (string $state) => match ($state) {
+                        'Hoàn thành' => 'success',
+                        'Đứt chuỗi'  => 'gray',
+                        default      => 'warning',
+                    }),
 
                 TextColumn::make('created_at')
                     ->label('Tạo lúc')
@@ -94,15 +101,19 @@ class CustomerCheckinResource extends Resource
                     ->label('Hạng')
                     ->options(fn () => MembershipTier::pluck('name', 'id')),
 
-                TernaryFilter::make('completed')
+                SelectFilter::make('status')
                     ->label('Trạng thái')
-                    ->placeholder('Tất cả')
-                    ->trueLabel('Hoàn thành')
-                    ->falseLabel('Đang điểm danh')
-                    ->queries(
-                        true: fn ($query) => $query->whereNotNull('completed_at'),
-                        false: fn ($query) => $query->whereNull('completed_at'),
-                    ),
+                    ->options([
+                        'active'    => 'Đang điểm danh',
+                        'completed' => 'Hoàn thành',
+                        'broken'    => 'Đứt chuỗi',
+                    ])
+                    ->query(fn ($query, array $data) => match ($data['value'] ?? null) {
+                        'active'    => $query->whereNull('completed_at')->whereNull('broken_at'),
+                        'completed' => $query->whereNotNull('completed_at'),
+                        'broken'    => $query->whereNotNull('broken_at'),
+                        default     => $query,
+                    }),
             ])
             ->defaultSort('created_at', 'desc')
             ->actions([
@@ -111,6 +122,7 @@ class CustomerCheckinResource extends Resource
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
                     ->visible(fn (CustomerCheckinCycle $record) => ! $record->isCompleted()
+                        && ! $record->isBroken()
                         && auth()->user()?->can('update_customer::checkin'))
                     ->requiresConfirmation()
                     ->modalDescription('Tick 1 ngày điểm danh hôm nay thay cho khách này?')

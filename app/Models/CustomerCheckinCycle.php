@@ -21,6 +21,7 @@ class CustomerCheckinCycle extends Model
         'cycle_start_date',
         'days_checked',
         'completed_at',
+        'broken_at',
         'coupon_id',
     ];
 
@@ -29,6 +30,7 @@ class CustomerCheckinCycle extends Model
         'days_required'    => 'integer',
         'days_checked'     => 'integer',
         'completed_at'     => 'datetime',
+        'broken_at'        => 'datetime',
     ];
 
     public function customer(): BelongsTo
@@ -54,5 +56,10 @@ class CustomerCheckinCycle extends Model
     public function isCompleted(): bool
     {
         return $this->completed_at !== null;
+    }
+
+    public function isBroken(): bool
+    {
+        return $this->broken_at !== null;
     }
 }
