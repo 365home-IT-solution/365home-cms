@@ -30,12 +30,17 @@ class HomeController extends Controller
             ? (int) $request->query('tab')
             : null;
 
-        $page = $this->resolveTabPage($tabRoomTypeId)
-            ?? AppPage::where('slug', 'home')->where('is_active', true)->first();
+        $tabPage = $this->resolveTabPage($tabRoomTypeId);
+        $page    = $tabPage ?? AppPage::where('slug', 'home')->where('is_active', true)->first();
 
         if (! $page) {
             return response()->json(['message' => 'Home page not found.'], 404);
         }
+
+        // Trang riêng của loại hình (home-minihouse...) do admin tự chọn phòng/chi nhánh cho đúng
+        // loại hình đó → không lọc room_type_id nữa (phòng MiniHouse dài hạn mang loại "minihouse",
+        // khác id của tab "mini_house", lọc sẽ loại sạch). Chỉ trang "home" dùng chung mới lọc theo tab.
+        $filterRoomTypeId = $tabPage ? null : $tabRoomTypeId;
 
         $province = $this->resolveProvince($request);
 
@@ -52,7 +57,7 @@ class HomeController extends Controller
         $sections = collect($page->content ?? [])
             ->filter(fn ($block) => in_array($block['type'] ?? '', ['banner', 'room_list', 'suggestion_list', 'promotion_list']))
             ->values()
-            ->map(fn ($block, $index) => $this->buildBlock($block, $index, $wishlistedIds, $tabRoomTypeId, $province))
+            ->map(fn ($block, $index) => $this->buildBlock($block, $index, $wishlistedIds, $filterRoomTypeId, $province))
             ->filter()
             // Đang lọc theo loại hình: khối danh sách phòng nào không còn phòng nào thuộc loại hình
             // đó (vd. chi nhánh chỉ có homestay khi tab=Khách sạn) thì bỏ luôn, tránh FE hiện một
@@ -183,17 +188,19 @@ class HomeController extends Controller
     private function buildRoomList(array $data, int $index, ?array $wishlistedIds, ?int $tabRoomTypeId, ?Province $province = null): ?array
     {
         $displayMode = $data['display_mode'] ?? 'fixed';
-        // Chỉ có ý nghĩa khi display_mode=by_region — fixed luôn là danh sách phòng.
-        $contentType = $displayMode === 'by_region' ? ($data['region_content_type'] ?? 'rooms') : 'rooms';
+        // rooms | branches — áp dụng cho cả fixed (chi nhánh đã chọn) lẫn by_region (chi nhánh của khu vực).
+        $contentType = ($data['region_content_type'] ?? 'rooms') === 'branches' ? 'branches' : 'rooms';
 
         // by_region: ẩn section khi chưa có khu vực
         if ($displayMode === 'by_region' && $province === null) {
             return null;
         }
 
-        $items = $contentType === 'branches'
-            ? $this->getRegionBranches($province)
-            : $this->getRooms($data, $displayMode, $wishlistedIds, $tabRoomTypeId, $province);
+        $items = match (true) {
+            $contentType === 'rooms'       => $this->getRooms($data, $displayMode, $wishlistedIds, $tabRoomTypeId, $province),
+            $displayMode === 'by_region'   => $this->getRegionBranches($province),
+            default                        => $this->getFixedBranches($data),
+        };
 
         // by_region: ẩn section khi khu vực không có phòng/chi nhánh
         if ($displayMode === 'by_region' && empty($items)) {
@@ -244,6 +251,37 @@ class HomeController extends Controller
             ->toArray();
     }
 
+    // Chi nhánh cố định — display_mode=fixed && region_content_type=branches: các chi nhánh admin
+    // đã chọn (giữ đúng thứ tự chọn), để trống = mọi chi nhánh đang bật. Cùng shape với
+    // getRegionBranches() để app dùng chung component card chi nhánh.
+    private function getFixedBranches(array $data): array
+    {
+        $branchIds = array_values(array_filter((array) ($data['branch_ids'] ?? [])));
+
+        $query = Category::whereNull('parent_id')
+            ->where('category_type', 'product')
+            ->where('status', true);
+
+        $categories = empty($branchIds)
+            ? $query->orderBy('sort_order')->get()
+            : $query->whereIn('id', $branchIds)->get()
+                ->sortBy(fn ($category) => array_search($category->id, $branchIds))
+                ->values();
+
+        return $categories
+            ->map(fn ($category) => [
+                'id'        => $category->id,
+                'name'      => $category->name,
+                'slug'      => $category->slug,
+                'image_url' => $category->image
+                    ? Storage::disk('public')->url($category->image)
+                    : null,
+                'thumbnail' => $category->thumbnail,
+            ])
+            ->values()
+            ->toArray();
+    }
+
     // "Xem tất cả" của 1 khối phòng nên đưa thẳng người dùng đến đúng phạm vi phòng mà khối đó
     // đang hiển thị: theo khu vực (tỉnh đang chọn) hoặc theo (các) chi nhánh cụ thể đã cấu hình —
     // thay vì luôn trỏ về trang tìm kiếm chung chung không có bộ lọc.
@@ -289,13 +327,40 @@ class HomeController extends Controller
         return $rooms;
     }
 
+    // Trang App là nội dung admin tự tuyển chọn → khi admin CHỦ ĐỘNG chọn phòng/chi nhánh cụ thể thì
+    // cho phép cả phòng MiniHouse (thuê dài hạn) mà Product mặc định loại ra bằng global scope
+    // 'exclude_minihouse' (xem Product::booted()). Khối "tất cả phòng" không chọn gì vẫn giữ scope,
+    // để phòng dài hạn không tự lọt vào các danh sách chung. Bỏ scope thì phải tự lọc deleted_at:
+    // Room (MiniHouse) xoá mềm trên cùng bảng products, còn Product không dùng SoftDeletes.
+    private function roomQuery(bool $includeMinihouse): \Illuminate\Database\Eloquent\Builder
+    {
+        if (! $includeMinihouse) {
+            return Product::query();
+        }
+
+        $query = Product::withoutGlobalScope('exclude_minihouse');
+
+        return $query->whereNull($query->qualifyColumn('deleted_at'));
+    }
+
+    // Phòng Home gắn chi nhánh qua bảng categorizables; phòng MiniHouse gắn toà nhà (cũng là 1 dòng
+    // categories) qua cột products.building_id — phải khớp cả 2 thì chọn toà nhà MiniHouse mới ra phòng.
+    private function whereInBranches(\Illuminate\Database\Eloquent\Builder $query, array $categoryIds): void
+    {
+        $query->where(fn ($q) => $q
+            ->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $categoryIds))
+            ->orWhereIn($q->qualifyColumn('building_id'), $categoryIds));
+    }
+
     private function fetchRooms(array $data, string $displayMode, ?int $tabRoomTypeId, ?Province $province = null): array
     {
         $productIds = $data['product_ids'] ?? [];
+        $branchIds  = array_filter((array) ($data['branch_ids'] ?? []));
 
         if (! empty($productIds)) {
             // Phòng được chọn tay — fixed: lấy hết; by_region: lọc theo tỉnh
-            $query = Product::whereIn('id', $productIds)
+            $query = $this->roomQuery(true)
+                ->whereIn('id', $productIds)
                 ->where('is_activated', true)
                 ->where('is_in_stock', true)
                 ->activeBranch();
@@ -309,17 +374,16 @@ class HomeController extends Controller
                 if (! empty($provinceBranchIds)) {
                     $childIds  = Category::whereIn('parent_id', $provinceBranchIds)->pluck('id');
                     $filterIds = collect($provinceBranchIds)->merge($childIds)->unique()->values();
-                    $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
+                    $this->whereInBranches($query, $filterIds->all());
                 } else {
                     $query->whereRaw('1 = 0');
                 }
             }
         } else {
-            $query = Product::where('is_activated', true)
+            $query = $this->roomQuery(! empty($branchIds))
+                ->where('is_activated', true)
                 ->where('is_in_stock', true)
                 ->activeBranch();
-
-            $branchIds = array_filter((array) ($data['branch_ids'] ?? []));
 
             if ($displayMode === 'by_region' && $province !== null) {
                 $provinceBranchIds = $province->branches()
@@ -334,7 +398,7 @@ class HomeController extends Controller
                 if (! empty($effectiveBranchIds)) {
                     $childIds  = Category::whereIn('parent_id', $effectiveBranchIds)->pluck('id');
                     $filterIds = collect($effectiveBranchIds)->merge($childIds)->unique()->values();
-                    $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
+                    $this->whereInBranches($query, $filterIds->all());
                 } else {
                     $query->whereRaw('1 = 0');
                 }
@@ -342,7 +406,7 @@ class HomeController extends Controller
                 // fixed + branch_ids: lọc theo branch được chọn
                 $childIds  = Category::whereIn('parent_id', $branchIds)->pluck('id');
                 $filterIds = collect($branchIds)->merge($childIds)->unique()->values();
-                $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
+                $this->whereInBranches($query, $filterIds->all());
             }
 
             if ($displayMode !== 'by_region') {

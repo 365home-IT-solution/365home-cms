@@ -147,17 +147,18 @@ class AppPageForm
                                 ->helperText('Cố định: hiển thị tất cả phòng đã chọn. Theo khu vực: ẩn section khi guest/user chưa chọn khu vực hoặc khu vực đó không có phòng.')
                                 ->columnSpanFull(),
 
+                            // Giữ key 'region_content_type' để các block đã lưu không phải migrate dữ liệu.
                             Select::make('region_content_type')
-                                ->label('Nội dung hiển thị theo khu vực')
+                                ->label('Nội dung hiển thị')
                                 ->options([
-                                    'rooms'    => 'Phòng',
-                                    'branches' => 'Chi nhánh',
+                                    'rooms'    => 'Hiển thị phòng',
+                                    'branches' => 'Hiển thị chi nhánh',
                                 ])
                                 ->default('rooms')
                                 ->required()
-                                ->helperText('Phòng: danh sách phòng của khu vực (như hiện tại). Chi nhánh: danh sách chi nhánh của khu vực.')
-                                ->columnSpanFull()
-                                ->visible(fn (Get $get) => ($get('display_mode') ?? 'fixed') === 'by_region'),
+                                ->live()
+                                ->helperText('Cố định: phòng/chi nhánh đã chọn bên dưới (để trống = tất cả). Theo khu vực: phòng/chi nhánh của khu vực đang chọn.')
+                                ->columnSpanFull(),
 
                             Select::make('branch_ids')
                                 ->label('Chọn chi nhánh')
@@ -179,23 +180,42 @@ class AppPageForm
                                 ->multiple()
                                 ->searchable()
                                 ->options(function (Get $get) {
-                                    $query = Product::where('is_activated', true);
+                                    // Gồm cả phòng MiniHouse (thuê dài hạn) — Product mặc định loại chúng bằng
+                                    // global scope 'exclude_minihouse', nhưng Trang App là nội dung admin tự
+                                    // tuyển chọn nên được phép chọn (API HomeController cũng bỏ scope này khi
+                                    // admin chọn phòng/chi nhánh cụ thể). Room MiniHouse xoá mềm trên cùng bảng.
+                                    $query = Product::withoutGlobalScope('exclude_minihouse')
+                                        ->whereNull((new Product)->qualifyColumn('deleted_at'))
+                                        ->where('is_activated', true);
 
                                     $branchIds = array_filter((array) ($get('branch_ids') ?? []));
                                     if (! empty($branchIds)) {
                                         $childIds  = Category::whereIn('parent_id', $branchIds)->pluck('id');
                                         $filterIds = collect($branchIds)->merge($childIds)->unique()->values();
 
-                                        $query->whereHas(
-                                            'categories',
-                                            fn ($cq) => $cq->whereIn('category_id', $filterIds)
-                                        );
+                                        // Phòng Home gắn chi nhánh qua categorizables, phòng MiniHouse gắn toà
+                                        // nhà qua products.building_id.
+                                        $query->where(fn ($q) => $q
+                                            ->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds))
+                                            ->orWhereIn($q->qualifyColumn('building_id'), $filterIds));
                                     }
 
-                                    return $query->orderBy('name')->pluck('name', 'id')->toArray();
+                                    // Kèm tên loại hình để admin dễ chọn đúng phòng khi dựng trang riêng
+                                    // theo loại hình (home-minihouse, home-hotel...).
+                                    return $query->with('roomType:id,name')
+                                        ->orderBy('name')
+                                        ->get(['id', 'name', 'room_type_id'])
+                                        ->mapWithKeys(fn (Product $room) => [
+                                            $room->id => $room->roomType
+                                                ? "{$room->name} — {$room->roomType->name}"
+                                                : $room->name,
+                                        ])
+                                        ->toArray();
                                 })
                                 ->placeholder('Để trống để hiển thị tất cả phòng...')
-                                ->hidden(fn (Get $get) => ($get('display_mode') ?? 'fixed') === 'by_region'),
+                                // Theo khu vực vẫn dùng được phòng chọn tay (API lọc chúng theo tỉnh đang
+                                // chọn) — chỉ ẩn khi khối hiển thị danh sách chi nhánh thay vì phòng.
+                                ->hidden(fn (Get $get) => ($get('region_content_type') ?? 'rooms') === 'branches'),
                         ]),
 
                     Builder\Block::make('suggestion_list')
