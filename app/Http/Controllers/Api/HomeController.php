@@ -26,17 +26,16 @@ class HomeController extends Controller
 
     public function __invoke(Request $request): JsonResponse
     {
-        $page = AppPage::where('slug', 'home')
-            ->where('is_active', true)
-            ->first();
+        $tabRoomTypeId = $request->query('tab') !== null
+            ? (int) $request->query('tab')
+            : null;
+
+        $page = $this->resolveTabPage($tabRoomTypeId)
+            ?? AppPage::where('slug', 'home')->where('is_active', true)->first();
 
         if (! $page) {
             return response()->json(['message' => 'Home page not found.'], 404);
         }
-
-        $tabRoomTypeId = $request->query('tab') !== null
-            ? (int) $request->query('tab')
-            : null;
 
         $province = $this->resolveProvince($request);
 
@@ -55,6 +54,12 @@ class HomeController extends Controller
             ->values()
             ->map(fn ($block, $index) => $this->buildBlock($block, $index, $wishlistedIds, $tabRoomTypeId, $province))
             ->filter()
+            // Đang lọc theo loại hình: khối danh sách phòng nào không còn phòng nào thuộc loại hình
+            // đó (vd. chi nhánh chỉ có homestay khi tab=Khách sạn) thì bỏ luôn, tránh FE hiện một
+            // loạt tiêu đề "Danh sách phòng - ..." trống.
+            ->reject(fn ($section) => $tabRoomTypeId !== null
+                && $section['type'] === 'room_list'
+                && empty($section['rooms']))
             ->values();
 
         // Lịch đặt phòng trực tuyến (component riêng, không nằm trong $sections — luôn render
@@ -88,10 +93,40 @@ class HomeController extends Controller
 
         return response()->json([
             'home' => [
+                'page'       => $page->slug,
                 'room_types' => $roomTypes,
                 'sections'   => $sections,
             ],
         ]);
+    }
+
+    // Trang CMS riêng cho từng loại hình (?tab={room_type_id}) — admin tạo AppPage slug
+    // "home-{slug loại hình}"; chấp nhận cả biến thể gạch dưới/gạch ngang/viết liền vì slug loại hình
+    // dạng "mini_house" dễ bị gõ thành "home-mini-house" hoặc "home-minihouse". Không có trang
+    // riêng → null để dùng lại trang "home" (lọc phòng theo loại hình như trước).
+    private function resolveTabPage(?int $tabRoomTypeId): ?AppPage
+    {
+        if ($tabRoomTypeId === null) {
+            return null;
+        }
+
+        $roomTypeSlug = RoomType::where('is_active', true)->whereKey($tabRoomTypeId)->value('slug');
+
+        if (! $roomTypeSlug) {
+            return null;
+        }
+
+        $candidates = collect([
+            $roomTypeSlug,
+            str_replace('_', '-', $roomTypeSlug),
+            str_replace(['_', '-'], '', $roomTypeSlug),
+        ])->map(fn ($slug) => 'home-' . $slug)->unique()->values();
+
+        return AppPage::whereIn('slug', $candidates)
+            ->where('is_active', true)
+            ->get()
+            ->sortBy(fn (AppPage $page) => $candidates->search($page->slug))
+            ->first();
     }
 
     private function buildBlock(array $block, int $index, ?array $wishlistedIds, ?int $tabRoomTypeId, ?Province $province = null): ?array
