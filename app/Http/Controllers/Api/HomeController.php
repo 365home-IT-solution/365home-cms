@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Concerns\BuildsRoomCard;
 use App\Http\Concerns\ResolvesProvince;
 use App\Models\Province;
+use App\Services\MinihouseRoomSearchService;
 use App\Support\ImagePresetUrls;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -35,6 +36,12 @@ class HomeController extends Controller
 
         if (! $page) {
             return response()->json(['message' => 'Home page not found.'], 404);
+        }
+
+        // Tab MiniHouse → dữ liệu phòng MiniHouse (thuê dài hạn) CÒN TRỐNG thay vì lọc phòng ngắn
+        // hạn theo room_type_id (tab "mini_house" id 3 gần như không có phòng ngắn hạn nào).
+        if (MinihouseRoomSearchService::isMinihouseRoomType($tabRoomTypeId)) {
+            return $this->minihouseHome($request, $page);
         }
 
         // Trang riêng của loại hình (home-minihouse...) do admin tự chọn phòng/chi nhánh cho đúng
@@ -100,6 +107,89 @@ class HomeController extends Controller
             'home' => [
                 'page'       => $page->slug,
                 'room_types' => $roomTypes,
+                'sections'   => $sections,
+            ],
+        ]);
+    }
+
+    // ─── Tab MiniHouse ───────────────────────────────────────────────────────
+    // Giữ banner của trang CMS, thay các khối phòng bằng 2 khối sinh tự động từ phòng MiniHouse còn
+    // trống: "gần bạn" (theo ?lat=&lng=[&radius=], không có thì theo tỉnh — xem
+    // MinihouseRoomSearchService::nearby()) và "phòng trống mới nhất". Cùng shape room_list với
+    // trang home thường để app dùng lại component; "Xem tất cả" trỏ tới API danh sách
+    // (view_all_api) vì web chưa có trang danh sách MiniHouse.
+    private function minihouseHome(Request $request, AppPage $page): JsonResponse
+    {
+        $validated = $request->validate([
+            'lat'    => ['nullable', 'numeric', 'between:-90,90', 'required_with:lng'],
+            'lng'    => ['nullable', 'numeric', 'between:-180,180', 'required_with:lat'],
+            'radius' => ['nullable', 'numeric', 'min:0.1', 'max:100'],
+        ]);
+
+        $service  = app(MinihouseRoomSearchService::class);
+        $authUser = auth('sanctum')->user();
+        $lat      = isset($validated['lat']) ? (float) $validated['lat'] : null;
+        $lng      = isset($validated['lng']) ? (float) $validated['lng'] : null;
+        $radius   = (float) ($validated['radius'] ?? MinihouseRoomSearchService::DEFAULT_NEARBY_RADIUS_KM);
+        $province = $this->resolveProvince($request);
+        $hasGeo   = $lat !== null && $lng !== null;
+
+        $sections = collect($page->content ?? [])
+            ->filter(fn ($block) => ($block['type'] ?? '') === 'banner')
+            ->values()
+            ->map(fn ($block, $index) => $this->buildBanner($block['data'] ?? [], $index));
+
+        $nearbyQuery = array_filter([
+            'lat'         => $lat,
+            'lng'         => $lng,
+            'radius'      => $hasGeo ? $radius : null,
+            'province_id' => $province?->id,
+        ], fn ($v) => $v !== null);
+
+        $sections->push([
+            'type'         => 'room_list',
+            'title'        => 'MiniHouse gần bạn',
+            'subtitle'     => $hasGeo
+                ? 'Phòng còn trống trong bán kính ' . rtrim(rtrim(number_format($radius, 1, '.', ''), '0'), '.') . ' km'
+                : ($province ? 'Phòng còn trống tại ' . $province->name : null),
+            'message'      => $hasGeo || $province ? null : 'Vui lòng bật định vị để xem phòng gần bạn',
+            'view_all_url' => null,
+            'view_all_api' => '/api/v1/minihouse/rooms' . ($nearbyQuery ? '?' . http_build_query($nearbyQuery) : ''),
+            'show_arrow'   => true,
+            'layout'       => 'horizontal_scroll',
+            'display_mode' => 'nearby',
+            'content_type' => 'rooms',
+            'rooms'        => $service->nearby($lat, $lng, $province, $radius, 10, $authUser),
+        ]);
+
+        $sections->push([
+            'type'         => 'room_list',
+            'title'        => 'Phòng MiniHouse còn trống',
+            'subtitle'     => 'Thuê theo tháng, dọn vào ở ngay',
+            'view_all_url' => null,
+            'view_all_api' => '/api/v1/minihouse/rooms',
+            'show_arrow'   => true,
+            'layout'       => 'vertical',
+            'display_mode' => 'latest',
+            'content_type' => 'rooms',
+            'rooms'        => $service->latest(10, $authUser),
+        ]);
+
+        $sections = $sections->values()->map(function ($section, $i) {
+            $section['id']         = $i + 1;
+            $section['sort_order'] = $i + 1;
+
+            return $section;
+        });
+
+        return response()->json([
+            'home' => [
+                'page'       => $page->slug,
+                'mode'       => 'minihouse',
+                'room_types' => RoomType::where('is_active', true)
+                    ->orderBy('sort_order')
+                    ->get(['id', 'slug', 'name', 'icon', 'icon_url'])
+                    ->toArray(),
                 'sections'   => $sections,
             ],
         ]);

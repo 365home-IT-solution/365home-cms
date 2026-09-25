@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Concerns\ResolvesProvince;
+use App\Services\MinihouseRoomSearchService;
 use App\Services\RoomSearchService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -222,8 +223,19 @@ class SearchController extends Controller
     // Không có "q" (đã ở 1 khu vực/chi nhánh cụ thể, vd lịch đặt phòng theo tháng) → giữ
     // nguyên hành vi cũ, trả về danh sách PHÒNG (RoomSearchService::search()).
 
-    public function index(Request $request, RoomSearchService $searchService): JsonResponse
+    public function index(Request $request, RoomSearchService $searchService, MinihouseRoomSearchService $minihouseSearch): JsonResponse
     {
+        // Đang ở tab MiniHouse (?tab={room_type_id}) hoặc chọn loại hình MiniHouse (?type=) → tìm
+        // trong phòng MiniHouse còn trống (thuê dài hạn) thay vì phòng ngắn hạn — RoomSearchService
+        // không bao giờ ra phòng MiniHouse (global scope 'exclude_minihouse' của Product).
+        if (MinihouseRoomSearchService::isMinihouseRoomType($request->query('tab'))
+            || MinihouseRoomSearchService::isMinihouseRoomType($request->query('type'))) {
+            return response()->json($minihouseSearch->search(
+                $request->except(['tab', 'type']),
+                auth('sanctum')->user(),
+            ));
+        }
+
         $hasKeyword = trim((string) $request->query('q', '')) !== '';
 
         $result = $hasKeyword

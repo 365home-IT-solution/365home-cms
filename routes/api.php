@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\OrderServiceController;
 use App\Http\Controllers\Api\AskUserController;
 use App\Http\Controllers\Api\HomeController;
+use App\Http\Controllers\Api\MinihouseRoomController;
 use App\Http\Controllers\Api\PopupController;
 use App\Http\Controllers\Api\ProvinceController;
 use App\Http\Controllers\Api\SearchController;
@@ -163,9 +164,25 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
     | Search
     | GET /api/v1/search/suggestions → Gợi ý điểm đến (màn nhập liệu)
     | GET /api/v1/search             → Kết quả tìm kiếm + marker bản đồ
+    |                                     (?tab={id MiniHouse} hoặc ?type=mini_house|minihouse →
+    |                                      tìm phòng MiniHouse còn trống, xem MinihouseRoomController)
     | GET /api/v1/search/locations   → Autocomplete địa điểm khi gõ
     |--------------------------------------------------------------------------
     */
+    /*
+    |--------------------------------------------------------------------------
+    | MiniHouse (thuê dài hạn) — phòng CÒN TRỐNG, chưa cho thuê
+    | GET /api/v1/minihouse/rooms          → Danh sách phân trang (q, lat/lng/radius, province_id,
+    |                                         building_id, giá, diện tích, amenity_ids[], sort)
+    | GET /api/v1/minihouse/rooms/nearby   → Phòng trống gần vị trí khách (?lat=&lng=&radius=&limit=)
+    | Xem App\Services\MinihouseRoomSearchService.
+    |--------------------------------------------------------------------------
+    */
+    Route::prefix('minihouse/rooms')->name('minihouse.rooms.')->middleware('throttle:public-api')->group(function () {
+        Route::get('/',      [MinihouseRoomController::class, 'index'])->name('index');
+        Route::get('nearby', [MinihouseRoomController::class, 'nearby'])->name('nearby');
+    });
+
     Route::prefix('search')->name('search.')->middleware('throttle:public-api')->group(function () {
         Route::get('suggestions', [SearchController::class, 'suggestions'])->name('suggestions');
         Route::get('locations',   [SearchController::class, 'locations'])->name('locations');
