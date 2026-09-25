@@ -23,7 +23,7 @@ class Camera extends Model
         // đó, nếu không sẽ làm gãy luồng thật Frigate đang chạy dù chỉ đang xoá 1 dòng tham chiếu.
         static::deleted(function (Camera $camera) {
             if (filled($camera->rtsp_url)) {
-                Go2RtcClient::forPartner($camera->partner_id)->deleteStream($camera->stream_key);
+                (new Go2RtcClient($camera->resolveCameraSettings()))->deleteStream($camera->stream_key);
             }
         });
     }
@@ -62,12 +62,21 @@ class Camera extends Model
         return $this->frigate_camera_name ?: $this->stream_key;
     }
 
-    // Tách riêng bước "tìm cấu hình server nào" khỏi phần dựng URL bên dưới — Modules\Minihouse\App\
-    // Models\Camera (kế thừa lớp này) override ĐÚNG method này để đổi sang lọc theo building_id thay
-    // vì partner_id (MiniHouse chỉ có 1 đối tác nội bộ cố định nên không lọc được theo đối tác như
-    // Home, xem Modules\Minihouse\App\Models\CameraSetting), phần dựng URL còn lại dùng chung nguyên vẹn.
+    // Tách riêng bước "tìm cấu hình server nào" khỏi phần dựng URL bên dưới. Modules\Minihouse\App\
+    // Models\Camera (kế thừa lớp này, dùng ở panel MiniHouse) override ĐÚNG method này — nhưng bản
+    // ghi camera của MiniHouse vẫn nằm CHUNG bảng "cameras" và có thể được lấy ra qua model GỐC này
+    // (VD App\Http\Controllers\Api\Admin\CameraController — API dùng chung cho mọi app admin, không
+    // phân biệt panel). Nếu chỉ override ở lớp con, đi qua API đó "ws_url"/"go2rtc_configured" của
+    // camera MiniHouse sẽ luôn sai (tự tìm nhầm sang App\Models\CameraSetting theo partner_id, trong
+    // khi MiniHouse LƯU CẤU HÌNH THEO building_id — xem Modules\Minihouse\App\Models\CameraSetting).
+    // Vá thẳng ở đây (bằng partner_id cố định của MiniHouse) để MỌI đường lấy dữ liệu — Filament lẫn
+    // API — đều resolve đúng, không phụ thuộc đã fetch qua class nào.
     protected function resolveCameraSettings(): CameraSetting
     {
+        if ($this->partner_id === \Modules\Minihouse\App\Support\HomestayBridge::PARTNER_ID) {
+            return \Modules\Minihouse\App\Models\CameraSetting::forBuilding((int) $this->branch_id);
+        }
+
         return CameraSetting::forPartner($this->partner_id);
     }
 
