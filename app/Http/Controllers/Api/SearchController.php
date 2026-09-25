@@ -22,7 +22,7 @@ class SearchController extends Controller
 
     // ─── GET /v1/search/suggestions ─────────────────────────────────────────
 
-    public function suggestions(): JsonResponse
+    public function suggestions(Request $request): JsonResponse
     {
         $nearby = [
             'id'          => 'nearby',
@@ -36,6 +36,28 @@ class SearchController extends Controller
             'latitude'    => null,
             'longitude'   => null,
         ];
+
+        // Tab MiniHouse → gợi ý các toà nhà còn phòng trống thay vì địa chỉ phòng ngắn hạn.
+        if (MinihouseRoomSearchService::isMinihouseRoomType($request->query('tab'))) {
+            $buildings = app(MinihouseRoomSearchService::class)
+                ->vacantBuildings(limit: 10)
+                ->values()
+                ->map(fn ($building, $index) => [
+                    'id'          => (string) ($index + 1),
+                    'name'        => $building->name,
+                    'description' => $building->vacant_room_count . ' phòng trống'
+                        . ($building->address ? ' · ' . $building->address : ''),
+                    'type'        => 'location',
+                    'icon'        => 'location-outline',
+                    'icon_color'  => '#4CAF50',
+                    'bg_color'    => '#E8F5E9',
+                    'query'       => $building->name,
+                    'latitude'    => $building->latitude ? (string) $building->latitude : null,
+                    'longitude'   => $building->longitude ? (string) $building->longitude : null,
+                ]);
+
+            return response()->json(['data' => collect([$nearby])->merge($buildings)->values()]);
+        }
 
         $locations = Product::where('is_activated', true)
             ->where('is_in_stock', true)
@@ -76,6 +98,33 @@ class SearchController extends Controller
             return response()->json([
                 'data' => [],
                 'meta' => ['province_name' => null, 'total' => 0],
+            ]);
+        }
+
+        // Tab MiniHouse → toà nhà của tỉnh còn phòng trống (room_count = số phòng trống), cùng
+        // shape với card chi nhánh homestay để app dùng lại component.
+        if (MinihouseRoomSearchService::isMinihouseRoomType($request->query('tab'))) {
+            $branches = app(MinihouseRoomSearchService::class)
+                ->vacantBuildings($province)
+                ->map(fn ($building) => [
+                    'id'            => $building->id,
+                    'name'          => $building->name,
+                    'slug'          => $building->slug,
+                    'location'      => $province->slug,
+                    'type_url_slug' => null,
+                    'image_url'     => $building->image ? Storage::disk('public')->url($building->image) : null,
+                    'thumbnail'     => $building->thumbnail,
+                    'room_count'    => (int) $building->vacant_room_count,
+                    'min_price'     => $building->min_price !== null ? (float) $building->min_price : null,
+                    'has_promotion' => false,
+                    'latitude'      => $building->latitude,
+                    'longitude'     => $building->longitude,
+                ])
+                ->values();
+
+            return response()->json([
+                'data' => $branches,
+                'meta' => ['province_name' => $province->name, 'total' => $branches->count()],
             ]);
         }
 
@@ -223,19 +272,10 @@ class SearchController extends Controller
     // Không có "q" (đã ở 1 khu vực/chi nhánh cụ thể, vd lịch đặt phòng theo tháng) → giữ
     // nguyên hành vi cũ, trả về danh sách PHÒNG (RoomSearchService::search()).
 
-    public function index(Request $request, RoomSearchService $searchService, MinihouseRoomSearchService $minihouseSearch): JsonResponse
+    // ?tab={room_type_id MiniHouse} (hoặc ?type=mini_house|minihouse) → cùng 2 luồng trên nhưng
+    // trên phòng MiniHouse CÒN TRỐNG, toà nhà đóng vai trò chi nhánh (xem RoomSearchService::baseQuery()).
+    public function index(Request $request, RoomSearchService $searchService): JsonResponse
     {
-        // Đang ở tab MiniHouse (?tab={room_type_id}) hoặc chọn loại hình MiniHouse (?type=) → tìm
-        // trong phòng MiniHouse còn trống (thuê dài hạn) thay vì phòng ngắn hạn — RoomSearchService
-        // không bao giờ ra phòng MiniHouse (global scope 'exclude_minihouse' của Product).
-        if (MinihouseRoomSearchService::isMinihouseRoomType($request->query('tab'))
-            || MinihouseRoomSearchService::isMinihouseRoomType($request->query('type'))) {
-            return response()->json($minihouseSearch->search(
-                $request->except(['tab', 'type']),
-                auth('sanctum')->user(),
-            ));
-        }
-
         $hasKeyword = trim((string) $request->query('q', '')) !== '';
 
         $result = $hasKeyword
@@ -253,6 +293,21 @@ class SearchController extends Controller
 
         if (strlen($q) < 2) {
             return response()->json(['data' => []]);
+        }
+
+        // Tab MiniHouse → toà nhà còn phòng trống khớp tên/địa chỉ/tỉnh/phường.
+        if (MinihouseRoomSearchService::isMinihouseRoomType($request->query('tab'))) {
+            $results = app(MinihouseRoomSearchService::class)
+                ->vacantBuildings(keyword: $q, limit: 10)
+                ->map(fn ($building) => [
+                    'name'      => $building->name . ($building->address ? ' - ' . $building->address : ''),
+                    'query'     => $building->name,
+                    'latitude'  => $building->latitude ? (string) $building->latitude : null,
+                    'longitude' => $building->longitude ? (string) $building->longitude : null,
+                ])
+                ->values();
+
+            return response()->json(['data' => $results]);
         }
 
         $results = Product::where('is_activated', true)

@@ -17,6 +17,8 @@ use Modules\Minihouse\App\Models\Building;
 use Modules\Minihouse\App\Models\BuildingSetting;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Room;
+use Modules\Minihouse\App\Models\RoomDetail;
+use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\RoomType;
 
 // Tìm/liệt kê PHÒNG MINIHOUSE CÒN TRỐNG (thuê dài hạn, chưa cho thuê) cho app/web khách — dùng
@@ -157,7 +159,6 @@ class MinihouseRoomSearchService
     public function vacantQuery(): Builder
     {
         return $this->whereVacant(Room::query()->select('products.*'))
-            ->whereHas('building', fn ($q) => $q->where('status', true))
             ->with(['building', 'detail', 'roomType:id,slug,name', 'media']);
     }
 
@@ -165,10 +166,25 @@ class MinihouseRoomSearchService
     // từ toà nhà (matchingBuildings()) để 2 nơi không lệch nhau.
     private function whereVacant(Builder $query): Builder
     {
+        return self::whereVacantRoom($query);
+    }
+
+    /**
+     * Điều kiện "phòng MiniHouse còn trống, chưa cho thuê" trên 1 truy vấn bảng products bất kỳ —
+     * Room::query() lẫn Product::withoutGlobalScope('exclude_minihouse') (luồng tìm kiếm homestay
+     * dùng lại qua ?tab=, xem RoomSearchService::baseQuery()). Chỉ dùng subquery theo id, không cần
+     * quan hệ riêng của Room (detail/contracts/building) nên áp được cho cả Product.
+     */
+    public static function whereVacantRoom(Builder $query): Builder
+    {
+        $table = $query->getModel()->getTable();
+
         return $query
-            ->available()
-            ->where('products.is_activated', true)
-            ->whereDoesntHave('contracts', fn ($q) => $q->where('status', Contract::STATUS_ACTIVE));
+            ->where("{$table}.is_activated", true)
+            ->whereHas('roomType', fn ($q) => $q->where('slug', RoomType::MINIHOUSE_SLUG))
+            ->whereIn("{$table}.id", RoomDetail::where('status', Room::STATUS_EMPTY)->select('product_id'))
+            ->whereNotIn("{$table}.id", Contract::where('status', Contract::STATUS_ACTIVE)->whereNotNull('room_id')->select('room_id'))
+            ->whereIn("{$table}.building_id", Category::where('status', true)->select('id'));
     }
 
     private function matchingBuildings(string $keyword): array
@@ -177,21 +193,7 @@ class MinihouseRoomSearchService
             return [];
         }
 
-        $like = '%' . $keyword . '%';
-        $idsByAddress = BuildingSetting::where('address', 'like', $like)
-            ->orWhere('province_name_raw', 'like', $like)
-            ->orWhere('ward_raw', 'like', $like)
-            ->pluck('category_id');
-
-        return Building::query()
-            ->where('status', true)
-            ->where(fn ($q) => $q->where('name', 'like', $like)->orWhereIn('id', $idsByAddress))
-            ->whereHas('rooms', fn ($q) => $this->whereVacant($q))
-            ->withCount(['rooms as vacant_room_count' => fn ($q) => $this->whereVacant($q)])
-            ->withMin(['rooms as min_price' => fn ($q) => $this->whereVacant($q)], 'price')
-            ->orderBy('name')
-            ->limit(20)
-            ->get()
+        return $this->vacantBuildings(keyword: $keyword, limit: 20)
             ->map(fn (Building $building) => [
                 'id'                => $building->id,
                 'name'              => $building->name,
@@ -207,6 +209,57 @@ class MinihouseRoomSearchService
             ])
             ->values()
             ->all();
+    }
+
+    /**
+     * Toà nhà đang bật và còn ít nhất 1 phòng trống — kèm vacant_room_count, min_price, và
+     * latitude/longitude (lấy từ phòng trống đầu tiên có toạ độ, toà nhà không có toạ độ riêng).
+     * Dùng cho các API tìm kiếm ở tab MiniHouse (gợi ý/địa điểm/chi nhánh theo tỉnh — xem
+     * SearchController) và danh sách toà nhà khớp từ khoá ở search().
+     *
+     * @return Collection<int, Building>
+     */
+    public function vacantBuildings(?Province $province = null, ?string $keyword = null, ?int $limit = null): Collection
+    {
+        $query = Building::query()
+            ->where('status', true)
+            ->whereHas('rooms', fn ($q) => $this->whereVacant($q))
+            ->withCount(['rooms as vacant_room_count' => fn ($q) => $this->whereVacant($q)])
+            ->withMin(['rooms as min_price' => fn ($q) => $this->whereVacant($q)], 'price');
+
+        if ($province !== null) {
+            $query->whereIn('id', $this->buildingIdsInProvince($province));
+        }
+
+        $keyword = trim((string) $keyword);
+        if ($keyword !== '') {
+            $like = '%' . $keyword . '%';
+            $idsByAddress = BuildingSetting::where('address', 'like', $like)
+                ->orWhere('province_name_raw', 'like', $like)
+                ->orWhere('ward_raw', 'like', $like)
+                ->pluck('category_id');
+
+            $query->where(fn ($q) => $q->where('name', 'like', $like)->orWhereIn('id', $idsByAddress));
+        }
+
+        $buildings = $query
+            ->orderByDesc('vacant_room_count')
+            ->orderBy('name')
+            ->when($limit, fn ($q) => $q->limit($limit))
+            ->get();
+
+        $coords = $this->whereVacant(Room::query())
+            ->whereIn('building_id', $buildings->pluck('id'))
+            ->whereNotNull('latitude')
+            ->whereNotNull('longitude')
+            ->get(['id', 'building_id', 'latitude', 'longitude'])
+            ->unique('building_id')
+            ->keyBy('building_id');
+
+        return $buildings->each(function (Building $building) use ($coords) {
+            $building->latitude  = $coords->get($building->id)?->latitude;
+            $building->longitude = $coords->get($building->id)?->longitude;
+        });
     }
 
     private function applyFilters(Builder $query, array $validated): void
@@ -296,7 +349,7 @@ class MinihouseRoomSearchService
 
     // Toà nhà thuộc tỉnh: gắn qua province_branches (như chi nhánh Home) HOẶC tên tỉnh nhập tay ở
     // cài đặt toà nhà (province_name_raw, vd "Hồ Chí Minh" so với Province "Thành phố Hồ Chí Minh").
-    private function buildingIdsInProvince(Province $province): array
+    public function buildingIdsInProvince(Province $province): array
     {
         $shortName = trim((string) preg_replace('/^(Thành phố|Tỉnh|TP\.?)\s+/iu', '', $province->name));
 

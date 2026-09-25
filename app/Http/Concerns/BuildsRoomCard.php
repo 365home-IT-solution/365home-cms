@@ -182,19 +182,23 @@ trait BuildsRoomCard
     // phòng ("Trống") thay vì is_in_stock (MiniHouse luôn để is_in_stock = true).
     private function mapMinihouseRoom(Product $room, ?bool $wishlistStatus = null): array
     {
-        $photos = $this->minihousePhotoPaths($room);
-        $cover  = $photos[0] ?? null;
         $detail = $room->relationLoaded('minihouseDetail')
             ? $room->getRelation('minihouseDetail')
             : RoomDetail::find($room->id);
+
+        // Ảnh nhập qua form Phòng MiniHouse (Media Library "Ảnh bìa" → "Thư viện") là nguồn chính;
+        // đường dẫn cũ ở minihouse_room_details.photos chỉ là dự phòng (xem Room::getPhotosAttribute()).
+        $media = $room->getFirstMedia('Ảnh bìa') ?? $room->getFirstMedia('Thư viện');
+        $cover = $media ? null : ($this->minihousePhotoPaths($room)[0] ?? null);
 
         return [
             'id'              => $room->id,
             'slug'            => $room->slug,
             'name'            => $room->name,
             'type_slug'       => $room->roomType?->slug,
-            'thumbnail_url'   => $cover ? Storage::disk('public')->url($cover) : null,
-            'thumbnail'       => ImagePresetUrls::build($cover, 'public'),
+            'thumbnail_url'   => $media ? $media->getUrl() : ($cover ? Storage::disk('public')->url($cover) : null),
+            'thumbnail'       => $media ? MediaThumbnailUrls::build($media) : ImagePresetUrls::build($cover, 'public'),
+            'area'            => $room->room_area_sqm !== null ? (float) $room->room_area_sqm : null,
             'room_style'      => 'theo_thang',
             'badge'           => null,
             'price'           => [

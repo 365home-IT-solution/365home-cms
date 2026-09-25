@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Modules\Category\Entities\Category;
+use Modules\Minihouse\App\Models\BuildingSetting;
 use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomType;
@@ -32,6 +33,9 @@ class RoomSearchService
         return [
             'category'  => ['nullable', 'string'],
             'type'      => ['nullable', 'string'],
+            // ?tab={room_type_id} — cùng tab loại hình ở GET /api/v1/home. Tab MiniHouse (xem
+            // MinihouseRoomSearchService::isMinihouseRoomType()) → tìm phòng MiniHouse còn trống.
+            'tab'       => ['nullable', 'integer'],
             'buoi'      => ['nullable', 'in:1,2'],
             'overnight' => ['nullable', 'in:0,1'],
             'checkin'   => ['nullable', 'string'],
@@ -69,9 +73,10 @@ class RoomSearchService
 
         $validated = Validator::make($filters, self::validationRules())->validate();
 
-        $query = Product::where('is_activated', true)
-            ->where('is_in_stock', true)
-            ->activeBranch()
+        $minihouse = $this->isMinihouseSearch($validated);
+        $validated = $this->withoutShortStayFilters($validated, $minihouse);
+
+        $query = $this->baseQuery($minihouse)
             ->with(['roomTimeSlots.timeSlot', 'media', 'roomType', 'categories:id']);
 
         $ctx = $this->applyFilters($query, $filters, $validated, $authUser);
@@ -80,13 +85,16 @@ class RoomSearchService
         $branchChildMap   = $ctx['branchChildMap'];
         $province         = $ctx['province'];
         $branchCategories = $ctx['branchCategories'];
-        $typeName         = $ctx['typeName'];
+        $typeName         = $minihouse ? 'MiniHouse' : $ctx['typeName'];
         $timeFrom         = $ctx['timeFrom'];
         $timeTo           = $ctx['timeTo'];
         $geoActive        = $ctx['geoActive'];
 
         $perPage = (int) ($validated['per_page'] ?? 20);
         $rooms   = $query->paginate($perPage);
+
+        // Ảnh/trạng thái/toà nhà của phòng MiniHouse (mapRoom() → mapMinihouseRoom()).
+        $this->attachMinihouseData(collect($rooms->items()));
 
         $wishlistedIds = $authUser
             ? $authUser->wishlists()->pluck('product_id')->toArray()
@@ -102,6 +110,14 @@ class RoomSearchService
                 $branchChildMap = $childCats->pluck('parent_id', 'id')->toArray();
             }
         }
+
+        // Phòng MiniHouse gắn toà nhà qua products.building_id (không qua categories) — thêm toà
+        // nhà của các phòng trong trang này vào tập tra cứu chi nhánh, phòng khi toà nhà chưa có
+        // dòng province_branches (chưa khai báo tỉnh).
+        $branchCatIds = array_values(array_unique(array_merge(
+            $branchCatIds,
+            collect($rooms->items())->pluck('building_id')->filter()->all(),
+        )));
 
         $branchCats = ! empty($branchCatIds)
             ? Category::whereIn('id', $branchCatIds)->get(['id', 'name', 'slug'])->keyBy('id')
@@ -151,6 +167,16 @@ class RoomSearchService
                 }
             }
 
+            if ($card['branch'] === null && $room->building_id && $branchCats->has($room->building_id)) {
+                $branch = $branchCats->get($room->building_id);
+                $card['branch'] = [
+                    'id'            => $branch->id,
+                    'name'          => $branch->name,
+                    'slug'          => $branch->slug,
+                    'province_slug' => $branch->province_slug,
+                ];
+            }
+
             if ($geoActive) {
                 $card['distance'] = round((float) ($room->distance ?? 0), 2);
             }
@@ -189,9 +215,10 @@ class RoomSearchService
 
         $validated = Validator::make($filters, self::validationRules())->validate();
 
-        $query = Product::where('is_activated', true)
-            ->where('is_in_stock', true)
-            ->activeBranch()
+        $minihouse = $this->isMinihouseSearch($validated);
+        $validated = $this->withoutShortStayFilters($validated, $minihouse);
+
+        $query = $this->baseQuery($minihouse)
             ->with(['categories:id', 'roomTimeSlots.promotions']);
 
         $ctx = $this->applyFilters($query, $filters, $validated, $authUser);
@@ -200,7 +227,7 @@ class RoomSearchService
         $branchChildMap   = $ctx['branchChildMap'];
         $province         = $ctx['province'];
         $branchCategories = $ctx['branchCategories'];
-        $typeName         = $ctx['typeName'];
+        $typeName         = $minihouse ? 'MiniHouse' : $ctx['typeName'];
         $geoActive        = $ctx['geoActive'];
 
         $perPage = (int) ($validated['per_page'] ?? 20);
@@ -218,6 +245,14 @@ class RoomSearchService
                 $branchChildMap = $childCats->pluck('parent_id', 'id')->toArray();
             }
         }
+
+        $rooms = $query->get();
+
+        // Toà nhà MiniHouse (products.building_id) cũng là 1 "chi nhánh" — xem ghi chú ở search().
+        $branchCatIds = array_values(array_unique(array_merge(
+            $branchCatIds,
+            $rooms->pluck('building_id')->filter()->all(),
+        )));
 
         $branchCats = ! empty($branchCatIds)
             ? Category::whereIn('id', $branchCatIds)->where('status', true)->get(['id', 'name', 'slug', 'image', 'image_width', 'image_height'])->keyBy('id')
@@ -237,8 +272,6 @@ class RoomSearchService
             ];
         }
 
-        $rooms = $query->get();
-
         $now                 = now();
         $roomCountByBranch   = [];
         $hasPromoByBranch    = [];
@@ -256,6 +289,10 @@ class RoomSearchService
                     $branchCatId = $branchChildMap[$cat->id];
                     break;
                 }
+            }
+
+            if ($branchCatId === null && $room->building_id && $branchCats->has($room->building_id)) {
+                $branchCatId = $room->building_id;
             }
 
             if ($branchCatId === null) {
@@ -372,7 +409,7 @@ class RoomSearchService
             if (! empty($provinceBranchIds)) {
                 $childCats = Category::whereIn('parent_id', $provinceBranchIds)->get(['id', 'parent_id']);
                 $filterIds = collect($provinceBranchIds)->merge($childCats->pluck('id'))->unique()->values();
-                $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
+                $this->whereInBranches($query, $filterIds->all());
 
                 $branchCatIds   = $provinceBranchIds;
                 $branchChildMap = $childCats->pluck('parent_id', 'id')->toArray();
@@ -385,7 +422,7 @@ class RoomSearchService
                 $branchIds = $branchCategories->pluck('id')->toArray();
                 $childCats = Category::whereIn('parent_id', $branchIds)->get(['id', 'parent_id']);
                 $filterIds = collect($branchIds)->merge($childCats->pluck('id'))->unique()->values();
-                $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
+                $this->whereInBranches($query, $filterIds->all());
 
                 $branchCatIds   = $branchIds;
                 $branchChildMap = $childCats->pluck('parent_id', 'id')->toArray();
@@ -405,7 +442,7 @@ class RoomSearchService
             if (! empty($wardBranchIds)) {
                 $childCats = Category::whereIn('parent_id', $wardBranchIds)->get(['id', 'parent_id']);
                 $filterIds = collect($wardBranchIds)->merge($childCats->pluck('id'))->unique()->values();
-                $query->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $filterIds));
+                $this->whereInBranches($query, $filterIds->all());
 
                 $branchCatIds   = $wardBranchIds;
                 $branchChildMap = $childCats->pluck('parent_id', 'id')->toArray();
@@ -487,13 +524,23 @@ class RoomSearchService
                 ? $this->getCategoryIdsByProvinceName($q)
                 : [];
 
-            $query->where(function ($sub) use ($q, $provinceCategoryIds) {
+            // Toà nhà MiniHouse: tên toà (categories.name qua products.building_id) và địa chỉ/tỉnh/
+            // phường nhập ở cài đặt toà nhà (minihouse_building_settings) — phòng homestay có
+            // building_id = null nên 2 điều kiện này không ảnh hưởng gì tới chúng.
+            $buildingIdsByAddress = BuildingSetting::where('address', 'like', "%{$q}%")
+                ->orWhere('province_name_raw', 'like', "%{$q}%")
+                ->orWhere('ward_raw', 'like', "%{$q}%")
+                ->select('category_id');
+
+            $query->where(function ($sub) use ($q, $provinceCategoryIds, $buildingIdsByAddress) {
                 $sub->where('name', 'like', "%{$q}%")
                     ->orWhere('address', 'like', "%{$q}%")
-                    ->orWhereHas('categories', fn ($cq) => $cq->where('name', 'like', "%{$q}%"));
+                    ->orWhereHas('categories', fn ($cq) => $cq->where('name', 'like', "%{$q}%"))
+                    ->orWhereIn('building_id', Category::where('name', 'like', "%{$q}%")->select('id'))
+                    ->orWhereIn('building_id', $buildingIdsByAddress);
 
                 if (! empty($provinceCategoryIds)) {
-                    $sub->orWhereHas('categories', fn ($cq) => $cq->whereIn('category_id', $provinceCategoryIds));
+                    $sub->orWhere(fn ($b) => $this->whereInBranches($b, $provinceCategoryIds));
                 }
             });
         }
@@ -561,6 +608,53 @@ class RoomSearchService
             'timeTo'           => $timeTo,
             'geoActive'        => $geoActive,
         ];
+    }
+
+    private function isMinihouseSearch(array $validated): bool
+    {
+        return MinihouseRoomSearchService::isMinihouseRoomType($validated['tab'] ?? null)
+            || MinihouseRoomSearchService::isMinihouseRoomType($validated['type'] ?? null);
+    }
+
+    // Tab MiniHouse: phòng MiniHouse CÒN TRỐNG (MinihouseRoomSearchService::whereVacantRoom()) —
+    // phải bỏ global scope 'exclude_minihouse' của Product. Room (MiniHouse) xoá mềm trên cùng
+    // bảng products nên tự lọc deleted_at (Product không dùng SoftDeletes).
+    private function baseQuery(bool $minihouse): Builder
+    {
+        if (! $minihouse) {
+            return Product::where('is_activated', true)
+                ->where('is_in_stock', true)
+                ->activeBranch();
+        }
+
+        $query = Product::withoutGlobalScope('exclude_minihouse');
+        $query->whereNull($query->qualifyColumn('deleted_at'));
+
+        return MinihouseRoomSearchService::whereVacantRoom($query);
+    }
+
+    // Filter chỉ có nghĩa với phòng ngắn hạn (loại hình/khung giờ/buổi/qua đêm/số khách/lịch đã
+    // đặt) — bỏ khi tìm MiniHouse (thuê theo tháng), nếu không app gửi kèm các tham số mặc định của
+    // màn tìm kiếm homestay (vd time_type=slot) sẽ loại sạch phòng MiniHouse.
+    private function withoutShortStayFilters(array $validated, bool $minihouse): array
+    {
+        if (! $minihouse) {
+            return $validated;
+        }
+
+        return array_diff_key($validated, array_flip([
+            'category', 'type', 'buoi', 'overnight', 'adults', 'checkin', 'checkout',
+            'time_type', 'date', 'time_from', 'time_to', 'from', 'to', 'month', 'year',
+        ]));
+    }
+
+    // Phòng thuộc các chi nhánh $categoryIds: phòng homestay qua categorizables, phòng MiniHouse
+    // qua products.building_id (toà nhà cũng là 1 dòng categories).
+    private function whereInBranches(Builder $query, array $categoryIds): void
+    {
+        $query->where(fn ($q) => $q
+            ->whereHas('categories', fn ($cq) => $cq->whereIn('category_id', $categoryIds))
+            ->orWhereIn($q->qualifyColumn('building_id'), $categoryIds));
     }
 
     // Giống ResolvesProvince::resolveProvince(), nhưng nhận filters dạng mảng (không phải
