@@ -62,11 +62,18 @@ class Camera extends Model
         return $this->frigate_camera_name ?: $this->stream_key;
     }
 
+    // Tách riêng bước "tìm cấu hình server nào" khỏi phần dựng URL bên dưới — Modules\Minihouse\App\
+    // Models\Camera (kế thừa lớp này) override ĐÚNG method này để đổi sang lọc theo building_id thay
+    // vì partner_id (MiniHouse chỉ có 1 đối tác nội bộ cố định nên không lọc được theo đối tác như
+    // Home, xem Modules\Minihouse\App\Models\CameraSetting), phần dựng URL còn lại dùng chung nguyên vẹn.
+    protected function resolveCameraSettings(): CameraSetting
+    {
+        return CameraSetting::forPartner($this->partner_id);
+    }
+
     public function wsProxyUrl(): ?string
     {
-        // MỖI ĐỐI TÁC 1 server Frigate riêng (App\Models\CameraSetting) — luôn resolve theo ĐÚNG
-        // partner_id của camera này, KHÔNG còn 1 cấu hình go2rtc dùng chung toàn hệ thống nữa.
-        $settings = CameraSetting::forPartner($this->partner_id);
+        $settings = $this->resolveCameraSettings();
 
         if (! $settings->isConfigured()) {
             return null;

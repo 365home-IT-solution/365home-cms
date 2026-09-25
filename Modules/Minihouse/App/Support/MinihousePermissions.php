@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Builder;
 class MinihousePermissions
 {
     public const RESOURCE_GROUPS = [
-        'buildings', 'zones', 'rooms', 'tenants', 'contracts', 'invoices', 'transactions', 'reminders', 'residence_declarations', 'feedbacks', 'announcements',
+        'buildings', 'zones', 'rooms', 'tenants', 'contracts', 'invoices', 'transactions', 'reminders', 'residence_declarations', 'feedbacks', 'announcements', 'cameras',
     ];
 
     public const RESOURCE_ACTIONS = ['view_any', 'create', 'update', 'delete'];
@@ -27,7 +27,13 @@ class MinihousePermissions
     // tách khỏi update_invoices vì nhân viên vẫn cần ghi nhận thanh toán được (update_invoices) mà
     // KHÔNG được tự duyệt luôn chính mình (xem InvoicePaymentObserver, EditInvoice::approvePayment).
     // Thanh toán qua PayOS (webhook tự xác nhận tiền đã vào tài khoản thật) KHÔNG cần qua bước này.
-    public const EXTRA_PERMISSIONS = ['access_minihouse', 'view_any_reports', 'view_any_activity_logs', 'approve_invoice_payments'];
+    // page_camera_monitor: xem trang "Xem camera" (live view) — tách khỏi view_any_cameras vì đây
+    // là trang XEM TRỰC TIẾP (không sửa/xoá cấu hình camera), nhân viên trực có thể chỉ cần quyền
+    // này mà không cần toàn quyền quản lý danh sách camera. page_manage_camera_settings: cấu hình
+    // địa chỉ/tài khoản máy chủ Frigate/go2rtc dùng CHUNG cho mọi camera MiniHouse (1 cấu hình duy
+    // nhất, xem HomestayBridge::PARTNER_ID) — nhạy cảm hơn CRUD camera thường nên tách quyền riêng,
+    // cùng nguyên tắc page_ManageCamera bên Home.
+    public const EXTRA_PERMISSIONS = ['access_minihouse', 'view_any_reports', 'view_any_activity_logs', 'approve_invoice_payments', 'page_camera_monitor', 'page_manage_camera_settings'];
 
     public const GROUP_LABELS = [
         'buildings'              => 'Toà nhà / Phụ thu',
@@ -41,6 +47,7 @@ class MinihousePermissions
         'residence_declarations' => 'Khai báo lưu trú',
         'feedbacks'              => 'Phản hồi khách thuê',
         'announcements'          => 'Thông báo (Portal)',
+        'cameras'                => 'Camera',
     ];
 
     public const ACTION_LABELS = [

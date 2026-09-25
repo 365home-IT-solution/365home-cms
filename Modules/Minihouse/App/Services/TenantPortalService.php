@@ -61,9 +61,17 @@ class TenantPortalService
         return $tenant->contracts()->pluck('minihouse_contracts.id')->contains($invoice->contract_id);
     }
 
-    public static function unpaidTotalForActiveContract(?Contract $activeContract): float
+    // SỬA (đợt rà lại công nợ): trước đây chỉ tính theo $activeContract->id — 1 khách đã CHUYỂN
+    // PHÒNG (hoặc có hợp đồng cũ đã hết hạn còn nợ) sẽ bị THIẾU đúng phần nợ của hợp đồng cũ trong số
+    // "Tổng còn phải thanh toán" trên dashboard, dù unpaidInvoiceCount() bên dưới (đếm SỐ hoá đơn)
+    // đã tính đúng TOÀN BỘ hợp đồng từ trước — 2 con số hiển thị cạnh nhau trên dashboard (VD "3 hoá
+    // đơn chưa thanh toán" nhưng "Tổng nợ" chỉ gồm 2) không khớp nhau, giống hệt lớp lỗi
+    // contractIdChain() đã sửa cho previous_debt/total_owed ở hoá đơn. Nhận Collection $contracts
+    // (TOÀN BỘ hợp đồng khách này liên quan, không chỉ active) để LUÔN cùng phạm vi với
+    // unpaidInvoiceCount(), không lệch nhau nữa.
+    public static function unpaidTotalForContracts(Collection $contracts): float
     {
-        if (! $activeContract) {
+        if ($contracts->isEmpty()) {
             return 0.0;
         }
 
@@ -71,16 +79,16 @@ class TenantPortalService
         // hoá đơn ĐÃ XOÁ MỀM vẫn hiện/tính tiền cho khách. whereNotNull(electric_end, water_end) —
         // xem Invoice::isReadyForTenant(): hoá đơn vừa lập hàng loạt còn thiếu chỉ số điện/nước
         // CHƯA được tính vào đây, chờ nhân viên bổ sung xong.
-        return Invoice::where('contract_id', $activeContract->id)
+        return Invoice::whereIn('contract_id', $contracts->pluck('id'))
             ->whereIn('status', [Invoice::STATUS_UNPAID, Invoice::STATUS_PARTIAL])
             ->whereNotNull('electric_end')->whereNotNull('water_end')
             ->get()
             ->sum(fn (Invoice $invoice) => $invoice->remainingAmount());
     }
 
-    // Đếm TOÀN BỘ hợp đồng (không chỉ hợp đồng đang hiệu lực như unpaidTotalForActiveContract() ở
-    // trên) vì hoá đơn còn nợ của hợp đồng cũ (đã hết hạn/thanh lý) khách vẫn cần biết để thanh toán
-    // nốt, không nên "biến mất" khỏi cảnh báo chỉ vì hợp đồng không còn active.
+    // Đếm TOÀN BỘ hợp đồng (không chỉ hợp đồng đang hiệu lực) vì hoá đơn còn nợ của hợp đồng cũ (đã
+    // hết hạn/thanh lý) khách vẫn cần biết để thanh toán nốt, không nên "biến mất" khỏi cảnh báo chỉ
+    // vì hợp đồng không còn active — CÙNG PHẠM VI với unpaidTotalForContracts() ở trên.
     public static function unpaidInvoiceCount(Collection $contracts): int
     {
         return Invoice::whereIn('contract_id', $contracts->pluck('id'))

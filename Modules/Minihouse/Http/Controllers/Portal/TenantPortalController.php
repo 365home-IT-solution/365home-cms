@@ -29,7 +29,7 @@ class TenantPortalController extends Controller
         $contracts = TenantPortalService::tenantContracts($tenant);
         $activeContract = $contracts->firstWhere('status', Contract::STATUS_ACTIVE);
 
-        $unpaidTotal = TenantPortalService::unpaidTotalForActiveContract($activeContract);
+        $unpaidTotal = TenantPortalService::unpaidTotalForContracts($contracts);
         $unpaidInvoiceCount = TenantPortalService::unpaidInvoiceCount($contracts);
 
         $unreadNotificationCount = PortalNotification::where('tenant_id', $tenant->id)

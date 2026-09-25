@@ -52,7 +52,7 @@ class TenantPortalApiController extends Controller
                     'start_date'     => $activeContract->start_date?->toDateString(),
                     'end_date'       => $activeContract->end_date?->toDateString(),
                 ] : null,
-                'unpaid_total'         => TenantPortalService::unpaidTotalForActiveContract($activeContract),
+                'unpaid_total'         => TenantPortalService::unpaidTotalForContracts($contracts),
                 'unpaid_invoice_count' => TenantPortalService::unpaidInvoiceCount($contracts),
                 'unread_notification_count' => PortalNotification::where('tenant_id', $tenant->id)->whereNull('read_at')->count(),
                 'owner' => $building ? [
