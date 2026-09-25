@@ -11,6 +11,7 @@ use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\InvoicePayment;
 use Modules\Minihouse\App\Models\Room;
 use Modules\Minihouse\App\Models\Transaction;
+use Modules\Minihouse\App\Services\InvoiceContentRenderer;
 
 // PORT lại logic Modules\Minihouse\App\Filament\Pages\FinanceReports sang dạng service dùng cho API
 // — khác bản Filament ở đúng 1 điểm: lọc theo TẬP building_id (mảng, vì API không có khái niệm "1
@@ -139,14 +140,20 @@ class FinancialReportService
                 'contract.tenant'   => fn ($q) => $q->withoutGlobalScopes(),
             ])
             ->get()
-            ->groupBy('contract_id')
+            // Gộp theo GỐC chuỗi chuyển phòng (InvoiceContentRenderer::contractIdChain(), cùng công
+            // thức đang dùng để tính previous_debt/total_owed trên hoá đơn/QR) — trước đây gộp thẳng
+            // theo contract_id nên 1 khách đã chuyển phòng bị tách thành 2 DÒNG CÔNG NỢ RIÊNG (hợp
+            // đồng cũ + mới), lệch hẳn với số hiện trên hoá đơn.
+            ->groupBy(fn (Invoice $invoice) => (string) collect(InvoiceContentRenderer::contractIdChain($invoice))->last())
             ->map(function ($invoices) {
-                $contract = $invoices->first()->contract;
+                // Hợp đồng MỚI NHẤT trong nhóm — hiển thị đúng phòng/khách đang thuê hiện tại, không
+                // phải hợp đồng cũ đã hết hiệu lực từ trước khi chuyển phòng.
+                $latestContract = $invoices->pluck('contract')->filter()->sortByDesc('start_date')->first();
 
                 return [
-                    'contract_id'   => $contract?->id,
-                    'tenant'        => $contract?->tenant?->fullname ?? '—',
-                    'room'          => $contract?->room?->code ?? '—',
+                    'contract_id'   => $latestContract?->id,
+                    'tenant'        => $latestContract?->tenant?->fullname ?? '—',
+                    'room'          => $latestContract?->room?->code ?? '—',
                     'invoice_count' => $invoices->count(),
                     'total_debt'    => (float) $invoices->sum(fn (Invoice $invoice) => $invoice->remainingAmount()),
                     'oldest_month'  => optional($invoices->min('month'))?->toDateString(),

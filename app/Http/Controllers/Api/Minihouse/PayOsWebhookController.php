@@ -11,7 +11,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\InvoicePayment;
+use Modules\Minihouse\App\Services\InvoiceContentRenderer;
 use Modules\Minihouse\App\Services\InvoicePayOsService;
+use Modules\Minihouse\App\Services\InvoicePaymentAllocationService;
 use PayOS\PayOS;
 
 // Webhook công khai (KHÔNG qua auth:sanctum/admin.api). Có 2 nguồn gọi tới route này:
@@ -95,14 +97,17 @@ class PayOsWebhookController extends Controller
 
         $amount = (float) ($data['amount'] ?? 0);
 
-        // Số tiền PayOS báo về PHẢI khớp số còn phải thu tại thời điểm này — cùng lý do/ngoại lệ với
-        // VnpayIpnController (hoá đơn có thể đã bị sửa tay hoặc đã thanh toán qua kênh khác trước khi
-        // PayOS kịp gọi webhook).
-        if (abs($amount - $invoice->remainingAmount()) > 1 && $invoice->status !== Invoice::STATUS_PAID) {
+        // Số tiền PayOS báo về PHẢI khớp tổng thực sự cần thu tại thời điểm này (GỒM CẢ nợ tháng
+        // trước — InvoiceContentRenderer::totalOwed(), đúng số đã đúc vào mã QR lúc tạo, xem
+        // InvoicePayOsService::createQr()) — cùng lý do/ngoại lệ với VnpayIpnController (hoá đơn có
+        // thể đã bị sửa tay hoặc đã thanh toán qua kênh khác trước khi PayOS kịp gọi webhook).
+        $totalOwed = InvoiceContentRenderer::totalOwed($invoice);
+
+        if (abs($amount - $totalOwed) > 1 && $invoice->status !== Invoice::STATUS_PAID) {
             Log::warning('Minihouse PayOS webhook: số tiền không khớp, bỏ qua', [
-                'order_code'        => $orderCode,
-                'payos_amount'      => $amount,
-                'invoice_remaining' => $invoice->remainingAmount(),
+                'order_code'    => $orderCode,
+                'payos_amount'  => $amount,
+                'invoice_owed'  => $totalOwed,
             ]);
 
             return true;
@@ -137,22 +142,12 @@ class PayOsWebhookController extends Controller
                 return;
             }
 
-            // Tạo InvoicePayment THẬT — InvoicePaymentObserver tự đồng bộ lại Invoice.amount_paid/
-            // status VÀ tự tạo dòng "Thu" tương ứng trong sổ Thu Chi, không cần tự làm lại ở đây (xem
-            // InvoicePaymentObserver, MinihouseServiceProvider::boot()).
-            // status=APPROVED ngay lập tức — khác thanh toán tiền mặt/chuyển khoản do nhân viên tự
-            // khai (cần Chủ toà nhà duyệt thêm, xem InvoicePaymentObserver), tiền qua PayOS đã được
-            // chính PayOS xác nhận thật sự vào tài khoản (webhook có chữ ký hợp lệ), không cần duyệt
-            // lại lần 2.
-            $invoice->payments()->create([
-                'amount'         => $amount,
-                'paid_at'        => now(),
-                'payment_method' => InvoicePayment::METHOD_TRANSFER,
-                'note'           => $note,
-                'status'         => InvoicePayment::STATUS_APPROVED,
-                'approved_at'    => now(),
-                'created_by'     => null,
-            ]);
+            // $amount đã gồm cả nợ tháng trước — chia lại thành NHIỀU khoản, mỗi hoá đơn ĐÚNG 1 khoản
+            // bằng tròn total_amount (bắt buộc vì validateSinglePayment() không hỗ trợ trả từng
+            // phần), trả nợ cũ nhất trước — xem InvoicePaymentAllocationService. status=APPROVED ngay
+            // lập tức cho MỌI khoản tạo ra — tiền qua PayOS đã được chính PayOS xác nhận thật sự vào
+            // tài khoản (webhook có chữ ký hợp lệ), không cần Chủ toà nhà duyệt lại lần 2.
+            InvoicePaymentAllocationService::allocate($invoice, $amount, InvoicePayment::METHOD_TRANSFER, $note);
         });
 
         return true;

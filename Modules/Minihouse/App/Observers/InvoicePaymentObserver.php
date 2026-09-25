@@ -5,8 +5,10 @@ namespace Modules\Minihouse\App\Observers;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\InvoicePayment;
+use Modules\Minihouse\App\Models\PortalNotification;
 use Modules\Minihouse\App\Models\Reminder;
 use Modules\Minihouse\App\Models\Transaction;
+use Modules\Minihouse\App\Services\PortalNotificationService;
 
 // Đồng bộ lại Invoice.amount_paid/paid_at/status (cột CACHE, giống hệt cách Invoice.service_amount
 // cache từ InvoiceItem) mỗi khi 1 dòng thanh toán được thêm/sửa/xoá — không tính tay trong
@@ -58,6 +60,8 @@ class InvoicePaymentObserver
             $status = Invoice::STATUS_PAID;
         }
 
+        $wasAlreadyPaid = $invoice->status === Invoice::STATUS_PAID;
+
         // updateQuietly() — tránh gọi lại observer của chính Invoice (hiện chưa có, nhưng giữ quy
         // ước an toàn chung của cả module khi ghi đè cột cache từ 1 model khác).
         $invoice->updateQuietly([
@@ -65,6 +69,14 @@ class InvoicePaymentObserver
             'paid_at'     => $lastPaidAt,
             'status'      => $status,
         ]);
+
+        // Khách thanh toán được XÁC NHẬN → báo khách qua Portal — mirror Home (OrderExtraBookingService
+        // báo khách khi thanh toán/đặt thêm được xác nhận). Chỉ báo ĐÚNG 1 LẦN tại thời điểm CHUYỂN
+        // sang "Đã thanh toán" ($wasAlreadyPaid chặn báo lặp lại mỗi lần resync sau đó, VD sửa lại chỉ
+        // số điện nước của 1 hoá đơn đã thanh toán từ trước không nên bắn thông báo lại).
+        if ($status === Invoice::STATUS_PAID && ! $wasAlreadyPaid) {
+            $this->notifyTenantsInvoicePaid($invoice);
+        }
 
         // Hoá đơn vừa chuyển "Đã thanh toán" — tự đánh dấu xong mọi "Nhắc đóng tiền" đang gắn hoá
         // đơn này (nếu còn), để: 1) không hiện nhầm là "chưa xử lý" trên danh sách nhắc việc nữa, và
@@ -77,6 +89,23 @@ class InvoicePaymentObserver
                 ->where('is_done', false)
                 ->update(['is_done' => true]);
         }
+    }
+
+    // Báo cho MỌI khách thuê của hợp đồng (đứng tên chính lẫn ở cùng) — cùng nguyên tắc
+    // InvoiceObserver::notifyPortalInvoiceReady() đang dùng cho "hoá đơn mới".
+    private function notifyTenantsInvoicePaid(Invoice $invoice): void
+    {
+        if (! $invoice->contract_id) {
+            return;
+        }
+
+        PortalNotificationService::notifyContractTenants(
+            $invoice->contract_id,
+            PortalNotification::TYPE_INVOICE_PAID,
+            'Đã xác nhận thanh toán hoá đơn tháng ' . $invoice->month?->format('m/Y'),
+            'Cảm ơn bạn đã thanh toán ' . number_format((float) $invoice->total_amount, 0, ',', '.') . 'đ.',
+            '/minihouse/portal/invoices/' . $invoice->id,
+        );
     }
 
     private function syncTransaction(InvoicePayment $payment): void

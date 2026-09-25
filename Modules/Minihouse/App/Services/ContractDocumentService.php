@@ -716,7 +716,7 @@ class ContractDocumentService
             $recipients,
             'Khách đã ký hợp đồng ' . $doc->no,
             'Phòng ' . ($contract->room?->code ?? '') . ' — vào ký chốt để hoàn tất.',
-            ['type' => 'contract_awaiting_owner_signature', 'document_id' => $doc->id, 'contract_id' => $doc->contract_id],
+            ['type' => 'contract_awaiting_owner_signature', 'document_id' => $doc->id, 'contract_id' => $doc->contract_id, 'module' => 'minihouse'],
             'heroicon-o-pencil-square',
             'warning',
         );

@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\InvoicePayment;
+use Modules\Minihouse\App\Services\InvoiceContentRenderer;
+use Modules\Minihouse\App\Services\InvoicePaymentAllocationService;
 
 // Webhook (IPN) MoMo — công khai, KHÔNG qua auth:sanctum/admin.api vì MoMo gọi thẳng vào đây. Khác
 // PayOsWebhookController (dùng SDK verifyPaymentWebhookData sẵn có) — MoMo không có gói PHP chính
@@ -94,11 +96,13 @@ class MomoWebhookController extends Controller
         // khác trước khi MoMo kịp gọi IPN. Bỏ qua kiểm tra nếu hoá đơn đã "Đã thanh toán" (tiền thật
         // vẫn có thể đã về, không nên âm thầm bỏ mất — chỉ không được TỰ Ý ghi đè số tiền sai khi còn
         // đang chờ thu), cùng nguyên tắc với VnpayIpnController.
-        if (abs($amount - $invoice->remainingAmount()) > 1 && $invoice->status !== Invoice::STATUS_PAID) {
+        $totalOwed = InvoiceContentRenderer::totalOwed($invoice);
+
+        if (abs($amount - $totalOwed) > 1 && $invoice->status !== Invoice::STATUS_PAID) {
             Log::warning('MomoWebhookController: số tiền không khớp, bỏ qua', [
-                'order_id'         => $orderId,
-                'momo_amount'      => $amount,
-                'invoice_remaining' => $invoice->remainingAmount(),
+                'order_id'    => $orderId,
+                'momo_amount' => $amount,
+                'invoice_owed' => $totalOwed,
             ]);
 
             return response()->noContent();
@@ -133,18 +137,11 @@ class MomoWebhookController extends Controller
                 return;
             }
 
-            // status=APPROVED ngay — MoMo đã xác nhận tiền thật vào tài khoản (chữ ký hợp lệ), không
-            // cần "Chủ toà nhà" duyệt lại lần 2 (giống PayOS, khác tiền mặt/chuyển khoản tay do nhân
-            // viên tự khai — xem InvoicePaymentObserver).
-            $invoice->payments()->create([
-                'amount'         => $amount,
-                'paid_at'        => now(),
-                'payment_method' => InvoicePayment::METHOD_TRANSFER,
-                'note'           => $note,
-                'status'         => InvoicePayment::STATUS_APPROVED,
-                'approved_at'    => now(),
-                'created_by'     => null,
-            ]);
+            // $amount đã gồm cả nợ tháng trước — chia lại thành nhiều khoản qua
+            // InvoicePaymentAllocationService (xem PayOsWebhookController để biết lý do). status=
+            // APPROVED ngay cho mọi khoản — MoMo đã xác nhận tiền thật vào tài khoản (chữ ký hợp lệ),
+            // không cần "Chủ toà nhà" duyệt lại lần 2.
+            InvoicePaymentAllocationService::allocate($invoice, $amount, InvoicePayment::METHOD_TRANSFER, $note);
         });
 
         return response()->noContent();

@@ -184,22 +184,49 @@ class InvoiceContentRenderer
     }
 
     // Tổng số tiền CÒN THIẾU (total_amount - amount_paid) của các hoá đơn THÁNG TRƯỚC cùng hợp đồng
-    // này, vẫn ở trạng thái chưa/1 phần thanh toán — hiển thị cho khách biết còn nợ từ trước, KHÔNG
-    // tính vào chính hoá đơn đang xem (Invoice::amount_paid chỉ theo dõi số đã trả cho HOÁ ĐƠN NÀY).
-    // Public — dùng chung với MinihouseZaloService::buildTemplateData() (tin nhắc đóng tiền qua
-    // Zalo cần hiện đúng số nợ tháng trước giống hệt phiếu in).
+    // này (VÀ các hợp đồng CŨ đã chuyển phòng tới hợp đồng này — xem contractIdChain()), vẫn ở trạng
+    // thái chưa/1 phần thanh toán — hiển thị cho khách biết còn nợ từ trước, KHÔNG tính vào chính hoá
+    // đơn đang xem (Invoice::amount_paid chỉ theo dõi số đã trả cho HOÁ ĐƠN NÀY). Public — dùng chung
+    // với MinihouseZaloService::buildTemplateData() (tin nhắc đóng tiền qua Zalo cần hiện đúng số nợ
+    // tháng trước giống hệt phiếu in).
     public static function previousDebt(Invoice $invoice): float
     {
         if (! $invoice->contract_id || ! $invoice->month) {
             return 0;
         }
 
-        return (float) Invoice::where('contract_id', $invoice->contract_id)
+        return (float) Invoice::withoutGlobalScopes()
+            ->whereIn('contract_id', self::contractIdChain($invoice))
             ->where('id', '!=', $invoice->id)
             ->where('month', '<', $invoice->month)
             ->whereIn('status', [Invoice::STATUS_UNPAID, Invoice::STATUS_PARTIAL])
             ->get()
             ->sum(fn (Invoice $inv) => $inv->remainingAmount());
+    }
+
+    // Chuỗi contract_id của "cùng 1 khách, cùng 1 lần thuê liên tục" — khi khách CHUYỂN PHÒNG
+    // (Contract::transferRoom()), hợp đồng cũ hết hiệu lực và 1 contract_id MỚI HẲN được tạo cho
+    // phòng mới (transferred_from_contract_id trỏ về hợp đồng cũ) — nếu previousDebt() chỉ lọc đúng
+    // 1 contract_id hiện tại, nợ còn lại của hợp đồng cũ sẽ "biến mất" khỏi hoá đơn hợp đồng mới dù
+    // vẫn là nợ CHƯA TRẢ của đúng khách đó. Duyệt ngược chuỗi transferred_from_contract_id (giới hạn
+    // 20 lần chuyển phòng liên tiếp — thừa đủ cho mọi trường hợp thực tế, chỉ để chặn vòng lặp vô hạn
+    // nếu dữ liệu lỡ bị nối vòng) để gộp đủ nợ xuyên suốt lịch sử chuyển phòng.
+    // Public — dùng chung với InvoicePaymentAllocationService (phân bổ 1 khoản thanh toán online gồm
+    // cả nợ cũ cho đúng nhiều hoá đơn thuộc cùng chuỗi chuyển phòng).
+    public static function contractIdChain(Invoice $invoice): array
+    {
+        $ids = [$invoice->contract_id];
+
+        $current = Contract::withoutGlobalScopes()->find($invoice->contract_id);
+        $guard = 0;
+
+        while ($current?->transferred_from_contract_id && $guard < 20 && ! in_array($current->transferred_from_contract_id, $ids, true)) {
+            $ids[] = $current->transferred_from_contract_id;
+            $current = Contract::withoutGlobalScopes()->find($current->transferred_from_contract_id);
+            $guard++;
+        }
+
+        return $ids;
     }
 
     // $qrImageSrc: truyền sẵn data URI base64 khi xuất PDF (Dompdf không tự tải được ảnh từ URL

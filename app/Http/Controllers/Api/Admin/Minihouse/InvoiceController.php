@@ -12,6 +12,7 @@ use Illuminate\Support\Carbon;
 use Modules\Minihouse\App\Exceptions\CannotDeletePaidInvoiceException;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Invoice;
+use Modules\Minihouse\App\Services\InvoiceContentRenderer;
 use Modules\Minihouse\App\Services\InvoiceGenerationService;
 use Modules\Minihouse\App\Services\InvoiceMomoService;
 use Modules\Minihouse\App\Services\InvoicePayOsService;
@@ -346,6 +347,11 @@ class InvoiceController extends Controller
             'room_code'      => $invoice->contract?->room?->code,
             'month'          => $invoice->month?->format('Y-m'),
             'total_amount'   => $invoice->total_amount,
+            // Nợ cộng dồn từ hoá đơn tháng trước cùng hợp đồng — CÙNG công thức đang dùng ở phiếu in/
+            // mã QR/tin Zalo nhắc nợ (InvoiceContentRenderer::previousDebt()), tính runtime chứ không
+            // lưu field riêng (tránh lệch dữ liệu khi hoá đơn cũ được sửa/thanh toán sau đó).
+            'previous_debt'  => InvoiceContentRenderer::previousDebt($invoice),
+            'total_owed'     => InvoiceContentRenderer::totalOwed($invoice),
             'amount_paid'    => $invoice->amount_paid,
             'remaining'      => $invoice->remainingAmount(),
             'status'         => $invoice->status,
@@ -373,6 +379,8 @@ class InvoiceController extends Controller
             'water_amount'          => $invoice->water_amount,
             'service_amount'        => $invoice->service_amount,
             'total_amount'          => $invoice->total_amount,
+            'previous_debt'         => InvoiceContentRenderer::previousDebt($invoice),
+            'total_owed'            => InvoiceContentRenderer::totalOwed($invoice),
             'amount_paid'           => $invoice->amount_paid,
             'remaining'             => $invoice->remainingAmount(),
             'status'                => $invoice->status,

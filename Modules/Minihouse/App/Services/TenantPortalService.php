@@ -95,7 +95,10 @@ class TenantPortalService
     /** @return array{qr_image: string, open_url: null, open_label: string, amount: float, expired_at: null, bank_info: array{holder: ?string, bank: ?string, account: ?string}}|null */
     public static function normalizeVietQrResult(Invoice $invoice, Building $building): ?array
     {
-        $amount = $invoice->remainingAmount();
+        // Gồm CẢ nợ tháng trước — QR TĨNH này không có webhook tự xác nhận (nhân viên tự đối chiếu
+        // sao kê ngân hàng rồi ghi nhận tay), nên không có rủi ro guard so khớp như 3 cổng động
+        // PayOS/MoMo/VNPay — an toàn đổi thẳng, cùng số với "Tổng Cộng" trên phiếu in.
+        $amount = InvoiceContentRenderer::totalOwed($invoice);
         $roomCode = $invoice->contract?->room?->code;
         $monthLabel = $invoice->month?->format('m/Y');
 

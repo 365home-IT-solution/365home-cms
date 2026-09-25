@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\Admin\Minihouse\ContractDocumentController;
 use App\Http\Controllers\Api\Admin\Minihouse\InvoiceController;
 use App\Http\Controllers\Api\Admin\Minihouse\InvoicePaymentController;
 use App\Http\Controllers\Api\Admin\Minihouse\MeteringReadingController;
+use App\Http\Controllers\Api\Admin\Minihouse\PushNotificationController;
 use App\Http\Controllers\Api\Admin\Minihouse\ReminderController;
 use App\Http\Controllers\Api\Admin\Minihouse\ReportController;
 use App\Http\Controllers\Api\Admin\Minihouse\ResidenceDeclarationController;
@@ -142,9 +143,20 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
     Route::prefix('chat')->name('chat.')->group(function () {
         Route::get('/', [AdminChatController::class, 'index'])->name('index');
         Route::get('{id}', [AdminChatController::class, 'show'])->name('show');
+        Route::get('{id}/contracts', [AdminChatController::class, 'contracts'])->name('contracts');
         Route::get('{id}/messages', [AdminChatController::class, 'messages'])->name('messages');
         Route::post('{id}/messages', [AdminChatController::class, 'send'])->name('send');
         Route::post('{id}/read', [AdminChatController::class, 'read'])->name('read');
+    });
+
+    // Soạn + gửi thông báo đẩy hàng loạt cho khách thuê — mirror api.admin.push-notification.* của
+    // Home, xem App\Http\Controllers\Api\Admin\Minihouse\PushNotificationController.
+    Route::prefix('push-notification')->name('push-notification.')->group(function () {
+        Route::get('/', [PushNotificationController::class, 'index'])->name('index');
+        Route::get('{id}', [PushNotificationController::class, 'show'])->name('show');
+        Route::post('/', [PushNotificationController::class, 'store'])->name('store');
+        Route::put('{id}', [PushNotificationController::class, 'update'])->name('update');
+        Route::post('{id}/resend', [PushNotificationController::class, 'resend'])->name('resend');
     });
 });
 
@@ -230,6 +242,8 @@ Route::prefix('minihouse/portal')->name('api.minihouse.portal.')->group(function
         Route::get('dashboard', [TenantPortalApiController::class, 'dashboard'])->name('dashboard');
         Route::get('notifications', [TenantPortalApiController::class, 'notifications'])->name('notifications');
         Route::get('notifications/unread-count', [TenantPortalApiController::class, 'unreadNotificationCount'])->name('notifications.unread-count');
+        Route::post('notifications/read-all', [TenantPortalApiController::class, 'markAllNotificationsRead'])->name('notifications.read-all');
+        Route::post('notifications/{id}/read', [TenantPortalApiController::class, 'markNotificationRead'])->name('notifications.read');
         Route::get('invoices', [TenantPortalApiController::class, 'invoices'])->name('invoices.index');
         Route::get('invoices/{invoice}', [TenantPortalApiController::class, 'showInvoice'])->name('invoices.show');
         Route::get('invoices/{invoice}/pdf', [TenantPortalApiController::class, 'invoicePdf'])->name('invoices.pdf');
@@ -254,6 +268,8 @@ Route::prefix('minihouse/portal')->name('api.minihouse.portal.')->group(function
         // Chat khách thuê <-> nhân viên (phía khách thuê) — mirror api.chat.* của Home, xem
         // App\Http\Controllers\Api\Minihouse\Portal\ChatController.
         Route::get('chat', [PortalChatController::class, 'show'])->name('chat.show');
+        Route::get('chat/threads', [PortalChatController::class, 'threads'])->name('chat.threads');
+        Route::get('chat/unread', [PortalChatController::class, 'unread'])->name('chat.unread');
         Route::get('chat/messages', [PortalChatController::class, 'messages'])->name('chat.messages');
         Route::post('chat/messages', [PortalChatController::class, 'send'])->name('chat.send');
         Route::post('chat/read', [PortalChatController::class, 'read'])->name('chat.read');

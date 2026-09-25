@@ -10,6 +10,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Modules\Minihouse\App\Models\ChatConversation;
 use Modules\Minihouse\App\Models\ChatMessage;
+use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Tenant;
 
 // Logic nghiệp vụ DUY NHẤT cho chat khách thuê <-> nhân viên — CHỈ dành cho khách ĐÃ KÝ HỢP ĐỒNG
@@ -53,6 +54,95 @@ class MinihouseChatService
             'contract_id' => $activeContract?->id,
             'status'      => ChatConversation::STATUS_OPEN,
         ]);
+    }
+
+    // Luồng hợp đồng PHẢI thuộc đúng khách của hội thoại (đứng tên hoặc ở cùng) — mirror Home kiểm
+    // tra đơn phải của đúng khách trước khi gắn order_code vào tin. null = luồng chung, luôn hợp lệ.
+    public function contractBelongsToConversation(ChatConversation $conversation, ?int $contractId): bool
+    {
+        if ($contractId === null) {
+            return true;
+        }
+
+        $tenant = $conversation->tenant;
+
+        return $tenant !== null
+            && TenantPortalService::tenantContracts($tenant)->contains('id', $contractId);
+    }
+
+    // Nhãn hiển thị của 1 luồng hợp đồng (phòng + toà) — dùng cho push/socket/danh sách luồng, để app
+    // hiện "Phòng A-101 · Toà A" thay vì mã hợp đồng.
+    public function contractLabel(?int $contractId): array
+    {
+        if ($contractId === null) {
+            return ['room_code' => null, 'building_name' => null];
+        }
+
+        $contract = Contract::withoutGlobalScopes()
+            ->with(['room' => fn ($q) => $q->withoutGlobalScopes(), 'room.building' => fn ($q) => $q->withoutGlobalScopes()])
+            ->find($contractId);
+
+        return [
+            'room_code'     => $contract?->room?->code,
+            'building_name' => $contract?->room?->building?->name,
+        ];
+    }
+
+    // Danh sách luồng của 1 hội thoại: "chung" + từng hợp đồng của khách, kèm số tin CHƯA ĐỌC và tin
+    // cuối của mỗi luồng — mirror /api/admin/chat/{id}/orders của Home. $side = phía đang xem:
+    // 'tenant' đếm tin admin gửi chưa đọc, 'admin' đếm tin khách gửi chưa đọc.
+    public function threads(ChatConversation $conversation, string $side): array
+    {
+        $fromSender = $side === 'tenant' ? ChatMessage::SENDER_ADMIN : ChatMessage::SENDER_TENANT;
+
+        $unread = ChatMessage::where('conversation_id', $conversation->id)
+            ->where('sender_type', $fromSender)
+            ->whereNull('read_at')
+            ->get(['contract_id'])
+            ->groupBy(fn ($m) => (string) ($m->contract_id ?? ''))
+            ->map->count();
+
+        $lastByThread = ChatMessage::where('conversation_id', $conversation->id)
+            ->orderByDesc('id')
+            ->get(['id', 'contract_id', 'body', 'created_at'])
+            ->unique(fn ($m) => (string) ($m->contract_id ?? ''))
+            ->keyBy(fn ($m) => (string) ($m->contract_id ?? ''));
+
+        $row = function (?int $contractId, array $extra) use ($unread, $lastByThread) {
+            $key  = (string) ($contractId ?? '');
+            $last = $lastByThread->get($key);
+
+            return array_merge([
+                'contract_id'     => $contractId,
+                'unread'          => (int) ($unread[$key] ?? 0),
+                'last_message'    => $last ? mb_substr($last->body, 0, 100) : null,
+                'last_message_at' => $last?->created_at?->toIso8601String(),
+            ], $extra);
+        };
+
+        $threads = [$row(null, ['type' => 'general', 'title' => 'Hỗ trợ chung', 'room_code' => null, 'building_name' => null, 'status' => null])];
+
+        if ($conversation->tenant) {
+            foreach (TenantPortalService::tenantContracts($conversation->tenant)->sortByDesc('start_date') as $contract) {
+                $label = $this->contractLabel($contract->id);
+
+                $threads[] = $row($contract->id, [
+                    'type'          => 'contract',
+                    'title'         => trim(($label['room_code'] ?? 'Hợp đồng #' . $contract->id) . ($label['building_name'] ? ' · ' . $label['building_name'] : '')),
+                    'room_code'     => $label['room_code'],
+                    'building_name' => $label['building_name'],
+                    'status'        => $contract->status,
+                ]);
+            }
+        }
+
+        return $threads;
+    }
+
+    // Tổng số tin chưa đọc theo phía xem — KHÔNG đánh dấu đã đọc, dùng cho badge trên app.
+    public function unreadCount(ChatConversation $conversation, string $side): int
+    {
+        return $side === 'tenant' ? (int) $conversation->tenant_unread : (int) $conversation->admin_unread;
     }
 
     // $contractId: null = luồng "hỗ trợ chung", khác null = luồng riêng của đúng hợp đồng đó — mirror
@@ -118,6 +208,8 @@ class MinihouseChatService
             'last_message_at'      => $message->created_at,
             'admin_unread'         => $isFromTenant ? $conversation->admin_unread + 1 : 0,
             'tenant_unread'        => $isFromTenant ? 0 : $conversation->tenant_unread + 1,
+            // Con trỏ luồng đang trao đổi gần nhất — mirror Home cập nhật order_id khi khách nhắn theo đơn.
+            'contract_id'          => $contractId ?? $conversation->contract_id,
         ]);
 
         $payload = $this->formatMessage($message, $senderName);
@@ -134,9 +226,53 @@ class MinihouseChatService
             );
 
             $this->notifyStaff($conversation, $preview);
+        } else {
+            $this->notifyTenant($conversation, $preview, $contractId, $senderName);
         }
 
         return $message;
+    }
+
+    // Nhân viên nhắn → báo khách thuê qua 3 kênh: (1) socket cá nhân (app đang mở, cập nhật badge
+    // ngoài khung chat), (2) LƯU LẠI 1 dòng PortalNotification (để khách xem lại được trong danh sách
+    // "Thông báo" nếu lỡ push — trước đây gọi thẳng FcmService, KHÔNG lưu gì cả, đúng lỗ hổng đã tự
+    // phát hiện và sửa), (3) push FCM/Expo kể cả khi app đóng — mirror ĐÚNG hành vi
+    // Api\Admin\ChatController::send() của Home (NotificationFcmService::sendToCustomer() cũng vừa
+    // lưu DB vừa push, gói data có notification_id/unread_count). Lỗi kênh nào cũng KHÔNG chặn việc
+    // gửi tin (tin đã lưu + đã bắn vào khung chat) — PortalNotificationService tự nuốt lỗi push.
+    private function notifyTenant(ChatConversation $conversation, string $preview, ?int $contractId, ?string $senderName): void
+    {
+        $tenant = $conversation->tenant;
+
+        if (! $tenant) {
+            return;
+        }
+
+        $label = $this->contractLabel($contractId);
+
+        $this->realtime->notifyTenant($tenant->id, [
+            'type'            => 'message',
+            'conversation_id' => $conversation->id,
+            'contract_id'     => $contractId,
+            'room_code'       => $label['room_code'],
+            'building_name'   => $label['building_name'],
+            'preview'         => $preview,
+            'sender_name'     => $senderName,
+            'tenant_unread'   => $conversation->tenant_unread,
+        ]);
+
+        PortalNotificationService::notify(
+            $tenant,
+            'minihouse_message',
+            $senderName ? 'Tin nhắn từ ' . $senderName : 'Tin nhắn từ chủ nhà',
+            $preview,
+            route('minihouse.portal.chat.show', $contractId !== null ? ['contract_id' => $contractId] : []),
+            [
+                'conversation_id' => (string) $conversation->id,
+                'contract_id'     => $contractId === null ? '' : (string) $contractId,
+                'room_code'       => (string) ($label['room_code'] ?? ''),
+            ],
+        );
     }
 
     public function markReadByTenant(ChatConversation $conversation): void
@@ -153,6 +289,14 @@ class MinihouseChatService
             ->update(['read_at' => Carbon::now()]);
 
         $this->realtime->broadcastRead($conversation->id, 'tenant');
+
+        if ($conversation->tenant_id) {
+            $this->realtime->notifyTenant($conversation->tenant_id, [
+                'type'            => 'read',
+                'conversation_id' => $conversation->id,
+                'tenant_unread'   => 0,
+            ]);
+        }
     }
 
     public function markReadByAdmin(ChatConversation $conversation): void
@@ -210,7 +354,7 @@ class MinihouseChatService
                 $recipients,
                 'Tin nhắn khách thuê',
                 ($conversation->tenant?->fullname ?? 'Khách thuê') . ': ' . $preview,
-                ['type' => 'minihouse_message', 'conversation_id' => $conversation->id],
+                ['type' => 'minihouse_message', 'conversation_id' => $conversation->id, 'module' => 'minihouse'],
                 'heroicon-o-chat-bubble-left-right',
                 'primary',
             );

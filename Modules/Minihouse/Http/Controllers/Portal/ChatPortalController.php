@@ -61,6 +61,11 @@ class ChatPortalController extends Controller
 
         $tenant       = $this->tenant();
         $conversation = $this->chat->conversationFor($tenant);
+
+        if (! $this->chat->contractBelongsToConversation($conversation, isset($data['contract_id']) ? (int) $data['contract_id'] : null)) {
+            return response()->json(['message' => 'Hợp đồng này không thuộc tài khoản của bạn.'], 422);
+        }
+
         $message      = $this->chat->send($conversation, 'tenant', (string) $tenant->id, $data['body'], null, $data['contract_id'] ?? null);
 
         return response()->json(['message' => $this->chat->formatMessage($message)], 201);

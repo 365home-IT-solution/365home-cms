@@ -13,12 +13,16 @@ class PortalNotification extends Model
     public const TYPE_REMINDER       = 'reminder';
     public const TYPE_ANNOUNCEMENT   = 'announcement';
     public const TYPE_FEEDBACK_REPLY = 'feedback_reply';
+    public const TYPE_MESSAGE        = 'minihouse_message';
+    public const TYPE_INVOICE_PAID   = 'invoice_paid';
+    public const TYPE_MANUAL         = 'manual';
 
     protected $table = 'minihouse_portal_notifications';
 
-    protected $fillable = ['tenant_id', 'type', 'title', 'body', 'link', 'read_at'];
+    protected $fillable = ['tenant_id', 'type', 'title', 'body', 'link', 'data', 'read_at'];
 
     protected $casts = [
+        'data'    => 'array',
         'read_at' => 'datetime',
     ];
 

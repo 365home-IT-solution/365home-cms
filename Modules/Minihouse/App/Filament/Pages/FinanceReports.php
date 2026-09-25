@@ -334,13 +334,17 @@ class FinanceReports extends Page implements HasForms
                 'contract.tenant' => fn ($q) => $q->withoutGlobalScopes(),
             ])
             ->get()
-            ->groupBy('contract_id')
+            // Gộp theo GỐC chuỗi chuyển phòng (InvoiceContentRenderer::contractIdChain(), cùng công
+            // thức tính previous_debt/total_owed trên hoá đơn/QR) — trước đây gộp thẳng theo
+            // contract_id nên 1 khách đã chuyển phòng bị tách thành 2 dòng công nợ riêng.
+            ->groupBy(fn (Invoice $invoice) => (string) collect(\Modules\Minihouse\App\Services\InvoiceContentRenderer::contractIdChain($invoice))->last())
             ->map(function ($invoices) {
-                $contract = $invoices->first()->contract;
+                // Hợp đồng MỚI NHẤT trong nhóm — hiển thị đúng phòng/khách đang thuê hiện tại.
+                $latestContract = $invoices->pluck('contract')->filter()->sortByDesc('start_date')->first();
 
                 return [
-                    'tenant'        => $contract?->tenant?->fullname ?? '—',
-                    'room'          => $contract?->room?->code ?? '—',
+                    'tenant'        => $latestContract?->tenant?->fullname ?? '—',
+                    'room'          => $latestContract?->room?->code ?? '—',
                     'invoice_count' => $invoices->count(),
                     // Còn nợ = phần CHƯA trả của mỗi hoá đơn (không phải nguyên total_amount) — hoá
                     // đơn đã trả 1 phần chỉ còn nợ đúng phần thiếu.

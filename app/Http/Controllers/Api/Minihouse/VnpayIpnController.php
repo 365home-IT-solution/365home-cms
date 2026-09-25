@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\InvoicePayment;
+use Modules\Minihouse\App\Services\InvoiceContentRenderer;
+use Modules\Minihouse\App\Services\InvoicePaymentAllocationService;
 use Modules\Minihouse\App\Services\InvoiceVnpayService;
 
 // IPN (Instant Payment Notification) VNPay — công khai, KHÔNG qua auth:sanctum/admin.api. KHÁC
@@ -56,14 +58,17 @@ class VnpayIpnController extends Controller
         // chia lại mới đúng đơn vị VNĐ thật để so khớp/ghi nhận.
         $amount = ((float) ($params['vnp_Amount'] ?? 0)) / 100;
 
-        if (abs($amount - $invoice->remainingAmount()) > 1 && $invoice->status !== Invoice::STATUS_PAID) {
-            // Số tiền không khớp với số còn phải thu tại thời điểm tạo link (VD hoá đơn vừa được
-            // nhân viên sửa tay sau khi khách đã mở link cũ) — không tự ghi nhận sai số tiền, báo
-            // VNPay biết để KHÔNG lặp lại gọi (đây là lỗi nghiệp vụ thật, gọi lại cũng vẫn sai).
+        $totalOwed = InvoiceContentRenderer::totalOwed($invoice);
+
+        if (abs($amount - $totalOwed) > 1 && $invoice->status !== Invoice::STATUS_PAID) {
+            // Số tiền không khớp với tổng thực sự cần thu tại thời điểm tạo link (GỒM CẢ nợ tháng
+            // trước — VD hoá đơn vừa được nhân viên sửa tay sau khi khách đã mở link cũ) — không tự
+            // ghi nhận sai số tiền, báo VNPay biết để KHÔNG lặp lại gọi (đây là lỗi nghiệp vụ thật,
+            // gọi lại cũng vẫn sai).
             Log::warning('VnpayIpnController: số tiền không khớp, bỏ qua', [
-                'txn_ref'          => $txnRef,
-                'vnpay_amount'     => $amount,
-                'invoice_remaining' => $invoice->remainingAmount(),
+                'txn_ref'      => $txnRef,
+                'vnpay_amount' => $amount,
+                'invoice_owed' => $totalOwed,
             ]);
 
             return response()->json(['RspCode' => '04', 'Message' => 'Invalid amount']);
@@ -113,17 +118,11 @@ class VnpayIpnController extends Controller
                 return false;
             }
 
-            // status=APPROVED ngay — VNPay đã xác nhận tiền thật (chữ ký + mã trạng thái hợp lệ),
-            // không cần "Chủ toà nhà" duyệt lại lần 2 (giống PayOS/MoMo).
-            $invoice->payments()->create([
-                'amount'         => $amount,
-                'paid_at'        => now(),
-                'payment_method' => InvoicePayment::METHOD_TRANSFER,
-                'note'           => $note,
-                'status'         => InvoicePayment::STATUS_APPROVED,
-                'approved_at'    => now(),
-                'created_by'     => null,
-            ]);
+            // $amount đã gồm cả nợ tháng trước — chia lại thành nhiều khoản qua
+            // InvoicePaymentAllocationService (xem PayOsWebhookController để biết lý do). status=
+            // APPROVED ngay cho mọi khoản — VNPay đã xác nhận tiền thật (chữ ký + mã trạng thái hợp
+            // lệ), không cần "Chủ toà nhà" duyệt lại lần 2.
+            InvoicePaymentAllocationService::allocate($invoice, $amount, InvoicePayment::METHOD_TRANSFER, $note);
 
             return true;
         });

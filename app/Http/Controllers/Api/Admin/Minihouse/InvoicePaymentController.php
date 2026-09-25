@@ -11,6 +11,8 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\InvoicePayment;
+use Modules\Minihouse\App\Services\InvoiceContentRenderer;
+use Modules\Minihouse\App\Services\InvoicePaymentAllocationService;
 
 // Ghi nhận thanh toán cho 1 hoá đơn — mỗi lần tạo/sửa/xoá ở đây tự kích InvoicePaymentObserver,
 // đồng bộ lại Invoice.amount_paid/paid_at/status VÀ tự tạo/cập nhật dòng "Thu" tương ứng trong sổ
@@ -55,9 +57,40 @@ class InvoicePaymentController extends Controller
             'note'           => 'nullable|string',
         ]);
 
+        $amount    = (float) $data['amount'];
+        $totalOwed = InvoiceContentRenderer::totalOwed($invoice);
+
+        // Khách đưa ĐỦ tiền gồm cả nợ tháng trước (số tiền đúng bằng totalOwed(), khác hẳn total_amount
+        // của riêng hoá đơn này) — chia thành nhiều khoản PENDING qua InvoicePaymentAllocationService
+        // (trả nợ cũ nhất trước), mỗi khoản vẫn cần "Chủ toà nhà" duyệt riêng như luồng cũ, xem
+        // approve() bên dưới. Không áp dụng nếu hoá đơn này không có nợ cũ (totalOwed() == total_amount)
+        // — khi đó rơi thẳng xuống nhánh 1-hoá-đơn như trước, không đổi hành vi.
+        if (abs($amount - $totalOwed) <= 0.01 && abs($totalOwed - (float) $invoice->total_amount) > 0.01) {
+            $result = InvoicePaymentAllocationService::allocate(
+                $invoice,
+                $amount,
+                $data['payment_method'],
+                $data['note'] ?? 'Ghi nhận thanh toán gộp nợ cũ',
+                InvoicePayment::STATUS_PENDING,
+                $request->user()->id,
+                \Illuminate\Support\Carbon::parse($data['paid_at']),
+            );
+
+            if (abs($result['unallocated']) > 1) {
+                return response()->json([
+                    'message' => 'Còn ' . number_format($result['unallocated'], 0, ',', '.') . 'đ chưa gán được vào hoá đơn nào (có thể do 1 hoá đơn cũ đang "Thanh toán 1 phần") — vui lòng kiểm tra lại số tiền hoặc ghi nhận riêng khoản đó.',
+                ], 422);
+            }
+
+            return response()->json([
+                'data'    => collect($result['payments'])->map(fn (InvoicePayment $p) => $this->toItem($p)),
+                'message' => 'Đã ghi nhận ' . count($result['payments']) . ' khoản thanh toán (chờ Chủ toà nhà duyệt riêng từng khoản), trả nợ cũ nhất trước.',
+            ], 201);
+        }
+
         // Chỉ nhận ĐÚNG 1 lần thanh toán, đủ 100% tổng hoá đơn — dùng chung quy tắc với InvoiceForm
         // (Filament), xem Invoice::validateSinglePayment().
-        $error = $invoice->validateSinglePayment((float) $data['amount']);
+        $error = $invoice->validateSinglePayment($amount);
 
         if ($error) {
             return response()->json(['message' => $error], 422);

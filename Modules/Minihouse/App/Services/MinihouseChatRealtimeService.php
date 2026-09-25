@@ -37,6 +37,16 @@ class MinihouseChatRealtimeService
         ]);
     }
 
+    // Báo riêng cho khách thuê (kênh cá nhân, mọi thiết bị đang kết nối app) — mirror /internal/notify
+    // của khách Home: để app cập nhật badge chưa đọc ở màn khác NGOÀI khung chat đang mở.
+    public function notifyTenant(int $tenantId, array $payload): void
+    {
+        $this->post('/internal/mh-chat-tenant-notify', [
+            'tenant_id' => $tenantId,
+            'payload'   => $payload,
+        ]);
+    }
+
     public function broadcastRead(string $conversationId, string $readBy): void
     {
         $this->post('/internal/mh-chat-read', [

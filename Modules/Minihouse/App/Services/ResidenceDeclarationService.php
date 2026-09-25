@@ -106,7 +106,7 @@ class ResidenceDeclarationService
                     $recipients,
                     'Khai báo lưu trú ' . $label . ': ' . $declaration->full_name,
                     'Phòng ' . ($declaration->room_number ?: '—') . ' — hạn khai báo: ' . $declaration->declarationDeadline()?->format('H:i d/m/Y'),
-                    ['type' => 'minihouse_residence_declaration', 'residence_declaration_id' => $declaration->id],
+                    ['type' => 'minihouse_residence_declaration', 'residence_declaration_id' => $declaration->id, 'module' => 'minihouse'],
                     'heroicon-o-identification',
                     $declaration->isOverdue() ? 'danger' : 'warning',
                     url('/minihouse/admin/residence-declarations/' . $declaration->id . '/edit'),
