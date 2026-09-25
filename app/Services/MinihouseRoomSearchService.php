@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Modules\Minihouse\App\Models\Building;
 use Modules\Minihouse\App\Models\BuildingSetting;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Room;
@@ -104,8 +105,11 @@ class MinihouseRoomSearchService
         $rooms = $query->paginate((int) ($validated['per_page'] ?? 12));
 
         return [
-            'data' => $this->toCards(collect($rooms->items()), $this->wishlistedIds($authUser), $geo),
-            'meta' => [
+            'data'      => $this->toCards(collect($rooms->items()), $this->wishlistedIds($authUser), $geo),
+            // Toà nhà khớp từ khoá (tên/địa chỉ/tỉnh/phường) và còn phòng trống — để khách gõ tên toà
+            // nhà thấy ngay toà đó, bấm vào thì gọi lại API này với ?building_id= để xem phòng.
+            'buildings' => $this->matchingBuildings(trim((string) ($validated['q'] ?? ''))),
+            'meta'      => [
                 'current_page'  => $rooms->currentPage(),
                 'last_page'     => $rooms->lastPage(),
                 'per_page'      => $rooms->perPage(),
@@ -152,13 +156,57 @@ class MinihouseRoomSearchService
 
     public function vacantQuery(): Builder
     {
-        return Room::query()
-            ->select('products.*')
+        return $this->whereVacant(Room::query()->select('products.*'))
+            ->whereHas('building', fn ($q) => $q->where('status', true))
+            ->with(['building', 'detail', 'roomType:id,slug,name', 'media']);
+    }
+
+    // Điều kiện "còn trống, chưa cho thuê" của 1 phòng — dùng cả cho truy vấn phòng lẫn whereHas
+    // từ toà nhà (matchingBuildings()) để 2 nơi không lệch nhau.
+    private function whereVacant(Builder $query): Builder
+    {
+        return $query
             ->available()
             ->where('products.is_activated', true)
-            ->whereHas('building', fn ($q) => $q->where('status', true))
-            ->whereDoesntHave('contracts', fn ($q) => $q->where('status', Contract::STATUS_ACTIVE))
-            ->with(['building', 'detail', 'roomType:id,slug,name', 'media']);
+            ->whereDoesntHave('contracts', fn ($q) => $q->where('status', Contract::STATUS_ACTIVE));
+    }
+
+    private function matchingBuildings(string $keyword): array
+    {
+        if ($keyword === '') {
+            return [];
+        }
+
+        $like = '%' . $keyword . '%';
+        $idsByAddress = BuildingSetting::where('address', 'like', $like)
+            ->orWhere('province_name_raw', 'like', $like)
+            ->orWhere('ward_raw', 'like', $like)
+            ->pluck('category_id');
+
+        return Building::query()
+            ->where('status', true)
+            ->where(fn ($q) => $q->where('name', 'like', $like)->orWhereIn('id', $idsByAddress))
+            ->whereHas('rooms', fn ($q) => $this->whereVacant($q))
+            ->withCount(['rooms as vacant_room_count' => fn ($q) => $this->whereVacant($q)])
+            ->withMin(['rooms as min_price' => fn ($q) => $this->whereVacant($q)], 'price')
+            ->orderBy('name')
+            ->limit(20)
+            ->get()
+            ->map(fn (Building $building) => [
+                'id'                => $building->id,
+                'name'              => $building->name,
+                'slug'              => $building->slug,
+                'address'           => $building->address,
+                'province'          => $building->province,
+                'ward'              => $building->ward,
+                'image_url'         => $building->image ? Storage::disk('public')->url($building->image) : null,
+                'thumbnail'         => ImagePresetUrls::build($building->image, 'public'),
+                'vacant_room_count' => (int) $building->vacant_room_count,
+                'min_price'         => $building->min_price !== null ? (float) $building->min_price : null,
+                'unit_label'        => '/ tháng',
+            ])
+            ->values()
+            ->all();
     }
 
     private function applyFilters(Builder $query, array $validated): void
