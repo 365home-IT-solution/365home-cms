@@ -43,7 +43,9 @@ class ContractDocumentController extends Controller
         return response()->json(['data' => $this->service->buildFields($doc, includeInternal: true)]);
     }
 
-    // PATCH /admin/minihouse/contracts/{id}/document — chỉ khi draft.
+    // PATCH /admin/minihouse/contracts/{id}/document — chỉ khi draft. KHÔNG nhận CCCD cấp ngày/nơi
+    // cấp của 2 bên nữa — hồ sơ Khách thuê (TenantController) và hồ sơ Toà (BuildingController) là
+    // nơi DUY NHẤT ghi, tránh 2 màn hình ghi đè lẫn nhau. Client cũ còn gửi thì validate() tự lọc bỏ.
     public function update(Request $request, int $id): JsonResponse
     {
         if (! $this->hasPermission($request, 'update_contracts')) {
@@ -57,15 +59,11 @@ class ContractDocumentController extends Controller
         }
 
         $data = $request->validate([
-            'sign_date'                   => 'sometimes|nullable|date',
-            'signed_place'                => 'sometimes|nullable|string|max:255',
-            'max_occupants'               => 'sometimes|nullable|integer|min:1|max:50',
-            'payment_day'                 => 'sometimes|nullable|integer|min:1|max:28',
-            'extra_terms'                 => 'sometimes|nullable|string',
-            'owner_id_card_issued_date'   => 'sometimes|nullable|date',
-            'owner_id_card_issued_place'  => 'sometimes|nullable|string|max:255',
-            'tenant_id_card_issued_date'  => 'sometimes|nullable|date',
-            'tenant_id_card_issued_place' => 'sometimes|nullable|string|max:255',
+            'sign_date'     => 'sometimes|nullable|date',
+            'signed_place'  => 'sometimes|nullable|string|max:255',
+            'max_occupants' => 'sometimes|nullable|integer|min:1|max:50',
+            'payment_day'   => 'sometimes|nullable|integer|min:1|max:28',
+            'extra_terms'   => 'sometimes|nullable|string',
         ]);
 
         $doc = $this->service->getOrCreateDraft($contract);

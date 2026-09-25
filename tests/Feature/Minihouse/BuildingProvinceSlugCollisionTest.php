@@ -11,7 +11,7 @@ use Tests\TestCase;
 
 // Bug thật đã gặp trên production (2026-09-22): lưu Building (Building::saved() luôn chạy lại
 // syncProvinceLink(), kể cả khi save() chỉ để ghi field KHÔNG liên quan tới tỉnh/thành — xem
-// ContractDocumentService::update() gọi $building->update(['owner_id_card_issued_date' => ...]))
+// BuildingController::update() gọi $building->update(['owner_id_card_issued_date' => ...]))
 // ném 500 SQLSTATE 23000 "Duplicate entry ... for key cms_provinces_slug_unique" nếu bảng provinces
 // đã có sẵn 1 dòng CÙNG SLUG hoá nhưng KHÁC chữ với Building->province (VD khoảng trắng/viết hoa/
 // tiền tố "TP." khác nhau) — Province::firstOrCreate(['name' => ...]) chỉ tra theo NAME, Laravel's

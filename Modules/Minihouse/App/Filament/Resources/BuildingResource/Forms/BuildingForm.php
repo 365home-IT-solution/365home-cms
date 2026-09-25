@@ -11,6 +11,7 @@ use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Tabs;
 use Filament\Forms\Components\Tabs\Tab;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
@@ -157,6 +158,13 @@ class BuildingForm
                             ->maxLength(20)
                             ->regex('/^([0-9]{9}|[0-9]{12})$/')
                             ->validationMessages(['regex' => 'Số CCCD/CMND phải gồm đúng 9 (CMND cũ) hoặc 12 (CCCD mới) chữ số.']),
+                        // Hồ sơ toà là nơi DUY NHẤT ghi 2 field này — bản hợp đồng điện tử chỉ đọc lại.
+                        DatePicker::make('owner_id_card_issued_date')
+                            ->label('CCCD cấp ngày')
+                            ->maxDate(now()),
+                        TextInput::make('owner_id_card_issued_place')
+                            ->label('CCCD nơi cấp')
+                            ->maxLength(255),
                         TextInput::make('owner_email')
                             ->label('Email')
                             ->email()

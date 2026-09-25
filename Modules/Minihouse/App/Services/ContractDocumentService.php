@@ -67,6 +67,9 @@ class ContractDocumentService
 
         return array_merge($identity, [
             'contract_id'   => $doc->contract_id,
+            // Để app mở thẳng hồ sơ khách (sửa CCCD cấp ngày/nơi cấp) không phải gọi thêm API chi
+            // tiết hợp đồng — luôn đọc sống từ Contract, không nằm trong snapshot.
+            'tenant_id'     => $contract?->tenant_id,
             'status'        => $doc->status,
             'no'            => $doc->no,
             'sign_date'     => $doc->sign_date?->toDateString(),
@@ -91,39 +94,13 @@ class ContractDocumentService
     }
 
     /**
-     * Chỉ sửa được khi còn draft — 4 field CCCD cấp ngày/nơi cấp ghi THẲNG xuống Tenant/Building
-     * (không lưu trùng ở documents, xem mục 4.2/12), các field còn lại ghi vào chính bản ghi.
+     * Chỉ sửa được khi còn draft — CHỈ ghi các field riêng của bản hợp đồng. Thông tin 2 bên (kể cả
+     * CCCD cấp ngày/nơi cấp) chỉ ĐỌC từ Tenant/Building, ghi ở hồ sơ Khách thuê/hồ sơ Toà.
      */
     public function update(ContractDocument $doc, array $data): ContractDocument
     {
         if ($doc->status !== ContractDocument::STATUS_DRAFT) {
             throw new ContractDocumentException('Chỉ sửa được khi hợp đồng điện tử đang ở trạng thái nháp.', 409);
-        }
-
-        $contract = Contract::withoutGlobalScopes()
-            ->with([
-                'tenant'        => fn ($q) => $q->withoutGlobalScopes(),
-                'room'          => fn ($q) => $q->withoutGlobalScopes(),
-                'room.building' => fn ($q) => $q->withoutGlobalScopes(),
-            ])
-            ->find($doc->contract_id);
-
-        $ownerCard = array_filter([
-            'owner_id_card_issued_date'  => $data['owner_id_card_issued_date'] ?? null,
-            'owner_id_card_issued_place' => $data['owner_id_card_issued_place'] ?? null,
-        ], fn ($v) => $v !== null);
-
-        if ($ownerCard && $contract->room?->building) {
-            $contract->room->building->update($ownerCard);
-        }
-
-        $tenantCard = array_filter([
-            'id_card_issued_date'  => $data['tenant_id_card_issued_date'] ?? null,
-            'id_card_issued_place' => $data['tenant_id_card_issued_place'] ?? null,
-        ], fn ($v) => $v !== null);
-
-        if ($tenantCard && $contract->tenant) {
-            $contract->tenant->update($tenantCard);
         }
 
         $doc->fill(array_intersect_key($data, array_flip([

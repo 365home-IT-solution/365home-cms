@@ -86,6 +86,8 @@ class TenantController extends Controller
             // 'hashed' tự băm, không cần Hash::make() ở đây.
             'password'                 => 'nullable|string|min:6',
             'id_card_number'           => 'nullable|string|max:20',
+            'id_card_issued_date'      => 'nullable|date|before_or_equal:today',
+            'id_card_issued_place'     => 'nullable|string|max:255',
             'id_card_front'            => $this->idCardFileRules($request, 'id_card_front'),
             'id_card_back'             => $this->idCardFileRules($request, 'id_card_back'),
             'date_of_birth'            => 'nullable|date',
@@ -140,6 +142,8 @@ class TenantController extends Controller
             // update() không đụng gì tới mật khẩu hiện có, đúng ngữ nghĩa 'sometimes'.
             'password'                 => 'sometimes|nullable|string|min:6',
             'id_card_number'           => 'nullable|string|max:20',
+            'id_card_issued_date'      => 'nullable|date|before_or_equal:today',
+            'id_card_issued_place'     => 'nullable|string|max:255',
             'id_card_front'            => $this->idCardFileRules($request, 'id_card_front'),
             'id_card_back'             => $this->idCardFileRules($request, 'id_card_back'),
             'date_of_birth'            => 'nullable|date',
@@ -251,6 +255,8 @@ class TenantController extends Controller
             'fullname'                 => $tenant->fullname,
             'phone'                    => $tenant->phone,
             'id_card_number'           => $tenant->id_card_number,
+            'id_card_issued_date'      => $tenant->id_card_issued_date?->toDateString(),
+            'id_card_issued_place'     => $tenant->id_card_issued_place,
             'id_card_front'            => $tenant->id_card_front,
             'id_card_back'             => $tenant->id_card_back,
             'date_of_birth'            => $tenant->date_of_birth?->toDateString(),

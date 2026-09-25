@@ -57,6 +57,13 @@ class TenantForm
                                 ->maxLength(20)
                                 ->regex('/^([0-9]{9}|[0-9]{12})$/')
                                 ->validationMessages(['regex' => 'Số CCCD/CMND phải gồm đúng 9 (CMND cũ) hoặc 12 (CCCD mới) chữ số.']),
+                            // Hồ sơ khách là nơi DUY NHẤT ghi 2 field này — bản hợp đồng điện tử chỉ đọc lại.
+                            DatePicker::make('id_card_issued_date')
+                                ->label('CCCD cấp ngày')
+                                ->maxDate(now()),
+                            TextInput::make('id_card_issued_place')
+                                ->label('CCCD nơi cấp')
+                                ->maxLength(255),
                             DatePicker::make('date_of_birth')
                                 ->label('Ngày sinh'),
                             Select::make('gender')

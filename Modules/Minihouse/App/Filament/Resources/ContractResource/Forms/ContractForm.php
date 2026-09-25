@@ -439,6 +439,8 @@ class ContractForm
             TextInput::make('id_card_number')->label('Số CCCD/CMND')->maxLength(20)
                 ->regex('/^([0-9]{9}|[0-9]{12})$/')
                 ->validationMessages(['regex' => 'Số CCCD/CMND phải gồm đúng 9 (CMND cũ) hoặc 12 (CCCD mới) chữ số.']),
+            DatePicker::make('id_card_issued_date')->label('CCCD cấp ngày')->native(false)->maxDate(now()),
+            TextInput::make('id_card_issued_place')->label('CCCD nơi cấp')->maxLength(255),
             DatePicker::make('date_of_birth')->label('Ngày sinh')->native(false),
             Select::make('gender')
                 ->label('Giới tính')
