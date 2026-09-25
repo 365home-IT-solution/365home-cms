@@ -4,8 +4,6 @@ namespace Modules\Payment\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
-use PayOS\PayOS;
-use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\OrderNotificationMail;
@@ -13,13 +11,11 @@ use App\Services\TelegramService;
 use Modules\BladeThemeV1\Services\AccessCode\AccessCodeService;
 use Modules\BladeThemeV1\Services\Zns\ZaloZnsService;
 use Modules\Payment\Entities\Order;
+use App\Services\Payment\PayOsAccountResolver;
 use Carbon\Carbon;
 
 class PaymentController extends Controller
 {
-    private string $payOSClientId;
-    private string $payOSApiKey;
-    private string $payOSChecksumKey;
     protected $accessCodeService;
     protected $zaloZnsService;
 
@@ -27,9 +23,6 @@ class PaymentController extends Controller
         AccessCodeService $accessCodeService,
         ZaloZnsService $zaloZnsService
     ) {
-        $this->payOSClientId    = Config::get('payos.client_id');
-        $this->payOSApiKey      = Config::get('payos.api_key');
-        $this->payOSChecksumKey = Config::get('payos.checksum_key');
         $this->accessCodeService = $accessCodeService;
         $this->zaloZnsService    = $zaloZnsService;
     }
@@ -169,7 +162,7 @@ private function buildTelegramMessage(Order $order, string $status): string
                 );
 
             if ($isRemainingPayment) {
-                $payOS    = new PayOS($this->payOSClientId, $this->payOSApiKey, $this->payOSChecksumKey);
+                $payOS    = PayOsAccountResolver::forOrderOrFail($order);
                 $response = $payOS->getPaymentLinkInformation((int) $order->remaining_payos_code);
                 $status   = $response['status'] ?? 'PENDING';
 
@@ -193,10 +186,10 @@ private function buildTelegramMessage(Order $order, string $status): string
                 && ($hintCode === null || (string)$hintCode === (string)$order->deposit_retry_payos_code);
 
             if ($isDepositRetry) {
-                $payOS     = new PayOS($this->payOSClientId, $this->payOSApiKey, $this->payOSChecksumKey);
+                $payOS     = PayOsAccountResolver::forOrderOrFail($order);
                 $orderCode = (int) $order->deposit_retry_payos_code;
             } else {
-                $payOS     = new PayOS($this->payOSClientId, $this->payOSApiKey, $this->payOSChecksumKey);
+                $payOS     = PayOsAccountResolver::forOrderOrFail($order);
                 $orderCode = (int) $order->order_code;
             }
 
@@ -453,15 +446,31 @@ private function buildTelegramMessage(Order $order, string $status): string
             ]);
 
             $webhookData = $request->all();
+            $data        = $webhookData['data'] ?? $webhookData;
+            $orderCode   = $data['orderCode'] ?? null;
+            $status      = $data['status'] ?? null;
 
-            if (!$this->verifyWebhookSignature($request)) {
-                Log::error('PayOS Webhook signature verification failed');
+            // Mỗi chi nhánh có thể dùng tài khoản PayOS RIÊNG (checksum key riêng) — phải tra
+            // orderCode -> đơn -> chi nhánh TRƯỚC khi xác thực để chọn đúng key. orderCode tự nó
+            // không phải bí mật, chỉ dùng để CHỌN key; không thuộc đơn nào (mã MiniHouse, request
+            // thử) thì chỉ nhận key chung như trước.
+            $ownerOrder   = PayOsAccountResolver::findOrderByPayOsCode($orderCode);
+            $checksumKeys = $ownerOrder
+                ? PayOsAccountResolver::checksumKeysForOrder($ownerOrder)
+                : array_filter([PayOsAccountResolver::globalCredentials()[2] ?? null]);
+
+            if (!$this->verifyWebhookSignature($request, $checksumKeys)) {
+                // PayOS gửi 1 request thử (orderCode không có thật) khi chủ nhà lưu URL webhook trên
+                // dashboard tài khoản RIÊNG của họ — phải trả 200 thì PayOS mới chấp nhận URL. Chỉ
+                // xác nhận, KHÔNG xử lý gì.
+                if (!$ownerOrder && $this->verifyWebhookSignature($request, PayOsAccountResolver::allBranchChecksumKeys())) {
+                    Log::info('PayOS Webhook: test request from a branch PayOS account', ['orderCode' => $orderCode]);
+                    return response()->json(['error' => 0, 'message' => 'Webhook acknowledged'], 200);
+                }
+
+                Log::error('PayOS Webhook signature verification failed', ['orderCode' => $orderCode]);
                 return response()->json(['error' => 'Invalid signature'], 401);
             }
-
-            $data      = $webhookData['data'] ?? $webhookData;
-            $orderCode = $data['orderCode'] ?? null;
-            $status    = $data['status'] ?? null;
 
             if (!$orderCode) {
                 Log::error('PayOS Webhook: No orderCode provided', ['data' => $webhookData]);
@@ -616,7 +625,10 @@ private function buildTelegramMessage(Order $order, string $status): string
     // VERIFY WEBHOOK SIGNATURE
     // =========================================================
 
-    private function verifyWebhookSignature(Request $request): bool
+    /**
+     * @param  string[]  $checksumKeys  key được phép cho request này — xem handlePayOSWebhook()
+     */
+    private function verifyWebhookSignature(Request $request, array $checksumKeys): bool
     {
         try {
             $receivedSignature = $request->input('signature');
@@ -627,6 +639,11 @@ private function buildTelegramMessage(Order $order, string $status): string
             }
 
             $data = $request->input('data');
+
+            if (!is_array($data)) {
+                return false;
+            }
+
             ksort($data);
 
             $hashStr = '';
@@ -635,12 +652,13 @@ private function buildTelegramMessage(Order $order, string $status): string
             }
             $hashStr = rtrim($hashStr, '&');
 
-            // Thử với key chính trước, sau đó thử key cọc (deposit PayOS có checksum khác)
-            $expectedMain    = hash_hmac('sha256', $hashStr, $this->payOSChecksumKey);
-            $expectedDeposit = hash_hmac('sha256', $hashStr, $this->payOSChecksumKey);
+            foreach ($checksumKeys as $checksumKey) {
+                if (hash_equals(hash_hmac('sha256', $hashStr, $checksumKey), (string) $receivedSignature)) {
+                    return true;
+                }
+            }
 
-            return hash_equals($expectedMain, $receivedSignature)
-                || hash_equals($expectedDeposit, $receivedSignature);
+            return false;
 
         } catch (\Exception $e) {
             Log::error('Signature verification error', ['error' => $e->getMessage()]);
@@ -891,8 +909,8 @@ private function buildTelegramMessage(Order $order, string $status): string
             // Tạo order_code mới cho PayOS (phải là integer)
             $remainingCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
 
-            // Dùng PayOS thứ 2 cho thanh toán tiền còn lại (fallback về PayOS chính nếu chưa cấu hình)
-            $payOS = new PayOS($this->payOSClientId, $this->payOSApiKey, $this->payOSChecksumKey);
+            // Tài khoản PayOS của chi nhánh (riêng nếu có, không thì tài khoản chung)
+            $payOS = PayOsAccountResolver::forOrderOrFail($order);
 
             $expiredAt = now()->addMinutes(30)->timestamp;
 

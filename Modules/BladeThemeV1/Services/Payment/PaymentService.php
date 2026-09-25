@@ -4,6 +4,7 @@ namespace Modules\BladeThemeV1\Services\Payment;
 
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
+use App\Services\Payment\PayOsAccountResolver;
 use PayOS\PayOS;
 use Exception;
 
@@ -156,12 +157,19 @@ class PaymentService
         return $data;
     }
 
-    public function createPaymentLink($data)
+    // $order: truyền vào để tạo link bằng đúng tài khoản PayOS của chi nhánh (riêng nếu chủ nhà có
+    // kết nối, xem App\Services\Payment\PayOsAccountResolver) — bỏ trống thì dùng tài khoản chung.
+    public function createPaymentLink($data, $order = null)
     {
-        $this->checkConfiguration();
+        $payOS = $order ? PayOsAccountResolver::forOrder($order) : null;
+
+        if (! $payOS) {
+            $this->checkConfiguration();
+            $payOS = $this->payOS;
+        }
 
         try {
-            return $this->payOS->createPaymentLink($data);
+            return $payOS->createPaymentLink($data);
         } catch (Exception $e) {
             Log::error('PayOS Create Payment Link Error: ' . $e->getMessage());
             throw new Exception('Không thể tạo link thanh toán: ' . $e->getMessage());

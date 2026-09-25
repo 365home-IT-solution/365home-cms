@@ -20,6 +20,7 @@ use Modules\Payment\App\Filament\Resources\OrderResource\Forms\OrderForm;
 use Modules\Payment\Entities\OrderGuestCccd;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
+use App\Services\Payment\PayOsAccountResolver;
 use PayOS\PayOS;
 
 class EditOrder extends EditRecord
@@ -270,16 +271,12 @@ class EditOrder extends EditRecord
                         return;
                     }
 
-                    $clientId    = Config::get('payos.client_id');
-                    $apiKey      = Config::get('payos.api_key');
-                    $checksumKey = Config::get('payos.checksum_key');
+                    $payOS = PayOsAccountResolver::forOrder($record);
 
-                    if (! $clientId || ! $apiKey || ! $checksumKey) {
+                    if (! $payOS) {
                         Notification::make()->title('Cổng thanh toán chưa được cấu hình')->danger()->send();
                         return;
                     }
-
-                    $payOS = new PayOS($clientId, $apiKey, $checksumKey);
 
                     $oldPayosCode = $record->current_payos_code ?? (int) $record->order_code;
                     try {

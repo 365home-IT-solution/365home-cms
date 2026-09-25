@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
 use Modules\BladeThemeV1\Services\AccessCode\AccessCodeService;
 use Modules\Payment\Entities\Order;
+use App\Services\Payment\PayOsAccountResolver;
 use PayOS\PayOS;
 
 /**
@@ -64,15 +65,11 @@ class OrderPaymentController extends Controller
             return response()->json(['message' => 'Số tiền thanh toán không đủ tối thiểu.'], 422);
         }
 
-        $clientId    = Config::get('payos.client_id');
-        $apiKey      = Config::get('payos.api_key');
-        $checksumKey = Config::get('payos.checksum_key');
+        $payOS = PayOsAccountResolver::forOrder($order);
 
-        if (! $clientId || ! $apiKey || ! $checksumKey) {
+        if (! $payOS) {
             return response()->json(['message' => 'Cổng thanh toán chưa được cấu hình.'], 500);
         }
-
-        $payOS = new PayOS($clientId, $apiKey, $checksumKey);
 
         $oldPayosCode = $order->current_payos_code ?? (int) $order->order_code;
         try {
@@ -430,15 +427,12 @@ class OrderPaymentController extends Controller
             return ['error' => 'Số tiền còn lại quá nhỏ hoặc đã thanh toán đủ.'];
         }
 
-        $clientId    = Config::get('payos.client_id');
-        $apiKey      = Config::get('payos.api_key');
-        $checksumKey = Config::get('payos.checksum_key');
+        $payOS = PayOsAccountResolver::forOrder($order);
 
-        if (! $clientId || ! $apiKey || ! $checksumKey) {
+        if (! $payOS) {
             return ['error' => 'Cổng thanh toán chưa được cấu hình.'];
         }
 
-        $payOS         = new PayOS($clientId, $apiKey, $checksumKey);
         $remainingCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
         $expiredAt     = now()->addMinutes(30);
 

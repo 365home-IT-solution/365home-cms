@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
 use Modules\Payment\App\Filament\Resources\OrderResource;
 use Modules\Payment\Entities\Order;
+use App\Services\Payment\PayOsAccountResolver;
 use PayOS\PayOS;
 
 class ExtraChargeService
@@ -160,11 +161,7 @@ class ExtraChargeService
      */
     public function createExtraChargePayOS(Order $order, int $amount): array
     {
-        $payOS = new PayOS(
-            Config::get('payos.client_id'),
-            Config::get('payos.api_key'),
-            Config::get('payos.checksum_key'),
-        );
+        $payOS = PayOsAccountResolver::forOrderOrFail($order);
 
         $extraCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
         $expiredAt    = now()->addMinutes(15);
@@ -249,11 +246,7 @@ class ExtraChargeService
             return ['error' => 'Số tiền còn lại quá nhỏ hoặc đã thanh toán đủ.'];
         }
 
-        $payOS = new PayOS(
-            Config::get('payos.client_id'),
-            Config::get('payos.api_key'),
-            Config::get('payos.checksum_key'),
-        );
+        $payOS = PayOsAccountResolver::forOrderOrFail($order);
 
         $remainingCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
         $expiredAt     = now()->addMinutes(30);

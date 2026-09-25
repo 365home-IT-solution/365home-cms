@@ -14,6 +14,7 @@ use Illuminate\Validation\ValidationException;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
+use App\Services\Payment\PayOsAccountResolver;
 use PayOS\PayOS;
 
 /**
@@ -634,15 +635,12 @@ trait BuildsRoomBooking
     private function createPayOSLink(Order $order, string $itemName, ?string $returnUrl = null, ?string $cancelUrl = null): void
     {
         try {
-            $clientId    = Config::get('payos.client_id');
-            $apiKey      = Config::get('payos.api_key');
-            $checksumKey = Config::get('payos.checksum_key');
+            $payOS = PayOsAccountResolver::forOrder($order);
 
-            if (! $clientId || ! $apiKey || ! $checksumKey) {
+            if (! $payOS) {
                 return;
             }
 
-            $payOS     = new PayOS($clientId, $apiKey, $checksumKey);
             $expiredAt = now()->addMinutes(15);
             $dueNow    = $order->depositDueAmount();
 

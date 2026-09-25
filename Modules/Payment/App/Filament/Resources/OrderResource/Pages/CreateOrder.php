@@ -17,6 +17,7 @@ use Modules\Payment\App\Filament\Resources\OrderResource\Forms\OrderForm;
 use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Payment\Entities\OrderGuestCccd;
 use Modules\Product\App\Models\Product;
+use App\Services\Payment\PayOsAccountResolver;
 use PayOS\PayOS;
 
 class CreateOrder extends CreateRecord
@@ -402,11 +403,9 @@ class CreateOrder extends CreateRecord
     private function createAdminPayosLink(\Modules\Payment\Entities\Order $record): void
     {
         try {
-            $clientId    = Config::get('payos.client_id');
-            $apiKey      = Config::get('payos.api_key');
-            $checksumKey = Config::get('payos.checksum_key');
+            $payOS = PayOsAccountResolver::forOrder($record);
 
-            if (! $clientId || ! $apiKey || ! $checksumKey) {
+            if (! $payOS) {
                 Notification::make()
                     ->title('PayOS chưa được cấu hình')
                     ->body('Đơn đã lưu. Vui lòng liên hệ admin để thanh toán.')
@@ -415,7 +414,6 @@ class CreateOrder extends CreateRecord
                 return;
             }
 
-            $payOS   = new PayOS($clientId, $apiKey, $checksumKey);
             $editUrl = static::getResource()::getUrl('edit', ['record' => $record->id]);
             $dueNow  = $record->depositDueAmount();
 

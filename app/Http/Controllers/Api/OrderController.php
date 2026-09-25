@@ -16,6 +16,7 @@ use Illuminate\Validation\ValidationException;
 use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Payment\Entities\Order;
 use Modules\Promotion\App\Models\Coupon;
+use App\Services\Payment\PayOsAccountResolver;
 use PayOS\PayOS;
 
 class OrderController extends Controller
@@ -687,15 +688,12 @@ class OrderController extends Controller
         }
 
         try {
-            $clientId    = Config::get('payos.client_id');
-            $apiKey      = Config::get('payos.api_key');
-            $checksumKey = Config::get('payos.checksum_key');
+            $payOS = PayOsAccountResolver::forOrder($order);
 
-            if (! $clientId || ! $apiKey || ! $checksumKey) {
+            if (! $payOS) {
                 return response()->json(['message' => 'Cổng thanh toán chưa được cấu hình.'], 500);
             }
 
-            $payOS         = new PayOS($clientId, $apiKey, $checksumKey);
             $remainingCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
             $expiredAt     = now()->addMinutes(30);
 
@@ -880,11 +878,9 @@ class OrderController extends Controller
         }
 
         try {
-            $clientId    = Config::get('payos.client_id');
-            $apiKey      = Config::get('payos.api_key');
-            $checksumKey = Config::get('payos.checksum_key');
+            $payOS = PayOsAccountResolver::forOrder($order);
 
-            if (! $clientId || ! $apiKey || ! $checksumKey) {
+            if (! $payOS) {
                 return response()->json([
                     'order_code'     => $order->order_code,
                     'status'         => $order->status,
@@ -898,7 +894,6 @@ class OrderController extends Controller
                 ? (int) $order->remaining_payos_code
                 : (int) $order->order_code;
 
-            $payOS    = new PayOS($clientId, $apiKey, $checksumKey);
             $response = $payOS->getPaymentLinkInformation($payosCode);
             $status   = $response['status'] ?? 'PENDING';
 
@@ -987,15 +982,12 @@ class OrderController extends Controller
     private function buildPayOSLink(Order $order, string $itemName, ?string $returnUrl = null, ?string $cancelUrl = null): ?string
     {
         try {
-            $clientId    = Config::get('payos.client_id');
-            $apiKey      = Config::get('payos.api_key');
-            $checksumKey = Config::get('payos.checksum_key');
+            $payOS = PayOsAccountResolver::forOrder($order);
 
-            if (! $clientId || ! $apiKey || ! $checksumKey) {
+            if (! $payOS) {
                 return null;
             }
 
-            $payOS     = new PayOS($clientId, $apiKey, $checksumKey);
             $expiredAt = now()->addMinutes(15);
 
             $oldPayosCode = $order->current_payos_code ?? (int) $order->order_code;

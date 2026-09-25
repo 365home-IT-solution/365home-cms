@@ -26,6 +26,7 @@ use Filament\Forms\Set;
 use Filament\Notifications\Notification;
 use Modules\AuditLog\Entities\AuditLog;
 use Modules\AuditLog\Services\AuditLogger;
+use App\Services\Payment\PayOsAccountResolver;
 use PayOS\PayOS;
 use Modules\Product\App\Models\Product;
 use Filament\Forms\Components\FileUpload;
@@ -1200,11 +1201,7 @@ class OrderForm
                                                             return;
                                                         }
 
-                                                        $payos = new PayOS(
-                                                            config('payos.client_id'),
-                                                            config('payos.api_key'),
-                                                            config('payos.checksum_key')
-                                                        );
+                                                        $payos = PayOsAccountResolver::forOrderOrFail($record);
 
                                                         $orderCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
                                                         $expiredAt = now()->addMinutes(30);

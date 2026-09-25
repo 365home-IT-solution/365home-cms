@@ -7,6 +7,7 @@ use Modules\Payment\Entities\Order;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Log;
+use App\Services\Payment\PayOsAccountResolver;
 use PayOS\PayOS;
 
 class SearchBooking extends Component
@@ -86,11 +87,7 @@ class SearchBooking extends Component
             // toàn bộ giá trị đơn thay vì đúng % cọc.
             $depositAmount = $order->depositDueAmount();
 
-            $clientId    = Config::get('payos.client_id');
-            $apiKey      = Config::get('payos.api_key');
-            $checksumKey = Config::get('payos.checksum_key');
-
-            $payOS = new PayOS($clientId, $apiKey, $checksumKey);
+            $payOS = PayOsAccountResolver::forOrderOrFail($order);
 
             $retryCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
 
@@ -178,11 +175,7 @@ class SearchBooking extends Component
                 return;
             }
 
-            $clientId    = Config::get('payos.client_id');
-            $apiKey      = Config::get('payos.api_key');
-            $checksumKey = Config::get('payos.checksum_key');
-
-            $payOS = new PayOS($clientId, $apiKey, $checksumKey);
+            $payOS = PayOsAccountResolver::forOrderOrFail($order);
 
             $remainingCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
 

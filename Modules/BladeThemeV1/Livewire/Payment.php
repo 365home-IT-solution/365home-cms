@@ -140,7 +140,7 @@ class Payment extends Component
     {
         try {
             $paymentData = $this->paymentService->createPayOSPaymentData($order, $this->cart);
-            $paymentLink = $this->paymentService->createPaymentLink($paymentData);
+            $paymentLink = $this->paymentService->createPaymentLink($paymentData, $order);
 
             $order->update([
                 'payment_url' => $paymentLink['checkoutUrl'],

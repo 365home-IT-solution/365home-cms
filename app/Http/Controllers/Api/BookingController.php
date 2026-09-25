@@ -24,6 +24,7 @@ use App\Models\CustomerCompanion;
 use App\Services\PromotionCalculator;
 use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Promotion\App\Models\Coupon;
+use App\Services\Payment\PayOsAccountResolver;
 use PayOS\PayOS;
 
 class BookingController extends Controller
@@ -1192,15 +1193,12 @@ class BookingController extends Controller
     private function createPayOSLink(Order $order, string $itemName, ?string $returnUrl = null, ?string $cancelUrl = null): void
     {
         try {
-            $clientId    = Config::get('payos.client_id');
-            $apiKey      = Config::get('payos.api_key');
-            $checksumKey = Config::get('payos.checksum_key');
+            $payOS = PayOsAccountResolver::forOrder($order);
 
-            if (! $clientId || ! $apiKey || ! $checksumKey) {
+            if (! $payOS) {
                 return;
             }
 
-            $payOS     = new PayOS($clientId, $apiKey, $checksumKey);
             $expiredAt = now()->addMinutes(15);
             $dueNow    = $order->depositDueAmount();
 

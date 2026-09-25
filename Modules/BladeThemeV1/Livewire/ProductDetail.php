@@ -2004,7 +2004,7 @@ public function confirmBooking()
             ];
 
             $paymentData = $this->paymentService->createRoomBookingPaymentData($order, $roomDetails);
-            $paymentLink = $this->paymentService->createPaymentLink($paymentData);
+            $paymentLink = $this->paymentService->createPaymentLink($paymentData, $order);
 
             $order->update([
                 'checkout_url' => $paymentLink['checkoutUrl'] ?? $paymentLink['data']['checkoutUrl'] ?? null,

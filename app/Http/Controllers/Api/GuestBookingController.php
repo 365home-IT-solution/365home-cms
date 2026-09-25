@@ -23,6 +23,7 @@ use Modules\Product\App\Models\RoomTimeSlot;
 use App\Services\CccdDeclarationService;
 use App\Services\PromotionCalculator;
 use Modules\Promotion\App\Models\Coupon;
+use App\Services\Payment\PayOsAccountResolver;
 use PayOS\PayOS;
 
 class GuestBookingController extends Controller
@@ -853,11 +854,9 @@ class GuestBookingController extends Controller
         }
 
         try {
-            $clientId    = Config::get('payos.client_id');
-            $apiKey      = Config::get('payos.api_key');
-            $checksumKey = Config::get('payos.checksum_key');
+            $payOS = PayOsAccountResolver::forOrder($order);
 
-            if (! $clientId || ! $apiKey || ! $checksumKey) {
+            if (! $payOS) {
                 return response()->json([
                     'order_code'     => $order->order_code,
                     'status'         => $order->status,
@@ -865,8 +864,6 @@ class GuestBookingController extends Controller
                     'order_status'   => $order->order_status,
                 ]);
             }
-
-            $payOS = new PayOS($clientId, $apiKey, $checksumKey);
 
             // Xác định đang check payment nào: remaining hay cọc gốc
             $isRemaining = $order->status === 'deposit' && $order->remaining_payos_code;
@@ -971,15 +968,12 @@ class GuestBookingController extends Controller
         }
 
         try {
-            $clientId    = Config::get('payos.client_id');
-            $apiKey      = Config::get('payos.api_key');
-            $checksumKey = Config::get('payos.checksum_key');
+            $payOS = PayOsAccountResolver::forOrder($order);
 
-            if (! $clientId || ! $apiKey || ! $checksumKey) {
+            if (! $payOS) {
                 return response()->json(['message' => 'Cổng thanh toán chưa được cấu hình.'], 500);
             }
 
-            $payOS         = new PayOS($clientId, $apiKey, $checksumKey);
             $remainingCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
             $expiredAt     = now()->addMinutes(30);
 
@@ -2065,15 +2059,12 @@ class GuestBookingController extends Controller
     private function createPayOSLink(Order $order, string $itemName): void
     {
         try {
-            $clientId    = Config::get('payos.client_id');
-            $apiKey      = Config::get('payos.api_key');
-            $checksumKey = Config::get('payos.checksum_key');
+            $payOS = PayOsAccountResolver::forOrder($order);
 
-            if (! $clientId || ! $apiKey || ! $checksumKey) {
+            if (! $payOS) {
                 return;
             }
 
-            $payOS     = new PayOS($clientId, $apiKey, $checksumKey);
             $expiredAt = now()->addMinutes(15);
             $dueNow    = $order->depositDueAmount();
 
@@ -2110,15 +2101,11 @@ class GuestBookingController extends Controller
     private function rebuildPayOSLink(Order $order, string $itemName): void
     {
         try {
-            $clientId    = Config::get('payos.client_id');
-            $apiKey      = Config::get('payos.api_key');
-            $checksumKey = Config::get('payos.checksum_key');
+            $payOS = PayOsAccountResolver::forOrder($order);
 
-            if (! $clientId || ! $apiKey || ! $checksumKey) {
+            if (! $payOS) {
                 return;
             }
-
-            $payOS = new PayOS($clientId, $apiKey, $checksumKey);
 
             $oldCode = $order->current_payos_code ?? (int) $order->order_code;
             try {

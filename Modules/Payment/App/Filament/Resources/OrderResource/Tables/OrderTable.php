@@ -9,6 +9,7 @@ use Filament\Support\Enums\FontWeight;
 use Filament\Tables\Actions\Action;
 use Modules\Payment\App\Filament\Resources\OrderResource\Tables\Actions\AssignAccessCodeAction;
 use Modules\Payment\App\Filament\Resources\OrderResource\Tables\Actions\OpenGateAction;
+use App\Services\Payment\PayOsAccountResolver;
 use PayOS\PayOS;
 use Filament\Tables\Columns\BadgeColumn;
 use Filament\Tables\Columns\IconColumn;
@@ -506,11 +507,7 @@ class OrderTable
                                                 return;
                                             }
 
-                                            $payos = new PayOS(
-                                                Config::get('payos.client_id'),
-                                                Config::get('payos.api_key'),
-                                                Config::get('payos.checksum_key')
-                                            );
+                                            $payos = PayOsAccountResolver::forOrderOrFail($record);
 
                                             $orderCode = (int) (intval(substr(strval(microtime(true) * 10000), -6)) . rand(10, 99));
                                             $expiredAt = now()->addMinutes(30);
