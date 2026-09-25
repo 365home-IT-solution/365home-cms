@@ -272,13 +272,22 @@ class SearchController extends Controller
     // Không có "q" (đã ở 1 khu vực/chi nhánh cụ thể, vd lịch đặt phòng theo tháng) → giữ
     // nguyên hành vi cũ, trả về danh sách PHÒNG (RoomSearchService::search()).
 
-    // ?tab={room_type_id MiniHouse} (hoặc ?type=mini_house|minihouse) → cùng 2 luồng trên nhưng
-    // trên phòng MiniHouse CÒN TRỐNG, toà nhà đóng vai trò chi nhánh (xem RoomSearchService::baseQuery()).
+    // ?tab={room_type_id MiniHouse} (hoặc ?type=mini_house|minihouse) → phòng MiniHouse CÒN TRỐNG,
+    // toà nhà đóng vai trò chi nhánh (xem RoomSearchService::baseQuery()). Khác homestay: có "q" vẫn
+    // trả về PHÒNG (khách tìm theo mã phòng/tên toà nhà/địa chỉ đều ra phòng trống) — muốn card toà
+    // nhà thì gửi thêm ?view=branches.
     public function index(Request $request, RoomSearchService $searchService): JsonResponse
     {
         $hasKeyword = trim((string) $request->query('q', '')) !== '';
 
-        $result = $hasKeyword
+        $isMinihouse = MinihouseRoomSearchService::isMinihouseRoomType($request->query('tab'))
+            || MinihouseRoomSearchService::isMinihouseRoomType($request->query('type'));
+
+        $wantsBranches = $isMinihouse
+            ? $request->query('view') === 'branches'
+            : $hasKeyword;
+
+        $result = $wantsBranches
             ? $searchService->searchBranches($request->all(), auth('sanctum')->user())
             : $searchService->search($request->all(), auth('sanctum')->user());
 
