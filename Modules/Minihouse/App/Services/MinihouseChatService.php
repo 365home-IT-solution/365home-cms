@@ -6,7 +6,6 @@ namespace Modules\Minihouse\App\Services;
 
 use App\Models\User;
 use App\Services\AdminNotificationService;
-use App\Services\FcmService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Modules\Minihouse\App\Models\ChatConversation;
@@ -234,9 +233,13 @@ class MinihouseChatService
         return $message;
     }
 
-    // Nhân viên nhắn → báo khách thuê qua 2 kênh: socket cá nhân (app đang mở, cập nhật badge ngoài
-    // khung chat) VÀ push FCM/Expo (kể cả khi app đóng) — mirror Api\Admin\ChatController::send() của
-    // Home. Lỗi kênh nào cũng KHÔNG chặn việc gửi tin (tin đã lưu + đã bắn vào khung chat).
+    // Nhân viên nhắn → báo khách thuê qua 3 kênh: (1) socket cá nhân (app đang mở, cập nhật badge
+    // ngoài khung chat), (2) LƯU LẠI 1 dòng PortalNotification (để khách xem lại được trong danh sách
+    // "Thông báo" nếu lỡ push — trước đây gọi thẳng FcmService, KHÔNG lưu gì cả, đúng lỗ hổng đã tự
+    // phát hiện và sửa), (3) push FCM/Expo kể cả khi app đóng — mirror ĐÚNG hành vi
+    // Api\Admin\ChatController::send() của Home (NotificationFcmService::sendToCustomer() cũng vừa
+    // lưu DB vừa push, gói data có notification_id/unread_count). Lỗi kênh nào cũng KHÔNG chặn việc
+    // gửi tin (tin đã lưu + đã bắn vào khung chat) — PortalNotificationService tự nuốt lỗi push.
     private function notifyTenant(ChatConversation $conversation, string $preview, ?int $contractId, ?string $senderName): void
     {
         $tenant = $conversation->tenant;
@@ -245,8 +248,9 @@ class MinihouseChatService
             return;
         }
 
-        $label   = $this->contractLabel($contractId);
-        $payload = [
+        $label = $this->contractLabel($contractId);
+
+        $this->realtime->notifyTenant($tenant->id, [
             'type'            => 'message',
             'conversation_id' => $conversation->id,
             'contract_id'     => $contractId,
@@ -255,28 +259,20 @@ class MinihouseChatService
             'preview'         => $preview,
             'sender_name'     => $senderName,
             'tenant_unread'   => $conversation->tenant_unread,
-        ];
+        ]);
 
-        $this->realtime->notifyTenant($tenant->id, $payload);
-
-        try {
-            app(FcmService::class)->sendToTenant(
-                $tenant,
-                $senderName ? 'Tin nhắn từ ' . $senderName : 'Tin nhắn từ chủ nhà',
-                $preview,
-                [
-                    'type'            => 'minihouse_message',
-                    'conversation_id' => (string) $conversation->id,
-                    'contract_id'     => $contractId === null ? '' : (string) $contractId,
-                    'room_code'       => (string) ($label['room_code'] ?? ''),
-                ]
-            );
-        } catch (\Throwable $e) {
-            Log::warning('MinihouseChatService: push cho khách thuê thất bại', [
-                'conversation_id' => $conversation->id,
-                'error'           => $e->getMessage(),
-            ]);
-        }
+        PortalNotificationService::notify(
+            $tenant,
+            'minihouse_message',
+            $senderName ? 'Tin nhắn từ ' . $senderName : 'Tin nhắn từ chủ nhà',
+            $preview,
+            route('minihouse.portal.chat.show', $contractId !== null ? ['contract_id' => $contractId] : []),
+            [
+                'conversation_id' => (string) $conversation->id,
+                'contract_id'     => $contractId === null ? '' : (string) $contractId,
+                'room_code'       => (string) ($label['room_code'] ?? ''),
+            ],
+        );
     }
 
     public function markReadByTenant(ChatConversation $conversation): void
@@ -358,7 +354,7 @@ class MinihouseChatService
                 $recipients,
                 'Tin nhắn khách thuê',
                 ($conversation->tenant?->fullname ?? 'Khách thuê') . ': ' . $preview,
-                ['type' => 'minihouse_message', 'conversation_id' => $conversation->id],
+                ['type' => 'minihouse_message', 'conversation_id' => $conversation->id, 'module' => 'minihouse'],
                 'heroicon-o-chat-bubble-left-right',
                 'primary',
             );

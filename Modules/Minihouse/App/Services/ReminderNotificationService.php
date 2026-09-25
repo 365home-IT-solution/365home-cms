@@ -143,7 +143,7 @@ class ReminderNotificationService
                 $recipients,
                 'Nhắc việc: ' . $reminder->title,
                 $reminder->content ?: ('Đến hạn: ' . $reminder->remind_date?->format('d/m/Y')),
-                ['type' => 'minihouse_reminder', 'reminder_id' => $reminder->id],
+                ['type' => 'minihouse_reminder', 'reminder_id' => $reminder->id, 'module' => 'minihouse'],
                 $icon,
                 'warning',
                 // KHÔNG dùng ReminderResource::getUrl() — cần Filament::getCurrentPanel() để suy ra

@@ -178,6 +178,15 @@ class AppServiceProvider extends ServiceProvider
         Livewire::component('personal_info', PersonalInfo::class);
         Livewire::component('update_password', UpdatePassword::class);
 
+        // Ghi đè chuông thông báo — cách LY THÔNG BÁO MiniHouse khỏi panel Home (xem
+        // App\Filament\Livewire\ScopedDatabaseNotifications). Cả 2 PanelProvider (AdminPanelProvider,
+        // MinihouseAdminPanelProvider) đều tự đăng ký lại đúng tên này lúc boot() với class GỐC của
+        // Filament — PHẢI ghi đè ở ĐÂY (AppServiceProvider boot() chạy SAU register() của mọi
+        // provider, và Filament tự đăng ký Livewire component trong register(), không phải boot() —
+        // đã tự xác nhận qua đúng pattern personal_info/update_password ở trên) để lần ghi đè này là
+        // lần CUỐI CÙNG, không bị 2 PanelProvider ghi đè lại về class gốc.
+        Livewire::component('filament.livewire.database-notifications', \App\Filament\Livewire\ScopedDatabaseNotifications::class);
+
         // Secure the Livewire update route with rate limiting + origin validation
         Livewire::setUpdateRoute(function ($handle) {
             return Route::post('/livewire/update', $handle)

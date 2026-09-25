@@ -64,7 +64,10 @@ class TenantPortalApiController extends Controller
         ]);
     }
 
-    // GET /api/minihouse/portal/notifications — cùng hành vi web: liệt kê xong tự đánh dấu ĐÃ ĐỌC.
+    // GET /api/minihouse/portal/notifications — mirror ĐÚNG App\Http\Controllers\Api\
+    // NotificationController::index() (Home): CHỈ liệt kê, KHÔNG tự đánh dấu đã đọc (trước đây tự
+    // đánh dấu HẾT ngay khi gọi — khác Home, khiến app không phân biệt được thông báo nào khách THẬT
+    // SỰ đã xem). Đánh dấu đọc giờ phải gọi rõ ràng qua markRead()/markAllRead() bên dưới.
     public function notifications(Request $request): JsonResponse
     {
         $tenant = $this->tenant($request);
@@ -73,14 +76,56 @@ class TenantPortalApiController extends Controller
             ->orderByDesc('created_at')
             ->paginate((int) $request->integer('per_page', 20));
 
-        PortalNotification::where('tenant_id', $tenant->id)->whereNull('read_at')->update(['read_at' => now()]);
+        $data = collect($notifications->items())->map(fn (PortalNotification $n) => array_merge([
+            'id'       => $n->id,
+            'type'     => $n->type,
+            'title'    => $n->title,
+            'body'     => $n->body,
+            'link'     => $n->link,
+            'is_read'  => $n->read_at !== null,
+            'read_at'  => $n->read_at?->toIso8601String(),
+            'sent_at'  => $n->created_at->toIso8601String(),
+        ], $n->data ?? []))->values();
 
         return response()->json([
-            'data' => collect($notifications->items())->map(fn (PortalNotification $n) => [
-                'id' => $n->id, 'type' => $n->type, 'title' => $n->title, 'body' => $n->body,
-                'link' => $n->link, 'read_at' => $n->read_at?->toIso8601String(), 'created_at' => $n->created_at->toIso8601String(),
-            ]),
-            'meta' => $this->paginationMeta($notifications),
+            'data'         => $data,
+            'current_page' => $notifications->currentPage(),
+            'last_page'    => $notifications->lastPage(),
+            'total'        => $notifications->total(),
+            'unread_count' => PortalNotification::where('tenant_id', $tenant->id)->whereNull('read_at')->count(),
+        ]);
+    }
+
+    // POST /api/minihouse/portal/notifications/{id}/read — mirror POST /api/notifications/{id}/read (Home).
+    public function markNotificationRead(Request $request, int $id): JsonResponse
+    {
+        $notification = PortalNotification::where('tenant_id', $this->tenant($request)->id)->find($id);
+
+        if (! $notification) {
+            return response()->json(['message' => 'Không tìm thấy thông báo.'], 404);
+        }
+
+        if ($notification->read_at === null) {
+            $notification->update(['read_at' => now()]);
+        }
+
+        return response()->json([
+            'id'      => $notification->id,
+            'is_read' => true,
+            'read_at' => $notification->read_at->toIso8601String(),
+        ]);
+    }
+
+    // POST /api/minihouse/portal/notifications/read-all — mirror POST /api/notifications/read-all (Home).
+    public function markAllNotificationsRead(Request $request): JsonResponse
+    {
+        $updated = PortalNotification::where('tenant_id', $this->tenant($request)->id)
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+
+        return response()->json([
+            'message' => "Đã đánh dấu đã xem {$updated} thông báo.",
+            'updated' => $updated,
         ]);
     }
 
@@ -381,6 +426,17 @@ class TenantPortalApiController extends Controller
             'token'    => ['required', 'string', 'max:1000'],
             'platform' => ['nullable', 'string', 'max:50'],
         ]);
+
+        // Validate qua Firebase TRƯỚC khi lưu — mirror App\Http\Controllers\Api\DeviceTokenController
+        // (Home). Dùng CHUNG App\Services\FcmService::validateToken() (không phụ thuộc Customer hay
+        // Tenant, chỉ kiểm tra token thật với Firebase/định dạng Expo) — cùng cờ bypass
+        // app.fcm_bypass_enabled cho dev/test.
+        if (! config('app.fcm_bypass_enabled', false) && ! app(\App\Services\FcmService::class)->validateToken($data['token'])) {
+            return response()->json([
+                'message' => 'Token không hợp lệ hoặc không được Firebase xác nhận.',
+                'errors'  => ['token' => ['Token không hợp lệ.']],
+            ], 422);
+        }
 
         TenantPushToken::updateOrCreate(
             ['token' => $data['token']],

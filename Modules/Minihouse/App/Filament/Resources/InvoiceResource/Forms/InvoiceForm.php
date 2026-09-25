@@ -4,6 +4,7 @@ namespace Modules\Minihouse\App\Filament\Resources\InvoiceResource\Forms;
 
 use Filament\Forms\Components\Actions as FormActions;
 use Filament\Forms\Components\Actions\Action;
+use Filament\Forms\Components\Checkbox;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Group;
 use Filament\Forms\Components\Hidden;
@@ -23,6 +24,8 @@ use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\InvoicePayment;
 use Modules\Minihouse\App\Models\Surcharge;
+use Modules\Minihouse\App\Services\InvoiceContentRenderer;
+use Modules\Minihouse\App\Services\InvoicePaymentAllocationService;
 
 class InvoiceForm
 {
@@ -382,8 +385,12 @@ class InvoiceForm
                 ->schema([
                     Placeholder::make('payment_summary')
                         ->label('')
-                        ->content(fn (?Invoice $record) => $record
-                            ? sprintf(
+                        ->content(function (?Invoice $record) {
+                            if (! $record) {
+                                return 'Lưu hoá đơn trước, sau đó mới ghi nhận thanh toán được.';
+                            }
+
+                            $summary = sprintf(
                                 'Trạng thái: %s — Đã trả: %sđ / Tổng: %sđ — Còn lại: %sđ',
                                 match ($record->status) {
                                     Invoice::STATUS_PAID    => 'Đã thanh toán',
@@ -396,8 +403,20 @@ class InvoiceForm
                                 number_format((float) $record->amount_paid, 0, ',', '.'),
                                 number_format((float) $record->total_amount, 0, ',', '.'),
                                 number_format($record->remainingAmount(), 0, ',', '.'),
-                            )
-                            : 'Lưu hoá đơn trước, sau đó mới ghi nhận thanh toán được.'),
+                            );
+
+                            $previousDebt = InvoiceContentRenderer::previousDebt($record);
+
+                            if ($previousDebt > 0) {
+                                $summary .= sprintf(
+                                    ' — Nợ tháng trước: %sđ — Tổng phải thu: %sđ',
+                                    number_format($previousDebt, 0, ',', '.'),
+                                    number_format(InvoiceContentRenderer::totalOwed($record), 0, ',', '.'),
+                                );
+                            }
+
+                            return $summary;
+                        }),
 
                     // Đã có 1 lần thanh toán (pending hoặc approved) thì hiện lại đúng thông tin đó,
                     // không cho sửa — khớp đúng nguyên tắc "chỉ 1 lần duy nhất" đã áp dụng từ trước.
@@ -448,9 +467,51 @@ class InvoiceForm
                                         InvoicePayment::METHOD_TRANSFER => 'Chuyển khoản',
                                         InvoicePayment::METHOD_OTHER    => 'Khác',
                                     ]),
+                                // Chỉ hiện khi hoá đơn này CÓ nợ tháng trước — tick vào để ghi nhận
+                                // GỘP luôn cả nợ cũ trong 1 lần (chia thành nhiều khoản PENDING qua
+                                // InvoicePaymentAllocationService, mỗi hoá đơn vẫn cần Chủ toà nhà
+                                // duyệt riêng), khớp trường hợp khách đưa 1 cục tiền trả hết luôn.
+                                Checkbox::make('include_previous_debt')
+                                    ->label(fn (?Invoice $record) => $record
+                                        ? 'Thu gộp luôn nợ tháng trước (' . number_format(InvoiceContentRenderer::previousDebt($record), 0, ',', '.') . 'đ) — tổng thu ' . number_format(InvoiceContentRenderer::totalOwed($record), 0, ',', '.') . 'đ'
+                                        : 'Thu gộp luôn nợ tháng trước')
+                                    ->visible(fn (?Invoice $record) => $record && InvoiceContentRenderer::previousDebt($record) > 0)
+                                    ->default(false),
                             ])
                             ->action(function (array $data, ?Invoice $record, \Livewire\Component $livewire) {
                                 if (! $record) {
+                                    return;
+                                }
+
+                                if (! empty($data['include_previous_debt'])) {
+                                    $result = InvoicePaymentAllocationService::allocate(
+                                        $record,
+                                        InvoiceContentRenderer::totalOwed($record),
+                                        $data['payment_method'],
+                                        'Ghi nhận thanh toán gộp nợ cũ',
+                                        InvoicePayment::STATUS_PENDING,
+                                        auth()->id(),
+                                        Carbon::parse($data['paid_at']),
+                                    );
+
+                                    $record->refresh();
+                                    $livewire->refreshFormData(['status', 'amount_paid']);
+
+                                    if (abs($result['unallocated']) > 1) {
+                                        Notification::make()
+                                            ->title('Còn ' . number_format($result['unallocated'], 0, ',', '.') . 'đ chưa gán được vào hoá đơn nào')
+                                            ->body('Có thể do 1 hoá đơn cũ đang "Thanh toán 1 phần" — vui lòng kiểm tra và ghi nhận riêng khoản đó.')
+                                            ->warning()
+                                            ->send();
+
+                                        return;
+                                    }
+
+                                    Notification::make()
+                                        ->title('Đã ghi nhận ' . count($result['payments']) . ' khoản thanh toán — chờ Chủ toà nhà duyệt riêng từng khoản')
+                                        ->success()
+                                        ->send();
+
                                     return;
                                 }
 

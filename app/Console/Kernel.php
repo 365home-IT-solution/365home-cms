@@ -148,6 +148,15 @@ class Kernel extends ConsoleKernel
             ->timezone('Asia/Ho_Chi_Minh')
             ->withoutOverlapping()
             ->appendOutputTo(storage_path('logs/minihouse-notify-residence-declarations.log'));
+
+        // MiniHouse: gửi thông báo đẩy hàng loạt đã lên lịch — mirror ĐÚNG lịch chạy của
+        // notifications:send-scheduled (Home) ở trên (everyMinute, withoutOverlapping(2)) vì cùng
+        // bản chất "kiểm tra scheduled_at đến giờ chưa".
+        $schedule->command('minihouse:send-scheduled-broadcasts')
+            ->everyMinute()
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping(2)
+            ->appendOutputTo(storage_path('logs/minihouse-scheduled-broadcasts.log'));
     }
 
     /**

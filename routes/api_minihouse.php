@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\Admin\Minihouse\ContractDocumentController;
 use App\Http\Controllers\Api\Admin\Minihouse\InvoiceController;
 use App\Http\Controllers\Api\Admin\Minihouse\InvoicePaymentController;
 use App\Http\Controllers\Api\Admin\Minihouse\MeteringReadingController;
+use App\Http\Controllers\Api\Admin\Minihouse\PushNotificationController;
 use App\Http\Controllers\Api\Admin\Minihouse\ReminderController;
 use App\Http\Controllers\Api\Admin\Minihouse\ReportController;
 use App\Http\Controllers\Api\Admin\Minihouse\ResidenceDeclarationController;
@@ -147,6 +148,16 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
         Route::post('{id}/messages', [AdminChatController::class, 'send'])->name('send');
         Route::post('{id}/read', [AdminChatController::class, 'read'])->name('read');
     });
+
+    // Soạn + gửi thông báo đẩy hàng loạt cho khách thuê — mirror api.admin.push-notification.* của
+    // Home, xem App\Http\Controllers\Api\Admin\Minihouse\PushNotificationController.
+    Route::prefix('push-notification')->name('push-notification.')->group(function () {
+        Route::get('/', [PushNotificationController::class, 'index'])->name('index');
+        Route::get('{id}', [PushNotificationController::class, 'show'])->name('show');
+        Route::post('/', [PushNotificationController::class, 'store'])->name('store');
+        Route::put('{id}', [PushNotificationController::class, 'update'])->name('update');
+        Route::post('{id}/resend', [PushNotificationController::class, 'resend'])->name('resend');
+    });
 });
 
 // Webhook PayOS — công khai, KHÔNG qua auth:sanctum/admin.api vì PayOS gọi thẳng vào đây, không có
@@ -231,6 +242,8 @@ Route::prefix('minihouse/portal')->name('api.minihouse.portal.')->group(function
         Route::get('dashboard', [TenantPortalApiController::class, 'dashboard'])->name('dashboard');
         Route::get('notifications', [TenantPortalApiController::class, 'notifications'])->name('notifications');
         Route::get('notifications/unread-count', [TenantPortalApiController::class, 'unreadNotificationCount'])->name('notifications.unread-count');
+        Route::post('notifications/read-all', [TenantPortalApiController::class, 'markAllNotificationsRead'])->name('notifications.read-all');
+        Route::post('notifications/{id}/read', [TenantPortalApiController::class, 'markNotificationRead'])->name('notifications.read');
         Route::get('invoices', [TenantPortalApiController::class, 'invoices'])->name('invoices.index');
         Route::get('invoices/{invoice}', [TenantPortalApiController::class, 'showInvoice'])->name('invoices.show');
         Route::get('invoices/{invoice}/pdf', [TenantPortalApiController::class, 'invoicePdf'])->name('invoices.pdf');
