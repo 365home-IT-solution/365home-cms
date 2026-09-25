@@ -12,7 +12,7 @@ return new class extends Migration
     {
         $prefix = DB::getTablePrefix();
 
-        DB::statement("DROP VIEW IF EXISTS {$prefix}warehouse_stock_movements");
+        $this->dropMovementsRelation($prefix);
 
         DB::statement("
             CREATE VIEW {$prefix}warehouse_stock_movements AS
@@ -118,7 +118,7 @@ return new class extends Migration
     {
         $prefix = DB::getTablePrefix();
 
-        DB::statement("DROP VIEW IF EXISTS {$prefix}warehouse_stock_movements");
+        $this->dropMovementsRelation($prefix);
 
         // Khôi phục lại đúng định nghĩa 4 nhánh trước đó (không có "return") để down() an toàn
         // quay ngược đúng trạng thái trước migration này.
@@ -181,5 +181,22 @@ return new class extends Migration
             ) m
             INNER JOIN {$prefix}warehouse_items wi ON wi.id = m.warehouse_item_id
         ");
+    }
+
+    // Một số DB (import từ dump/tool export VIEW thành bảng) có warehouse_stock_movements là BASE
+    // TABLE rỗng thay vì VIEW → "DROP VIEW" báo lỗi 1347 "is not VIEW". Dữ liệu ở đây hoàn toàn dẫn
+    // xuất từ các bảng phiếu nên xoá bảng giả đó là an toàn.
+    private function dropMovementsRelation(string $prefix): void
+    {
+        $type = DB::scalar(
+            'SELECT TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?',
+            ["{$prefix}warehouse_stock_movements"]
+        );
+
+        if ($type === 'BASE TABLE') {
+            DB::statement("DROP TABLE {$prefix}warehouse_stock_movements");
+        } else {
+            DB::statement("DROP VIEW IF EXISTS {$prefix}warehouse_stock_movements");
+        }
     }
 };
