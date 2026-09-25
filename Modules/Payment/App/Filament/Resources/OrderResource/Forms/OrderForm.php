@@ -733,7 +733,14 @@ class OrderForm
 
                                                                             // record chỉ tồn tại ở trang SỬA đơn (EditOrder) — trang TẠO MỚI
                                                                             // (CreateOrder) chưa có đơn nào để loại trừ, giữ null là đúng.
-                                                                            $currentOrderId = $livewire->getRecord()?->id ?? null;
+                                                                            // Modal "Xem chi tiết" ở trang danh sách (ListOrder) KHÔNG có
+                                                                            // getRecord() — lấy record của table action đang mở thay thế.
+                                                                            $currentOrder = match (true) {
+                                                                                method_exists($livewire, 'getRecord')                   => $livewire->getRecord(),
+                                                                                method_exists($livewire, 'getMountedTableActionRecord') => $livewire->getMountedTableActionRecord(),
+                                                                                default                                                  => null,
+                                                                            };
+                                                                            $currentOrderId = $currentOrder?->id;
 
                                                                             $gridData = self::getTimeslotGridData((string) $productId, $get('id'), 14, $mustIncludeDate, $currentOrderId);
 
@@ -743,6 +750,8 @@ class OrderForm
                                                                                 'cells'         => $gridData['cells'],
                                                                                 'itemKey'       => $itemKey,
                                                                                 'selectedSlots' => $selectedSlots,
+                                                                                // Modal xem ở ListOrder không có selectTimeslot() — chỉ hiển thị.
+                                                                                'readOnly'      => ! method_exists($livewire, 'selectTimeslot'),
                                                                             ];
                                                                         }),
                                                                 ]),

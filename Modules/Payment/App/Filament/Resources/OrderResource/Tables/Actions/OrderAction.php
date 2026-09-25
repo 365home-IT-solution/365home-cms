@@ -6,7 +6,7 @@ use Filament\Tables\Actions\ActionGroup;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Actions\ViewAction;
 use Filament\Tables\Actions\DeleteAction;
-use Modules\Payment\App\Filament\Resources\OrderResource\Forms\OrderForm;
+use Modules\Payment\App\Filament\Resources\OrderResource;
 
 class OrderAction
 {
@@ -18,22 +18,11 @@ class OrderAction
     {
         return [
             ActionGroup::make([
-                // ViewAction dùng chung OrderForm::form() nhưng KHÔNG đi qua EditRecord (không có
-                // mutateFormDataBeforeFill()) — Repeater 'orderItems' không còn ->relationship('items')
-                // nên phải tự đổ dữ liệu 'orderItems' vào đây, nếu không modal sẽ hiện trống dù
-                // order_item vẫn còn nguyên trong DB (xem OrderForm::buildOrderItemsFormState()).
+                // Điều hướng thẳng vào trang chi tiết (EditOrder) thay vì mở modal — form đơn quá
+                // lớn để hiển thị gọn trong popup.
                 ViewAction::make()
                     ->label('Xem chi tiết')
-                    ->mutateRecordDataUsing(function (array $data, $record) {
-                        $data['orderItems'] = OrderForm::buildOrderItemsFormState($record);
-
-                        // Cùng lý do như EditOrder::mutateFormDataBeforeFill() — 'booking_partner_id'
-                        // là field ảo không dehydrate, modal "Xem chi tiết" cũng phải tự điền lại
-                        // để "Chi nhánh"/"Phòng" hiện đúng tên thay vì số ID thô.
-                        $data['booking_partner_id'] = $record->partner_id;
-
-                        return $data;
-                    }),
+                    ->url(fn ($record) => OrderResource::getUrl('edit', ['record' => $record])),
                 EditAction::make()->label('Cập nhật'),
                 DeleteAction::make('Xóa'),
                 ...$extraGroupActions,

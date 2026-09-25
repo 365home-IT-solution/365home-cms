@@ -206,7 +206,7 @@
                                         // trạng thái tính toán là "past" (giờ hiện tại đã trôi qua giờ KẾT
                                         // THÚC của khung — xem OrderForm::getTimeslotGridData() — vẫn là
                                         // lượt admin đã đặt cho đơn này, không phải lỗi).
-                                        $isClickable = $cell['status'] === 'available' || $isSelected;
+                                        $isClickable = empty($readOnly) && ($cell['status'] === 'available' || $isSelected);
 
                                         $hasPromo = !empty($cell['has_promo']) && $cell['status'] === 'available';
 
