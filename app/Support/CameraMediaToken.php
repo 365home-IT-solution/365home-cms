@@ -15,9 +15,10 @@ namespace App\Support;
 // "thư mục", để tên file là tham số route RIÊNG không nằm trong chữ ký, tránh phải cấp lại token
 // cho từng file lẻ trong cùng 1 phiên xem.
 //
-// partner_id — mỗi đối tác có thể dùng 1 server Frigate riêng (App\Models\CameraSetting);
-// CameraMediaProxyController cần định danh này để resolve đúng base_url/cookie phiên khi phát lại,
-// KHÔNG còn 1 cấu hình go2rtc dùng chung toàn hệ thống như trước.
+// partner_id/branch_id — mỗi đối tác (Home) hoặc mỗi Toà nhà (MiniHouse) có thể dùng 1 server Frigate
+// riêng (xem App\Models\Camera::resolveSettingsFor()); CameraMediaProxyController cần đủ 2 định danh
+// này để resolve đúng base_url/cookie phiên khi phát lại — branch_id thêm sau (trước chỉ có
+// partner_id) để hỗ trợ MiniHouse (cấu hình theo Toà nhà, không phải theo đối tác).
 class CameraMediaToken
 {
     // $transcode=true: đoạn ghi hình này là H.265/HEVC (trình duyệt desktop không giải mã được qua
@@ -25,11 +26,12 @@ class CameraMediaToken
     // Quyết định này đưa ra 1 LẦN lúc phát hành token (đã kiểm tra codec thật, xem
     // CameraRecordingService::playbackUrl()), không kiểm tra lại mỗi request để đỡ tốn 1 lượt gọi
     // Frigate cho mỗi file .ts/.m4s trong cùng 1 phiên xem.
-    public static function issue(string $frigatePathPrefix, string $partnerId, int $ttlSeconds = 3600, bool $transcode = false): string
+    public static function issue(string $frigatePathPrefix, string $partnerId, ?int $branchId, int $ttlSeconds = 3600, bool $transcode = false): string
     {
         $payload = base64_encode(json_encode([
             'path'       => $frigatePathPrefix,
             'partner_id' => $partnerId,
+            'branch_id'  => $branchId,
             'exp'        => time() + $ttlSeconds,
             'transcode'  => $transcode,
         ]));
@@ -40,7 +42,7 @@ class CameraMediaToken
     }
 
     /**
-     * @return array{path: string, partner_id: string, transcode: bool}|null null nếu token sai chữ ký/hết hạn.
+     * @return array{path: string, partner_id: string, branch_id: ?int, transcode: bool}|null null nếu token sai chữ ký/hết hạn.
      */
     public static function verify(string $token): ?array
     {
@@ -69,6 +71,7 @@ class CameraMediaToken
         return [
             'path'       => (string) $decoded['path'],
             'partner_id' => (string) $decoded['partner_id'],
+            'branch_id'  => isset($decoded['branch_id']) ? (int) $decoded['branch_id'] : null,
             'transcode'  => (bool) ($decoded['transcode'] ?? false),
         ];
     }

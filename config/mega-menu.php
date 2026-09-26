@@ -37,4 +37,28 @@ return [
     'Quản lý API' => [
         'Nội dung app' => ['APP', 'POPUP'],
     ],
+
+    // Bảng RIÊNG từng panel — ưu tiên hơn bảng chung ở trên (xem topbar/index.blade.php). Panel
+    // MiniHouse (cho thuê theo tháng) có bộ mục khác hẳn Home nên gom theo đúng nghiệp vụ của nó;
+    // mục không khớp bảng nào vẫn rơi vào cột "Khác", không bị mất khỏi menu.
+    'panels' => [
+        'minihouse-admin' => [
+            'Quản lý' => [
+                'Vận hành toà nhà' => ['Khu vực', 'Toà nhà', 'Phòng', 'Tiện ích', 'Loại tài sản', 'Phụ thu', 'Sơ đồ 360°'],
+                'Khách thuê & Hợp đồng' => ['Khách thuê', 'Hợp đồng', 'Khai báo lưu trú', 'Yêu cầu liên hệ thuê phòng', 'Phản hồi khách thuê'],
+                'Tài chính' => ['Hoá đơn', 'Số điện nước', 'Sổ thu chi', 'Thu chi & Báo cáo'],
+                'Kho vật tư' => ['Danh mục vật tư', 'Phiếu nhập kho', 'Phiếu xuất kho', 'Phiếu hoàn trả kho', 'Phiếu kiểm kê', 'Nhóm vật tư', 'Đơn vị tính'],
+                'Liên lạc & Thông báo' => ['Tin nhắn', 'Thông báo', 'Thông báo đẩy', 'Nhắc việc'],
+                'An ninh' => ['Camera', 'Xem camera'],
+            ],
+            'Phân quyền' => [
+                'Vai trò & Tài khoản' => ['Vai trò', 'Tài khoản'],
+            ],
+            'Hệ thống' => [
+                'Nhật ký' => ['Nhật ký hoạt động'],
+                'Kênh gửi thông báo' => ['Cấu hình Zalo', 'Cấu hình SMS'],
+                'Camera' => ['Cấu hình Camera'],
+            ],
+        ],
+    ],
 ];

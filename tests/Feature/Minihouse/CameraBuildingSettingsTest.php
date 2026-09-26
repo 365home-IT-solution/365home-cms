@@ -158,4 +158,72 @@ class CameraBuildingSettingsTest extends TestCase
             ->call('create')
             ->assertHasFormErrors(['stream_key']);
     }
+
+    // Bug thật đã gặp khi vá per-building settings: API dùng chung /api/admin/cameras (App\Http\
+    // Controllers\Api\Admin\CameraController) lấy camera qua model GỐC App\Models\Camera, KHÔNG
+    // phải Modules\Minihouse\App\Models\Camera — nếu chỉ override resolveCameraSettings() ở lớp con
+    // thì "ws_url"/"go2rtc_configured" trả về qua API này cho camera MiniHouse SẼ SAI (tự tìm nhầm
+    // App\Models\CameraSetting theo partner_id, trong khi MiniHouse lưu theo building_id). Đã vá
+    // bằng cách đưa logic nhận diện thẳng vào App\Models\Camera::resolveCameraSettings() (không chỉ
+    // ở lớp con) — khoá lại đúng đường API này trả đúng.
+    public function test_shared_rest_api_resolves_minihouse_camera_settings_by_building(): void
+    {
+        config(['services.websocket.public_url' => 'http://proxy.test']);
+
+        $building = $this->makeBuilding();
+        CameraSetting::forBuilding($building->id)->fill(['base_url' => 'http://server-x:1984'])->save();
+
+        $camera = Camera::create([
+            'partner_id' => HomestayBridge::PARTNER_ID,
+            'branch_id'  => $building->id,
+            'name'       => 'Cam REST',
+            'stream_key' => 'cam-rest-' . uniqid(),
+            'status'     => true,
+        ]);
+
+        $token = User::role('super_admin')->first()->createToken('t')->plainTextToken;
+
+        $response = $this->withHeaders(['Authorization' => 'Bearer ' . $token])
+            ->getJson('/api/admin/cameras/' . $camera->id);
+
+        $response->assertOk()
+            ->assertJsonPath('data.go2rtc_configured', true);
+        $this->assertNotNull($response->json('data.ws_url'));
+    }
+
+    // stream_key trùng nhau ở 2 Toà nhà khác nhau vẫn phải tạo được QUA API (không riêng Filament) —
+    // mirror đúng test Livewire ở trên, khoá lại API validation không lệch với Filament.
+    public function test_shared_rest_api_allows_duplicate_stream_key_across_different_buildings(): void
+    {
+        $buildingA = $this->makeBuilding();
+        $buildingB = $this->makeBuilding();
+        $sharedKey = 'api-shared-' . uniqid();
+
+        Camera::create([
+            'partner_id' => HomestayBridge::PARTNER_ID,
+            'branch_id'  => $buildingA->id,
+            'name'       => 'Cam A',
+            'stream_key' => $sharedKey,
+            'status'     => true,
+        ]);
+
+        $token = User::role('super_admin')->first()->createToken('t')->plainTextToken;
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $token])
+            ->postJson('/api/admin/cameras', [
+                'name'       => 'Cam B',
+                'stream_key' => $sharedKey,
+                'branch_id'  => $buildingB->id,
+            ])
+            ->assertStatus(201);
+
+        $this->withHeaders(['Authorization' => 'Bearer ' . $token])
+            ->postJson('/api/admin/cameras', [
+                'name'       => 'Cam A2',
+                'stream_key' => $sharedKey,
+                'branch_id'  => $buildingA->id,
+            ])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['stream_key']);
+    }
 }

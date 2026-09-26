@@ -80,7 +80,7 @@ class CameraResourceScopingTest extends TestCase
             'partner_id'   => $homePartner->id,
             'status'       => true,
         ]);
-        Camera::create([
+        $homeCamera = Camera::create([
             'partner_id'  => $homePartner->id,
             'branch_id'   => $homeBranch->id,
             'name'        => 'Camera Home ' . uniqid(),
@@ -109,7 +109,10 @@ class CameraResourceScopingTest extends TestCase
 
         $cameras = $page->getCameras();
 
+        // KHÔNG assert tổng số lượng tuyệt đối — CSDL dev có thể có sẵn camera MiniHouse khác từ
+        // trước, không liên quan phép thử này. Chỉ cần khẳng định đúng camera MiniHouse vừa tạo XUẤT
+        // HIỆN và camera Home vừa tạo KHÔNG hề lẫn vào.
         $this->assertTrue($cameras->contains('id', $mhCamera->id));
-        $this->assertSame(1, $cameras->count());
+        $this->assertFalse($cameras->contains('id', $homeCamera->id));
     }
 }

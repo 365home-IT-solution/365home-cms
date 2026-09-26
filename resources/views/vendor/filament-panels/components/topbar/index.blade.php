@@ -78,7 +78,10 @@
                                  ->navigationGroup() thật của Filament. Nhóm không có khai báo thì
                                  giữ nguyên hành vi gốc, chỉ tự chia cột CSS khi danh sách quá dài. --}}
                             @php
-                                $subGroupMap = config('mega-menu.' . $groupLabel);
+                                // Panel có bảng riêng ('panels.<id>') thì dùng bảng đó — mỗi panel (Home/MiniHouse) có
+                                // tập mục menu khác hẳn nhau nên không dùng chung 1 bảng gom nhóm được.
+                                $subGroupMap = config('mega-menu.panels.' . filament()->getId() . '.' . $groupLabel)
+                                    ?? config('mega-menu.' . $groupLabel);
                                 $subGroups   = [];
 
                                 if ($subGroupMap) {

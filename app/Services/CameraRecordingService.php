@@ -18,9 +18,17 @@ use App\Support\CameraMediaToken;
 // thao tác (frigateFor()).
 class CameraRecordingService
 {
+    // Dùng $camera->resolveCameraSettings() thay vì FrigateApiClient::forPartner($camera->partner_id)
+    // trực tiếp — bug thật đã gặp khi thêm cấu hình theo building_id cho MiniHouse (xem
+    // App\Models\Camera::resolveCameraSettings()): camera MiniHouse KHÔNG có dòng nào trong bảng
+    // "camera_settings" (khoá theo partner_id, chỉ Home dùng) nên forPartner() luôn trả về instance
+    // rỗng — mọi API lịch sử/ghi hình thủ công sẽ luôn báo "chưa cấu hình" dù Toà nhà đó ĐÃ cấu hình
+    // đầy đủ. resolveCameraSettings() tự nhận diện đúng bảng cần đọc theo từng loại camera.
     private function frigateFor(Camera $camera): FrigateApiClient
     {
-        return FrigateApiClient::forPartner($camera->partner_id);
+        $settings = $camera->resolveCameraSettings();
+
+        return new FrigateApiClient($settings, new FrigateSessionClient($settings));
     }
 
     public function recordingsSummary(Camera $camera, string $timezone = 'Asia/Ho_Chi_Minh'): array
@@ -52,7 +60,7 @@ class CameraRecordingService
         // partner_id ký kèm token — CameraMediaProxyController cần biết ĐÚNG partner nào để resolve
         // lại CameraSetting/FrigateSessionClient của đúng server Frigate camera này thuộc về (mỗi
         // đối tác giờ có thể dùng server khác nhau).
-        $token = CameraMediaToken::issue($frigatePathPrefix, (string) $camera->partner_id, ttlSeconds: 3 * 3600, transcode: $isHevc);
+        $token = CameraMediaToken::issue($frigatePathPrefix, (string) $camera->partner_id, $camera->branch_id, ttlSeconds: 3 * 3600, transcode: $isHevc);
 
         $filename = $isHevc ? 'stream.mp4' : 'master.m3u8';
 

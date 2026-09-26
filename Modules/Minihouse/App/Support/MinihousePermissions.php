@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Builder;
 class MinihousePermissions
 {
     public const RESOURCE_GROUPS = [
-        'buildings', 'zones', 'rooms', 'tenants', 'contracts', 'invoices', 'transactions', 'reminders', 'residence_declarations', 'feedbacks', 'announcements', 'cameras',
+        'buildings', 'zones', 'rooms', 'tenants', 'contracts', 'invoices', 'transactions', 'reminders', 'residence_declarations', 'feedbacks', 'announcements', 'cameras', 'warehouse',
     ];
 
     public const RESOURCE_ACTIONS = ['view_any', 'create', 'update', 'delete'];
@@ -48,6 +48,11 @@ class MinihousePermissions
         'feedbacks'              => 'Phản hồi khách thuê',
         'announcements'          => 'Thông báo (Portal)',
         'cameras'                => 'Camera',
+        // 1 nhóm quyền DUY NHẤT dùng chung cho toàn bộ 7 Resource kho vật tư (Danh mục/Đơn vị/Vật tư/
+        // Nhập/Xuất/Kiểm kê/Hoàn trả) — cùng nguyên tắc SurchargeResource dùng chung nhóm 'buildings',
+        // tránh nổ ra 7 nhóm quyền riêng cho 1 tính năng vốn luôn được cấp/thu hồi CÙNG LÚC trong thực
+        // tế (nhân viên phụ trách kho thường cần TOÀN QUYỀN kho, không tách nhỏ theo từng loại phiếu).
+        'warehouse'              => 'Kho vật tư',
     ];
 
     public const ACTION_LABELS = [

@@ -70,14 +70,27 @@ class Camera extends Model
     // camera MiniHouse sẽ luôn sai (tự tìm nhầm sang App\Models\CameraSetting theo partner_id, trong
     // khi MiniHouse LƯU CẤU HÌNH THEO building_id — xem Modules\Minihouse\App\Models\CameraSetting).
     // Vá thẳng ở đây (bằng partner_id cố định của MiniHouse) để MỌI đường lấy dữ liệu — Filament lẫn
-    // API — đều resolve đúng, không phụ thuộc đã fetch qua class nào.
-    protected function resolveCameraSettings(): CameraSetting
+    // API — đều resolve đúng, không phụ thuộc đã fetch qua class nào. PUBLIC (không phải protected)
+    // để App\Http\Controllers\Api\Admin\CameraController (API dùng chung, ngoài Filament) gọi lại
+    // được ĐÚNG method này thay vì tự suy diễn CameraSetting::forPartner() riêng — xem
+    // CameraController::syncGo2Rtc()/transform().
+    public function resolveCameraSettings(): CameraSetting
     {
-        if ($this->partner_id === \Modules\Minihouse\App\Support\HomestayBridge::PARTNER_ID) {
-            return \Modules\Minihouse\App\Models\CameraSetting::forBuilding((int) $this->branch_id);
+        return static::resolveSettingsFor($this->partner_id, $this->branch_id);
+    }
+
+    // Bản STATIC của resolveCameraSettings() — dùng ở những chỗ chỉ có sẵn "partner_id"/"branch_id"
+    // rời rạc (VD từ claims đã ký trong 1 token), KHÔNG có sẵn 1 instance Camera đầy đủ để gọi
+    // phương thức instance. Xem App\Http\Controllers\Api\CameraMediaProxyController — resolve lại
+    // cấu hình Frigate TỪ claims của CameraMediaToken (ký kèm cả partner_id lẫn branch_id) khi phát
+    // lại lịch sử ghi hình, cùng 1 nguồn logic với đây để tránh viết trùng quy tắc nhận diện MiniHouse.
+    public static function resolveSettingsFor(?string $partnerId, ?int $branchId): CameraSetting
+    {
+        if ($partnerId === \Modules\Minihouse\App\Support\HomestayBridge::PARTNER_ID) {
+            return \Modules\Minihouse\App\Models\CameraSetting::forBuilding((int) $branchId);
         }
 
-        return CameraSetting::forPartner($this->partner_id);
+        return CameraSetting::forPartner($partnerId);
     }
 
     public function wsProxyUrl(): ?string

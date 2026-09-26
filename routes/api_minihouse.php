@@ -3,6 +3,9 @@
 use App\Http\Controllers\Api\Admin\Minihouse\AmenityController;
 use App\Http\Controllers\Api\Admin\Minihouse\AnnouncementController;
 use App\Http\Controllers\Api\Admin\Minihouse\BuildingController;
+use App\Http\Controllers\Api\Admin\Minihouse\CameraController;
+use App\Http\Controllers\Api\Admin\Minihouse\CameraRecordingController;
+use App\Http\Controllers\Api\Admin\Minihouse\CameraSettingsController;
 use App\Http\Controllers\Api\Admin\Minihouse\ChatController as AdminChatController;
 use App\Http\Controllers\Api\Admin\Minihouse\ContractController;
 use App\Http\Controllers\Api\Admin\Minihouse\ContractDocumentController;
@@ -17,6 +20,13 @@ use App\Http\Controllers\Api\Admin\Minihouse\RoomController;
 use App\Http\Controllers\Api\Admin\Minihouse\SurchargeController;
 use App\Http\Controllers\Api\Admin\Minihouse\TenantController;
 use App\Http\Controllers\Api\Admin\Minihouse\TransactionController;
+use App\Http\Controllers\Api\Admin\Minihouse\WarehouseCategoryController;
+use App\Http\Controllers\Api\Admin\Minihouse\WarehouseItemController;
+use App\Http\Controllers\Api\Admin\Minihouse\WarehouseStockCheckController;
+use App\Http\Controllers\Api\Admin\Minihouse\WarehouseStockInController;
+use App\Http\Controllers\Api\Admin\Minihouse\WarehouseStockOutController;
+use App\Http\Controllers\Api\Admin\Minihouse\WarehouseStockReturnController;
+use App\Http\Controllers\Api\Admin\Minihouse\WarehouseUnitController;
 use App\Http\Controllers\Api\Minihouse\ContractDocumentPreviewController;
 use App\Http\Controllers\Api\Minihouse\ContractVerifyController;
 use App\Http\Controllers\Api\Minihouse\Portal\ChatController as PortalChatController;
@@ -124,6 +134,49 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
     Route::post('residence-declarations/{id}/mark-declared', [ResidenceDeclarationController::class, 'markDeclared'])->name('residence-declarations.mark-declared');
 
     Route::apiResource('announcements', AnnouncementController::class)->only(['index', 'store', 'destroy'])->parameters(['announcements' => 'id']);
+
+    // Kho vật tư — mirror ĐÚNG bộ endpoint /api/admin/warehouse/* của Home (xem App\Http\Controllers\
+    // Api\Admin\Warehouse*Controller), chỉ đổi ranh giới quyền sang building_id (Toà nhà) thay vì
+    // partner/branch của Home, và quyền Spatie dùng chung 1 nhóm "warehouse" (thay vì 7 permission
+    // Shield riêng của Home) — xem Modules\Minihouse\App\Support\MinihousePermissions. "scan" đặt
+    // TRƯỚC apiResource('warehouse-items', ...) để không đụng route "warehouse-items/{id}".
+    Route::get('warehouse-items/scan', [WarehouseItemController::class, 'scan'])->name('warehouse-items.scan');
+    Route::get('warehouse-items/{id}/qrcode', [WarehouseItemController::class, 'qrcode'])->name('warehouse-items.qrcode');
+    Route::get('warehouse-items/{id}/movements', [WarehouseItemController::class, 'movements'])->name('warehouse-items.movements');
+    Route::apiResource('warehouse-items', WarehouseItemController::class)->except(['show'])->parameters(['warehouse-items' => 'id']);
+    Route::get('warehouse-items/{id}', [WarehouseItemController::class, 'show'])->name('warehouse-items.show');
+
+    Route::apiResource('warehouse-categories', WarehouseCategoryController::class)->only(['index', 'store', 'update', 'destroy'])->parameters(['warehouse-categories' => 'id']);
+    Route::apiResource('warehouse-units', WarehouseUnitController::class)->only(['index', 'store', 'update', 'destroy'])->parameters(['warehouse-units' => 'id']);
+
+    Route::apiResource('warehouse-stock-ins', WarehouseStockInController::class)->except(['show'])->parameters(['warehouse-stock-ins' => 'id']);
+    Route::get('warehouse-stock-ins/{id}', [WarehouseStockInController::class, 'show'])->name('warehouse-stock-ins.show');
+
+    Route::apiResource('warehouse-stock-outs', WarehouseStockOutController::class)->except(['show'])->parameters(['warehouse-stock-outs' => 'id']);
+    Route::get('warehouse-stock-outs/{id}', [WarehouseStockOutController::class, 'show'])->name('warehouse-stock-outs.show');
+
+    Route::apiResource('warehouse-stock-checks', WarehouseStockCheckController::class)->except(['show'])->parameters(['warehouse-stock-checks' => 'id']);
+    Route::get('warehouse-stock-checks/{id}', [WarehouseStockCheckController::class, 'show'])->name('warehouse-stock-checks.show');
+
+    Route::apiResource('warehouse-stock-returns', WarehouseStockReturnController::class)->except(['show'])->parameters(['warehouse-stock-returns' => 'id']);
+    Route::get('warehouse-stock-returns/{id}', [WarehouseStockReturnController::class, 'show'])->name('warehouse-stock-returns.show');
+
+    // Camera — mirror ĐÚNG bộ endpoint /api/admin/cameras* của Home (xem App\Http\Controllers\Api\
+    // Admin\CameraController/CameraRecordingController/CameraSettingsController), chỉ đổi ranh giới
+    // quyền sang building_id (Toà nhà) thay vì partner/branch của Home — xem 3 controller cùng tên ở
+    // namespace này. "camera-settings/buildings" đặt TRƯỚC apiResource('cameras', ...) để không đụng
+    // route "cameras/{id}".
+    Route::apiResource('cameras', CameraController::class)->except(['show'])->parameters(['cameras' => 'id']);
+    Route::get('cameras/{id}', [CameraController::class, 'show'])->name('cameras.show');
+    Route::get('cameras/{id}/recordings/summary', [CameraRecordingController::class, 'summary'])->name('cameras.recordings.summary');
+    Route::get('cameras/{id}/recordings', [CameraRecordingController::class, 'index'])->name('cameras.recordings.index');
+    Route::get('cameras/{id}/playback-url', [CameraRecordingController::class, 'playbackUrl'])->name('cameras.playback-url');
+    Route::post('cameras/{id}/recording/start', [CameraRecordingController::class, 'start'])->name('cameras.recording.start');
+    Route::post('cameras/{id}/recording/{eventId}/stop', [CameraRecordingController::class, 'stop'])->name('cameras.recording.stop');
+
+    Route::get('camera-settings/buildings', [CameraSettingsController::class, 'buildings'])->name('camera-settings.buildings');
+    Route::get('camera-settings', [CameraSettingsController::class, 'show'])->name('camera-settings.show');
+    Route::match(['put', 'patch'], 'camera-settings', [CameraSettingsController::class, 'update'])->name('camera-settings.update');
 
     // Báo cáo — mirror tinh thần Modules\Dashboard\Http\Controllers\ReportController bên Home (Home
     // dùng đủ 7 báo cáo theo nghiệp vụ đặt phòng ngắn hạn: receptionist/end-of-day/booking/revenue/

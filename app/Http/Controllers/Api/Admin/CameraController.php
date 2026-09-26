@@ -6,7 +6,6 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Camera;
-use App\Models\CameraSetting;
 use App\Models\User;
 use App\Services\Go2RtcClient;
 use Illuminate\Http\JsonResponse;
@@ -105,7 +104,15 @@ class CameraController extends Controller
 
         $data = $request->validate([
             'name'                 => 'required|string|max:255',
-            'stream_key'           => 'required|string|max:255|unique:cameras,stream_key',
+            // Chỉ cần duy nhất TRONG CÙNG 1 branch_id (= cùng 1 server go2rtc/Frigate, xem
+            // App\Models\Camera::resolveCameraSettings()) — KHÔNG còn kiểm tra trùng CẢ bảng
+            // "cameras" như trước (2 chi nhánh/Toà nhà khác nhau chạy 2 server khác nhau, tên nguồn
+            // trùng nhau không xung đột gì thật sự). Mirror ĐÚNG rule đã sửa ở CameraForm (Filament,
+            // Modules\Minihouse) — tránh 1 bên (API) và 1 bên (Filament) chặn khác nhau.
+            'stream_key'           => [
+                'required', 'string', 'max:255',
+                Rule::unique('cameras', 'stream_key')->where(fn ($q) => $q->where('branch_id', $request->input('branch_id'))),
+            ],
             'frigate_camera_name'  => 'nullable|string|max:255',
             'rtsp_url'             => 'nullable|string|max:2000',
             'branch_id'            => 'required|integer',
@@ -157,7 +164,14 @@ class CameraController extends Controller
 
         $data = $request->validate([
             'name'                 => 'sometimes|required|string|max:255',
-            'stream_key'           => ['sometimes', 'required', 'string', 'max:255', Rule::unique('cameras', 'stream_key')->ignore($camera->id)],
+            // Cùng phạm vi kiểm tra trùng như store() — duy nhất trong đúng branch_id SẼ LƯU (branch
+            // mới nếu request đổi chi nhánh, branch hiện tại nếu không đổi), không phải cả bảng.
+            'stream_key'           => [
+                'sometimes', 'required', 'string', 'max:255',
+                Rule::unique('cameras', 'stream_key')
+                    ->where(fn ($q) => $q->where('branch_id', $request->input('branch_id', $camera->branch_id)))
+                    ->ignore($camera->id),
+            ],
             'frigate_camera_name'  => 'nullable|string|max:255',
             'rtsp_url'             => 'nullable|string|max:2000',
             'branch_id'            => 'sometimes|required|integer',
@@ -255,7 +269,7 @@ class CameraController extends Controller
             return null;
         }
 
-        $client = Go2RtcClient::forPartner($camera->partner_id);
+        $client = new Go2RtcClient($camera->resolveCameraSettings());
 
         if ($originalStreamKey !== null && $originalStreamKey !== $camera->stream_key) {
             $client->deleteStream($originalStreamKey);
@@ -280,7 +294,7 @@ class CameraController extends Controller
             ] : null,
             'status'             => $camera->status,
             'ws_url'             => $camera->wsProxyUrl(),
-            'go2rtc_configured'  => CameraSetting::forPartner($camera->partner_id)->isConfigured(),
+            'go2rtc_configured'  => $camera->resolveCameraSettings()->isConfigured(),
             'note'               => $camera->note,
         ];
     }
