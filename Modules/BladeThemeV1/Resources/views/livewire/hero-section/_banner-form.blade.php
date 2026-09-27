@@ -278,7 +278,7 @@
                              mỗi lần bấm tab Theo giờ/Theo ngày Alpine re-render lại CẢ object,
                              ghi đè transform về lại 'translateX(-50%)' trong khi "left" JS đã set
                              vẫn còn nguyên — cộng dồn 2 lớp lệch khiến popup nhảy hẳn sang trái. --}}
-                        <div x-show="open" x-cloak x-ref="dateDropdownDesktop"
+                        <div x-show="open" x-cloak x-ref="dateDropdownDesktop" x-effect="open && (datePanelReady = true)"
                             x-transition:enter="transition ease-out duration-150"
                             x-transition:enter-start="opacity-0 translate-y-1"
                             x-transition:enter-end="opacity-100 translate-y-0"
@@ -288,6 +288,9 @@
                             class="absolute top-[calc(100%+8px)] left-1/2 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-y-auto"
                             style="transform: translateX(-50%);"
                             :style="{ maxHeight: '75vh', width: (dayMode ? '640px' : '600px') }">
+                            {{-- Chỉ render lịch + badge giờ từ lần mở popup đầu tiên (datePanelReady, heroDatePicker): trước đây render sẵn ở cả 3 instance hero-section dù chưa ai mở => ~2100 directive Alpine phải khởi tạo lúc tải trang (Lighthouse TBT) --}}
+                            <template x-if="datePanelReady">
+                            <div>
                     <div class="py-5 px-6">
 
                         {{-- Tabs Theo giờ / Theo ngày --}}
@@ -474,6 +477,8 @@
                         </div>
                         </template>
                     </div>
+                            </div>
+                            </template>
                         </div>
                     </div>
 

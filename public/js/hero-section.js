@@ -126,6 +126,10 @@ window.heroDatePicker = function(dayModeInit, roomTypeInit) {
         checkOutHour: 16,
         // Badge giờ tròn: 06:00 → 22:00, mỗi badge cách nhau 1 tiếng
         hourBadges: Array.from({ length: 17 }, (_, i) => i + 6),
+        // Bật (và giữ luôn) ở lần mở popup lịch đầu tiên — popup chỉ render lịch + badge giờ bên
+        // trong <template x-if="datePanelReady"> (xem _banner-form/_compact-form/_mobile-steps).
+        // Giữ true sau khi đóng để hiệu ứng đóng còn nội dung và mở lại không phải dựng lại.
+        datePanelReady: false,
         _dateDropdownCleanup: null,
         // Giữ popup lịch (rộng cố định 640px, canh giữa theo field) luôn nằm trong màn hình.
         // Không làm thế thì ở màn hình hẹp, popup tràn ra ngoài viewport → xuất hiện thanh

@@ -222,11 +222,14 @@
                             </button>
 
                             {{-- Date picker dropdown --}}
-                            <div x-show="open" x-cloak x-ref="dateDropdownCompact"
+                            <div x-show="open" x-cloak x-ref="dateDropdownCompact" x-effect="open && (datePanelReady = true)"
                                 x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 translate-y-1" x-transition:enter-end="opacity-100 translate-y-0"
                                 class="absolute top-[calc(100%+6px)] left-1/2 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50 overflow-y-auto"
                                 :class="dayMode ? 'w-[640px]' : 'w-[380px]'"
                                 style="max-height:75vh; transform:translateX(-50%);">
+                                {{-- Chỉ render lịch + badge giờ từ lần mở popup đầu tiên (datePanelReady, heroDatePicker): trước đây render sẵn ở cả 3 instance hero-section dù chưa ai mở => ~2100 directive Alpine phải khởi tạo lúc tải trang (Lighthouse TBT) --}}
+                                <template x-if="datePanelReady">
+                                <div>
                         <div class="py-5 px-6">
 
                             {{-- Tabs Theo giờ / Theo ngày --}}
@@ -356,6 +359,8 @@
                             </div>
                             </template>
                         </div>
+                                </div>
+                                </template>
                             </div>
                         </div>
 

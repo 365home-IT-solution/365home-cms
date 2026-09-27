@@ -6,6 +6,7 @@ namespace App\Support;
 
 use Illuminate\Support\Facades\Log;
 use Spatie\Image\Enums\Fit;
+use Spatie\Image\Enums\ImageDriver;
 use Spatie\Image\Image;
 
 // Sinh 4 bản thu nhỏ (thumb/card/medium/wide) làm file anh em cạnh ảnh gốc, không đụng vào file/URL gốc
@@ -28,19 +29,16 @@ class GeneratesImagePresets
 
         foreach (self::PRESETS as $preset => $maxLongEdge) {
             $presetPath = self::presetPath($absolutePath, $preset);
-            $tmpPath = $presetPath.'.resize-tmp-'.uniqid();
+            // File tạm PHẢI giữ đuôi ".avif" ở cuối: Image::load() tự chọn Imagick nếu server có
+            // ext imagick (prod có), mà ImagickDriver::save() ghi theo đuôi tên file chứ không theo
+            // ->format() — tên cũ "x-wide.avif.resize-tmp-<id>" khiến prod ghi ra PNG gốc rồi đổi
+            // tên thành .avif (banner 1080px nặng ~480KB thay vì ~50KB).
+            $tmpPath = dirname($presetPath).DIRECTORY_SEPARATOR.'.preset-tmp-'.uniqid().'.avif';
 
             try {
-                Image::load($absolutePath)
-                    ->fit(Fit::Max, $maxLongEdge, $maxLongEdge)
-                    ->format('avif')
-                    ->quality(60)
-                    ->save($tmpPath);
-
-                if (! file_exists($tmpPath) || filesize($tmpPath) === 0) {
-                    throw new \RuntimeException('File preset sinh ra rỗng');
-                }
-
+                self::encodeAvif($absolutePath, $tmpPath, $maxLongEdge);
+                // Chỉ tới đây khi file tạm đã là AVIF hợp lệ — preset cũ (nếu có) chỉ bị thay thế
+                // đúng lúc này, mọi lỗi phía trên đều giữ nguyên preset cũ.
                 rename($tmpPath, $presetPath);
             } catch (\Throwable $e) {
                 @unlink($tmpPath);
@@ -54,6 +52,43 @@ class GeneratesImagePresets
                 return;
             }
         }
+    }
+
+    // Thử GD trước (cùng driver medialibrary dùng cho ảnh phòng, IMAGE_DRIVER mặc định gd), lỗi
+    // (vd PHP build GD không có AVIF) thì thử Imagick nếu server có. Driver nào cũng phải qua
+    // chốt kiểm tra magic bytes: không bao giờ để file định dạng khác mang đuôi .avif nữa.
+    private static function encodeAvif(string $source, string $tmpPath, int $maxLongEdge): void
+    {
+        $drivers = [ImageDriver::Gd];
+        if (class_exists(\Imagick::class)) {
+            $drivers[] = ImageDriver::Imagick;
+        }
+
+        $lastError = null;
+        foreach ($drivers as $driver) {
+            try {
+                Image::useImageDriver($driver)
+                    ->loadFile($source)
+                    ->fit(Fit::Max, $maxLongEdge, $maxLongEdge)
+                    ->format('avif')
+                    ->quality(60)
+                    ->save($tmpPath);
+
+                if (! file_exists($tmpPath) || filesize($tmpPath) === 0) {
+                    throw new \RuntimeException('File preset sinh ra rỗng');
+                }
+                if (! str_contains((string) file_get_contents($tmpPath, false, null, 0, 16), 'ftypavi')) {
+                    throw new \RuntimeException('File preset sinh ra không phải AVIF');
+                }
+
+                return;
+            } catch (\Throwable $e) {
+                @unlink($tmpPath);
+                $lastError = $e;
+            }
+        }
+
+        throw $lastError ?? new \RuntimeException('Không có driver ảnh nào dùng được');
     }
 
     public static function presetPath(string $absolutePath, string $preset): string

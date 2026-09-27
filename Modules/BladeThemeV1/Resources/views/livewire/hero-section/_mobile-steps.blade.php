@@ -102,7 +102,10 @@
             </div>
         </button>
 
-        <div x-show="mobileStep === 2" x-cloak class="px-3 pb-3">
+        <div x-show="mobileStep === 2" x-cloak x-effect="mobileStep === 2 && (datePanelReady = true)" class="px-3 pb-3">
+            {{-- Chỉ render lịch + badge giờ từ lần mở popup đầu tiên (datePanelReady, heroDatePicker): trước đây render sẵn ở cả 3 instance hero-section dù chưa ai mở => ~2100 directive Alpine phải khởi tạo lúc tải trang (Lighthouse TBT) --}}
+            <template x-if="datePanelReady">
+            <div>
 
             {{-- Tabs Theo giờ / Theo ngày --}}
             <div class="flex items-center gap-1.5 mb-3 p-1 bg-gray-100 rounded-full w-fit mx-auto">
@@ -197,6 +200,8 @@
                     Xác nhận
                 </button>
             </div>
+            </div>
+            </template>
         </div>
     </div>
 
