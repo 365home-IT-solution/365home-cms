@@ -34,7 +34,13 @@
 
 @section('content')
 
-    <h1 class="sr-only">{{ $page->title ?? config('app.name', '365 HOME') }}</h1>
+    {{-- Trang chủ: $page->title chỉ là "Trang chủ" (cũng là nhãn menu) — H1 như vậy không cho Google
+         biết trang nói về gì, nên trang chủ dùng H1 mô tả riêng chứa các từ khoá chính. --}}
+    @if (request()->path() === '/')
+        <h1 class="sr-only">365Home - Homestay Cần Thơ tự check-in, giá rẻ, đặt phòng theo giờ, qua đêm, theo ngày</h1>
+    @else
+        <h1 class="sr-only">{{ $page->title ?? config('app.name', '365 HOME') }}</h1>
+    @endif
 
     @livewire('bladethemev1::header')
     @livewire('bladethemev1::drawer-menu')

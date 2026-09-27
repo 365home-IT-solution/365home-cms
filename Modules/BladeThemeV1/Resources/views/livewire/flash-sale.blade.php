@@ -946,13 +946,14 @@
             <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
                 <h2 class="text-2xl font-bold text-gray-900 mb-3">Về 365 Home</h2>
                 <p class="text-gray-600 leading-relaxed">
-                    365 Home là hệ thống đặt phòng trực tuyến với đa dạng loại hình lưu trú: khách sạn,
-                    nhà nghỉ, villa, căn hộ, mini house và homestay, hỗ trợ đặt theo giờ hoặc theo ngày
-                    tuỳ nhu cầu. Chi nhánh 365 Home Cần Thơ toạ lạc tại An Bình, Xuân Thủy, Ninh Kiều,
-                    Cần Thơ, cùng hệ thống đang mở rộng thêm nhiều khu vực khác. Toàn bộ quy trình tìm
-                    phòng, xem giá, đặt và thanh toán đều thực hiện trực tiếp trên website hoặc ứng
-                    dụng di động 365 Home, giúp khách chủ động thời gian nhận/trả phòng mà không cần
-                    gọi điện đặt trước.
+                    365 Home là hệ thống homestay tự check-in tại Cần Thơ: khách đặt phòng online, nhận
+                    mã và tự mở cửa bằng khoá thông minh, không cần lễ tân. Bên cạnh homestay, 365 Home
+                    còn có khách sạn, nhà nghỉ, villa, căn hộ và mini house, hỗ trợ đặt theo giờ, qua đêm
+                    hoặc theo ngày với giá rẻ, minh bạch, xem trước trên lịch đặt phòng. Chi nhánh 365 Home
+                    Cần Thơ toạ lạc tại An Bình, Xuân Thủy, Ninh Kiều, Cần Thơ, cùng hệ thống đang mở rộng
+                    thêm nhiều khu vực khác. Toàn bộ quy trình tìm phòng, xem giá, đặt và thanh toán đều
+                    thực hiện trực tiếp trên website hoặc ứng dụng di động 365 Home, giúp khách chủ động
+                    thời gian nhận/trả phòng mà không cần gọi điện đặt trước.
                 </p>
             </div>
         </section>
