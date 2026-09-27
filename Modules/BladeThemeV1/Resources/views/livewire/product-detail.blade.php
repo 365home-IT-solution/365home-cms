@@ -821,12 +821,9 @@
                                                                             // giống hệt bản desktop bên trên — hiển thị MỜ, không ẩn hoàn toàn.
                                                                             $mHeldByName = null;
                                                                             if ($mIsSelectable && isset($mRts->id)) {
-                                                                                $mActiveHold = app(
-                                                                                    \App\Services\TimeslotHoldService::class,
-                                                                                )->isHeldByAdmin(
-                                                                                    $mRts->id,
-                                                                                    $date['carbon_date']->toDateString(),
-                                                                                );
+                                                                                $mActiveHold = $this->getActiveHoldsMap()[
+                                                                                    $mRts->id . '|' . $date['carbon_date']->toDateString()
+                                                                                ] ?? null;
                                                                                 if ($mActiveHold) {
                                                                                     $mIsSelectable = false;
                                                                                     $mClasses .= ' held';
@@ -1138,9 +1135,9 @@
                                                                             // chỉ tạm thời không bấm được.
                                                                             $heldByName = null;
                                                                             if ($isSelectable && isset($realRoomTimeSlot->id)) {
-                                                                                $activeHold = app(
-                                                                                    \App\Services\TimeslotHoldService::class,
-                                                                                )->isHeldByAdmin($realRoomTimeSlot->id, $slotDateYmd);
+                                                                                $activeHold = $this->getActiveHoldsMap()[
+                                                                                    $realRoomTimeSlot->id . '|' . $slotDateYmd
+                                                                                ] ?? null;
                                                                                 if ($activeHold) {
                                                                                     $isSelectable = false;
                                                                                     $classes .= ' held';

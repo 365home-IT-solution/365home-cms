@@ -49,6 +49,25 @@ class ProductDetail extends Component
     #[\Livewire\Attributes\On('timeslotHoldsChanged')]
     public function onTimeslotHoldsChanged(): void {}
 
+    /** Cache trong-request (không phải property Livewire) cho map hold real-time, xem getActiveHoldsMap(). */
+    protected ?array $activeHoldsCache = null;
+
+    // Nạp 1 LẦN mọi hold đang hiệu lực cho các khung giờ của phòng, để lưới khung giờ trong
+    // product-detail.blade.php tra map thay vì gọi TimeslotHoldService::isHeldByAdmin() cho TỪNG ô
+    // — mỗi lần gọi là 1 DELETE purge + 1 SELECT, lưới 2 tuần x 2 bản (desktop + mobile) thành
+    // ~600 query/lượt render, đẩy trang chi tiết phòng lên >1s (Semrush "slow load speed"). Cùng
+    // cách đã làm cho lưới trang chủ (Book::getActiveHoldsMap()).
+    public function getActiveHoldsMap(): array
+    {
+        if ($this->activeHoldsCache !== null) {
+            return $this->activeHoldsCache;
+        }
+
+        $roomTimeSlotIds = $this->product?->roomTimeSlots?->pluck('id')->all() ?? [];
+
+        return $this->activeHoldsCache = app(\App\Services\TimeslotHoldService::class)->getActiveHoldsMap($roomTimeSlotIds);
+    }
+
     // resources/js/ws-client.js nghe kênh Node WS "room:{roomId}:{date}" (event slot.updated) rồi
     // tự gọi Livewire.dispatch('roomAvailabilityChanged') mỗi khi admin đổi giá/khung giờ/khuyến
     // mãi ở SettingBook (xem SlotRealtimeService::broadcastBlockedRange). KHÁC với
