@@ -4,8 +4,23 @@ namespace Modules\Minihouse\App\Support;
 
 use App\Models\User;
 use Illuminate\Support\Carbon;
+use App\Models\Partner;
+use Modules\Metering\App\Models\MeteringReading;
+use Modules\Minihouse\App\Models\ActivityLog;
 use Modules\Minihouse\App\Models\Building;
 use Modules\Minihouse\App\Models\Contract;
+use Modules\Minihouse\App\Models\ContractDocument;
+use Modules\Minihouse\App\Models\ContractDocumentEvent;
+use Modules\Minihouse\App\Models\ContractSignature;
+use Modules\Minihouse\App\Models\WarehouseCategory;
+use Modules\Minihouse\App\Models\WarehouseItem;
+use Modules\Minihouse\App\Models\WarehouseItemAdjustment;
+use Modules\Minihouse\App\Models\WarehouseStockCheck;
+use Modules\Minihouse\App\Models\WarehouseStockIn;
+use Modules\Minihouse\App\Models\WarehouseStockOut;
+use Modules\Minihouse\App\Models\WarehouseStockReturn;
+use Modules\Minihouse\App\Models\WarehouseUnit;
+use Modules\Product\App\Models\RoomType;
 use Modules\Minihouse\App\Models\ContractRenewal;
 use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\InvoicePayment;
@@ -42,6 +57,30 @@ class ActivityLogFormatter
         Tenant::class                => 'Khách thuê',
         Transaction::class           => 'Thu chi',
         Zone::class                  => 'Khu vực',
+        MeteringReading::class       => 'Chỉ số điện nước',
+        ContractDocument::class      => 'Hợp đồng điện tử',
+        ContractSignature::class     => 'Chữ ký hợp đồng',
+        ContractDocumentEvent::class => 'Sự kiện hợp đồng điện tử',
+        WarehouseCategory::class     => 'Nhóm vật tư',
+        WarehouseUnit::class         => 'Đơn vị tính',
+        WarehouseItem::class         => 'Vật tư',
+        WarehouseItemAdjustment::class => 'Điều chỉnh tồn vật tư',
+        WarehouseStockIn::class      => 'Phiếu nhập kho',
+        WarehouseStockOut::class     => 'Phiếu xuất kho',
+        WarehouseStockCheck::class   => 'Phiếu kiểm kê',
+        WarehouseStockReturn::class  => 'Phiếu hoàn trả',
+        \Modules\Minihouse\App\Models\Amenity::class          => 'Tiện ích',
+        \Modules\Minihouse\App\Models\Announcement::class     => 'Thông báo',
+        \Modules\Minihouse\App\Models\AssetType::class        => 'Loại tài sản',
+        \Modules\Minihouse\App\Models\Camera::class           => 'Camera',
+        \Modules\Minihouse\App\Models\CameraSetting::class    => 'Cấu hình camera',
+        \Modules\Minihouse\App\Models\PanoramaScene::class    => 'Cảnh 360°',
+        \Modules\Minihouse\App\Models\PortalBroadcast::class  => 'Thông báo cổng khách thuê',
+        \Modules\Minihouse\App\Models\RentalInquiry::class    => 'Yêu cầu thuê phòng',
+        \Modules\Minihouse\App\Models\RoomAsset::class        => 'Tài sản phòng',
+        \Modules\Minihouse\App\Models\TenantFeedback::class   => 'Phản hồi khách thuê',
+        \Modules\Minihouse\App\Models\SmsSetting::class       => 'Cấu hình SMS',
+        \Modules\Minihouse\App\Models\ZaloSetting::class      => 'Cấu hình Zalo',
     ];
 
     public static function modelLabel(?string $subjectType): string
@@ -93,6 +132,31 @@ class ActivityLogFormatter
         'contract_id' => 'Hợp đồng', 'old_end_date' => 'Ngày kết thúc cũ', 'new_end_date' => 'Ngày kết thúc mới',
         'old_monthly_price' => 'Giá thuê cũ', 'new_monthly_price' => 'Giá thuê mới', 'created_by' => 'Người tạo',
 
+        // Phòng (cột kế thừa từ bảng products), vật tư kho, hợp đồng điện tử
+        'description' => 'Mô tả', 'is_activated' => 'Đang kích hoạt', 'is_in_stock' => 'Còn phòng',
+        'partner_id' => 'Đối tác', 'room_type_id' => 'Loại phòng', 'room_area_sqm' => 'Diện tích (m²)',
+        'slug' => 'Đường dẫn', 'styles' => 'Kiểu cho thuê', 'latitude' => 'Vĩ độ', 'longitude' => 'Kinh độ',
+        'map_url' => 'Link bản đồ', 'hotline' => 'Hotline', 'setting_video_room' => 'Video phòng',
+        'sku' => 'Mã vật tư', 'quantity' => 'Số lượng tồn', 'quantity_in_use' => 'Số lượng đang dùng',
+        'min_quantity' => 'Tồn tối thiểu', 'unit_price' => 'Đơn giá', 'warehouse_category_id' => 'Nhóm vật tư',
+        'warehouse_unit_id' => 'Đơn vị tính', 'warehouse_item_id' => 'Vật tư', 'old_quantity' => 'Số lượng cũ',
+        'new_quantity' => 'Số lượng mới', 'difference' => 'Chênh lệch', 'received_at' => 'Thời điểm nhập',
+        'issued_at' => 'Thời điểm xuất', 'returned_at' => 'Thời điểm hoàn trả', 'checked_at' => 'Thời điểm kiểm kê',
+        'issued_to' => 'Người nhận', 'returned_by' => 'Người hoàn trả', 'handover_status' => 'Trạng thái bàn giao',
+        'handover_confirmed_by' => 'Người xác nhận bàn giao', 'handover_confirmed_at' => 'Thời điểm xác nhận bàn giao',
+        'handover_note' => 'Ghi chú bàn giao', 'document_id' => 'Hợp đồng điện tử', 'no' => 'Số hợp đồng',
+        'sign_date' => 'Ngày ký', 'signed_place' => 'Nơi ký', 'max_occupants' => 'Số người tối đa',
+        'payment_day' => 'Ngày thanh toán hàng tháng', 'extra_terms' => 'Điều khoản bổ sung',
+        'sent_at' => 'Đã gửi lúc', 'sealed_at' => 'Đã niêm phong lúc', 'party' => 'Bên ký', 'signer_name' => 'Người ký',
+        'signer_phone' => 'SĐT người ký', 'signed_at' => 'Ký lúc', 'event' => 'Sự kiện', 'actor_name' => 'Người thực hiện',
+        'body' => 'Nội dung', 'condition' => 'Tình trạng', 'rating' => 'Đánh giá', 'is_reviewed' => 'Đã xem xét',
+        'staff_note' => 'Ghi chú nhân viên', 'tenant_name' => 'Tên khách thuê', 'tenant_phone' => 'SĐT khách thuê',
+        'base_url' => 'Địa chỉ máy chủ', 'username' => 'Tên đăng nhập', 'password' => 'Mật khẩu', 'api_key' => 'API Key',
+        'secret_key' => 'Secret Key', 'brandname' => 'Brandname', 'app_id' => 'App ID', 'app_secret' => 'App Secret',
+        'access_token' => 'Access Token', 'refresh_token' => 'Refresh Token', 'image_path' => 'Ảnh', 'thumbnail_path' => 'Ảnh thu nhỏ',
+        'email' => 'Email', 'stream_key' => 'Stream key', 'branch_id' => 'Toà nhà', 'is_reviewed_at' => 'Xem xét lúc',
+        'total_amount' => 'Tổng tiền',
+
         // Hoá đơn
         'month' => 'Tháng', 'period_start' => 'Bắt đầu kỳ', 'period_end' => 'Kết thúc kỳ', 'room_price' => 'Tiền phòng',
         'electric_start' => 'Số điện đầu kỳ', 'electric_end' => 'Số điện cuối kỳ', 'electric_amount' => 'Tiền điện',
@@ -134,13 +198,34 @@ class ActivityLogFormatter
     // field kết thúc bằng "_id"/"_by"/"_to" trỏ tới 1 bản ghi khác — model tương ứng để tự tra ra
     // TÊN thay vì hiện ID thô.
     private const FOREIGN_KEYS = [
-        'zone_id' => Zone::class, 'building_id' => Building::class, 'room_id' => Room::class,
+        'zone_id' => Zone::class, 'building_id' => Building::class, 'branch_id' => Building::class, 'room_id' => Room::class,
         'tenant_id' => Tenant::class, 'contract_id' => Contract::class, 'invoice_id' => Invoice::class,
         'invoice_payment_id' => InvoicePayment::class, 'surcharge_id' => Surcharge::class,
         'transferred_to_contract_id' => Contract::class, 'transferred_from_contract_id' => Contract::class,
         'created_by' => User::class, 'approved_by' => User::class, 'declared_by' => User::class,
-        'assigned_to' => User::class,
+        'assigned_to' => User::class, 'handover_confirmed_by' => User::class,
+        'partner_id' => Partner::class, 'room_type_id' => RoomType::class,
+        'warehouse_category_id' => WarehouseCategory::class, 'warehouse_unit_id' => WarehouseUnit::class,
+        'warehouse_item_id' => WarehouseItem::class,
     ];
+
+    // Cột kỹ thuật của bảng products (Phòng kế thừa Product) không có ý nghĩa với người dùng — ẩn khỏi
+    // popup chi tiết (log cũ đã lỡ lưu các cột này nên phải lọc ở tầng hiển thị, không chỉ lúc ghi).
+    private const HIDDEN_FIELDS = [
+        Room::class => ['slug', 'styles', 'is_in_stock', 'room_type_id', 'partner_id', 'is_activated', 'description', 'room_area_sqm'],
+    ];
+
+    // Field tiền tệ — hiện "2.800.000 đ" thay vì số thô "2800000".
+    private const MONEY_FIELDS = [
+        'price', 'amount', 'monthly_price', 'deposit_amount', 'deposit_refunded_amount', 'old_monthly_price',
+        'new_monthly_price', 'room_price', 'electric_amount', 'water_amount', 'service_amount', 'total_amount',
+        'amount_paid', 'unit_price', 'electric_unit_price', 'water_unit_price',
+    ];
+
+    public static function isHiddenField(?string $subjectType, string $field): bool
+    {
+        return $subjectType && in_array($field, self::HIDDEN_FIELDS[$subjectType] ?? [], true);
+    }
 
     // model::class => field => [giá trị CSDL => nhãn tiếng Việt] — enum KHÁC NHAU tuỳ model nên
     // không gộp chung được như FIELD_LABELS (VD "status" của Invoice khác hẳn "status" của Room).
@@ -221,7 +306,7 @@ class ActivityLogFormatter
 
     // Field boolean thật (cast 'boolean' ở model) — "1"/"0" nên hiện "Có"/"Không", KHÔNG áp cho mọi
     // field có giá trị "0"/"1" chung chung (VD 1 số CCCD/số điện thoại có thể toàn số 0/1 trùng hợp).
-    private const BOOLEAN_FIELDS = ['is_active', 'is_done', 'residence_declared', 'payment_sandbox'];
+    private const BOOLEAN_FIELDS = ['is_active', 'is_done', 'residence_declared', 'payment_sandbox', 'is_activated', 'is_in_stock'];
 
     public static function fieldLabel(string $field): string
     {
@@ -246,6 +331,10 @@ class ActivityLogFormatter
             return in_array($value, [1, '1', true, 'true'], true) ? 'Có' : 'Không';
         }
 
+        if (in_array($field, self::MONEY_FIELDS, true) && is_numeric($value)) {
+            return number_format((float) $value, 0, ',', '.') . ' đ';
+        }
+
         if (is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}/', $value)) {
             return Carbon::parse($value)->format('d/m/Y H:i:s');
         }
@@ -257,29 +346,47 @@ class ActivityLogFormatter
         return (string) $value;
     }
 
-    // Hồ sơ liên quan đã bị xoá (mềm/thật) vẫn hiện được "#ID" thay vì lỗi trắng trang — không dùng
-    // withoutGlobalScopes() bừa cho MỌI model (VD User không có global scope nào cần bỏ), chỉ những
-    // model MiniHouse có ActiveBuildingScope mới cần.
+    // Hồ sơ liên quan đã bị xoá (mềm/thật) — tra tên từ chính nhật ký (dòng log gần nhất của đối tượng
+    // đó còn lưu subject_label) và ghi rõ "đã xoá"; không còn dấu vết nào thì hiện "Bản ghi đã xoá".
     private static function resolveForeignKey(string $modelClass, mixed $id): string
     {
-        $query = in_array($modelClass, [User::class], true) ? $modelClass::query() : $modelClass::withoutGlobalScopes();
-        $model = $query->find($id);
+        $model = null;
 
-        if (! $model) {
-            return '#' . $id;
+        try {
+            $model = $modelClass::withoutGlobalScopes()->find($id);
+        } catch (\Throwable) {
+            // không truy vấn được -> rơi xuống nhánh dự phòng
         }
 
+        $name = $model ? self::nameOf($modelClass, $model) : null;
+
+        if (filled($name)) {
+            return (string) $name;
+        }
+
+        $label = ActivityLog::query()
+            ->where('subject_type', $modelClass)
+            ->where('subject_id', (string) $id)
+            ->orderByDesc('id')
+            ->value('subject_label');
+
+        if (filled($label)) {
+            return $label . ' (đã xoá)';
+        }
+
+        return 'Bản ghi đã xoá';
+    }
+
+    private static function nameOf(string $modelClass, $model): ?string
+    {
         return match ($modelClass) {
-            User::class     => $model->fullname ?: ($model->email ?? ('#' . $id)),
-            Tenant::class   => $model->fullname,
-            Room::class     => $model->code,
-            Building::class => $model->name,
-            Zone::class     => $model->name,
-            Surcharge::class => $model->name,
-            Contract::class => 'Hợp đồng #' . $model->id,
-            Invoice::class  => 'Hoá đơn tháng ' . ($model->month?->format('m/Y') ?? '#' . $model->id),
+            User::class           => $model->fullname ?: ($model->email ?? null),
+            Tenant::class         => $model->fullname,
+            Room::class           => $model->code ?: $model->name,
+            Contract::class       => 'Hợp đồng #' . $model->id,
+            Invoice::class        => 'Hoá đơn tháng ' . ($model->month?->format('m/Y') ?? '#' . $model->id),
             InvoicePayment::class => 'Thanh toán #' . $model->id,
-            default => '#' . $id,
+            default               => $model->name ?? null,
         };
     }
 }

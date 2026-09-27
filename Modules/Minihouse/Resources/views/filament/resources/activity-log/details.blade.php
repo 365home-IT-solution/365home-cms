@@ -2,6 +2,7 @@
     $old = $record->old_values ?? [];
     $new = $record->new_values ?? [];
     $fields = array_unique(array_merge(array_keys($old), array_keys($new)));
+    $fields = array_values(array_filter($fields, fn ($f) => ! \Modules\Minihouse\App\Support\ActivityLogFormatter::isHiddenField($record->subject_type, $f)));
     sort($fields);
 @endphp
 

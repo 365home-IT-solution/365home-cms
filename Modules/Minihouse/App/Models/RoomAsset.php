@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 // KHẢO tình trạng tài sản, không tự động sinh phụ thu).
 class RoomAsset extends Model
 {
+    use Concerns\LogsMinihouseActivity;
     public const CONDITION_GOOD        = 'tot';
     public const CONDITION_DAMAGED     = 'hu_hong';
     public const CONDITION_MAINTENANCE = 'dang_sua';

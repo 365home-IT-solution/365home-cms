@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 // không tự tạo Tenant/Contract nào — nhân viên tự thao tác tiếp qua panel nếu chốt thuê.
 class RentalInquiry extends Model
 {
+    use Concerns\LogsMinihouseActivity;
     protected $table = 'minihouse_rental_inquiries';
 
     public const STATUS_NEW       = 'new';

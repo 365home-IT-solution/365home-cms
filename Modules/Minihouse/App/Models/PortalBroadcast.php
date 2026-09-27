@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 // (list/sửa trước khi gửi/gửi lại/lên lịch), khác ở tầng lưu trữ (không có bảng recipient riêng).
 class PortalBroadcast extends Model
 {
+    use Concerns\LogsMinihouseActivity;
     public const SENT_FOR_ALL     = 'all';
     public const SENT_FOR_TENANTS = 'tenants';
 

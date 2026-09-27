@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 // đầy đủ ở migration create_minihouse_panorama_scenes_table.
 class PanoramaScene extends Model
 {
+    use Concerns\LogsMinihouseActivity;
     protected $table = 'minihouse_panorama_scenes';
 
     protected $fillable = [

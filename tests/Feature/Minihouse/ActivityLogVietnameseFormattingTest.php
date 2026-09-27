@@ -132,4 +132,44 @@ class ActivityLogVietnameseFormattingTest extends TestCase
         $this->assertSame('Thanh toán hoá đơn', $log->subjectTypeLabel());
         $this->assertNotSame('InvoicePayment', $log->subjectTypeLabel());
     }
+    public function test_deleted_building_and_room_ids_resolve_to_names_and_technical_room_fields_are_hidden(): void
+    {
+        $F = \Modules\Minihouse\App\Support\ActivityLogFormatter::class;
+        $zone = Zone::create(['name' => 'Khu B']);
+        $building = Building::create(['zone_id' => $zone->id, 'name' => 'Toà Nhật Ký', 'address' => 'x']);
+        $id = $building->id;
+
+        $this->assertSame('Toà Nhật Ký', $F::formatValue(null, 'building_id', $id));
+
+        $this->actingAs(User::role('super_admin')->first());
+        $building->refresh();
+        ActivityLog::create([
+            'building_id' => $id, 'user_name' => 'x', 'action' => 'created',
+            'subject_type' => Building::class, 'subject_id' => $id, 'subject_label' => 'Toà Nhật Ký',
+        ]);
+        \Illuminate\Support\Facades\DB::table('categories')->where('id', $id)->delete();
+
+        $this->assertSame('Toà Nhật Ký (đã xoá)', $F::formatValue(null, 'building_id', $id));
+        $this->assertSame('Bản ghi đã xoá', $F::formatValue(null, 'room_id', 'khong-ton-tai'));
+        $this->assertTrue($F::isHiddenField(Room::class, 'room_type_id'));
+        $this->assertFalse($F::isHiddenField(Room::class, 'price'));
+        $this->assertSame('Vật tư', $F::modelLabel(\Modules\Minihouse\App\Models\WarehouseItem::class));
+        $this->assertSame('Chỉ số điện nước', $F::modelLabel(\Modules\Metering\App\Models\MeteringReading::class));
+        $this->assertSame('2.800.000 đ', $F::formatValue(Room::class, 'price', '2800000'));
+        $this->assertSame('Loại phòng', $F::fieldLabel('room_type_id'));
+    }
+
+    public function test_settings_secrets_are_masked_and_new_models_are_logged(): void
+    {
+        $this->actingAs(User::role('super_admin')->first());
+        \Modules\Minihouse\App\Models\SmsSetting::create(['api_key' => 'SECRET-123', 'secret_key' => 'S2', 'brandname' => 'ABC']);
+
+        $log = ActivityLog::where('subject_type', \Modules\Minihouse\App\Models\SmsSetting::class)->latest('id')->first();
+        $this->assertNotNull($log);
+        $this->assertSame('••••••', $log->new_values['api_key']);
+        $this->assertSame('ABC', $log->new_values['brandname']);
+
+        \Modules\Minihouse\App\Models\AssetType::create(['name' => 'Loại test nhật ký '.uniqid()]);
+        $this->assertTrue(ActivityLog::where('subject_type', \Modules\Minihouse\App\Models\AssetType::class)->exists());
+    }
 }

@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Amenity extends Model
 {
+    use Concerns\LogsMinihouseActivity;
     protected $table = 'minihouse_amenities';
 
     protected $fillable = ['name', 'image'];

@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 // cần lọc theo toà đang active ở header.
 class Announcement extends Model
 {
+    use Concerns\LogsMinihouseActivity;
     protected $table = 'minihouse_announcements';
 
     protected $fillable = ['building_id', 'title', 'body', 'created_by'];
