@@ -2,6 +2,7 @@ import 'owl.carousel';
 import 'owl.carousel/dist/assets/owl.carousel.min.css';
 import 'owl.carousel/dist/assets/owl.theme.default.min.css';
 import Swiper from 'swiper/bundle';
+import { withLoopGuard } from './swiper-loop-guard';
 import { Fancybox } from "@fancyapps/ui";
 import 'swiper/css/bundle';
 import "@fancyapps/ui/dist/fancybox/fancybox.css";
@@ -12,7 +13,7 @@ import 'aos/dist/aos.css';
 import { initTooltips } from 'flowbite';
 
 // Gán các thư viện vào window để sử dụng toàn cục
-window.Swiper = Swiper;
+window.Swiper = withLoopGuard(Swiper);
 window.Fancybox = Fancybox;
 window.initTooltips = initTooltips;
 

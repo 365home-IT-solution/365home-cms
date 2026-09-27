@@ -8,5 +8,8 @@
          component instances in the same request — the functions are idempotent overwrites anyway,
          so only the LAST assignment mattered; now there's only ever one. --}}
     @once('hero-section-inline-script')
-    <script src="{{ asset('js/hero-section.min.js') }}?v={{ filemtime(public_path('js/hero-section.min.js')) }}"></script>
+    {{-- defer: file chỉ định nghĩa hàm window.* dùng trong x-data của Alpine — Alpine khởi động
+         từ livewire.min.js (cũng defer, nằm SAU trong document) nên thứ tự chạy vẫn đảm bảo, mà
+         không còn chặn parse HTML giữa <body> (Lighthouse "Avoid chaining critical requests"). --}}
+    <script src="{{ asset('js/hero-section.min.js') }}?v={{ filemtime(public_path('js/hero-section.min.js')) }}" defer></script>
     @endonce

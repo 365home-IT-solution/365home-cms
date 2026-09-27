@@ -18,8 +18,8 @@ use Modules\Category\Entities\Category;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 // Hạ kích thước ảnh gốc ĐÃ CÓ SẴN xuống 1440px cạnh dài (đè lên chính file, không đổi URL/DB) —
-// với category/banner/province/event/popup-image/app-page/ask-user, sinh luôn 3 preset
-// thumb/card/wide và điền image_width/image_height (app-page và ask-user không có cột dimensions
+// với category/banner/province/event/popup-image/app-page/ask-user, sinh luôn 4 preset
+// thumb/card/medium/wide và điền image_width/image_height (app-page và ask-user không có cột dimensions
 // riêng nên bỏ qua bước đó). Ảnh mới upload từ giờ tự làm hết việc này qua
 // ResizeOversizedMedia/CategoryObserver/BannerObserver/EventObserver/PopupImageObserver/
 // AppPageObserver/AskUserObserver, lệnh này chỉ để dọn 1 lần cho ảnh cũ. Với product, chạy thêm

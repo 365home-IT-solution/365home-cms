@@ -207,24 +207,32 @@ if (typeof window.carouselNav === 'undefined') {
                 this.$nextTick(() => {
                     const el = this.$refs.track;
                     if (!el) return;
-                    this.scheduleCheck();
                     el.addEventListener('scroll', () => this.scheduleCheck(), { passive: true });
                     window.addEventListener('resize', () => this.scheduleCheck(), { passive: true });
                     new MutationObserver(() => this.scheduleCheck()).observe(el, { childList: true });
                     // ResizeObserver bắt luôn trường hợp track đổi từ display:none (x-show="false"
                     // lúc chưa có dữ liệu) sang hiện thật — lúc đó childList có thể đã đổi trước khi
-                    // box thật sự hiện ra nên MutationObserver một mình đo hụt (ra 0x0).
+                    // box thật sự hiện ra nên MutationObserver một mình đo hụt (ra 0x0). Callback
+                    // của nó chạy SAU bước layout nên gọi check() thẳng, không ép reflow; nó cũng
+                    // tự bắn 1 lần ngay khi observe() nên thay luôn cho lần đo đầu tiên.
                     if (typeof ResizeObserver !== 'undefined') {
-                        new ResizeObserver(() => this.scheduleCheck()).observe(el);
+                        new ResizeObserver(() => this.check()).observe(el);
+                    } else {
+                        this.scheduleCheck();
                     }
                 });
             },
 
+            // Đo SAU khi frame hiện tại đã layout + paint xong (rAF rồi setTimeout 0), không đo
+            // ngay trong rAF: rAF chạy TRƯỚC bước layout, đọc scrollWidth lúc DOM vừa bị Alpine
+            // đổi sẽ ép trình duyệt tính layout đồng bộ (Lighthouse "Forced reflow").
             scheduleCheck() {
                 if (this.checkFrame !== null) return;
                 this.checkFrame = requestAnimationFrame(() => {
-                    this.checkFrame = null;
-                    this.check();
+                    setTimeout(() => {
+                        this.checkFrame = null;
+                        this.check();
+                    }, 0);
                 });
             },
 

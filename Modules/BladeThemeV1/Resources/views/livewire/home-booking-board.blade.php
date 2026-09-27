@@ -16,7 +16,9 @@
                          CHỈ hiện đúng ở đây, không còn ở logo header hay 2 label khác (Lần đầu khám
                          phá, Các chi nhánh tại...) theo yêu cầu gộp về 1 chỗ duy nhất. --}}
                     @if ($generalSettings->holiday_theme_active && $generalSettings->holiday_logo_image)
-                        <img src="{{ asset('/storage/'.$generalSettings->holiday_logo_image) }}"
+                        {{-- Bản thu nhỏ 48px (24px × DPR 2) thay vì file gốc admin upload (từng là
+                             GIF động 720px ~960KB) — xem App\Support\SmallIconThumbnail. --}}
+                        <img src="{{ \App\Support\SmallIconThumbnail::url($generalSettings->holiday_logo_image, 48) }}"
                              alt="" class="inline-block w-6 h-6 object-contain" width="24" height="24"/>
                     @endif
                     Lịch đặt phòng trực tuyến

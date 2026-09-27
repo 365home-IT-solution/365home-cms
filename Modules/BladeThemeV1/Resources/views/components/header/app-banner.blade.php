@@ -22,7 +22,7 @@
              sang App Store nếu phát hiện thiết bị iOS. --}}
         <a id="app-banner-cta" href="https://play.google.com/store/apps/details?id=com.home365.app"
             class="flex-1 min-w-0 flex items-center gap-3" style="text-decoration:none;">
-            <img src="{{ asset('images/logoapp.webp') }}" alt="365 Home App" width="40" height="40"
+            <img src="{{ asset('images/logoapp-80.webp') }}" alt="365 Home App" width="40" height="40"
                 style="border-radius:10px; object-fit:cover; flex-shrink:0; background:#f3f4f6;"
                 onerror="this.style.display='none'">
             <span class="min-w-0">
@@ -44,14 +44,23 @@
         var APP_STORE_URL = 'https://apps.apple.com/us/app/365-home/id6781598163';
         var PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.home365.app';
 
-        // --header-h: chiều cao thực tế của #main-header-bar, đo động (không hardcode) vì header
-        // đổi cao/thấp theo breakpoint + trạng thái sticky-compact/mở rộng thanh tìm kiếm. CSS var
-        // này quyết định "top" của banner (sticky ngay dưới header) và được các trang có header
-        // position:fixed riêng (booking-board.blade.php) dùng lại để bù padding-top.
-        function syncHeaderHeight() {
-            var header = document.getElementById('main-header-bar');
-            var h = header ? header.getBoundingClientRect().height : 0;
-            document.documentElement.style.setProperty('--header-h', h + 'px');
+        // Ghi chiều cao thực của el vào CSS var — qua ResizeObserver chứ không đọc
+        // offsetHeight/getBoundingClientRect ngay sau khi đổi style (Lighthouse "Forced reflow":
+        // đọc hình học lúc style vừa bị invalidate buộc trình duyệt tính lại layout đồng bộ).
+        // Callback của ResizeObserver chạy sau bước layout, trước paint: số đo có sẵn, không ép
+        // reflow, và tự cập nhật khi el đổi cao/thấp hoặc bị ẩn (display:none => 0px).
+        function observeHeight(el, cssVar) {
+            if (!el) return;
+            var set = function (h) { document.documentElement.style.setProperty(cssVar, h + 'px'); };
+            if (window.ResizeObserver) {
+                new ResizeObserver(function (entries) {
+                    var entry = entries[entries.length - 1];
+                    var box = entry.borderBoxSize && entry.borderBoxSize[0];
+                    set(box ? box.blockSize : entry.target.offsetHeight);
+                }).observe(el);
+            } else {
+                requestAnimationFrame(function () { set(el.offsetHeight); });
+            }
         }
 
         function init() {
@@ -77,7 +86,7 @@
             if (cta) cta.href = isIOS ? APP_STORE_URL : PLAY_STORE_URL;
 
             banner.style.display = 'block';
-            document.documentElement.style.setProperty('--app-banner-h', banner.offsetHeight + 'px');
+            observeHeight(banner, '--app-banner-h');
 
             var closeBtn = document.getElementById('app-banner-close');
             if (closeBtn) {
@@ -90,15 +99,18 @@
                 });
             }
 
-            syncHeaderHeight();
-            var header = document.getElementById('main-header-bar');
-            if (header && window.ResizeObserver) {
-                new ResizeObserver(syncHeaderHeight).observe(header);
-            }
-            window.addEventListener('resize', syncHeaderHeight);
+            // --header-h: chiều cao thực tế của #main-header-bar (nằm TRƯỚC banner trong DOM nên
+            // đã có sẵn ở đây), đổi theo breakpoint + trạng thái sticky-compact/mở rộng thanh tìm
+            // kiếm. Quyết định "top" của banner (sticky ngay dưới header) và được các trang có
+            // header position:fixed riêng (booking-board.blade.php) dùng lại để bù padding-top.
+            observeHeight(document.getElementById('main-header-bar'), '--header-h');
         }
 
-        document.addEventListener('DOMContentLoaded', init);
+        // Chạy NGAY khi parser tới đây (thẻ banner đã nằm phía trên script này), không đợi
+        // DOMContentLoaded: trang chủ HTML rất dài nên DOMContentLoaded tới SAU lần paint đầu —
+        // banner bật lên lúc đó đẩy cả trang xuống ~56px (Lighthouse "Layout shift culprits").
+        // Bật ngay tại chỗ thì phần nội dung bên dưới chưa kịp paint, không có gì bị xô lệch.
+        init();
         document.addEventListener('livewire:navigated', init);
     })();
 </script>

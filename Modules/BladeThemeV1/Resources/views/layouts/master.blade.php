@@ -180,7 +180,9 @@
                 ws: @js(Vite::asset('resources/js/ws-client.js')),
             };
         </script>
-        <script type="module" src="{{ asset('js/home-realtime-loader.min.js') }}?v={{ filemtime(public_path('js/home-realtime-loader.min.js')) }}"></script>
+        {{-- Inline (<1KB) thay vì <script src>: file riêng từng nằm trong chuỗi request quan trọng
+             (Lighthouse "Avoid chaining critical requests") chỉ để gắn 1 IntersectionObserver. --}}
+        <script type="module">{!! file_get_contents(public_path('js/home-realtime-loader.min.js')) !!}</script>
     @endif
 </body>
 

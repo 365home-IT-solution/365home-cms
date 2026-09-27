@@ -11,480 +11,9 @@
     x-data="homeSections(@js($criticalHome))"
     x-init="init()"
 >
-    {{-- Skeleton toàn trang chủ trong lúc load() (public/js/home-sections.js) đang gọi
-         /api/v1/home — trước đây "loading" chỉ là state nội bộ không được dùng ở template nên
-         suốt lúc chờ tải, mọi section (banner/loại hình dịch vụ/flash sale/gợi ý/danh sách phòng)
-         đều x-show/x-if theo "section.rooms.length" v.v. nên KHÔNG có gì hiện ra — trang chủ
-         trắng trơn 1 khoảng. Không biết trước CMS sẽ trả về bao nhiêu/loại section nào nên dùng 2
-         khối carousel thẻ chung chung (giống hình dạng Flash Sale/Danh sách phòng thật) làm
-         placeholder, đủ để người dùng thấy trang "đang có nội dung" thay vì trống trơn. --}}
-    <div x-show="loading && !bannerSection" x-cloak class="hs-skeleton-wrap">
-        <template x-for="i in 2" :key="'hs-skel-' + i">
-            <section class="py-4 bg-white">
-                <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
-                    <div class="hs-skel hs-skel-title" style="width:180px; height:20px; margin-bottom:14px;"></div>
-                    <div style="display:flex; gap:14px; overflow-x:hidden;">
-                        <template x-for="j in 4" :key="'hs-skel-card-' + i + '-' + j">
-                            <div class="home-card" style="display:flex; flex-direction:column; gap:8px;">
-                                <div class="hs-skel hs-skel-img"></div>
-                                <div class="hs-skel" style="height:13px; width:85%;"></div>
-                                <div class="hs-skel" style="height:13px; width:45%;"></div>
-                            </div>
-                        </template>
-                    </div>
-                </div>
-            </section>
-        </template>
-    </div>
-
-    {{-- ============== LOẠI HÌNH DỊCH VỤ + BANNER (2 cột, mỗi cột 1 Center Mode Carousel) ==============
-         Khung tìm kiếm đè lên banner (hero-banner-form-overlay) là 1 INSTANCE ĐỘC LẬP, tách biệt
-         hoàn toàn với thanh tìm kiếm trong header (hàng 2, header-main.blade.php) — 2 khung cùng
-         hiện song song trên trang chủ, không chia sẻ state (xem skipHeaderPill ở HeroSection.php
-         + _banner-form.blade.php). --}}
-    <section class="py-4 bg-white hs-banner-section-margin" x-show="(roomTypes && roomTypes.length) || (bannerSection && bannerSection.items && bannerSection.items.length)">
-        {{-- Không còn px-4/sm:px-6 ở đây — Banner giờ full-bleed sát mép màn hình ở MỌI kích thước
-             (kể cả mobile). Cột "Loại hình dịch vụ" bên dưới tự thêm lại padding riêng cho nó
-             (xem Cột 2) vì vẫn cần khoảng đệm 2 bên như trước. --}}
-        <div class="w-full max-w-7xl mx-auto hs-merged-grid">
-
-                {{-- Cột 1: Banner — luôn đứng trước Loại hình dịch vụ (thứ tự DOM tự nhiên, không
-                     cần đảo theo breakpoint nữa). --}}
-                <div class="min-w-0 center-carousel-wrap" x-show="bannerSection && bannerSection.items && bannerSection.items.length">
-                    <template x-if="bannerSection && bannerSection.items && bannerSection.items.length">
-                        <div>
-                            <div class="swiper center-carousel" x-ref="bannerSwiperEl">
-                                <div class="swiper-wrapper">
-                                    @php($criticalBanner = data_get($criticalHome, 'banner.items.0'))
-                                    @php($criticalBannerSrcset = collect([
-                                        data_get($criticalBanner, 'thumbnail.card') ? data_get($criticalBanner, 'thumbnail.card').' 480w' : null,
-                                        data_get($criticalBanner, 'thumbnail.wide') ? data_get($criticalBanner, 'thumbnail.wide').' 1080w' : null,
-                                    ])->filter()->implode(', '))
-                                    @if ($criticalBanner)
-                                        <div class="swiper-slide">
-                                            <a href="{{ $criticalBanner['url'] ?: '#' }}" class="banner-card"
-                                               aria-label="{{ filled($criticalBanner['title'] ?? null) ? $criticalBanner['title'] : 'Banner ưu đãi 365Home' }}"
-                                               @unless($criticalBanner['url']) style="pointer-events:none" @endunless>
-                                                <img
-                                                    src="{{ data_get($criticalBanner, 'thumbnail.wide') ?? $criticalBanner['image_url'] }}"
-                                                    @if($criticalBannerSrcset) srcset="{{ $criticalBannerSrcset }}" @endif
-                                                    sizes="(max-width: 1023px) 100vw, 768px"
-                                                    alt="{{ $criticalBanner['title'] ?? '' }}"
-                                                    width="1000"
-                                                    height="300"
-                                                    loading="eager"
-                                                    fetchpriority="high">
-                                            </a>
-                                        </div>
-                                    @endif
-                                    <template x-for="banner in bannerSection.items.slice({{ $criticalBanner ? 1 : 0 }})" :key="'banner-' + (banner.url || banner.image_url)">
-                                        <div class="swiper-slide">
-                                            <a :href="banner.url || '#'" class="banner-card"
-                                               :aria-label="banner.title || 'Banner ưu đãi 365Home'"
-                                               :style="{ pointerEvents: banner.url ? 'auto' : 'none' }">
-                                                <img :src="banner.thumbnail?.wide || banner.image_url"
-                                                     :srcset="[banner.thumbnail?.card && (banner.thumbnail.card + ' 480w'), banner.thumbnail?.wide && (banner.thumbnail.wide + ' 1080w')].filter(Boolean).join(', ')"
-                                                     sizes="(max-width: 1023px) 100vw, 768px"
-                                                     :alt="banner.title || ''" width="1000" height="300" loading="lazy">
-                                            </a>
-                                        </div>
-                                    </template>
-                                </div>
-                                <div class="swiper-pagination" id="hs-banner-pagination"></div>
-                            </div>
-                        </div>
-                    </template>
-                    {{-- Khung tìm kiếm nổi đè lên nửa dưới banner — instance riêng, độc lập với
-                         thanh tìm kiếm trong header (skipHeaderPill=true: không teleport pill gọn,
-                         không đồng bộ tab/trạng thái ghim với header). id dùng để header
-                         (header-main.blade.php) đo vị trí, biết khi nào đã cuộn qua khỏi khung này
-                         mới hiện thanh tìm kiếm riêng của header. --}}
-                    <div id="hero-banner-search-overlay" class="hidden lg:block hero-banner-form-overlay">
-                        @livewire('bladethemev1::hero-section', [
-                            'headerRow' => true,
-                            'skipHeaderPill' => true,
-                        ], key('hero-section-banner-overlay'))
-                    </div>
-                </div>
-
-                {{-- Cột 2: Loại hình dịch vụ — luôn đứng NGAY DƯỚI banner (thứ tự DOM tự nhiên) ở
-                     mọi kích thước màn hình. Khác Cột 1 (banner, full-bleed sát mép), cột này tự
-                     thêm lại px-4/sm:px-6 — GIỮ NGUYÊN ở desktop (không lg:px-0) để thẳng hàng với
-                     các section khác (Lần đầu khám phá, Lịch đặt phòng trực tuyến...) đều dùng
-                     đúng pattern px-4 sm:px-6 này, không riêng gì banner mới cần full-bleed. --}}
-                @if (count(data_get($criticalHome, 'room_types', [])))
-                    <div class="min-w-0 px-4 sm:px-6 hs-roomtype-col-spacing">
-                        <div x-data="carouselNav()" x-init="init()">
-                            <div class="hs-roomtype-heading" style="margin-bottom:14px;">
-                                <h2 class="text-xl font-bold text-gray-900">Loại hình dịch vụ</h2>
-                            </div>
-                            <div style="position:relative;">
-                                <button type="button" class="roomtype-nav roomtype-nav-prev roomtype-nav-desktop-always" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
-                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                                </button>
-                                <button type="button" class="roomtype-nav roomtype-nav-next roomtype-nav-desktop-always" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
-                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                                </button>
-                                <div x-ref="track" class="flex gap-6 py-2 px-1 overflow-x-hidden" style="scroll-snap-type:x mandatory;">
-                                    @foreach (data_get($criticalHome, 'room_types', []) as $type)
-                                        @php($typeUrlSlug = \Modules\BladeThemeV1\Support\BranchBookConfig::urlSlugFromTypeDbSlug($type['slug'] ?? ''))
-                                        {{-- "mini_house" trỏ RIÊNG sang trang giới thiệu MiniHouse (cho thuê THEO
-                                             THÁNG, xem App\Http\Controllers\Minihouse\Public\StorefrontController)
-                                             thay vì luồng tìm/đặt phòng ngắn hạn chung — KHÔNG đụng tới
-                                             $typeUrlSlug/route('product.search') cho 5 loại hình còn lại. --}}
-                                        <a href="{{ ($type['slug'] ?? '') === 'mini_house' ? url('/minihouse') : ($typeUrlSlug ? url('/'.$typeUrlSlug) : route('product.search', ['type' => $type['slug'] ?? ''])) }}" class="roomtype-card" style="scroll-snap-align:start;">
-                                            <img src="{{ asset('images/'.match ($type['slug'] ?? '') { 'hotel' => 'hotel-176.webp', 'motel' => 'motel-176.webp', 'villa' => 'villa-176.webp', 'apartment' => 'apartment-176.webp', 'mini_house' => 'minihouse-176.webp', default => 'homestay-176.webp' }) }}"
-                                                 alt="" class="roomtype-card-icon" width="88" height="88" loading="eager">
-                                            <span class="roomtype-card-label">{{ $type['name'] ?? '' }}</span>
-                                        </a>
-                                    @endforeach
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                @else
-                <template x-if="roomTypes && roomTypes.length">
-                    <div class="min-w-0 px-4 sm:px-6 hs-roomtype-col-spacing">
-                        {{-- Thẻ nền xám nhạt, icon lớn TRÊN tên (giống nhau mọi kích thước màn
-                             hình) — nút prev/next tròn nổi 2 bên hàng thẻ (carouselNav() dùng chung). --}}
-                        <div x-data="carouselNav()" x-init="init()">
-                            {{-- Tiêu đề: ẩn ở desktop (yêu cầu bỏ, cho thẻ nằm gần thanh tìm kiếm
-                                 banner hơn) — vẫn giữ ở mobile. --}}
-                            <div class="hs-roomtype-heading" style="margin-bottom:14px;">
-                                <h2 class="text-xl font-bold text-gray-900">Loại hình dịch vụ</h2>
-                            </div>
-                            <div style="position:relative;">
-                                {{-- roomtype-nav-desktop-always: ở desktop LUÔN hiện cả 2 nút (kể cả
-                                     lúc đang ở đầu/cuối carousel, giống mẫu tham khảo) — CSS
-                                     !important đè lên display:none mà x-show gắn qua inline style,
-                                     chỉ trong phạm vi @media desktop; mobile vẫn giữ nguyên hành vi
-                                     ẩn/hiện theo canScrollPrev/canScrollNext như cũ. --}}
-                                <button type="button" class="roomtype-nav roomtype-nav-prev roomtype-nav-desktop-always" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
-                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                                </button>
-                                <button type="button" class="roomtype-nav roomtype-nav-next roomtype-nav-desktop-always" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
-                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                                </button>
-                                {{-- px-1: box-shadow của .roomtype-card cần 1 chút khoảng đệm hai bên,
-                                     nếu không bị overflow-x-hidden của track cắt cụt (thẻ đầu/cuối
-                                     trông như bị che 1 phần). gap-6: giãn cách giữa các thẻ nhiều hơn
-                                     (thẻ đã to hơn — xem .roomtype-card). --}}
-                                <div x-ref="track" class="flex gap-6 py-2 px-1 overflow-x-hidden" style="scroll-snap-type:x mandatory;">
-                                    <template x-for="type in roomTypes" :key="'roomtype-mobile-' + type.id">
-                                        <a :href="type.slug === 'mini_house' ? '/minihouse' : (window.__typeUrlSlug(type.slug) ? ('/' + window.__typeUrlSlug(type.slug)) : ('{{ route('product.search') }}?type=' + type.slug))" class="roomtype-card" style="scroll-snap-align:start;">
-                                            <img :src="window.__roomTypeIcon(type)" alt="" class="roomtype-card-icon" width="88" height="88" loading="lazy" onerror="this.style.display='none'">
-                                            <span class="roomtype-card-label" x-text="type.name"></span>
-                                        </a>
-                                    </template>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </template>
-                @endif
-
-            </div>
-    </section>
-
-    {{-- ============== LẦN ĐẦU KHÁM PHÁ (2 cột tĩnh: ảnh chào mừng + banner giới thiệu app) ==============
-         Section tĩnh, không phụ thuộc dữ liệu CMS/sections — đặt ngay dưới "Các chi nhánh tại..."
-         phía trên, luôn hiện (không có x-if/x-show) vì nội dung cố định, không cần chờ dữ liệu. --}}
-    <section class="home-explore-section py-6 bg-white">
-        <div class="home-explore-container w-full max-w-7xl mx-auto px-4 sm:px-6">
-            <h2 class="home-explore-title text-2xl font-bold text-gray-900 mb-4">Lần đầu khám phá</h2>
-            {{-- 2 ảnh có tỉ lệ gốc khác hẳn nhau (svg minh hoạ dạng đứng, png banner dạng ngang) —
-                 dùng background-image (bg-cover + chiều cao cố định qua .explore-card) thay vì thẻ
-                 <img> để 2 cột LUÔN bằng chiều cao nhau, ảnh tự crop cho vừa khung. --}}
-            <div class="home-explore-grid grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div class="explore-card">
-                    <img src="{{ asset('images/welcome-joyer-1140.webp') }}" alt="" class="explore-card-bg" width="1140" height="360"
-                         loading="eager" fetchpriority="high">
-                    <div class="explore-card-content">
-                        <p class="explore-card-title" style="color:#0e3a5c;">Thành viên mới? Quà chất đang đợi!</p>
-                        <p class="explore-card-subtitle" style="color:#0e3a5c;">Nhận coupon giảm 200.000đ với người dùng mới</p>
-                        <button type="button" class="explore-card-btn" style="background:var(--color-primary);" @click="window.dispatchEvent(new CustomEvent('open-auth-modal'))">Đăng ký ngay</button>
-                    </div>
-                </div>
-                {{-- background-position lệch sang phải: chữ + nội dung nằm bên trái, phần đồ hoạ
-                     (thẻ giá/coupon) của ảnh nền dồn về bên phải, tránh đè lên chữ. --}}
-                <div class="explore-card">
-                    <img src="{{ asset('images/banner-guest-mobile.webp') }}" alt="" class="explore-card-bg explore-card-bg-right"
-                         width="750" height="336" loading="eager" fetchpriority="high">
-                    <div class="explore-card-content">
-                        <p class="explore-card-title" style="color:#fff;">Nhận ưu đãi liền tay khi tải app!</p>
-                        <p class="explore-card-subtitle" style="color:rgba(255,255,255,.88);">Sử dụng ứng dụng để săn deals mỗi ngày</p>
-                        <div style="display:flex; align-items:center; gap:10px; margin-top:2px;">
-                            <a href="https://apps.apple.com/us/app/365-home/id6781598163" target="_blank" rel="noopener">
-                                <img src="{{ asset('images/applestore.png') }}" alt="Tải trên App Store" class="explore-card-badge" width="298" height="96">
-                            </a>
-                            <a href="https://play.google.com/store/apps/details?id=com.home365.app" target="_blank" rel="noopener">
-                                <img src="{{ asset('images/googleplay.png') }}" alt="Tải trên Google Play" class="explore-card-badge" width="298" height="96">
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    {{-- "Lịch đặt phòng trực tuyến" — đặt ngay SAU "Lần đầu khám phá" theo yêu cầu (trước đây đã bỏ
-         hẳn khỏi trang chủ, giờ thêm lại đúng vị trí này). Partial Blade thuần (không phải Livewire
-         component riêng) — tự quản lý state qua Alpine homeBookingBoard() (định nghĩa trong
-         public/js/home-sections.js), bên trong nhúng lại đúng Livewire\Book component đã dùng ở
-         trang /branch/{slug} và panel ?view=branches của trang tìm kiếm. --}}
-    @include('bladethemev1::livewire.home-booking-board', ['criticalHome' => $criticalHome])
-
-    {{-- "Các chi nhánh tại..." — đặt ngay dưới "Lịch đặt phòng trực tuyến".
-         Livewire component riêng (BranchSuggestion) — query thẳng DB, không còn qua API
-         /api/v1/home (dùng chung với app mobile) như bản cũ (_branch-suggestion-section.blade.php,
-         dựa vào Alpine x-for lọc trên `sections` load từ API). Vẫn cập nhật lại theo đúng khu vực
-         đang chọn qua sự kiện 'province-selected' (xem branch-suggestion.blade.php). --}}
-    @livewire('bladethemev1::branch-suggestion')
-
-    {{-- "Các chi nhánh MiniHouse tại..." — đặt ngay dưới "Các chi nhánh homestay tại...", cùng
-         nguyên tắc/hành vi (mirror BranchSuggestion, xem MinihouseBranchSuggestion.php), chỉ khác
-         nguồn dữ liệu (Building thay vì Category) và đích liên kết (/minihouse — trang công khai
-         MiniHouse, KHÔNG dùng chung route đặt phòng ngắn hạn của Home). --}}
-    @livewire('bladethemev1::minihouse-branch-suggestion')
-
-    <div data-home-sections-boundary aria-hidden="true"></div>
-    <template x-for="section in sections" :key="section.type + '-' + section.id">
-        <div>
-            {{-- ============== BANNER (chỉ hiện nếu CMS cấu hình >1 block banner — block đầu
-                 tiên đã hiển thị ở cột 2 phía trên rồi) ============== --}}
-            <template x-if="section.type === 'banner' && section.items && section.items.length && (!bannerSection || section.id !== bannerSection.id)">
-                <section class="py-4 bg-white">
-                    <div class="w-full max-w-7xl mx-auto px-4 sm:px-6" style="position:relative;" x-data="carouselNav()" x-init="init()">
-                        <div x-ref="track" style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none;" class="hide-scrollbar">
-                            <template x-for="banner in section.items" :key="'banner-' + (banner.url || banner.image_url)">
-                                <a :href="banner.url || '#'" class="banner-card legacy-banner-card"
-                                    :aria-label="banner.title || 'Banner ưu đãi 365Home'"
-                                    :style="{ pointerEvents: banner.url ? 'auto' : 'none', scrollSnapAlign: 'start', flexShrink: 0 }">
-                                    <img :src="banner.thumbnail?.wide || banner.image_url"
-                                         :srcset="[banner.thumbnail?.card && (banner.thumbnail.card + ' 480w'), banner.thumbnail?.wide && (banner.thumbnail.wide + ' 1080w')].filter(Boolean).join(', ')"
-                                         sizes="(max-width: 639px) 100vw, (max-width: 1023px) 50vw, 33vw"
-                                         :alt="banner.title || ''" width="1000" height="300" loading="lazy">
-                                </a>
-                            </template>
-                        </div>
-
-                        <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()"
-                            style="position:absolute; left:8px; top:calc(50% - 16px); box-shadow:0 2px 8px rgba(0,0,0,.18);">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                        </button>
-                        <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()"
-                            style="position:absolute; right:8px; top:calc(50% - 16px); box-shadow:0 2px 8px rgba(0,0,0,.18);">
-                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                        </button>
-                    </div>
-                </section>
-            </template>
-
-            {{-- ============== PROMOTION LIST (phòng khuyến mãi) ============== --}}
-            <template x-if="section.type === 'promotion_list' && section.rooms && section.rooms.length">
-                <section class="py-4 bg-white">
-                    <div class="w-full max-w-7xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
-                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;">
-                            <div style="display:flex; align-items:center; gap:8px; min-width:0;">
-                                <img x-show="section.icon_url" :src="section.icon_url" alt="" style="width:20px;height:20px;object-fit:contain;flex-shrink:0;">
-                                <h2 class="hs-section-title" style="font-weight:800; color:#111827; margin:0; text-transform:uppercase; letter-spacing:.02em;" x-text="section.title || 'Flash Sale'"></h2>
-                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link hidden lg:flex" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
-                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
-                                    </svg>
-                                </a>
-                            </div>
-                            <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
-                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link flex lg:hidden" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
-                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
-                                    </svg>
-                                </a>
-                                <div class="hidden lg:flex" style="align-items:center; gap:6px; flex-shrink:0;">
-                                    <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
-                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                                    </button>
-                                    <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
-                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div x-ref="track" style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:4px;" class="hide-scrollbar">
-                            <template x-for="room in section.rooms" :key="'promo-' + room.id">
-                                <div x-html="roomCardHtml(room)"></div>
-                            </template>
-                        </div>
-                    </div>
-                </section>
-            </template>
-
-            {{-- ============== SUGGESTION LIST ============== --}}
-            {{-- "Gợi ý cho bạn" theo chi nhánh (suggestion_type === 'branch') được render RIÊNG ở
-                 component Livewire BranchSuggestion (@livewire('bladethemev1::branch-suggestion')
-                 phía trên — query thẳng DB, không qua API /api/v1/home) — nên loại trừ ở đây để
-                 tránh hiện lặp lại 2 lần (API /api/v1/home vẫn trả về cả block branch này trong
-                 `sections`, chỉ là không dùng nó để render nữa). Loại "theo phòng"
-                 (suggestion_type === 'room') không bị ảnh hưởng, vẫn hiện bình thường ở đúng vị trí
-                 cũ trong vòng lặp sections (vẫn lấy từ API như cũ). --}}
-            <template x-if="section.type === 'suggestion_list' && section.suggestion_type !== 'branch' && section.items && section.items.length">
-                <section class="py-4 bg-white">
-                    <div class="w-full max-w-7xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
-                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;">
-                            <div style="display:flex; align-items:center; gap:12px;">
-                                <h2 class="hs-section-title" style="font-weight:800; color:#111827; margin:0;">Gợi ý cho bạn</h2>
-                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link hidden lg:flex" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
-                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
-                                    </svg>
-                                </a>
-                            </div>
-                            <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
-                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link flex lg:hidden" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
-                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
-                                    </svg>
-                                </a>
-                                <div class="hidden lg:flex" style="align-items:center; gap:6px; flex-shrink:0;">
-                                    <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
-                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                                    </button>
-                                    <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
-                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        <div x-ref="track" style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:4px;" class="hide-scrollbar">
-                            <template x-for="item in section.items" :key="'sugg-' + (item.id ?? item.slug)">
-                                <div x-html="section.suggestion_type === 'branch' ? branchCardHtml(item) : roomCardHtml(item)"></div>
-                            </template>
-                        </div>
-                    </div>
-                </section>
-            </template>
-
-            {{-- ============== ROOM LIST ============== --}}
-            {{-- "Danh sách phòng - [chi nhánh]" (display_mode 'fixed' — các khối phòng cố định theo
-                 chi nhánh cấu hình sẵn trong CMS): luôn hiện, kể cả khi đã chọn khu vực — khớp hành
-                 vi bên app (app luôn hiện các danh sách phòng này, không ẩn theo khu vực đã chọn). --}}
-            <template x-if="section.type === 'room_list' && section.rooms && section.rooms.length">
-                <section class="py-4 bg-white">
-                    <div class="w-full max-w-7xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
-                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:12px;">
-                            <div style="display:flex; align-items:center; gap:12px;">
-                                <div style="min-width:0;">
-                                    <h2 class="hs-section-title hs-roomlist-title" style="font-weight:800; color:#111827; margin:0; text-transform:uppercase; letter-spacing:.02em;" x-text="section.title"></h2>
-                                    <p x-show="section.subtitle" style="font-size:12px; color:#9ca3af; margin:2px 0 0;" x-text="section.subtitle"></p>
-                                </div>
-                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link hidden lg:flex" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
-                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
-                                    </svg>
-                                </a>
-                            </div>
-                            <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
-                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link flex lg:hidden" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
-                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
-                                    </svg>
-                                </a>
-                                <div class="hidden lg:flex" style="align-items:center; gap:6px; flex-shrink:0;">
-                                    <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
-                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
-                                    </button>
-                                    <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
-                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div x-ref="track" style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:4px;" class="hide-scrollbar">
-                            <template x-for="room in section.rooms" :key="'room-' + room.id">
-                                <div x-html="roomCardHtml(room)"></div>
-                            </template>
-                        </div>
-                    </div>
-                </section>
-            </template>
-        </div>
-    </template>
-
-    {{-- ============== NỘI DUNG SEO TĨNH: Giới thiệu / Vì sao chọn / Loại hình lưu trú / FAQ ==============
-         Server-render thuần (không qua Alpine/x-if/x-for), luôn có mặt trong HTML gốc trả về cho
-         crawler ngay cả khi JS chưa chạy. Dữ kiện thương hiệu (tên/địa chỉ/SĐT/email) lấy đúng theo
-         LodgingBusiness schema ở components/seo.blade.php — không tự bịa số liệu/khuyến mãi cụ thể.
-         Card/FAQ dùng chung 2 component components/seo-content/{feature-grid,faq-accordion}.blade.php
-         (cũng được tái sử dụng ở product/search.blade.php và livewire/product-detail.blade.php) —
-         sửa giao diện thì sửa ở đó, không lặp lại markup riêng cho từng trang. --}}
-    @if (request()->is('/'))
-        <section class="py-8 sm:py-10 bg-white">
-            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
-                <h2 class="text-2xl font-bold text-gray-900 mb-3">Về 365 Home</h2>
-                <p class="text-gray-600 leading-relaxed">
-                    365 Home là hệ thống đặt phòng trực tuyến với đa dạng loại hình lưu trú: khách sạn,
-                    nhà nghỉ, villa, căn hộ, mini house và homestay, hỗ trợ đặt theo giờ hoặc theo ngày
-                    tuỳ nhu cầu. Chi nhánh 365 Home Cần Thơ toạ lạc tại An Bình, Xuân Thủy, Ninh Kiều,
-                    Cần Thơ, cùng hệ thống đang mở rộng thêm nhiều khu vực khác. Toàn bộ quy trình tìm
-                    phòng, xem giá, đặt và thanh toán đều thực hiện trực tiếp trên website hoặc ứng
-                    dụng di động 365 Home, giúp khách chủ động thời gian nhận/trả phòng mà không cần
-                    gọi điện đặt trước.
-                </p>
-            </div>
-        </section>
-
-        <section class="py-6 sm:py-8 bg-white">
-            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
-                <x-bladethemev1::seo-content.feature-grid title="Vì sao chọn 365 Home" :show-icon="false" :items="[
-                    ['icon' => 'home', 'title' => 'Đa dạng loại hình', 'text' => 'Khách sạn, nhà nghỉ, villa, căn hộ, mini house, homestay — nhiều lựa chọn phù hợp mọi nhu cầu và ngân sách.'],
-                    ['icon' => 'clock', 'title' => 'Đặt phòng linh hoạt', 'text' => 'Chọn thuê theo giờ hoặc theo ngày, xác nhận đặt phòng ngay trên website hoặc ứng dụng, không cần gọi điện trước.'],
-                    ['icon' => 'shield', 'title' => 'Khoá thông minh, an toàn', 'text' => 'Nhiều phòng được trang bị khoá điện tử, hỗ trợ quản lý và mở khoá từ xa, đảm bảo an ninh cho khách lưu trú.'],
-                    ['icon' => 'device', 'title' => 'Ứng dụng 365 Home', 'text' => 'Đặt phòng, theo dõi đơn và nhận ưu đãi mọi lúc trên ứng dụng di động, tải miễn phí trên App Store và Google Play.'],
-                ]" />
-            </div>
-        </section>
-
-        <section class="py-6 sm:py-8 bg-gray-50">
-            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
-                <x-bladethemev1::seo-content.feature-grid title="Các loại hình lưu trú tại 365 Home" :columns="3" :items="[
-                    ['image' => 'images/hotel-176.webp', 'title' => 'Khách sạn', 'text' => 'Phòng nghỉ đầy đủ tiện nghi theo tiêu chuẩn khách sạn, phù hợp cho cả lưu trú ngắn ngày và dài ngày.'],
-                    ['image' => 'images/motel-176.webp', 'title' => 'Nhà nghỉ', 'text' => 'Lựa chọn tiết kiệm cho nhu cầu nghỉ ngơi theo giờ hoặc qua đêm, thủ tục nhận phòng nhanh gọn.'],
-                    ['image' => 'images/villa-176.webp', 'title' => 'Villa', 'text' => 'Không gian riêng tư, rộng rãi, phù hợp cho nhóm bạn, gia đình hoặc tổ chức sự kiện nhỏ.'],
-                    ['image' => 'images/apartment-176.webp', 'title' => 'Căn hộ', 'text' => 'Đầy đủ tiện nghi như ở nhà, phù hợp cho khách lưu trú dài ngày hoặc theo tuần/tháng.'],
-                    ['image' => 'images/minihouse-176.webp', 'title' => 'Mini house', 'text' => 'Mô hình nhà nhỏ khép kín, riêng tư, mức giá hợp lý, phù hợp cho cặp đôi hoặc khách đi một mình.'],
-                    ['image' => 'images/homestay-176.webp', 'title' => 'Homestay', 'text' => 'Không gian gần gũi, ấm cúng, mang trải nghiệm lưu trú theo phong cách địa phương.'],
-                ]" />
-            </div>
-        </section>
-
-        {{-- Cố tình dùng dạng PHP-inline MỘT DÒNG (không dùng dạng khối có từ khoá đóng riêng) —
-             file này đã có sẵn nhiều chỗ dùng dạng một dòng tương tự, không đóng bằng từ khoá khối
-             (VD $criticalBanner/$criticalBannerSrcset ở đầu file). Bộ nén Blade ghép directive MỞ
-             với từ khoá ĐÓNG DẠNG KHỐI đầu tiên tìm thấy trong TOÀN BỘ file bằng 1 regex non-greedy
-             duy nhất — kể cả bên trong comment — không quan tâm khối nào đang lồng khối nào. Nếu
-             thêm cặp mở/đóng dạng khối ở đây (hoặc gõ literal từ khoá đó ra trong comment), nó sẽ
-             bị ghép nhầm với directive một dòng ở tít phía trên, nuốt trọn nội dung ở giữa thành 1
-             khối PHP vỡ cú pháp (đã xảy ra thực tế). Vì vậy không thêm từ khoá đóng dạng khối mới
-             vào file này dưới bất kỳ hình thức nào — chỉ dùng dạng một dòng như dưới đây. JSON-LD
-             FAQPage giờ do component faq-accordion tự phát (xem components/seo-content/), không
-             cần tính $homeFaqSchema riêng ở đây nữa. --}}
-        @php($homeFaqs = [
-            ['q' => '365 Home có những loại hình lưu trú nào?', 'a' => 'Hệ thống 365 Home cung cấp nhiều loại hình lưu trú gồm khách sạn, nhà nghỉ, villa, căn hộ, mini house và homestay, hỗ trợ đặt phòng theo giờ hoặc theo ngày.'],
-            ['q' => 'Đặt phòng theo giờ tại 365 Home như thế nào?', 'a' => 'Khách chọn khung giờ nhận/trả phòng phù hợp ngay trên website hoặc ứng dụng 365 Home, hệ thống xác nhận đặt phòng ngay mà không cần gọi điện trước.'],
-            ['q' => 'Có thể hủy hoặc đổi lịch đặt phòng không?', 'a' => 'Chính sách hủy/đổi lịch có thể khác nhau theo từng loại phòng và thời điểm đặt, được hiển thị rõ trong bước đặt phòng trước khi thanh toán. Khách có thể liên hệ hotline để được hỗ trợ thêm.'],
-            ['q' => '365 Home có ứng dụng di động không?', 'a' => 'Có. Ứng dụng 365 Home có trên App Store và Google Play, cho phép đặt phòng, theo dõi đơn đặt và nhận ưu đãi.'],
-            ['q' => 'An ninh phòng ở 365 Home ra sao?', 'a' => 'Nhiều phòng/chi nhánh được trang bị khoá điện tử thông minh, hỗ trợ quản lý và mở khoá từ xa, giúp đảm bảo an toàn và thuận tiện cho khách lưu trú.'],
-            ['q' => 'Liên hệ 365 Home bằng cách nào?', 'a' => 'Khách có thể liên hệ qua hotline +84 939 174 365, email 365home.cantho@gmail.com hoặc các kênh mạng xã hội chính thức của 365 Home.'],
-        ])
-        <section class="py-6 sm:py-8 bg-white">
-            <div class="max-w-3xl mx-auto px-4 sm:px-6">
-                <x-bladethemev1::seo-content.faq-accordion :items="$homeFaqs" />
-            </div>
-        </section>
-    @endif
-
+    {{-- Style của component đặt ĐẦU TIÊN (trước markup): HTML trang chủ rất dài, trình duyệt
+         paint dần — nếu <style> nằm cuối component, thẻ loại hình dịch vụ/banner kịp paint lúc
+         chưa có style rồi mới đổi kích thước khi parse tới đây => layout shift. --}}
     <style>
         {{-- scrollbar-width:none (Firefox) thiếu trước đây — chỉ có -ms-overflow-style (IE/Edge cũ)
              và ::-webkit-scrollbar (Chrome/Safari), nên vẫn còn hiện thanh scroll ngang ở Firefox
@@ -988,6 +517,496 @@
             100% { transform: scale(1); }
         }
     </style>
+
+    {{-- Skeleton toàn trang chủ trong lúc load() (public/js/home-sections.js) đang gọi
+         /api/v1/home — trước đây "loading" chỉ là state nội bộ không được dùng ở template nên
+         suốt lúc chờ tải, mọi section (banner/loại hình dịch vụ/flash sale/gợi ý/danh sách phòng)
+         đều x-show/x-if theo "section.rooms.length" v.v. nên KHÔNG có gì hiện ra — trang chủ
+         trắng trơn 1 khoảng. Không biết trước CMS sẽ trả về bao nhiêu/loại section nào nên dùng 2
+         khối carousel thẻ chung chung (giống hình dạng Flash Sale/Danh sách phòng thật) làm
+         placeholder, đủ để người dùng thấy trang "đang có nội dung" thay vì trống trơn. --}}
+    <div x-show="loading && !bannerSection" x-cloak class="hs-skeleton-wrap">
+        <template x-for="i in 2" :key="'hs-skel-' + i">
+            <section class="py-4 bg-white">
+                <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
+                    <div class="hs-skel hs-skel-title" style="width:180px; height:20px; margin-bottom:14px;"></div>
+                    <div style="display:flex; gap:14px; overflow-x:hidden;">
+                        <template x-for="j in 4" :key="'hs-skel-card-' + i + '-' + j">
+                            <div class="home-card" style="display:flex; flex-direction:column; gap:8px;">
+                                <div class="hs-skel hs-skel-img"></div>
+                                <div class="hs-skel" style="height:13px; width:85%;"></div>
+                                <div class="hs-skel" style="height:13px; width:45%;"></div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </section>
+        </template>
+    </div>
+
+    {{-- ============== LOẠI HÌNH DỊCH VỤ + BANNER (2 cột, mỗi cột 1 Center Mode Carousel) ==============
+         Khung tìm kiếm đè lên banner (hero-banner-form-overlay) là 1 INSTANCE ĐỘC LẬP, tách biệt
+         hoàn toàn với thanh tìm kiếm trong header (hàng 2, header-main.blade.php) — 2 khung cùng
+         hiện song song trên trang chủ, không chia sẻ state (xem skipHeaderPill ở HeroSection.php
+         + _banner-form.blade.php). --}}
+    <section class="py-4 bg-white hs-banner-section-margin" x-show="(roomTypes && roomTypes.length) || (bannerSection && bannerSection.items && bannerSection.items.length)">
+        {{-- Không còn px-4/sm:px-6 ở đây — Banner giờ full-bleed sát mép màn hình ở MỌI kích thước
+             (kể cả mobile). Cột "Loại hình dịch vụ" bên dưới tự thêm lại padding riêng cho nó
+             (xem Cột 2) vì vẫn cần khoảng đệm 2 bên như trước. --}}
+        <div class="w-full max-w-7xl mx-auto hs-merged-grid">
+
+                {{-- Cột 1: Banner — luôn đứng trước Loại hình dịch vụ (thứ tự DOM tự nhiên, không
+                     cần đảo theo breakpoint nữa). --}}
+                @php($criticalBanner = data_get($criticalHome, 'banner.items.0'))
+                <div class="min-w-0 center-carousel-wrap" x-show="bannerSection && bannerSection.items && bannerSection.items.length">
+                    {{-- Có banner render sẵn từ server thì KHÔNG bọc trong <template x-if>: x-if
+                         chỉ dựng DOM khi Alpine chạy xong (mobile throttled: vài giây), lúc đó banner
+                         mới chen vào đẩy cả trang xuống — nguyên nhân chính CLS 0.413 ở "Lần đầu
+                         khám phá". x-for bên trong dùng ?. / || [] vì bannerSection có thể về null
+                         nếu /api/v1/home lỗi (x-show phía trên lo phần ẩn đi). --}}
+                    @if ($criticalBanner)
+                        <div>
+                    @else
+                    <template x-if="bannerSection && bannerSection.items && bannerSection.items.length">
+                        <div>
+                    @endif
+                            <div class="swiper center-carousel" x-ref="bannerSwiperEl">
+                                <div class="swiper-wrapper">
+                                    @php($criticalBannerSrcset = collect([
+                                        data_get($criticalBanner, 'thumbnail.card') ? data_get($criticalBanner, 'thumbnail.card').' 480w' : null,
+                                        data_get($criticalBanner, 'thumbnail.medium') ? data_get($criticalBanner, 'thumbnail.medium').' 768w' : null,
+                                        data_get($criticalBanner, 'thumbnail.wide') ? data_get($criticalBanner, 'thumbnail.wide').' 1080w' : null,
+                                    ])->filter()->implode(', '))
+                                    @if ($criticalBanner)
+                                        <div class="swiper-slide">
+                                            <a href="{{ $criticalBanner['url'] ?: '#' }}" class="banner-card"
+                                               aria-label="{{ filled($criticalBanner['title'] ?? null) ? $criticalBanner['title'] : 'Banner ưu đãi 365Home' }}"
+                                               @unless($criticalBanner['url']) style="pointer-events:none" @endunless>
+                                                <img
+                                                    src="{{ data_get($criticalBanner, 'thumbnail.wide') ?? $criticalBanner['image_url'] }}"
+                                                    @if($criticalBannerSrcset) srcset="{{ $criticalBannerSrcset }}" @endif
+                                                    sizes="(max-width: 1023px) 100vw, 768px"
+                                                    alt="{{ $criticalBanner['title'] ?? '' }}"
+                                                    width="1000"
+                                                    height="300"
+                                                    loading="eager"
+                                                    fetchpriority="high">
+                                            </a>
+                                        </div>
+                                    @endif
+                                    <template x-for="banner in (bannerSection?.items || []).slice({{ $criticalBanner ? 1 : 0 }})" :key="'banner-' + (banner.url || banner.image_url)">
+                                        <div class="swiper-slide">
+                                            <a :href="banner.url || '#'" class="banner-card"
+                                               :aria-label="banner.title || 'Banner ưu đãi 365Home'"
+                                               :style="{ pointerEvents: banner.url ? 'auto' : 'none' }">
+                                                <img :src="banner.thumbnail?.wide || banner.image_url"
+                                                     :srcset="[banner.thumbnail?.card && (banner.thumbnail.card + ' 480w'), banner.thumbnail?.medium && (banner.thumbnail.medium + ' 768w'), banner.thumbnail?.wide && (banner.thumbnail.wide + ' 1080w')].filter(Boolean).join(', ')"
+                                                     sizes="(max-width: 1023px) 100vw, 768px"
+                                                     :alt="banner.title || ''" width="1000" height="300" loading="lazy">
+                                            </a>
+                                        </div>
+                                    </template>
+                                </div>
+                                <div class="swiper-pagination" id="hs-banner-pagination"></div>
+                            </div>
+                        </div>
+                    @unless ($criticalBanner)
+                    </template>
+                    @endunless
+                    {{-- Khung tìm kiếm nổi đè lên nửa dưới banner — instance riêng, độc lập với
+                         thanh tìm kiếm trong header (skipHeaderPill=true: không teleport pill gọn,
+                         không đồng bộ tab/trạng thái ghim với header). id dùng để header
+                         (header-main.blade.php) đo vị trí, biết khi nào đã cuộn qua khỏi khung này
+                         mới hiện thanh tìm kiếm riêng của header. --}}
+                    <div id="hero-banner-search-overlay" class="hidden lg:block hero-banner-form-overlay">
+                        @livewire('bladethemev1::hero-section', [
+                            'headerRow' => true,
+                            'skipHeaderPill' => true,
+                        ], key('hero-section-banner-overlay'))
+                    </div>
+                </div>
+
+                {{-- Cột 2: Loại hình dịch vụ — luôn đứng NGAY DƯỚI banner (thứ tự DOM tự nhiên) ở
+                     mọi kích thước màn hình. Khác Cột 1 (banner, full-bleed sát mép), cột này tự
+                     thêm lại px-4/sm:px-6 — GIỮ NGUYÊN ở desktop (không lg:px-0) để thẳng hàng với
+                     các section khác (Lần đầu khám phá, Lịch đặt phòng trực tuyến...) đều dùng
+                     đúng pattern px-4 sm:px-6 này, không riêng gì banner mới cần full-bleed. --}}
+                @if (count(data_get($criticalHome, 'room_types', [])))
+                    <div class="min-w-0 px-4 sm:px-6 hs-roomtype-col-spacing">
+                        <div x-data="carouselNav()" x-init="init()">
+                            <div class="hs-roomtype-heading" style="margin-bottom:14px;">
+                                <h2 class="text-xl font-bold text-gray-900">Loại hình dịch vụ</h2>
+                            </div>
+                            <div style="position:relative;">
+                                <button type="button" class="roomtype-nav roomtype-nav-prev roomtype-nav-desktop-always" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
+                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                                </button>
+                                <button type="button" class="roomtype-nav roomtype-nav-next roomtype-nav-desktop-always" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
+                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                </button>
+                                <div x-ref="track" class="flex gap-6 py-2 px-1 overflow-x-hidden" style="scroll-snap-type:x mandatory;">
+                                    @foreach (data_get($criticalHome, 'room_types', []) as $type)
+                                        @php($typeUrlSlug = \Modules\BladeThemeV1\Support\BranchBookConfig::urlSlugFromTypeDbSlug($type['slug'] ?? ''))
+                                        {{-- "mini_house" trỏ RIÊNG sang trang giới thiệu MiniHouse (cho thuê THEO
+                                             THÁNG, xem App\Http\Controllers\Minihouse\Public\StorefrontController)
+                                             thay vì luồng tìm/đặt phòng ngắn hạn chung — KHÔNG đụng tới
+                                             $typeUrlSlug/route('product.search') cho 5 loại hình còn lại. --}}
+                                        <a href="{{ ($type['slug'] ?? '') === 'mini_house' ? url('/minihouse') : ($typeUrlSlug ? url('/'.$typeUrlSlug) : route('product.search', ['type' => $type['slug'] ?? ''])) }}" class="roomtype-card" style="scroll-snap-align:start;">
+                                            <img src="{{ asset('images/'.match ($type['slug'] ?? '') { 'hotel' => 'hotel-176.webp', 'motel' => 'motel-176.webp', 'villa' => 'villa-176.webp', 'apartment' => 'apartment-176.webp', 'mini_house' => 'minihouse-176.webp', default => 'homestay-176.webp' }) }}"
+                                                 alt="" class="roomtype-card-icon" width="88" height="88" loading="eager">
+                                            <span class="roomtype-card-label">{{ $type['name'] ?? '' }}</span>
+                                        </a>
+                                    @endforeach
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                @else
+                <template x-if="roomTypes && roomTypes.length">
+                    <div class="min-w-0 px-4 sm:px-6 hs-roomtype-col-spacing">
+                        {{-- Thẻ nền xám nhạt, icon lớn TRÊN tên (giống nhau mọi kích thước màn
+                             hình) — nút prev/next tròn nổi 2 bên hàng thẻ (carouselNav() dùng chung). --}}
+                        <div x-data="carouselNav()" x-init="init()">
+                            {{-- Tiêu đề: ẩn ở desktop (yêu cầu bỏ, cho thẻ nằm gần thanh tìm kiếm
+                                 banner hơn) — vẫn giữ ở mobile. --}}
+                            <div class="hs-roomtype-heading" style="margin-bottom:14px;">
+                                <h2 class="text-xl font-bold text-gray-900">Loại hình dịch vụ</h2>
+                            </div>
+                            <div style="position:relative;">
+                                {{-- roomtype-nav-desktop-always: ở desktop LUÔN hiện cả 2 nút (kể cả
+                                     lúc đang ở đầu/cuối carousel, giống mẫu tham khảo) — CSS
+                                     !important đè lên display:none mà x-show gắn qua inline style,
+                                     chỉ trong phạm vi @media desktop; mobile vẫn giữ nguyên hành vi
+                                     ẩn/hiện theo canScrollPrev/canScrollNext như cũ. --}}
+                                <button type="button" class="roomtype-nav roomtype-nav-prev roomtype-nav-desktop-always" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
+                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                                </button>
+                                <button type="button" class="roomtype-nav roomtype-nav-next roomtype-nav-desktop-always" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
+                                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                </button>
+                                {{-- px-1: box-shadow của .roomtype-card cần 1 chút khoảng đệm hai bên,
+                                     nếu không bị overflow-x-hidden của track cắt cụt (thẻ đầu/cuối
+                                     trông như bị che 1 phần). gap-6: giãn cách giữa các thẻ nhiều hơn
+                                     (thẻ đã to hơn — xem .roomtype-card). --}}
+                                <div x-ref="track" class="flex gap-6 py-2 px-1 overflow-x-hidden" style="scroll-snap-type:x mandatory;">
+                                    <template x-for="type in roomTypes" :key="'roomtype-mobile-' + type.id">
+                                        <a :href="type.slug === 'mini_house' ? '/minihouse' : (window.__typeUrlSlug(type.slug) ? ('/' + window.__typeUrlSlug(type.slug)) : ('{{ route('product.search') }}?type=' + type.slug))" class="roomtype-card" style="scroll-snap-align:start;">
+                                            <img :src="window.__roomTypeIcon(type)" alt="" class="roomtype-card-icon" width="88" height="88" loading="lazy" onerror="this.style.display='none'">
+                                            <span class="roomtype-card-label" x-text="type.name"></span>
+                                        </a>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+                @endif
+
+            </div>
+    </section>
+
+    {{-- ============== LẦN ĐẦU KHÁM PHÁ (2 cột tĩnh: ảnh chào mừng + banner giới thiệu app) ==============
+         Section tĩnh, không phụ thuộc dữ liệu CMS/sections — đặt ngay dưới "Các chi nhánh tại..."
+         phía trên, luôn hiện (không có x-if/x-show) vì nội dung cố định, không cần chờ dữ liệu. --}}
+    <section class="home-explore-section py-6 bg-white">
+        <div class="home-explore-container w-full max-w-7xl mx-auto px-4 sm:px-6">
+            <h2 class="home-explore-title text-2xl font-bold text-gray-900 mb-4">Lần đầu khám phá</h2>
+            {{-- 2 ảnh có tỉ lệ gốc khác hẳn nhau (svg minh hoạ dạng đứng, png banner dạng ngang) —
+                 dùng background-image (bg-cover + chiều cao cố định qua .explore-card) thay vì thẻ
+                 <img> để 2 cột LUÔN bằng chiều cao nhau, ảnh tự crop cho vừa khung. --}}
+            <div class="home-explore-grid grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div class="explore-card">
+                    <img src="{{ asset('images/welcome-joyer-1140.webp') }}" alt="" class="explore-card-bg" width="1140" height="360"
+                         loading="eager" fetchpriority="high">
+                    <div class="explore-card-content">
+                        <p class="explore-card-title" style="color:#0e3a5c;">Thành viên mới? Quà chất đang đợi!</p>
+                        <p class="explore-card-subtitle" style="color:#0e3a5c;">Nhận coupon giảm 200.000đ với người dùng mới</p>
+                        <button type="button" class="explore-card-btn" style="background:var(--color-primary);" @click="window.dispatchEvent(new CustomEvent('open-auth-modal'))">Đăng ký ngay</button>
+                    </div>
+                </div>
+                {{-- background-position lệch sang phải: chữ + nội dung nằm bên trái, phần đồ hoạ
+                     (thẻ giá/coupon) của ảnh nền dồn về bên phải, tránh đè lên chữ. --}}
+                <div class="explore-card">
+                    <img src="{{ asset('images/banner-guest-mobile-750.webp') }}"
+                         srcset="{{ asset('images/banner-guest-mobile-750.webp') }} 750w, {{ asset('images/banner-guest-mobile.webp') }} 1029w"
+                         sizes="(max-width: 1023px) 100vw, 50vw"
+                         alt="" class="explore-card-bg explore-card-bg-right"
+                         width="750" height="262" loading="eager" fetchpriority="high">
+                    <div class="explore-card-content">
+                        <p class="explore-card-title" style="color:#fff;">Nhận ưu đãi liền tay khi tải app!</p>
+                        <p class="explore-card-subtitle" style="color:rgba(255,255,255,.88);">Sử dụng ứng dụng để săn deals mỗi ngày</p>
+                        <div style="display:flex; align-items:center; gap:10px; margin-top:2px;">
+                            <a href="https://apps.apple.com/us/app/365-home/id6781598163" target="_blank" rel="noopener">
+                                <img src="{{ asset('images/applestore.png') }}" alt="Tải trên App Store" class="explore-card-badge" width="298" height="96">
+                            </a>
+                            <a href="https://play.google.com/store/apps/details?id=com.home365.app" target="_blank" rel="noopener">
+                                <img src="{{ asset('images/googleplay.png') }}" alt="Tải trên Google Play" class="explore-card-badge" width="298" height="96">
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {{-- "Lịch đặt phòng trực tuyến" — đặt ngay SAU "Lần đầu khám phá" theo yêu cầu (trước đây đã bỏ
+         hẳn khỏi trang chủ, giờ thêm lại đúng vị trí này). Partial Blade thuần (không phải Livewire
+         component riêng) — tự quản lý state qua Alpine homeBookingBoard() (định nghĩa trong
+         public/js/home-sections.js), bên trong nhúng lại đúng Livewire\Book component đã dùng ở
+         trang /branch/{slug} và panel ?view=branches của trang tìm kiếm. --}}
+    @include('bladethemev1::livewire.home-booking-board', ['criticalHome' => $criticalHome])
+
+    {{-- "Các chi nhánh tại..." — đặt ngay dưới "Lịch đặt phòng trực tuyến".
+         Livewire component riêng (BranchSuggestion) — query thẳng DB, không còn qua API
+         /api/v1/home (dùng chung với app mobile) như bản cũ (_branch-suggestion-section.blade.php,
+         dựa vào Alpine x-for lọc trên `sections` load từ API). Vẫn cập nhật lại theo đúng khu vực
+         đang chọn qua sự kiện 'province-selected' (xem branch-suggestion.blade.php). --}}
+    @livewire('bladethemev1::branch-suggestion')
+
+    {{-- "Các chi nhánh MiniHouse tại..." — đặt ngay dưới "Các chi nhánh homestay tại...", cùng
+         nguyên tắc/hành vi (mirror BranchSuggestion, xem MinihouseBranchSuggestion.php), chỉ khác
+         nguồn dữ liệu (Building thay vì Category) và đích liên kết (/minihouse — trang công khai
+         MiniHouse, KHÔNG dùng chung route đặt phòng ngắn hạn của Home). --}}
+    @livewire('bladethemev1::minihouse-branch-suggestion')
+
+    <div data-home-sections-boundary aria-hidden="true"></div>
+    <template x-for="section in sections" :key="section.type + '-' + section.id">
+        <div>
+            {{-- ============== BANNER (chỉ hiện nếu CMS cấu hình >1 block banner — block đầu
+                 tiên đã hiển thị ở cột 2 phía trên rồi) ============== --}}
+            <template x-if="section.type === 'banner' && section.items && section.items.length && (!bannerSection || section.id !== bannerSection.id)">
+                <section class="py-4 bg-white">
+                    <div class="w-full max-w-7xl mx-auto px-4 sm:px-6" style="position:relative;" x-data="carouselNav()" x-init="init()">
+                        <div x-ref="track" style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none;" class="hide-scrollbar">
+                            <template x-for="banner in section.items" :key="'banner-' + (banner.url || banner.image_url)">
+                                <a :href="banner.url || '#'" class="banner-card legacy-banner-card"
+                                    :aria-label="banner.title || 'Banner ưu đãi 365Home'"
+                                    :style="{ pointerEvents: banner.url ? 'auto' : 'none', scrollSnapAlign: 'start', flexShrink: 0 }">
+                                    <img :src="banner.thumbnail?.wide || banner.image_url"
+                                         :srcset="[banner.thumbnail?.card && (banner.thumbnail.card + ' 480w'), banner.thumbnail?.medium && (banner.thumbnail.medium + ' 768w'), banner.thumbnail?.wide && (banner.thumbnail.wide + ' 1080w')].filter(Boolean).join(', ')"
+                                         sizes="(max-width: 639px) 100vw, (max-width: 1023px) 50vw, 33vw"
+                                         :alt="banner.title || ''" width="1000" height="300" loading="lazy">
+                                </a>
+                            </template>
+                        </div>
+
+                        <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()"
+                            style="position:absolute; left:8px; top:calc(50% - 16px); box-shadow:0 2px 8px rgba(0,0,0,.18);">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                        </button>
+                        <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()"
+                            style="position:absolute; right:8px; top:calc(50% - 16px); box-shadow:0 2px 8px rgba(0,0,0,.18);">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                        </button>
+                    </div>
+                </section>
+            </template>
+
+            {{-- ============== PROMOTION LIST (phòng khuyến mãi) ============== --}}
+            <template x-if="section.type === 'promotion_list' && section.rooms && section.rooms.length">
+                <section class="py-4 bg-white">
+                    <div class="w-full max-w-7xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;">
+                            <div style="display:flex; align-items:center; gap:8px; min-width:0;">
+                                <img x-show="section.icon_url" :src="section.icon_url" alt="" style="width:20px;height:20px;object-fit:contain;flex-shrink:0;">
+                                <h2 class="hs-section-title" style="font-weight:800; color:#111827; margin:0; text-transform:uppercase; letter-spacing:.02em;" x-text="section.title || 'Flash Sale'"></h2>
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link hidden lg:flex" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
+                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                                    </svg>
+                                </a>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link flex lg:hidden" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
+                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                                    </svg>
+                                </a>
+                                <div class="hidden lg:flex" style="align-items:center; gap:6px; flex-shrink:0;">
+                                    <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                                    </button>
+                                    <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div x-ref="track" style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:4px;" class="hide-scrollbar">
+                            <template x-for="room in section.rooms" :key="'promo-' + room.id">
+                                <div x-html="roomCardHtml(room)"></div>
+                            </template>
+                        </div>
+                    </div>
+                </section>
+            </template>
+
+            {{-- ============== SUGGESTION LIST ============== --}}
+            {{-- "Gợi ý cho bạn" theo chi nhánh (suggestion_type === 'branch') được render RIÊNG ở
+                 component Livewire BranchSuggestion (@livewire('bladethemev1::branch-suggestion')
+                 phía trên — query thẳng DB, không qua API /api/v1/home) — nên loại trừ ở đây để
+                 tránh hiện lặp lại 2 lần (API /api/v1/home vẫn trả về cả block branch này trong
+                 `sections`, chỉ là không dùng nó để render nữa). Loại "theo phòng"
+                 (suggestion_type === 'room') không bị ảnh hưởng, vẫn hiện bình thường ở đúng vị trí
+                 cũ trong vòng lặp sections (vẫn lấy từ API như cũ). --}}
+            <template x-if="section.type === 'suggestion_list' && section.suggestion_type !== 'branch' && section.items && section.items.length">
+                <section class="py-4 bg-white">
+                    <div class="w-full max-w-7xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px;">
+                            <div style="display:flex; align-items:center; gap:12px;">
+                                <h2 class="hs-section-title" style="font-weight:800; color:#111827; margin:0;">Gợi ý cho bạn</h2>
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link hidden lg:flex" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
+                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                                    </svg>
+                                </a>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link flex lg:hidden" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
+                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                                    </svg>
+                                </a>
+                                <div class="hidden lg:flex" style="align-items:center; gap:6px; flex-shrink:0;">
+                                    <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                                    </button>
+                                    <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div x-ref="track" style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:4px;" class="hide-scrollbar">
+                            <template x-for="item in section.items" :key="'sugg-' + (item.id ?? item.slug)">
+                                <div x-html="section.suggestion_type === 'branch' ? branchCardHtml(item) : roomCardHtml(item)"></div>
+                            </template>
+                        </div>
+                    </div>
+                </section>
+            </template>
+
+            {{-- ============== ROOM LIST ============== --}}
+            {{-- "Danh sách phòng - [chi nhánh]" (display_mode 'fixed' — các khối phòng cố định theo
+                 chi nhánh cấu hình sẵn trong CMS): luôn hiện, kể cả khi đã chọn khu vực — khớp hành
+                 vi bên app (app luôn hiện các danh sách phòng này, không ẩn theo khu vực đã chọn). --}}
+            <template x-if="section.type === 'room_list' && section.rooms && section.rooms.length">
+                <section class="py-4 bg-white">
+                    <div class="w-full max-w-7xl mx-auto px-4 sm:px-6" x-data="carouselNav()" x-init="init()">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:12px;">
+                            <div style="display:flex; align-items:center; gap:12px;">
+                                <div style="min-width:0;">
+                                    <h2 class="hs-section-title hs-roomlist-title" style="font-weight:800; color:#111827; margin:0; text-transform:uppercase; letter-spacing:.02em;" x-text="section.title"></h2>
+                                    <p x-show="section.subtitle" style="font-size:12px; color:#9ca3af; margin:2px 0 0;" x-text="section.subtitle"></p>
+                                </div>
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link hidden lg:flex" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
+                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                                    </svg>
+                                </a>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+                                <a :href="section.view_all_url || '{{ route('product.search') }}'" style="text-decoration:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:50%; border:1px solid #e5e7eb; color:#1f2937; transition:all 0.2s; flex-shrink:0;" class="view-all-link flex lg:hidden" @mouseenter="$el.style.backgroundColor='#f3f4f6'; $el.style.borderColor='#d1d5db'" @mouseleave="$el.style.backgroundColor='transparent'; $el.style.borderColor='#e5e7eb'">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width:20px; height:20px;">
+                                      <path fill-rule="evenodd" d="M16.72 7.72a.75.75 0 0 1 1.06 0l3.75 3.75a.75.75 0 0 1 0 1.06l-3.75 3.75a.75.75 0 1 1-1.06-1.06l2.47-2.47H3a.75.75 0 0 1 0-1.5h16.19l-2.47-2.47a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                                    </svg>
+                                </a>
+                                <div class="hidden lg:flex" style="align-items:center; gap:6px; flex-shrink:0;">
+                                    <button type="button" class="carousel-nav-btn" aria-label="Trước" x-show="canScrollPrev" @click="prev()">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+                                    </button>
+                                    <button type="button" class="carousel-nav-btn" aria-label="Tiếp" x-show="canScrollNext" @click="next()">
+                                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div x-ref="track" style="display:flex; gap:14px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:4px;" class="hide-scrollbar">
+                            <template x-for="room in section.rooms" :key="'room-' + room.id">
+                                <div x-html="roomCardHtml(room)"></div>
+                            </template>
+                        </div>
+                    </div>
+                </section>
+            </template>
+        </div>
+    </template>
+
+    {{-- ============== NỘI DUNG SEO TĨNH: Giới thiệu / Vì sao chọn / Loại hình lưu trú / FAQ ==============
+         Server-render thuần (không qua Alpine/x-if/x-for), luôn có mặt trong HTML gốc trả về cho
+         crawler ngay cả khi JS chưa chạy. Dữ kiện thương hiệu (tên/địa chỉ/SĐT/email) lấy đúng theo
+         LodgingBusiness schema ở components/seo.blade.php — không tự bịa số liệu/khuyến mãi cụ thể.
+         Card/FAQ dùng chung 2 component components/seo-content/{feature-grid,faq-accordion}.blade.php
+         (cũng được tái sử dụng ở product/search.blade.php và livewire/product-detail.blade.php) —
+         sửa giao diện thì sửa ở đó, không lặp lại markup riêng cho từng trang. --}}
+    @if (request()->is('/'))
+        <section class="py-8 sm:py-10 bg-white">
+            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
+                <h2 class="text-2xl font-bold text-gray-900 mb-3">Về 365 Home</h2>
+                <p class="text-gray-600 leading-relaxed">
+                    365 Home là hệ thống đặt phòng trực tuyến với đa dạng loại hình lưu trú: khách sạn,
+                    nhà nghỉ, villa, căn hộ, mini house và homestay, hỗ trợ đặt theo giờ hoặc theo ngày
+                    tuỳ nhu cầu. Chi nhánh 365 Home Cần Thơ toạ lạc tại An Bình, Xuân Thủy, Ninh Kiều,
+                    Cần Thơ, cùng hệ thống đang mở rộng thêm nhiều khu vực khác. Toàn bộ quy trình tìm
+                    phòng, xem giá, đặt và thanh toán đều thực hiện trực tiếp trên website hoặc ứng
+                    dụng di động 365 Home, giúp khách chủ động thời gian nhận/trả phòng mà không cần
+                    gọi điện đặt trước.
+                </p>
+            </div>
+        </section>
+
+        <section class="py-6 sm:py-8 bg-white">
+            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
+                <x-bladethemev1::seo-content.feature-grid title="Vì sao chọn 365 Home" :show-icon="false" :items="[
+                    ['icon' => 'home', 'title' => 'Đa dạng loại hình', 'text' => 'Khách sạn, nhà nghỉ, villa, căn hộ, mini house, homestay — nhiều lựa chọn phù hợp mọi nhu cầu và ngân sách.'],
+                    ['icon' => 'clock', 'title' => 'Đặt phòng linh hoạt', 'text' => 'Chọn thuê theo giờ hoặc theo ngày, xác nhận đặt phòng ngay trên website hoặc ứng dụng, không cần gọi điện trước.'],
+                    ['icon' => 'shield', 'title' => 'Khoá thông minh, an toàn', 'text' => 'Nhiều phòng được trang bị khoá điện tử, hỗ trợ quản lý và mở khoá từ xa, đảm bảo an ninh cho khách lưu trú.'],
+                    ['icon' => 'device', 'title' => 'Ứng dụng 365 Home', 'text' => 'Đặt phòng, theo dõi đơn và nhận ưu đãi mọi lúc trên ứng dụng di động, tải miễn phí trên App Store và Google Play.'],
+                ]" />
+            </div>
+        </section>
+
+        <section class="py-6 sm:py-8 bg-gray-50">
+            <div class="w-full max-w-7xl mx-auto px-4 sm:px-6">
+                <x-bladethemev1::seo-content.feature-grid title="Các loại hình lưu trú tại 365 Home" :columns="3" :items="[
+                    ['image' => 'images/hotel-176.webp', 'title' => 'Khách sạn', 'text' => 'Phòng nghỉ đầy đủ tiện nghi theo tiêu chuẩn khách sạn, phù hợp cho cả lưu trú ngắn ngày và dài ngày.'],
+                    ['image' => 'images/motel-176.webp', 'title' => 'Nhà nghỉ', 'text' => 'Lựa chọn tiết kiệm cho nhu cầu nghỉ ngơi theo giờ hoặc qua đêm, thủ tục nhận phòng nhanh gọn.'],
+                    ['image' => 'images/villa-176.webp', 'title' => 'Villa', 'text' => 'Không gian riêng tư, rộng rãi, phù hợp cho nhóm bạn, gia đình hoặc tổ chức sự kiện nhỏ.'],
+                    ['image' => 'images/apartment-176.webp', 'title' => 'Căn hộ', 'text' => 'Đầy đủ tiện nghi như ở nhà, phù hợp cho khách lưu trú dài ngày hoặc theo tuần/tháng.'],
+                    ['image' => 'images/minihouse-176.webp', 'title' => 'Mini house', 'text' => 'Mô hình nhà nhỏ khép kín, riêng tư, mức giá hợp lý, phù hợp cho cặp đôi hoặc khách đi một mình.'],
+                    ['image' => 'images/homestay-176.webp', 'title' => 'Homestay', 'text' => 'Không gian gần gũi, ấm cúng, mang trải nghiệm lưu trú theo phong cách địa phương.'],
+                ]" />
+            </div>
+        </section>
+
+        {{-- Cố tình dùng dạng PHP-inline MỘT DÒNG (không dùng dạng khối có từ khoá đóng riêng) —
+             file này đã có sẵn nhiều chỗ dùng dạng một dòng tương tự, không đóng bằng từ khoá khối
+             (VD $criticalBanner/$criticalBannerSrcset ở đầu file). Bộ nén Blade ghép directive MỞ
+             với từ khoá ĐÓNG DẠNG KHỐI đầu tiên tìm thấy trong TOÀN BỘ file bằng 1 regex non-greedy
+             duy nhất — kể cả bên trong comment — không quan tâm khối nào đang lồng khối nào. Nếu
+             thêm cặp mở/đóng dạng khối ở đây (hoặc gõ literal từ khoá đó ra trong comment), nó sẽ
+             bị ghép nhầm với directive một dòng ở tít phía trên, nuốt trọn nội dung ở giữa thành 1
+             khối PHP vỡ cú pháp (đã xảy ra thực tế). Vì vậy không thêm từ khoá đóng dạng khối mới
+             vào file này dưới bất kỳ hình thức nào — chỉ dùng dạng một dòng như dưới đây. JSON-LD
+             FAQPage giờ do component faq-accordion tự phát (xem components/seo-content/), không
+             cần tính $homeFaqSchema riêng ở đây nữa. --}}
+        @php($homeFaqs = [
+            ['q' => '365 Home có những loại hình lưu trú nào?', 'a' => 'Hệ thống 365 Home cung cấp nhiều loại hình lưu trú gồm khách sạn, nhà nghỉ, villa, căn hộ, mini house và homestay, hỗ trợ đặt phòng theo giờ hoặc theo ngày.'],
+            ['q' => 'Đặt phòng theo giờ tại 365 Home như thế nào?', 'a' => 'Khách chọn khung giờ nhận/trả phòng phù hợp ngay trên website hoặc ứng dụng 365 Home, hệ thống xác nhận đặt phòng ngay mà không cần gọi điện trước.'],
+            ['q' => 'Có thể hủy hoặc đổi lịch đặt phòng không?', 'a' => 'Chính sách hủy/đổi lịch có thể khác nhau theo từng loại phòng và thời điểm đặt, được hiển thị rõ trong bước đặt phòng trước khi thanh toán. Khách có thể liên hệ hotline để được hỗ trợ thêm.'],
+            ['q' => '365 Home có ứng dụng di động không?', 'a' => 'Có. Ứng dụng 365 Home có trên App Store và Google Play, cho phép đặt phòng, theo dõi đơn đặt và nhận ưu đãi.'],
+            ['q' => 'An ninh phòng ở 365 Home ra sao?', 'a' => 'Nhiều phòng/chi nhánh được trang bị khoá điện tử thông minh, hỗ trợ quản lý và mở khoá từ xa, giúp đảm bảo an toàn và thuận tiện cho khách lưu trú.'],
+            ['q' => 'Liên hệ 365 Home bằng cách nào?', 'a' => 'Khách có thể liên hệ qua hotline +84 939 174 365, email 365home.cantho@gmail.com hoặc các kênh mạng xã hội chính thức của 365 Home.'],
+        ])
+        <section class="py-6 sm:py-8 bg-white">
+            <div class="max-w-3xl mx-auto px-4 sm:px-6">
+                <x-bladethemev1::seo-content.faq-accordion :items="$homeFaqs" />
+            </div>
+        </section>
+    @endif
+
 
     {{-- On the home page this source is bundled/minified by Resources/assets/js/home.js. --}}
 </div>

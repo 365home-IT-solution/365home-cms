@@ -16,6 +16,8 @@
             $criticalBannerSrcset = collect([
                 data_get($criticalHome ?? [], 'banner.items.0.thumbnail.card')
                     ? data_get($criticalHome, 'banner.items.0.thumbnail.card').' 480w' : null,
+                data_get($criticalHome ?? [], 'banner.items.0.thumbnail.medium')
+                    ? data_get($criticalHome, 'banner.items.0.thumbnail.medium').' 768w' : null,
                 data_get($criticalHome ?? [], 'banner.items.0.thumbnail.wide')
                     ? data_get($criticalHome, 'banner.items.0.thumbnail.wide').' 1080w' : null,
             ])->filter()->implode(', ');

@@ -88,7 +88,7 @@
                 </div>
 
                 <a href="http://online.gov.vn/Home/WebDetails/140984" target="_blank" rel="noopener" class="inline-block mt-4">
-                    <img src="{{ asset('images/bocongthuong.webp') }}" alt="Đã thông báo Bộ Công Thương" class="h-14 w-auto" width="399" height="151">
+                    <img src="{{ asset('images/bocongthuong-148.webp') }}" srcset="{{ asset('images/bocongthuong-148.webp') }} 1x, {{ asset('images/bocongthuong-296.webp') }} 2x" alt="Đã thông báo Bộ Công Thương" class="h-14 w-auto" width="399" height="151">
                 </a>
             </div>
         </div>
@@ -97,7 +97,7 @@
     {{-- Thanh dưới: copyright + link + mạng xã hội --}}
     <div class="border-t border-[#DDDDDD]">
         <div class="max-w-11xl mx-auto px-4 md:px-8 py-5 flex flex-col md:flex-row items-center justify-between gap-4">
-            <div class="text-sm text-[#6B7280] text-center md:text-left">
+            <div class="text-sm text-[#4B5563] text-center md:text-left">
                 Copyright © {{ date('Y') }} {{ $business?->name ?? '365Home' }}
                 <span class="mx-1.5">·</span>
                 <a href="#" class="hover:text-primary transition-colors">Điều khoản</a>
@@ -109,7 +109,7 @@
                 <a href="{{ route('sitemap') }}" class="hover:text-primary transition-colors">Sơ đồ trang web</a>
             </div>
 
-            <div class="flex items-center gap-3 text-[#6B7280]">
+            <div class="flex items-center gap-3 text-[#4B5563]">
                 <a href="https://www.facebook.com/365home.254xuanthuy.cantho" target="_blank" rel="noopener" aria-label="Facebook" class="flex items-center justify-center hover:text-primary transition-colors">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6">
                         <path d="M22 12.06C22 6.5 17.52 2 12 2S2 6.5 2 12.06c0 5.02 3.66 9.18 8.44 9.94v-7.03H7.9v-2.91h2.54V9.85c0-2.51 1.49-3.9 3.77-3.9 1.09 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.56v1.89h2.78l-.44 2.91h-2.34V22c4.78-.76 8.44-4.92 8.44-9.94z"/>
@@ -139,7 +139,7 @@
     {{-- Khối thông tin công ty --}}
     @if ($business)
         <div>
-            <div class="max-w-11xl mx-auto px-4 md:px-8 pb-8 text-center text-sm text-[#6B7280] space-y-1.5">
+            <div class="max-w-11xl mx-auto px-4 md:px-8 pb-8 text-center text-sm text-[#4B5563] space-y-1.5">
                 <p class="font-bold text-[#222222] uppercase tracking-wide">{{ $business->name }}</p>
                 @if ($business->address)
                     <p>Địa chỉ trụ sở: {{ $business->address }}</p>
