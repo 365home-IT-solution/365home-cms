@@ -59,9 +59,38 @@ class WarehouseBarcodeScan
             ->extraInputAttributes([
                 'id'                          => self::INPUT_ID,
                 'autocomplete'                => 'off',
-                // Enter là ký tự KẾT THÚC chuẩn của hầu hết máy quét mã vạch — ép blur() để chốt giá
-                // trị ngay, không cần người dùng tự bấm ra ngoài ô.
-                'x-on:keydown.enter.prevent'  => '$el.blur()',
+                // Bug thật đã gặp (2026-09-26): quét RẤT NHANH nhiều lần liên tiếp — trước đây ô chỉ
+                // được xoá/focus lại SAU KHI server trả lời xong (trong afterStateUpdated bên dưới),
+                // nên nếu quét mã tiếp theo trong lúc round-trip đó CHƯA XONG, ô này KHÔNG focus, ký
+                // tự quét được rơi lung tung (thực tế rơi vào ô "Tìm kiếm" ngay bên dưới — 1 input
+                // HTML thường, không wire:model) — vô tình lọc ẩn MỌI dòng theo mã vạch gõ nhầm vào đó
+                // (trông như "mất vật tư vừa quét"), đồng thời bắn request dồn dập gây 429 Too Many
+                // Requests. Sửa bằng hàng đợi CLIENT-SIDE: mỗi lần Enter chỉ ĐẨY mã vào hàng đợi rồi
+                // xoá/focus lại ô NGAY LẬP TỨC (đồng bộ, không chờ mạng) — mã tiếp theo luôn có chỗ gõ
+                // đúng; hàng đợi xử lý TUẦN TỰ từng mã một (xem afterStateUpdated), không bao giờ có 2
+                // request cùng lúc.
+                // Bug KHÁC phát hiện thêm (2026-09-26, sau lần vá đầu): giữ input LUÔN focus liên tục
+                // (gọi .focus() ngay lập tức, không để mất focus thật lúc nào) khiến Livewire morph
+                // DOM "né" khu vực xung quanh ô đang focus (tránh phá gõ dở của người dùng) — vô tình
+                // khiến Repeater bên cạnh KHÔNG re-render dòng vừa thêm dù server đã xử lý đúng (số
+                // lượng trong thông báo tăng đúng 6→7→8, nhưng danh sách vẫn trống trơn). Sửa bằng
+                // cách để ô THẬT SỰ blur (mất focus thật, giống hệt hành vi gốc trước khi có mọi bản
+                // vá) rồi lấy lại focus qua queueMicrotask — nhanh hơn microgiây so với bất kỳ máy
+                // quét/người dùng nào có thể gõ thêm ký tự, vẫn đóng kín khe hở race condition, nhưng
+                // KHÔNG còn giữ input "luôn focus" xuyên suốt lúc Livewire xử lý/morph DOM nữa. CHỈ đẩy
+                // mã vào hàng đợi rồi gọi processNextScan ĐÚNG 1 LẦN (không tự blur() ở đây nữa) — gọi
+                // blur riêng trước đó với giá trị RỖNG từng gây bắn dư 1 request/lượt quét (2 lần
+                // afterStateUpdated cho đúng 1 lượt quét thật).
+                'x-on:keydown.enter.prevent'  => self::processNextJs() . "
+                    const code = \$el.value.trim();
+                    \$el.value = '';
+                    if (code !== '') {
+                        \$el._mhwQueue = \$el._mhwQueue || [];
+                        \$el._mhwQueue.push(code);
+                    }
+                    window.__mhwProcessNextScan(\$el);
+                    queueMicrotask(() => { if (! document.querySelector('.fi-modal-open')) \$el.focus(); });
+                ",
             ])
             ->suffixIcon('heroicon-o-camera')
             ->suffixAction(
@@ -75,27 +104,30 @@ class WarehouseBarcodeScan
             )
             ->afterStateUpdated(function (?string $state, Set $set, Get $get, $livewire) use ($newRowFactory, $quantityField) {
                 $code = trim((string) $state);
-                // Xoá ngay để ô luôn rỗng, sẵn sàng cho lượt quét tiếp theo — kể cả khi không tìm
-                // thấy vật tư (không để lại mã cũ gây hiểu lầm đã xử lý xong).
+                // Xoá ngay để ô luôn rỗng — ô hiển thị đã được xoá/focus lại phía CLIENT từ lúc bấm
+                // Enter rồi (xem 'x-on:keydown.enter.prevent' ở field() phía trên), dòng này chỉ đồng
+                // bộ lại state Livewire cho khớp, không còn phải "chạy đua" với round-trip nữa.
                 $set('barcode_scan', null);
 
-                // Focus LẠI ô ngay sau khi round-trip xử lý xong (dù thành công hay báo lỗi "không
-                // tìm thấy") — .blur() lúc chốt giá trị đã cố ý bỏ focus, cần trả lại NGAY để máy
-                // quét vật lý/camera quét được món tiếp theo liên tục, không phải bấm chuột lại vào ô
-                // giữa mỗi lần quét.
-                //
-                // PHẢI tự xoá value="" bằng JS ở đây, KHÔNG dựa vào $set('barcode_scan', null) ở
-                // trên tự đồng bộ xuống DOM — Livewire cố ý KHÔNG ghi đè value của 1 input ĐANG được
-                // focus khi morph lại DOM (tránh phá gõ dở của người dùng), mà dòng focus() ngay bên
-                // dưới lại focus LẠI CHÍNH ô này trước khi morph kịp áp dụng giá trị mới → mã cũ vẫn
-                // còn nguyên trong ô dù server đã coi là đã xử lý xong. Lần blur KẾ TIẾP (kể cả không
-                // chủ động quét gì) vô tình gửi lại ĐÚNG mã cũ đó lần nữa, xử lý trùng — đã xác nhận
-                // thực tế qua ảnh chụp (báo "không tìm thấy" 2 lần cho đúng 1 lượt quét).
                 $inputIdJson = json_encode(self::INPUT_ID);
-                // KHÔNG focus lại khi đang có modal mở: focus-trap của Filament sẽ giành focus về
-                // modal -> ô này blur -> gửi request Livewire -> focus lại ... lặp vô hạn, nút trong
-                // modal luôn bị wire:loading vô hiệu hoá (desktop không bấm được Thêm/Huỷ bỏ/X).
-                $livewire->js("const el = document.getElementById({$inputIdJson}); if (el) { el.value = ''; if (! document.querySelector('.fi-modal-open')) { el.focus(); } }");
+                // "_mhwBusy = false" rồi gọi lại processNext ngay — nếu trong lúc round-trip này chưa
+                // xong mà đã có thêm mã khác được đẩy vào hàng đợi (_mhwQueue), xử lý luôn mã KẾ TIẾP
+                // mà không cần đợi người dùng thao tác gì thêm; hàng đợi rỗng thì chỉ còn việc focus
+                // lại ô như cũ. KHÔNG focus lại khi đang có modal mở: focus-trap của Filament sẽ giành
+                // focus về modal -> ô này blur -> gửi request Livewire -> focus lại ... lặp vô hạn,
+                // nút trong modal luôn bị wire:loading vô hiệu hoá (desktop không bấm được Thêm/Huỷ
+                // bỏ/X).
+                $livewire->js(self::processNextJs() . "
+                    const el = document.getElementById({$inputIdJson});
+                    if (el) {
+                        el._mhwBusy = false;
+                        if (el._mhwQueue && el._mhwQueue.length > 0) {
+                            window.__mhwProcessNextScan(el);
+                        } else if (! document.querySelector('.fi-modal-open')) {
+                            el.focus();
+                        }
+                    }
+                ");
 
                 if ($code === '') {
                     return;
@@ -103,6 +135,37 @@ class WarehouseBarcodeScan
 
                 self::handle($code, $set, $get, $newRowFactory, $quantityField);
             });
+    }
+
+    // Dùng CHUNG cho cả 2 điểm gọi JS ở field() (Enter vừa quét xong + response server vừa xử lý xong
+    // 1 mã) — định nghĩa ĐÚNG 1 LẦN trên window, idempotent (gọi lại nhiều lần không sao) để tránh
+    // lệch code giữa 2 chỗ. "_mhwBusy"/"_mhwQueue" gắn TRỰC TIẾP lên chính DOM element (không dùng
+    // biến window rời) — mỗi ô quét tự có hàng đợi riêng, nhiều form mở cùng lúc không đụng nhau.
+    //
+    // Tự CHỌN cách bắn sự kiện 'blur' theo đúng trạng thái focus THẬT của ô lúc gọi:
+    //   - Ô ĐANG thật sự được focus (đường máy quét vật lý qua phím Enter) -> gọi THẬT el.blur() —
+    //     để trình duyệt thật sự rời focus, tránh đúng bug Livewire morph "né" DOM xung quanh 1 input
+    //     đang được giữ focus liên tục (khiến Repeater bên cạnh không re-render dù server đã xử lý
+    //     đúng — xem chú thích ở field() phía trên).
+    //   - Ô KHÔNG được focus (đường camera, barcode-camera.blade.php set giá trị mà chưa từng bấm vào
+    //     ô) -> el.blur() KHÔNG có tác dụng gì (không phải activeElement), phải TỰ BẮN sự kiện 'blur'
+    //     giả để Livewire vẫn nhận được, giữ đúng cơ chế đã xác nhận hoạt động trước đây.
+    private static function processNextJs(): string
+    {
+        return <<<'JS'
+            if (! window.__mhwProcessNextScan) {
+                window.__mhwProcessNextScan = function (el) {
+                    if (el._mhwBusy || ! el._mhwQueue || el._mhwQueue.length === 0) { return; }
+                    el._mhwBusy = true;
+                    el.value = el._mhwQueue.shift();
+                    if (document.activeElement === el) {
+                        el.blur();
+                    } else {
+                        el.dispatchEvent(new Event('blur', { bubbles: true }));
+                    }
+                };
+            }
+            JS;
     }
 
     private static function handle(string $code, Set $set, Get $get, \Closure $newRowFactory, string $quantityField): void

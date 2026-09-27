@@ -133,6 +133,10 @@ class WarehouseStockOutForm
                     Repeater::make('items')
                         ->relationship()
                         ->hiddenLabel()
+                        // Xem giải thích đầy đủ ở WarehouseStockInForm — buộc Livewire vẽ lại TOÀN BỘ
+                        // Repeater mỗi khi "items" đổi (thay vì morph từng phần, vốn bỏ sót cập nhật
+                        // khi mutation đến từ ô quét mã vạch quét dồn dập).
+                        ->key(fn (Get $get) => 'stockout-items-' . md5(json_encode($get('items') ?? [])))
                         ->extraAttributes(['class' => 'fi-warehouse-stockout-repeater'])
                         // Dạng LƯỚI thẻ như phiếu kiểm kê — mỗi thẻ xếp DỌC 1 cột nội bộ thay vì 1
                         // hàng ngang dài.

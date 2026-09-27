@@ -128,7 +128,11 @@
                                 <div x-ref="track" class="flex gap-6 py-2 px-1 overflow-x-hidden" style="scroll-snap-type:x mandatory;">
                                     @foreach (data_get($criticalHome, 'room_types', []) as $type)
                                         @php($typeUrlSlug = \Modules\BladeThemeV1\Support\BranchBookConfig::urlSlugFromTypeDbSlug($type['slug'] ?? ''))
-                                        <a href="{{ $typeUrlSlug ? url('/'.$typeUrlSlug) : route('product.search', ['type' => $type['slug'] ?? '']) }}" class="roomtype-card" style="scroll-snap-align:start;">
+                                        {{-- "mini_house" trỏ RIÊNG sang trang giới thiệu MiniHouse (cho thuê THEO
+                                             THÁNG, xem App\Http\Controllers\Minihouse\Public\StorefrontController)
+                                             thay vì luồng tìm/đặt phòng ngắn hạn chung — KHÔNG đụng tới
+                                             $typeUrlSlug/route('product.search') cho 5 loại hình còn lại. --}}
+                                        <a href="{{ ($type['slug'] ?? '') === 'mini_house' ? url('/minihouse') : ($typeUrlSlug ? url('/'.$typeUrlSlug) : route('product.search', ['type' => $type['slug'] ?? ''])) }}" class="roomtype-card" style="scroll-snap-align:start;">
                                             <img src="{{ asset('images/'.match ($type['slug'] ?? '') { 'hotel' => 'hotel-176.webp', 'motel' => 'motel-176.webp', 'villa' => 'villa-176.webp', 'apartment' => 'apartment-176.webp', 'mini_house' => 'minihouse-176.webp', default => 'homestay-176.webp' }) }}"
                                                  alt="" class="roomtype-card-icon" width="88" height="88" loading="eager">
                                             <span class="roomtype-card-label">{{ $type['name'] ?? '' }}</span>
@@ -167,7 +171,7 @@
                                      (thẻ đã to hơn — xem .roomtype-card). --}}
                                 <div x-ref="track" class="flex gap-6 py-2 px-1 overflow-x-hidden" style="scroll-snap-type:x mandatory;">
                                     <template x-for="type in roomTypes" :key="'roomtype-mobile-' + type.id">
-                                        <a :href="window.__typeUrlSlug(type.slug) ? ('/' + window.__typeUrlSlug(type.slug)) : ('{{ route('product.search') }}?type=' + type.slug)" class="roomtype-card" style="scroll-snap-align:start;">
+                                        <a :href="type.slug === 'mini_house' ? '/minihouse' : (window.__typeUrlSlug(type.slug) ? ('/' + window.__typeUrlSlug(type.slug)) : ('{{ route('product.search') }}?type=' + type.slug))" class="roomtype-card" style="scroll-snap-align:start;">
                                             <img :src="window.__roomTypeIcon(type)" alt="" class="roomtype-card-icon" width="88" height="88" loading="lazy" onerror="this.style.display='none'">
                                             <span class="roomtype-card-label" x-text="type.name"></span>
                                         </a>
@@ -236,6 +240,12 @@
          dựa vào Alpine x-for lọc trên `sections` load từ API). Vẫn cập nhật lại theo đúng khu vực
          đang chọn qua sự kiện 'province-selected' (xem branch-suggestion.blade.php). --}}
     @livewire('bladethemev1::branch-suggestion')
+
+    {{-- "Các chi nhánh MiniHouse tại..." — đặt ngay dưới "Các chi nhánh homestay tại...", cùng
+         nguyên tắc/hành vi (mirror BranchSuggestion, xem MinihouseBranchSuggestion.php), chỉ khác
+         nguồn dữ liệu (Building thay vì Category) và đích liên kết (/minihouse — trang công khai
+         MiniHouse, KHÔNG dùng chung route đặt phòng ngắn hạn của Home). --}}
+    @livewire('bladethemev1::minihouse-branch-suggestion')
 
     <div data-home-sections-boundary aria-hidden="true"></div>
     <template x-for="section in sections" :key="section.type + '-' + section.id">

@@ -23,7 +23,7 @@ class Camera extends Model
         // đó, nếu không sẽ làm gãy luồng thật Frigate đang chạy dù chỉ đang xoá 1 dòng tham chiếu.
         static::deleted(function (Camera $camera) {
             if (filled($camera->rtsp_url)) {
-                Go2RtcClient::forPartner($camera->partner_id)->deleteStream($camera->stream_key);
+                (new Go2RtcClient($camera->resolveCameraSettings()))->deleteStream($camera->stream_key);
             }
         });
     }
@@ -62,11 +62,40 @@ class Camera extends Model
         return $this->frigate_camera_name ?: $this->stream_key;
     }
 
+    // Tách riêng bước "tìm cấu hình server nào" khỏi phần dựng URL bên dưới. Modules\Minihouse\App\
+    // Models\Camera (kế thừa lớp này, dùng ở panel MiniHouse) override ĐÚNG method này — nhưng bản
+    // ghi camera của MiniHouse vẫn nằm CHUNG bảng "cameras" và có thể được lấy ra qua model GỐC này
+    // (VD App\Http\Controllers\Api\Admin\CameraController — API dùng chung cho mọi app admin, không
+    // phân biệt panel). Nếu chỉ override ở lớp con, đi qua API đó "ws_url"/"go2rtc_configured" của
+    // camera MiniHouse sẽ luôn sai (tự tìm nhầm sang App\Models\CameraSetting theo partner_id, trong
+    // khi MiniHouse LƯU CẤU HÌNH THEO building_id — xem Modules\Minihouse\App\Models\CameraSetting).
+    // Vá thẳng ở đây (bằng partner_id cố định của MiniHouse) để MỌI đường lấy dữ liệu — Filament lẫn
+    // API — đều resolve đúng, không phụ thuộc đã fetch qua class nào. PUBLIC (không phải protected)
+    // để App\Http\Controllers\Api\Admin\CameraController (API dùng chung, ngoài Filament) gọi lại
+    // được ĐÚNG method này thay vì tự suy diễn CameraSetting::forPartner() riêng — xem
+    // CameraController::syncGo2Rtc()/transform().
+    public function resolveCameraSettings(): CameraSetting
+    {
+        return static::resolveSettingsFor($this->partner_id, $this->branch_id);
+    }
+
+    // Bản STATIC của resolveCameraSettings() — dùng ở những chỗ chỉ có sẵn "partner_id"/"branch_id"
+    // rời rạc (VD từ claims đã ký trong 1 token), KHÔNG có sẵn 1 instance Camera đầy đủ để gọi
+    // phương thức instance. Xem App\Http\Controllers\Api\CameraMediaProxyController — resolve lại
+    // cấu hình Frigate TỪ claims của CameraMediaToken (ký kèm cả partner_id lẫn branch_id) khi phát
+    // lại lịch sử ghi hình, cùng 1 nguồn logic với đây để tránh viết trùng quy tắc nhận diện MiniHouse.
+    public static function resolveSettingsFor(?string $partnerId, ?int $branchId): CameraSetting
+    {
+        if ($partnerId === \Modules\Minihouse\App\Support\HomestayBridge::PARTNER_ID) {
+            return \Modules\Minihouse\App\Models\CameraSetting::forBuilding((int) $branchId);
+        }
+
+        return CameraSetting::forPartner($partnerId);
+    }
+
     public function wsProxyUrl(): ?string
     {
-        // MỖI ĐỐI TÁC 1 server Frigate riêng (App\Models\CameraSetting) — luôn resolve theo ĐÚNG
-        // partner_id của camera này, KHÔNG còn 1 cấu hình go2rtc dùng chung toàn hệ thống nữa.
-        $settings = CameraSetting::forPartner($this->partner_id);
+        $settings = $this->resolveCameraSettings();
 
         if (! $settings->isConfigured()) {
             return null;

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Camera;
 use App\Models\CameraSetting;
 use App\Services\FrigateSessionClient;
 use App\Support\CameraMediaToken;
@@ -31,8 +32,10 @@ use Symfony\Component\Process\Process;
 class CameraMediaProxyController extends Controller
 {
     // KHÔNG còn constructor-inject CameraSettings/FrigateSessionClient dùng chung 1 instance nữa —
-    // mỗi đối tác có thể có server Frigate riêng (App\Models\CameraSetting), nên phải resolve LẠI
-    // theo partner_id ký trong CameraMediaToken ở mỗi request (xem stream()).
+    // mỗi đối tác (Home) hoặc mỗi Toà nhà (MiniHouse) có thể dùng server Frigate riêng, nên phải
+    // resolve LẠI theo partner_id/branch_id ký trong CameraMediaToken ở mỗi request (xem stream()) —
+    // dùng chung Camera::resolveSettingsFor() với App\Models\Camera::resolveCameraSettings() để 2 nơi
+    // không lệch quy tắc nhận diện MiniHouse.
     public function stream(Request $request, string $token, string $filename): StreamedResponse|Response
     {
         $claims = CameraMediaToken::verify($token);
@@ -41,8 +44,8 @@ class CameraMediaProxyController extends Controller
             return response('Token không hợp lệ hoặc đã hết hạn.', 401);
         }
 
-        $settings = CameraSetting::forPartner($claims['partner_id']);
-        $session  = FrigateSessionClient::forPartner($claims['partner_id']);
+        $settings = Camera::resolveSettingsFor($claims['partner_id'], $claims['branch_id']);
+        $session  = new FrigateSessionClient($settings);
 
         $cookie = $session->getSessionCookie(error: $error);
 

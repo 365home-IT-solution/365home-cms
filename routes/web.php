@@ -1099,6 +1099,17 @@ Route::middleware(['web', 'throttle:30,1'])->prefix('hop-dong')->group(function 
 Route::get('/delete-account', [\App\Http\Controllers\DeleteAccountController::class, 'show'])
     ->name('delete-account');
 
+// Trang công khai giới thiệu phòng MiniHouse (cho thuê THEO THÁNG) trên giao diện Home — cùng lý do
+// đăng ký ở ĐÂY (routes/web.php gốc, không phải Modules\BladeThemeV1\Routes\web.php) như
+// /delete-account phía trên: phải resolve TRƯỚC route catch-all '/{type}/{location?}' của module đó.
+// "minihouse" (không dấu gạch ngang) không nằm trong BranchBookConfig::typeUrlSlugs() (6 slug loại
+// hình ngắn hạn: homestay/khach-san/mini-house/villa/nha-nghi/chung-cu) nên về lý thuyết không có
+// nguy cơ trùng route dù đăng ký ở đâu — vẫn đặt cùng chỗ để nhất quán quy ước đã có.
+Route::get('/minihouse', [\App\Http\Controllers\Minihouse\Public\StorefrontController::class, 'index'])
+    ->name('minihouse.storefront.index');
+Route::get('/minihouse/{slug}', [\App\Http\Controllers\Minihouse\Public\StorefrontController::class, 'show'])
+    ->name('minihouse.storefront.show');
+
 // Block paths that should not be accessible
 Route::get('/local', fn() => abort(404));
 Route::get('/local/{any}', fn() => abort(404))->where('any', '.*');

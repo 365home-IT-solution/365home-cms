@@ -102,6 +102,10 @@ class WarehouseStockCheckForm
                     Repeater::make('items')
                         ->relationship()
                         ->hiddenLabel()
+                        // Xem giải thích đầy đủ ở WarehouseStockInForm — buộc Livewire vẽ lại TOÀN BỘ
+                        // Repeater mỗi khi "items" đổi (thay vì morph từng phần, vốn bỏ sót cập nhật
+                        // khi mutation đến từ ô quét mã vạch quét dồn dập).
+                        ->key(fn (Get $get) => 'stockcheck-items-' . md5(json_encode($get('items') ?? [])))
                         // KHÔNG dùng ->default() ở đây — Repeater dùng ->relationship() tự nạp lại
                         // state từ quan hệ (kể cả khi record chưa tồn tại, trả về mảng RỖNG) NGAY
                         // SAU khi default() chạy, nên default() bị ghi đè mất, hoàn toàn không hiện

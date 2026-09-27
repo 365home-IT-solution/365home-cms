@@ -95,6 +95,17 @@ class WarehouseStockInForm
                     Repeater::make('items')
                         ->relationship()
                         ->hiddenLabel()
+                        // Bug thật đã gặp (2026-09-26): quét NHANH nhiều lần liên tiếp (cả thêm dòng
+                        // mới lẫn +1 dòng đã có) — dữ liệu server LUÔN đúng (đã xác nhận: lưu phiếu
+                        // xong vào Sửa lại thấy đủ vật tư), nhưng Repeater KHÔNG tự vẽ lại trên màn
+                        // hình dù $set('items', ...) chạy đúng — Livewire "vá" (morph) nhầm, coi
+                        // nhánh DOM của Repeater không đổi khi mutation đến từ 1 field KHÁC (ô quét)
+                        // gọi dồn dập. Ép buộc bằng cách đổi "wire:key" của CẢ Repeater theo nội dung
+                        // "items" mỗi lần — hễ có bất kỳ thay đổi nào (thêm/xoá/+1) là khoá đổi, buộc
+                        // Livewire HUỶ + VẼ LẠI TOÀN BỘ khối thay vì cố "vá" từng phần (chắc chắn đúng
+                        // trạng thái, đổi lại là mất trạng thái focus/scroll bên trong Repeater lúc
+                        // đang gõ tay — chấp nhận được vì các field trong đây không ->live()).
+                        ->key(fn (Get $get) => 'stockin-items-' . md5(json_encode($get('items') ?? [])))
                         ->extraAttributes(['class' => 'fi-warehouse-stockin-repeater'])
                         // Dạng LƯỚI thẻ như phiếu kiểm kê — mỗi thẻ xếp DỌC 1 cột nội bộ (Vật tư /
                         // Số lượng + Đơn giá / Thành tiền / Ghi chú) thay vì 1 hàng ngang dài.

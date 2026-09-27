@@ -82,16 +82,27 @@
 
             const input = document.getElementById('{{ \Modules\Warehouse\App\Filament\Support\WarehouseBarcodeScan::INPUT_ID }}');
             if (input) {
-                input.value = value;
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-                // .blur() (phương thức DOM) CHỈ phát sinh sự kiện blur thật nếu input đang thực sự
-                // được focus — input này chưa từng được bấm vào khi quét bằng camera (mở modal qua
-                // nút camera, không qua việc click vào ô), và modal của Filament có focus trap riêng
-                // nên gọi .focus() trước cũng không chắc ăn. Tự tạo + bắn thẳng sự kiện 'blur' (khác
-                // .blur()) đi đúng đích, không phụ thuộc trạng thái focus thật của trình duyệt —
-                // thiếu bước này thì WarehouseBarcodeScan::field() (live(onBlur: true)) không nhận
-                // được giá trị mới cho tới khi người dùng tự bấm Enter (mới có sự kiện thật).
-                input.dispatchEvent(new Event('blur', { bubbles: true }));
+                // Đẩy vào ĐÚNG hàng đợi dùng chung với đường quét vật lý (xem
+                // WarehouseBarcodeScan::field()) thay vì tự bắn 'blur' trực tiếp như trước — quét
+                // camera nhiều mã liên tiếp quá nhanh (VD người dùng đưa liền 2 tem trong lúc modal
+                // vẫn mở) trước đây có thể gặp ĐÚNG race condition đã sửa ở đường máy quét vật lý (mất
+                // vật tư/gõ nhầm ô khác, 429 do dồn request) — dùng chung 1 cơ chế hàng đợi để cả 2
+                // đường vào đều an toàn như nhau.
+                if (! window.__mhwProcessNextScan) {
+                    window.__mhwProcessNextScan = function (el) {
+                        if (el._mhwBusy || ! el._mhwQueue || el._mhwQueue.length === 0) { return; }
+                        el._mhwBusy = true;
+                        el.value = el._mhwQueue.shift();
+                        if (document.activeElement === el) {
+                            el.blur();
+                        } else {
+                            el.dispatchEvent(new Event('blur', { bubbles: true }));
+                        }
+                    };
+                }
+                input._mhwQueue = input._mhwQueue || [];
+                input._mhwQueue.push(value);
+                window.__mhwProcessNextScan(input);
             }
 
             setTimeout(() => {

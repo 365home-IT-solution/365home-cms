@@ -5,6 +5,12 @@ module.exports = {
         "./Resources/**/*.js",
         "./Resources/**/*.vue",
         "./Resources/**/*.scss",
+        // Trang công khai MiniHouse (App\Http\Controllers\Minihouse\Public\StorefrontController) đặt
+        // ở resources/views GỐC của project (không phải trong module này) nhưng vẫn extends layout/
+        // dùng class Tailwind của theme này — thiếu dòng này khiến Tailwind (JIT, chỉ sinh CSS cho
+        // class nó THẤY được lúc build) không bao giờ sinh ra bất kỳ class nào 2 trang đó dùng (grid,
+        // hidden, md:block...), khiến toàn bộ layout/responsive vỡ hoàn toàn dù HTML đúng.
+        "../../resources/views/minihouse/**/*.blade.php",
         "./node_modules/flowbite/**/*.js"
     ],
     theme: {
