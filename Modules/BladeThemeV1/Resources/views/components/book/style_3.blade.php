@@ -1,3 +1,6 @@
+{{-- Có ô khung giờ => layout nạp echo/ws-client (realtime). Dạng khối @php/@endphp, KHÔNG dùng
+     @php(...) một dòng: Blade tách khối @php...@endphp trước, sẽ gộp nhầm tới @endphp kế tiếp. --}}
+@php \Modules\BladeThemeV1\Support\RealtimeAssets::need(); @endphp
 <div wire:ignore class="w-full mx-auto px-8">
     <h2 class="mt-4 mb-2 text-center text-4xl font-bold">Lịch đặt phòng</h2>
     {{--     Chú thích      --}}

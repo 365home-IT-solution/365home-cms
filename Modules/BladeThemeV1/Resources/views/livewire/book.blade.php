@@ -1,4 +1,7 @@
 @inject('generalSettings', 'App\Settings\GeneralSettings')
+{{-- Có ô khung giờ => layout nạp echo/ws-client (realtime). Dạng khối @php/@endphp, KHÔNG dùng
+     @php(...) một dòng: Blade tách khối @php...@endphp trước, sẽ gộp nhầm tới @endphp kế tiếp. --}}
+@php \Modules\BladeThemeV1\Support\RealtimeAssets::need(); @endphp
 <div x-data="{
     selectedSlots: [],
     selectedRoomId: null,

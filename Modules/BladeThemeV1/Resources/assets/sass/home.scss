@@ -1,3 +1,6 @@
+// Config Tailwind riêng cho trang chủ (content hẹp hơn) — xem tailwind.home.config.js.
+@config "../../../tailwind.home.config.js";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

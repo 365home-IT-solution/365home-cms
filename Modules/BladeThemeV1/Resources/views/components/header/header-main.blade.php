@@ -123,7 +123,9 @@
             const rect = overlay.getBoundingClientRect();
             stickyOnThreshold = Math.round(rect.bottom + window.scrollY);
         };
-        setTimeout(recomputeStickyThreshold, 250);
+        // Đo sau khi frame đã vẽ xong (rAF + setTimeout 0), không đo thẳng trong setTimeout: mốc
+        // 250ms dễ rơi đúng lúc Livewire/Alpine còn đang sửa DOM => ép reflow đồng bộ.
+        setTimeout(() => requestAnimationFrame(() => setTimeout(recomputeStickyThreshold, 0)), 250);
         let __hstResizeTimer;
         window.addEventListener('resize', () => {
             clearTimeout(__hstResizeTimer);

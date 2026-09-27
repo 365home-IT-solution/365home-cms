@@ -170,10 +170,15 @@
         } else {
             // Header (#main-header-bar) tự lo việc sticky/hiển thị của chính nó rồi (position:sticky cố định).
             // hero-section chỉ còn theo dõi scroll để quyết định lúc nào hiện thanh tìm kiếm compact-pill (mobile).
-            const hdr = document.getElementById('main-header-bar');
-            if (hdr) compactTop = hdr.offsetHeight + 'px';
+            {{-- Đo SAU khi frame đầu đã vẽ xong (rAF + setTimeout 0) thay vì đọc offsetHeight ngay
+                 trong x-init/$nextTick: lúc đó Alpine đang khởi tạo cả trang, DOM liên tục bị sửa,
+                 mỗi lần đọc ép trình duyệt tính layout đồng bộ (Lighthouse "Forced reflow") — nhân 3
+                 vì trang chủ có 3 instance hero-section. Các số đo này chỉ dùng khi đã cuộn trang
+                 (pill thu gọn), nên trễ 1 frame không ảnh hưởng gì. --}}
             let _heroH = 0;
-            $nextTick(() => {
+            window.__afterPaint(() => {
+                const hdr = document.getElementById('main-header-bar');
+                if (hdr) compactTop = hdr.offsetHeight + 'px';
                 const s = $el.querySelector('section');
                 if (s) _heroH = s.offsetHeight;
             });
@@ -217,7 +222,7 @@
             const pill = $refs.compactPillEl;
             if (pill && pill.offsetHeight > 0) pillHeight = pill.offsetHeight;
         };
-        $nextTick(_measurePill);
+        window.__afterPaint(_measurePill);
         window.addEventListener('resize', _measurePill, { passive: true });
         document.addEventListener('livewire:navigated', () => {
             heroShrunk = window.__heroAlwaysCompact || false;

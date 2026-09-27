@@ -39,14 +39,31 @@
 
 <head>
     @if ($generalSettings->google_analytics_enabled && $generalSettings->google_analytics_id)
-        {{-- Google tag (gtag.js) — đặt càng cao càng tốt trong <head> theo khuyến nghị của Google,
-             để đo được cả những lượt rời trang sớm trước khi phần còn lại của <head> tải xong. --}}
-        <script async src="https://www.googletagmanager.com/gtag/js?id={{ $generalSettings->google_analytics_id }}"></script>
+        {{-- Google tag (gtag.js) — hàng đợi dataLayer + gtag('config') khởi tạo NGAY (mọi lệnh gtag()
+             gọi sớm vẫn được xếp hàng, không mất sự kiện), nhưng file gtag/js (~174KB, phần lớn
+             không dùng tới) chỉ tải SAU sự kiện load + lúc trình duyệt rảnh — trước đây tải async
+             ngay đầu <head>, tranh main-thread với Alpine/Livewire lúc khởi động (Lighthouse "Reduce
+             unused JavaScript" + TBT). Đánh đổi (đã chốt): mất pageview của lượt rời trang TRƯỚC
+             khi trang load xong. --}}
         <script>
             window.dataLayer = window.dataLayer || [];
             function gtag(){dataLayer.push(arguments);}
             gtag('js', new Date());
-            gtag('config', '{{ $generalSettings->google_analytics_id }}');
+            gtag('config', @js($generalSettings->google_analytics_id));
+            (function () {
+                var load = function () {
+                    var s = document.createElement('script');
+                    s.async = true;
+                    s.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(@js($generalSettings->google_analytics_id));
+                    document.head.appendChild(s);
+                };
+                var whenIdle = function () {
+                    if ('requestIdleCallback' in window) requestIdleCallback(load, { timeout: 3000 });
+                    else setTimeout(load, 1);
+                };
+                if (document.readyState === 'complete') whenIdle();
+                else window.addEventListener('load', whenIdle, { once: true });
+            })();
         </script>
     @endif
 
@@ -118,17 +135,19 @@
          Ở LAYOUT DÙNG CHUNG (không riêng product-detail) để hoạt động trên MỌI trang có bảng chọn
          khung giờ (trang chủ, trang chi nhánh, trang chi tiết phòng...), dùng build Vite CHÍNH
          (public/build), khác với build-bladethemev1 ở dòng trên — 2 pipeline độc lập, không xung đột. --}}
-    @unless ($isHomePage)
+    {{-- Chỉ trang có ô khung giờ đặt phòng (chi nhánh, chi tiết phòng) mới nạp realtime — xem
+         Modules\BladeThemeV1\Support\RealtimeAssets. Trang chủ tự nạp lười riêng ở cuối <body>. --}}
+    @if (! $isHomePage && \Modules\BladeThemeV1\Support\RealtimeAssets::needed())
         @vite(['resources/js/echo-client.js'])
-    @endunless
+    @endif
     {{-- Real-time "khung giờ vừa đổi giá/khuyến mãi" (xem App\Services\SlotRealtimeService) — dùng
          Node WS service riêng (websocket/server.js), KHÁC kênh Reverb ở echo-client.js phía trên.
          window.__WS_PUBLIC_URL để trống (route "services.websocket.public_url" chưa cấu hình) thì
          ws-client.js tự bỏ qua, không lỗi gì. --}}
     <script>window.__WS_PUBLIC_URL = @js(config('services.websocket.public_url'));</script>
-    @unless ($isHomePage)
+    @if (! $isHomePage && \Modules\BladeThemeV1\Support\RealtimeAssets::needed())
         @vite(['resources/js/ws-client.js'])
-    @endunless
+    @endif
     <link rel="shortcut icon" href="{{ asset('/storage/' . $favicon) }}" type="image/x-icon">
     <style>
         :root {

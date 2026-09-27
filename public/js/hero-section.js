@@ -1,3 +1,10 @@
+// Chạy callback SAU khi frame hiện tại đã layout + paint xong (rAF rồi setTimeout 0) — dùng để
+// đo kích thước (offsetHeight...) mà không ép reflow đồng bộ giữa lúc Alpine đang khởi tạo/sửa DOM
+// (Lighthouse "Forced reflow"). Xem x-init của livewire/hero-section.blade.php.
+window.__afterPaint = window.__afterPaint || function (callback) {
+    requestAnimationFrame(() => setTimeout(callback, 0));
+};
+
 // Trang kết quả tìm kiếm /s/{slug} không truyền $selectedLocation vào hero-section (component
 // dùng chung nhiều nơi, không biết route hiện tại) — đọc thẳng slug từ URL để ô Địa điểm khớp
 // đúng nơi đang xem. Không có URL khớp thì trả '' (giữ nguyên hành vi cũ — để trống).

@@ -1,4 +1,7 @@
 @inject('generalSettings', 'App\Settings\GeneralSettings')
+{{-- Có ô khung giờ => layout nạp echo/ws-client (realtime). Dạng khối @php/@endphp, KHÔNG dùng
+     @php(...) một dòng: Blade tách khối @php...@endphp trước, sẽ gộp nhầm tới @endphp kế tiếp. --}}
+@php \Modules\BladeThemeV1\Support\RealtimeAssets::need(); @endphp
 <div class="bg-white" x-data="{ showModal: false, slotPickerOpen: true }" data-product-id="{{ $product->id ?? '' }}">
     @if (session('booking_conflict_error'))
         <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 12000)"
