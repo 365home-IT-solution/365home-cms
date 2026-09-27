@@ -4,6 +4,7 @@ namespace Modules\BladeThemeV1\Livewire;
 
 use Livewire\Component;
 use Modules\Post\Entities\Post;
+use Modules\BladeThemeV1\Support\InternalLinks;
 use Modules\BladeThemeV1\Support\TableOfContents;
 use Modules\BladeThemeV1\Traits\HandleColorTrait;
 use Illuminate\Support\Facades\Cache;
@@ -42,7 +43,8 @@ class PostDetail extends Component
 
         // Gắn id vào từng heading H2-H6 server-side + build cây mục lục 1 lần khi mount (nội
         // dung bài không đổi trong vòng đời request), xem TableOfContents::build().
-        $toc = TableOfContents::build($this->post->content ?? '');
+        // Link nội bộ dán từ Facebook mang theo rel="nofollow" + ?fbclid=, xem InternalLinks::clean().
+        $toc = TableOfContents::build(InternalLinks::clean($this->post->content ?? ''));
         $this->contentWithIds = $toc['content'];
         $this->tocItems = $toc['items'];
 
