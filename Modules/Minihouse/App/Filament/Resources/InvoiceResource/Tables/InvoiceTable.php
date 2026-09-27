@@ -45,7 +45,10 @@ class InvoiceTable
                     // 150px (hẹp hơn — bảng này có 3 nút hành động: In/Sửa/Xoá).
                     ->extraCellAttributes(['style' => 'max-width: 150px; width: 100%; overflow: hidden;']),
 
-                TextColumn::make('contract.room.code')->label('Phòng')->searchable()->sortable()->visibleFrom('md'),
+                TextColumn::make('contract.room.code')->label('Phòng')
+                    ->searchable(query: fn ($query, string $search) => \Modules\Minihouse\App\Filament\Support\RoomCodeSearch::viaContractRoom($query, $search))
+                    ->sortable(query: fn ($query, string $direction) => \Modules\Minihouse\App\Filament\Support\RoomCodeSearch::sortViaContractRoom($query, $direction))
+                    ->visibleFrom('md'),
                 TextColumn::make('contract.tenant.fullname')->label('Khách thuê')->searchable()->visibleFrom('md'),
                 TextColumn::make('month')->label('Tháng')->date('m/Y')->sortable()->visibleFrom('md'),
                 TextColumn::make('period_start')->label('Kỳ tính tiền')->formatStateUsing(fn ($state, $record) => $record->period_start && $record->period_end

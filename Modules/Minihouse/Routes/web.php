@@ -88,6 +88,9 @@ Route::prefix('minihouse/portal')->name('minihouse.portal.')->group(function () 
         Route::get('/notifications', [TenantPortalController::class, 'notifications'])->name('notifications');
         Route::get('/feedback', [TenantPortalController::class, 'showFeedbackForm'])->name('feedback');
         Route::post('/feedback', [TenantPortalController::class, 'storeFeedback'])->name('feedback.store');
+        Route::get('/vehicles', [TenantPortalController::class, 'vehicles'])->name('vehicles');
+        Route::post('/vehicles', [TenantPortalController::class, 'storeVehicle'])->name('vehicles.store');
+        Route::delete('/vehicles/{id}', [TenantPortalController::class, 'destroyVehicle'])->whereNumber('id')->name('vehicles.destroy');
         Route::get('/payments', [TenantPortalController::class, 'payments'])->name('payments.index');
         Route::get('/contracts', [TenantPortalController::class, 'contracts'])->name('contracts.index');
         Route::get('/contracts/{contract}', [TenantPortalController::class, 'showContract'])->name('contracts.show');

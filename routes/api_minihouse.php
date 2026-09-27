@@ -19,7 +19,12 @@ use App\Http\Controllers\Api\Admin\Minihouse\ResidenceDeclarationController;
 use App\Http\Controllers\Api\Admin\Minihouse\RoomController;
 use App\Http\Controllers\Api\Admin\Minihouse\SurchargeController;
 use App\Http\Controllers\Api\Admin\Minihouse\TenantController;
+use App\Http\Controllers\Api\Admin\Minihouse\RoomLockController;
 use App\Http\Controllers\Api\Admin\Minihouse\TransactionController;
+use App\Http\Controllers\Api\Admin\Minihouse\VehicleController;
+use App\Http\Controllers\Api\Admin\Minihouse\VehicleRateController;
+use App\Http\Controllers\Api\Admin\Minihouse\TtlockLockController;
+use App\Http\Controllers\Api\Admin\Minihouse\TtlockSettingsController;
 use App\Http\Controllers\Api\Admin\Minihouse\WarehouseCategoryController;
 use App\Http\Controllers\Api\Admin\Minihouse\WarehouseItemController;
 use App\Http\Controllers\Api\Admin\Minihouse\WarehouseStockCheckController;
@@ -178,6 +183,49 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
     Route::get('camera-settings', [CameraSettingsController::class, 'show'])->name('camera-settings.show');
     Route::match(['put', 'patch'], 'camera-settings', [CameraSettingsController::class, 'update'])->name('camera-settings.update');
 
+    // TTLock (khoá thông minh) THEO TỪNG TOÀ NHÀ — mirror Api\Admin\TtlockLockController +
+    // Api\TtlockCardAppController của Home, xem 3 controller Ttlock*/RoomLock* ở namespace này. Tài
+    // khoản TTLock cấu hình riêng cho mỗi Toà nhà (ttlock-settings), không có cấu hình dùng chung.
+    Route::get('ttlock-settings/buildings', [TtlockSettingsController::class, 'buildings'])->name('ttlock-settings.buildings');
+    Route::get('ttlock-settings', [TtlockSettingsController::class, 'show'])->name('ttlock-settings.show');
+    Route::match(['put', 'patch'], 'ttlock-settings', [TtlockSettingsController::class, 'update'])->name('ttlock-settings.update');
+    Route::delete('ttlock-settings', [TtlockSettingsController::class, 'destroy'])->name('ttlock-settings.destroy');
+    Route::post('ttlock-settings/test', [TtlockSettingsController::class, 'test'])->name('ttlock-settings.test');
+
+    Route::prefix('ttlock')->name('ttlock.')->group(function () {
+        Route::get('locks', [TtlockLockController::class, 'index'])->name('locks.index');
+        Route::post('locks/unlock', [TtlockLockController::class, 'unlock'])->name('locks.unlock');
+        Route::post('locks/lock-data', [TtlockLockController::class, 'lockData'])->name('locks.lock-data');
+        Route::get('locks/{buildingId}/{lockId}', [TtlockLockController::class, 'show'])->whereNumber(['buildingId', 'lockId'])->name('locks.show');
+        Route::get('records', [TtlockLockController::class, 'records'])->name('records');
+
+        Route::get('cards', [TtlockLockController::class, 'listCards'])->name('cards.index');
+        Route::post('cards', [TtlockLockController::class, 'storeCard'])->name('cards.store');
+        Route::delete('cards', [TtlockLockController::class, 'destroyCard'])->name('cards.destroy');
+
+        Route::get('passcodes', [TtlockLockController::class, 'listPasscodes'])->name('passcodes.index');
+        Route::post('passcodes', [TtlockLockController::class, 'storePasscode'])->name('passcodes.store');
+        Route::delete('passcodes', [TtlockLockController::class, 'destroyPasscode'])->name('passcodes.destroy');
+
+        Route::get('fingerprints', [TtlockLockController::class, 'listFingerprints'])->name('fingerprints.index');
+        Route::post('fingerprints', [TtlockLockController::class, 'storeFingerprint'])->name('fingerprints.store');
+        Route::delete('fingerprints', [TtlockLockController::class, 'destroyFingerprint'])->name('fingerprints.destroy');
+    });
+
+    Route::get('rooms/{id}/lock', [RoomLockController::class, 'show'])->name('rooms.lock.show');
+    Route::match(['put', 'patch'], 'rooms/{id}/lock', [RoomLockController::class, 'update'])->name('rooms.lock.update');
+    Route::post('rooms/{id}/unlock', [RoomLockController::class, 'unlock'])->name('rooms.unlock');
+
+    // Xe khách thuê + bảng giá gửi xe theo toà nhà — xem VehicleController/VehicleRateController.
+    // "vehicles/lookup" đặt TRƯỚC "vehicles/{id}" để không bị hiểu nhầm là id.
+    Route::get('vehicles/lookup', [VehicleController::class, 'lookup'])->name('vehicles.lookup');
+    Route::apiResource('vehicles', VehicleController::class)->parameters(['vehicles' => 'id'])->whereNumber('id');
+    Route::post('vehicles/{id}/approve', [VehicleController::class, 'approve'])->whereNumber('id')->name('vehicles.approve');
+    Route::post('vehicles/{id}/reject', [VehicleController::class, 'reject'])->whereNumber('id')->name('vehicles.reject');
+    Route::post('vehicles/{id}/deactivate', [VehicleController::class, 'deactivate'])->whereNumber('id')->name('vehicles.deactivate');
+    Route::get('vehicle-rates', [VehicleRateController::class, 'show'])->name('vehicle-rates.show');
+    Route::match(['put', 'patch'], 'vehicle-rates', [VehicleRateController::class, 'update'])->name('vehicle-rates.update');
+
     // Báo cáo — mirror tinh thần Modules\Dashboard\Http\Controllers\ReportController bên Home (Home
     // dùng đủ 7 báo cáo theo nghiệp vụ đặt phòng ngắn hạn: receptionist/end-of-day/booking/revenue/
     // room/customer/financial); MiniHouse thay bằng đúng 4 báo cáo khớp nghiệp vụ cho thuê dài hạn
@@ -310,6 +358,9 @@ Route::prefix('minihouse/portal')->name('api.minihouse.portal.')->group(function
         Route::get('contracts/{contract}/document', [ContractDocumentPortalController::class, 'show'])->name('contracts.document.show');
         Route::post('contracts/{contract}/document/otp', [ContractDocumentPortalController::class, 'otp'])->name('contracts.document.otp');
         Route::post('contracts/{contract}/document/sign', [ContractDocumentPortalController::class, 'sign'])->name('contracts.document.sign');
+        Route::get('vehicles', [TenantPortalApiController::class, 'vehicles'])->name('vehicles.index');
+        Route::post('vehicles', [TenantPortalApiController::class, 'storeVehicle'])->name('vehicles.store');
+        Route::delete('vehicles/{id}', [TenantPortalApiController::class, 'destroyVehicle'])->whereNumber('id')->name('vehicles.destroy');
         Route::get('feedback', [TenantPortalApiController::class, 'feedback'])->name('feedback.index');
         Route::post('feedback', [TenantPortalApiController::class, 'storeFeedback'])->name('feedback.store');
         Route::get('profile', [TenantPortalApiController::class, 'profile'])->name('profile.show');

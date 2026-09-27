@@ -48,7 +48,9 @@ class ReminderTable
                     default => 'Khác',
                 })->visibleFrom('md'),
                 TextColumn::make('remind_date')->label('Ngày nhắc')->date('d/m/Y')->sortable()->visibleFrom('md'),
-                TextColumn::make('room.code')->label('Phòng')->searchable()->visibleFrom('md'),
+                TextColumn::make('room.code')->label('Phòng')
+                    ->searchable(query: fn ($query, string $search) => \Modules\Minihouse\App\Filament\Support\RoomCodeSearch::viaRelation($query, $search))
+                    ->visibleFrom('md'),
                 TextColumn::make('assignee.fullname')->label('Giao cho')->placeholder('Chưa giao')->visibleFrom('md'),
                 IconColumn::make('is_done')->label('Đã xử lý')->boolean()->visibleFrom('md'),
             ])

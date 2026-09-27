@@ -36,8 +36,8 @@ class ResidenceDeclarationTable
 
                 TextColumn::make('contract.room.code')
                     ->label('Phòng')
-                    ->searchable()
-                    ->sortable()
+                    ->searchable(query: fn ($query, string $search) => \Modules\Minihouse\App\Filament\Support\RoomCodeSearch::viaContractRoom($query, $search))
+                    ->sortable(query: fn ($query, string $direction) => \Modules\Minihouse\App\Filament\Support\RoomCodeSearch::sortViaContractRoom($query, $direction))
                     ->visibleFrom('md'),
 
                 TextColumn::make('subject')

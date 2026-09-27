@@ -36,7 +36,9 @@ class PanoramaSceneTable
                     ->visibleFrom('md'),
                 TextColumn::make('building.name')->label('Toà nhà')->searchable()->sortable()->visibleFrom('md'),
                 TextColumn::make('title')->label('Tên điểm')->searchable()->sortable()->visibleFrom('md'),
-                TextColumn::make('room.code')->label('Phòng')->placeholder('— (điểm chung)')->searchable()->visibleFrom('md'),
+                TextColumn::make('room.code')->label('Phòng')->placeholder('— (điểm chung)')
+                    ->searchable(query: fn ($query, string $search) => \Modules\Minihouse\App\Filament\Support\RoomCodeSearch::viaRelation($query, $search))
+                    ->visibleFrom('md'),
                 TextColumn::make('floor')->label('Tầng')->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
                 TextColumn::make('hotspots_count')->label('Số điểm nóng')->counts('hotspots')->visibleFrom('md'),
                 IconColumn::make('is_published')->label('Công khai')->boolean()->visibleFrom('md'),

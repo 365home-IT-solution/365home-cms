@@ -390,6 +390,75 @@ class TenantPortalApiController extends Controller
         return response()->json(['message' => 'Đã cập nhật thông tin.']);
     }
 
+    // GET /api/minihouse/portal/vehicles — xe của CHÍNH khách này (mọi trạng thái).
+    public function vehicles(Request $request): JsonResponse
+    {
+        $items = \Modules\Minihouse\App\Services\VehicleService::vehiclesOf($this->tenant($request))
+            ->map(fn (\Modules\Minihouse\App\Models\Vehicle $v) => $this->vehicleItem($v))
+            ->values();
+
+        return response()->json(['data' => $items]);
+    }
+
+    // POST /api/minihouse/portal/vehicles — khách tự khai xe (status = pending, chờ nhân viên duyệt).
+    public function storeVehicle(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'contract_id'  => 'nullable|integer',
+            'plate'        => 'required|string|max:30',
+            'vehicle_type' => ['required', \Illuminate\Validation\Rule::in(array_keys(\Modules\Minihouse\App\Models\Vehicle::TYPES))],
+            'name'         => 'required|string|max:100',
+            'document_photo' => 'nullable|image|max:5120',
+        ]);
+
+        [$vehicle, $error] = \Modules\Minihouse\App\Services\VehicleService::declareForTenant(
+            $this->tenant($request),
+            $data,
+            $request->hasFile('document_photo') ? $request->file('document_photo')->store('minihouse/vehicles', 'public') : null
+        );
+
+        if (! $vehicle) {
+            return response()->json(['message' => $error], 422);
+        }
+
+        return response()->json(['data' => $this->vehicleItem($vehicle)], 201);
+    }
+
+    // DELETE /api/minihouse/portal/vehicles/{id} — huỷ yêu cầu khai báo đang chờ duyệt.
+    public function destroyVehicle(Request $request, int $id): JsonResponse
+    {
+        $vehicle = \Modules\Minihouse\App\Models\Vehicle::withoutGlobalScope('activeBuilding')
+            ->where('tenant_id', $this->tenant($request)->id)
+            ->where('status', \Modules\Minihouse\App\Models\Vehicle::STATUS_PENDING)
+            ->find($id);
+
+        if (! $vehicle) {
+            return response()->json(['message' => 'Không tìm thấy yêu cầu đang chờ duyệt.'], 404);
+        }
+
+        $vehicle->delete();
+
+        return response()->json(['message' => 'Đã huỷ yêu cầu khai báo xe.']);
+    }
+
+    /** @return array<string, mixed> */
+    private function vehicleItem(\Modules\Minihouse\App\Models\Vehicle $v): array
+    {
+        return [
+            'id'                 => $v->id,
+            'contract_id'        => $v->contract_id,
+            'plate_display'      => $v->plate_display,
+            'vehicle_type'       => $v->vehicle_type,
+            'vehicle_type_label' => $v->typeLabel(),
+            'name'               => $v->name,
+            'document_photo_url' => $v->documentPhotoUrl(),
+            'status'             => $v->status,
+            'status_label'       => $v->statusLabel(),
+            'monthly_fee'        => $v->status === \Modules\Minihouse\App\Models\Vehicle::STATUS_ACTIVE ? \Modules\Minihouse\App\Services\VehicleService::monthlyFee($v) : null,
+            'reject_reason'      => $v->reject_reason,
+            'created_at'         => $v->created_at?->toDateTimeString(),
+        ];
+    }
     // POST /api/minihouse/portal/feedback
     public function storeFeedback(Request $request): JsonResponse
     {

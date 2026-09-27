@@ -232,6 +232,9 @@ class InvoiceGenerationService
             ])
             ->all();
 
+        // Phí gửi xe (theo bảng giá Toà nhà × loại xe, xe đang gửi trong chu kỳ) — thêm thành dòng như phụ thu.
+        $items = array_merge($items, \Modules\Minihouse\App\Services\VehicleService::invoiceItems($contract, $periodStart, $periodEnd));
+
         $serviceAmount = collect($items)->sum('amount');
 
         $electricStart = $meteringReading?->electric_start ?? $lastInvoice?->electric_end;

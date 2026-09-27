@@ -66,6 +66,11 @@ class Contract extends Model
         return $this->hasMany(Invoice::class);
     }
 
+    public function vehicles(): HasMany
+    {
+        return $this->hasMany(Vehicle::class);
+    }
+
     public function transactions(): HasMany
     {
         return $this->hasMany(Transaction::class);

@@ -69,7 +69,7 @@ class ChatRealtimeFlowTest extends TestCase
             ->getJson('/api/minihouse/portal/chat?contract_id=' . $this->foreignContract->id)
             ->assertStatus(404);
 
-        $this->assertSame(0, ChatMessage::count());
+        $this->assertSame(0, ChatMessage::whereIn('conversation_id', ChatConversation::whereIn('tenant_id', [$this->tenant->id, $this->stranger->id])->pluck('id'))->count());
     }
 
     public function test_admin_cannot_post_into_contract_of_another_tenant(): void
@@ -123,7 +123,7 @@ class ChatRealtimeFlowTest extends TestCase
             ->postJson("/api/admin/minihouse/chat/{$conversation->id}/messages", ['body' => 'x'])
             ->assertStatus(201);
 
-        $this->assertSame(1, ChatMessage::count());
+        $this->assertSame(1, ChatMessage::where('conversation_id', $conversation->id)->count());
     }
 
     public function test_threads_and_unread_do_not_mark_messages_read(): void
@@ -159,7 +159,7 @@ class ChatRealtimeFlowTest extends TestCase
         $this->assertSame('phòng', $thread['last_message']);
 
         // chưa đánh dấu đã đọc sau khi gọi 2 endpoint trên
-        $this->assertSame(2, ChatConversation::first()->tenant_unread);
+        $this->assertSame(2, ChatConversation::where('tenant_id', $this->tenant->id)->first()->tenant_unread);
 
         // Sanctum giữ lại user của request trước trong cùng 1 test — bỏ đi để đổi sang tài khoản admin.
         $this->app['auth']->forgetGuards();
@@ -168,5 +168,20 @@ class ChatRealtimeFlowTest extends TestCase
             ->getJson("/api/admin/minihouse/chat/{$conversation->id}/contracts")
             ->assertOk()
             ->assertJsonPath('data.0.type', 'general');
+    }
+    // Portal web poll tin mới (after_id) làm dự phòng khi socket realtime không kết nối được.
+    public function test_portal_web_can_fetch_only_newer_messages_via_after_id(): void
+    {
+        $this->withoutMiddleware(\Illuminate\Routing\Middleware\ThrottleRequests::class);
+        $svc = app(\Modules\Minihouse\App\Services\MinihouseChatService::class);
+        $conversation = $svc->conversationFor($this->tenant);
+
+        $first = $svc->send($conversation, \Modules\Minihouse\App\Models\ChatMessage::SENDER_TENANT, (string) $this->tenant->id, 'tin cu');
+        $second = $svc->send($conversation, \Modules\Minihouse\App\Models\ChatMessage::SENDER_ADMIN, (string) User::role('super_admin')->first()->id, 'tin moi cua nhan vien', 'NV');
+
+        $this->actingAs($this->tenant, 'tenant');
+        $res = $this->getJson(route('minihouse.portal.chat.messages', ['after_id' => $first->id]));
+
+        $res->assertOk()->assertJsonCount(1, 'messages')->assertJsonPath('messages.0.id', $second->id);
     }
 }

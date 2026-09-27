@@ -131,7 +131,7 @@ class MediaManagerInput extends Repeater
                             'model_id' => null,
                             'name' => Str::of(get_class($record))->afterLast('\\')->title()->toString()
                         ];
-                        if (filament('filament-media-manager')->allowUserAccess) {
+                        if (\TomatoPHP\FilamentMediaManager\FilamentMediaManagerPlugin::userAccessAllowed()) {
                             $data['user_id'] = auth()->user()->id;
                             $data['user_type'] =  get_class(auth()->user());
                         }
@@ -148,7 +148,7 @@ class MediaManagerInput extends Repeater
                             'model_type' =>  get_class($record),
                             'name' => Str::of($component->name)->title()->toString()
                         ];
-                        if (filament('filament-media-manager')->allowUserAccess) {
+                        if (\TomatoPHP\FilamentMediaManager\FilamentMediaManagerPlugin::userAccessAllowed()) {
                             $data['user_id'] = auth()->user()->id;
                             $data['user_type'] =  get_class(auth()->user());
                         }
@@ -168,7 +168,7 @@ class MediaManagerInput extends Repeater
                             'name' => $component->folderTitleFieldName ? $record->{$component->folderTitleFieldName} : Str::of(get_class($record))->afterLast('\\')->title()->toString() . '[' . $record->id . ']',
                         ];
 
-                        if (filament('filament-media-manager')->allowUserAccess) {
+                        if (\TomatoPHP\FilamentMediaManager\FilamentMediaManagerPlugin::userAccessAllowed()) {
                             $data['user_id'] = auth()->user()->id;
                             $data['user_type'] =  get_class(auth()->user());
                         }

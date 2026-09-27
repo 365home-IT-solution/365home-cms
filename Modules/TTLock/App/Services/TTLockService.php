@@ -72,6 +72,36 @@ class TTLockService
         );
     }
 
+    // MiniHouse: tài khoản TTLock THEO TỪNG TOÀ NHÀ (minihouse_ttlock_settings, khoá chính =
+    // building_id) — không dùng chung 1 tài khoản, xem Modules\Minihouse\App\Models\TtlockSetting.
+    // Trả về null nếu Toà nhà chưa cấu hình đủ hoặc đang tắt.
+    public static function forBuilding(?int $buildingId): ?self
+    {
+        if (! $buildingId) {
+            return null;
+        }
+
+        $setting = \Modules\Minihouse\App\Models\TtlockSetting::query()->find($buildingId);
+
+        if (! $setting || ! $setting->is_active || ! $setting->isConfigured()) {
+            return null;
+        }
+
+        return new self(
+            $setting->client_id,
+            $setting->client_secret,
+            $setting->username,
+            $setting->password_md5,
+            $setting->api_base ?: "https://euapi.ttlock.com",
+            "ttlock_mh_building_{$buildingId}"
+        );
+    }
+
+    public static function hasSettingForBuilding(?int $buildingId): bool
+    {
+        return self::forBuilding($buildingId) !== null;
+    }
+
     // Kiểm tra NHANH chi nhánh có tài khoản TTLock đang hoạt động hay không, không cần dựng cả
     // instance service (khỏi tạo object thừa khi chỉ dùng để quyết định ẩn/hiện UI theo chi nhánh
     // — vd cột Khóa ngoài/Khóa trong, action "Gán khóa TTLock", "Tình trạng phòng" ở Thiết lập

@@ -74,6 +74,9 @@
                 init() {
                     this.scrollToBottom();
                     this.connectSocket(config.wsUrl);
+                    // Dự phòng: socket realtime có thể không kết nối được (sai WS_PUBLIC_URL, bị chặn mạng...) —
+                    // poll tin mới mỗi 4 giây để tin của nhân viên luôn tới, chỉ khi tab đang mở.
+                    setInterval(() => { if (!document.hidden) this.fetchNew(); }, 4000);
 
                     // Đánh dấu đã đọc mỗi khi tab được focus lại (phòng khi bỏ lỡ sự kiện socket).
                     window.addEventListener('focus', () => this.markRead());
@@ -104,6 +107,26 @@
                         });
                     };
                     document.head.appendChild(script);
+                },
+
+                async fetchNew() {
+                    const lastId = this.messages.length ? this.messages[this.messages.length - 1].id : null;
+                    if (!lastId) return;
+
+                    const url = new URL(config.messagesUrl, window.location.origin);
+                    url.searchParams.set('after_id', lastId);
+
+                    try {
+                        const res = await fetch(url, { headers: { Accept: 'application/json' } });
+                        if (!res.ok) return;
+                        const data = await res.json();
+                        const fresh = (data.messages || []).filter((m) => !this.messages.some((x) => x.id === m.id));
+                        if (!fresh.length) return;
+
+                        this.messages.push(...fresh);
+                        this.$nextTick(() => this.scrollToBottom());
+                        if (fresh.some((m) => m.sender_type === 'admin')) this.markRead();
+                    } catch (e) { /* mất mạng tạm thời — lần poll sau sẽ thử lại */ }
                 },
 
                 async loadOlder() {

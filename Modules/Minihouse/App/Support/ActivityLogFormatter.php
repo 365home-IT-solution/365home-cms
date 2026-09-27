@@ -81,6 +81,9 @@ class ActivityLogFormatter
         \Modules\Minihouse\App\Models\TenantFeedback::class   => 'Phản hồi khách thuê',
         \Modules\Minihouse\App\Models\SmsSetting::class       => 'Cấu hình SMS',
         \Modules\Minihouse\App\Models\ZaloSetting::class      => 'Cấu hình Zalo',
+        \Modules\Minihouse\App\Models\TtlockSetting::class     => 'Cấu hình TTLock',
+        \Modules\Minihouse\App\Models\Vehicle::class           => 'Xe khách thuê',
+        \Modules\Minihouse\App\Models\VehicleRate::class       => 'Bảng giá gửi xe',
     ];
 
     public static function modelLabel(?string $subjectType): string
@@ -154,7 +157,7 @@ class ActivityLogFormatter
         'base_url' => 'Địa chỉ máy chủ', 'username' => 'Tên đăng nhập', 'password' => 'Mật khẩu', 'api_key' => 'API Key',
         'secret_key' => 'Secret Key', 'brandname' => 'Brandname', 'app_id' => 'App ID', 'app_secret' => 'App Secret',
         'access_token' => 'Access Token', 'refresh_token' => 'Refresh Token', 'image_path' => 'Ảnh', 'thumbnail_path' => 'Ảnh thu nhỏ',
-        'email' => 'Email', 'stream_key' => 'Stream key', 'branch_id' => 'Toà nhà', 'is_reviewed_at' => 'Xem xét lúc',
+        'email' => 'Email', 'plate_display' => 'Biển số', 'plate' => 'Biển số (chuẩn hoá)', 'vehicle_type' => 'Loại xe', 'brand' => 'Hãng / dòng xe', 'color' => 'Màu', 'parking_slot' => 'Vị trí đậu', 'tag_code' => 'Mã thẻ xe', 'requested_by' => 'Nguồn khai báo', 'reject_reason' => 'Lý do từ chối', 'registration_photo' => 'Ảnh cà-vẹt', 'document_photo' => 'Ảnh giấy tờ xe', 'max_per_contract' => 'Tối đa mỗi hợp đồng', 'capacity' => 'Tổng số chỗ', 'client_id' => 'Client ID', 'client_secret' => 'Client Secret', 'password_md5' => 'Mật khẩu TTLock', 'api_base' => 'API Base URL', 'lock_id' => 'Khoá ngoài (check-in)', 'lock_id_checkout' => 'Khoá trong (check-out)', 'unlock_both_locks' => 'Mở cả 2 ổ cùng lúc', 'stream_key' => 'Stream key', 'branch_id' => 'Toà nhà', 'is_reviewed_at' => 'Xem xét lúc',
         'total_amount' => 'Tổng tiền',
 
         // Hoá đơn
@@ -212,6 +215,7 @@ class ActivityLogFormatter
     // Cột kỹ thuật của bảng products (Phòng kế thừa Product) không có ý nghĩa với người dùng — ẩn khỏi
     // popup chi tiết (log cũ đã lỡ lưu các cột này nên phải lọc ở tầng hiển thị, không chỉ lúc ghi).
     private const HIDDEN_FIELDS = [
+        \Modules\Minihouse\App\Models\Vehicle::class => ['plate'],
         Room::class => ['slug', 'styles', 'is_in_stock', 'room_type_id', 'partner_id', 'is_activated', 'description', 'room_area_sqm'],
     ];
 
@@ -219,7 +223,7 @@ class ActivityLogFormatter
     private const MONEY_FIELDS = [
         'price', 'amount', 'monthly_price', 'deposit_amount', 'deposit_refunded_amount', 'old_monthly_price',
         'new_monthly_price', 'room_price', 'electric_amount', 'water_amount', 'service_amount', 'total_amount',
-        'amount_paid', 'unit_price', 'electric_unit_price', 'water_unit_price',
+        'amount_paid', 'unit_price', 'monthly_fee', 'electric_unit_price', 'water_unit_price',
     ];
 
     public static function isHiddenField(?string $subjectType, string $field): bool
@@ -230,6 +234,14 @@ class ActivityLogFormatter
     // model::class => field => [giá trị CSDL => nhãn tiếng Việt] — enum KHÁC NHAU tuỳ model nên
     // không gộp chung được như FIELD_LABELS (VD "status" của Invoice khác hẳn "status" của Room).
     private const VALUE_MAPS = [
+        \Modules\Minihouse\App\Models\Vehicle::class => [
+            'status'       => \Modules\Minihouse\App\Models\Vehicle::STATUSES,
+            'vehicle_type' => \Modules\Minihouse\App\Models\Vehicle::TYPES,
+            'requested_by' => ['staff' => 'Nhân viên', 'tenant' => 'Khách tự khai'],
+        ],
+        \Modules\Minihouse\App\Models\VehicleRate::class => [
+            'vehicle_type' => \Modules\Minihouse\App\Models\Vehicle::TYPES,
+        ],
         Invoice::class => [
             'status' => [
                 Invoice::STATUS_UNPAID  => 'Chưa thanh toán',

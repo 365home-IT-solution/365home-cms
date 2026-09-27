@@ -30,6 +30,12 @@ class EditContract extends EditRecord
 {
     protected static string $resource = ContractResource::class;
 
+    protected function afterSave(): void
+    {
+        foreach (\Modules\Minihouse\App\Services\VehicleService::contractLimitWarnings($this->record->fresh(['room'])) as $warning) {
+            Notification::make()->title('Vượt giới hạn xe')->body($warning)->warning()->persistent()->send();
+        }
+    }
     protected function getHeaderActions(): array
     {
         return [

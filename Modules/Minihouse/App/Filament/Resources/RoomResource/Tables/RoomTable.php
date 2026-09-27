@@ -50,7 +50,10 @@ class RoomTable
                     ->getStateUsing(fn (Room $record) => $record->photos[0] ?? null)
                     ->circular()
                     ->visibleFrom('md'),
-                TextColumn::make('code')->label('Mã / Tên phòng')->searchable()->sortable()->visibleFrom('md'),
+                TextColumn::make('code')->label('Mã / Tên phòng')
+                    ->searchable(query: fn ($query, string $search) => \Modules\Minihouse\App\Filament\Support\RoomCodeSearch::direct($query, $search))
+                    ->sortable(query: fn ($query, string $direction) => \Modules\Minihouse\App\Filament\Support\RoomCodeSearch::sortDirect($query, $direction))
+                    ->visibleFrom('md'),
                 TextColumn::make('floor')->label('Tầng')->sortable()->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
                 TextColumn::make('position_row')->label('Hàng')->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
                 TextColumn::make('position_col')->label('Cột')->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
@@ -103,6 +106,8 @@ class RoomTable
                             ->persistent()
                             ->send();
                     }),
+                \Modules\Minihouse\App\Filament\Support\RoomLockActions::assign(),
+                \Modules\Minihouse\App\Filament\Support\RoomLockActions::unlock(),
                 EditAction::make()->extraAttributes(['class' => 'mh-row-action']),
                 // Xem chú thích ở EditRoom::getHeaderActions() — chặn xoá phòng còn Hợp đồng (kể cả
                 // đã kết thúc) tham chiếu tới, tránh Contract.room_id trỏ về 1 Room đã "biến mất".

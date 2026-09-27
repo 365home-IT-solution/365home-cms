@@ -6,11 +6,11 @@
         {{-- ── Left: Danh sách hội thoại ──────────────────────────── --}}
         <div
             :class="mobileView === 'list' ? 'flex' : 'hidden lg:flex'"
-            class="w-full lg:w-80 flex-col flex-shrink-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden"
+            class="w-full lg:w-72 flex-col flex-shrink-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden"
         >
             <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
                 <span class="font-semibold text-sm text-gray-900 dark:text-white">Danh sách</span>
-                @php($totalUnread = collect($conversations)->sum('unread'))
+                @php $totalUnread = collect($conversations)->sum('unread'); @endphp
                 @if ($totalUnread > 0)
                     <span class="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 text-xs font-bold bg-red-500 text-white rounded-full">
                         {{ min($totalUnread, 99) }}
@@ -95,7 +95,7 @@
                         <div wire:key="msg-{{ $msg['id'] }}" class="flex {{ $msg['sender_type'] === 'admin' ? 'justify-end' : 'justify-start' }}">
                             <div class="max-w-xs sm:max-w-sm lg:max-w-md xl:max-w-lg">
                                 @if ($msg['sender_type'] === 'admin' && $msg['sender_name'])
-                                    <div class="text-xs text-gray-400 dark:text-gray-500 mb-0.5 text-right">{{ $msg['sender_name'] }}</div>
+                                    <div class="text-xs text-gray-400 dark:text-gray-500 mb-1 text-right">{{ $msg['sender_name'] }}</div>
                                 @endif
                                 <div class="px-3.5 py-2 text-sm leading-relaxed rounded-2xl {{ $msg['sender_type'] === 'admin' ? 'bg-primary-600 text-white rounded-tr-sm' : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-tl-sm' }}">
                                     {!! nl2br(e($msg['body'])) !!}
@@ -149,8 +149,8 @@
         {{-- ── Cột 3: Hợp đồng (mirror cột "orders" của Home) ─────────── --}}
         @if ($selectedConversation)
             <div
-                :class="mobileView === 'orders' ? 'flex' : 'hidden xl:flex'"
-                class="w-full xl:w-72 flex-col flex-shrink-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden"
+                :class="mobileView === 'orders' ? 'flex' : 'hidden lg:flex'"
+                class="w-full lg:w-72 flex-col flex-shrink-0 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden"
             >
                 <div class="flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
                     <x-heroicon-o-document-text class="w-4 h-4 text-primary-600" />

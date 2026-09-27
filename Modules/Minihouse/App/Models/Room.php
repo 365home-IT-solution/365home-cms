@@ -51,6 +51,7 @@ class Room extends Product
         // PHẢI khai báo lại ở đây vì $fillable của Room hẹp hơn Product, không tự "kế thừa" được field
         // nào ngoài danh sách này cho mass-assignment (Room::create()/update() sẽ ÂM THẦM bỏ qua các
         // field không có mặt ở đây, không lỗi, không warning).
+        'lock_id', 'lock_id_checkout', 'unlock_both_locks',
         'slug', 'address', 'latitude', 'longitude', 'map_url', 'hotline', 'setting_video_room',
     ];
 

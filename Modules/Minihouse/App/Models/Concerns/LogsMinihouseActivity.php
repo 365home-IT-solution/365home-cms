@@ -171,7 +171,7 @@ trait LogsMinihouseActivity
         return [
             'password', 'api_key', 'secret_key', 'app_secret', 'access_token', 'refresh_token',
             'payos_api_key', 'payos_checksum_key', 'momo_access_key', 'momo_secret_key', 'vnpay_hash_secret',
-            'remember_token',
+            'remember_token', 'client_secret', 'password_md5',
         ];
     }
 

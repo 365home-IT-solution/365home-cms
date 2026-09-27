@@ -57,6 +57,18 @@ class FilamentMediaManagerPlugin implements Plugin
         //
     }
 
+    // Tra cứu "allowUserAccess" AN TOÀN khi panel hiện tại KHÔNG đăng ký plugin này (VD panel
+    // minihouse-admin chỉ dùng MediaManagerInput trong form Phòng) — filament('filament-media-manager')
+    // ném Exception "Plugin ... is not registered" (500) ở các panel đó.
+    public static function userAccessAllowed(): bool
+    {
+        $panel = \Filament\Facades\Filament::getCurrentPanel();
+
+        return $panel && $panel->hasPlugin('filament-media-manager')
+            ? (bool) filament('filament-media-manager')->allowUserAccess
+            : false;
+    }
+
     public static function make(): static
     {
         return new static();

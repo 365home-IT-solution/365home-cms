@@ -1108,6 +1108,9 @@ Route::get('/delete-account', [\App\Http\Controllers\DeleteAccountController::cl
 Route::get('/minihouse', [\App\Http\Controllers\Minihouse\Public\StorefrontController::class, 'index'])
     ->name('minihouse.storefront.index');
 Route::get('/minihouse/{slug}', [\App\Http\Controllers\Minihouse\Public\StorefrontController::class, 'show'])
+    // Loại trừ các tiền tố tuyến riêng của MiniHouse — không loại thì "/minihouse/portal" (trang chủ portal
+    // khách thuê) bị route này bắt trước và trả 404 (không tìm thấy phòng có slug "portal").
+    ->where('slug', '^(?!(?:admin|portal|tour|feedback|contract-document|contract-verify|webhook)$)[^/]+$')
     ->name('minihouse.storefront.show');
 
 // Block paths that should not be accessible

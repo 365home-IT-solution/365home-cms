@@ -310,7 +310,7 @@ class TenantChat extends Page
         }
 
         $this->tenantContracts = Contract::where('tenant_id', $tenantId)
-            ->with('room:id,code')
+            ->with('room')
             ->orderByDesc('created_at')
             ->get()
             ->map(fn (Contract $c) => [
