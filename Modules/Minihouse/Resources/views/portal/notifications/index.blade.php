@@ -3,14 +3,12 @@
 @section('title', 'Thông báo - Portal khách thuê')
 
 @section('content')
-    <h1 class="text-xl font-semibold text-gray-900">Thông báo</h1>
+    <h1 class="text-xl font-bold text-gray-900 mh-heading">Thông báo</h1>
 
     @if ($notifications->isEmpty())
-        <div class="mt-4 rounded-xl bg-white p-4 shadow-sm border border-gray-100 text-sm text-gray-500">
-            Chưa có thông báo nào.
-        </div>
+        <div class="mt-4 mh-empty">Chưa có thông báo nào.</div>
     @else
-        <div class="mt-4 space-y-2">
+        <div class="mt-4 space-y-2.5">
             @foreach ($notifications as $notification)
                 @php
                     $icon = match ($notification->type) {
@@ -22,19 +20,17 @@
                     };
                 @endphp
                 @if ($notification->link)
-                    <a href="{{ $notification->link }}" class="block rounded-xl bg-white p-4 shadow-sm border border-gray-100 hover:border-gray-300 transition">
+                    <a href="{{ $notification->link }}" class="mh-list-row">
                 @else
-                    <div class="rounded-xl bg-white p-4 shadow-sm border border-gray-100">
+                    <div class="mh-list-row">
                 @endif
-                    <div class="flex items-start gap-3">
-                        <div class="text-xl leading-none">{{ $icon }}</div>
-                        <div class="flex-1 min-w-0">
-                            <div class="font-medium text-gray-900">{{ $notification->title }}</div>
-                            @if ($notification->body)
-                                <div class="mt-0.5 text-sm text-gray-500">{{ $notification->body }}</div>
-                            @endif
-                            <div class="mt-1 text-xs text-gray-400">{{ $notification->created_at->format('H:i d/m/Y') }}</div>
-                        </div>
+                    <span class="text-xl leading-none flex-shrink-0">{{ $icon }}</span>
+                    <div class="flex-1 min-w-0">
+                        <div class="font-semibold text-gray-900">{{ $notification->title }}</div>
+                        @if ($notification->body)
+                            <div class="mt-0.5 text-sm text-gray-500">{{ $notification->body }}</div>
+                        @endif
+                        <div class="mt-1 text-xs text-gray-400 mh-tabular">{{ $notification->created_at->format('H:i d/m/Y') }}</div>
                     </div>
                 @if ($notification->link)
                     </a>

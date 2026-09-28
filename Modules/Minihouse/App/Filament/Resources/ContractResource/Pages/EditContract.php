@@ -25,6 +25,7 @@ use Modules\Minihouse\App\Models\Transaction;
 use Modules\Minihouse\App\Services\ContractContentRenderer;
 use Modules\Minihouse\App\Services\ContractDocumentService;
 use Modules\Minihouse\App\Services\ContractEarlyEndService;
+use Modules\Minihouse\App\Services\ContractTtlockService;
 
 class EditContract extends EditRecord
 {
@@ -39,6 +40,35 @@ class EditContract extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
+            // Đổi mã mở TTLock — xoá mã cũ trên khoá thật, cấp mã MỚI ngẫu nhiên, giữ đúng hạn dùng
+            // hiện tại (xem ContractTtlockService::regenerateCode()). Chỉ hiện khi phòng đã gán khoá
+            // VÀ hợp đồng còn hiệu lực (canChangeCode() — dùng CHUNG điều kiện với Portal/API để
+            // khách thuê tự đổi, không lệch quy tắc giữa 2 nơi).
+            Actions\Action::make('regenerateTtlockCode')
+                ->label('Đổi mã mở')
+                ->icon('heroicon-o-key')
+                ->color('gray')
+                ->visible(fn () => ContractTtlockService::canChangeCode($this->record))
+                ->form([
+                    // Để trống = TTLock tự sinh ngẫu nhiên (như trước). LỖI THẬT khách phản ánh: muốn
+                    // tự đặt 1 mã dễ nhớ (VD "123456") thay vì mã ngẫu nhiên hệ thống đưa ra.
+                    TextInput::make('custom_code')
+                        ->label('Mã mở tự chọn (không bắt buộc)')
+                        ->helperText('Để trống nếu muốn hệ thống tự sinh mã ngẫu nhiên. Nhập 4-9 chữ số nếu muốn tự chọn mã — TTLock từ chối mã quá đơn giản (số liên tiếp như 123456, số lặp như 111111).')
+                        ->numeric()
+                        ->minLength(4)
+                        ->maxLength(9),
+                ])
+                ->requiresConfirmation()
+                ->modalDescription('Mã mở cũ sẽ ngừng hoạt động ngay lập tức và được thay bằng 1 mã mới. Cần báo lại mã mới cho khách.')
+                ->action(function (array $data): void {
+                    $result = ContractTtlockService::regenerateCode($this->record, filled($data['custom_code'] ?? null) ? (string) $data['custom_code'] : null);
+
+                    $result['success']
+                        ? Notification::make()->title('Đã đổi mã mở')->body('Mã mới: ' . $result['code'])->success()->persistent()->send()
+                        : Notification::make()->title('Đổi mã thất bại')->body($result['message'])->danger()->send();
+                }),
+
             // Gia hạn hợp đồng — thay vì sửa tay end_date/monthly_price ở tab "Thông tin hợp đồng"
             // (không giữ lại lịch sử giá/ngày cũ), action này lưu thêm 1 dòng nhật ký vào
             // minihouse_contract_renewals trước khi cập nhật, để sau này còn tra lại được đã gia

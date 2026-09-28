@@ -7,6 +7,7 @@ use Modules\Minihouse\App\Models\ContractTenant;
 use Modules\Minihouse\App\Models\Room;
 use Modules\Minihouse\App\Models\Tenant;
 use Modules\Minihouse\App\Models\Vehicle;
+use Modules\Minihouse\App\Services\ContractTtlockService;
 use Modules\Minihouse\App\Services\VehicleService;
 use Modules\Minihouse\App\Services\ResidenceDeclarationService;
 
@@ -17,6 +18,7 @@ use Modules\Minihouse\App\Services\ResidenceDeclarationService;
 // (ảnh hưởng trực tiếp tỷ lệ lấp đầy trên Dashboard). Đồng thời tự tạo/cập nhật "Khai báo lưu trú"
 // cho người đứng tên hợp đồng ngay khi tạo/sửa hợp đồng — xem ResidenceDeclarationService — và tự
 // mirror Contract.tenant_id vào minihouse_contract_tenants (role=primary) để bảng đó luôn đầy đủ.
+// Đồng thời tự cấp/sửa hạn/xoá MÃ MỞ TTLock theo đúng vòng đời hợp đồng — xem ContractTtlockService.
 class ContractObserver
 {
     public function created(Contract $contract): void
@@ -35,6 +37,10 @@ class ContractObserver
                     ->orWhere(fn ($q2) => $q2->where('status', Vehicle::STATUS_INACTIVE)->whereDate('end_date', today())))
                 ->update(['contract_id' => $contract->id, 'status' => Vehicle::STATUS_ACTIVE, 'end_date' => null]);
         }
+
+        // Cấp mã mở TTLock ngay nếu phòng đã có sẵn khoá — có end_date thì mã có hạn đúng bằng
+        // [start_date, end_date], chưa có end_date thì mã "Vĩnh viễn" (xem ContractTtlockService).
+        ContractTtlockService::syncForContract($contract);
     }
 
     public function updated(Contract $contract): void
@@ -42,6 +48,11 @@ class ContractObserver
         // Hợp đồng kết thúc/thanh lý/huỷ → xe đang gửi tự ngưng (không tính phí tiếp), xe chờ duyệt bị từ chối.
         if ($contract->wasChanged('status') && $contract->status !== Contract::STATUS_ACTIVE) {
             VehicleService::deactivateForContract($contract, $contract->checkout_at);
+        }
+
+        // Đổi ngày/đổi phòng/đổi trạng thái -> cấp mới, sửa hạn, hoặc xoá mã mở TTLock cho khớp.
+        if ($contract->wasChanged(['status', 'room_id', 'start_date', 'end_date'])) {
+            ContractTtlockService::syncForContract($contract);
         }
 
         if ($contract->wasChanged(['status', 'room_id'])) {
@@ -77,6 +88,17 @@ class ContractObserver
         if ($contract->wasChanged(['tenant_id', 'room_id', 'start_date', 'end_date', 'reason_for_stay', 'custom_reason', 'status', 'checkout_at'])) {
             app(ResidenceDeclarationService::class)->syncContract($contract);
         }
+    }
+
+    // Chạy TRƯỚC khi bản ghi thật sự bị xoá (soft-delete lẫn forceDelete) — BẮT BUỘC ở "deleting", không
+    // phải "deleted": FK minihouse_contract_ttlock_passcodes.contract_id có cascadeOnDelete(), nên với
+    // forceDelete() (xoá thật) MySQL tự xoá cascade các dòng đó NGAY khi câu SQL DELETE chạy xong —
+    // xảy ra TRƯỚC sự kiện "deleted" của Eloquent. Nếu tra ở "deleted" thì dòng đã biến mất khỏi DB
+    // (dù mã trên chính khoá TTLock thật vẫn còn nguyên), purgeForContract() sẽ tưởng không có gì để
+    // xoá và bỏ sót lệnh gọi deletePasscode() thật.
+    public function deleting(Contract $contract): void
+    {
+        ContractTtlockService::purgeForContract($contract);
     }
 
     public function deleted(Contract $contract): void
