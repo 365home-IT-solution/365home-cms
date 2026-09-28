@@ -102,6 +102,10 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
     Route::post('contracts/{id}/checkout', [ContractController::class, 'checkout'])->name('contracts.checkout');
     Route::post('contracts/{id}/cancel', [ContractController::class, 'cancel'])->name('contracts.cancel');
     Route::post('contracts/{id}/transfer-room', [ContractController::class, 'transferRoom'])->name('contracts.transfer-room');
+    // Bản Admin API của nút "Đổi mã mở" (Filament EditContract) — dùng cho app/hệ thống ngoài,
+    // trước đây tính năng này chỉ có ở Filament + Portal khách thuê.
+    Route::get('contracts/{id}/lock-code', [ContractController::class, 'lockCode'])->name('contracts.lock-code.show');
+    Route::post('contracts/{id}/lock-code/regenerate', [ContractController::class, 'regenerateLockCode'])->name('contracts.lock-code.regenerate');
 
     // Hợp đồng điện tử (Mức A) — xem docs/be-minihouse-contract-signing.md mục 4 và
     // ContractDocumentController.

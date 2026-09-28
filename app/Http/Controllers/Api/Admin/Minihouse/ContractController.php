@@ -488,6 +488,53 @@ class ContractController extends Controller
         return response()->json(['data' => $this->toDetailItem($result->fresh(['room' => fn ($q) => $q->withoutGlobalScopes(), 'room.building' => fn ($q) => $q->withoutGlobalScopes(), 'tenant' => fn ($q) => $q->withoutGlobalScopes()]))], 201);
     }
 
+    // GET /api/admin/minihouse/contracts/{id}/lock-code — bản Admin API của nút "Đổi mã mở" (Filament
+    // EditContract) — trước đây tính năng này CHỈ có ở Filament + Portal khách thuê, chưa có API cho
+    // app/hệ thống ngoài của nhân viên gọi vào. Mirror ĐÚNG cùng service với Filament/Portal
+    // (ContractTtlockService), không viết lại logic riêng để tránh lệch hành vi giữa 2 nơi.
+    public function lockCode(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasPermission($request, 'view_any_contracts')) {
+            return response()->json(['message' => 'Không có quyền xem hợp đồng.'], 403);
+        }
+
+        $contract = Contract::withoutGlobalScopes()->with(['room' => fn ($q) => $q->withoutGlobalScopes()])->find($id);
+
+        if (! $contract || ! $this->isBuildingAllowed($request, $contract->room?->building_id)) {
+            return response()->json(['message' => 'Không tìm thấy hợp đồng.'], 404);
+        }
+
+        return response()->json(['data' => [
+            'code'       => \Modules\Minihouse\App\Services\ContractTtlockService::currentCode($contract),
+            'can_change' => \Modules\Minihouse\App\Services\ContractTtlockService::canChangeCode($contract),
+        ]]);
+    }
+
+    // POST /api/admin/minihouse/contracts/{id}/lock-code/regenerate — cùng quyền "update_contracts"
+    // như Gia hạn/Thanh lý/Huỷ/Chuyển phòng (đều là hành động thay đổi hợp đồng). Body "code" không
+    // bắt buộc — để trống thì hệ thống tự sinh mã ngẫu nhiên; truyền vào (4-9 chữ số) để tự chọn 1
+    // mã dễ nhớ, y hệt hành vi ở Filament/Portal (xem ContractTtlockService::regenerateCode()).
+    public function regenerateLockCode(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasPermission($request, 'update_contracts')) {
+            return response()->json(['message' => 'Không có quyền đổi mã mở.'], 403);
+        }
+
+        $contract = Contract::withoutGlobalScopes()->with(['room' => fn ($q) => $q->withoutGlobalScopes()])->find($id);
+
+        if (! $contract || ! $this->isBuildingAllowed($request, $contract->room?->building_id)) {
+            return response()->json(['message' => 'Không tìm thấy hợp đồng.'], 404);
+        }
+
+        $data = $request->validate(['code' => ['nullable', 'digits_between:4,9']]);
+
+        $result = \Modules\Minihouse\App\Services\ContractTtlockService::regenerateCode($contract, filled($data['code'] ?? null) ? (string) $data['code'] : null);
+
+        return $result['success']
+            ? response()->json(['data' => ['code' => $result['code']], 'message' => $result['message']])
+            : response()->json(['message' => $result['message']], 422);
+    }
+
     private function toListItem(Contract $contract): array
     {
         return [
