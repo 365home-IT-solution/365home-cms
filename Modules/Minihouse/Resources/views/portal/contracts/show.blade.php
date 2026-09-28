@@ -4,11 +4,11 @@
 
 @section('content')
     @php
-        [$statusLabel, $statusColor] = match ($contract->status) {
-            \Modules\Minihouse\App\Models\Contract::STATUS_ACTIVE => ['Đang hiệu lực', 'bg-green-50 text-green-700'],
-            \Modules\Minihouse\App\Models\Contract::STATUS_EXPIRED => ['Hết hạn', 'bg-gray-100 text-gray-600'],
-            \Modules\Minihouse\App\Models\Contract::STATUS_CANCELLED => ['Đã huỷ', 'bg-red-50 text-red-700'],
-            default => ['—', 'bg-gray-100 text-gray-600'],
+        [$statusLabel, $statusBadge] = match ($contract->status) {
+            \Modules\Minihouse\App\Models\Contract::STATUS_ACTIVE => ['Đang hiệu lực', 'mh-badge-green'],
+            \Modules\Minihouse\App\Models\Contract::STATUS_EXPIRED => ['Hết hạn', 'mh-badge-gray'],
+            \Modules\Minihouse\App\Models\Contract::STATUS_CANCELLED => ['Đã huỷ', 'mh-badge-red'],
+            default => ['—', 'mh-badge-gray'],
         };
 
         $files = [
@@ -19,54 +19,78 @@
         ];
     @endphp
 
-    <a href="{{ route('minihouse.portal.contracts.index') }}" class="text-sm text-gray-500 hover:text-gray-700">&larr; Quay lại danh sách hợp đồng</a>
+    <a href="{{ route('minihouse.portal.contracts.index') }}" class="text-sm text-gray-500 hover:text-gray-900 transition">&larr; Danh sách hợp đồng</a>
 
-    <div class="mt-2 flex items-center justify-between">
-        <h1 class="text-xl font-semibold text-gray-900">Phòng {{ $contract->room?->code ?? '—' }}</h1>
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full {{ $statusColor }}">{{ $statusLabel }}</span>
+    <div class="mt-3 flex items-center justify-between">
+        <h1 class="text-xl font-bold text-gray-900 mh-heading">Phòng {{ $contract->room?->code ?? '—' }}</h1>
+        <span class="mh-badge {{ $statusBadge }}">{{ $statusLabel }}</span>
     </div>
     <p class="text-sm text-gray-500">{{ $contract->room?->building?->name ?? '—' }}</p>
 
-    <div class="mt-4 rounded-xl bg-white p-4 shadow-sm border border-gray-100">
-        <table class="w-full text-sm">
-            <tbody>
-                <tr class="border-b border-gray-100">
-                    <td class="py-2 text-gray-500">Giá thuê</td>
-                    <td class="py-2 text-right text-gray-900">{{ number_format((float) $contract->monthly_price, 0, ',', '.') }}đ/tháng</td>
-                </tr>
-                <tr class="border-b border-gray-100">
-                    <td class="py-2 text-gray-500">Tiền cọc</td>
-                    <td class="py-2 text-right text-gray-900">{{ number_format((float) $contract->deposit_amount, 0, ',', '.') }}đ</td>
-                </tr>
-                <tr class="border-b border-gray-100">
-                    <td class="py-2 text-gray-500">Ngày bắt đầu</td>
-                    <td class="py-2 text-right text-gray-900">{{ $contract->start_date?->format('d/m/Y') }}</td>
-                </tr>
-                @if ($contract->end_date)
-                    <tr class="border-b border-gray-100">
-                        <td class="py-2 text-gray-500">Ngày kết thúc</td>
-                        <td class="py-2 text-right text-gray-900">{{ $contract->end_date->format('d/m/Y') }}</td>
-                    </tr>
+    <div class="mt-4 mh-card mh-card-pad">
+        <div class="space-y-2.5 text-sm">
+            <div class="flex justify-between"><span class="text-gray-500">Giá thuê</span><span class="font-semibold text-gray-900 mh-tabular">{{ number_format((float) $contract->monthly_price, 0, ',', '.') }}đ/tháng</span></div>
+            <div class="flex justify-between pt-2.5 border-t" style="border-color: var(--mh-border);"><span class="text-gray-500">Tiền cọc</span><span class="font-semibold text-gray-900 mh-tabular">{{ number_format((float) $contract->deposit_amount, 0, ',', '.') }}đ</span></div>
+            <div class="flex justify-between pt-2.5 border-t" style="border-color: var(--mh-border);"><span class="text-gray-500">Ngày bắt đầu</span><span class="text-gray-900 mh-tabular">{{ $contract->start_date?->format('d/m/Y') }}</span></div>
+            @if ($contract->end_date)
+                <div class="flex justify-between pt-2.5 border-t" style="border-color: var(--mh-border);"><span class="text-gray-500">Ngày kết thúc</span><span class="text-gray-900 mh-tabular">{{ $contract->end_date->format('d/m/Y') }}</span></div>
+            @endif
+            @if ($contract->checkout_at)
+                <div class="flex justify-between pt-2.5 border-t" style="border-color: var(--mh-border);"><span class="text-gray-500">Ngày trả phòng thực tế</span><span class="text-gray-900 mh-tabular">{{ $contract->checkout_at->format('d/m/Y') }}</span></div>
+                @if ($contract->deposit_refunded_amount)
+                    <div class="flex justify-between pt-2.5 border-t" style="border-color: var(--mh-border);"><span class="text-gray-500">Tiền cọc đã hoàn</span><span class="text-gray-900 mh-tabular">{{ number_format((float) $contract->deposit_refunded_amount, 0, ',', '.') }}đ</span></div>
                 @endif
-                @if ($contract->checkout_at)
-                    <tr class="border-b border-gray-100">
-                        <td class="py-2 text-gray-500">Ngày trả phòng thực tế</td>
-                        <td class="py-2 text-right text-gray-900">{{ $contract->checkout_at->format('d/m/Y') }}</td>
-                    </tr>
-                    @if ($contract->deposit_refunded_amount)
-                        <tr>
-                            <td class="py-2 text-gray-500">Tiền cọc đã hoàn</td>
-                            <td class="py-2 text-right text-gray-900">{{ number_format((float) $contract->deposit_refunded_amount, 0, ',', '.') }}đ</td>
-                        </tr>
-                    @endif
-                @endif
-            </tbody>
-        </table>
+            @endif
+        </div>
     </div>
 
+    @if ($lockCode || $canChangeCode)
+        <div class="mt-4 mh-card mh-card-pad">
+            <div class="text-sm font-semibold text-gray-900">Mã cổng</div>
+
+            @if ($lockCode)
+                <div class="mt-2 text-3xl font-extrabold tracking-[0.2em] mh-heading mh-tabular" style="color: var(--mh-primary);">{{ $lockCode }}</div>
+            @else
+                <p class="mt-2 text-sm text-gray-500">Chưa có mã — liên hệ nhân viên toà nhà nếu bạn cần mở cổng bằng mã số.</p>
+            @endif
+
+            @if ($canChangeCode)
+                @error('custom_code')
+                    <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
+                @enderror
+                @error('lock_code')
+                    <p class="mt-2 text-sm text-red-600">{{ $message }}</p>
+                @enderror
+                <form id="lockCodeForm" method="POST" action="{{ route('minihouse.portal.contracts.lock-code.regenerate', $contract->id) }}" class="mt-3 flex flex-wrap items-center gap-2">
+                    @csrf
+                    <input type="text" name="custom_code" inputmode="numeric" maxlength="9" value="{{ old('custom_code') }}"
+                           placeholder="Tự chọn mã (bỏ trống để hệ thống tự tạo)"
+                           class="mh-input flex-1 min-w-[12rem]">
+                    <button type="button" onclick="document.getElementById('lockCodeConfirmModal').classList.remove('hidden')" class="mh-btn-secondary">
+                        {{ $lockCode ? 'Đổi mã cổng' : 'Cấp mã cổng' }}
+                    </button>
+                </form>
+                <p class="mt-2 text-xs text-gray-400">Nhập 4-9 chữ số nếu muốn tự chọn mã (không dùng số liên tiếp như 123456 hoặc số lặp như 111111 — hệ thống khoá sẽ từ chối), bỏ trống để tự sinh mã ngẫu nhiên.</p>
+
+                {{-- Popup xác nhận riêng của trang (thay cho confirm() mặc định của trình duyệt —
+                     xấu, không đổi được giao diện, không đồng bộ với style của trang). --}}
+                <div id="lockCodeConfirmModal" class="hidden fixed inset-0 z-20 flex items-center justify-center bg-black/40 px-4">
+                    <div class="w-full max-w-sm mh-card mh-card-pad" style="box-shadow: 0 20px 40px rgba(20,23,43,0.18);">
+                        <div class="text-base font-bold text-gray-900 mh-heading">Đổi mã cổng?</div>
+                        <p class="mt-1 text-sm text-gray-500">Mã cũ sẽ ngừng dùng được ngay và được thay bằng mã mới.</p>
+                        <div class="mt-4 flex justify-end gap-2">
+                            <button type="button" onclick="document.getElementById('lockCodeConfirmModal').classList.add('hidden')" class="mh-btn-secondary">Huỷ</button>
+                            <button type="button" onclick="document.getElementById('lockCodeForm').submit()" class="mh-btn-primary" style="width: auto; padding: 0.5rem 1rem;">Xác nhận</button>
+                        </div>
+                    </div>
+                </div>
+            @endif
+        </div>
+    @endif
+
     @if ($contract->contract_content)
-        <div class="mt-4 rounded-xl bg-white p-4 shadow-sm border border-gray-100">
-            <div class="text-sm font-medium text-gray-900 mb-2">Nội dung hợp đồng</div>
+        <div class="mt-4 mh-card mh-card-pad">
+            <div class="text-sm font-semibold text-gray-900 mb-2">Nội dung hợp đồng</div>
             <div class="prose prose-sm max-w-none text-gray-600">{!! $contract->contract_content !!}</div>
         </div>
     @endif
@@ -76,12 +100,12 @@
     @endphp
 
     @if ($hasAnyFile)
-        <div class="mt-4 rounded-xl bg-white p-4 shadow-sm border border-gray-100">
-            <div class="text-sm font-medium text-gray-900 mb-2">Giấy tờ đính kèm</div>
+        <div class="mt-4 mh-card mh-card-pad">
+            <div class="text-sm font-semibold text-gray-900 mb-2">Giấy tờ đính kèm</div>
             <div class="space-y-2">
                 @foreach ($files as $field => $label)
                     @if ($contract->{$field})
-                        <a href="{{ \Illuminate\Support\Facades\Storage::disk('public')->url($contract->{$field}) }}" target="_blank" rel="noopener" class="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm hover:border-gray-400 transition">
+                        <a href="{{ \Illuminate\Support\Facades\Storage::disk('public')->url($contract->{$field}) }}" target="_blank" rel="noopener" class="flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-sm transition hover:border-gray-300" style="border-color: var(--mh-border);">
                             <span class="text-gray-700">{{ $label }}</span>
                             <span class="text-gray-400">Tải về &rarr;</span>
                         </a>

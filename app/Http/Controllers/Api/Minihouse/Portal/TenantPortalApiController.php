@@ -18,6 +18,7 @@ use Modules\Minihouse\App\Models\Tenant;
 use Modules\Minihouse\App\Models\TenantFeedback;
 use Modules\Minihouse\App\Models\TenantPushToken;
 use Modules\Minihouse\App\Services\ContractContentRenderer;
+use Modules\Minihouse\App\Services\ContractTtlockService;
 use Modules\Minihouse\App\Services\InvoiceContentRenderer;
 use Modules\Minihouse\App\Services\TenantPortalService;
 use Modules\Minihouse\Http\Controllers\Portal\Concerns\InteractsWithTenantPortalData;
@@ -293,6 +294,37 @@ class TenantPortalApiController extends Controller
         ]);
 
         return response()->json(['message' => 'Đã gửi yêu cầu trả phòng. Nhân viên sẽ liên hệ lại với bạn.']);
+    }
+
+    // GET /api/minihouse/portal/contracts/{id}/lock-code — mã cổng hiện tại của phòng đang thuê + có
+    // đổi được không (xem ContractTtlockService::canChangeCode(): còn hiệu lực + phòng đã gán khoá).
+    public function showLockCode(Request $request, int $id): JsonResponse
+    {
+        $contract = TenantPortalService::tenantContracts($this->tenant($request))->firstWhere('id', $id);
+        abort_unless($contract, 403);
+
+        return response()->json(['data' => [
+            'code'       => ContractTtlockService::currentCode($contract),
+            'can_change' => ContractTtlockService::canChangeCode($contract),
+        ]]);
+    }
+
+    // POST /api/minihouse/portal/contracts/{id}/lock-code/regenerate — khách thuê tự đổi mã cổng của
+    // chính mình. Chỉ đổi được trong thời hạn hợp đồng còn hiệu lực (422 nếu hết hạn/chưa gán khoá).
+    // Body "code" không bắt buộc — để trống thì hệ thống tự sinh mã ngẫu nhiên như trước; truyền vào
+    // (4-9 chữ số) để tự chọn 1 mã dễ nhớ (LỖI THẬT khách phản ánh muốn tự đặt mã, VD "123456").
+    public function regenerateLockCode(Request $request, int $id): JsonResponse
+    {
+        $contract = TenantPortalService::tenantContracts($this->tenant($request))->firstWhere('id', $id);
+        abort_unless($contract, 403);
+
+        $request->validate(['code' => ['nullable', 'digits_between:4,9']]);
+
+        $result = ContractTtlockService::regenerateCode($contract, $request->filled('code') ? (string) $request->input('code') : null);
+
+        return $result['success']
+            ? response()->json(['data' => ['code' => $result['code']], 'message' => $result['message']])
+            : response()->json(['message' => $result['message']], 422);
     }
 
     // GET /api/minihouse/portal/contracts/{id}/pdf — bản PDF hợp đồng ĐANG LƯU (contract_content),

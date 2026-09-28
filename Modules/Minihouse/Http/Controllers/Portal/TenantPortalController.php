@@ -10,6 +10,7 @@ use Illuminate\View\View;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\PortalNotification;
 use Modules\Minihouse\App\Models\Tenant;
+use Modules\Minihouse\App\Services\ContractTtlockService;
 use Modules\Minihouse\App\Services\TenantPortalService;
 use Modules\Minihouse\Http\Controllers\Portal\Concerns\InteractsWithTenantPortalData;
 
@@ -155,7 +156,33 @@ class TenantPortalController extends Controller
 
         abort_unless($contract, 403);
 
-        return view('minihouse::portal.contracts.show', ['contract' => $contract]);
+        return view('minihouse::portal.contracts.show', [
+            'contract'       => $contract,
+            'lockCode'       => ContractTtlockService::currentCode($contract),
+            'canChangeCode'  => ContractTtlockService::canChangeCode($contract),
+        ]);
+    }
+
+    // POST /minihouse/portal/contracts/{contract}/lock-code/regenerate — khách thuê tự đổi mã cổng
+    // của chính mình. Chỉ đổi được khi hợp đồng còn hiệu lực và phòng đã gán khoá — xem
+    // ContractTtlockService::canChangeCode() (dùng CHUNG điều kiện với nút "Đổi mã mở" của nhân viên).
+    public function regenerateLockCode(\Illuminate\Http\Request $request, int $id): RedirectResponse
+    {
+        $contract = TenantPortalService::tenantContracts($this->tenant())->firstWhere('id', $id);
+
+        abort_unless($contract, 403);
+
+        // custom_code không bắt buộc — để trống thì hệ thống tự sinh mã ngẫu nhiên như trước. LỖI
+        // THẬT khách phản ánh: muốn tự đặt 1 mã dễ nhớ (VD "123456") thay vì mã ngẫu nhiên.
+        $request->validate(['custom_code' => ['nullable', 'digits_between:4,9']]);
+
+        $result = ContractTtlockService::regenerateCode($contract, $request->filled('custom_code') ? (string) $request->input('custom_code') : null);
+
+        if (! $result['success']) {
+            return back()->withErrors(['lock_code' => $result['message']]);
+        }
+
+        return back()->with('portal_info', $result['message'] . ' Mã mới: ' . $result['code']);
     }
 
     public function invoices(): View

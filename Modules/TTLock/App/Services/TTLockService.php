@@ -17,12 +17,23 @@ class TTLockService
     // API còn lại (đi theo $this->apiBase riêng của từng account/khu vực — xem __construct()).
     private const SCIENER_API = 'https://api.sciener.com';
 
+    // TTLock trả đúng mã lỗi này khi access token KHÔNG còn hiệu lực (tài khoản vừa đăng nhập lại ở
+    // nơi khác, hoặc TTLock tự huỷ token sớm hơn thời gian mình lưu cache) — xem sendWithTokenRetry().
+    private const ERRCODE_INVALID_TOKEN = 10003;
+
     private string $clientId;
     private string $clientSecret;
     private string $username;
     private string $password;
     private string $apiBase;
     private string $cachePrefix;
+
+    // errmsg gốc từ TTLock của lần gọi generatePasscode/addCustomPasscode/modifyPasscode THẤT BẠI
+    // gần nhất — để nơi gọi (VD ContractTtlockService) hiển thị đúng lý do thật cho người dùng thay
+    // vì chỉ nói chung chung "thất bại, kiểm tra mạng". LỖI THẬT gặp 2026-09-28: TTLock từ chối mã
+    // "123456" (errcode -2032 "Passcode is too simple...") — khách/nhân viên không biết vì sao thất
+    // bại nếu chỉ thấy thông báo chung chung.
+    public ?string $lastErrorMessage = null;
 
     public function __construct(
         string $clientId,
@@ -259,6 +270,44 @@ class TTLockService
         Cache::forget("{$this->cachePrefix}_refresh_token");
     }
 
+    // Bọc quanh 1 lệnh gọi API TTLock để TỰ "AUTO-HEAL" đúng lỗi "invalid token" (errcode 10003) —
+    // LỖI THẬT gặp 2026-09-28: cache còn giữ access token (theo thời gian hết hạn mình tự tính), NHƯNG
+    // TTLock đã coi token đó KHÔNG CÒN HIỆU LỰC (tài khoản TTLock bị đăng nhập lại ở nơi khác, hoặc
+    // TTLock tự huỷ token sớm hơn thời gian mình lưu). Trước đây gặp lỗi này phải tự vào "Cấu hình
+    // TTLock" bấm "Kiểm tra kết nối" (clearTokenCache()+fetchNewToken()) rồi thử lại THAO TÁC ban đầu
+    // lần nữa — giờ tự làm đúng việc đó VÀ TỰ THỬ LẠI, người dùng không thấy lỗi nếu lần 2 thành công.
+    // Chỉ thử lại ĐÚNG 1 LẦN (không lặp vô hạn nếu TTLock vẫn từ chối, VD tài khoản sai thật).
+    //
+    // $send: nhận vào 1 access token hợp lệ, tự gửi request, trả về đúng đối tượng Response gốc —
+    // nơi gọi vẫn tự ->json()/->successful()/->status() y hệt trước đây, hàm này CHỈ thêm phần thử
+    // lại khi dính lỗi 10003, không đổi cách mỗi nơi tự đọc kết quả.
+    private function sendWithTokenRetry(callable $send): ?\Illuminate\Http\Client\Response
+    {
+        $token = $this->getAccessToken();
+
+        if (! $token) {
+            return null;
+        }
+
+        $response = $send($token);
+        $data     = $response->json();
+
+        if ((int) ($data['errcode'] ?? 0) === self::ERRCODE_INVALID_TOKEN) {
+            Log::warning('TTLock: access token bị từ chối (errcode 10003) dù cache còn hạn — xin token mới rồi thử lại 1 lần.', [
+                'cache_prefix' => $this->cachePrefix,
+            ]);
+
+            $this->clearTokenCache();
+            $newToken = $this->getAccessToken();
+
+            if ($newToken) {
+                $response = $send($newToken);
+            }
+        }
+
+        return $response;
+    }
+
     // =========================================================
     // Lấy danh sách khóa của tài khoản
     // GET /v3/lock/list
@@ -266,28 +315,28 @@ class TTLockService
 
     public function getLockList(): array
     {
-        $token = $this->getAccessToken();
-
-        if (!$token) {
-            Log::error('TTLock getLockList: no access token');
-            return [];
-        }
-
         $pageNo   = 1;
         $pageSize = 100;
         $locks    = [];
 
         do {
             try {
-                $response = Http::timeout(20)->withOptions([
-                    'verify' => false,
-                ])->get("{$this->apiBase}/v3/lock/list", [
-                    'clientId'    => $this->clientId,
-                    'accessToken' => $token,
-                    'pageNo'      => $pageNo,
-                    'pageSize'    => $pageSize,
-                    'date'        => (int) round(microtime(true) * 1000),
-                ]);
+                $response = $this->sendWithTokenRetry(function (string $token) use ($pageNo, $pageSize) {
+                    return Http::timeout(20)->withOptions([
+                        'verify' => false,
+                    ])->get("{$this->apiBase}/v3/lock/list", [
+                        'clientId'    => $this->clientId,
+                        'accessToken' => $token,
+                        'pageNo'      => $pageNo,
+                        'pageSize'    => $pageSize,
+                        'date'        => (int) round(microtime(true) * 1000),
+                    ]);
+                });
+
+                if ($response === null) {
+                    Log::error('TTLock getLockList: no access token');
+                    break;
+                }
 
                 $data = $response->json();
 
@@ -324,37 +373,38 @@ class TTLockService
         string $name    = 'Khách đặt phòng',
         int    $pwdType = 3
     ): ?array {
-        $token = $this->getAccessToken();
-
-        if (!$token) {
-            Log::error('TTLock generatePasscode: no access token');
-            return null;
-        }
-
         $now       = (int) round(microtime(true) * 1000);
         $startDate = $startDate - (30 * 60 * 1000);
         if ($endDate > 0) {
             $endDate = $endDate + (30 * 60 * 1000);
         }
 
-        $params = [
-            'clientId'        => $this->clientId,
-            'accessToken'     => $token,
-            'lockId'          => $lockId,
-            'keyboardPwdType' => $pwdType,
-            'keyboardPwdName' => $name,
-            'startDate'       => $startDate,
-            'date'            => $now,
-        ];
-
-        if ($endDate > 0) {
-            $params['endDate'] = $endDate;
-        }
-
         try {
-            $response = Http::timeout(20)->withOptions([
-                'verify' => false,
-            ])->asForm()->post("{$this->apiBase}/v3/keyboardPwd/get", $params);
+            $response = $this->sendWithTokenRetry(function (string $token) use ($lockId, $startDate, $endDate, $name, $pwdType, $now) {
+                $params = [
+                    'clientId'        => $this->clientId,
+                    'accessToken'     => $token,
+                    'lockId'          => $lockId,
+                    'keyboardPwdType' => $pwdType,
+                    'keyboardPwdName' => $name,
+                    'startDate'       => $startDate,
+                    'date'            => $now,
+                ];
+
+                if ($endDate > 0) {
+                    $params['endDate'] = $endDate;
+                }
+
+                return Http::timeout(20)->withOptions([
+                    'verify' => false,
+                ])->asForm()->post("{$this->apiBase}/v3/keyboardPwd/get", $params);
+            });
+
+            if ($response === null) {
+                $this->lastErrorMessage = 'Không lấy được access token — kiểm tra lại tài khoản TTLock của toà nhà.';
+                Log::error('TTLock generatePasscode: no access token');
+                return null;
+            }
 
             $data = $response->json();
 
@@ -365,12 +415,15 @@ class TTLockService
             ]);
 
             if ($response->successful() && isset($data['keyboardPwd'])) {
+                $this->lastErrorMessage = null;
+
                 return [
                     'code'          => $data['keyboardPwd'],
                     'keyboardPwdId' => (int) ($data['keyboardPwdId'] ?? 0),
                 ];
             }
 
+            $this->lastErrorMessage = $data['errmsg'] ?? null;
             Log::error('TTLock generatePasscode failed', ['lockId' => $lockId, 'response' => $data]);
             return null;
 
@@ -394,39 +447,40 @@ class TTLockService
         int    $pwdType = 3,
         int    $addType = 2
     ): ?array {
-        $token = $this->getAccessToken();
-
-        if (!$token) {
-            Log::error('TTLock addCustomPasscode: no access token');
-            return null;
-        }
-
         $now       = (int) round(microtime(true) * 1000);
         $startDate = $startDate - (30 * 60 * 1000);
         if ($endDate > 0) {
             $endDate = $endDate + (30 * 60 * 1000);
         }
 
-        $params = [
-            'clientId'        => $this->clientId,
-            'accessToken'     => $token,
-            'lockId'          => $lockId,
-            'keyboardPwd'     => $code,
-            'keyboardPwdType' => $pwdType,
-            'keyboardPwdName' => $name,
-            'startDate'       => $startDate,
-            'addType'         => $addType,
-            'date'            => $now,
-        ];
-
-        if ($endDate > 0) {
-            $params['endDate'] = $endDate;
-        }
-
         try {
-            $response = Http::timeout(10)->withOptions([
-                'verify' => false,
-            ])->asForm()->post("{$this->apiBase}/v3/keyboardPwd/add", $params);
+            $response = $this->sendWithTokenRetry(function (string $token) use ($lockId, $code, $startDate, $endDate, $name, $pwdType, $addType, $now) {
+                $params = [
+                    'clientId'        => $this->clientId,
+                    'accessToken'     => $token,
+                    'lockId'          => $lockId,
+                    'keyboardPwd'     => $code,
+                    'keyboardPwdType' => $pwdType,
+                    'keyboardPwdName' => $name,
+                    'startDate'       => $startDate,
+                    'addType'         => $addType,
+                    'date'            => $now,
+                ];
+
+                if ($endDate > 0) {
+                    $params['endDate'] = $endDate;
+                }
+
+                return Http::timeout(10)->withOptions([
+                    'verify' => false,
+                ])->asForm()->post("{$this->apiBase}/v3/keyboardPwd/add", $params);
+            });
+
+            if ($response === null) {
+                $this->lastErrorMessage = 'Không lấy được access token — kiểm tra lại tài khoản TTLock của toà nhà.';
+                Log::error('TTLock addCustomPasscode: no access token');
+                return null;
+            }
 
             $data = $response->json();
 
@@ -438,9 +492,12 @@ class TTLockService
             ]);
 
             if ($response->successful() && isset($data['keyboardPwdId'])) {
+                $this->lastErrorMessage = null;
+
                 return ['keyboardPwdId' => (int) $data['keyboardPwdId']];
             }
 
+            $this->lastErrorMessage = $data['errmsg'] ?? null;
             Log::error('TTLock addCustomPasscode failed', ['lockId' => $lockId, 'response' => $data]);
             return null;
 
@@ -463,37 +520,37 @@ class TTLockService
         string $name       = '',
         int    $changeType = 2
     ): bool {
-        $token = $this->getAccessToken();
-
-        if (!$token) {
-            Log::error('TTLock modifyPasscode: no access token');
-            return false;
-        }
-
         $now = (int) round(microtime(true) * 1000);
 
-        $params = [
-            'clientId'      => $this->clientId,
-            'accessToken'   => $token,
-            'lockId'        => $lockId,
-            'keyboardPwdId' => $keyboardPwdId,
-            'startDate'     => $startDate,
-            'changeType'    => $changeType,
-            'date'          => $now,
-        ];
-
-        if ($endDate > 0) {
-            $params['endDate'] = $endDate;
-        }
-
-        if ($name !== '') {
-            $params['keyboardPwdName'] = $name;
-        }
-
         try {
-            $response = Http::timeout(20)->withOptions([
-                'verify' => false,
-            ])->asForm()->post("{$this->apiBase}/v3/keyboardPwd/change", $params);
+            $response = $this->sendWithTokenRetry(function (string $token) use ($lockId, $keyboardPwdId, $startDate, $endDate, $name, $changeType, $now) {
+                $params = [
+                    'clientId'      => $this->clientId,
+                    'accessToken'   => $token,
+                    'lockId'        => $lockId,
+                    'keyboardPwdId' => $keyboardPwdId,
+                    'startDate'     => $startDate,
+                    'changeType'    => $changeType,
+                    'date'          => $now,
+                ];
+
+                if ($endDate > 0) {
+                    $params['endDate'] = $endDate;
+                }
+
+                if ($name !== '') {
+                    $params['keyboardPwdName'] = $name;
+                }
+
+                return Http::timeout(20)->withOptions([
+                    'verify' => false,
+                ])->asForm()->post("{$this->apiBase}/v3/keyboardPwd/change", $params);
+            });
+
+            if ($response === null) {
+                Log::error('TTLock modifyPasscode: no access token');
+                return false;
+            }
 
             $data = $response->json();
 
@@ -523,23 +580,23 @@ class TTLockService
 
     public function remoteUnlock(int $lockId): bool
     {
-        $token = $this->getAccessToken();
-
-        if (!$token) {
-            Log::error('TTLock remoteUnlock: no access token');
-            return false;
-        }
-
         try {
-            $response = Http::timeout(15)->withOptions([
-                'verify' => false,
-                'curl'   => [CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4],
-            ])->asForm()->post(self::SCIENER_API . '/v3/lock/unlock', [
-                'clientId'    => $this->clientId,
-                'accessToken' => $token,
-                'lockId'      => $lockId,
-                'date'        => (int) round(microtime(true) * 1000),
-            ]);
+            $response = $this->sendWithTokenRetry(function (string $token) use ($lockId) {
+                return Http::timeout(15)->withOptions([
+                    'verify' => false,
+                    'curl'   => [CURLOPT_IPRESOLVE => CURL_IPRESOLVE_V4],
+                ])->asForm()->post(self::SCIENER_API . '/v3/lock/unlock', [
+                    'clientId'    => $this->clientId,
+                    'accessToken' => $token,
+                    'lockId'      => $lockId,
+                    'date'        => (int) round(microtime(true) * 1000),
+                ]);
+            });
+
+            if ($response === null) {
+                Log::error('TTLock remoteUnlock: no access token');
+                return false;
+            }
 
             $data = $response->json();
 
@@ -607,26 +664,26 @@ class TTLockService
 
     public function getLockRecords(int $lockId, int $pageNo = 1, int $pageSize = 20, int $startDate = 0, int $endDate = 0): array
     {
-        $token = $this->getAccessToken();
-
-        if (!$token) {
-            Log::error('TTLock getLockRecords: no access token');
-            return [];
-        }
-
         try {
-            $response = Http::timeout(20)->withOptions([
-                'verify' => false,
-            ])->get("{$this->apiBase}/v3/lockRecord/list", [
-                'clientId'    => $this->clientId,
-                'accessToken' => $token,
-                'lockId'      => $lockId,
-                'startDate'   => $startDate,
-                'endDate'     => $endDate,
-                'pageNo'      => $pageNo,
-                'pageSize'    => $pageSize,
-                'date'        => (int) round(microtime(true) * 1000),
-            ]);
+            $response = $this->sendWithTokenRetry(function (string $token) use ($lockId, $pageNo, $pageSize, $startDate, $endDate) {
+                return Http::timeout(20)->withOptions([
+                    'verify' => false,
+                ])->get("{$this->apiBase}/v3/lockRecord/list", [
+                    'clientId'    => $this->clientId,
+                    'accessToken' => $token,
+                    'lockId'      => $lockId,
+                    'startDate'   => $startDate,
+                    'endDate'     => $endDate,
+                    'pageNo'      => $pageNo,
+                    'pageSize'    => $pageSize,
+                    'date'        => (int) round(microtime(true) * 1000),
+                ]);
+            });
+
+            if ($response === null) {
+                Log::error('TTLock getLockRecords: no access token');
+                return [];
+            }
 
             $data = $response->json();
 
@@ -652,27 +709,28 @@ class TTLockService
 
     private function paginateAll(string $path, array $extraParams, int $pageSize = 100): array
     {
-        $token = $this->getAccessToken();
-
-        if (!$token) {
-            Log::error("TTLock paginateAll({$path}): no access token");
-            return [];
-        }
-
         $all = [];
         $pageNo = 1;
+        $gotCount = 0;
 
         do {
             try {
-                $response = Http::timeout(20)->withOptions([
-                    'verify' => false,
-                ])->get("{$this->apiBase}{$path}", array_filter(array_merge($extraParams, [
-                    'clientId'    => $this->clientId,
-                    'accessToken' => $token,
-                    'pageNo'      => $pageNo,
-                    'pageSize'    => $pageSize,
-                    'date'        => (int) round(microtime(true) * 1000),
-                ]), fn ($v) => $v !== null));
+                $response = $this->sendWithTokenRetry(function (string $token) use ($path, $extraParams, $pageNo, $pageSize) {
+                    return Http::timeout(20)->withOptions([
+                        'verify' => false,
+                    ])->get("{$this->apiBase}{$path}", array_filter(array_merge($extraParams, [
+                        'clientId'    => $this->clientId,
+                        'accessToken' => $token,
+                        'pageNo'      => $pageNo,
+                        'pageSize'    => $pageSize,
+                        'date'        => (int) round(microtime(true) * 1000),
+                    ]), fn ($v) => $v !== null));
+                });
+
+                if ($response === null) {
+                    Log::error("TTLock paginateAll({$path}): no access token");
+                    break;
+                }
 
                 $data = $response->json();
 
@@ -738,36 +796,36 @@ class TTLockService
         string $name      = '',
         int    $fingerprintType = 1
     ): ?array {
-        $token = $this->getAccessToken();
-
-        if (!$token) {
-            Log::error('TTLock addFingerprint: no access token');
-            return null;
-        }
-
-        $params = [
-            'clientId'         => $this->clientId,
-            'accessToken'      => $token,
-            'lockId'           => $lockId,
-            'fingerprintNumber' => $fingerprintNumber,
-            'fingerprintType'  => $fingerprintType,
-            'date'             => (int) round(microtime(true) * 1000),
-        ];
-
-        if ($name !== '') {
-            $params['fingerprintName'] = $name;
-        }
-        if ($startDate > 0) {
-            $params['startDate'] = $startDate;
-        }
-        if ($endDate > 0) {
-            $params['endDate'] = $endDate;
-        }
-
         try {
-            $response = Http::timeout(20)->withOptions([
-                'verify' => false,
-            ])->asForm()->post("{$this->apiBase}/v3/fingerprint/add", $params);
+            $response = $this->sendWithTokenRetry(function (string $token) use ($lockId, $fingerprintNumber, $startDate, $endDate, $name, $fingerprintType) {
+                $params = [
+                    'clientId'         => $this->clientId,
+                    'accessToken'      => $token,
+                    'lockId'           => $lockId,
+                    'fingerprintNumber' => $fingerprintNumber,
+                    'fingerprintType'  => $fingerprintType,
+                    'date'             => (int) round(microtime(true) * 1000),
+                ];
+
+                if ($name !== '') {
+                    $params['fingerprintName'] = $name;
+                }
+                if ($startDate > 0) {
+                    $params['startDate'] = $startDate;
+                }
+                if ($endDate > 0) {
+                    $params['endDate'] = $endDate;
+                }
+
+                return Http::timeout(20)->withOptions([
+                    'verify' => false,
+                ])->asForm()->post("{$this->apiBase}/v3/fingerprint/add", $params);
+            });
+
+            if ($response === null) {
+                Log::error('TTLock addFingerprint: no access token');
+                return null;
+            }
 
             $data = $response->json();
 
@@ -810,24 +868,24 @@ class TTLockService
 
     public function deleteFingerprint(int $lockId, int $fingerprintId, int $deleteType = 2): bool
     {
-        $token = $this->getAccessToken();
-
-        if (!$token) {
-            Log::error('TTLock deleteFingerprint: no access token');
-            return false;
-        }
-
         try {
-            $response = Http::timeout(15)->withOptions([
-                'verify' => false,
-            ])->asForm()->post("{$this->apiBase}/v3/fingerprint/delete", [
-                'clientId'      => $this->clientId,
-                'accessToken'   => $token,
-                'lockId'        => $lockId,
-                'fingerprintId' => $fingerprintId,
-                'deleteType'    => $deleteType,
-                'date'          => (int) round(microtime(true) * 1000),
-            ]);
+            $response = $this->sendWithTokenRetry(function (string $token) use ($lockId, $fingerprintId, $deleteType) {
+                return Http::timeout(15)->withOptions([
+                    'verify' => false,
+                ])->asForm()->post("{$this->apiBase}/v3/fingerprint/delete", [
+                    'clientId'      => $this->clientId,
+                    'accessToken'   => $token,
+                    'lockId'        => $lockId,
+                    'fingerprintId' => $fingerprintId,
+                    'deleteType'    => $deleteType,
+                    'date'          => (int) round(microtime(true) * 1000),
+                ]);
+            });
+
+            if ($response === null) {
+                Log::error('TTLock deleteFingerprint: no access token');
+                return false;
+            }
 
             $data = $response->json();
 
@@ -858,31 +916,31 @@ class TTLockService
         int $endDate = 0,
         int $changeType = 2
     ): bool {
-        $token = $this->getAccessToken();
-
-        if (!$token) {
-            Log::error('TTLock changeFingerprintPeriod: no access token');
-            return false;
-        }
-
-        $params = [
-            'clientId'      => $this->clientId,
-            'accessToken'   => $token,
-            'lockId'        => $lockId,
-            'fingerprintId' => $fingerprintId,
-            'startDate'     => $startDate,
-            'changeType'    => $changeType,
-            'date'          => (int) round(microtime(true) * 1000),
-        ];
-
-        if ($endDate > 0) {
-            $params['endDate'] = $endDate;
-        }
-
         try {
-            $response = Http::timeout(20)->withOptions([
-                'verify' => false,
-            ])->asForm()->post("{$this->apiBase}/v3/fingerprint/changePeriod", $params);
+            $response = $this->sendWithTokenRetry(function (string $token) use ($lockId, $fingerprintId, $startDate, $endDate, $changeType) {
+                $params = [
+                    'clientId'      => $this->clientId,
+                    'accessToken'   => $token,
+                    'lockId'        => $lockId,
+                    'fingerprintId' => $fingerprintId,
+                    'startDate'     => $startDate,
+                    'changeType'    => $changeType,
+                    'date'          => (int) round(microtime(true) * 1000),
+                ];
+
+                if ($endDate > 0) {
+                    $params['endDate'] = $endDate;
+                }
+
+                return Http::timeout(20)->withOptions([
+                    'verify' => false,
+                ])->asForm()->post("{$this->apiBase}/v3/fingerprint/changePeriod", $params);
+            });
+
+            if ($response === null) {
+                Log::error('TTLock changeFingerprintPeriod: no access token');
+                return false;
+            }
 
             $data = $response->json();
 
@@ -916,36 +974,36 @@ class TTLockService
         string $name      = '',
         int    $addType   = 2 // 2 = qua Gateway (không cần điện thoại đứng cạnh khóa lúc gọi API)
     ): ?array {
-        $token = $this->getAccessToken();
-
-        if (!$token) {
-            Log::error('TTLock addIcCard: no access token');
-            return null;
-        }
-
-        $params = [
-            'clientId'    => $this->clientId,
-            'accessToken' => $token,
-            'lockId'      => $lockId,
-            'cardNumber'  => $cardNumber,
-            'addType'     => $addType,
-            'date'        => (int) round(microtime(true) * 1000),
-        ];
-
-        if ($name !== '') {
-            $params['cardName'] = $name;
-        }
-        if ($startDate > 0) {
-            $params['startDate'] = $startDate;
-        }
-        if ($endDate > 0) {
-            $params['endDate'] = $endDate;
-        }
-
         try {
-            $response = Http::timeout(20)->withOptions([
-                'verify' => false,
-            ])->asForm()->post("{$this->apiBase}/v3/identityCard/add", $params);
+            $response = $this->sendWithTokenRetry(function (string $token) use ($lockId, $cardNumber, $startDate, $endDate, $name, $addType) {
+                $params = [
+                    'clientId'    => $this->clientId,
+                    'accessToken' => $token,
+                    'lockId'      => $lockId,
+                    'cardNumber'  => $cardNumber,
+                    'addType'     => $addType,
+                    'date'        => (int) round(microtime(true) * 1000),
+                ];
+
+                if ($name !== '') {
+                    $params['cardName'] = $name;
+                }
+                if ($startDate > 0) {
+                    $params['startDate'] = $startDate;
+                }
+                if ($endDate > 0) {
+                    $params['endDate'] = $endDate;
+                }
+
+                return Http::timeout(20)->withOptions([
+                    'verify' => false,
+                ])->asForm()->post("{$this->apiBase}/v3/identityCard/add", $params);
+            });
+
+            if ($response === null) {
+                Log::error('TTLock addIcCard: no access token');
+                return null;
+            }
 
             $data = $response->json();
 
@@ -990,24 +1048,24 @@ class TTLockService
 
     public function deleteIcCard(int $lockId, int $cardId, int $deleteType = 2): bool
     {
-        $token = $this->getAccessToken();
-
-        if (!$token) {
-            Log::error('TTLock deleteIcCard: no access token');
-            return false;
-        }
-
         try {
-            $response = Http::timeout(15)->withOptions([
-                'verify' => false,
-            ])->asForm()->post("{$this->apiBase}/v3/identityCard/delete", [
-                'clientId'    => $this->clientId,
-                'accessToken' => $token,
-                'lockId'      => $lockId,
-                'cardId'      => $cardId,
-                'deleteType'  => $deleteType,
-                'date'        => (int) round(microtime(true) * 1000),
-            ]);
+            $response = $this->sendWithTokenRetry(function (string $token) use ($lockId, $cardId, $deleteType) {
+                return Http::timeout(15)->withOptions([
+                    'verify' => false,
+                ])->asForm()->post("{$this->apiBase}/v3/identityCard/delete", [
+                    'clientId'    => $this->clientId,
+                    'accessToken' => $token,
+                    'lockId'      => $lockId,
+                    'cardId'      => $cardId,
+                    'deleteType'  => $deleteType,
+                    'date'        => (int) round(microtime(true) * 1000),
+                ]);
+            });
+
+            if ($response === null) {
+                Log::error('TTLock deleteIcCard: no access token');
+                return false;
+            }
 
             $data = $response->json();
 
@@ -1033,26 +1091,26 @@ class TTLockService
 
     public function deletePasscode(int $lockId, int $keyboardPwdId, int $deleteType = 2): bool
     {
-        $token = $this->getAccessToken();
-
-        if (!$token) {
-            Log::error('TTLock deletePasscode: no access token');
-            return false;
-        }
-
         $now = (int) round(microtime(true) * 1000);
 
         try {
-            $response = Http::timeout(10)->withOptions([
-                'verify' => false,
-            ])->asForm()->post("{$this->apiBase}/v3/keyboardPwd/delete", [
-                'clientId'      => $this->clientId,
-                'accessToken'   => $token,
-                'lockId'        => $lockId,
-                'keyboardPwdId' => $keyboardPwdId,
-                'deleteType'    => $deleteType,
-                'date'          => $now,
-            ]);
+            $response = $this->sendWithTokenRetry(function (string $token) use ($lockId, $keyboardPwdId, $deleteType, $now) {
+                return Http::timeout(10)->withOptions([
+                    'verify' => false,
+                ])->asForm()->post("{$this->apiBase}/v3/keyboardPwd/delete", [
+                    'clientId'      => $this->clientId,
+                    'accessToken'   => $token,
+                    'lockId'        => $lockId,
+                    'keyboardPwdId' => $keyboardPwdId,
+                    'deleteType'    => $deleteType,
+                    'date'          => $now,
+                ]);
+            });
+
+            if ($response === null) {
+                Log::error('TTLock deletePasscode: no access token');
+                return false;
+            }
 
             $data = $response->json();
 

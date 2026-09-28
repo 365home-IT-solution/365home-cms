@@ -25,6 +25,7 @@ use Modules\Minihouse\App\Models\ContractTenant;
 use Modules\Minihouse\App\Models\ResidenceDeclaration;
 use Modules\Minihouse\App\Models\Room;
 use Modules\Minihouse\App\Models\Tenant;
+use Modules\Minihouse\App\Services\ContractTtlockService;
 
 class ContractForm
 {
@@ -70,6 +71,18 @@ class ContractForm
                     Tab::make('Thông tin hợp đồng')
                         ->columns(2)
                         ->schema([
+                            // Trước đây mã mở cổng CHỈ xem được bằng cách bấm "Đổi mã mở" (ẩn hoàn
+                            // toàn khỏi trang chi tiết) — nhân viên muốn báo mã cho khách phải bấm đổi
+                            // mã hẳn (mất mã cũ) mới biết được mã hiện tại. Giờ hiện LUÔN mã đang dùng
+                            // ngay đầu tab, chỉ hiện khi hợp đồng đã có mã (phòng đã gán khoá TTLock).
+                            Placeholder::make('current_ttlock_code')
+                                ->label('Mã mở cổng hiện tại')
+                                ->visible(fn (?Contract $record) => $record && ContractTtlockService::currentCode($record))
+                                ->content(fn (?Contract $record) => new \Illuminate\Support\HtmlString(
+                                    '<span class="text-lg font-semibold tracking-widest text-gray-900 dark:text-gray-100">'
+                                    . e(ContractTtlockService::currentCode($record)) . '</span>'
+                                ))
+                                ->columnSpanFull(),
                             Select::make('room_id')
                                 ->label('Phòng')
                                 ->relationship('room', 'name')

@@ -4,86 +4,59 @@
 
 @section('content')
     @php
-        $statusLabel = match ($invoice->status) {
-            \Modules\Minihouse\App\Models\Invoice::STATUS_PAID => 'Đã thanh toán',
-            \Modules\Minihouse\App\Models\Invoice::STATUS_PARTIAL => 'Thanh toán một phần',
-            default => 'Chưa thanh toán',
+        [$statusLabel, $statusBadge] = match ($invoice->status) {
+            \Modules\Minihouse\App\Models\Invoice::STATUS_PAID => ['Đã thanh toán', 'mh-badge-green'],
+            \Modules\Minihouse\App\Models\Invoice::STATUS_PARTIAL => ['Thanh toán một phần', 'mh-badge-yellow'],
+            default => ['Chưa thanh toán', 'mh-badge-red'],
         };
     @endphp
 
-    <a href="{{ route('minihouse.portal.invoices.index') }}" class="text-sm text-gray-500 hover:text-gray-700">&larr; Quay lại danh sách hoá đơn</a>
+    <a href="{{ route('minihouse.portal.invoices.index') }}" class="text-sm text-gray-500 hover:text-gray-900 transition">&larr; Danh sách hoá đơn</a>
 
-    <h1 class="mt-2 text-xl font-semibold text-gray-900">Hoá đơn tháng {{ $invoice->month?->format('m/Y') }}</h1>
+    <div class="mt-3 flex items-center justify-between">
+        <h1 class="text-xl font-bold text-gray-900 mh-heading">Hoá đơn tháng {{ $invoice->month?->format('m/Y') }}</h1>
+        <span class="mh-badge {{ $statusBadge }}">{{ $statusLabel }}</span>
+    </div>
     <p class="text-sm text-gray-500">Phòng {{ $invoice->contract?->room?->code ?? '—' }} — {{ $invoice->contract?->room?->building?->name ?? '—' }}</p>
 
-    <div class="mt-4 rounded-xl bg-white p-4 shadow-sm border border-gray-100">
-        <table class="w-full text-sm">
-            <tbody>
-                <tr class="border-b border-gray-100">
-                    <td class="py-2 text-gray-500">Tiền phòng</td>
-                    <td class="py-2 text-right text-gray-900">{{ number_format((float) $invoice->room_price, 0, ',', '.') }}đ</td>
-                </tr>
-                @if ($invoice->electric_amount > 0)
-                    <tr class="border-b border-gray-100">
-                        <td class="py-2 text-gray-500">Tiền điện ({{ $invoice->electric_start }} → {{ $invoice->electric_end }})</td>
-                        <td class="py-2 text-right text-gray-900">{{ number_format((float) $invoice->electric_amount, 0, ',', '.') }}đ</td>
-                    </tr>
-                @endif
-                @if ($invoice->water_amount > 0)
-                    <tr class="border-b border-gray-100">
-                        <td class="py-2 text-gray-500">Tiền nước ({{ $invoice->water_start }} → {{ $invoice->water_end }})</td>
-                        <td class="py-2 text-right text-gray-900">{{ number_format((float) $invoice->water_amount, 0, ',', '.') }}đ</td>
-                    </tr>
-                @endif
-                @foreach ($invoice->items as $item)
-                    <tr class="border-b border-gray-100">
-                        <td class="py-2 text-gray-500">{{ $item->name }}</td>
-                        <td class="py-2 text-right text-gray-900">{{ number_format((float) $item->amount, 0, ',', '.') }}đ</td>
-                    </tr>
-                @endforeach
-                <tr>
-                    <td class="py-2 font-semibold text-gray-900">Tổng cộng tháng này</td>
-                    <td class="py-2 text-right font-semibold text-gray-900">{{ number_format((float) $invoice->total_amount, 0, ',', '.') }}đ</td>
-                </tr>
-                @if ($invoice->amount_paid > 0)
-                    <tr>
-                        <td class="py-2 text-gray-500">Đã thanh toán</td>
-                        <td class="py-2 text-right text-green-600">{{ number_format((float) $invoice->amount_paid, 0, ',', '.') }}đ</td>
-                    </tr>
-                @endif
-                <tr class="border-b border-gray-100">
-                    <td class="py-2 font-semibold text-gray-900">Còn lại (hoá đơn này)</td>
-                    <td class="py-2 text-right font-bold {{ $invoice->remainingAmount() > 0 ? 'text-red-600' : 'text-green-600' }}">
-                        {{ number_format($invoice->remainingAmount(), 0, ',', '.') }}đ
-                    </td>
-                </tr>
-                @php
-                    $previousDebt = \Modules\Minihouse\App\Services\InvoiceContentRenderer::previousDebt($invoice);
-                @endphp
-                @if ($previousDebt > 0)
-                    <tr class="border-b border-gray-100">
-                        <td class="py-2 text-gray-500">Nợ cộng dồn tháng trước</td>
-                        <td class="py-2 text-right text-red-600">{{ number_format($previousDebt, 0, ',', '.') }}đ</td>
-                    </tr>
-                    <tr>
-                        <td class="py-2 font-bold text-gray-900">Tổng phải trả</td>
-                        <td class="py-2 text-right font-bold text-red-600">
-                            {{ number_format(\Modules\Minihouse\App\Services\InvoiceContentRenderer::totalOwed($invoice), 0, ',', '.') }}đ
-                        </td>
-                    </tr>
-                @endif
-            </tbody>
-        </table>
-    </div>
+    <div class="mt-4 mh-card mh-card-pad">
+        <div class="space-y-2.5 text-sm">
+            <div class="flex justify-between"><span class="text-gray-500">Tiền phòng</span><span class="text-gray-900 mh-tabular">{{ number_format((float) $invoice->room_price, 0, ',', '.') }}đ</span></div>
+            @if ($invoice->electric_amount > 0)
+                <div class="flex justify-between pt-2.5 border-t" style="border-color: var(--mh-border);"><span class="text-gray-500">Tiền điện ({{ $invoice->electric_start }} &rarr; {{ $invoice->electric_end }})</span><span class="text-gray-900 mh-tabular">{{ number_format((float) $invoice->electric_amount, 0, ',', '.') }}đ</span></div>
+            @endif
+            @if ($invoice->water_amount > 0)
+                <div class="flex justify-between pt-2.5 border-t" style="border-color: var(--mh-border);"><span class="text-gray-500">Tiền nước ({{ $invoice->water_start }} &rarr; {{ $invoice->water_end }})</span><span class="text-gray-900 mh-tabular">{{ number_format((float) $invoice->water_amount, 0, ',', '.') }}đ</span></div>
+            @endif
+            @foreach ($invoice->items as $item)
+                <div class="flex justify-between pt-2.5 border-t" style="border-color: var(--mh-border);"><span class="text-gray-500">{{ $item->name }}</span><span class="text-gray-900 mh-tabular">{{ number_format((float) $item->amount, 0, ',', '.') }}đ</span></div>
+            @endforeach
 
-    <div class="mt-4 text-sm text-gray-500">Trạng thái: <strong>{{ $statusLabel }}</strong></div>
+            <div class="flex justify-between pt-3 mt-1 border-t-2" style="border-color: var(--mh-border);"><span class="font-semibold text-gray-900">Tổng cộng tháng này</span><span class="font-semibold text-gray-900 mh-tabular">{{ number_format((float) $invoice->total_amount, 0, ',', '.') }}đ</span></div>
+
+            @if ($invoice->amount_paid > 0)
+                <div class="flex justify-between"><span class="text-gray-500">Đã thanh toán</span><span class="text-green-600 font-medium mh-tabular">{{ number_format((float) $invoice->amount_paid, 0, ',', '.') }}đ</span></div>
+            @endif
+
+            <div class="flex justify-between pt-2.5 border-t" style="border-color: var(--mh-border);">
+                <span class="font-semibold text-gray-900">Còn lại (hoá đơn này)</span>
+                <span class="font-bold mh-tabular {{ $invoice->remainingAmount() > 0 ? 'text-red-600' : 'text-green-600' }}">{{ number_format($invoice->remainingAmount(), 0, ',', '.') }}đ</span>
+            </div>
+
+            @php
+                $previousDebt = \Modules\Minihouse\App\Services\InvoiceContentRenderer::previousDebt($invoice);
+            @endphp
+            @if ($previousDebt > 0)
+                <div class="flex justify-between pt-2.5 border-t" style="border-color: var(--mh-border);"><span class="text-gray-500">Nợ cộng dồn tháng trước</span><span class="text-red-600 mh-tabular">{{ number_format($previousDebt, 0, ',', '.') }}đ</span></div>
+                <div class="flex justify-between pt-2.5 border-t" style="border-color: var(--mh-border);"><span class="font-bold text-gray-900">Tổng phải trả</span><span class="font-bold text-red-600 mh-tabular">{{ number_format(\Modules\Minihouse\App\Services\InvoiceContentRenderer::totalOwed($invoice), 0, ',', '.') }}đ</span></div>
+            @endif
+        </div>
+    </div>
 
     @if ($invoice->remainingAmount() > 0)
         <form method="POST" action="{{ route('minihouse.portal.invoices.pay', $invoice->id) }}" class="mt-4">
             @csrf
-            <button type="submit" class="w-full rounded-lg bg-gray-900 text-white text-sm font-medium py-2.5 hover:bg-gray-800 transition">
-                Thanh toán trực tuyến
-            </button>
+            <button type="submit" class="mh-btn-primary">Thanh toán trực tuyến</button>
         </form>
     @endif
 @endsection

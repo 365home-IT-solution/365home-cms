@@ -13,17 +13,17 @@
             sendUrl: @js(route('minihouse.portal.chat.send')),
         })"
         x-init="init()"
-        class="flex flex-col rounded-xl border border-gray-100 bg-white shadow-sm"
+        class="mh-card flex flex-col overflow-hidden"
         style="height: calc(100vh - 8rem);"
     >
-        <div class="border-b border-gray-100 px-4 py-3">
-            <h1 class="text-base font-semibold text-gray-900">Chat với nhân viên</h1>
-            <p class="text-xs text-gray-500">Gửi tin nhắn nếu bạn cần hỗ trợ — nhân viên toà nhà sẽ trả lời sớm nhất có thể.</p>
+        <div class="border-b px-4 py-3.5" style="border-color: var(--mh-border);">
+            <h1 class="text-base font-bold text-gray-900 mh-heading">Chat với nhân viên</h1>
+            <p class="text-xs text-gray-500 mt-0.5">Gửi tin nhắn nếu bạn cần hỗ trợ — nhân viên toà nhà sẽ trả lời sớm nhất có thể.</p>
         </div>
 
-        <div x-ref="scrollArea" class="flex-1 space-y-2 overflow-y-auto px-4 py-3">
+        <div x-ref="scrollArea" class="flex-1 space-y-2.5 overflow-y-auto px-4 py-4" style="background: var(--mh-bg);">
             <template x-if="hasMore">
-                <button type="button" x-on:click="loadOlder()" class="mx-auto block text-xs text-blue-600 hover:underline">
+                <button type="button" x-on:click="loadOlder()" class="mx-auto block text-xs font-medium hover:underline" style="color: var(--mh-primary);">
                     Tải tin nhắn cũ hơn
                 </button>
             </template>
@@ -31,37 +31,35 @@
             <template x-for="msg in messages" :key="msg.id">
                 <div :class="msg.sender_type === 'tenant' ? 'flex justify-end' : 'flex justify-start'">
                     <div
-                        :class="msg.sender_type === 'tenant' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'"
-                        class="max-w-[75%] rounded-2xl px-3 py-2 text-sm"
+                        :class="msg.sender_type === 'tenant' ? 'text-white' : 'bg-white text-gray-900 border'"
+                        :style="msg.sender_type === 'tenant' ? 'background: var(--mh-primary);' : 'border-color: var(--mh-border);'"
+                        class="max-w-[75%] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm"
                     >
                         <template x-if="msg.sender_type === 'admin'">
-                            <div class="mb-0.5 text-xs font-medium text-gray-500" x-text="msg.sender_name || 'Nhân viên'"></div>
+                            <div class="mb-0.5 text-xs font-semibold text-gray-500" x-text="msg.sender_name || 'Nhân viên'"></div>
                         </template>
                         <div x-text="msg.body" style="white-space: pre-wrap;"></div>
-                        <div :class="msg.sender_type === 'tenant' ? 'text-blue-100' : 'text-gray-400'" class="mt-1 text-right text-[10px]" x-text="msg.time"></div>
+                        <div :class="msg.sender_type === 'tenant' ? 'text-white/70' : 'text-gray-400'" class="mt-1 text-right text-[10px] mh-tabular" x-text="msg.time"></div>
                     </div>
                 </div>
             </template>
         </div>
 
-        <form x-on:submit.prevent="send()" class="flex items-center gap-2 border-t border-gray-100 p-3">
+        <form x-on:submit.prevent="send()" class="flex items-center gap-2 border-t p-3" style="border-color: var(--mh-border);">
             <input
                 type="text"
                 x-model="draft"
                 placeholder="Nhập tin nhắn..."
-                class="flex-1 rounded-lg border-gray-300 text-sm focus:border-blue-500 focus:ring-blue-500"
+                class="mh-input flex-1"
                 maxlength="2000"
             >
-            <button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500">
+            <button type="submit" class="mh-btn-primary" style="width: auto; padding: 0.625rem 1.25rem;">
                 Gửi
             </button>
         </form>
     </div>
 
-    @once
-        <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
-    @endonce
-
+    {{-- Alpine.js giờ tải chung ở portal/layout.blade.php, không cần tự tải lại ở đây nữa. --}}
     <script>
         function minihouseChat(config) {
             return {
