@@ -355,6 +355,8 @@ Route::prefix('minihouse/portal')->name('api.minihouse.portal.')->group(function
         Route::get('contracts/{contract}/pdf', [TenantPortalApiController::class, 'contractPdf'])->name('contracts.pdf');
         Route::post('contracts/{contract}/renewal-request', [TenantPortalApiController::class, 'requestRenewal'])->name('contracts.renewal-request');
         Route::post('contracts/{contract}/checkout-request', [TenantPortalApiController::class, 'requestCheckout'])->name('contracts.checkout-request');
+        Route::get('contracts/{contract}/lock-code', [TenantPortalApiController::class, 'showLockCode'])->name('contracts.lock-code.show');
+        Route::post('contracts/{contract}/lock-code/regenerate', [TenantPortalApiController::class, 'regenerateLockCode'])->name('contracts.lock-code.regenerate');
         Route::get('contracts/{contract}/document', [ContractDocumentPortalController::class, 'show'])->name('contracts.document.show');
         Route::post('contracts/{contract}/document/otp', [ContractDocumentPortalController::class, 'otp'])->name('contracts.document.otp');
         Route::post('contracts/{contract}/document/sign', [ContractDocumentPortalController::class, 'sign'])->name('contracts.document.sign');

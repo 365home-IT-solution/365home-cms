@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Modules\Minihouse\App\Models\Room;
+use Modules\Minihouse\App\Services\ContractTtlockService;
 use Modules\TTLock\App\Services\TTLockService;
 
 // Gán khoá TTLock cho Phòng + mở khoá theo Phòng — bản API của RoomLockActions (Filament) và của
@@ -69,6 +70,9 @@ class RoomLockController extends Controller
         }
 
         $room->update($update);
+
+        // Phòng đang có hợp đồng hiệu lực -> cấp/thu hồi mã mở TTLock ngay theo đúng khoá vừa gán.
+        ContractTtlockService::syncForRoom($room->id);
 
         return response()->json(['data' => $this->transform($room->fresh())]);
     }

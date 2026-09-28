@@ -11,6 +11,7 @@ use Filament\Notifications\Notification;
 use Filament\Tables\Actions\Action;
 use Illuminate\Support\HtmlString;
 use Modules\Minihouse\App\Models\Room;
+use Modules\Minihouse\App\Services\ContractTtlockService;
 use Modules\Minihouse\App\Support\TtlockLocks;
 
 // "Gán khóa TTLock" + "Mở khóa" cho từng Phòng — mirror AssignLockAction (Home). Khác Home: tài
@@ -74,6 +75,9 @@ class RoomLockActions
                     'lock_id_checkout'  => $data['lock_id_checkout'] ?? null,
                     'unlock_both_locks' => $data['unlock_both_locks'] ?? false,
                 ]);
+
+                // Phòng đang có hợp đồng hiệu lực -> cấp/thu hồi mã mở ngay theo đúng khoá vừa gán.
+                ContractTtlockService::syncForRoom($record->id);
 
                 Notification::make()->title('Đã gán khóa cho phòng ' . $record->code)->success()->send();
             });
