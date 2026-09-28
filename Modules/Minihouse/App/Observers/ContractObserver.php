@@ -6,6 +6,8 @@ use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\ContractTenant;
 use Modules\Minihouse\App\Models\Room;
 use Modules\Minihouse\App\Models\Tenant;
+use Modules\Minihouse\App\Models\Vehicle;
+use Modules\Minihouse\App\Services\VehicleService;
 use Modules\Minihouse\App\Services\ResidenceDeclarationService;
 
 // Room.status ("Trống"/"Đã thuê") và Tenant.room_id ("phòng đang ở") trước đây là field nhập tay,
@@ -23,10 +25,25 @@ class ContractObserver
         $this->syncPrimaryPivot($contract);
         $this->syncTenant($contract->tenant_id);
         app(ResidenceDeclarationService::class)->syncContract($contract);
+
+        // Chuyển phòng (hợp đồng mới nối tiếp hợp đồng cũ): xe khách đang gửi đi theo sang hợp đồng mới,
+        // kể cả xe vừa bị tự ngưng do hợp đồng cũ đóng trong cùng thao tác.
+        if ($contract->transferred_from_contract_id) {
+            Vehicle::withoutGlobalScope('activeBuilding')
+                ->where('contract_id', $contract->transferred_from_contract_id)
+                ->where(fn ($q) => $q->where('status', Vehicle::STATUS_ACTIVE)
+                    ->orWhere(fn ($q2) => $q2->where('status', Vehicle::STATUS_INACTIVE)->whereDate('end_date', today())))
+                ->update(['contract_id' => $contract->id, 'status' => Vehicle::STATUS_ACTIVE, 'end_date' => null]);
+        }
     }
 
     public function updated(Contract $contract): void
     {
+        // Hợp đồng kết thúc/thanh lý/huỷ → xe đang gửi tự ngưng (không tính phí tiếp), xe chờ duyệt bị từ chối.
+        if ($contract->wasChanged('status') && $contract->status !== Contract::STATUS_ACTIVE) {
+            VehicleService::deactivateForContract($contract, $contract->checkout_at);
+        }
+
         if ($contract->wasChanged(['status', 'room_id'])) {
             $this->syncRoom($contract->room_id);
 

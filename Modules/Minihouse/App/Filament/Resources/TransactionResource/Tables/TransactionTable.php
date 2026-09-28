@@ -57,7 +57,9 @@ class TransactionTable
                 })->visibleFrom('md'),
                 TextColumn::make('amount')->label('Số tiền')->formatStateUsing(fn ($state) => Money::format($state))->sortable()->visibleFrom('md'),
                 TextColumn::make('building.name')->label('Toà nhà')->searchable()->sortable()->visibleFrom('md'),
-                TextColumn::make('contract.room.code')->label('Phòng')->searchable()->visibleFrom('md'),
+                TextColumn::make('contract.room.code')->label('Phòng')
+                    ->searchable(query: fn ($query, string $search) => \Modules\Minihouse\App\Filament\Support\RoomCodeSearch::viaContractRoom($query, $search))
+                    ->visibleFrom('md'),
                 TextColumn::make('note')->label('Ghi chú')->limit(40)->searchable()->visibleFrom('md'),
                 TextColumn::make('invoice_payment_id')
                     ->label('Nguồn')

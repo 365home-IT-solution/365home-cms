@@ -61,6 +61,7 @@ class InvoicePaymentAllocationService
             // "chưa có thanh toán" rồi cùng tạo trùng, cùng nguyên tắc DB::transaction() đã dùng ở
             // PayOsWebhookController/MomoWebhookController/VnpayIpnController trước khi có hàm này.
             $debtInvoices = Invoice::withoutGlobalScopes()
+                ->whereNull('deleted_at')
                 ->whereIn('contract_id', $chain)
                 ->where('id', '!=', $currentInvoice->id)
                 ->where('month', '<', $currentInvoice->month)
@@ -74,6 +75,7 @@ class InvoicePaymentAllocationService
             // CHO NHÂN VIÊN biết cụ thể hoá đơn nào đang giữ phần tiền dư, tránh dư ra rồi im lặng mất
             // dấu trong log server.
             $skippedPartials = Invoice::withoutGlobalScopes()
+                ->whereNull('deleted_at')
                 ->whereIn('contract_id', $chain)
                 ->where('id', '!=', $currentInvoice->id)
                 ->where('month', '<', $currentInvoice->month)

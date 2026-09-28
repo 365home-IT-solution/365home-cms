@@ -315,6 +315,107 @@ class ContractForm
                                 ]),
                         ]),
 
+                    Tab::make('Phương tiện')
+                        ->badge(fn (?Contract $record) => $record?->vehicles()->whereIn('status', ['active', 'pending'])->count() ?: null)
+                        ->schema([
+                            // Xe gửi của hợp đồng — thêm trực tiếp tại đây (đang gửi ngay). Phí gửi xe theo bảng giá của
+                            // toà (Hệ thống → Bảng giá gửi xe) tự vào hoá đơn; vượt giới hạn chỉ cảnh báo sau khi lưu.
+                            Repeater::make('vehicles')
+                                ->relationship('vehicles')
+                                ->label('')
+                                ->default([])
+                                ->addActionLabel('Thêm phương tiện')
+                                ->itemLabel(fn (array $state): ?string => filled($state['plate_display'] ?? null) ? mb_strtoupper($state['plate_display']) . (filled($state['name'] ?? null) ? ' — ' . $state['name'] : '') : 'Phương tiện mới')
+                                ->collapsible()
+                                ->columns(4)
+                                ->mutateRelationshipDataBeforeCreateUsing(function (array $data, $livewire) {
+                                    $contract = $livewire->getRecord();
+                                    $room     = \Modules\Minihouse\App\Models\Room::withoutGlobalScopes()->find($contract->room_id);
+
+                                    return [
+                                        ...$data,
+                                        'building_id'  => $room?->building_id,
+                                        'tenant_id'    => $contract->tenant_id,
+                                        'requested_by' => 'staff',
+                                    ];
+                                })
+                                ->schema([
+                                    TextInput::make('plate_display')
+                                        ->label('Biển số')
+                                        ->required()
+                                        ->maxLength(30)
+                                        ->placeholder('VD: 59A1-123.45')
+                                        ->rules([
+                                            // $record: bản ghi Vehicle THẬT của ĐÚNG dòng này nếu đang sửa 1 xe đã lưu (Filament tự bơm
+                                            // theo item của Repeater relationship, giống VehicleForm.php) — PHẢI loại trừ đúng bằng ID của
+                                            // chính nó (không phải loại trừ theo contract_id như bản cũ): bản cũ lỡ cho phép nhập LẶP LẠI
+                                            // đúng biển số đã có sẵn trên CHÍNH hợp đồng này (mở lại trang, bấm "Thêm phương tiện" rồi gõ lại
+                                            // biển số cũ) vì $used chỉ soi hợp đồng KHÁC — sinh ra 2 dòng Vehicle trùng biển số trên cùng 1
+                                            // hợp đồng, khiến hoá đơn cộng phí xe hiện tên biển số bị lặp lại (dù số tiền vẫn đúng 1 lần nhờ
+                                            // gộp theo loại xe ở VehicleService::invoiceItems()).
+                                            fn (Get $get, ?\Modules\Minihouse\App\Models\Vehicle $record): \Closure => function (string $attribute, $value, \Closure $fail) use ($get, $record) {
+                                                $plate = \Modules\Minihouse\App\Services\VehicleService::normalizePlate((string) $value);
+
+                                                if ($plate === '') {
+                                                    $fail('Biển số không hợp lệ.');
+
+                                                    return;
+                                                }
+
+                                                $dups = collect($get('../') ?? [])
+                                                    ->filter(fn ($row) => \Modules\Minihouse\App\Services\VehicleService::normalizePlate((string) ($row['plate_display'] ?? '')) === $plate)
+                                                    ->count();
+
+                                                if ($dups > 1) {
+                                                    $fail('Biển số bị nhập trùng trong hợp đồng này.');
+
+                                                    return;
+                                                }
+
+                                                $roomId   = $get('../../room_id');
+                                                $building = $roomId ? \Modules\Minihouse\App\Models\Room::withoutGlobalScopes()->whereKey($roomId)->value('building_id') : null;
+
+                                                if (! $building) {
+                                                    return;
+                                                }
+
+                                                // Trùng với xe đang gửi/chờ duyệt bất kỳ (kể cả CHÍNH hợp đồng này) trong cùng toà — chỉ trừ
+                                                // đúng bản ghi đang sửa (nếu có).
+                                                if (\Modules\Minihouse\App\Services\VehicleService::plateInUse($building, $plate, $record?->id)) {
+                                                    $fail('Biển số này đã có xe đang gửi/chờ duyệt trong toà nhà (kể cả trên chính hợp đồng này).');
+                                                }
+                                            },
+                                        ]),
+
+                                    Select::make('vehicle_type')
+                                        ->label('Loại xe')
+                                        ->options(\Modules\Minihouse\App\Models\Vehicle::TYPES)
+                                        ->default(\Modules\Minihouse\App\Models\Vehicle::TYPE_MOTORBIKE)
+                                        ->required()
+                                        ->native(false),
+
+                                    TextInput::make('name')
+                                        ->label('Tên xe')
+                                        ->required()
+                                        ->maxLength(100)
+                                        ->placeholder('VD: Honda Vision, Toyota Vios'),
+
+                                    Select::make('status')
+                                        ->label('Trạng thái')
+                                        ->options(\Modules\Minihouse\App\Models\Vehicle::STATUSES)
+                                        ->default(\Modules\Minihouse\App\Models\Vehicle::STATUS_ACTIVE)
+                                        ->required()
+                                        ->native(false),
+
+                                    FileUpload::make('document_photo')
+                                        ->label('Ảnh giấy tờ xe (cà-vẹt/đăng ký xe)')
+                                        ->image()
+                                        ->disk('public')
+                                        ->directory('minihouse/vehicles')
+                                        ->maxSize(5120)
+                                        ->columnSpanFull(),
+                                ]),
+                        ]),
                     Tab::make('Nội dung hợp đồng')
                         ->schema([
                             RichEditor::make('contract_content')

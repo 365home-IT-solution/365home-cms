@@ -65,6 +65,20 @@ class InvoiceDebtCarryOverTest extends TestCase
         $this->assertEquals(3000000, InvoiceContentRenderer::totalOwed($current));
     }
 
+    // Hoá đơn ĐÃ XOÁ (mềm) rồi lập lại hoá đơn mới — số cũ KHÔNG được cộng dồn vào "Tổng phải trả".
+    public function test_soft_deleted_invoice_is_not_counted_as_previous_debt(): void
+    {
+        $old = $this->makeInvoice(now()->subMonth()->startOfMonth()->toDateString(), 266667, Invoice::STATUS_UNPAID);
+        $current = $this->makeInvoice(now()->startOfMonth()->toDateString(), 2075000, Invoice::STATUS_UNPAID);
+
+        $this->assertEquals(266667, InvoiceContentRenderer::previousDebt($current));
+
+        $old->delete();
+
+        $this->assertEquals(0, InvoiceContentRenderer::previousDebt($current));
+        $this->assertEquals(2075000, InvoiceContentRenderer::totalOwed($current));
+    }
+
     public function test_previous_debt_sums_unpaid_and_partial_older_invoices(): void
     {
         $this->makeInvoice(now()->subMonths(2)->startOfMonth()->toDateString(), 3000000, Invoice::STATUS_UNPAID, 0);

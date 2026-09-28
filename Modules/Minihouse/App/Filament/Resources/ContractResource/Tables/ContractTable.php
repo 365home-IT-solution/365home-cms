@@ -42,7 +42,10 @@ class ContractTable
                     // đúng nguyên nhân trước khi thêm dòng này).
                     ->extraCellAttributes(['style' => 'max-width: 190px; width: 100%; overflow: hidden;']),
 
-                TextColumn::make('room.code')->label('Phòng')->searchable()->sortable()->visibleFrom('md'),
+                TextColumn::make('room.code')->label('Phòng')
+                    ->searchable(query: fn ($query, string $search) => \Modules\Minihouse\App\Filament\Support\RoomCodeSearch::viaRelation($query, $search))
+                    ->sortable(query: fn ($query, string $direction) => \Modules\Minihouse\App\Filament\Support\RoomCodeSearch::sortViaRelation($query, $direction))
+                    ->visibleFrom('md'),
                 TextColumn::make('tenant.fullname')->label('Khách thuê')->searchable()->sortable()->visibleFrom('md'),
                 TextColumn::make('start_date')->label('Bắt đầu')->date('d/m/Y')->sortable()->visibleFrom('md'),
                 TextColumn::make('end_date')->label('Kết thúc')->date('d/m/Y')->sortable()->visibleFrom('md'),

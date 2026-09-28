@@ -12,6 +12,7 @@ use App\Models\CameraSetting as BaseCameraSetting;
 // create_minihouse_camera_settings_table và Modules\Minihouse\App\Models\Camera::resolveCameraSettings().
 class CameraSetting extends BaseCameraSetting
 {
+    use Concerns\LogsMinihouseActivity;
     protected $table = 'minihouse_camera_settings';
 
     protected $primaryKey = 'building_id';

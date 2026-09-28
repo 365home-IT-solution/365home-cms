@@ -186,6 +186,19 @@ class MinihouseChatService
         ];
     }
 
+    // Tin MỚI hơn $afterId (dự phòng khi socket realtime không kết nối được — Portal poll định kỳ).
+    public function newerMessages(ChatConversation $conversation, string $afterId, ?int $contractId = null): array
+    {
+        $rows = ChatMessage::where('conversation_id', $conversation->id)
+            ->when($contractId === null, fn ($q) => $q->whereNull('contract_id'), fn ($q) => $q->where('contract_id', $contractId))
+            ->where('id', '>', $afterId)
+            ->orderBy('id')
+            ->limit(50)
+            ->get();
+
+        return ['messages' => $rows->map(fn (ChatMessage $m) => $this->formatMessage($m))->all(), 'has_more' => false];
+    }
+
     // $senderName chỉ cần khi gửi thay mặt admin (Tenant thì FE tự biết tên chính mình, không cần
     // server trả lại) — cùng quy ước formatMessage() của Home.
     public function send(ChatConversation $conversation, string $senderType, string $senderId, string $body, ?string $senderName = null, ?int $contractId = null): ChatMessage

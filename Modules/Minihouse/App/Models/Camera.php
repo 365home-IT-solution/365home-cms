@@ -14,4 +14,10 @@ use App\Models\Camera as BaseCamera;
 // CameraController dùng chung), không riêng gì model này.
 class Camera extends BaseCamera
 {
+    use Concerns\LogsMinihouseActivity;
+
+    protected function activityBuildingId(): ?int
+    {
+        return $this->branch_id ? (int) $this->branch_id : null;
+    }
 }

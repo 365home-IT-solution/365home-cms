@@ -53,7 +53,10 @@ class TenantTable
                 TextColumn::make('fullname')->label('Họ tên')->searchable()->sortable()->visibleFrom('md'),
                 TextColumn::make('phone')->label('Điện thoại')->searchable()->visibleFrom('md'),
                 TextColumn::make('id_card_number')->label('CCCD/CMND')->searchable()->visibleFrom('md'),
-                TextColumn::make('room.code')->label('Phòng đang ở')->searchable()->sortable()->visibleFrom('md'),
+                TextColumn::make('room.code')->label('Phòng đang ở')
+                    ->searchable(query: fn ($query, string $search) => \Modules\Minihouse\App\Filament\Support\RoomCodeSearch::viaRelation($query, $search))
+                    ->sortable(query: fn ($query, string $direction) => \Modules\Minihouse\App\Filament\Support\RoomCodeSearch::sortViaRelation($query, $direction))
+                    ->visibleFrom('md'),
                 IconColumn::make('residence_declared')->label('Đã khai báo tạm trú')->boolean()->visibleFrom('md'),
                 TextColumn::make('date_of_birth')->label('Ngày sinh')->date('d/m/Y')->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
                 TextColumn::make('emergency_contact_phone')->label('SĐT khẩn cấp')->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),

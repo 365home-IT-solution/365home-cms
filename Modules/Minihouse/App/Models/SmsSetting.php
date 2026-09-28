@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 // SmsSetting::current() để lấy/tạo, cùng mẫu ZaloSetting.
 class SmsSetting extends Model
 {
+    use Concerns\LogsMinihouseActivity;
     protected $table = 'minihouse_sms_settings';
 
     protected $fillable = ['api_key', 'secret_key', 'brandname'];

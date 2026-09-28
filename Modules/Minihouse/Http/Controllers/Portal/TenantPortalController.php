@@ -85,6 +85,51 @@ class TenantPortalController extends Controller
             ->with('portal_info', 'Đã gửi phản hồi — cảm ơn bạn! Chủ nhà sẽ xem và phản hồi lại sớm.');
     }
 
+    // Xe của khách: xem danh sách + tự khai (chờ nhân viên duyệt) + huỷ yêu cầu đang chờ duyệt.
+    public function vehicles(): View
+    {
+        $tenant = $this->tenant();
+
+        return view('minihouse::portal.vehicles', [
+            'vehicles'  => \Modules\Minihouse\App\Services\VehicleService::vehiclesOf($tenant),
+            'contracts' => TenantPortalService::tenantContracts($tenant)->where('status', Contract::STATUS_ACTIVE)->values(),
+        ]);
+    }
+
+    public function storeVehicle(Request $request): RedirectResponse
+    {
+        $data = $request->validate([
+            'contract_id'  => ['nullable', 'integer'],
+            'plate'        => ['required', 'string', 'max:30'],
+            'vehicle_type' => ['required', \Illuminate\Validation\Rule::in(array_keys(\Modules\Minihouse\App\Models\Vehicle::TYPES))],
+            'name'         => ['required', 'string', 'max:100'],
+            'document_photo' => ['nullable', 'image', 'max:5120'],
+        ]);
+
+        [$vehicle, $error] = \Modules\Minihouse\App\Services\VehicleService::declareForTenant(
+            $this->tenant(),
+            $data,
+            $request->hasFile('document_photo') ? $request->file('document_photo')->store('minihouse/vehicles', 'public') : null
+        );
+
+        if (! $vehicle) {
+            return back()->withInput()->withErrors(['plate' => $error]);
+        }
+
+        return redirect()->route('minihouse.portal.vehicles')->with('portal_info', 'Đã gửi khai báo xe — chờ nhân viên duyệt.');
+    }
+
+    public function destroyVehicle(int $id): RedirectResponse
+    {
+        $vehicle = \Modules\Minihouse\App\Models\Vehicle::withoutGlobalScope('activeBuilding')
+            ->where('tenant_id', $this->tenant()->id)
+            ->where('status', \Modules\Minihouse\App\Models\Vehicle::STATUS_PENDING)
+            ->findOrFail($id);
+
+        $vehicle->delete();
+
+        return redirect()->route('minihouse.portal.vehicles')->with('portal_info', 'Đã huỷ yêu cầu khai báo xe.');
+    }
     // "Lịch sử thanh toán" — CHỈ tính InvoicePayment (từng lần ghi nhận tiền vào), khác "Hoá đơn"
     // (từng kỳ phải trả) — 1 hoá đơn có thể trả làm nhiều lần, khách muốn đối chiếu từng lần chuyển
     // khoản/tiền mặt thực tế đã ghi nhận, không phải từng kỳ hoá đơn.

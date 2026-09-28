@@ -45,11 +45,11 @@ return [
         'minihouse-admin' => [
             'Quản lý' => [
                 'Vận hành toà nhà' => ['Khu vực', 'Toà nhà', 'Phòng', 'Tiện ích', 'Loại tài sản', 'Phụ thu', 'Sơ đồ 360°'],
-                'Khách thuê & Hợp đồng' => ['Khách thuê', 'Hợp đồng', 'Khai báo lưu trú', 'Yêu cầu liên hệ thuê phòng', 'Phản hồi khách thuê'],
+                'Khách thuê & Hợp đồng' => ['Khách thuê', 'Hợp đồng', 'Khai báo lưu trú', 'Yêu cầu liên hệ thuê phòng', 'Phản hồi khách thuê', 'Xe khách thuê', 'Bảng giá gửi xe'],
                 'Tài chính' => ['Hoá đơn', 'Số điện nước', 'Sổ thu chi', 'Thu chi & Báo cáo'],
                 'Kho vật tư' => ['Danh mục vật tư', 'Phiếu nhập kho', 'Phiếu xuất kho', 'Phiếu hoàn trả kho', 'Phiếu kiểm kê', 'Nhóm vật tư', 'Đơn vị tính'],
                 'Liên lạc & Thông báo' => ['Tin nhắn', 'Thông báo', 'Thông báo đẩy', 'Nhắc việc'],
-                'An ninh' => ['Camera', 'Xem camera'],
+                'An ninh' => ['Camera', 'Xem camera', 'Khoá thông minh'],
             ],
             'Phân quyền' => [
                 'Vai trò & Tài khoản' => ['Vai trò', 'Tài khoản'],
@@ -58,6 +58,7 @@ return [
                 'Nhật ký' => ['Nhật ký hoạt động'],
                 'Kênh gửi thông báo' => ['Cấu hình Zalo', 'Cấu hình SMS'],
                 'Camera' => ['Cấu hình Camera'],
+                'Khoá thông minh' => ['Cấu hình TTLock'],
             ],
         ],
     ],

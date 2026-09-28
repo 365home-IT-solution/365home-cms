@@ -195,7 +195,9 @@ class InvoiceContentRenderer
             return 0;
         }
 
+        // Hoá đơn ĐÃ XOÁ (mềm) KHÔNG còn là công nợ — withoutGlobalScopes() bỏ luôn scope soft-delete nên phải loại tay.
         return (float) Invoice::withoutGlobalScopes()
+            ->whereNull('deleted_at')
             ->whereIn('contract_id', self::contractIdChain($invoice))
             ->where('id', '!=', $invoice->id)
             ->where('month', '<', $invoice->month)

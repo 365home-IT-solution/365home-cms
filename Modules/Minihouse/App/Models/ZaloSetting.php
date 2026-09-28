@@ -8,6 +8,8 @@ use Illuminate\Database\Eloquent\Model;
 // current() để lấy/tạo, giống pattern PaymentConfiguration của Home nhưng bảng riêng, không chung.
 class ZaloSetting extends Model
 {
+    use Concerns\LogsMinihouseActivity;
+
     protected $table = 'minihouse_zalo_settings';
 
     protected $fillable = [

@@ -58,7 +58,7 @@ class Folder extends Model implements HasMedia
         parent::boot();
 
         static::addGlobalScope('user', function ($query) {
-            if (filament('filament-media-manager')->allowUserAccess && auth()->check()) {
+            if (\TomatoPHP\FilamentMediaManager\FilamentMediaManagerPlugin::userAccessAllowed() && auth()->check()) {
                 $query
                     ->where('user_id', auth()->id())
                     ->orWhere('is_public', false)

@@ -151,10 +151,28 @@ trait LogsMinihouseActivity
 
     protected function activityLoggableAttributes(array $attributes): array
     {
-        return array_diff_key(
+        $attributes = array_diff_key(
             $attributes,
             array_flip(array_merge(['id'], static::activityExcludedFields()))
         );
+
+        // Trường bí mật (khoá API, mật khẩu, token…) KHÔNG lưu giá trị thật vào nhật ký.
+        foreach (static::activitySensitiveFields() as $field) {
+            if (array_key_exists($field, $attributes)) {
+                $attributes[$field] = filled($attributes[$field]) ? '••••••' : null;
+            }
+        }
+
+        return $attributes;
+    }
+
+    protected static function activitySensitiveFields(): array
+    {
+        return [
+            'password', 'api_key', 'secret_key', 'app_secret', 'access_token', 'refresh_token',
+            'payos_api_key', 'payos_checksum_key', 'momo_access_key', 'momo_secret_key', 'vnpay_hash_secret',
+            'remember_token', 'client_secret', 'password_md5',
+        ];
     }
 
     protected static function activityExcludedFields(): array

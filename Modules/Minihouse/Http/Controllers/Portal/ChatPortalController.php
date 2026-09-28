@@ -41,6 +41,12 @@ class ChatPortalController extends Controller
     {
         $conversation = $this->chat->conversationFor($this->tenant());
 
+        if ($request->filled('after_id')) {
+            return response()->json(
+                $this->chat->newerMessages($conversation, (string) $request->query('after_id'), $this->contractId($request))
+            );
+        }
+
         return response()->json(
             $this->chat->olderMessages(
                 $conversation,

@@ -65,8 +65,8 @@
     trên ô này nữa. --}}
     <button
         type="button"
-        @click="toggleRoom({{ $room['id'] }})"
-        :style="isSelected({{ $room['id'] }}) ? 'box-shadow: 0 0 0 2px rgba(var(--primary-500), 1);' : ''"
+        @click="toggleRoom({{ \Illuminate\Support\Js::from($room['id']) }})"
+        :style="isSelected({{ \Illuminate\Support\Js::from($room['id']) }}) ? 'box-shadow: 0 0 0 2px rgba(var(--primary-500), 1);' : ''"
         title="{{ $tooltip }} — bấm để chọn"
         class="flex aspect-square w-full items-center justify-center rounded-lg border p-1.5 text-center transition hover:-translate-y-0.5 hover:shadow-md {{ $bgClass }} {{ $extraClass ?? '' }}"
     >

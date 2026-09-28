@@ -54,6 +54,10 @@
             <div class="text-sm font-medium text-gray-900">Gửi phản hồi</div>
             <div class="mt-0.5 text-xs text-gray-500">Báo sự cố, góp ý</div>
         </a>
+        <a href="{{ route('minihouse.portal.vehicles') }}" class="rounded-xl bg-white p-4 shadow-sm border border-gray-100 hover:border-gray-300 transition">
+            <div class="text-sm font-medium text-gray-900">Xe của tôi</div>
+            <div class="mt-0.5 text-xs text-gray-500">Khai báo &amp; theo dõi xe gửi</div>
+        </a>
         <a href="{{ route('minihouse.portal.password') }}" class="rounded-xl bg-white p-4 shadow-sm border border-gray-100 hover:border-gray-300 transition">
             <div class="text-sm font-medium text-gray-900">Mật khẩu</div>
             <div class="mt-0.5 text-xs text-gray-500">Đặt / đổi mật khẩu</div>

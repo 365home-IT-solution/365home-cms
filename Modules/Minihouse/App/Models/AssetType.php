@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 // thường, xem migration create_minihouse_asset_types_table).
 class AssetType extends Model
 {
+    use Concerns\LogsMinihouseActivity;
     protected $table = 'minihouse_asset_types';
 
     protected $fillable = ['name'];

@@ -35,7 +35,9 @@ class TenantFeedbackTable
                     // class Tailwind (max-w-0/w-full) không có tác dụng vì chưa từng build vào CSS.
                     ->extraCellAttributes(['style' => 'max-width: 190px; width: 100%; overflow: hidden;']),
 
-                TextColumn::make('room.code')->label('Phòng')->placeholder('Chung')->searchable()->visibleFrom('md'),
+                TextColumn::make('room.code')->label('Phòng')->placeholder('Chung')
+                    ->searchable(query: fn ($query, string $search) => \Modules\Minihouse\App\Filament\Support\RoomCodeSearch::viaRelation($query, $search))
+                    ->visibleFrom('md'),
                 TextColumn::make('rating')->label('Đánh giá')->formatStateUsing(fn (int $state) => str_repeat('★', $state) . str_repeat('☆', 5 - $state))->sortable()->visibleFrom('md'),
                 TextColumn::make('tenant_name')->label('Khách')->placeholder('Ẩn danh')->searchable()->visibleFrom('md'),
                 TextColumn::make('content')->label('Góp ý')->limit(60)->wrap()->visibleFrom('md'),

@@ -12,6 +12,7 @@ use Modules\Minihouse\App\Models\Concerns\ScopedToActiveBuildingViaRoom;
 // lý xong (is_reviewed=true) báo lại được ĐÚNG khách đó trong Portal (xem TenantFeedbackObserver).
 class TenantFeedback extends Model
 {
+    use Concerns\LogsMinihouseActivity;
     use ScopedToActiveBuildingViaRoom;
 
     protected $table = 'minihouse_tenant_feedbacks';
