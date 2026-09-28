@@ -179,6 +179,15 @@ class OrderTable
                
                 // Ẩn theo mặc định theo yêu cầu — vẫn bật lại được qua nút tuỳ chỉnh cột (giống
                 // cách 2 cột "(người đi cùng)" bên dưới đã làm), không xoá hẳn khỏi bảng.
+                ImageColumn::make('cccd_qr_image')
+                    ->label('CCCD (QR)')
+                    ->disk('public')
+                    ->height(40)
+                    ->width(60)
+                    ->defaultImageUrl('/images/no-image.png')
+                    ->tooltip('Ảnh mặt có mã QR (luồng 1 ảnh web/app)')
+                    ->toggleable(isToggledHiddenByDefault: true),
+
                 ImageColumn::make('cccd_front')
                     ->label('CCCD Trước')
                     ->disk('public')

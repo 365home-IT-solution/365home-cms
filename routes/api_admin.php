@@ -849,12 +849,12 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/products')->name
 
 /*
 |--------------------------------------------------------------------------
-| CCCD — Quét độc lập 1 cặp ảnh CCCD (không gắn vào đơn/khách hàng nào), dùng cho FE hiển thị
+| CCCD — Quét độc lập ảnh CCCD (không gắn vào đơn/khách hàng nào, KHÔNG lưu file), dùng cho FE hiển thị
 | preview thông tin từng khách TRƯỚC khi submit đơn — đặc biệt hữu ích khi khung giờ qua đêm có
 | guest_count > 1 (gọi lặp lại đúng guest_count lần, mỗi lần kèm guest_index để map đúng ô đang
 | nhập) — xem docblock CccdController::scan(). Quét lỗi vẫn trả 200 (scanned=false, data=null) để
 | admin/lễ tân tự nhập tay, không chặn luồng.
-| POST /api/admin/cccd/scan → body multipart {front, back, guest_index?}
+| POST /api/admin/cccd/scan → body multipart {qr_image?, front?, back? (ít nhất 1), guest_index?}
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/cccd')->name('api.admin.cccd.')->group(function () {

@@ -7,13 +7,12 @@ use App\Models\Customer;
 use App\Models\CustomerCompanion;
 use App\Models\GuestCustomer;
 use App\Models\MembershipTier;
+use App\Services\CccdIntakeService;
 use App\Services\ZaloOtpService;
+use App\Support\CccdIdentity;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
-use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Promotion\App\Models\Coupon;
 
 class ZaloOtpController extends Controller
@@ -306,21 +305,26 @@ class ZaloOtpController extends Controller
 
     /**
      * Cập nhật thông tin khách hàng (yêu cầu token).
-     * Body (multipart/form-data): fullname?, date_of_birth?, cccd_front?, cccd_back?,
-     * companions[i][cccd_front]?, companions[i][cccd_back]?, companions[i][full_name]?
-     * (companions = CCCD người đi cùng lưu vào hồ sơ, tái sử dụng cho các lần đặt phòng
-     * qua đêm sau này — xem customer_companions).
+     * Body (multipart/form-data): fullname?, date_of_birth?, cccd_qr_image?,
+     * companions[i][qr_image]?, companions[i][full_name]?  (app cũ: cccd_front/cccd_back,
+     * companions[i][cccd_front|cccd_back])
+     * (companions = CCCD người đi cùng lưu vào hồ sơ, chọn lại bằng companion_id khi đặt phòng
+     * qua đêm — xem customer_companions). Người đi cùng trùng số CCCD với người đã có → cập nhật
+     * người đó (không tạo bản ghi trùng); cùng số nhưng khác họ tên/ngày sinh → giữ dữ liệu cũ,
+     * báo trong companions_sync.
      */
     public function update(Request $request): JsonResponse
     {
         $request->validate([
             'fullname'                => 'sometimes|string|max:255',
             'date_of_birth'           => 'sometimes|date_format:d-m-Y|before:today',
+            'cccd_qr_image'           => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
             'cccd_front'              => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
             'cccd_back'               => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
             'companions'              => 'sometimes|array',
-            'companions.*.cccd_front' => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
-            'companions.*.cccd_back'  => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'companions.*.qr_image'   => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'companions.*.cccd_front' => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'companions.*.cccd_back'  => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
             'companions.*.full_name'  => 'nullable|string|max:255',
         ]);
 
@@ -335,96 +339,57 @@ class ZaloOtpController extends Controller
             $data['date_of_birth'] = Carbon::createFromFormat('d-m-Y', $request->date_of_birth)->toDateString();
         }
 
-        // Lưu path file cũ để xoá sau khi xác nhận QR hợp lệ
-        $oldCccdFront = $customer->cccd_front;
-        $oldCccdBack  = $customer->cccd_back;
+        // ── CCCD chính chủ + người đi cùng ────────────────────────────────────
+        // Đọc/kiểm tra HẾT trên file tạm trước (QR, cấu trúc số CCCD, trùng người), đạt mới lưu —
+        // lỗi ở bất kỳ ai thì không thay đổi gì. KHÔNG xoá ảnh cũ: đơn đặt trước đây trỏ thẳng vào
+        // file ảnh của hồ sơ (chưa copy), xoá sẽ làm đơn cũ mất ảnh.
+        $intake   = app(CccdIntakeService::class);
+        $actor    = 'customer:' . $customer->id;
+        $self     = $intake->readFromRequest($request, 'cccd_qr_image', ['cccd_front', 'cccd_back'], 'cccd_qr_image', false, $actor);
+        $newPeople = [];
 
-        if ($request->hasFile('cccd_front')) {
-            $data['cccd_front'] = $request->file('cccd_front')->store('cccd', 'public');
+        foreach (array_keys((array) $request->file('companions', [])) as $index) {
+            $read = $intake->readFromRequest($request, "companions.{$index}.qr_image", ["companions.{$index}.cccd_front", "companions.{$index}.cccd_back"], "companions.{$index}.qr_image", true, $actor);
+            $newPeople[$index] = $read + ['field' => "companions.{$index}.qr_image", 'label' => 'Người đi cùng thứ ' . ($index + 1)];
         }
 
-        if ($request->hasFile('cccd_back')) {
-            $data['cccd_back'] = $request->file('cccd_back')->store('cccd', 'public');
-        }
+        // Trùng người giữa CCCD chính chủ (mới gửi hoặc đang có) và các người đi cùng gửi lên cùng
+        // lúc — tuổi không xét ở hồ sơ, xét khi đặt phòng.
+        $selfData = $self['data'] ?? (is_array($customer->cccd_data) ? $customer->cccd_data : null);
+        $intake->assertPeople(array_merge(
+            $selfData ? [['field' => 'cccd_qr_image', 'label' => 'CCCD của bạn', 'is_booker' => true, 'data' => $selfData, 'skip_age' => true]] : [],
+            array_values(array_map(fn ($p) => ['field' => $p['field'], 'label' => $p['label'], 'is_booker' => false, 'data' => $p['data'], 'skip_age' => true], $newPeople)),
+        ), null);
 
-        // Nếu có upload CCCD thì bắt buộc quét QR xác thực
-        if (isset($data['cccd_front']) || isset($data['cccd_back'])) {
-            $tempCustomer = new Customer([
-                'cccd_front' => $data['cccd_front'] ?? $customer->cccd_front,
-                'cccd_back'  => $data['cccd_back']  ?? $customer->cccd_back,
-            ]);
-
-            $cccdData = app(CccdScannerService::class)->scanCustomer($tempCustomer);
-
-            if (! $cccdData) {
-                // QR không đọc được — xoá file mới, giữ nguyên file cũ
-                if (isset($data['cccd_front'])) {
-                    Storage::disk('public')->delete($data['cccd_front']);
-                }
-                if (isset($data['cccd_back'])) {
-                    Storage::disk('public')->delete($data['cccd_back']);
-                }
-
-                return response()->json([
-                    'message' => 'Không đọc được QR trên ảnh CCCD. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.',
-                ], 422);
-            }
-
-            // QR hợp lệ — xoá file cũ và lưu dữ liệu
-            if (isset($data['cccd_front']) && $oldCccdFront) {
-                Storage::disk('public')->delete($oldCccdFront);
-            }
-            if (isset($data['cccd_back']) && $oldCccdBack) {
-                Storage::disk('public')->delete($oldCccdBack);
-            }
-
-            $data['cccd_data'] = $cccdData;
+        if ($self) {
+            $data['cccd_qr_image'] = $intake->storeQrImage($self['file']);
+            $data['cccd_data']     = $self['data'];
         }
 
         if (! empty($data)) {
             $customer->update($data);
         }
 
-        // Thêm CCCD người đi cùng vào hồ sơ.
-        if ($request->has('companions')) {
-            $uploadedPaths = [];
-            $scanner       = app(CccdScannerService::class);
+        $companionsSync = [];
+        foreach ($newPeople as $index => $person) {
+            $status = $intake->rememberCompanion($customer, $person['data'], $intake->storeQrImage($person['file']), copyImage: false);
 
-            try {
-                DB::transaction(function () use ($request, $customer, $scanner, &$uploadedPaths) {
-                    foreach ($request->file('companions') as $index => $files) {
-                        $frontPath = $files['cccd_front']->store('cccd', 'public');
-                        $backPath  = $files['cccd_back']->store('cccd', 'public');
-                        $uploadedPaths[] = $frontPath;
-                        $uploadedPaths[] = $backPath;
-
-                        $cccdData = $scanner->scanPaths($frontPath, $backPath);
-
-                        if (! $cccdData) {
-                            throw new \RuntimeException(
-                                'Không đọc được QR trên CCCD người đi cùng thứ ' . ($index + 1) . '. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.'
-                            );
-                        }
-
-                        CustomerCompanion::create([
-                            'customer_id' => $customer->id,
-                            'full_name'   => $request->input("companions.$index.full_name") ?: ($cccdData['full_name'] ?? null),
-                            'cccd_front'  => $frontPath,
-                            'cccd_back'   => $backPath,
-                            'cccd_data'   => $cccdData,
-                        ]);
-                    }
-                });
-            } catch (\RuntimeException $e) {
-                foreach ($uploadedPaths as $path) {
-                    Storage::disk('public')->delete($path);
-                }
-
-                return response()->json(['message' => $e->getMessage()], 422);
+            if (in_array($status, ['created', 'updated'], true) && $request->filled("companions.{$index}.full_name")) {
+                $customer->companions()->get()
+                    ->first(fn (CustomerCompanion $c) => ($c->cccd_data['cccd'] ?? null) === $person['data']['cccd'])
+                    ?->update(['full_name' => $request->input("companions.{$index}.full_name")]);
             }
+
+            $companionsSync[] = ['index' => $index, 'status' => $status];
         }
 
         return response()->json($this->customerResource(
+            Customer::find($customer->id) ?? $customer
+        ) + ['companions_sync' => $companionsSync]);
+    }
+
+    /**
+     * Xoá 1 CCCD        return response()->json($this->customerResource(
             Customer::find($customer->id) ?? $customer
         ));
     }
@@ -443,8 +408,7 @@ class ZaloOtpController extends Controller
             return response()->json(['message' => 'Không tìm thấy người đi cùng.'], 404);
         }
 
-        Storage::disk('public')->delete(array_filter([$companion->cccd_front, $companion->cccd_back]));
-
+        // Không xoá file ảnh: đơn đặt trước đây có thể còn trỏ thẳng vào ảnh của người đi cùng này.
         $companion->delete();
 
         return response()->json($this->customerResource(
@@ -482,19 +446,17 @@ class ZaloOtpController extends Controller
             'phone'             => $customer->phone,
             'status'            => $customer->status,
             'phone_verified_at' => $customer->phone_verified_at?->toIso8601String(),
-            'cccd_front'        => $customer->cccd_front
-                ? Storage::disk('public')->url($customer->cccd_front)
-                : null,
-            'cccd_back'         => $customer->cccd_back
-                ? Storage::disk('public')->url($customer->cccd_back)
-                : null,
+            ...CccdIntakeService::imageUrls($customer),
             'cccd_data'         => $customer->cccd_data,
+            // Hồ sơ có dùng được để đặt phòng không (cấu trúc số CCCD hợp lệ) — false thì app yêu
+            // cầu khách tải lại ảnh CCCD mặt có mã QR.
+            'cccd_valid'        => CccdIdentity::validate($customer->cccd_data, requireQr: false) === null,
             'companions'        => $customer->companions->map(fn (CustomerCompanion $c) => [
                 'id'          => $c->id,
                 'full_name'   => $c->full_name,
-                'cccd_front'  => Storage::disk('public')->url($c->cccd_front),
-                'cccd_back'   => Storage::disk('public')->url($c->cccd_back),
+                ...CccdIntakeService::imageUrls($c),
                 'cccd_data'   => $c->cccd_data,
+                'cccd_valid'  => CccdIdentity::validate($c->cccd_data, requireQr: false) === null,
             ]),
             'membership'        => [
                 'tier'           => $tier ? [

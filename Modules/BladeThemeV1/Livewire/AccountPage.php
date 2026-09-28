@@ -27,8 +27,8 @@ class AccountPage extends Component
     public int $pendingOrders = 0;
 
     // CCCD status
-    public ?string $cccdFrontUrl = null;
-    public ?string $cccdBackUrl  = null;
+    // Hồ sơ có CCCD dùng được để đặt phòng (cccd_data đúng cấu trúc) — trang chỉ báo trạng thái,
+    // không hiển thị lại ảnh/thông tin CCCD.
     public bool    $hasCccd      = false;
 
     // Hạng thành viên (customers.membership_tier_id)
@@ -145,13 +145,7 @@ class AccountPage extends Component
         $this->phone   = $raw;
         $this->phone84 = '84' . substr($this->phone, 1);
 
-        $this->cccdFrontUrl = $customer->cccd_front
-            ? Storage::disk('public')->url($customer->cccd_front)
-            : null;
-        $this->cccdBackUrl = $customer->cccd_back
-            ? Storage::disk('public')->url($customer->cccd_back)
-            : null;
-        $this->hasCccd = !empty($customer->cccd_front) && !empty($customer->cccd_back);
+        $this->hasCccd = \App\Support\CccdIdentity::validate($customer->cccd_data, requireQr: false) === null;
 
         $tier                       = $customer->membershipTier;
         $this->membershipTierName  = $tier?->name;
@@ -366,8 +360,6 @@ class AccountPage extends Component
         $this->phone             = '';
         $this->phone84           = '';
         $this->dob               = '';
-        $this->cccdFrontUrl      = null;
-        $this->cccdBackUrl       = null;
         $this->hasCccd           = false;
         $this->membershipTierName    = null;
         $this->membershipTierColor   = null;

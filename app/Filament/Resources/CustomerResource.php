@@ -98,6 +98,16 @@ class CustomerResource extends Resource
                             ->dehydrateStateUsing(fn (bool $state) => $state ? 'active' : 'inactive')
                             ->default(true),
 
+                        FileUpload::make('cccd_qr_image')
+                            ->label('CCCD — mặt có mã QR')
+                            ->image()
+                            ->disk('public')
+                            ->directory('cccd/qr')
+                            ->maxSize(10240)
+                            ->imagePreviewHeight('300')
+                            ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                            ->helperText('Ảnh dùng để quét thông tin (khách tải lên từ web/app). Mặt trước/sau bên dưới là tuỳ chọn để lưu trữ.'),
+
                         FileUpload::make('cccd_front')
                             ->label('Mặt trước CCCD')
                             ->image()
@@ -311,7 +321,8 @@ class CustomerResource extends Resource
                 IconColumn::make('cccd_front')
                     ->label('CCCD')
                     ->boolean()
-                    ->getStateUsing(fn ($record) => ! is_null($record->cccd_front)),
+                    // Có CCCD dùng được để đặt phòng (cccd_data đúng cấu trúc), không chỉ là có ảnh.
+                    ->getStateUsing(fn ($record) => \App\Support\CccdIdentity::validate($record->cccd_data, requireQr: false) === null),
 
                 ToggleColumn::make('status')
                     ->label('Hoạt động')

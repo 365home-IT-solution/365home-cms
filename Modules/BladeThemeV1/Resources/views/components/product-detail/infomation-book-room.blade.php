@@ -320,8 +320,8 @@
             <p class="text-xs font-semibold tracking-wider uppercase text-[#717171]">Xác thực danh tính</p>
             <p class="text-[11px] text-[#717171] mt-0.5 mb-3">Bắt buộc để hoàn tất nhận phòng</p>
 
-            @if ($isAuthUser && !empty($authCccdFront) && !empty($authCccdBack))
-                {{-- Auth user đã có CCCD trong profile → hiển thị ảnh đã lưu --}}
+            @if ($authHasCccd && !($cccdScanStatus['main'] ?? null))
+                {{-- Auth user đã có CCCD hợp lệ trong hồ sơ → dùng lại (không hiển thị thông tin CCCD) --}}
                 <div class="bg-green-50 border border-green-300 rounded-xl p-3 mb-3 flex items-start gap-2">
                     <svg class="w-4 h-4 text-green-600 shrink-0 mt-0.5" fill="none" stroke="currentColor"
                         stroke-width="2" viewBox="0 0 24 24">
@@ -329,134 +329,28 @@
                             d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                     </svg>
                     <div class="flex-1">
-                        <p class="text-sm font-semibold text-green-800">CCCD đã xác minh từ hồ sơ của bạn</p>
-                        <p class="text-xs text-green-600 mt-0.5">Thông tin CCCD được lấy tự động — không cần upload
-                            lại.</p>
+                        <p class="text-sm font-semibold text-green-800">Dùng CCCD đã xác minh trong hồ sơ</p>
+                        <p class="text-xs text-green-600 mt-0.5">Thông tin CCCD sẽ tự động được thêm vào đơn.</p>
                     </div>
                 </div>
-                <div class="flex gap-3">
-                    @foreach ([['front', $authCccdFront, 'Mặt trước'], ['back', $authCccdBack, 'Mặt sau']] as [$side, $path, $label])
-                        @php $url = $path ? \Illuminate\Support\Facades\Storage::disk('public')->url($path) : ''; @endphp
-                        <div
-                            class="relative group flex-1 h-36 border-2 border-green-300 rounded-xl overflow-hidden bg-green-50">
-                            <img src="{{ $url }}" alt="{{ $label }} CCCD"
-                                class="absolute inset-0 w-full h-full object-cover rounded-xl">
-                            {{-- Overlay cho phép upload lại --}}
-                            <label
-                                class="absolute inset-0 flex flex-col items-center justify-center bg-black/0 group-hover:bg-black/40 transition-all cursor-pointer rounded-xl">
-                                <input type="file" accept="image/*" class="hidden"
-                                    onchange="processAndUpload(this, 'cccd_{{ $side }}', {maxSize: 2400, quality: 0.92})" />
-                                <div class="opacity-0 group-hover:opacity-100 transition-opacity text-center">
-                                    <svg class="w-6 h-6 text-white mx-auto mb-1" fill="none" stroke="currentColor"
-                                        stroke-width="2" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round"
-                                            d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-                                    </svg>
-                                    <span class="text-white text-xs font-semibold">Đổi ảnh</span>
-                                </div>
-                            </label>
-                            {{-- Badge xác nhận --}}
-                            <div
-                                class="absolute top-2 left-2 bg-green-500 rounded-full px-2 py-0.5 flex items-center gap-1 shadow">
-                                <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor"
-                                    stroke-width="2.5" viewBox="0 0 24 24">
-                                    <path d="M5 13l4 4L19 7" />
-                                </svg>
-                                <span class="text-white text-[10px] font-bold">{{ $label }}</span>
-                            </div>
-                            {{-- JS-managed loading overlay (cho upload mới) --}}
-                            <div wire:ignore>
-                                <div id="loading-cccd_{{ $side }}"
-                                    class="hidden absolute inset-0 bg-white/90 backdrop-blur-sm z-20 rounded-xl flex flex-col items-center justify-center">
-                                    <div
-                                        class="animate-spin rounded-full h-6 w-6 border-2 border-black border-t-primary mb-2">
-                                    </div>
-                                    <p class="text-xs font-medium" id="status-cccd_{{ $side }}">Đang xử lý...
-                                    </p>
-                                    <div class="w-20 h-1 bg-gray-200 rounded-full overflow-hidden mt-1">
-                                        <div id="progress-cccd_{{ $side }}"
-                                            class="h-full bg-primary rounded-full transition-all" style="width:0%">
-                                        </div>
-                                    </div>
-                                </div>
-                                <img id="preview-cccd_{{ $side }}" src=""
-                                    class="hidden absolute inset-0 w-full h-full object-cover rounded-xl"
-                                    alt="{{ $label }} CCCD mới" />
-                                <div id="checkmark-cccd_{{ $side }}"
-                                    class="hidden absolute top-2 right-2 bg-green-500 rounded-full p-1 shadow z-10">
-                                    <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor"
-                                        stroke-width="2.5" viewBox="0 0 24 24">
-                                        <path d="M5 13l4 4L19 7" />
-                                    </svg>
-                                </div>
-                            </div>
-                        </div>
-                    @endforeach
-                </div>
+                <details class="group" @if ($errors->has('cccd_qr_image')) open @endif>
+                    <summary class="text-xs font-medium text-[#222222] underline cursor-pointer mb-2">Dùng CCCD khác</summary>
+                    @include('bladethemev1::components.product-detail.cccd-qr-upload', [
+                        'field' => 'cccd_qr_image',
+                        'scan' => $cccdScanStatus['main'] ?? null,
+                        'label' => 'Ảnh CCCD — mặt có mã QR',
+                    ])
+                </details>
             @else
-                {{-- Chưa có CCCD → hiển thị upload zone thông thường --}}
-                <div class="grid grid-cols-2 gap-3">
-                    @foreach ([['cccd_front', 'Mặt trước CCCD'], ['cccd_back', 'Mặt sau CCCD']] as [$field, $label])
-                        <div class="space-y-1.5">
-                            <label
-                                class="relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed cursor-pointer transition-all overflow-hidden py-5 group
-                    {{ $errors->has($field) ? 'border-red-600' : 'border-[#DDDDDD] hover:border-[#B0B0B0] bg-[#FAFAFA] hover:bg-[#F7F7F7]' }}">
-                                <input type="file" accept="image/*" class="sr-only"
-                                    onchange="processAndUpload(this, '{{ $field }}', {maxSize: 2400, quality: 0.92})" />
-                                <div wire:ignore class="contents">
-                                    <div id="loading-{{ $field }}"
-                                        class="hidden absolute inset-0 bg-white/90 backdrop-blur-sm z-20">
-                                        <div class="flex flex-col items-center justify-center h-full">
-                                            <div
-                                                class="animate-spin rounded-full h-8 w-8 border-3 border-black border-t-primary mb-3">
-                                            </div>
-                                            <p class="text-xs font-medium text-black mb-2"
-                                                id="status-{{ $field }}">Đang xử lý...</p>
-                                            <div class="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                                                <div id="progress-{{ $field }}"
-                                                    class="h-full bg-primary rounded-full transition-all duration-300"
-                                                    style="width: 0%"></div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <img id="preview-{{ $field }}" src=""
-                                        class="hidden absolute inset-0 w-full h-full object-cover"
-                                        alt="{{ $label }}" />
-                                    <div
-                                        class="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-                                        <div class="bg-white/90 rounded-lg px-3 py-1 text-xs font-medium text-black">
-                                            Đổi ảnh</div>
-                                    </div>
-                                    <div id="checkmark-{{ $field }}"
-                                        class="hidden absolute top-2 right-2 bg-green-500 rounded-full p-1 shadow-lg z-10">
-                                        <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor"
-                                            stroke-width="2.5" viewBox="0 0 24 24">
-                                            <path d="M5 13l4 4L19 7" />
-                                        </svg>
-                                    </div>
-                                </div>
-                                <div id="placeholder-{{ $field }}">
-                                    <div
-                                        class="h-9 w-9 rounded-full bg-[#F0F0F0] flex items-center justify-center mx-auto">
-                                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
-                                            viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                                            class="h-5 w-5 text-[#717171]">
-                                            <path
-                                                d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z">
-                                            </path>
-                                            <circle cx="12" cy="13" r="3"></circle>
-                                        </svg>
-                                    </div>
-                                    <div class="text-center mt-2">
-                                        <p class="text-xs font-semibold text-[#222222]">{{ $label }}</p>
-                                        <p class="text-[11px] text-[#717171] mt-0.5">Nhấn để tải ảnh</p>
-                                    </div>
-                                </div>
-                            </label>
-                        </div>
-                    @endforeach
-                </div>
+                @include('bladethemev1::components.product-detail.cccd-qr-upload', [
+                    'field' => 'cccd_qr_image',
+                    'scan' => $cccdScanStatus['main'] ?? null,
+                    'label' => 'Ảnh CCCD — mặt có mã QR',
+                ])
+                @if ($authHasCccd)
+                    <button type="button" wire:click="useProfileCccd"
+                        class="mt-2 text-xs font-medium text-[#222222] underline">Dùng lại CCCD trong hồ sơ</button>
+                @endif
             @endif
 
             <p class="text-[11px] text-[#717171] mt-2">* Thông tin CCCD được lưu trữ và bảo mật để khai báo lưu trú,
@@ -467,8 +361,8 @@
             {{-- CCCD người đi cùng — chỉ hiện khi có khung giờ qua đêm (room_time_slots.over_night)
                  VÀ có từ 2 khách trở lên (guests = 1 thì không có người đi cùng nào để khai báo).
                  Quy định khai báo lưu trú yêu cầu CCCD của tất cả người đi cùng. Luôn là upload mới
-                 (không có hồ sơ auth để tái dùng như CCCD chính) — 1 cặp ảnh cho mỗi khách từ #2
-                 trở đi (số lượng = $guests - 1), xem cccdFrontExtra/cccdBackExtra trong
+                 (không có hồ sơ auth để tái dùng như CCCD chính) — 1 ảnh mặt có mã QR cho mỗi khách
+                 từ #2 trở đi (số lượng = $guests - 1), xem cccdQrImageExtra trong
                  ProductDetail::confirmBooking(). --}}
             <div>
                 <p class="text-xs font-semibold tracking-wider uppercase text-[#717171]">CCCD người đi cùng</p>
@@ -479,68 +373,11 @@
                     @php $companionIdx = $guestIndex - 2; @endphp
                     <div class="mb-4 last:mb-0">
                         <p class="text-[11px] font-semibold text-[#222222] mb-1.5">Người đi cùng #{{ $guestIndex }}</p>
-                        <div class="grid grid-cols-2 gap-3">
-                            @foreach ([['cccdFrontExtra.' . $companionIdx, 'Mặt trước CCCD'], ['cccdBackExtra.' . $companionIdx, 'Mặt sau CCCD']] as [$field, $label])
-                                <div class="space-y-1.5">
-                                    <label
-                                        class="relative flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed cursor-pointer transition-all overflow-hidden py-5 group
-                            {{ $errors->has($field) ? 'border-red-600' : 'border-[#DDDDDD] hover:border-[#B0B0B0] bg-[#FAFAFA] hover:bg-[#F7F7F7]' }}">
-                                        <input type="file" accept="image/*" class="sr-only"
-                                            onchange="processAndUpload(this, '{{ $field }}', {maxSize: 2400, quality: 0.92})" />
-                                        <div wire:ignore class="contents">
-                                            <div id="loading-{{ $field }}"
-                                                class="hidden absolute inset-0 bg-white/90 backdrop-blur-sm z-20">
-                                                <div class="flex flex-col items-center justify-center h-full">
-                                                    <div
-                                                        class="animate-spin rounded-full h-8 w-8 border-3 border-black border-t-primary mb-3">
-                                                    </div>
-                                                    <p class="text-xs font-medium text-black mb-2"
-                                                        id="status-{{ $field }}">Đang xử lý...</p>
-                                                    <div class="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                                                        <div id="progress-{{ $field }}"
-                                                            class="h-full bg-primary rounded-full transition-all duration-300"
-                                                            style="width: 0%"></div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <img id="preview-{{ $field }}" src=""
-                                                class="hidden absolute inset-0 w-full h-full object-cover"
-                                                alt="{{ $label }}" />
-                                            <div
-                                                class="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
-                                                <div class="bg-white/90 rounded-lg px-3 py-1 text-xs font-medium text-black">
-                                                    Đổi ảnh</div>
-                                            </div>
-                                            <div id="checkmark-{{ $field }}"
-                                                class="hidden absolute top-2 right-2 bg-green-500 rounded-full p-1 shadow-lg z-10">
-                                                <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor"
-                                                    stroke-width="2.5" viewBox="0 0 24 24">
-                                                    <path d="M5 13l4 4L19 7" />
-                                                </svg>
-                                            </div>
-                                        </div>
-                                        <div id="placeholder-{{ $field }}">
-                                            <div
-                                                class="h-9 w-9 rounded-full bg-[#F0F0F0] flex items-center justify-center mx-auto">
-                                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
-                                                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-                                                    class="h-5 w-5 text-[#717171]">
-                                                    <path
-                                                        d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z">
-                                                    </path>
-                                                    <circle cx="12" cy="13" r="3"></circle>
-                                                </svg>
-                                            </div>
-                                            <div class="text-center mt-2">
-                                                <p class="text-xs font-semibold text-[#222222]">{{ $label }}</p>
-                                                <p class="text-[11px] text-[#717171] mt-0.5">Nhấn để tải ảnh</p>
-                                            </div>
-                                        </div>
-                                    </label>
-                                </div>
-                            @endforeach
-                        </div>
+                        @include('bladethemev1::components.product-detail.cccd-qr-upload', [
+                            'field' => 'cccdQrImageExtra.' . $companionIdx,
+                            'scan' => $cccdScanStatus['extra.' . $companionIdx] ?? null,
+                            'label' => 'Ảnh CCCD — mặt có mã QR',
+                        ])
                     </div>
                 @endfor
 

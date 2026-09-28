@@ -70,7 +70,7 @@ class EditCustomer extends EditRecord
                 ->label('[TEST] Quét QR CCCD')
                 ->icon('heroicon-m-qr-code')
                 ->color('gray')
-                ->visible(fn () => (bool) ($this->record->cccd_front || $this->record->cccd_back))
+                ->visible(fn () => (bool) ($this->record->cccd_qr_image || $this->record->cccd_front || $this->record->cccd_back))
                 ->action(function (): void {
                     /** @var \App\Models\Customer $record */
                     $record = $this->record->fresh();

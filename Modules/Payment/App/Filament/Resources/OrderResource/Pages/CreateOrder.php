@@ -248,7 +248,7 @@ class CreateOrder extends CreateRecord
         // phần còn lại của afterCreate() dưới đây — PayOS, mã cổng...). Bọc thêm try/catch để
         // dù CccdScannerService lỗi bất ngờ (ảnh hỏng, thiếu binary...) cũng KHÔNG làm hỏng việc
         // tạo đơn — chỉ báo thiếu thông tin và để admin tự quét lại thủ công ở trang Sửa.
-        if (blank($record->cccd_data) && ($record->cccd_front || $record->cccd_back)) {
+        if (blank($record->cccd_data) && ($record->cccd_qr_image || $record->cccd_front || $record->cccd_back)) {
             try {
                 $data = app(CccdScannerService::class)->scanOrder($record);
             } catch (\Throwable $e) {

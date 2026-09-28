@@ -349,7 +349,13 @@ class OrderCalendarWidget extends CalendarWidget
                                     ->iconColor('primary')
                                     ->collapsible()
                                     ->schema([
-                                        Grid::make(2)->schema([
+                                        Grid::make(3)->schema([
+                                            FileUpload::make('cccd_qr_image')
+                                                ->label('CCCD — mặt có mã QR')
+                                                ->image()
+                                                ->imagePreviewHeight('250')
+                                                ->disabled(),
+
                                             FileUpload::make('cccd_front')
                                                 ->label('CCCD/CMND mặt trước')
                                                 ->image()

@@ -527,7 +527,7 @@
                 "me"
               ]
             },
-            "description": "Cập nhật thông tin cá nhân, có thể kèm upload ảnh CCCD 2 mặt (multipart/form-data). Khi upload CCCD, hệ thống dùng `CccdScannerService` tự động quét QR code để lấy dữ liệu (`cccd_data`).\n\n**Yêu cầu:** `auth:sanctum` + `customer.active`\n\n**Content-Type:** multipart/form-data\n\n**Response 200:** Customer Resource đã cập nhật\n**Response 422:** không đọc được QR code trên ảnh CCCD",
+            "description": "Cập nhật thông tin cá nhân, có thể kèm upload ảnh CCCD 2 mặt (multipart/form-data). Khi upload CCCD, hệ thống dùng `CccdScannerService` tự động quét QR code để lấy dữ liệu (`cccd_data`).\n\n**Yêu cầu:** `auth:sanctum` + `customer.active`\n\n**Content-Type:** multipart/form-data\n\n**Response 200:** Customer Resource đã cập nhật\n**Response 422:** không đọc được QR code trên ảnh CCCD\n\n**CCCD (cập nhật 28/09/2026 — luồng 1 ảnh QR):**\n- `cccd_qr_image` (file jpg/png/webp, ≤5MB): 1 ảnh mặt CCCD có mã QR. Server chỉ nhận dữ liệu đọc từ QR, kiểm tra 6 số đầu (mã tỉnh, thế kỷ + giới tính, năm sinh) khớp thông tin trên thẻ.\n- Người đi cùng (khi có khung qua đêm / đặt theo ngày), key theo VỊ TRÍ 0-based: `guests[i][qr_image]` (ảnh mới) hoặc `guests[i][companion_id]` (chọn người đã lưu trong hồ sơ — chỉ API có đăng nhập).\n- `cccd_front`/`cccd_back`, `guests[i][front|back]`: chỉ còn cho app bản cũ (server tự tìm ảnh có QR), sẽ ngừng hỗ trợ.\n- Quy tắc: bất kỳ ai dưới 16 tuổi (tính tại ngày nhận phòng) → lỗi; không được trùng người (số CCCD, hoặc họ tên + ngày sinh) giữa người đặt và người đi cùng.\n- Response có `cccd_qr_image` (URL) bên cạnh `cccd_front`/`cccd_back`.\n\n**Lỗi CCCD → 422** `{ \"message\", \"code\", \"field\" }` (429 khi gửi quá nhiều lần):\n`cccd_required` · `cccd_image_invalid` · `cccd_qr_unreadable` · `cccd_invalid` · `cccd_under_age` · `cccd_duplicate` · `companion_cccd_invalid` (kèm `companion_id`) · `cccd_rate_limited`. `field` là key cần sửa, vd `guests.0.qr_image`.",
             "body": {
               "mode": "formdata",
               "formdata": [
@@ -544,14 +544,31 @@
                   "description": "sometimes, format d-m-Y"
                 },
                 {
+                  "key": "cccd_qr_image",
+                  "type": "file",
+                  "src": [],
+                  "description": "Ảnh CCCD mặt có mã QR (jpg/png/webp, ≤5MB)"
+                },
+                {
                   "key": "cccd_front",
                   "type": "file",
-                  "description": "sometimes, file ảnh mặt trước CCCD (jpg/jpeg/png/webp, max 5MB) — hệ thống tự quét QR code CCCD"
+                  "src": [],
+                  "disabled": true,
+                  "description": "APP CŨ — thay bằng cccd_qr_image, sẽ ngừng hỗ trợ"
                 },
                 {
                   "key": "cccd_back",
                   "type": "file",
-                  "description": "sometimes, file ảnh mặt sau CCCD (jpg/jpeg/png/webp, max 5MB)"
+                  "src": [],
+                  "disabled": true,
+                  "description": "APP CŨ — thay bằng cccd_qr_image, sẽ ngừng hỗ trợ"
+                },
+                {
+                  "key": "companions[0][qr_image]",
+                  "type": "file",
+                  "src": [],
+                  "disabled": true,
+                  "description": "Thêm/cập nhật người đi cùng vào hồ sơ — trùng số CCCD với người đã có thì cập nhật người đó (xem companions_sync)"
                 }
               ]
             }
@@ -2082,7 +2099,7 @@
                 "orders"
               ]
             },
-            "description": "Tạo đơn đặt phòng theo khung giờ (slot). Xem request \"Tạo đơn hàng (đặt phòng theo ngày)\" cho loại `daily`/`monthly`.\n\n**Yêu cầu:** `auth:sanctum` + `customer.active`. Customer bắt buộc đã có ảnh CCCD trong hồ sơ (nếu chưa → 422 `cccd_required`).\n\n**Body chung:**\n- `type` (required: `slot` | `monthly` | `daily`)\n- `room_id` (required)\n- `guest_count` (required, int ≥ 1)\n- `payment_method` (sometimes: `PayOS` | `cod`)\n- `payment_type` (sometimes: `full` | `deposit`)\n- `coupon_codes` (array, optional)\n- `services[]` — mỗi phần tử `{ service_id, quantity }`\n- `return_url`, `cancel_url` (optional — URL redirect sau khi thanh toán PayOS)\n\n**Riêng type=slot:** `date` (required), `slots[]` (required, min:1) — mỗi phần tử `{ timeslot_id, date }`\n\nHệ thống tính giá, áp dụng theo thứ tự ưu tiên: giảm giá đặt trọn phòng (full-booking discount) → giảm giá theo số lượng (bulk discount) → khuyến mãi (promotion) → coupon; tạo order + order_items + order_services trong 1 transaction; tự tạo link thanh toán PayOS nếu tổng tiền ≥ 2.000đ.\n\n**Response 201:**\n```json\n{ \"order\": {...}, \"room\": {...}, \"slots\": [...], \"services\": [...], \"guest_surcharge\": 0, \"promotions\": [...], \"system_discount\": 0, \"coupons\": [...], \"deposit\": {...}, \"summary\": {...} }\n```\n**Response 422:** `cccd_required` hoặc lỗi validation khác",
+            "description": "Tạo đơn đặt phòng theo khung giờ (slot). Xem request \"Tạo đơn hàng (đặt phòng theo ngày)\" cho loại `daily`/`monthly`.\n\n**Yêu cầu:** `auth:sanctum` + `customer.active`. Customer bắt buộc đã có ảnh CCCD trong hồ sơ (nếu chưa → 422 `cccd_required`).\n\n**Body chung:**\n- `type` (required: `slot` | `monthly` | `daily`)\n- `room_id` (required)\n- `guest_count` (required, int ≥ 1)\n- `payment_method` (sometimes: `PayOS` | `cod`)\n- `payment_type` (sometimes: `full` | `deposit`)\n- `coupon_codes` (array, optional)\n- `services[]` — mỗi phần tử `{ service_id, quantity }`\n- `return_url`, `cancel_url` (optional — URL redirect sau khi thanh toán PayOS)\n\n**Riêng type=slot:** `date` (required), `slots[]` (required, min:1) — mỗi phần tử `{ timeslot_id, date }`\n\nHệ thống tính giá, áp dụng theo thứ tự ưu tiên: giảm giá đặt trọn phòng (full-booking discount) → giảm giá theo số lượng (bulk discount) → khuyến mãi (promotion) → coupon; tạo order + order_items + order_services trong 1 transaction; tự tạo link thanh toán PayOS nếu tổng tiền ≥ 2.000đ.\n\n**Response 201:**\n```json\n{ \"order\": {...}, \"room\": {...}, \"slots\": [...], \"services\": [...], \"guest_surcharge\": 0, \"promotions\": [...], \"system_discount\": 0, \"coupons\": [...], \"deposit\": {...}, \"summary\": {...} }\n```\n**Response 422:** `cccd_required` hoặc lỗi validation khác\n\n**CCCD (cập nhật 28/09/2026 — luồng 1 ảnh QR):**\n- `cccd_qr_image` (file jpg/png/webp, ≤5MB): 1 ảnh mặt CCCD có mã QR. Server chỉ nhận dữ liệu đọc từ QR, kiểm tra 6 số đầu (mã tỉnh, thế kỷ + giới tính, năm sinh) khớp thông tin trên thẻ.\n- Người đi cùng (khi có khung qua đêm / đặt theo ngày), key theo VỊ TRÍ 0-based: `guests[i][qr_image]` (ảnh mới) hoặc `guests[i][companion_id]` (chọn người đã lưu trong hồ sơ — chỉ API có đăng nhập).\n- `cccd_front`/`cccd_back`, `guests[i][front|back]`: chỉ còn cho app bản cũ (server tự tìm ảnh có QR), sẽ ngừng hỗ trợ.\n- Quy tắc: bất kỳ ai dưới 16 tuổi (tính tại ngày nhận phòng) → lỗi; không được trùng người (số CCCD, hoặc họ tên + ngày sinh) giữa người đặt và người đi cùng.\n- Response có `cccd_qr_image` (URL) bên cạnh `cccd_front`/`cccd_back`.\n\n**Lỗi CCCD → 422** `{ \"message\", \"code\", \"field\" }` (429 khi gửi quá nhiều lần):\n`cccd_required` · `cccd_image_invalid` · `cccd_qr_unreadable` · `cccd_invalid` · `cccd_under_age` · `cccd_duplicate` · `companion_cccd_invalid` (kèm `companion_id`) · `cccd_rate_limited`. `field` là key cần sửa, vd `guests.0.qr_image`.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"type\": \"slot\",\n  \"room_id\": \"{{room_id}}\",\n  \"guest_count\": 2,\n  \"payment_method\": \"PayOS\",\n  \"payment_type\": \"full\",\n  \"date\": \"2026-07-10\",\n  \"slots\": [\n    {\n      \"timeslot_id\": 1,\n      \"date\": \"2026-07-10\"\n    }\n  ],\n  \"services\": [\n    {\n      \"service_id\": 1,\n      \"quantity\": 1\n    }\n  ],\n  \"coupon_codes\": [],\n  \"return_url\": \"https://app.365home.vn/payment/success\",\n  \"cancel_url\": \"https://app.365home.vn/payment/cancel\"\n}",
@@ -2394,7 +2411,7 @@
                 "orders"
               ]
             },
-            "description": "Tạo đơn đặt phòng theo slot mà không cần đăng nhập tài khoản.\n\n**Không cần Sanctum token.** Xác thực dựa trên `buyer_phone`.\n\n**Content-Type:** multipart/form-data\n\n**Body:**\n- `type` (required: `slot` | `daily`)\n- `room_id` (required)\n- `buyer_name` (required, max:100)\n- `buyer_phone` (required, max:20)\n- `guest_count` (required, ≥1)\n- `payment_method`, `payment_type` (optional, giống Booking Customer)\n- `coupon_codes[]` — CHỈ chấp nhận coupon công khai (không cho dùng coupon cá nhân của người khác)\n- `services[]`\n- `cccd_front`, `cccd_back` (**BẮT BUỘC**, file ảnh) — hệ thống quét QR code bắt buộc phải hợp lệ + kiểm tra đủ tuổi\n- Riêng `type=slot`: `slots[]`\n- `device_token` (optional)\n\n**Response 201:** giống format response tạo đơn của Booking Customer\n**Response 422:** không đọc được QR CCCD / không đủ tuổi / coupon không hợp lệ",
+            "description": "Tạo đơn đặt phòng theo slot mà không cần đăng nhập tài khoản.\n\n**Không cần Sanctum token.** Xác thực dựa trên `buyer_phone`.\n\n**Content-Type:** multipart/form-data\n\n**Body:**\n- `type` (required: `slot` | `daily`)\n- `room_id` (required)\n- `buyer_name` (required, max:100)\n- `buyer_phone` (required, max:20)\n- `guest_count` (required, ≥1)\n- `payment_method`, `payment_type` (optional, giống Booking Customer)\n- `coupon_codes[]` — CHỈ chấp nhận coupon công khai (không cho dùng coupon cá nhân của người khác)\n- `services[]`\n- `cccd_qr_image` (**BẮT BUỘC**, file ảnh mặt có mã QR) — xem mục CCCD bên dưới\n- Riêng `type=slot`: `slots[]`\n- `device_token` (optional)\n\n**Response 201:** giống format response tạo đơn của Booking Customer\n**Response 422:** không đọc được QR CCCD / không đủ tuổi / coupon không hợp lệ\n\n**CCCD (cập nhật 28/09/2026 — luồng 1 ảnh QR):**\n- `cccd_qr_image` (file jpg/png/webp, ≤5MB): 1 ảnh mặt CCCD có mã QR. Server chỉ nhận dữ liệu đọc từ QR, kiểm tra 6 số đầu (mã tỉnh, thế kỷ + giới tính, năm sinh) khớp thông tin trên thẻ.\n- Người đi cùng (khi có khung qua đêm / đặt theo ngày), key theo VỊ TRÍ 0-based: `guests[i][qr_image]` (ảnh mới) hoặc `guests[i][companion_id]` (chọn người đã lưu trong hồ sơ — chỉ API có đăng nhập).\n- `cccd_front`/`cccd_back`, `guests[i][front|back]`: chỉ còn cho app bản cũ (server tự tìm ảnh có QR), sẽ ngừng hỗ trợ.\n- Quy tắc: bất kỳ ai dưới 16 tuổi (tính tại ngày nhận phòng) → lỗi; không được trùng người (số CCCD, hoặc họ tên + ngày sinh) giữa người đặt và người đi cùng.\n- Response có `cccd_qr_image` (URL) bên cạnh `cccd_front`/`cccd_back`.\n\n**Lỗi CCCD → 422** `{ \"message\", \"code\", \"field\" }` (429 khi gửi quá nhiều lần):\n`cccd_required` · `cccd_image_invalid` · `cccd_qr_unreadable` · `cccd_invalid` · `cccd_under_age` · `cccd_duplicate` · `companion_cccd_invalid` (kèm `companion_id`) · `cccd_rate_limited`. `field` là key cần sửa, vd `guests.0.qr_image`.",
             "body": {
               "mode": "formdata",
               "formdata": [
@@ -2453,20 +2470,37 @@
                   "type": "text"
                 },
                 {
+                  "key": "cccd_qr_image",
+                  "type": "file",
+                  "src": [],
+                  "description": "REQUIRED — Ảnh CCCD mặt có mã QR (jpg/png/webp, ≤5MB)"
+                },
+                {
                   "key": "cccd_front",
                   "type": "file",
-                  "description": "REQUIRED — ảnh mặt trước CCCD (jpg/jpeg/png/webp, max 5MB)"
+                  "src": [],
+                  "disabled": true,
+                  "description": "APP CŨ — thay bằng cccd_qr_image, sẽ ngừng hỗ trợ"
                 },
                 {
                   "key": "cccd_back",
                   "type": "file",
-                  "description": "REQUIRED — ảnh mặt sau CCCD"
+                  "src": [],
+                  "disabled": true,
+                  "description": "APP CŨ — thay bằng cccd_qr_image, sẽ ngừng hỗ trợ"
                 },
                 {
                   "key": "device_token",
                   "value": "{{device_token}}",
                   "type": "text",
                   "description": "optional — để nhận push notification trạng thái đơn"
+                },
+                {
+                  "key": "guests[0][qr_image]",
+                  "type": "file",
+                  "src": [],
+                  "disabled": true,
+                  "description": "Người đi cùng thứ 1 (vị trí 0-based) — ảnh CCCD mặt có QR. Bắt buộc khi có khung qua đêm / đặt theo ngày"
                 }
               ]
             }
@@ -2509,7 +2543,7 @@
                 "orders"
               ]
             },
-            "description": "Tương tự request tạo đơn Guest theo slot nhưng dùng cho `type=daily`, thay `date/slots[]` bằng `checkin_date`/`checkout_date` (required, Y-m-d).",
+            "description": "Tương tự request tạo đơn Guest theo slot nhưng dùng cho `type=daily`, thay `date/slots[]` bằng `checkin_date`/`checkout_date` (required, Y-m-d).\n\n**CCCD (cập nhật 28/09/2026 — luồng 1 ảnh QR):**\n- `cccd_qr_image` (file jpg/png/webp, ≤5MB): 1 ảnh mặt CCCD có mã QR. Server chỉ nhận dữ liệu đọc từ QR, kiểm tra 6 số đầu (mã tỉnh, thế kỷ + giới tính, năm sinh) khớp thông tin trên thẻ.\n- Người đi cùng (khi có khung qua đêm / đặt theo ngày), key theo VỊ TRÍ 0-based: `guests[i][qr_image]` (ảnh mới) hoặc `guests[i][companion_id]` (chọn người đã lưu trong hồ sơ — chỉ API có đăng nhập).\n- `cccd_front`/`cccd_back`, `guests[i][front|back]`: chỉ còn cho app bản cũ (server tự tìm ảnh có QR), sẽ ngừng hỗ trợ.\n- Quy tắc: bất kỳ ai dưới 16 tuổi (tính tại ngày nhận phòng) → lỗi; không được trùng người (số CCCD, hoặc họ tên + ngày sinh) giữa người đặt và người đi cùng.\n- Response có `cccd_qr_image` (URL) bên cạnh `cccd_front`/`cccd_back`.\n\n**Lỗi CCCD → 422** `{ \"message\", \"code\", \"field\" }` (429 khi gửi quá nhiều lần):\n`cccd_required` · `cccd_image_invalid` · `cccd_qr_unreadable` · `cccd_invalid` · `cccd_under_age` · `cccd_duplicate` · `companion_cccd_invalid` (kèm `companion_id`) · `cccd_rate_limited`. `field` là key cần sửa, vd `guests.0.qr_image`.",
             "body": {
               "mode": "formdata",
               "formdata": [
@@ -2551,14 +2585,31 @@
                   "description": "required nếu type=daily, Y-m-d"
                 },
                 {
+                  "key": "cccd_qr_image",
+                  "type": "file",
+                  "src": [],
+                  "description": "REQUIRED — Ảnh CCCD mặt có mã QR (jpg/png/webp, ≤5MB)"
+                },
+                {
                   "key": "cccd_front",
                   "type": "file",
-                  "description": "REQUIRED"
+                  "src": [],
+                  "disabled": true,
+                  "description": "APP CŨ — thay bằng cccd_qr_image, sẽ ngừng hỗ trợ"
                 },
                 {
                   "key": "cccd_back",
                   "type": "file",
-                  "description": "REQUIRED"
+                  "src": [],
+                  "disabled": true,
+                  "description": "APP CŨ — thay bằng cccd_qr_image, sẽ ngừng hỗ trợ"
+                },
+                {
+                  "key": "guests[0][qr_image]",
+                  "type": "file",
+                  "src": [],
+                  "disabled": true,
+                  "description": "Người đi cùng thứ 1 (vị trí 0-based) — ảnh CCCD mặt có QR. Bắt buộc khi có khung qua đêm / đặt theo ngày"
                 }
               ]
             }
@@ -2588,7 +2639,7 @@
                 "{{order_code}}"
               ]
             },
-            "description": "Cập nhật đơn của guest — xác thực bằng `buyer_phone` (required) thay vì token.\n\n**Body:** `buyer_phone` (required), `guest_count`, `note_for_admin`, `cccd_front`/`cccd_back` (optional), `services[]`, `device_token`\n\n**Response 200:** đơn đã cập nhật\n**Response 403:** buyer_phone không khớp chủ đơn",
+            "description": "Cập nhật đơn của guest — xác thực bằng `buyer_phone` (required) thay vì token.\n\n**Body:** `buyer_phone` (required), `guest_count`, `note_for_admin`, `cccd_front`/`cccd_back` (optional), `services[]`, `device_token`\n\n**Response 200:** đơn đã cập nhật\n**Response 403:** buyer_phone không khớp chủ đơn\n\n**CCCD (cập nhật 28/09/2026 — luồng 1 ảnh QR):**\n- `cccd_qr_image` (file jpg/png/webp, ≤5MB): 1 ảnh mặt CCCD có mã QR. Server chỉ nhận dữ liệu đọc từ QR, kiểm tra 6 số đầu (mã tỉnh, thế kỷ + giới tính, năm sinh) khớp thông tin trên thẻ.\n- Người đi cùng (khi có khung qua đêm / đặt theo ngày), key theo VỊ TRÍ 0-based: `guests[i][qr_image]` (ảnh mới) hoặc `guests[i][companion_id]` (chọn người đã lưu trong hồ sơ — chỉ API có đăng nhập).\n- `cccd_front`/`cccd_back`, `guests[i][front|back]`: chỉ còn cho app bản cũ (server tự tìm ảnh có QR), sẽ ngừng hỗ trợ.\n- Quy tắc: bất kỳ ai dưới 16 tuổi (tính tại ngày nhận phòng) → lỗi; không được trùng người (số CCCD, hoặc họ tên + ngày sinh) giữa người đặt và người đi cùng.\n- Response có `cccd_qr_image` (URL) bên cạnh `cccd_front`/`cccd_back`.\n\n**Lỗi CCCD → 422** `{ \"message\", \"code\", \"field\" }` (429 khi gửi quá nhiều lần):\n`cccd_required` · `cccd_image_invalid` · `cccd_qr_unreadable` · `cccd_invalid` · `cccd_under_age` · `cccd_duplicate` · `companion_cccd_invalid` (kèm `companion_id`) · `cccd_rate_limited`. `field` là key cần sửa, vd `guests.0.qr_image`.",
             "body": {
               "mode": "formdata",
               "formdata": [
@@ -2611,20 +2662,37 @@
                   "description": "optional"
                 },
                 {
+                  "key": "cccd_qr_image",
+                  "type": "file",
+                  "src": [],
+                  "description": "Ảnh CCCD mặt có mã QR (jpg/png/webp, ≤5MB)"
+                },
+                {
                   "key": "cccd_front",
                   "type": "file",
-                  "description": "optional"
+                  "src": [],
+                  "disabled": true,
+                  "description": "APP CŨ — thay bằng cccd_qr_image, sẽ ngừng hỗ trợ"
                 },
                 {
                   "key": "cccd_back",
                   "type": "file",
-                  "description": "optional"
+                  "src": [],
+                  "disabled": true,
+                  "description": "APP CŨ — thay bằng cccd_qr_image, sẽ ngừng hỗ trợ"
                 },
                 {
                   "key": "device_token",
                   "value": "{{device_token}}",
                   "type": "text",
                   "description": "optional"
+                },
+                {
+                  "key": "guests[0][qr_image]",
+                  "type": "file",
+                  "src": [],
+                  "disabled": true,
+                  "description": "Người đi cùng thứ 1 (vị trí 0-based) — ảnh CCCD mặt có QR. Bắt buộc khi có khung qua đêm / đặt theo ngày"
                 }
               ]
             }

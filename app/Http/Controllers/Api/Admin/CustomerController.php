@@ -7,15 +7,14 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\User;
+use App\Services\CccdIntakeService;
 use App\Services\MembershipService;
+use App\Support\CccdIdentity;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Modules\Category\Entities\Category;
-use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Promotion\App\Models\Coupon;
 
 class CustomerController extends Controller
@@ -86,6 +85,9 @@ class CustomerController extends Controller
     {
         $data = $request->validate($this->rules($request), $this->messages());
 
+        // Quét + đối chứng ảnh CCCD TRƯỚC khi tạo khách — ảnh của 2 người khác nhau thì chặn luôn.
+        $cccdRead = $this->readCccd($request, null);
+
         $customer = Customer::create($this->mainFields($data));
 
         // Tự động gán TOÀN BỘ chi nhánh gốc (parent_id=null) trong phạm vi quyền của user đang
@@ -95,9 +97,9 @@ class CustomerController extends Controller
         $user = $request->user();
         $customer->categories()->sync($user->rootProductCategoryIds());
 
-        $this->handleCccd($request, $customer);
+        $this->applyCccd($request, $customer, $cccdRead);
 
-        return response()->json(['customer' => $this->formatCustomer($customer->fresh(self::LIST_RELATIONS))], 201);
+        return response()->json(['customer' => $this->formatCustomer($customer->fresh(self::LIST_RELATIONS)), 'cccd_check' => $cccdRead['check'] ?? null], 201);
     }
 
     // POST /api/admin/customers/{id} (dùng POST thay PUT — PHP không tự parse multipart cho method PUT thật)
@@ -111,11 +113,13 @@ class CustomerController extends Controller
 
         $data = $request->validate($this->rules($request, true), $this->messages());
 
+        $cccdRead = $this->readCccd($request, $customer);
+
         $customer->update($this->mainFields($data, true));
 
-        $this->handleCccd($request, $customer);
+        $this->applyCccd($request, $customer, $cccdRead);
 
-        return response()->json(['customer' => $this->formatCustomer($customer->fresh(self::LIST_RELATIONS))]);
+        return response()->json(['customer' => $this->formatCustomer($customer->fresh(self::LIST_RELATIONS)), 'cccd_check' => $cccdRead['check'] ?? null]);
     }
 
     // POST /api/admin/customers/{id}/assign-coupon
@@ -248,6 +252,7 @@ class CustomerController extends Controller
             'password'           => 'nullable|string|min:6',
             'province_id'        => 'nullable|integer|exists:provinces,id',
             'membership_tier_id' => 'nullable|integer|exists:membership_tiers,id',
+            'cccd_qr_image'      => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'cccd_front'         => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'cccd_back'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
         ];
@@ -262,7 +267,7 @@ class CustomerController extends Controller
 
     private function mainFields(array $data, bool $isUpdate = false): array
     {
-        $fields = collect($data)->except(['cccd_front', 'cccd_back'])->toArray();
+        $fields = collect($data)->except(['cccd_qr_image', 'cccd_front', 'cccd_back'])->toArray();
 
         if (isset($fields['date_of_birth'])) {
             $fields['date_of_birth'] = Carbon::createFromFormat('d-m-Y', $fields['date_of_birth'])->format('Y-m-d');
@@ -275,40 +280,60 @@ class CustomerController extends Controller
         return $fields;
     }
 
-    // Giống luồng tạo/sửa đơn của Admin\BookingController — chỉ lưu + quét khi có ĐỦ CẢ 2 mặt,
-    // quét lỗi không chặn request (lễ tân có thể xác minh/sửa tay cccd_data sau).
-    private function handleCccd(Request $request, Customer $customer): void
+    /**
+     * Admin gửi ảnh nào (cccd_qr_image/cccd_front/cccd_back) thì quét + đối chứng ảnh đó (xem
+     * CccdIntakeService::readForAdmin) — ảnh của 2 người khác nhau → 422; trùng người đi cùng đã
+     * lưu trong hồ sơ → 422; không đọc được QR thì vẫn lưu ảnh, trả cảnh báo để nhập tay.
+     *
+     * @return array{files: array, data: ?array, check: array}|null  null khi không gửi ảnh nào
+     */
+    private function readCccd(Request $request, ?Customer $customer): ?array
     {
-        if (! $request->hasFile('cccd_front') || ! $request->hasFile('cccd_back')) {
+        $files = array_filter(CccdIntakeService::adminFilesFromRequest($request));
+        if (! $files) {
+            return null;
+        }
+
+        $intake = app(CccdIntakeService::class);
+        $read   = $intake->readForAdmin($files);
+
+        if ($read['data'] && $customer) {
+            $intake->assertPeople(array_merge(
+                [['field' => 'cccd_qr_image', 'label' => 'CCCD khách hàng', 'is_booker' => true, 'data' => $read['data'], 'skip_age' => true]],
+                $customer->companions->filter(fn ($c) => is_array($c->cccd_data) && $c->cccd_data)->map(fn ($c) => [
+                    'field' => 'cccd_qr_image', 'label' => "Người đi cùng {$c->full_name}", 'is_booker' => false, 'data' => $c->cccd_data, 'skip_age' => true,
+                ])->values()->all(),
+            ), null);
+        }
+
+        return ['files' => $files, 'data' => $read['data'], 'check' => ['checks' => $read['checks'], 'warnings' => $read['warnings']]];
+    }
+
+    // Gửi ảnh nào thay ảnh đó (bổ sung dần được); không đọc được QR thì GIỮ cccd_data cũ. Không xoá
+    // ảnh cũ — đơn đặt trước đây có thể dùng chung file với hồ sơ.
+    private function applyCccd(Request $request, Customer $customer, ?array $read): void
+    {
+        if (! $read) {
             return;
         }
 
-        $front = $request->file('cccd_front')->store('cccd', 'public');
-        $back  = $request->file('cccd_back')->store('cccd', 'public');
-
-        $data = null;
-        try {
-            $data = app(CccdScannerService::class)->scanPaths($front, $back);
-        } catch (\Throwable $e) {
-            Log::warning('Admin API: quét CCCD khách hàng thất bại', [
-                'customer_id' => $customer->id,
-                'error'       => $e->getMessage(),
-            ]);
+        $values = app(CccdIntakeService::class)->storeAdminImages($read['files']);
+        if ($read['data']) {
+            $values['cccd_data'] = $read['data'];
         }
 
-        $customer->update([
-            'cccd_front' => $front,
-            'cccd_back'  => $back,
-            'cccd_data'  => $data,
-        ]);
+        $customer->update($values);
     }
 
     private function formatCustomer(Customer $customer): array
     {
         $data = $customer->toArray();
 
-        $data['cccd_front_url'] = $customer->cccd_front ? Storage::disk('public')->url($customer->cccd_front) : null;
-        $data['cccd_back_url']  = $customer->cccd_back  ? Storage::disk('public')->url($customer->cccd_back)  : null;
+        $urls = CccdIntakeService::imageUrls($customer);
+        $data['cccd_qr_image_url'] = $urls['cccd_qr_image'];
+        $data['cccd_front_url']    = $urls['cccd_front'];
+        $data['cccd_back_url']     = $urls['cccd_back'];
+        $data['cccd_valid']        = CccdIdentity::validate($customer->cccd_data, requireQr: false) === null;
 
         return $data;
     }

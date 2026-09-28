@@ -925,12 +925,12 @@ class EditOrder extends EditRecord
         // BAO GIỜ được tạo — vì upsertFromOrder() bên dưới chỉ tạo bản ghi khi cccd_data đã có dữ
         // liệu (xem CccdDeclarationService::upsertFromOrder()).
         foreach ($record->guestCccds as $guest) {
-            if (! blank($guest->cccd_data) || (! $guest->cccd_front && ! $guest->cccd_back)) {
+            if (! blank($guest->cccd_data) || (! $guest->cccd_qr_image && ! $guest->cccd_front && ! $guest->cccd_back)) {
                 continue;
             }
 
             try {
-                $scanned = app(CccdScannerService::class)->scanPaths($guest->cccd_front, $guest->cccd_back);
+                $scanned = app(CccdScannerService::class)->scanPaths($guest->cccd_front, $guest->cccd_back, $guest->cccd_qr_image);
 
                 if ($scanned) {
                     $guest->update(['cccd_data' => $scanned]);

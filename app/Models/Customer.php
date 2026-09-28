@@ -43,6 +43,7 @@ class Customer extends Authenticatable
         'token_device',
         'cccd_front',
         'cccd_back',
+        'cccd_qr_image',
         'cccd_data',
         'membership_tier_id',
         'total_spending',

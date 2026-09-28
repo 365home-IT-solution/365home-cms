@@ -108,10 +108,7 @@ class CccdScannerService
         ini_set('memory_limit', '256M');
         $this->startTimer();
 
-        $frontPath = $order->cccd_front ? Storage::disk('public')->path($order->cccd_front) : null;
-        $backPath  = $order->cccd_back  ? Storage::disk('public')->path($order->cccd_back)  : null;
-
-        return $this->scanBothSides($frontPath, $backPath, ['order_id' => $order->id ?? null]);
+        return $this->scanWithQrFirst($order->cccd_qr_image ?? null, $order->cccd_front, $order->cccd_back, ['order_id' => $order->id ?? null]);
     }
 
     /**
@@ -122,25 +119,71 @@ class CccdScannerService
         ini_set('memory_limit', '256M');
         $this->startTimer();
 
-        $frontPath = $customer->cccd_front ? Storage::disk('public')->path($customer->cccd_front) : null;
-        $backPath  = $customer->cccd_back  ? Storage::disk('public')->path($customer->cccd_back)  : null;
-
-        return $this->scanBothSides($frontPath, $backPath, ['customer_id' => $customer->id ?? null]);
+        return $this->scanWithQrFirst($customer->cccd_qr_image ?? null, $customer->cccd_front, $customer->cccd_back, ['customer_id' => $customer->id ?? null]);
     }
 
     /**
-     * Quét QR từ 2 path đã lưu trên disk 'public'.
-     * Dùng cho Livewire booking flow sau khi file đã store() vĩnh viễn.
+     * Quét QR từ các path đã lưu trên disk 'public'. $qrPath (cột cccd_qr_image — ảnh mặt có mã
+     * QR, luồng 1 ảnh) được quét trước; không đọc được mới tới 2 mặt trước/sau như cũ.
      */
-    public function scanPaths(?string $frontPath, ?string $backPath): ?array
+    public function scanPaths(?string $frontPath, ?string $backPath, ?string $qrPath = null): ?array
     {
         ini_set('memory_limit', '256M');
         $this->startTimer();
 
-        $front = $frontPath ? Storage::disk('public')->path($frontPath) : null;
-        $back  = $backPath  ? Storage::disk('public')->path($backPath)  : null;
+        return $this->scanWithQrFirst($qrPath, $frontPath, $backPath);
+    }
 
-        return $this->scanBothSides($front, $back);
+    /**
+     * Ảnh QR (nếu có) quét QR-only trước — nhanh và đúng nguồn; không được thì quét gộp 2 mặt
+     * trước/sau (kèm OCR fallback) như luồng cũ. Các path là path trên disk 'public'.
+     */
+    private function scanWithQrFirst(?string $qrPath, ?string $frontPath, ?string $backPath, array $logCtx = []): ?array
+    {
+        $disk = Storage::disk('public');
+
+        if ($qrPath && $disk->exists($qrPath)) {
+            $data = $this->scanQrImage($disk->path($qrPath));
+            if ($data) {
+                return $data;
+            }
+            $this->startTimer(); // scanQrImage() đã tiêu ngân sách — cấp lại cho 2 mặt
+        }
+
+        $front = $frontPath ? $disk->path($frontPath) : null;
+        $back  = $backPath  ? $disk->path($backPath)  : null;
+
+        if (! $front && ! $back) {
+            return null;
+        }
+
+        return $this->scanBothSides($front, $back, $logCtx);
+    }
+
+    /**
+     * Quét CHỈ mã QR trên 1 ảnh CCCD (đường dẫn tuyệt đối, vd file tạm Livewire) — không fallback
+     * OCR: luồng đặt phòng 1 ảnh chỉ chấp nhận dữ liệu từ QR chip, OCR dễ bị đánh lừa bằng ảnh chữ.
+     */
+    public function scanQrImage(string $absolutePath): ?array
+    {
+        if (! file_exists($absolutePath)) {
+            return null;
+        }
+
+        ini_set('memory_limit', '256M');
+        $this->startTimer();
+
+        $norm = $this->normalizeExifOrientation($absolutePath) ?? $absolutePath;
+
+        try {
+            $data = $this->tryQrScan($norm);
+
+            return $data && ($data['source'] ?? null) === 'qr' ? $data : null;
+        } finally {
+            if ($norm !== $absolutePath && file_exists($norm)) {
+                @unlink($norm);
+            }
+        }
     }
 
     /**
@@ -534,7 +577,7 @@ class CccdScannerService
             // Log ở info level để dễ debug khi QR được đọc nhưng không phải CCCD format
             Log::info('[CccdScanner] jsQR result', [
                 'exit'   => $exitCode,
-                'stdout' => $text ? substr($text, 0, 120) : null,
+                'length' => $text ? strlen($text) : 0, // không log nội dung QR — chứa số CCCD/họ tên
                 'stderr' => trim((string) $stderr),
             ]);
 
@@ -547,8 +590,7 @@ class CccdScannerService
                     return $this->parseQrData($text);
                 }
                 Log::warning('[CccdScanner] jsQR đọc được QR nhưng không phải format CCCD', [
-                    'decoded' => substr($text, 0, 200),
-                    'pipes'   => substr_count($text, '|'),
+                                        'pipes'   => substr_count($text, '|'),
                 ]);
             }
         } catch (\Throwable $e) {
@@ -727,7 +769,7 @@ class CccdScannerService
                         'img'    => basename($tryPath),
                         'flags'  => implode(' ', array_slice($argv, 1, 3)),
                         'exit'   => $exitCode,
-                        'stdout' => $text,
+                        'length' => $text ? strlen($text) : 0,
                         'stderr' => trim((string) $stderr),
                     ]);
 
@@ -795,8 +837,7 @@ class CccdScannerService
 
                 Log::debug('[CccdScanner] khanamiryan raw', [
                     'path' => basename($path),
-                    'text' => $text,
-                    'hex'  => bin2hex(mb_substr($text, 0, 50)),
+                    'length' => strlen($text),
                 ]);
 
                 if ($this->isCccdQr($text)) {
@@ -911,7 +952,6 @@ class CccdScannerService
             Log::info('[CccdScanner] OCR raw text', [
                 'path'    => basename($imagePath),
                 'length'  => strlen($text),
-                'preview' => substr($text, 0, 300),
             ]);
 
             $data = $this->parseOcrText($text);
@@ -920,7 +960,6 @@ class CccdScannerService
             } else {
                 Log::warning('[CccdScanner] OCR extract được text nhưng parse thất bại', [
                     'path'    => basename($imagePath),
-                    'preview' => substr($text, 0, 300),
                 ]);
             }
 
