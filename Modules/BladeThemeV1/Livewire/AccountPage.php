@@ -2,22 +2,32 @@
 
 namespace Modules\BladeThemeV1\Livewire;
 
+use App\Exceptions\CccdIntakeException;
 use App\Models\Customer;
 use App\Models\MembershipTier;
+use App\Services\CccdIntakeService;
+use App\Support\CccdIdentity;
 use App\Settings\GeneralSettings;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Laravel\Sanctum\PersonalAccessToken;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Livewire\WithFileUploads;
 use Modules\Category\Entities\Category;
 use Modules\Payment\Entities\Order;
 
 class AccountPage extends Component
 {
-    // Thông tin user
+    use WithFileUploads;
+
+    // Thông tin user — chỉ server gán sau khi xác thực token (#[Locked]: client không sửa được)
+    #[Locked]
     public bool   $isLoggedIn = false;
     public bool   $isLoading  = true;
     public string $fullname   = '';
+    #[Locked] // dùng để lọc đơn của khách
     public string $phone      = '';
     public string $dob        = '';
 
@@ -29,7 +39,11 @@ class AccountPage extends Component
     // CCCD status
     // Hồ sơ có CCCD dùng được để đặt phòng (cccd_data đúng cấu trúc) — trang chỉ báo trạng thái,
     // không hiển thị lại ảnh/thông tin CCCD.
+    #[Locked]
     public bool    $hasCccd      = false;
+
+    // Ảnh CCCD mặt có mã QR vừa tải lên (file tạm Livewire) — xử lý ở saveCccd().
+    public $cccdQrImage = null;
 
     // Hạng thành viên (customers.membership_tier_id)
     public ?string $membershipTierName    = null;
@@ -53,7 +67,10 @@ class AccountPage extends Component
     public array $discountCodes = [];
 
     // Pagination
+    // #[Locked]: 2 giá trị này dùng để lọc đơn của khách — client sửa được thì xem được đơn người khác.
+    #[Locked]
     public ?string $customerId = null; // UUID của customer đã xác thực
+    #[Locked]
     public string $phone84     = '';   // dạng 84xxx để query
     public int $currentPage  = 1;
     public int $perPage      = 5;
@@ -93,6 +110,72 @@ class AccountPage extends Component
         $this->staffIconUrl = Storage::disk('public')->exists('membership/icons/staff.png')
             ? Storage::disk('public')->url('membership/icons/staff.png')
             : '';
+    }
+
+    /**
+     * Xác thực CCCD hồ sơ bằng 1 ảnh mặt có mã QR — quét trên server, CHỈ nhận dữ liệu từ QR, kiểm
+     * tra cấu trúc số CCCD, chống trùng với người đi cùng đã lưu, có rate limit (dùng chung
+     * CccdIntakeService với trang đặt phòng). Xác thực lại token mỗi lần, không tin $customerId.
+     * Tuổi không xét ở đây — xét lúc đặt phòng.
+     *
+     * Hồ sơ nhận CCCD mới; mọi lần xác thực được lưu lại để admin xem lịch sử thay đổi ở trang quản
+     * lý thành viên (CccdIntakeService::recordCustomerVerification).
+     *
+     * @return array{ok: bool, message: string}
+     */
+    public function saveCccd(string $token): array
+    {
+        $file = $this->cccdQrImage;
+        $this->cccdQrImage = null;
+
+        $customer = $this->customerFromToken($token);
+        if (! $customer) {
+            return ['ok' => false, 'message' => 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.'];
+        }
+
+        if (! $file instanceof TemporaryUploadedFile) {
+            return ['ok' => false, 'message' => 'Vui lòng chọn ảnh CCCD (mặt có mã QR).'];
+        }
+
+        $intake = app(CccdIntakeService::class);
+
+        try {
+            $data = $intake->readStrict($file, 'cccd_qr_image', 'customer:' . $customer->id);
+        } catch (CccdIntakeException $e) {
+            return ['ok' => false, 'message' => $e->getMessage()];
+        }
+
+        $duplicate = $customer->companions()->get()
+            ->first(fn ($c) => is_array($c->cccd_data) && $c->cccd_data && CccdIdentity::samePerson($data, $c->cccd_data));
+        if ($duplicate) {
+            return ['ok' => false, 'message' => 'CCCD này đang được lưu cho người đi cùng (' . ($duplicate->full_name ?: 'không tên') . ') trong hồ sơ của bạn.'];
+        }
+
+        $result = $intake->recordCustomerVerification($customer, $data, $file, \App\Models\CustomerCccdVerification::SOURCE_WEB_ACCOUNT);
+
+        $this->hasCccd = true;
+
+        return [
+            'ok'      => true,
+            'message' => $result['status'] === 'first' ? 'Đã xác thực CCCD thành công!' : 'Đã cập nhật CCCD thành công!',
+        ];
+    }
+
+    private function customerFromToken(string $token): ?Customer
+    {
+        if ($token === '') {
+            return null;
+        }
+
+        try {
+            $pat = PersonalAccessToken::findToken($token);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $customer = $pat && $pat->tokenable_type === Customer::class ? $pat->tokenable : null;
+
+        return $customer && $customer->status === Customer::STATUS_ACTIVE ? $customer : null;
     }
 
     // ── Xác thực token, load profile + stats + trang đầu ──────────────────────

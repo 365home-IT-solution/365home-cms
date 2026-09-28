@@ -186,23 +186,20 @@
             if (!token) { this.cccdLoading = false; return; }
 
             try {
-                const fd = new FormData();
-                fd.append('cccd_qr_image', this.cccdFile);
+                // Upload file tạm qua Livewire rồi để server quét mã QR + lưu hồ sơ (AccountPage::saveCccd).
+                await new Promise((resolve, reject) =>
+                    this.$wire.upload('cccdQrImage', this.cccdFile, resolve, () => reject(new Error('upload')))
+                );
+                const result = await this.$wire.saveCccd(token);
+                if (!result || !result.ok) { this.cccdError = (result && result.message) || 'Lỗi tải CCCD.'; return; }
 
-                const res  = await fetch('/api/auth/me', {
-                    method: 'POST',
-                    headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
-                    body: fd,
-                });
-                const data = await res.json();
-                if (!res.ok) { this.cccdError = data.message || 'Lỗi tải CCCD.'; return; }
-
-                localStorage.setItem('auth_user', JSON.stringify(data));
-                this.cccdSuccess = 'Cập nhật CCCD thành công!';
+                this.cccdSuccess = result.message;
+                this.cccdFile = null;
+                this.cccdPreview = null;
                 window.dispatchEvent(new CustomEvent('auth-state-changed'));
                 setTimeout(() => { this.editOpen = false; }, 1200);
             } catch {
-                this.cccdError = 'Lỗi kết nối. Vui lòng thử lại.';
+                this.cccdError = 'Tải ảnh thất bại. Vui lòng thử lại.';
             } finally {
                 this.cccdLoading = false;
             }
@@ -313,7 +310,7 @@
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
                         </svg>
-                        CCCD đã xác minh
+                        CCCD đã xác thực
                     </span>
                     @else
                     <button @click="openEdit()"
@@ -321,7 +318,7 @@
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
                         </svg>
-                        Chưa có CCCD
+                        Chưa xác thực CCCD
                     </button>
                     @endif
                 </div>
@@ -717,14 +714,14 @@
                         <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide flex items-center gap-2">
                             Căn cước công dân
                             @if($hasCccd)
-                            <span class="text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">Đã có</span>
+                            <span class="text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">Đã xác thực</span>
                             @else
-                            <span class="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">Chưa có</span>
+                            <span class="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">Chưa xác thực</span>
                             @endif
                         </h3>
 
                         @if($hasCccd)
-                        <p class="text-xs text-gray-500">CCCD của bạn đã được xác minh và sẽ tự động dùng khi đặt phòng. Muốn cập nhật? Chọn ảnh mới bên dưới.</p>
+                        <p class="text-xs text-gray-500">CCCD của bạn đã được xác thực và sẽ tự động dùng khi đặt phòng. Muốn cập nhật? Chọn ảnh mới bên dưới.</p>
                         @endif
 
                         {{-- 1 ảnh CCCD mặt có mã QR — server quét QR, kiểm tra hợp lệ rồi lưu vào hồ sơ --}}
@@ -777,7 +774,7 @@
                                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
                             </svg>
-                            <span x-text="cccdLoading ? 'Đang tải lên...' : 'Cập nhật CCCD'"></span>
+                            <span x-text="cccdLoading ? 'Đang quét mã QR...' : 'Cập nhật CCCD'"></span>
                         </button>
                     </div>
 

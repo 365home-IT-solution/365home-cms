@@ -13,17 +13,17 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Modules\Category\Entities\Category;
 use Modules\Payment\Entities\Order;
 use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
-use App\Exceptions\CccdIntakeException;
+use App\Models\CustomerCompanion;
 use App\Services\CccdDeclarationService;
-use App\Services\CccdIntakeService;
-use App\Support\CccdIdentity;
 use App\Services\PromotionCalculator;
+use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Promotion\App\Models\Coupon;
 use App\Services\Payment\PayOsAccountResolver;
 use PayOS\PayOS;
@@ -46,18 +46,6 @@ class BookingController extends Controller
             'services.*.quantity'     => 'required_with:services|integer|min:1',
             'return_url'              => 'sometimes|nullable|string|max:500',
             'cancel_url'              => 'sometimes|nullable|string|max:500',
-            // CCCD người đặt: mặc định dùng hồ sơ; gửi cccd_qr_image để dùng CCCD khác cho đơn này
-            // (hồ sơ trống/không hợp lệ thì bắt buộc). cccd_front/back chỉ cho app bản cũ.
-            'cccd_qr_image'           => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
-            'cccd_front'              => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
-            'cccd_back'               => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
-            // Người đi cùng (qua đêm), key VỊ TRÍ 0-based: chọn người trong hồ sơ (companion_id)
-            // HOẶC gửi ảnh mới (qr_image). App cũ: front/back, hoặc không gửi → tự lấy từ hồ sơ.
-            'guests'                  => 'sometimes|array',
-            'guests.*.companion_id'   => 'sometimes|nullable|integer',
-            'guests.*.qr_image'       => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
-            'guests.*.front'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
-            'guests.*.back'           => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
         ];
 
         if ($request->input('type') === 'slot') {
@@ -96,6 +84,12 @@ class BookingController extends Controller
         $buyerName  = $customer->fullname;
         $buyerPhone = $customer->phone;
 
+        if (empty($customer->cccd_front) || empty($customer->cccd_back) || empty($customer->cccd_data)) {
+            return response()->json([
+                'message' => 'Bạn cần cập nhật CCCD/CMND vào tài khoản trước khi đặt phòng.',
+                'error'   => 'cccd_required',
+            ], 422);
+        }
 
         // ── 3. Load phòng ─────────────────────────────────────────────────────
         $room = Product::where('id', $request->input('room_id'))
@@ -124,77 +118,117 @@ class BookingController extends Controller
             [$basePrice, $summaryName, $itemsData] = $this->buildMonthlyItem($request, $room);
         }
 
-        // ── 4.5 CCCD người đặt + người đi cùng ───────────────────────────────
-        // Người đặt: ảnh gửi kèm (cccd_qr_image) hoặc cccd_data hợp lệ trong hồ sơ. Người đi cùng
-        // (qua đêm — Luật Cư trú yêu cầu khai báo đủ từng người; daily LUÔN qua đêm): chọn
-        // companion_id trong hồ sơ hoặc gửi ảnh mới, xem CccdIntakeService::readGuestsFromRequest.
-        // Quét trên file tạm, kiểm tra cấu trúc + dưới 16 tuổi (tại ngày nhận phòng) + trùng
-        // người; đạt hết mới lưu ảnh (bước 7). Lỗi → 422 {message, code, field}.
-        $intake = app(CccdIntakeService::class);
-        $actor  = 'customer:' . $customer->id;
-        $booker = $intake->readFromRequest($request, 'cccd_qr_image', ['cccd_front', 'cccd_back'], 'cccd_qr_image', false, $actor);
-
-        if ($booker) {
-            $cccdData = $booker['data'];
-        } else {
-            $cccdData = is_array($customer->cccd_data) ? $customer->cccd_data : null;
-            if (CccdIdentity::validate($cccdData, requireQr: false) !== null) {
-                throw new CccdIntakeException(
-                    'Bạn cần cập nhật CCCD vào tài khoản hoặc gửi kèm ảnh CCCD (mặt có mã QR) trước khi đặt phòng.',
-                    CccdIntakeException::REQUIRED,
-                    'cccd_qr_image',
-                    422,
-                    ['error' => 'cccd_required'], // app cũ đang đọc key này
-                );
-            }
-        }
-
-        $hasOvernight = $request->input('type') === 'daily'
+        // ── 4.5 CCCD người đi cùng (bắt buộc khi có khung giờ qua đêm) ─────────
+        // Luật Cư trú (hiệu lực 01/07/2026) yêu cầu khai báo lưu trú ĐỦ TỪNG NGƯỜI khi lưu trú
+        // qua đêm — không chỉ người đặt phòng chính (CCCD lấy từ hồ sơ customer ở trên).
+        //
+        // Ưu tiên tái sử dụng CCCD người đi cùng đã lưu sẵn trong hồ sơ (customer_companions,
+        // theo thứ tự id). Nếu hồ sơ chưa đủ số người cần thiết, cho phép gửi kèm CCCD (mặt
+        // trước/sau) trực tiếp trong request tạo đơn này — giống luồng guest — qua key
+        // guests[{i}][front]/guests[{i}][back], {i} là VỊ TRÍ 0-based trong danh sách người đi
+        // cùng (đã đối chiếu log thực tế — FE luôn đánh số từ 0, KHÔNG theo guest_index 2,3,4...
+        // dùng nội bộ/DB, xem GuestBookingController::store() — cùng bug, đã vá song song).
+        // Sau khi quét QR hợp lệ, lưu luôn vào customer_companions để các lần đặt phòng sau
+        // không cần upload lại.
+        //
+        // type != 'slot' (đặt theo ngày) LUÔN là qua đêm — xem over_night => true hardcode trong
+        // buildDailyItems(). $rtsCollection ở đó chỉ chứa RoomTimeSlot có type 'date' (giá đặc
+        // biệt theo ngày cụ thể) nên có thể rỗng dù đơn thực chất qua đêm — phải check type riêng.
+        $hasOvernight  = $request->input('type') === 'daily'
             || $rtsCollection->contains(fn ($rts) => (bool) $rts->over_night);
-        $guestRows = $hasOvernight
-            ? $intake->readGuestsFromRequest($request, max(0, (int) $request->input('guest_count') - 1), 2, $customer, $actor)
-            : [];
+        $guestCccdRows      = [];
+        $newCompanionUploads = [];
 
-        $intake->assertPeople(array_merge(
-            [['field' => 'cccd_qr_image', 'label' => 'Người đặt phòng', 'is_booker' => true, 'data' => $cccdData]],
-            array_map(fn ($row) => $row + ['is_booker' => false, 'extra' => $row['companion'] ? ['companion_id' => $row['companion']->id] : []], $guestRows),
-        ), CccdIntakeService::checkinDateFromItems($itemsData));
+        if ($hasOvernight) {
+            $guestCount     = (int) $request->input('guest_count');
+            $companionCount = $guestCount - 1;
 
-        // Ảnh cho đơn: ảnh vừa gửi → lưu mới; lấy từ hồ sơ → COPY (snapshot) để sau này khách sửa/
-        // xoá hồ sơ thì đơn cũ vẫn còn ảnh. Tạo đơn lỗi thì xoá hết (xem try/catch ở bước 7).
-        $orderImages = $booker
-            ? ['cccd_qr_image' => $intake->storeQrImage($booker['file']), 'cccd_front' => null, 'cccd_back' => null]
-            : $intake->snapshotImages([
-                'cccd_qr_image' => $customer->cccd_qr_image,
-                'cccd_front'    => $customer->cccd_front,
-                'cccd_back'     => $customer->cccd_back,
-            ]);
-        foreach ($guestRows as &$guestRow) {
-            $guestRow['images'] = $guestRow['file']
-                ? ['cccd_qr_image' => $intake->storeQrImage($guestRow['file']), 'cccd_front' => null, 'cccd_back' => null]
-                : $intake->snapshotImages([
-                    'cccd_qr_image' => $guestRow['companion']->cccd_qr_image,
-                    'cccd_front'    => $guestRow['companion']->cccd_front,
-                    'cccd_back'     => $guestRow['companion']->cccd_back,
-                ]);
-        }
-        unset($guestRow);
-        $storedCccdPaths = array_merge(array_values($orderImages), ...array_map(fn ($r) => array_values($r['images']), $guestRows));
+            if ($companionCount > 0) {
+                $existingCompanions = $customer->companions()->orderBy('id')->get();
 
-        // Ghi nhớ CCCD vừa gửi vào hồ sơ để lần sau chọn lại (chống trùng/xung đột, không ghi đè
-        // dữ liệu hợp lệ sẵn có) — làm trước khi tạo đơn như trước đây, để đơn lỗi (trùng slot)
-        // thử lại vẫn dùng được.
-        $profileSync = [
-            'booker'     => $booker ? $intake->rememberCustomerCccd($customer, $cccdData, $orderImages['cccd_qr_image']) : false,
-            'companions' => [],
-        ];
-        foreach ($guestRows as $guestRow) {
-            if ($guestRow['file']) {
-                $profileSync['companions'][] = [
-                    'guest_index' => $guestRow['guest_index'],
-                    'status'      => $intake->rememberCompanion($customer, $guestRow['data'], $guestRow['images']['cccd_qr_image']),
-                ];
+                for ($i = 0; $i < $companionCount; $i++) {
+                    $guestIndex = $i + 2;
+
+                    if ($existingCompanions->has($i)) {
+                        $companion = $existingCompanions[$i];
+                        $guestCccdRows[] = [
+                            'guest_index' => $guestIndex,
+                            'front'       => $companion->cccd_front,
+                            'back'        => $companion->cccd_back,
+                            'data'        => $companion->cccd_data,
+                        ];
+                        continue;
+                    }
+
+                    // Chưa có sẵn trong hồ sơ — chấp nhận upload trực tiếp trong request này, key
+                    // theo vị trí 0-based $i (KHÔNG phải $guestIndex — xem comment ở trên).
+                    $frontKey = "guests.{$i}.front";
+                    $backKey  = "guests.{$i}.back";
+
+                    if (! $request->hasFile($frontKey) || ! $request->hasFile($backKey)) {
+                        Log::warning('Booking: thiếu CCCD người đi cùng — đối chiếu key thực nhận', [
+                            'expected_front_key'   => $frontKey,
+                            'expected_back_key'    => $backKey,
+                            'guest_count'          => $guestCount,
+                            'existing_companions'  => $existingCompanions->count(),
+                            'position_index_i'     => $i,
+                            'content_type'         => $request->header('Content-Type'),
+                            'file_field_paths'     => $this->flattenFileFieldPaths($request->allFiles()),
+                            'non_file_input_keys'  => array_keys($request->except(array_keys($request->allFiles()))),
+                            'guests_raw_input'     => $request->input('guests'),
+                        ]);
+
+                        $this->cleanupNewCompanionUploads($newCompanionUploads);
+
+                        return response()->json([
+                            'message' => "Khung giờ qua đêm cần khai báo lưu trú cho khách thứ {$guestIndex} — vui lòng gửi kèm CCCD (mặt trước/sau) của khách này hoặc thêm vào hồ sơ trước.",
+                            'error'   => 'companion_cccd_required',
+                        ], 422);
+                    }
+
+                    $guestFront = $request->file($frontKey)->store('cccd', 'public');
+                    $guestBack  = $request->file($backKey)->store('cccd', 'public');
+
+                    $tempGuestOrder = new Order(['cccd_front' => $guestFront, 'cccd_back' => $guestBack]);
+                    $guestData      = app(CccdScannerService::class)->scanOrder($tempGuestOrder);
+
+                    if (! $guestData) {
+                        Storage::disk('public')->delete($guestFront);
+                        Storage::disk('public')->delete($guestBack);
+                        $this->cleanupNewCompanionUploads($newCompanionUploads);
+
+                        return response()->json([
+                            'message' => "Không đọc được mã QR trên CCCD khách thứ {$guestIndex}. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.",
+                        ], 422);
+                    }
+
+                    $guestCccdRows[] = [
+                        'guest_index' => $guestIndex,
+                        'front'       => $guestFront,
+                        'back'        => $guestBack,
+                        'data'        => $guestData,
+                    ];
+
+                    $newCompanionUploads[] = [
+                        'cccd_front' => $guestFront,
+                        'cccd_back'  => $guestBack,
+                        'cccd_data'  => $guestData,
+                    ];
+                }
             }
+        }
+
+        // Lưu ngay các CCCD người đi cùng vừa upload vào hồ sơ (customer_companions) — độc lập
+        // với việc đơn có tạo thành công hay không, để lần đặt sau tái sử dụng được luôn, không
+        // bắt khách quét QR lại nếu đơn này bị conflict slot phải thử lại phòng khác.
+        foreach ($newCompanionUploads as $row) {
+            CustomerCompanion::create([
+                'customer_id' => $customer->id,
+                'full_name'   => $row['cccd_data']['full_name'] ?? null,
+                'cccd_front'  => $row['cccd_front'],
+                'cccd_back'   => $row['cccd_back'],
+                'cccd_data'   => $row['cccd_data'],
+            ]);
         }
 
         // ── 5. Dịch vụ bổ sung ───────────────────────────────────────────────
@@ -327,103 +361,97 @@ class BookingController extends Controller
         $appliedCouponCodes = collect($appliedCoupons)->pluck('code')->values()->all();
 
         // ── 7. Tạo đơn + items + services trong transaction ──────────────────
-        try {
-            $order = DB::transaction(function () use (
-                $room, $amountDue, $finalAmount, $subtotal, $buyerName, $buyerPhone,
-                $customer, $category, $itemsData, $servicesData,
-                $paymentMethod, $request, $appliedCoupons, $appliedCouponCodes, $depositPercentToSave,
-                $guestRows, $orderImages, $cccdData
-            ) {
-                Product::where('id', $room->id)->lockForUpdate()->first();
+        $order = DB::transaction(function () use (
+            $room, $amountDue, $finalAmount, $subtotal, $buyerName, $buyerPhone,
+            $customer, $category, $itemsData, $servicesData,
+            $paymentMethod, $request, $appliedCoupons, $appliedCouponCodes, $depositPercentToSave,
+            $guestCccdRows
+        ) {
+            Product::where('id', $room->id)->lockForUpdate()->first();
 
-                foreach ($itemsData as $itemData) {
-                    if (empty($itemData['checkin_date'])) {
-                        continue;
-                    }
-                    $conflict = OrderItem::where('product_id', $room->id)
-                        ->whereNotNull('checkin_date')
-                        ->whereNotNull('checkout_date')
-                        ->where('checkin_date', '<', $itemData['checkout_date'])
-                        ->where('checkout_date', '>', $itemData['checkin_date'])
-                        ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
-                        ->exists();
-
-                    if ($conflict) {
-                        throw ValidationException::withMessages([
-                            'slots' => ['Khung giờ vừa được người khác đặt. Vui lòng chọn khung giờ khác.'],
-                        ]);
-                    }
+            foreach ($itemsData as $itemData) {
+                if (empty($itemData['checkin_date'])) {
+                    continue;
                 }
+                $conflict = OrderItem::where('product_id', $room->id)
+                    ->whereNotNull('checkin_date')
+                    ->whereNotNull('checkout_date')
+                    ->where('checkin_date', '<', $itemData['checkout_date'])
+                    ->where('checkout_date', '>', $itemData['checkin_date'])
+                    ->whereHas('order', fn ($q) => $q->whereIn('status', ['pending', 'paid', 'deposit']))
+                    ->exists();
 
-                $firstCode = $appliedCouponCodes[0] ?? null;
-
-                // Số tiền giảm của TỪNG mã — chỉ lưu tạm ở đây, KHÔNG trừ used_count ngay (xem
-                // CouponUsageLedger::confirm(), gọi từ OrderObserver đúng lúc đơn thanh toán thành công).
-                $couponDiscountAmounts = collect($appliedCoupons)
-                    ->mapWithKeys(fn ($c) => [$c['code'] => $c['discount_amount'] ?? null])
-                    ->all();
-
-                $order = Order::create([
-                    // Cả 'amount' và 'full_amount' lưu ĐÚNG TỔNG GIÁ thật của đơn (không phải số tiền
-                    // cọc cần trả ngay) — 'full_amount' CỐ ĐỊNH từ đây trở đi, 'amount' là nơi cập nhật
-                    // khi giá thay đổi sau này. Số tiền cần thu qua PayOS (cọc hay đủ) tính riêng qua
-                    // Order::depositDueAmount(), không lưu trực tiếp vào 2 cột này.
-                    'amount'          => $finalAmount,
-                    'full_amount'     => $finalAmount,
-                    'deposit_percent' => $depositPercentToSave,
-                    'coupon_code'     => $firstCode,           // backward compat
-                    'coupon_codes'    => $appliedCouponCodes ?: null,
-                    'coupon_discount_amounts' => $couponDiscountAmounts ?: null,
-                    'description'     => 'Đặt phòng - ' . $room->name,
-                    'buyer_name'      => $buyerName,
-                    'buyer_phone'     => $buyerPhone,
-                    'payment_method'  => $paymentMethod,
-                    'status'          => 'pending',
-                    'guest_count'     => $request->guest_count,
-                    'category_id'     => $category?->id,
-                    // Đơn đặt qua API khách hàng đăng nhập (Customer, không phải App\Models\User) nên
-                    // BelongsToPartner::creating() không tự gán được partner_id — gán thẳng theo đúng
-                    // partner_id của phòng đang đặt (xem giải thích chi tiết ở GuestBookingController).
-                    'partner_id'      => $room->partner_id,
-                    'customer_id'     => $customer?->id,
-                    'cccd_qr_image'   => $orderImages['cccd_qr_image'],
-                    'cccd_front'      => $orderImages['cccd_front'],
-                    'cccd_back'       => $orderImages['cccd_back'],
-                    'cccd_data'       => $cccdData,
-                ]);
-
-                // CCCD khách thứ 2 trở đi (khung giờ qua đêm) — bản chụp tại thời điểm đặt (dữ liệu +
-                // ảnh copy), giữ companion_id để truy vết người đi cùng trong hồ sơ, xem bước 4.5.
-                foreach ($guestRows as $guestRow) {
-                    $order->guestCccds()->create([
-                        'guest_index'  => $guestRow['guest_index'],
-                        'companion_id' => $guestRow['companion']?->id,
-                        ...$guestRow['images'],
-                        'cccd_data'    => $guestRow['data'],
+                if ($conflict) {
+                    throw ValidationException::withMessages([
+                        'slots' => ['Khung giờ vừa được người khác đặt. Vui lòng chọn khung giờ khác.'],
                     ]);
                 }
+            }
 
-                foreach ($itemsData as $itemData) {
-                    $order->items()->create($itemData);
-                }
+            $firstCode = $appliedCouponCodes[0] ?? null;
 
-                foreach ($servicesData as $svc) {
-                    $order->services()->create($svc);
-                }
+            // Số tiền giảm của TỪNG mã — chỉ lưu tạm ở đây, KHÔNG trừ used_count ngay (xem
+            // CouponUsageLedger::confirm(), gọi từ OrderObserver đúng lúc đơn thanh toán thành công).
+            $couponDiscountAmounts = collect($appliedCoupons)
+                ->mapWithKeys(fn ($c) => [$c['code'] => $c['discount_amount'] ?? null])
+                ->all();
 
-                // KHÔNG tăng used_count ở đây nữa — mã chỉ thực sự bị trừ lượt khi đơn thanh toán thành
-                // công (xem CouponUsageLedger::confirm(), gọi từ OrderObserver).
+            $order = Order::create([
+                // Cả 'amount' và 'full_amount' lưu ĐÚNG TỔNG GIÁ thật của đơn (không phải số tiền
+                // cọc cần trả ngay) — 'full_amount' CỐ ĐỊNH từ đây trở đi, 'amount' là nơi cập nhật
+                // khi giá thay đổi sau này. Số tiền cần thu qua PayOS (cọc hay đủ) tính riêng qua
+                // Order::depositDueAmount(), không lưu trực tiếp vào 2 cột này.
+                'amount'          => $finalAmount,
+                'full_amount'     => $finalAmount,
+                'deposit_percent' => $depositPercentToSave,
+                'coupon_code'     => $firstCode,           // backward compat
+                'coupon_codes'    => $appliedCouponCodes ?: null,
+                'coupon_discount_amounts' => $couponDiscountAmounts ?: null,
+                'description'     => 'Đặt phòng - ' . $room->name,
+                'buyer_name'      => $buyerName,
+                'buyer_phone'     => $buyerPhone,
+                'payment_method'  => $paymentMethod,
+                'status'          => 'pending',
+                'guest_count'     => $request->guest_count,
+                'category_id'     => $category?->id,
+                // Đơn đặt qua API khách hàng đăng nhập (Customer, không phải App\Models\User) nên
+                // BelongsToPartner::creating() không tự gán được partner_id — gán thẳng theo đúng
+                // partner_id của phòng đang đặt (xem giải thích chi tiết ở GuestBookingController).
+                'partner_id'      => $room->partner_id,
+                'customer_id'     => $customer?->id,
+                'cccd_front'      => $customer?->cccd_front,
+                'cccd_back'       => $customer?->cccd_back,
+                'cccd_data'       => $customer?->cccd_data,
+            ]);
 
-                // Khai báo lưu trú (trước đây đơn đặt qua app có tài khoản KHÔNG tạo khai báo) — cùng
-                // transaction để đơn và cccd_declarations luôn nhất quán.
-                app(CccdDeclarationService::class)->upsertFromOrder($order->load(['items', 'guestCccds']));
+            // CCCD khách thứ 2 trở đi (khung giờ qua đêm) — snapshot từ customer_companions tại
+            // thời điểm đặt, xem bước 4.5.
+            foreach ($guestCccdRows as $guestRow) {
+                $order->guestCccds()->create([
+                    'guest_index' => $guestRow['guest_index'],
+                    'cccd_front'  => $guestRow['front'],
+                    'cccd_back'   => $guestRow['back'],
+                    'cccd_data'   => $guestRow['data'],
+                ]);
+            }
 
-                return $order;
-            });
-        } catch (\Throwable $e) {
-            $intake->deleteImages($storedCccdPaths);
-            throw $e;
-        }
+            foreach ($itemsData as $itemData) {
+                $order->items()->create($itemData);
+            }
+
+            foreach ($servicesData as $svc) {
+                $order->services()->create($svc);
+            }
+
+            // KHÔNG tăng used_count ở đây nữa — mã chỉ thực sự bị trừ lượt khi đơn thanh toán thành
+            // công (xem CouponUsageLedger::confirm(), gọi từ OrderObserver).
+
+            // Khai báo lưu trú (trước đây đơn đặt qua app có tài khoản KHÔNG tạo khai báo) — cùng
+            // transaction để đơn và cccd_declarations luôn nhất quán.
+            app(CccdDeclarationService::class)->upsertFromOrder($order->load(['items', 'guestCccds']));
+
+            return $order;
+        });
 
         // ── 8. Tạo link PayOS ────────────────────────────────────────────────
         if ($paymentMethod === 'PayOS' && $amountDue >= 2000) {
@@ -463,18 +491,13 @@ class BookingController extends Controller
                 'expired_at'     => $order->expired_at,
                 'buyer_name'     => $order->buyer_name,
                 'buyer_phone'    => $order->buyer_phone,
-                ...CccdIntakeService::imageUrls($order),
-                'cccd_data'      => $order->cccd_data,
                 'guests'         => $order->guestCccds->map(fn ($g) => [
-                    'guest_index'  => $g->guest_index,
-                    'companion_id' => $g->companion_id,
-                    ...CccdIntakeService::imageUrls($g),
-                    'cccd_data'    => $g->cccd_data,
+                    'guest_index' => $g->guest_index,
+                    'cccd_front'  => Storage::disk('public')->url($g->cccd_front),
+                    'cccd_back'   => Storage::disk('public')->url($g->cccd_back),
+                    'cccd_data'   => $g->cccd_data,
                 ])->values(),
             ],
-            // Kết quả ghi nhớ CCCD vừa gửi vào hồ sơ: booker true/false; companions[].status =
-            // created|updated|conflict (cùng số CCCD nhưng khác họ tên/ngày sinh → giữ dữ liệu cũ)|skipped.
-            'cccd_profile_sync' => $profileSync,
             'room' => [
                 'id'   => $room->id,
                 'name' => $room->name,
@@ -499,6 +522,38 @@ class BookingController extends Controller
                 'final_amount'         => (int) $order->full_amount,
             ],
         ], 201);
+    }
+
+    /**
+     * Xoá các file CCCD người đi cùng vừa upload trong request hiện tại (chưa kịp lưu vào
+     * customer_companions) khi phải huỷ ngang do lỗi ở người tiếp theo trong vòng lặp.
+     */
+    // Liệt kê dạng "dot path" (vd guests.2.front) của MỌI field file thực sự có trong request —
+    // dùng để log đối chiếu key FE thực tế gửi lên với key server đang đợi, không phụ thuộc FE
+    // đặt tên/đánh số key thế nào (kể cả sai quy ước guests[{index}][front]).
+    private function flattenFileFieldPaths(array $files, string $prefix = ''): array
+    {
+        $paths = [];
+
+        foreach ($files as $key => $value) {
+            $path = $prefix === '' ? (string) $key : "{$prefix}.{$key}";
+
+            if (is_array($value)) {
+                $paths = array_merge($paths, $this->flattenFileFieldPaths($value, $path));
+            } elseif ($value instanceof \Illuminate\Http\UploadedFile) {
+                $paths[] = $path;
+            }
+        }
+
+        return $paths;
+    }
+
+    private function cleanupNewCompanionUploads(array $uploads): void
+    {
+        foreach ($uploads as $row) {
+            Storage::disk('public')->delete($row['cccd_front']);
+            Storage::disk('public')->delete($row['cccd_back']);
+        }
     }
 
     // ── Slot (nhiều khung giờ) ────────────────────────────────────────────────

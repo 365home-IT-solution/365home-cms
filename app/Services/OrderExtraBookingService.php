@@ -4,12 +4,11 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Exceptions\CccdIntakeException;
-use App\Services\CccdIntakeService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Payment\Entities\Order;
 use Modules\Product\App\Models\Product;
 
@@ -35,7 +34,7 @@ class OrderExtraBookingService
      * @param  array{service_id:int, quantity:int}[]  $servicesInput
      * @param  int|null  $guestCount  SỐ KHÁCH THÊM (cộng dồn vào guest_count hiện có của đơn), không phải tổng số mới
      * @param  array{type:string, product_id?:string, slots?:array, checkin_date?:string, checkout_date?:string}|null  $roomAddition
-     * @param  array<int, array{qr_image?:\Illuminate\Http\UploadedFile, front?:\Illuminate\Http\UploadedFile, back?:\Illuminate\Http\UploadedFile}>  $guestFiles  key = guest_index
+     * @param  array<int, array{front:\Illuminate\Http\UploadedFile, back:\Illuminate\Http\UploadedFile}>  $guestFiles  key = guest_index
      * @return array{error:string}|array<string,mixed>
      */
     public function addExtra(
@@ -97,45 +96,38 @@ class OrderExtraBookingService
         $guestCccdRows     = [];
 
         if ($isAddingOvernight && $finalGuestCount !== null) {
-            // Quét QR trên file tạm, kiểm tra cấu trúc + dưới 16 tuổi (tại ngày nhận phòng của phần
-            // đặt thêm) + trùng người với những người đã khai báo trong đơn; đạt mới lưu ảnh.
-            // Lỗi ném CccdIntakeException → controller trả 422 {message, code, field}.
-            $intake      = app(CccdIntakeService::class);
             $declaredMax = max(1, (int) $order->guestCccds()->max('guest_index'));
-            $actor       = 'phone:' . $order->buyer_phone;
 
             for ($guestIndex = $declaredMax + 1; $guestIndex <= $finalGuestCount; $guestIndex++) {
-                $files = $guestFiles[$guestIndex] ?? [];
-                $field = "guests.{$guestIndex}.qr_image";
+                $files = $guestFiles[$guestIndex] ?? null;
 
-                if (! empty($files['qr_image'])) {
-                    $read = ['data' => $intake->readStrict($files['qr_image'], $field, $actor), 'file' => $files['qr_image']];
-                } elseif (config('cccd.accept_legacy_front_back') && (! empty($files['front']) || ! empty($files['back']))) {
-                    $read = $intake->readLegacy(array_values(array_filter([$files['front'] ?? null, $files['back'] ?? null])), $field, $actor);
-                } else {
-                    throw new CccdIntakeException("Khung giờ qua đêm cần khai báo lưu trú cho khách thứ {$guestIndex} — vui lòng gửi kèm ảnh CCCD (mặt có mã QR) của khách này.", CccdIntakeException::REQUIRED, $field);
+                if (empty($files['front']) || empty($files['back'])) {
+                    $this->cleanupGuestUploads($guestCccdRows);
+
+                    return ['error' => "Khung giờ qua đêm cần khai báo lưu trú cho khách thứ {$guestIndex} — vui lòng gửi kèm CCCD (mặt trước/sau) của khách này."];
+                }
+
+                $frontPath = $files['front']->store('cccd', 'public');
+                $backPath  = $files['back']->store('cccd', 'public');
+
+                $tempOrder = new Order(['cccd_front' => $frontPath, 'cccd_back' => $backPath]);
+                $guestData = app(CccdScannerService::class)->scanOrder($tempOrder);
+
+                if (! $guestData) {
+                    Storage::disk('public')->delete($frontPath);
+                    Storage::disk('public')->delete($backPath);
+                    $this->cleanupGuestUploads($guestCccdRows);
+
+                    return ['error' => "Không đọc được QR trên ảnh CCCD của khách thứ {$guestIndex}. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình."];
                 }
 
                 $guestCccdRows[] = [
                     'guest_index' => $guestIndex,
-                    'field'       => $field,
-                    'label'       => "Người đi cùng #{$guestIndex}",
-                    'is_booker'   => false,
-                    'data'        => $read['data'],
-                    'file'        => $read['file'],
+                    'front'       => $frontPath,
+                    'back'        => $backPath,
+                    'data'        => $guestData,
                 ];
             }
-
-            $order->loadMissing('guestCccds');
-            $intake->assertPeople(
-                array_merge(CccdIntakeService::existingPeople($order), $guestCccdRows),
-                $this->roomAdditionCheckinDate($roomAddition),
-            );
-
-            foreach ($guestCccdRows as &$row) {
-                $row['qr_image'] = $intake->storeQrImage($row['file']);
-            }
-            unset($row);
         }
 
         $oldServicesTotal = (int) $order->services()->sum('subtotal');
@@ -148,125 +140,120 @@ class OrderExtraBookingService
         $roomDiscountAmount  = 0;
         $roomDiscountInfo    = [];
 
-        try {
-            DB::transaction(function () use (
-                $order, $room, $roomAdditionRoom, $roomAddition, $servicesInput, $finalGuestCount, $guestCccdRows,
-                &$addedServices, &$roomAddedItems, &$roomAddedPrice, &$roomAddedFinalPrice, &$roomDiscountAmount, &$roomDiscountInfo
-            ) {
-                if (! empty($servicesInput)) {
-                    $availableServices = $room->additionalServices->keyBy('id');
+        DB::transaction(function () use (
+            $order, $room, $roomAdditionRoom, $roomAddition, $servicesInput, $finalGuestCount, $guestCccdRows,
+            &$addedServices, &$roomAddedItems, &$roomAddedPrice, &$roomAddedFinalPrice, &$roomDiscountAmount, &$roomDiscountInfo
+        ) {
+            if (! empty($servicesInput)) {
+                $availableServices = $room->additionalServices->keyBy('id');
 
-                    foreach ($servicesInput as $index => $entry) {
-                        $serviceId = (int) $entry['service_id'];
-                        $quantity  = (int) $entry['quantity'];
-                        $service   = $availableServices->get($serviceId);
+                foreach ($servicesInput as $index => $entry) {
+                    $serviceId = (int) $entry['service_id'];
+                    $quantity  = (int) $entry['quantity'];
+                    $service   = $availableServices->get($serviceId);
 
-                        if (! $service || ! $service->is_active) {
-                            throw ValidationException::withMessages([
-                                "services.{$index}.service_id" => ["Dịch vụ #{$serviceId} không tồn tại hoặc không khả dụng cho phòng này."],
-                            ]);
-                        }
-
-                        $addedServices[] = [
-                            'service_id'   => $service->id,
-                            'service_name' => $service->name,
-                            'price'        => (int) $service->price,
-                            'quantity'     => $quantity,
-                            'subtotal'     => (int) $service->price * $quantity,
-                        ];
+                    if (! $service || ! $service->is_active) {
+                        throw ValidationException::withMessages([
+                            "services.{$index}.service_id" => ["Dịch vụ #{$serviceId} không tồn tại hoặc không khả dụng cho phòng này."],
+                        ]);
                     }
 
-                    // Cộng thêm (không xoá service cũ) — khác OrderServiceController::store vốn thay thế toàn bộ.
-                    foreach ($addedServices as $svc) {
-                        $order->services()->create($svc);
+                    $addedServices[] = [
+                        'service_id'   => $service->id,
+                        'service_name' => $service->name,
+                        'price'        => (int) $service->price,
+                        'quantity'     => $quantity,
+                        'subtotal'     => (int) $service->price * $quantity,
+                    ];
+                }
+
+                // Cộng thêm (không xoá service cũ) — khác OrderServiceController::store vốn thay thế toàn bộ.
+                foreach ($addedServices as $svc) {
+                    $order->services()->create($svc);
+                }
+            }
+
+            if ($finalGuestCount !== null) {
+                $order->update(['guest_count' => $finalGuestCount]);
+            }
+
+            foreach ($guestCccdRows as $row) {
+                $order->guestCccds()->create([
+                    'guest_index' => $row['guest_index'],
+                    'cccd_front'  => $row['front'],
+                    'cccd_back'   => $row['back'],
+                    'cccd_data'   => $row['data'],
+                ]);
+            }
+
+            if ($roomAddition) {
+                // Khoá phòng để tránh race condition với 1 request đặt/đặt-thêm khác cùng lúc.
+                Product::where('id', $roomAdditionRoom->id)->lockForUpdate()->first();
+
+                $order->refresh();
+                $currentGuestCount = (int) $order->guest_count;
+
+                if ($roomAddition['type'] === 'slot') {
+                    [$roomAddedPrice, , $itemsData, $rtsCollection, $slotSummary] = $this->roomItemBuilder->buildSlotItems(
+                        $roomAddition['slots'],
+                        null,
+                        $roomAdditionRoom,
+                        $currentGuestCount,
+                    );
+                    $roomAddedItems = $slotSummary;
+                } else {
+                    [$roomAddedPrice, , $itemsData, $rtsCollection, $nightSummary] = $this->roomItemBuilder->buildDailyItems(
+                        $roomAddition['checkin_date'],
+                        $roomAddition['checkout_date'],
+                        $roomAdditionRoom,
+                        $currentGuestCount,
+                    );
+                    $roomAddedItems = $nightSummary;
+                }
+
+                // Áp đúng điều kiện giảm giá cấu hình ở SettingBook (full_booking_discount,
+                // bulk_discount_rules, khuyến mãi theo khung giờ/ngày) — khớp 100% cách tính lúc
+                // đặt đơn mới (BookingController::store). Không áp coupon (API không nhận coupon_codes).
+                $hasFullBooking = ! empty($roomAddedItems) && $this->discountCalculator->checkFullDayBooking($roomAddedItems, $roomAdditionRoom);
+
+                if ($hasFullBooking) {
+                    [$systemDiscount, $appliedSystemDiscount] = $this->discountCalculator->applyFullBookingDiscount($roomAddedPrice, $roomAdditionRoom);
+                    $promotionDiscount    = 0;
+                    $appliedPromotions    = [];
+                } else {
+                    $promotionDiscount = 0;
+                    $appliedPromotions = [];
+                    if ($rtsCollection->isNotEmpty()) {
+                        $promotionMethod = $roomAddition['type'] === 'daily' ? 'applyDailyPromotions' : 'applyPromotions';
+                        [$promotionDiscount, $appliedPromotions] = $this->discountCalculator->$promotionMethod($rtsCollection, $roomAddedItems);
                     }
-                }
 
-                if ($finalGuestCount !== null) {
-                    $order->update(['guest_count' => $finalGuestCount]);
-                }
-
-                foreach ($guestCccdRows as $row) {
-                    $order->guestCccds()->create([
-                        'guest_index'   => $row['guest_index'],
-                        'cccd_qr_image' => $row['qr_image'],
-                        'cccd_data'     => $row['data'],
-                    ]);
-                }
-
-                if ($roomAddition) {
-                    // Khoá phòng để tránh race condition với 1 request đặt/đặt-thêm khác cùng lúc.
-                    Product::where('id', $roomAdditionRoom->id)->lockForUpdate()->first();
-
-                    $order->refresh();
-                    $currentGuestCount = (int) $order->guest_count;
-
-                    if ($roomAddition['type'] === 'slot') {
-                        [$roomAddedPrice, , $itemsData, $rtsCollection, $slotSummary] = $this->roomItemBuilder->buildSlotItems(
-                            $roomAddition['slots'],
-                            null,
+                    $systemDiscount        = 0;
+                    $appliedSystemDiscount = null;
+                    if (! empty($roomAddedItems)) {
+                        [$systemDiscount, $appliedSystemDiscount] = $this->discountCalculator->applyBulkDiscount(
+                            count($roomAddedItems),
                             $roomAdditionRoom,
-                            $currentGuestCount,
+                            $roomAddedPrice - $promotionDiscount,
                         );
-                        $roomAddedItems = $slotSummary;
-                    } else {
-                        [$roomAddedPrice, , $itemsData, $rtsCollection, $nightSummary] = $this->roomItemBuilder->buildDailyItems(
-                            $roomAddition['checkin_date'],
-                            $roomAddition['checkout_date'],
-                            $roomAdditionRoom,
-                            $currentGuestCount,
-                        );
-                        $roomAddedItems = $nightSummary;
-                    }
-
-                    // Áp đúng điều kiện giảm giá cấu hình ở SettingBook (full_booking_discount,
-                    // bulk_discount_rules, khuyến mãi theo khung giờ/ngày) — khớp 100% cách tính lúc
-                    // đặt đơn mới (BookingController::store). Không áp coupon (API không nhận coupon_codes).
-                    $hasFullBooking = ! empty($roomAddedItems) && $this->discountCalculator->checkFullDayBooking($roomAddedItems, $roomAdditionRoom);
-
-                    if ($hasFullBooking) {
-                        [$systemDiscount, $appliedSystemDiscount] = $this->discountCalculator->applyFullBookingDiscount($roomAddedPrice, $roomAdditionRoom);
-                        $promotionDiscount    = 0;
-                        $appliedPromotions    = [];
-                    } else {
-                        $promotionDiscount = 0;
-                        $appliedPromotions = [];
-                        if ($rtsCollection->isNotEmpty()) {
-                            $promotionMethod = $roomAddition['type'] === 'daily' ? 'applyDailyPromotions' : 'applyPromotions';
-                            [$promotionDiscount, $appliedPromotions] = $this->discountCalculator->$promotionMethod($rtsCollection, $roomAddedItems);
-                        }
-
-                        $systemDiscount        = 0;
-                        $appliedSystemDiscount = null;
-                        if (! empty($roomAddedItems)) {
-                            [$systemDiscount, $appliedSystemDiscount] = $this->discountCalculator->applyBulkDiscount(
-                                count($roomAddedItems),
-                                $roomAdditionRoom,
-                                $roomAddedPrice - $promotionDiscount,
-                            );
-                        }
-                    }
-
-                    $roomDiscountAmount  = $promotionDiscount + $systemDiscount;
-                    $roomDiscountInfo    = array_values(array_filter([$appliedSystemDiscount, ...$appliedPromotions]));
-                    $roomAddedFinalPrice = max(0, $roomAddedPrice - $roomDiscountAmount);
-
-                    foreach ($itemsData as $itemData) {
-                        $order->items()->create($itemData);
                     }
                 }
 
-                // Khai báo lưu trú: người đi cùng mới + khoảng lưu trú mới (thêm phòng/khung giờ) —
-                // trước đây đặt thêm không cập nhật cccd_declarations.
-                if ($guestCccdRows || $roomAddition) {
-                    app(CccdDeclarationService::class)->upsertFromOrder($order->fresh(['items', 'guestCccds']));
+                $roomDiscountAmount  = $promotionDiscount + $systemDiscount;
+                $roomDiscountInfo    = array_values(array_filter([$appliedSystemDiscount, ...$appliedPromotions]));
+                $roomAddedFinalPrice = max(0, $roomAddedPrice - $roomDiscountAmount);
+
+                foreach ($itemsData as $itemData) {
+                    $order->items()->create($itemData);
                 }
-            });
-        } catch (\Throwable $e) {
-            // Ảnh CCCD đã lưu nhưng đơn không cập nhật được → xoá, tránh file mồ côi.
-            $this->cleanupGuestUploads($guestCccdRows);
-            throw $e;
-        }
+            }
+
+            // Khai báo lưu trú: người đi cùng mới + khoảng lưu trú mới (thêm phòng/khung giờ) —
+            // trước đây đặt thêm không cập nhật cccd_declarations.
+            if ($guestCccdRows || $roomAddition) {
+                app(CccdDeclarationService::class)->upsertFromOrder($order->fresh(['items', 'guestCccds']));
+            }
+        });
 
         $order->refresh();
 
@@ -394,19 +381,10 @@ class OrderExtraBookingService
 
     private function cleanupGuestUploads(array $rows): void
     {
-        app(CccdIntakeService::class)->deleteImages(array_column($rows, 'qr_image'));
-    }
-
-    /**
-     * Ngày nhận phòng sớm nhất của phần đặt thêm (đã normalize sang Y-m-d) — mốc tính tuổi.
-     */
-    private function roomAdditionCheckinDate(?array $roomAddition): ?\Carbon\CarbonInterface
-    {
-        $dates = ($roomAddition['type'] ?? null) === 'daily'
-            ? [$roomAddition['checkin_date'] ?? null]
-            : array_column($roomAddition['slots'] ?? [], 'date');
-
-        return collect($dates)->filter()->map(fn ($d) => \Carbon\Carbon::parse($d)->startOfDay())->min();
+        foreach ($rows as $row) {
+            Storage::disk('public')->delete($row['front']);
+            Storage::disk('public')->delete($row['back']);
+        }
     }
 
     /**

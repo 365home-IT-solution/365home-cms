@@ -394,6 +394,83 @@ class CccdIntakeService
     }
 
     /**
+     * Khách tự xác thực CCCD cho hồ sơ (trang cá nhân). Hồ sơ (customers.cccd_data — dùng khi đặt
+     * phòng) luôn nhận CCCD mới nhất, kể cả CCCD của người khác; mọi lần xác thực đều được lưu vào
+     * customer_cccd_verifications (lần 1, 2, 3...) để admin xem lịch sử thay đổi ở trang quản lý
+     * thành viên. same_as_first đánh dấu lần đó có cùng SỐ CCCD với lần xác thực đầu tiên không
+     * (khác số = khách đã đổi sang CCCD khác — cần để ý khi tra soát):
+     *   - 'first'   : lần xác thực đầu tiên;
+     *   - 'same'    : cùng số CCCD với lần đầu (vd làm lại thẻ);
+     *   - 'changed' : khác số CCCD với lần đầu.
+     * Chỉ so theo SỐ CCCD (không dùng họ tên + ngày sinh): số CCCD không đổi khi làm lại thẻ, còn
+     * trùng tên + ngày sinh nhưng khác số vẫn có thể là người khác.
+     *
+     * @return array{status: 'first'|'same'|'changed', attempt: int}
+     */
+    public function recordCustomerVerification(Customer $customer, array $data, UploadedFile $file, string $source): array
+    {
+        $image = $this->storeQrImage($file);
+
+        try {
+            return \Illuminate\Support\Facades\DB::transaction(function () use ($customer, $data, $image, $source) {
+                // Khoá hàng khách để 2 lần gửi cùng lúc không tính trùng số lần.
+                $customer = Customer::whereKey($customer->getKey())->lockForUpdate()->firstOrFail();
+                $current  = is_array($customer->cccd_data) && CccdIdentity::validate($customer->cccd_data, requireQr: false) === null
+                    ? $customer->cccd_data
+                    : null;
+
+                // CCCD có sẵn trong hồ sơ từ trước khi có lịch sử → ghi nhận làm lần 1.
+                if ($current && ! $customer->cccdVerifications()->exists()) {
+                    $customer->cccdVerifications()->create([
+                        'attempt'       => 1,
+                        'cccd_qr_image' => $customer->cccd_qr_image ?: $customer->cccd_front,
+                        'cccd_data'     => $current,
+                        'same_as_first' => true,
+                        'source'        => \App\Models\CustomerCccdVerification::SOURCE_LEGACY,
+                    ]);
+                }
+
+                $first   = $customer->cccdVerifications()->where('attempt', 1)->value('cccd_data');
+                $first   = is_string($first) ? json_decode($first, true) : $first;
+                $status  = match (true) {
+                    ! $first                                                                => 'first',
+                    trim((string) ($first['cccd'] ?? '')) === trim((string) $data['cccd']) => 'same',
+                    default                                                                 => 'changed',
+                };
+                $attempt = (int) $customer->cccdVerifications()->max('attempt') + 1;
+
+                $customer->cccdVerifications()->create([
+                    'attempt'       => $attempt,
+                    'cccd_qr_image' => $image,
+                    'cccd_data'     => $data,
+                    'same_as_first' => $status !== 'changed',
+                    'source'        => $source,
+                ]);
+
+                $oldQrImage = $customer->cccd_qr_image;
+                // Hồ sơ dùng bản copy riêng — ảnh của lịch sử xác thực giữ nguyên độc lập.
+                $customer->update([
+                    'cccd_qr_image' => $this->snapshotImages(['q' => $image])['q'],
+                    'cccd_data'     => $data,
+                ]);
+                \Illuminate\Support\Facades\DB::afterCommit(fn () => $this->deleteUnreferencedImages([$oldQrImage]));
+
+                if ($status === 'changed') {
+                    Log::info('[CccdIntake] khách đổi sang CCCD khác số với lần xác thực đầu', [
+                        'customer_id' => $customer->id,
+                        'attempt'     => $attempt,
+                    ]);
+                }
+
+                return ['status' => $status, 'attempt' => $attempt];
+            });
+        } catch (\Throwable $e) {
+            $this->deleteImages([$image]);
+            throw $e;
+        }
+    }
+
+    /**
      * Lưu CCCD của chính người đặt vào hồ sơ — CHỈ khi hồ sơ đang trống/không hợp lệ và họ tên
      * trên CCCD khớp tên tài khoản (khách đặt hộ người khác không làm hỏng hồ sơ của mình).
      */
@@ -550,6 +627,9 @@ class CccdIntakeService
             ->where(fn ($q) => $q->whereIn('cccd_qr_image', $paths)->orWhereIn('cccd_front', $paths)->orWhereIn('cccd_back', $paths))
             ->get(['cccd_qr_image', 'cccd_front', 'cccd_back'])
             ->flatMap(fn ($row) => [$row->cccd_qr_image, $row->cccd_front, $row->cccd_back])
+        )->merge(
+            // Lịch sử xác thực CCCD của khách (lần 1 có thể trỏ thẳng vào ảnh cũ của hồ sơ).
+            \App\Models\CustomerCccdVerification::whereIn('cccd_qr_image', $paths)->pluck('cccd_qr_image')
         )->filter()->unique()->all();
 
         $this->deleteImages(array_diff($paths, $referenced));

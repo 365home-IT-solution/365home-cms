@@ -10,13 +10,15 @@ use App\Models\User;
 use App\Services\CccdDeclarationService;
 use App\Services\CccdIntakeService;
 use App\Services\SlotRealtimeService;
-use App\Support\CccdIdentity;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Modules\Category\Entities\Category;
+use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Payment\Entities\Order;
 use Modules\Product\App\Models\ManualLockPassword;
 use Modules\Product\App\Models\Product;
@@ -240,7 +242,10 @@ class OrderController extends Controller
             $cccds->push([
                 'guest_index' => 1,
                 'is_primary'  => true,
-                ...CccdIntakeService::imageUrls($order),
+                // Ảnh mặt có mã QR — đơn đặt trên web (luồng 1 ảnh) chỉ có ảnh này.
+                'cccd_qr_image' => $order->cccd_qr_image ? Storage::disk('public')->url($order->cccd_qr_image) : null,
+                'cccd_front'  => $order->cccd_front ? Storage::disk('public')->url($order->cccd_front) : null,
+                'cccd_back'   => $order->cccd_back  ? Storage::disk('public')->url($order->cccd_back)  : null,
                 'cccd_data'   => $order->cccd_data,
             ]);
         }
@@ -249,7 +254,9 @@ class OrderController extends Controller
             $cccds->push([
                 'guest_index' => $g->guest_index,
                 'is_primary'  => false,
-                ...CccdIntakeService::imageUrls($g),
+                'cccd_qr_image' => $g->cccd_qr_image ? Storage::disk('public')->url($g->cccd_qr_image) : null,
+                'cccd_front'  => $g->cccd_front ? Storage::disk('public')->url($g->cccd_front) : null,
+                'cccd_back'   => $g->cccd_back  ? Storage::disk('public')->url($g->cccd_back)  : null,
                 'cccd_data'   => $g->cccd_data,
             ]);
         }
@@ -276,12 +283,9 @@ class OrderController extends Controller
      *   — đánh đổi có chủ đích theo yêu cầu nghiệp vụ.
      *
      * CCCD (tùy chọn, không bắt buộc — giống lúc tạo đơn):
-     *   - cccd_qr_image, cccd_front, cccd_back : ảnh khách chính — gửi ảnh nào thay ảnh đó (bổ
-     *     sung dần được), quét QR từng ảnh + đối chứng; không đọc được thì GIỮ cccd_data cũ và trả
-     *     cảnh báo trong cccd_check. Ảnh cũ không bị xoá (đơn cũ có thể dùng chung file với hồ sơ).
-     *   - guests[{guest_index}][qr_image|front|back] : ảnh khách đi cùng, guest_index từ 2 — chỉ ghi
-     *     đè đúng khách/đúng ảnh có gửi (updateOrCreate theo guest_index), không đụng khách khác.
-     *   - Chặn: ảnh của 2 người khác nhau, dưới 16 tuổi (ngày nhận phòng), trùng người trong đơn.
+     *   - cccd_front, cccd_back       : ảnh khách chính, gửi thì quét lại QR, xoá ảnh cũ
+     *   - guests[{guest_index}][front|back] : ảnh khách đi cùng, guest_index từ 2 — chỉ ghi đè
+     *     đúng khách nào có gửi ảnh mới (updateOrCreate theo guest_index), không đụng khách khác.
      *
      * Đổi khung giờ/ngày (tùy chọn — gửi 'type' để kích hoạt, bỏ qua nếu không đổi lịch):
      *   - type: slot|daily|monthly + slots[]/checkin_date+checkout_date như lúc tạo đơn.
@@ -338,11 +342,9 @@ class OrderController extends Controller
             'amount'             => 'sometimes|nullable|numeric|min:0',
             'buyer_name'         => 'sometimes|nullable|string|max:100',
             'buyer_phone'        => 'sometimes|nullable|string|max:20',
-            'cccd_qr_image'      => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'cccd_front'         => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'cccd_back'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'guests'                 => 'sometimes|array',
-            'guests.*.qr_image'      => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'guests.*.front'         => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'guests.*.back'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'guest_count'            => 'sometimes|integer|min:1',
@@ -398,72 +400,59 @@ class OrderController extends Controller
             $updates['surcharge'] = (int) ($data['surcharge'] ?? 0);
         }
 
-        // ── CCCD (tùy chọn) — admin: gửi ảnh nào thay ảnh đó, quét + đối chứng từng ảnh ─────────
-        // Đọc/kiểm tra HẾT (khách chính + khách đi cùng) trước, đạt mới lưu. Xem docblock.
-        $intake      = app(CccdIntakeService::class);
-        $cccdCheck   = ['booker' => null, 'guests' => []];
-        $cccdChanged = false;
-        $bookerFiles = array_filter(CccdIntakeService::adminFilesFromRequest($request));
-        $bookerData  = null;
+        // ── CCCD khách chính (tùy chọn) ────────────────────────────────────────
+        $replacedCccdPaths = [];
+        $guestCccdChanged  = false;
 
-        if ($bookerFiles) {
-            $read       = $intake->readForAdmin($bookerFiles);
-            $bookerData = $read['data'];
-            $cccdCheck['booker'] = ['checks' => $read['checks'], 'warnings' => $read['warnings']];
-            if ($bookerData && is_array($order->cccd_data) && $order->cccd_data && ! CccdIdentity::samePerson($bookerData, $order->cccd_data)) {
-                $cccdCheck['booker']['warnings'][] = 'Thông tin CCCD mới khác người trước đó — đã thay bằng thông tin mới.';
+        if ($request->hasFile('cccd_front') && $request->hasFile('cccd_back')) {
+            $newFront = $request->file('cccd_front')->store('cccd', 'public');
+            $newBack  = $request->file('cccd_back')->store('cccd', 'public');
+
+            $cccdData = null;
+            try {
+                $tempOrder = new Order(['cccd_front' => $newFront, 'cccd_back' => $newBack]);
+                $cccdData  = app(CccdScannerService::class)->scanOrder($tempOrder);
+            } catch (\Throwable $e) {
+                Log::warning('Admin API: quét lại CCCD khách chính thất bại', ['order_code' => $order->order_code, 'error' => $e->getMessage()]);
             }
+            // Không bắt buộc đọc được QR (giống lúc tạo đơn) — vẫn lưu ảnh, cccd_data để trống nếu quét lỗi.
+
+            // Ảnh cũ xoá SAU khi lưu, và chỉ khi không còn bản ghi nào dùng (xem cuối hàm).
+            array_push($replacedCccdPaths, $order->cccd_front, $order->cccd_back);
+
+            $updates['cccd_front'] = $newFront;
+            $updates['cccd_back']  = $newBack;
+            $updates['cccd_data']  = $cccdData;
         }
 
-        $guestReads = [];
-        foreach (array_keys((array) $request->file('guests', [])) as $guestIndex) {
-            $guestIndex = (int) $guestIndex;
-            $files      = array_filter(CccdIntakeService::adminFilesFromRequest($request, "guests.{$guestIndex}."));
-            if ($guestIndex < 2 || ! $files) {
+        // ── CCCD khách đi cùng (tùy chọn) — chỉ ghi đè guest_index nào có gửi ảnh mới ──────────
+        foreach ((array) $request->file('guests', []) as $guestIndex => $files) {
+            $front = $files['front'] ?? null;
+            $back  = $files['back']  ?? null;
+            if (! $front || ! $back) {
                 continue;
             }
-            $read = $intake->readForAdmin($files, "guests.{$guestIndex}.");
-            $guestReads[$guestIndex] = ['files' => $files, 'data' => $read['data']];
-            $cccdCheck['guests'][$guestIndex] = ['checks' => $read['checks'], 'warnings' => $read['warnings']];
-        }
 
-        if ($bookerData || array_filter(array_column($guestReads, 'data'))) {
-            // Người có sẵn trong đơn (trừ những người đang được thay) + người mới — so trùng, và
-            // kiểm tra tuổi những người mới.
-            $people = [];
-            $current = $bookerData ?? (is_array($order->cccd_data) && $order->cccd_data ? $order->cccd_data : null);
-            if ($current) {
-                $people[] = ['field' => 'cccd_qr_image', 'label' => 'Người đặt phòng', 'is_booker' => true, 'data' => $current, 'skip_age' => ! $bookerData];
-            }
-            foreach ($order->guestCccds as $g) {
-                $newData = $guestReads[$g->guest_index]['data'] ?? null;
-                if (! $newData && is_array($g->cccd_data) && $g->cccd_data) {
-                    $people[] = ['field' => "guests.{$g->guest_index}.qr_image", 'label' => "Người đi cùng #{$g->guest_index}", 'is_booker' => false, 'data' => $g->cccd_data, 'skip_age' => true];
-                }
-            }
-            foreach ($guestReads as $guestIndex => $guestRead) {
-                if ($guestRead['data']) {
-                    $people[] = ['field' => "guests.{$guestIndex}.qr_image", 'label' => "Người đi cùng #{$guestIndex}", 'is_booker' => false, 'data' => $guestRead['data']];
-                }
-            }
-            $intake->assertPeople($people, CccdIntakeService::checkinDateFromItems($order->items));
-        }
+            $frontPath = $front->store('cccd', 'public');
+            $backPath  = $back->store('cccd', 'public');
 
-        if ($bookerFiles) {
-            $updates = array_merge($updates, $intake->storeAdminImages($bookerFiles));
-            if ($bookerData) {
-                $updates['cccd_data'] = $bookerData;
+            $guestData = null;
+            try {
+                $guestData = app(CccdScannerService::class)->scanPaths($frontPath, $backPath);
+            } catch (\Throwable $e) {
+                Log::warning('Admin API: quét lại CCCD khách đi cùng thất bại', ['guest_index' => $guestIndex, 'error' => $e->getMessage()]);
             }
-            $cccdChanged = true;
-        }
 
-        foreach ($guestReads as $guestIndex => $guestRead) {
-            $values = $intake->storeAdminImages($guestRead['files']);
-            if ($guestRead['data']) {
-                $values['cccd_data'] = $guestRead['data'];
+            $existing = $order->guestCccds->firstWhere('guest_index', (int) $guestIndex);
+            if ($existing) {
+                array_push($replacedCccdPaths, $existing->cccd_front, $existing->cccd_back);
             }
-            $order->guestCccds()->updateOrCreate(['guest_index' => $guestIndex], $values);
-            $cccdChanged = true;
+
+            $order->guestCccds()->updateOrCreate(
+                ['guest_index' => (int) $guestIndex],
+                ['cccd_front' => $frontPath, 'cccd_back' => $backPath, 'cccd_data' => $guestData]
+            );
+            $guestCccdChanged = true;
         }
 
         // ── Đổi khung giờ/ngày (chỉ khi có gửi 'type') ─────────────────────────
@@ -701,8 +690,9 @@ class OrderController extends Controller
             $updates['current_payos_code'] = null;
         }
 
-        // Chỉ gửi ảnh người đi cùng thì $updates rỗng nhưng vẫn là 1 lần cập nhật hợp lệ.
-        if (empty($updates) && ! $cccdChanged) {
+        // Chỉ gửi ảnh người đi cùng thì $updates rỗng nhưng vẫn là 1 lần cập nhật hợp lệ (trước đây
+        // ảnh đã lưu mà vẫn trả 422).
+        if (empty($updates) && ! $guestCccdChanged) {
             return response()->json(['message' => 'Không có trường nào để cập nhật.'], 422);
         }
 
@@ -711,23 +701,26 @@ class OrderController extends Controller
         }
         $order->load(['items.product:id,name', 'category:id,name', 'customer:id,fullname,phone', 'guestCccds']);
 
+        // Chỉ xoá ảnh cũ không còn bản ghi nào dùng — đơn cũ có thể dùng chung file với hồ sơ khách.
+        app(CccdIntakeService::class)->deleteUnreferencedImages($replacedCccdPaths);
+
         // Khai báo lưu trú theo CCCD mới (trước đây API admin sửa CCCD không cập nhật khai báo).
-        if ($cccdChanged) {
+        if (isset($updates['cccd_data']) || $guestCccdChanged) {
             app(CccdDeclarationService::class)->upsertFromOrder($order);
         }
 
         return response()->json([
             'order' => $this->toListItem($order) + [
                 'surcharge' => (int) $order->surcharge,
-                ...CccdIntakeService::imageUrls($order),
+                'cccd_front' => $order->cccd_front ? Storage::disk('public')->url($order->cccd_front) : null,
+                'cccd_back'  => $order->cccd_back  ? Storage::disk('public')->url($order->cccd_back)  : null,
                 'cccd_data'  => $order->cccd_data,
                 'guests'     => $order->guestCccds->map(fn ($g) => [
                     'guest_index' => $g->guest_index,
-                    ...CccdIntakeService::imageUrls($g),
+                    'cccd_front'  => Storage::disk('public')->url($g->cccd_front),
+                    'cccd_back'   => Storage::disk('public')->url($g->cccd_back),
                     'cccd_data'   => $g->cccd_data,
                 ])->values(),
-                // Kết quả quét/đối chứng ảnh CCCD vừa gửi (null nếu không gửi ảnh khách chính).
-                'cccd_check' => $cccdCheck,
                 'deposit' => $order->deposit_percent !== null ? [
                     'percentage'       => (int) $order->deposit_percent,
                     'deposit_amount'   => $order->depositDueAmount(),
@@ -1068,13 +1061,19 @@ class OrderController extends Controller
                 'quantity'     => $s->quantity,
                 'subtotal'     => (int) $s->subtotal,
             ])->values(),
-            // Khách chính — ảnh CCCD đã lưu (ảnh QR + 2 mặt nếu có).
-            ...CccdIntakeService::imageUrls($order),
+            // Khách chính — ảnh CCCD đã lưu (dù không gửi gì trong request này vẫn xem lại được,
+            // khác update() vốn phải gửi kèm cccd_front/back mới thì mới nhận lại URL trong response).
+            'cccd_front' => $order->cccd_front ? Storage::disk('public')->url($order->cccd_front) : null,
+            'cccd_back'  => $order->cccd_back  ? Storage::disk('public')->url($order->cccd_back)  : null,
+            // Ảnh mặt có mã QR — đơn đặt trên web (luồng 1 ảnh) chỉ có ảnh này.
+            'cccd_qr_image' => $order->cccd_qr_image ? Storage::disk('public')->url($order->cccd_qr_image) : null,
             'cccd_data'  => $order->cccd_data,
             // Khách đi cùng (guest_index từ 2) — bảng order_guest_cccds.
             'guests' => $order->guestCccds->map(fn ($g) => [
                 'guest_index' => $g->guest_index,
-                ...CccdIntakeService::imageUrls($g),
+                'cccd_qr_image' => $g->cccd_qr_image ? Storage::disk('public')->url($g->cccd_qr_image) : null,
+                'cccd_front'  => $g->cccd_front ? Storage::disk('public')->url($g->cccd_front) : null,
+                'cccd_back'   => $g->cccd_back  ? Storage::disk('public')->url($g->cccd_back)  : null,
                 'cccd_data'   => $g->cccd_data,
             ])->values(),
         ];

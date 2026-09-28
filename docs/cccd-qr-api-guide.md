@@ -1,5 +1,11 @@
 # CCCD 1 ảnh mã QR — hướng dẫn cho app mobile & FE admin
 
+> **Trạng thái (28/09/2026): CHƯA áp dụng cho API.** API app/admin hiện vẫn dùng
+> `cccd_front` + `cccd_back` như cũ; cột `cccd_qr_image` đang được test qua web (trang đặt phòng)
+> và Filament. Các API đọc CCCD của admin trả thêm `cccd_qr_image` để xem được ảnh của đơn web.
+> Bản API đầy đủ theo tài liệu này nằm ở commit `d5bb15dd` (branch `feature/cccd-qr-image`), sẽ
+> áp lại sau khi test xong.
+
 Từ 28/09/2026, BE chuyển toàn bộ luồng CCCD sang **1 ảnh mặt có mã QR** (cột mới
 `cccd_qr_image`). Tài liệu này mô tả thay đổi hợp đồng API. App bản cũ đang gửi
 `cccd_front`/`cccd_back` **vẫn chạy** trong giai đoạn chuyển tiếp (xem mục 6).
