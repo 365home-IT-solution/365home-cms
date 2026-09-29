@@ -2,6 +2,7 @@
 
 namespace Modules\Minihouse\App\Filament\Resources\BuildingResource\Forms;
 
+use App\Models\Partner;
 use App\Models\TbltProvince;
 use App\Models\TbltWard;
 use Filament\Forms\Components\FileUpload;
@@ -11,8 +12,8 @@ use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Tabs;
 use Filament\Forms\Components\Tabs\Tab;
-use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
@@ -45,6 +46,14 @@ class BuildingForm
             ->icon('heroicon-o-building-office-2')
             ->columns(2)
             ->schema([
+                Select::make('partner_id')
+                    ->label('Đối tác MiniHouse')
+                    ->options(fn () => Partner::query()->where('partner_type', Partner::TYPE_MINIHOUSE)->orderBy('legal_name')->pluck('legal_name', 'id'))
+                    ->default(fn () => auth()->user()?->partner?->partner_type === Partner::TYPE_MINIHOUSE ? auth()->user()->partner_id : null)
+                    ->required()
+                    ->searchable()
+                    ->preload()
+                    ->visible(fn () => auth()->user()?->isSuperAdmin() ?? false),
                 TextInput::make('name')
                     ->label('Tên toà nhà')
                     ->required()
@@ -187,9 +196,9 @@ class BuildingForm
                             ->hiddenLabel()
                             ->options([
                                 Building::PAYMENT_METHOD_VIETQR => 'QR chuyển khoản ngân hàng (VietQR) — xác nhận thủ công',
-                                Building::PAYMENT_METHOD_PAYOS  => 'Tài khoản PayOS riêng — tự động xác nhận',
-                                Building::PAYMENT_METHOD_MOMO   => 'Tài khoản MoMo Business riêng — tự động xác nhận',
-                                Building::PAYMENT_METHOD_VNPAY  => 'Tài khoản VNPay riêng — tự động xác nhận',
+                                Building::PAYMENT_METHOD_PAYOS => 'Tài khoản PayOS riêng — tự động xác nhận',
+                                Building::PAYMENT_METHOD_MOMO => 'Tài khoản MoMo Business riêng — tự động xác nhận',
+                                Building::PAYMENT_METHOD_VNPAY => 'Tài khoản VNPay riêng — tự động xác nhận',
                             ])
                             ->native(false)
                             ->live()
@@ -282,9 +291,9 @@ class BuildingForm
                             ->visible(fn (Get $get) => (bool) $get('payment_sandbox'))
                             ->content(new HtmlString(
                                 'Bộ test công khai của MoMo (copy đúng nguyên văn):<br>'
-                                . '<code>Partner Code: ' . InvoiceMomoService::SANDBOX_PARTNER_CODE . '</code><br>'
-                                . '<code>Access Key: ' . InvoiceMomoService::SANDBOX_ACCESS_KEY . '</code><br>'
-                                . '<code>Secret Key: ' . InvoiceMomoService::SANDBOX_SECRET_KEY . '</code>'
+                                .'<code>Partner Code: '.InvoiceMomoService::SANDBOX_PARTNER_CODE.'</code><br>'
+                                .'<code>Access Key: '.InvoiceMomoService::SANDBOX_ACCESS_KEY.'</code><br>'
+                                .'<code>Secret Key: '.InvoiceMomoService::SANDBOX_SECRET_KEY.'</code>'
                             )),
                         TextInput::make('momo_partner_code')
                             ->label('Partner Code')
@@ -341,7 +350,7 @@ class BuildingForm
                     ->label('Kiểu tính chu kỳ hoá đơn')
                     ->options([
                         Building::BILLING_CYCLE_CALENDAR_MONTH => 'Theo tháng dương lịch (mọi hợp đồng đóng cùng đợt, mùng 1 - cuối tháng)',
-                        Building::BILLING_CYCLE_ANNIVERSARY    => 'Theo ngày thuê (mỗi hợp đồng tính riêng theo ngày bắt đầu của chính nó)',
+                        Building::BILLING_CYCLE_ANNIVERSARY => 'Theo ngày thuê (mỗi hợp đồng tính riêng theo ngày bắt đầu của chính nó)',
                     ])
                     ->default(Building::BILLING_CYCLE_CALENDAR_MONTH)
                     ->native(false)

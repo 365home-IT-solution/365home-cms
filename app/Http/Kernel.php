@@ -73,6 +73,7 @@ class Kernel extends HttpKernel
         'admin.api'         => \App\Http\Middleware\AdminApiAuth::class,
         'tenant.api'        => \App\Http\Middleware\TenantApiAuth::class,
         'ttlock.card-app'   => \App\Http\Middleware\AuthorizeTtlockCardApp::class,
+        'partner.type'      => \App\Http\Middleware\EnsurePartnerType::class,
 //        'api.key' => \Modules\ApiConfig\App\Http\Middleware\ValidateApiKey::class,
     ];
 }

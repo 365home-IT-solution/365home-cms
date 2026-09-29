@@ -28,11 +28,17 @@ class PartnerContractRenderer
 
         // commission_rate lưu dạng chuỗi tự do (vd "10" hoặc đã có sẵn "10%") — tránh lặp "%%".
         $rawRate = $partner->commission_rate;
-        $commissionRate = blank($rawRate) ? '—' : e(str_contains($rawRate, '%') ? $rawRate : $rawRate . '%');
+        $commissionRate = blank($rawRate) ? '—' : e(str_contains($rawRate, '%') ? $rawRate : $rawRate.'%');
         $cancellationPolicy = nl2br(e($partner->cancellation_policy ?? 'Chưa thiết lập.'));
         $contractCode = e($partner->contract_code ?? '(chưa cấp mã)');
         $signedAt = $partner->contract_signed_at?->format('d/m/Y') ?? $today;
         $expiresAt = $partner->contract_expires_at?->format('d/m/Y') ?? '—';
+        $serviceDescription = $partner->partner_type === Partner::TYPE_MINIHOUSE
+            ? 'dịch vụ quản lý và vận hành nhà cho thuê dài hạn MiniHouse'
+            : 'dịch vụ lưu trú Homestay';
+        $policyTitle = $partner->partner_type === Partner::TYPE_MINIHOUSE
+            ? 'Chính sách vận hành, chấm dứt hợp tác và xử lý công nợ'
+            : 'Chính sách hủy/hoàn tiền';
 
         return <<<HTML
             <div style="font-family:inherit;line-height:1.7;">
@@ -49,12 +55,12 @@ class PartnerContractRenderer
                 Địa chỉ: {$address}<br>
                 Điện thoại: {$phone} — Email: {$email}</p>
 
-                <p>Hai bên thống nhất ký kết hợp đồng hợp tác kinh doanh dịch vụ lưu trú với các điều khoản sau:</p>
+                <p>Hai bên thống nhất ký kết hợp đồng hợp tác kinh doanh {$serviceDescription} với các điều khoản sau:</p>
 
                 <p><strong>Điều 1. Tỷ lệ hoa hồng</strong><br>
                 Bên B trích hoa hồng cho Bên A theo tỷ lệ: <strong>{$commissionRate}</strong> trên mỗi giao dịch phát sinh qua nền tảng.</p>
 
-                <p><strong>Điều 2. Chính sách hủy/hoàn tiền</strong><br>
+                <p><strong>Điều 2. {$policyTitle}</strong><br>
                 {$cancellationPolicy}</p>
 
                 <p><strong>Điều 3. Thời hạn hợp đồng</strong><br>

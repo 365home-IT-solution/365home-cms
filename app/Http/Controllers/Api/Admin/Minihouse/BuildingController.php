@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Api\Admin\Minihouse;
 
 use App\Http\Controllers\Api\Admin\Minihouse\Concerns\ScopesToMinihouseBuilding;
 use App\Http\Controllers\Controller;
+use App\Models\Partner;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -29,6 +30,7 @@ class BuildingController extends Controller
         $buildings = Building::query()
             ->withoutGlobalScopes()
             ->whereIn('id', $this->permittedBuildingIds($request))
+            ->with('partner:id,name,legal_name,partner_type')
             ->withCount('rooms')
             ->when($request->filled('search'), fn ($q) => $q->where('name', 'like', '%' . $request->string('search') . '%'))
             ->orderBy('name')
@@ -62,7 +64,7 @@ class BuildingController extends Controller
             return response()->json(['message' => 'Không có quyền tạo toà nhà.'], 403);
         }
 
-        $data = $request->validate(self::rules());
+        $data = $request->validate(self::rules() + self::partnerRules($request));
         $data = self::withDerivedBankName($data);
 
         $building = Building::create($data);
@@ -94,7 +96,7 @@ class BuildingController extends Controller
             return response()->json(['message' => 'Không tìm thấy toà nhà.'], 404);
         }
 
-        $data = $request->validate(self::rules(forUpdate: true));
+        $data = $request->validate(self::rules(forUpdate: true) + self::partnerRules($request, forUpdate: true));
         $data = self::withDerivedBankName($data);
 
         $building->update($data);
@@ -125,6 +127,25 @@ class BuildingController extends Controller
         }
 
         return response()->json(['message' => 'Đã xoá toà nhà.']);
+    }
+
+    // Đối tác sở hữu tòa nhà — CHỈ super_admin được chọn (bắt buộc khi tạo, khớp Select
+    // "Đối tác MiniHouse" ở BuildingForm), và chỉ được trỏ tới đối tác partner_type=minihouse. Tài
+    // khoản thường: partner_id bị bỏ qua, tòa nhà mới tự gắn đối tác MiniHouse của chính tài khoản đó
+    // (xem Building::booted() creating), tòa nhà đang có giữ nguyên đối tác.
+    private static function partnerRules(Request $request, bool $forUpdate = false): array
+    {
+        if (! $request->user()?->isSuperAdmin()) {
+            return [];
+        }
+
+        return [
+            'partner_id' => [
+                $forUpdate ? 'sometimes' : 'required',
+                'uuid',
+                Rule::exists('partners', 'id')->where('partner_type', Partner::TYPE_MINIHOUSE)->whereNull('deleted_at'),
+            ],
+        ];
     }
 
     // owner_bank_name KHÔNG phải field người dùng tự gõ — bên Filament tự suy ra từ owner_bank_bin
@@ -178,11 +199,19 @@ class BuildingController extends Controller
         ];
     }
 
+    private static function partnerData(Building $building): ?array
+    {
+        $partner = $building->partner;
+
+        return $partner ? ['id' => $partner->id, 'name' => $partner->legal_name ?: $partner->name, 'partner_type' => $partner->partner_type] : null;
+    }
+
     private function toListItem(Building $building): array
     {
         return [
             'id'                   => $building->id,
             'name'                 => $building->name,
+            'partner'              => self::partnerData($building),
             'address'              => $building->address,
             'rooms_count'          => $building->rooms_count,
             'electric_unit_price'  => $building->electric_unit_price,
@@ -197,6 +226,7 @@ class BuildingController extends Controller
         return [
             'id'                            => $building->id,
             'name'                          => $building->name,
+            'partner'                       => self::partnerData($building),
             'address'                       => $building->address,
             'province'                      => $building->province,
             'ward'                          => $building->ward,

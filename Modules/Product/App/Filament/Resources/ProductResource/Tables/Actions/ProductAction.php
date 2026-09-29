@@ -16,6 +16,7 @@ class ProductAction
     {
         return [
             AssignLockAction::make(),
+            EmergencyAccessAction::make(),
             RoomCleaningAction::confirmCleaning(),
             ActionGroup::make([
                 ViewAction::make()->label('Xem chi tiết')->modalWidth(MaxWidth::Full),

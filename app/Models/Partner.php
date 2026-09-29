@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Models\Concerns\LogsAuditTrail;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,17 +13,23 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Modules\Category\Entities\Category;
 use Modules\Employee\Entities\Employee;
+use Modules\Minihouse\App\Support\HomestayBridge;
 use Modules\Product\App\Models\Product;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
 
 class Partner extends Model implements HasMedia
 {
-    use HasUuids, SoftDeletes, InteractsWithMedia, LogsAuditTrail;
+    public const TYPE_HOMESTAY = 'homestay';
+
+    public const TYPE_MINIHOUSE = 'minihouse';
+
+    use HasUuids, InteractsWithMedia, LogsAuditTrail, SoftDeletes;
 
     protected $fillable = [
         // Cơ bản
         'name',
+        'partner_type',
         'tax_code',
         'phone',
         'email',
@@ -56,6 +63,10 @@ class Partner extends Model implements HasMedia
 
         // Xác minh & vận hành
         'verification_status',
+        'verification_submitted_at',
+        'verified_at',
+        'verified_by',
+        'verification_note',
         'is_platform_partner',
 
         // Hợp đồng
@@ -69,12 +80,14 @@ class Partner extends Model implements HasMedia
     ];
 
     protected $casts = [
-        'status'                => 'boolean',
-        'is_platform_partner'   => 'boolean',
-        'representative_dob'    => 'date',
+        'status' => 'boolean',
+        'is_platform_partner' => 'boolean',
+        'representative_dob' => 'date',
         'business_license_date' => 'date',
-        'contract_signed_at'    => 'date',
-        'contract_expires_at'   => 'date',
+        'contract_signed_at' => 'date',
+        'contract_expires_at' => 'date',
+        'verification_submitted_at' => 'datetime',
+        'verified_at' => 'datetime',
     ];
 
     public function registerMediaCollections(): void
@@ -133,5 +146,46 @@ class Partner extends Model implements HasMedia
     public function statusLogs(): HasMany
     {
         return $this->hasMany(PartnerStatusLog::class)->latest();
+    }
+
+    public function legalDocuments(): HasMany
+    {
+        return $this->hasMany(PartnerLegalDocument::class);
+    }
+
+    public function verifier(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'verified_by');
+    }
+
+    public function isMinihouse(): bool
+    {
+        return $this->partner_type === self::TYPE_MINIHOUSE;
+    }
+
+    // Query chi nhánh gốc (categories parent_id=null, category_type=product) được phép gán cho đối
+    // tác này ở tab "Chi nhánh"/"Gán tòa nhà" và API branch-/building-assignments. Homestay: chi nhánh
+    // của đối tác Homestay + chi nhánh chưa có chủ. MiniHouse: CHỈ tòa nhà đang thuộc đối tác
+    // MiniHouse — không nhận chi nhánh chưa có chủ, vì gán vào sẽ biến chi nhánh Homestay đó thành
+    // tòa nhà MiniHouse (Building scope lọc theo partner_type của đối tác sở hữu).
+    public function assignableBranchesQuery(): Builder
+    {
+        return Category::query()
+            ->where('category_type', 'product')
+            ->whereNull('parent_id')
+            ->where(function (Builder $q) {
+                $q->whereHas('partner', fn (Builder $p) => $p->where('partner_type', $this->partner_type));
+                if (! $this->isMinihouse()) {
+                    $q->orWhereNull('partner_id');
+                }
+            });
+    }
+
+    // partner_id mới của chi nhánh bị BỎ gán khỏi đối tác này. Homestay: null (chi nhánh chưa có
+    // chủ). MiniHouse: tòa nhà không được mồ côi (partner_id=null sẽ làm nó biến khỏi MiniHouse và lọt
+    // sang danh sách Homestay) — trả về đối tác MiniHouse nội bộ, nơi giữ toàn bộ dữ liệu MiniHouse cũ.
+    public function releasedBranchPartnerId(): ?string
+    {
+        return $this->isMinihouse() ? HomestayBridge::PARTNER_ID : null;
     }
 }

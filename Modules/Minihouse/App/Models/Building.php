@@ -2,6 +2,7 @@
 
 namespace Modules\Minihouse\App\Models;
 
+use App\Models\Partner;
 use App\Models\Province;
 use App\Models\ProvinceBranch;
 use Illuminate\Database\Eloquent\Builder;
@@ -9,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Str;
 use Modules\Category\Entities\Category;
 use Modules\Minihouse\App\Exceptions\CannotDeleteReferencedRecordException;
@@ -26,17 +28,21 @@ use Modules\Minihouse\App\Support\HomestayBridge;
 // cột 'description' thật của Category.
 class Building extends Category
 {
-    use SoftDeletes;
-    use ScopedToActiveBuilding;
     use LogsMinihouseActivity;
+    use ScopedToActiveBuilding;
+    use SoftDeletes;
 
     public const PAYMENT_METHOD_VIETQR = 'vietqr';
-    public const PAYMENT_METHOD_PAYOS  = 'payos';
-    public const PAYMENT_METHOD_MOMO   = 'momo';
-    public const PAYMENT_METHOD_VNPAY  = 'vnpay';
+
+    public const PAYMENT_METHOD_PAYOS = 'payos';
+
+    public const PAYMENT_METHOD_MOMO = 'momo';
+
+    public const PAYMENT_METHOD_VNPAY = 'vnpay';
 
     public const BILLING_CYCLE_CALENDAR_MONTH = 'calendar_month';
-    public const BILLING_CYCLE_ANNIVERSARY    = 'anniversary_date';
+
+    public const BILLING_CYCLE_ANNIVERSARY = 'anniversary_date';
 
     // Category KHÔNG khai báo $table tường minh (dựa vào quy ước Eloquent tự suy tên bảng từ TÊN
     // CLASS THẬT LÚC CHẠY) — Building là class con nên PHẢI khai báo lại rõ ràng, nếu không Eloquent
@@ -51,7 +57,7 @@ class Building extends Category
     // Building::create() bị rơi mất, khiến guard "không thể xoá Zone còn Toà nhà" không phát hiện
     // được toà nhà nào cả).
     protected $fillable = [
-        'name', 'slug', 'description', 'parent_id', 'sort_order',
+        'name', 'slug', 'description', 'parent_id', 'sort_order', 'partner_id',
         'zone_id', 'address', 'province', 'ward', 'note',
         'electric_unit_price', 'water_unit_price', 'payment_method',
         'billing_cycle_type', 'payment_reminder_days_before', 'payment_reminder_repeat_days',
@@ -413,6 +419,7 @@ class Building extends Category
     {
         $this->pendingDetail['ward_raw'] = $value;
     }
+
     private function detailValue(string $key)
     {
         if (array_key_exists($key, $this->pendingDetail)) {
@@ -498,11 +505,11 @@ class Building extends Category
     public function activePaymentMethod(): ?string
     {
         return match ($this->payment_method) {
-            self::PAYMENT_METHOD_PAYOS  => $this->hasOwnPayOs() ? self::PAYMENT_METHOD_PAYOS : null,
-            self::PAYMENT_METHOD_MOMO   => $this->hasOwnMomo() ? self::PAYMENT_METHOD_MOMO : null,
-            self::PAYMENT_METHOD_VNPAY  => $this->hasOwnVnpay() ? self::PAYMENT_METHOD_VNPAY : null,
+            self::PAYMENT_METHOD_PAYOS => $this->hasOwnPayOs() ? self::PAYMENT_METHOD_PAYOS : null,
+            self::PAYMENT_METHOD_MOMO => $this->hasOwnMomo() ? self::PAYMENT_METHOD_MOMO : null,
+            self::PAYMENT_METHOD_VNPAY => $this->hasOwnVnpay() ? self::PAYMENT_METHOD_VNPAY : null,
             self::PAYMENT_METHOD_VIETQR => $this->hasOwnerBankInfo() ? self::PAYMENT_METHOD_VIETQR : null,
-            default                     => null,
+            default => null,
         };
     }
 
@@ -516,14 +523,17 @@ class Building extends Category
         static::addGlobalScope('minihouse_buildings_only', function (Builder $query) {
             $query->where('category_type', 'product')
                 ->whereNull('parent_id')
-                ->where('partner_id', HomestayBridge::PARTNER_ID);
+                ->whereHas('partner', fn (Builder $partner) => $partner->where('partner_type', Partner::TYPE_MINIHOUSE));
         });
 
         static::creating(function (Building $building) {
             $building->category_type ??= 'product';
-            $building->parent_id     ??= null;
-            $building->partner_id    ??= HomestayBridge::PARTNER_ID;
-            $building->status        ??= true;
+            $building->parent_id ??= null;
+            $userPartner = auth()->user()?->partner;
+            $building->partner_id ??= $userPartner?->partner_type === Partner::TYPE_MINIHOUSE
+                ? $userPartner->id
+                : HomestayBridge::PARTNER_ID;
+            $building->status ??= true;
 
             if (! $building->slug) {
                 $building->slug = self::generateUniqueSlug($building->name ?: 'toa-nha');
@@ -578,7 +588,7 @@ class Building extends Category
         if (! $province) {
             try {
                 $province = Province::create(['name' => $provinceName, 'slug' => $slug]);
-            } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            } catch (UniqueConstraintViolationException $e) {
                 // Tiến trình khác vừa tạo xong đúng lúc ta insert (race) — tra lại lần cuối theo cả
                 // 2 khoá trước khi chịu thua (ném lại y hệt exception gốc nếu vẫn không tìm thấy).
                 $province = Province::where('slug', $slug)->first()
@@ -591,7 +601,7 @@ class Building extends Category
         }
 
         ProvinceBranch::firstOrCreate([
-            'province_id'  => $province->id,
+            'province_id' => $province->id,
             'categorie_id' => $building->id,
         ], ['status' => true]);
     }
@@ -599,10 +609,10 @@ class Building extends Category
     private static function generateUniqueSlug(string $base): string
     {
         $slug = Str::slug($base) ?: 'toa-nha';
-        $i    = 1;
+        $i = 1;
 
         while (Category::where('slug', $slug)->exists()) {
-            $slug = Str::slug($base) . '-' . (++$i);
+            $slug = Str::slug($base).'-'.(++$i);
         }
 
         return $slug;

@@ -73,6 +73,13 @@ class RoomTable
                     Room::STATUS_REPAIR   => 'danger',
                     default => 'gray',
                 })->visibleFrom('md'),
+                TextColumn::make('emergency_locked_at')
+                    ->label('Truy cập app')
+                    ->badge()
+                    ->formatStateUsing(fn ($state) => $state ? 'Khóa khẩn cấp' : 'Bình thường')
+                    ->color(fn ($state) => $state ? 'danger' : 'success')
+                    ->placeholder('Bình thường')
+                    ->visibleFrom('md'),
                 TextColumn::make('created_at')->label('Ngày tạo')->dateTime('d/m/Y')->sortable()->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
             ])
             ->filters([
@@ -108,6 +115,7 @@ class RoomTable
                     }),
                 \Modules\Minihouse\App\Filament\Support\RoomLockActions::assign(),
                 \Modules\Minihouse\App\Filament\Support\RoomLockActions::unlock(),
+                \Modules\Minihouse\App\Filament\Support\RoomLockActions::emergencyAccess(),
                 EditAction::make()->extraAttributes(['class' => 'mh-row-action']),
                 // Xem chú thích ở EditRoom::getHeaderActions() — chặn xoá phòng còn Hợp đồng (kể cả
                 // đã kết thúc) tham chiếu tới, tránh Contract.room_id trỏ về 1 Room đã "biến mất".

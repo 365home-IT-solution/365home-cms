@@ -44,6 +44,8 @@ use App\Http\Controllers\Api\Minihouse\Public\RentalInquiryController;
 use App\Http\Controllers\Api\Minihouse\Public\RoomController as PublicRoomController;
 use App\Http\Controllers\Api\Minihouse\Public\ZoneController as PublicZoneController;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\Admin\PartnerController as MinihousePartnerController;
+use App\Http\Controllers\Api\Admin\PartnerLegalDocumentController as MinihousePartnerLegalDocumentController;
 
 /*
 |--------------------------------------------------------------------------
@@ -71,6 +73,34 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->name('api.admin.minihouse.')->group(function () {
+    Route::middleware('partner.type:minihouse')->group(function () {
+        Route::get('partners', [MinihousePartnerController::class, 'index'])->name('partners.index');
+        Route::post('partners', [MinihousePartnerController::class, 'store'])->name('partners.store');
+        Route::get('partners/{partner}', [MinihousePartnerController::class, 'show'])->name('partners.show');
+        Route::match(['put', 'patch'], 'partners/{partner}', [MinihousePartnerController::class, 'update'])->name('partners.update');
+        Route::get('partners/{partner}/financial', [MinihousePartnerController::class, 'financial'])->name('partners.financial.show');
+        Route::post('partners/{partner}/financial', [MinihousePartnerController::class, 'updateFinancial'])->name('partners.financial.update');
+        Route::get('partners/{partner}/building-assignments', [MinihousePartnerController::class, 'branchAssignments'])->name('partners.building-assignments.show');
+        Route::put('partners/{partner}/building-assignments', [MinihousePartnerController::class, 'updateBranchAssignments'])->name('partners.building-assignments.update');
+        Route::get('partners/{partner}/user-assignments', [MinihousePartnerController::class, 'userAssignments'])->name('partners.user-assignments.show');
+        Route::put('partners/{partner}/user-assignments', [MinihousePartnerController::class, 'updateUserAssignments'])->name('partners.user-assignments.update');
+        Route::get('partners/{partner}/contract', [MinihousePartnerController::class, 'contract'])->name('partners.contract.show');
+        Route::post('partners/{partner}/contract/send', [MinihousePartnerController::class, 'createContract'])->name('partners.contract.send');
+        Route::post('partners/{partner}/contract/platform-sign', [MinihousePartnerController::class, 'platformSign'])->name('partners.contract.platform-sign');
+
+        Route::prefix('partners/{partner}/legal-documents')->name('partners.legal-documents.')->group(function () {
+            Route::get('/', [MinihousePartnerLegalDocumentController::class, 'index'])->name('index');
+            Route::post('/', [MinihousePartnerLegalDocumentController::class, 'store'])->name('store');
+            Route::post('submit', [MinihousePartnerLegalDocumentController::class, 'submit'])->name('submit');
+            Route::post('approve-dossier', [MinihousePartnerLegalDocumentController::class, 'approveDossier'])->name('approve-dossier');
+            Route::get('{document}', [MinihousePartnerLegalDocumentController::class, 'show'])->name('show');
+            Route::post('{document}', [MinihousePartnerLegalDocumentController::class, 'update'])->name('update');
+            Route::delete('{document}', [MinihousePartnerLegalDocumentController::class, 'destroy'])->name('destroy');
+            Route::post('{document}/review', [MinihousePartnerLegalDocumentController::class, 'review'])->name('review');
+            Route::get('{document}/download', [MinihousePartnerLegalDocumentController::class, 'download'])->name('download');
+        });
+    });
+
     Route::apiResource('buildings', BuildingController::class)->except(['show'])->parameters(['buildings' => 'id']);
     Route::get('buildings/{id}', [BuildingController::class, 'show'])->name('buildings.show');
 
@@ -219,6 +249,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
     Route::get('rooms/{id}/lock', [RoomLockController::class, 'show'])->name('rooms.lock.show');
     Route::match(['put', 'patch'], 'rooms/{id}/lock', [RoomLockController::class, 'update'])->name('rooms.lock.update');
     Route::post('rooms/{id}/unlock', [RoomLockController::class, 'unlock'])->name('rooms.unlock');
+    Route::post('rooms/emergency-lock/bulk', [RoomLockController::class, 'bulkEmergencyLock'])->name('rooms.emergency-lock.bulk');
+    Route::post('rooms/{id}/emergency-lock', [RoomLockController::class, 'emergencyLock'])->name('rooms.emergency-lock');
+    Route::delete('rooms/{id}/emergency-lock', [RoomLockController::class, 'releaseEmergencyLock'])->name('rooms.emergency-lock.release');
 
     // Xe khách thuê + bảng giá gửi xe theo toà nhà — xem VehicleController/VehicleRateController.
     // "vehicles/lookup" đặt TRƯỚC "vehicles/{id}" để không bị hiểu nhầm là id.
@@ -361,6 +394,7 @@ Route::prefix('minihouse/portal')->name('api.minihouse.portal.')->group(function
         Route::post('contracts/{contract}/checkout-request', [TenantPortalApiController::class, 'requestCheckout'])->name('contracts.checkout-request');
         Route::get('contracts/{contract}/lock-code', [TenantPortalApiController::class, 'showLockCode'])->name('contracts.lock-code.show');
         Route::post('contracts/{contract}/lock-code/regenerate', [TenantPortalApiController::class, 'regenerateLockCode'])->name('contracts.lock-code.regenerate');
+        Route::post('contracts/{contract}/unlock', [TenantPortalApiController::class, 'unlockRoom'])->middleware('throttle:10,1')->name('contracts.unlock');
         Route::get('contracts/{contract}/document', [ContractDocumentPortalController::class, 'show'])->name('contracts.document.show');
         Route::post('contracts/{contract}/document/otp', [ContractDocumentPortalController::class, 'otp'])->name('contracts.document.otp');
         Route::post('contracts/{contract}/document/sign', [ContractDocumentPortalController::class, 'sign'])->name('contracts.document.sign');

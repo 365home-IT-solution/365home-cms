@@ -158,10 +158,12 @@ class TenantAuthApiController extends Controller
 
     private function tokenResponse(Tenant $tenant): JsonResponse
     {
-        $token = $tenant->createToken('minihouse-portal')->plainTextToken;
+        $expiresAt = now()->addDays(30);
+        $token = $tenant->createToken('minihouse-portal', ['*'], $expiresAt)->plainTextToken;
 
         return response()->json([
-            'token'  => $token,
+            'token'      => $token,
+            'expires_at' => $expiresAt->toIso8601String(),
             'tenant' => [
                 'id'       => $tenant->id,
                 'fullname' => $tenant->fullname,

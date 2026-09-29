@@ -4,20 +4,32 @@ declare(strict_types=1);
 
 namespace App\Filament\Resources\PartnerResource\Forms;
 
+use App\Filament\Resources\PartnerResource;
 use App\Mail\LockNotificationMail;
 use App\Models\Partner;
 use App\Models\PartnerContractVersion;
 use App\Models\User;
+use App\Services\ContractSigning\Contracts\DigitalSignatureProvider;
+use App\Services\PartnerLegalDocumentService;
+use App\Services\PdfSigning\ContractPdfSigningService;
 use App\Support\PartnerContractRenderer;
-use Modules\DataPermission\Entities\UserBranchPermission;
+use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Components\SpatieMediaLibraryFileUpload;
 use Filament\Forms\Form;
+use Filament\Notifications\Notification;
+use Filament\Support\Enums\MaxWidth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Modules\Category\Entities\Category;
+use Modules\DataPermission\Entities\UserBranchPermission;
+use Modules\Minihouse\App\Filament\Resources\BuildingResource;
+use Modules\Payment\Entities\Order;
 use Modules\Product\App\Models\Product;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 // Form "Xác minh đối tác" cho super_admin — 7 tab đúng theo mockup: Người đại diện / Doanh
 // nghiệp / Tài chính / Cơ sở lưu trú / Hợp đồng / Tài liệu & Xác minh / Lịch sử. Dùng component
@@ -202,9 +214,9 @@ class PartnerForm
                         Forms\Components\Radio::make('payment_cycle')
                             ->hiddenLabel()
                             ->options([
-                                'weekly'   => 'Hàng tuần (Thứ 2)',
+                                'weekly' => 'Hàng tuần (Thứ 2)',
                                 'biweekly' => '2 tuần một lần (Ngày 1 và 15)',
-                                'monthly'  => 'Hàng tháng (Ngày cuối tháng)',
+                                'monthly' => 'Hàng tháng (Ngày cuối tháng)',
                             ])
                             ->default('biweekly')
                             ->inline()
@@ -218,7 +230,7 @@ class PartnerForm
     // tổng hợp + liên kết sang đó, không xây lại CRUD chi nhánh/phòng trùng lặp.
     private static function propertiesTab(): Forms\Components\Tabs\Tab
     {
-        return Forms\Components\Tabs\Tab::make('Cơ sở lưu trú')
+        return Forms\Components\Tabs\Tab::make(Filament::getCurrentPanel()?->getId() === 'minihouse-admin' ? 'Tòa nhà MiniHouse' : 'Cơ sở lưu trú')
             ->icon('heroicon-o-building-storefront')
             ->schema([
                 Forms\Components\Placeholder::make('properties_note')
@@ -238,7 +250,7 @@ class PartnerForm
                                 ->required()
                                 ->maxLength(255)
                                 ->live(onBlur: true)
-                                ->afterStateUpdated(fn ($state, callable $set) => $set('slug', \Illuminate\Support\Str::slug($state))),
+                                ->afterStateUpdated(fn ($state, callable $set) => $set('slug', Str::slug($state))),
                             Forms\Components\TextInput::make('slug')
                                 ->label('Slug')
                                 ->required()
@@ -254,15 +266,18 @@ class PartnerForm
                             Category::create([
                                 ...$data,
                                 'category_type' => 'product',
-                                'partner_id'    => $record->id,
+                                'partner_id' => $record->id,
                             ]);
 
-                            \Filament\Notifications\Notification::make()
+                            Notification::make()
                                 ->title('Đã thêm cơ sở lưu trú mới')
                                 ->success()
                                 ->send();
 
-                            $livewire->redirect(\App\Filament\Resources\PartnerResource::getUrl('edit', ['record' => $record]));
+                            $resource = Filament::getCurrentPanel()?->getId() === 'minihouse-admin'
+                                ? \Modules\Minihouse\App\Filament\Resources\PartnerResource::class
+                                : PartnerResource::class;
+                            $livewire->redirect($resource::getUrl('edit', ['record' => $record]));
                         }),
                 ])
                     ->visible(fn (?Partner $record) => (bool) $record)
@@ -277,7 +292,7 @@ class PartnerForm
                             ->withCount(['products'])
                             ->get();
 
-                        $totalRooms  = Product::where('partner_id', $record->id)->count();
+                        $totalRooms = Product::where('partner_id', $record->id)->count();
                         $activeCount = $branches->where('status', true)->count();
 
                         return new HtmlString(self::renderPropertiesSummary($branches, $totalRooms, $activeCount));
@@ -297,14 +312,14 @@ class PartnerForm
         HTML;
 
         $stats = $statCard('Tổng số cơ sở', $branches->count())
-            . $statCard('Đang hoạt động', $activeCount)
-            . $statCard('Tổng số phòng', $totalRooms);
+            .$statCard('Đang hoạt động', $activeCount)
+            .$statCard('Tổng số phòng', $totalRooms);
 
         if ($branches->isEmpty()) {
             $rows = '<tr><td colspan="6" style="padding:16px;text-align:center;color:#9ca3af;">Chưa có cơ sở lưu trú nào.</td></tr>';
         } else {
             $rows = $branches->map(function ($branch) {
-                $status  = $branch->status
+                $status = $branch->status
                     ? '<span style="color:#059669;font-weight:600;">● Hoạt động</span>'
                     : '<span style="color:#9ca3af;font-weight:600;">● Tạm dừng</span>';
 
@@ -313,17 +328,16 @@ class PartnerForm
                 // phản ánh phát sinh sau này. Ưu tiên 'amount', fallback full_amount nếu amount rỗng
                 // (dữ liệu cũ) — cùng quy ước với KpiService/Dashboard, tránh doanh thu hiển thị ở
                 // đây lệch với doanh thu ở Dashboard cho cùng kỳ/cùng đối tác.
-                $revenue = \Modules\Payment\Entities\Order::where('category_id', $branch->id)
+                $revenue = Order::where('category_id', $branch->id)
                     ->where('status', 'paid')
                     ->whereMonth('created_at', now()->month)
                     ->whereYear('created_at', now()->year)
-                    ->sum(\Illuminate\Support\Facades\DB::raw('COALESCE(amount, full_amount)'));
-                $revenueFmt = number_format((float) $revenue, 0, ',', '.') . 'đ';
+                    ->sum(DB::raw('COALESCE(amount, full_amount)'));
+                $revenueFmt = number_format((float) $revenue, 0, ',', '.').'đ';
 
-                $detailUrl = \App\Filament\Resources\PartnerResource::getUrl('branch-detail', [
-                    'record' => $branch->partner_id,
-                    'branch' => $branch->id,
-                ]);
+                $detailUrl = Filament::getCurrentPanel()?->getId() === 'minihouse-admin'
+                    ? BuildingResource::getUrl('edit', ['record' => $branch->id])
+                    : PartnerResource::getUrl('branch-detail', ['record' => $branch->partner_id, 'branch' => $branch->id]);
 
                 return <<<HTML
                     <tr style="border-bottom:1px solid #f1f5f9;">
@@ -365,7 +379,7 @@ class PartnerForm
     // EditPartner) — không cần lưu đối tác trước rồi mới quay lại gán như tab "Cơ sở lưu trú".
     private static function branchAssignmentTab(): Forms\Components\Tabs\Tab
     {
-        return Forms\Components\Tabs\Tab::make('Chi nhánh')
+        return Forms\Components\Tabs\Tab::make(Filament::getCurrentPanel()?->getId() === 'minihouse-admin' ? 'Gán tòa nhà' : 'Chi nhánh')
             ->icon('heroicon-o-map-pin')
             ->schema([
                 Forms\Components\Placeholder::make('branch_assignment_note')
@@ -374,9 +388,10 @@ class PartnerForm
 
                 Forms\Components\CheckboxList::make('branch_ids')
                     ->hiddenLabel()
-                    ->options(fn () => Category::query()
-                        ->where('category_type', 'product')
-                        ->whereNull('parent_id')
+                    ->options(fn (?Partner $record) => ($record ?? new Partner([
+                        'partner_type' => Filament::getCurrentPanel()?->getId() === 'minihouse-admin' ? Partner::TYPE_MINIHOUSE : Partner::TYPE_HOMESTAY,
+                    ]))
+                        ->assignableBranchesQuery()
                         ->orderBy('name')
                         ->pluck('name', 'id')
                         ->all())
@@ -408,9 +423,13 @@ class PartnerForm
                     ->hiddenLabel()
                     ->options(fn () => User::query()
                         ->whereDoesntHave('roles', fn ($q) => $q->where('name', config('filament-shield.super_admin.name')))
+                        ->where(function ($query) {
+                            $type = Filament::getCurrentPanel()?->getId() === 'minihouse-admin' ? Partner::TYPE_MINIHOUSE : Partner::TYPE_HOMESTAY;
+                            $query->whereNull('partner_id')->orWhereHas('partner', fn ($partnerQuery) => $partnerQuery->where('partner_type', $type));
+                        })
                         ->orderBy('fullname')
                         ->get()
-                        ->mapWithKeys(fn (User $user) => [$user->id => ($user->fullname ?: '(chưa đặt tên)') . ' — ' . $user->email])
+                        ->mapWithKeys(fn (User $user) => [$user->id => ($user->fullname ?: '(chưa đặt tên)').' — '.$user->email])
                         ->all())
                     ->afterStateHydrated(fn (Forms\Components\CheckboxList $component, ?Partner $record) => $component->state(
                         $record ? User::where('partner_id', $record->id)->pluck('id')->all() : []
@@ -431,14 +450,22 @@ class PartnerForm
         // CheckboxList trả về id dạng string (Livewire); Category::id là int nên phải ép kiểu
         // trước khi so sánh strict, nếu không in_array(..., true) luôn false → mất gán chi nhánh.
         $branchIds = array_map('intval', $branchIds);
+        $branchIds = $record->assignableBranchesQuery()->whereIn('id', $branchIds)
+            ->pluck('id')->map(fn ($id) => (int) $id)->all();
+        // Chi nhánh bị bỏ gán: Homestay → chưa có chủ (null); MiniHouse → về đối tác MiniHouse nội
+        // bộ (tòa nhà không được mồ côi). Chính đối tác nội bộ thì bỏ gán = giữ nguyên.
+        $releasedPartnerId = $record->releasedBranchPartnerId();
+        $userIds = User::query()->whereIn('id', $userIds)
+            ->where(fn ($query) => $query->whereNull('partner_id')->orWhereHas('partner', fn ($partnerQuery) => $partnerQuery->where('partner_type', $record->partner_type)))
+            ->pluck('id')->all();
 
         Category::query()
             ->where('category_type', 'product')
             ->whereNull('parent_id')
             ->where(fn ($q) => $q->where('partner_id', $record->id)->orWhereIn('id', $branchIds))
             ->get()
-            ->each(function (Category $category) use ($record, $branchIds) {
-                $newPartnerId = in_array($category->id, $branchIds, true) ? $record->id : null;
+            ->each(function (Category $category) use ($record, $branchIds, $releasedPartnerId) {
+                $newPartnerId = in_array((int) $category->id, $branchIds, true) ? $record->id : $releasedPartnerId;
 
                 if ($category->partner_id !== $newPartnerId) {
                     $category->update(['partner_id' => $newPartnerId]);
@@ -475,18 +502,18 @@ class PartnerForm
 
     // ── TAB 5: Hợp đồng ──────────────────────────────────────────────────────
     private const CONTRACT_STATUS_LABELS = [
-        'draft'      => 'Bản nháp (Draft)',
-        'pending'    => 'Chờ ký (Pending)',
-        'active'     => 'Đang hiệu lực (Active)',
-        'expired'    => 'Hết hạn (Expired)',
+        'draft' => 'Bản nháp (Draft)',
+        'pending' => 'Chờ ký (Pending)',
+        'active' => 'Đang hiệu lực (Active)',
+        'expired' => 'Hết hạn (Expired)',
         'terminated' => 'Chấm dứt (Terminated)',
     ];
 
     private const CONTRACT_STATUS_COLORS = [
-        'draft'      => '#9ca3af',
-        'pending'    => '#f59e0b',
-        'active'     => '#10b981',
-        'expired'    => '#ef4444',
+        'draft' => '#9ca3af',
+        'pending' => '#f59e0b',
+        'active' => '#10b981',
+        'expired' => '#ef4444',
         'terminated' => '#6b7280',
     ];
 
@@ -508,7 +535,7 @@ class PartnerForm
                         ->label('Hình thức hợp đồng')
                         ->options([
                             'e_contract' => 'Hợp đồng điện tử (E-Contract)',
-                            'paper'      => 'Hợp đồng giấy',
+                            'paper' => 'Hợp đồng giấy',
                         ]),
 
                     Forms\Components\DatePicker::make('contract_signed_at')
@@ -555,9 +582,9 @@ class PartnerForm
                     ->hiddenLabel()
                     ->content(new HtmlString(
                         '<div style="display:flex;gap:10px;padding:14px 16px;border-radius:10px;background:#ecfeff;border:1px solid #a5f3fc;font-size:0.85rem;color:#155e75;">'
-                        . '<strong>Lưu ý về tính pháp lý:</strong> Hợp đồng là căn cứ pháp lý duy nhất để bảo vệ quyền lợi của đối tác. '
-                        . 'Mọi giao dịch và cam kết cần được văn bản hóa chính thức tại tab này.'
-                        . '</div>'
+                        .'<strong>Lưu ý về tính pháp lý:</strong> Hợp đồng là căn cứ pháp lý duy nhất để bảo vệ quyền lợi của đối tác. '
+                        .'Mọi giao dịch và cam kết cần được văn bản hóa chính thức tại tab này.'
+                        .'</div>'
                     ))
                     ->columnSpanFull(),
 
@@ -579,7 +606,7 @@ class PartnerForm
                                 ->icon('heroicon-o-magnifying-glass-plus')
                                 ->color('gray')
                                 ->visible(fn (?Partner $record) => (bool) self::latestVersion($record))
-                                ->modalWidth(\Filament\Support\Enums\MaxWidth::Large)
+                                ->modalWidth(MaxWidth::Large)
                                 ->modalHeading('Toàn văn hợp đồng điện tử')
                                 ->modalSubmitAction(false)
                                 ->modalCancelActionLabel('Đóng')
@@ -598,8 +625,8 @@ class PartnerForm
                                 ->hiddenLabel()
                                 ->content(fn (?Partner $record) => new HtmlString(
                                     '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:28px;font-size:0.85rem;max-height:640px;overflow-y:auto;">'
-                                    . self::renderDocumentPreview($record)
-                                    . '</div>'
+                                    .self::renderDocumentPreview($record)
+                                    .'</div>'
                                 )),
                         ]),
 
@@ -615,20 +642,37 @@ class PartnerForm
 
                             Forms\Components\Section::make('Bảng điều khiển ký')
                                 ->schema([
+                                    Forms\Components\Placeholder::make('legal_document_verification')
+                                        ->label('Xác minh giấy tờ')
+                                        ->content(function (?Partner $record) {
+                                            if (! $record) {
+                                                return 'Chưa có hồ sơ đối tác.';
+                                            }
+
+                                            $readiness = app(PartnerLegalDocumentService::class)->readiness($record);
+                                            if ($record->verification_status === 'approved' && $readiness['ready']) {
+                                                return new HtmlString('<span style="color:#059669;font-weight:700;">✓ Super Admin đã duyệt — được phép chuyển sang ký hợp đồng</span>');
+                                            }
+
+                                            $reason = e(implode(' ', $readiness['problems'] ?: ['Đang chờ Super Admin phê duyệt hồ sơ.']));
+
+                                            return new HtmlString('<span style="color:#dc2626;font-weight:700;">Chưa đạt</span><div style="font-size:0.78rem;color:#6b7280;margin-top:4px;">'.$reason.'</div>');
+                                        }),
+
                                     Forms\Components\Placeholder::make('contract_status_badge')
                                         ->hiddenLabel()
                                         ->content(function (?Partner $record) {
                                             $status = $record?->contract_status ?? 'draft';
-                                            $label  = self::CONTRACT_STATUS_LABELS[$status] ?? $status;
-                                            $color  = self::CONTRACT_STATUS_COLORS[$status] ?? '#9ca3af';
+                                            $label = self::CONTRACT_STATUS_LABELS[$status] ?? $status;
+                                            $color = self::CONTRACT_STATUS_COLORS[$status] ?? '#9ca3af';
                                             $daysLeft = $record?->contract_expires_at
-                                                ? ' (còn ' . max(0, (int) now()->diffInDays($record->contract_expires_at, false)) . ' ngày)'
+                                                ? ' (còn '.max(0, (int) now()->diffInDays($record->contract_expires_at, false)).' ngày)'
                                                 : '';
 
                                             return new HtmlString(
-                                                '<span style="display:inline-block;padding:4px 12px;border-radius:9999px;background:' . $color . '22;color:' . $color . ';font-weight:700;font-size:0.85rem;">'
-                                                . mb_strtoupper($label) . $daysLeft
-                                                . '</span>'
+                                                '<span style="display:inline-block;padding:4px 12px;border-radius:9999px;background:'.$color.'22;color:'.$color.';font-weight:700;font-size:0.85rem;">'
+                                                .mb_strtoupper($label).$daysLeft
+                                                .'</span>'
                                             );
                                         }),
 
@@ -638,6 +682,7 @@ class PartnerForm
                                             ->icon('heroicon-o-paper-airplane')
                                             ->color('primary')
                                             ->visible(fn (?Partner $record) => $record && ! self::latestVersion($record)?->isFullySigned())
+                                            ->disabled(fn (?Partner $record) => ! $record || ! app(PartnerLegalDocumentService::class)->isContractEligible($record))
                                             ->requiresConfirmation()
                                             ->modalDescription('Hệ thống sẽ tạo bản hợp đồng điện tử từ đúng thông tin đối tác hiện tại (điều khoản hoa hồng, chính sách hủy...) và gửi link ký cho đối tác qua email. Kiểm tra kỹ thông tin trước khi gửi — mỗi lần gửi sẽ tạo 1 phiên bản mới, hủy hiệu lực link ký cũ.')
                                             ->action(fn (?Partner $record) => self::createAndSendContract($record)),
@@ -647,6 +692,7 @@ class PartnerForm
                                             ->icon('heroicon-o-shield-check')
                                             ->color('success')
                                             ->visible(fn (?Partner $record) => self::latestVersion($record)?->isPartnerConfirmed() && ! self::latestVersion($record)?->isPlatformSigned())
+                                            ->disabled(fn (?Partner $record) => ! $record || ! app(PartnerLegalDocumentService::class)->isContractEligible($record))
                                             ->requiresConfirmation()
                                             ->modalDescription('Đối tác đã xác nhận đồng ý qua email — bấm để NỀN TẢNG ký số THẬT niêm phong hợp đồng (chỉ 1 lượt ký duy nhất) và TẢI VỀ MÁY file PDF đã nhúng chữ ký (chuẩn PAdES, nộp được lên neac.gov.vn) — file KHÔNG lưu lại trên server, đây là lần duy nhất tải được bản này nên hãy lưu cẩn thận. Nếu đang dùng chữ ký số thật (VNPT SmartCA), hệ thống sẽ gửi thông báo tới điện thoại của thuê bao — cần MỞ ĐIỆN THOẠI BẤM XÁC NHẬN trong ít phút để hoàn tất.')
                                             ->action(fn (?Partner $record) => self::signAndExportContract($record)),
@@ -704,8 +750,8 @@ class PartnerForm
                             ->action(function (array $data, ?Partner $record) {
                                 $version = $record->contractVersions()->create([
                                     'version_label' => $data['version_label'],
-                                    'change_note'   => $data['change_note'] ?? null,
-                                    'changed_by'    => auth()->id(),
+                                    'change_note' => $data['change_note'] ?? null,
+                                    'changed_by' => auth()->id(),
                                 ]);
 
                                 if (! empty($data['document'])) {
@@ -713,7 +759,7 @@ class PartnerForm
                                         ->toMediaCollection('document');
                                 }
 
-                                \Filament\Notifications\Notification::make()
+                                Notification::make()
                                     ->title('Đã thêm phiên bản hợp đồng mới')
                                     ->success()
                                     ->send();
@@ -733,10 +779,10 @@ class PartnerForm
 
                                 $record->update([
                                     'contract_expires_at' => $base->copy()->addYear(),
-                                    'contract_status'      => 'active',
+                                    'contract_status' => 'active',
                                 ]);
 
-                                \Filament\Notifications\Notification::make()
+                                Notification::make()
                                     ->title('Đã gia hạn hợp đồng thêm 12 tháng')
                                     ->success()
                                     ->send();
@@ -752,7 +798,7 @@ class PartnerForm
                             ->action(function (?Partner $record) {
                                 $record->update(['contract_status' => 'terminated']);
 
-                                \Filament\Notifications\Notification::make()
+                                Notification::make()
                                     ->title('Đã đánh dấu hợp đồng chấm dứt')
                                     ->danger()
                                     ->send();
@@ -790,11 +836,11 @@ class PartnerForm
 
         $rows = $versions->map(function ($version) {
             $date = $version->created_at?->format('d/m/Y');
-            $who  = e($version->changedBy?->fullname ?? 'Hệ thống');
+            $who = e($version->changedBy?->fullname ?? 'Hệ thống');
             $note = e($version->change_note ?? '—');
             $docUrl = $version->getFirstMediaUrl('document');
             $docLink = $docUrl
-                ? '<a href="' . $docUrl . '" target="_blank" style="color:#2563eb;">Xem tài liệu</a>'
+                ? '<a href="'.$docUrl.'" target="_blank" style="color:#2563eb;">Xem tài liệu</a>'
                 : '—';
 
             return <<<HTML
@@ -847,15 +893,28 @@ class PartnerForm
             return;
         }
 
+        $documentService = app(PartnerLegalDocumentService::class);
+        try {
+            $documentService->assertContractEligible($record);
+        } catch (ValidationException $e) {
+            Notification::make()
+                ->title('Chưa thể tạo hợp đồng')
+                ->body(implode(' ', $e->errors()['legal_documents'] ?? ['Hồ sơ pháp lý chưa được duyệt.']))
+                ->danger()->send();
+
+            return;
+        }
+
         $content = PartnerContractRenderer::render($record);
-        $token   = Str::random(48);
+        $token = Str::random(48);
 
         $record->contractVersions()->create([
-            'version_label' => 'Hợp đồng điện tử — ' . now()->format('d/m/Y H:i'),
-            'change_note'   => 'Tạo tự động để ký điện tử',
-            'changed_by'    => auth()->id(),
-            'content'       => $content,
-            'content_hash'  => hash('sha256', $content),
+            'version_label' => 'Hợp đồng điện tử — '.now()->format('d/m/Y H:i'),
+            'change_note' => 'Tạo tự động để ký điện tử',
+            'changed_by' => auth()->id(),
+            'content' => $content,
+            'content_hash' => hash('sha256', $content),
+            'legal_document_snapshot' => $documentService->snapshot($record),
             'signing_token' => $token,
         ]);
 
@@ -864,7 +923,7 @@ class PartnerForm
         // Ưu tiên email LIÊN HỆ của đối tác (record->email, khai báo ở tab Doanh nghiệp) — đây
         // mới là email giao dịch/pháp lý thật của đối tác. Email đăng nhập hệ thống (owner()->email)
         // chỉ dùng khi đối tác chưa khai báo email liên hệ riêng.
-        $email   = $record->email ?? $record->owner()?->email;
+        $email = $record->email ?? $record->owner()?->email;
         $signUrl = route('contract.sign.show', $token);
 
         $mailSent = false;
@@ -881,7 +940,7 @@ class PartnerForm
             }
         }
 
-        \Filament\Notifications\Notification::make()
+        Notification::make()
             ->title($mailSent
                 ? "Đã tạo hợp đồng & gửi link ký tới {$email}"
                 : 'Đã tạo hợp đồng — chưa gửi được email, xem "Xem toàn văn hợp đồng" để lấy link gửi thủ công')
@@ -900,11 +959,22 @@ class PartnerForm
     // $forceNewSignature: dùng cho "Xuất lại PDF" khi đã ký rồi nhưng muốn có thêm 1 bản PDF khác —
     // vẫn tốn 1 lượt ký MỚI (không tránh được, mỗi PDF có hash riêng), chỉ khác là không cập nhật
     // lại platform_signed_at/contract_status (đã set từ lần ký đầu, không ghi đè).
-    private static function signAndExportContract(?Partner $record, bool $forceNewSignature = false): ?\Symfony\Component\HttpFoundation\StreamedResponse
+    private static function signAndExportContract(?Partner $record, bool $forceNewSignature = false): ?StreamedResponse
     {
         $version = self::latestVersion($record);
 
         if (! $record || ! $version || ! $version->isPartnerConfirmed()) {
+            return null;
+        }
+
+        try {
+            app(PartnerLegalDocumentService::class)->assertContractEligible($record);
+        } catch (ValidationException $e) {
+            Notification::make()
+                ->title('Chưa thể ký hợp đồng')
+                ->body(implode(' ', $e->errors()['legal_documents'] ?? ['Hồ sơ pháp lý chưa được duyệt.']))
+                ->danger()->send();
+
             return null;
         }
 
@@ -927,28 +997,29 @@ class PartnerForm
         }
 
         try {
-            $service = app(\App\Services\PdfSigning\ContractPdfSigningService::class);
+            $service = app(ContractPdfSigningService::class);
             $result = $service->signAndEmbed($version, [
-                'role'    => 'platform',
-                'name'    => $signingUser?->name,
+                'role' => 'platform',
+                'name' => $signingUser?->name,
                 'user_id' => $signingUser?->id,
             ]);
         } catch (\Throwable $e) {
             report($e);
-            \Filament\Notifications\Notification::make()
+            Notification::make()
                 ->title('Ký số & xuất PDF thất bại')
                 ->body($e->getMessage())
                 ->danger()
                 ->send();
+
             return null;
         }
 
         if (! $forceNewSignature) {
             $version->update([
-                'platform_signing_provider' => app(\App\Services\ContractSigning\Contracts\DigitalSignatureProvider::class)->name(),
-                'platform_signed_at'        => $signingTime,
-                'platform_signed_by'        => $signingUser?->id,
-                'platform_signed_ip'        => request()->ip(),
+                'platform_signing_provider' => app(DigitalSignatureProvider::class)->name(),
+                'platform_signed_at' => $signingTime,
+                'platform_signed_by' => $signingUser?->id,
+                'platform_signed_ip' => request()->ip(),
                 'platform_signed_user_agent' => (string) request()->userAgent(),
                 // KHÔNG lưu platform_signature/platform_signature_certificate ở đây — chữ ký này
                 // được ký trên hash của FILE PDF (ByteRange), không phải content_hash, nên không
@@ -959,15 +1030,15 @@ class PartnerForm
             ]);
 
             $record->update([
-                'contract_status'    => 'active',
+                'contract_status' => 'active',
                 'contract_signed_at' => $signingTime,
             ]);
         }
 
-        $fileName = "hop-dong-{$version->id}-" . $signingTime->format('YmdHis') . '.pdf';
+        $fileName = "hop-dong-{$version->id}-".$signingTime->format('YmdHis').'.pdf';
 
         return response()->streamDownload(
-            fn () => print($result['pdf']),
+            fn () => print ($result['pdf']),
             $fileName,
             ['Content-Type' => 'application/pdf']
         );
@@ -976,7 +1047,7 @@ class PartnerForm
     // Tên hiển thị cho từng provider ký số — xem config/contract_signing.php. 'local' luôn phải
     // ghi rõ "chưa có giá trị pháp lý" để không ai nhầm tưởng đây là chữ ký số thật do CA cấp.
     private const SIGNING_PROVIDER_LABELS = [
-        'local'        => 'Local — chữ ký test, KHÔNG có giá trị pháp lý',
+        'local' => 'Local — chữ ký test, KHÔNG có giá trị pháp lý',
         'vnpt_smartca' => 'VNPT SmartCA — chữ ký số thật',
     ];
 
@@ -987,15 +1058,15 @@ class PartnerForm
         }
 
         $partnerRow = $version->isPartnerConfirmed()
-            ? '<span style="color:#0369a1;font-weight:700;">✓ Đã xác nhận (OTP)</span> lúc ' . e($version->partner_confirmed_at->format('H:i d/m/Y'))
-                . ' bởi ' . e($version->partner_signed_by_name) . ' (IP: ' . e($version->partner_signed_ip) . ')'
+            ? '<span style="color:#0369a1;font-weight:700;">✓ Đã xác nhận (OTP)</span> lúc '.e($version->partner_confirmed_at->format('H:i d/m/Y'))
+                .' bởi '.e($version->partner_signed_by_name).' (IP: '.e($version->partner_signed_ip).')'
             : '<span style="color:#f59e0b;font-weight:700;">Chưa xác nhận</span> — đang chờ đối tác xác nhận qua link đã gửi';
 
         $platformRow = $version->isPlatformSigned()
-            ? '<span style="color:#10b981;font-weight:700;">✓ Đã ký số & phát hành PDF</span> lúc ' . e($version->platform_signed_at->format('H:i d/m/Y'))
-                . ' bởi ' . e($version->platformSignedBy?->fullname ?? '—')
-                . ' — <span style="color:#6b7280;">' . e(self::SIGNING_PROVIDER_LABELS[$version->platform_signing_provider] ?? $version->platform_signing_provider ?? '—') . '</span>'
-                . '<div style="margin-top:2px;font-size:0.72rem;color:#6b7280;">🔏 File PDF đã tải về máy lúc ký — mở lại file đó để kiểm tra chữ ký độc lập (Adobe/Foxit/NEAC). File KHÔNG lưu trên server; nếu cần thêm bản, bấm "Xuất lại PDF".</div>'
+            ? '<span style="color:#10b981;font-weight:700;">✓ Đã ký số & phát hành PDF</span> lúc '.e($version->platform_signed_at->format('H:i d/m/Y'))
+                .' bởi '.e($version->platformSignedBy?->fullname ?? '—')
+                .' — <span style="color:#6b7280;">'.e(self::SIGNING_PROVIDER_LABELS[$version->platform_signing_provider] ?? $version->platform_signing_provider ?? '—').'</span>'
+                .'<div style="margin-top:2px;font-size:0.72rem;color:#6b7280;">🔏 File PDF đã tải về máy lúc ký — mở lại file đó để kiểm tra chữ ký độc lập (Adobe/Foxit/NEAC). File KHÔNG lưu trên server; nếu cần thêm bản, bấm "Xuất lại PDF".</div>'
             : '<span style="color:#f59e0b;font-weight:700;">Chưa ký</span>';
 
         return <<<HTML
@@ -1014,7 +1085,7 @@ class PartnerForm
 
         $signUrl = $version->isPartnerConfirmed() ? null : route('contract.sign.show', $version->signing_token);
         $linkRow = $signUrl
-            ? '<div style="margin-top:12px;padding:10px;background:#f9fafb;border-radius:8px;font-size:0.8rem;word-break:break-all;"><strong>Link ký cho đối tác:</strong> ' . e($signUrl) . '</div>'
+            ? '<div style="margin-top:12px;padding:10px;background:#f9fafb;border-radius:8px;font-size:0.8rem;word-break:break-all;"><strong>Link ký cho đối tác:</strong> '.e($signUrl).'</div>'
             : '';
 
         $framed = PartnerContractRenderer::renderFramed($version->content, $record, $version);
@@ -1039,7 +1110,7 @@ class PartnerForm
         }
 
         $version = self::latestVersion($record);
-        $body    = $version?->content ?? PartnerContractRenderer::render($record);
+        $body = $version?->content ?? PartnerContractRenderer::render($record);
 
         return PartnerContractRenderer::renderFramed($body, $record, $version);
     }
@@ -1049,11 +1120,11 @@ class PartnerForm
         $platformNode = self::renderTimelineNode(
             'Bên A (Nền tảng)',
             $version?->isPlatformSigned() ?? false,
-            $version?->isPlatformSigned() ? 'Đã ký lúc ' . $version->platform_signed_at->format('H:i, d/m/Y') : 'Đang chờ ký'
+            $version?->isPlatformSigned() ? 'Đã ký lúc '.$version->platform_signed_at->format('H:i, d/m/Y') : 'Đang chờ ký'
         );
 
         $partnerMeta = $version?->isPartnerConfirmed()
-            ? 'Đã xác nhận (OTP) lúc ' . $version->partner_confirmed_at->format('H:i, d/m/Y')
+            ? 'Đã xác nhận (OTP) lúc '.$version->partner_confirmed_at->format('H:i, d/m/Y')
             : 'ĐANG CHỜ BẠN XÁC NHẬN';
 
         $partnerNode = self::renderTimelineNode(
@@ -1068,7 +1139,7 @@ class PartnerForm
     private static function renderTimelineNode(string $label, bool $done, string $meta): string
     {
         $iconColor = $done ? '#10b981' : '#111827';
-        $icon      = $done ? '✓' : '✎';
+        $icon = $done ? '✓' : '✎';
 
         return <<<HTML
             <div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;">
@@ -1089,15 +1160,15 @@ class PartnerForm
 
         $typeLabels = ['e_contract' => 'Hợp đồng điện tử', 'paper' => 'Hợp đồng giấy'];
         $rows = [
-            'Mã hợp đồng'     => e($record->contract_code ?? '(chưa cấp mã)'),
-            'Loại'            => e($typeLabels[$record->contract_type] ?? '—'),
-            'Tỷ lệ hoa hồng'  => self::formatCommissionRate($record->commission_rate),
-            'Đối tác'         => e($record->legal_name ?? $record->name),
-            'Đại diện'        => e($record->representative_name ?? '—'),
-            'Thời hạn'        => ($record->contract_signed_at && $record->contract_expires_at)
-                ? $record->contract_signed_at->format('d/m/Y') . ' — ' . $record->contract_expires_at->format('d/m/Y')
+            'Mã hợp đồng' => e($record->contract_code ?? '(chưa cấp mã)'),
+            'Loại' => e($typeLabels[$record->contract_type] ?? '—'),
+            'Tỷ lệ hoa hồng' => self::formatCommissionRate($record->commission_rate),
+            'Đối tác' => e($record->legal_name ?? $record->name),
+            'Đại diện' => e($record->representative_name ?? '—'),
+            'Thời hạn' => ($record->contract_signed_at && $record->contract_expires_at)
+                ? $record->contract_signed_at->format('d/m/Y').' — '.$record->contract_expires_at->format('d/m/Y')
                 : '—',
-            'Ngày tạo'        => $version?->created_at?->format('d/m/Y') ?? '—',
+            'Ngày tạo' => $version?->created_at?->format('d/m/Y') ?? '—',
         ];
 
         $rowsHtml = collect($rows)->map(fn ($value, $label) => <<<HTML
@@ -1118,16 +1189,16 @@ class PartnerForm
             return '—';
         }
 
-        return e(str_contains($rate, '%') ? $rate : $rate . '%');
+        return e(str_contains($rate, '%') ? $rate : $rate.'%');
     }
 
     private static function renderContractStatusLegend(): string
     {
         $descriptions = [
-            'draft'      => 'Hợp đồng đang được soạn thảo',
-            'pending'    => 'Đang đợi các bên ký xác nhận',
-            'active'     => 'Hợp đồng có giá trị pháp lý hiện hành',
-            'expired'    => 'Đã vượt quá ngày hết hạn ký kết',
+            'draft' => 'Hợp đồng đang được soạn thảo',
+            'pending' => 'Đang đợi các bên ký xác nhận',
+            'active' => 'Hợp đồng có giá trị pháp lý hiện hành',
+            'expired' => 'Đã vượt quá ngày hết hạn ký kết',
             'terminated' => 'Đã bị hủy bỏ trước thời hạn',
         ];
 
@@ -1161,17 +1232,17 @@ class PartnerForm
                             ->hiddenLabel()
                             ->content(function (?Partner $record) {
                                 $labels = [
-                                    'pending'   => ['Chờ phê duyệt', '#f59e0b'],
-                                    'approved'  => ['Đang hoạt động', '#10b981'],
+                                    'pending' => ['Chờ phê duyệt', '#f59e0b'],
+                                    'approved' => ['Đang hoạt động', '#10b981'],
                                     'suspended' => ['Ngừng hoạt động', '#9ca3af'],
-                                    'rejected'  => ['Từ chối', '#ef4444'],
+                                    'rejected' => ['Từ chối', '#ef4444'],
                                 ];
                                 $status = $record?->verification_status ?? 'pending';
                                 [$label, $color] = $labels[$status] ?? [$status, '#9ca3af'];
 
                                 return new HtmlString(
-                                    '<span style="display:inline-block;padding:4px 12px;border-radius:9999px;background:' . $color . '22;color:' . $color . ';font-weight:700;font-size:0.85rem;">'
-                                    . mb_strtoupper($label) . '</span>'
+                                    '<span style="display:inline-block;padding:4px 12px;border-radius:9999px;background:'.$color.'22;color:'.$color.';font-weight:700;font-size:0.85rem;">'
+                                    .mb_strtoupper($label).'</span>'
                                 );
                             }),
                     ]),
@@ -1183,18 +1254,15 @@ class PartnerForm
                             ->hiddenLabel()
                             ->content(new HtmlString(
                                 '<ul style="font-size:0.85rem;color:#4b5563;margin:0;padding-left:18px;list-style:disc;">'
-                                . '<li>Giấy phép kinh doanh (GPKD)</li>'
-                                . '<li>Giấy chứng nhận đăng ký thuế</li>'
-                                . '<li>Giấy tờ pháp lý khác (nếu có)</li>'
-                                . '</ul>'
+                                .'<li>Giấy phép kinh doanh (GPKD)</li>'
+                                .'<li>Giấy chứng nhận đăng ký thuế</li>'
+                                .'<li>Giấy tờ pháp lý khác (nếu có)</li>'
+                                .'</ul>'
                             )),
 
-                        SpatieMediaLibraryFileUpload::make('verification_documents')
-                            ->label('Tải lên tài liệu')
-                            ->collection('verification_documents')
-                            ->multiple()
-                            ->reorderable()
-                            ->acceptedFileTypes(['application/pdf', 'image/*'])
+                        Forms\Components\Placeholder::make('structured_legal_documents_notice')
+                            ->label('Quản lý giấy tờ')
+                            ->content(new HtmlString('Thêm và xét duyệt từng giấy tờ tại bảng <strong>Hồ sơ pháp lý</strong> bên dưới trang. Mỗi giấy tờ có loại, thời hạn và kết quả duyệt riêng.'))
                             ->columnSpanFull(),
                     ]),
             ]);
@@ -1221,7 +1289,7 @@ class PartnerForm
 
                         $rows = $logs->map(function ($log) {
                             $time = $log->created_at?->format('H:i d/m/Y');
-                            $who  = e($log->changedBy?->fullname ?? 'Hệ thống');
+                            $who = e($log->changedBy?->fullname ?? 'Hệ thống');
                             $note = e($log->note ?? '');
 
                             return <<<HTML

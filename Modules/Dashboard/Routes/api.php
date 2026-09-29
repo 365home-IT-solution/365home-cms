@@ -13,6 +13,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])
         Route::get('/occupancy', [DashboardController::class, 'occupancy']);
         Route::get('/occupancy-top', [DashboardController::class, 'occupancyTop']);
         Route::get('/front-desk', [DashboardController::class, 'frontDesk']);
+        Route::get('/front-desk/{type}', [DashboardController::class, 'frontDeskDetails'])
+            ->whereIn('type', ['checked-in', 'checked-out', 'has-guest', 'overstay']);
     });
 
 Route::middleware(['auth:sanctum', 'admin.api'])

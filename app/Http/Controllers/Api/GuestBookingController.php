@@ -2013,7 +2013,8 @@ class GuestBookingController extends Controller
         if ($product->lock_id && \Modules\TTLock\App\Services\TTLockService::forCategory($order->category_id)) {
             return [
                 'type'       => 'ttlock',
-                'can_unlock' => true,
+                'can_unlock' => $product->emergency_locked_at === null,
+                'is_emergency_locked' => $product->emergency_locked_at !== null,
             ];
         }
 

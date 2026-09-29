@@ -17,6 +17,12 @@
             'deposit_receipt_file'   => 'Biên bản đặt cọc',
             'checkout_handover_file' => 'Biên bản bàn giao (lúc trả phòng)',
         ];
+
+        $room = $contract->room;
+        $contractIsCurrent = $contract->status === \Modules\Minihouse\App\Models\Contract::STATUS_ACTIVE
+            && (! $contract->start_date || ! $contract->start_date->isFuture())
+            && (! $contract->end_date || ! $contract->end_date->isPast());
+        $canOpenByApp = $contractIsCurrent && $room?->lock_id && ! $room?->emergency_locked_at;
     @endphp
 
     <a href="{{ route('minihouse.portal.contracts.index') }}" class="text-sm text-gray-500 hover:text-gray-900 transition">&larr; Danh sách hợp đồng</a>
@@ -43,6 +49,35 @@
             @endif
         </div>
     </div>
+
+    @if ($room?->lock_id && $contractIsCurrent)
+        <div class="mt-4 mh-card mh-card-pad">
+            <div class="flex items-start justify-between gap-3">
+                <div>
+                    <div class="text-sm font-semibold text-gray-900">Mở cửa phòng</div>
+                    <p class="mt-1 text-xs text-gray-500">Gửi lệnh mở trực tiếp đến khóa TTLock của phòng {{ $room->code }}.</p>
+                </div>
+                <span class="mh-badge {{ $room->emergency_locked_at ? 'mh-badge-red' : 'mh-badge-green' }}">
+                    {{ $room->emergency_locked_at ? 'Đang khóa khẩn cấp' : 'Sẵn sàng' }}
+                </span>
+            </div>
+
+            @if ($canOpenByApp)
+                <form method="POST" action="{{ route('minihouse.portal.contracts.unlock', $contract->id) }}" class="mt-4"
+                      onsubmit="return confirm('Bạn muốn mở khóa phòng {{ addslashes($room->code) }} ngay bây giờ?')">
+                    @csrf
+                    <button type="submit" class="mh-btn-primary">
+                        Mở khóa phòng
+                    </button>
+                </form>
+                <p class="mt-2 text-xs text-gray-400">Nếu khóa ngoại tuyến, hãy dùng mật mã hoặc thẻ dự phòng.</p>
+            @else
+                <div class="mt-3 rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-700">
+                    Quyền mở cửa qua Portal đang bị khóa khẩn cấp. Vui lòng liên hệ chủ nhà hoặc nhân viên tòa nhà.
+                </div>
+            @endif
+        </div>
+    @endif
 
     @if ($lockCode || $canChangeCode)
         <div class="mt-4 mh-card mh-card-pad">

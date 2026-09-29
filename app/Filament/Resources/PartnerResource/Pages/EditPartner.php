@@ -7,6 +7,7 @@ namespace App\Filament\Resources\PartnerResource\Pages;
 use App\Filament\Resources\PartnerResource;
 use App\Filament\Resources\PartnerResource\Forms\PartnerForm;
 use App\Models\PartnerStatusLog;
+use App\Services\PartnerLegalDocumentService;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Notifications\Notification;
@@ -20,7 +21,8 @@ class EditPartner extends EditRecord
     // 'branch_ids'/'user_ids' (tab "Chi nhánh"/"Người dùng") không phải cột của bảng partners —
     // giữ lại tạm ở đây, tách khỏi $data trước khi lưu, rồi áp dụng ở afterSave().
     private array $pendingBranchIds = [];
-    private array $pendingUserIds   = [];
+
+    private array $pendingUserIds = [];
 
     public function getTitle(): string|Htmlable
     {
@@ -32,7 +34,7 @@ class EditPartner extends EditRecord
     protected function mutateFormDataBeforeSave(array $data): array
     {
         $this->pendingBranchIds = $data['branch_ids'] ?? [];
-        $this->pendingUserIds   = $data['user_ids'] ?? [];
+        $this->pendingUserIds = $data['user_ids'] ?? [];
         unset($data['branch_ids'], $data['user_ids']);
 
         if (! empty($data['legal_name'])) {
@@ -64,7 +66,10 @@ class EditPartner extends EditRecord
                 ->icon('heroicon-o-check-circle')
                 ->requiresConfirmation()
                 ->visible(fn () => $this->record->verification_status !== 'approved')
-                ->action(fn () => $this->changeStatus('approved', 'Phê duyệt chính thức')),
+                ->action(function () {
+                    app(PartnerLegalDocumentService::class)->approveDossier($this->record, auth()->user());
+                    Notification::make()->title('Đã phê duyệt hồ sơ pháp lý')->success()->send();
+                }),
 
             DeleteAction::make(),
         ];
@@ -76,15 +81,15 @@ class EditPartner extends EditRecord
 
         $this->record->update([
             'verification_status' => $to,
-            'status'               => $to === 'approved',
+            'status' => $to === 'approved',
         ]);
 
         PartnerStatusLog::create([
-            'partner_id'  => $this->record->id,
+            'partner_id' => $this->record->id,
             'from_status' => $from,
-            'to_status'   => $to,
-            'note'        => $label,
-            'changed_by'  => auth()->id(),
+            'to_status' => $to,
+            'note' => $label,
+            'changed_by' => auth()->id(),
         ]);
 
         Notification::make()

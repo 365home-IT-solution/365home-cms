@@ -270,6 +270,7 @@ class RoomController extends Controller
             'building_name' => $room->building?->name,
             'price'         => $room->price,
             'status'        => $room->status,
+            'is_emergency_locked' => $room->emergency_locked_at !== null,
         ];
     }
 
@@ -284,6 +285,9 @@ class RoomController extends Controller
             'position_row'    => $room->position_row,
             'position_col'    => $room->position_col,
             'area'            => $room->area,
+            'is_emergency_locked' => $room->emergency_locked_at !== null,
+            'emergency_locked_at' => $room->emergency_locked_at?->toIso8601String(),
+            'emergency_lock_reason' => $room->emergency_lock_reason,
             'price'           => $room->price,
             'status'          => $room->status,
             'note'            => $room->note,

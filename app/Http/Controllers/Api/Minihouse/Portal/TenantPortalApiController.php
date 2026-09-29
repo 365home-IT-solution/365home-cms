@@ -21,6 +21,7 @@ use Modules\Minihouse\App\Services\ContractContentRenderer;
 use Modules\Minihouse\App\Services\ContractTtlockService;
 use Modules\Minihouse\App\Services\InvoiceContentRenderer;
 use Modules\Minihouse\App\Services\TenantPortalService;
+use Modules\Minihouse\App\Services\TenantRoomUnlockService;
 use Modules\Minihouse\Http\Controllers\Portal\Concerns\InteractsWithTenantPortalData;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -327,6 +328,19 @@ class TenantPortalApiController extends Controller
             : response()->json(['message' => $result['message']], 422);
     }
 
+    // POST /api/minihouse/portal/contracts/{id}/unlock — không nhận lock_id từ client.
+    public function unlockRoom(Request $request, int $id, TenantRoomUnlockService $service): JsonResponse
+    {
+        $tenant = $this->tenant($request);
+        $contract = TenantPortalService::tenantContracts($tenant)->firstWhere('id', $id);
+        abort_unless($contract, 403);
+        $result = $service->unlock($tenant, $contract);
+        $status = $result['status'];
+        unset($result['status']);
+
+        return response()->json($result, $status);
+    }
+
     // GET /api/minihouse/portal/contracts/{id}/pdf — bản PDF hợp đồng ĐANG LƯU (contract_content),
     // dùng CHUNG renderer với ContractPrintController (nhân viên) — KHÔNG thể tái dùng thẳng
     // controller đó vì nó xác thực theo guard "web" (App\Models\User), ở đây guard "tenant".
@@ -611,6 +625,12 @@ class TenantPortalApiController extends Controller
             'monthly_price' => (float) $contract->monthly_price,
             'start_date'    => $contract->start_date?->toDateString(),
             'end_date'      => $contract->end_date?->toDateString(),
+            'lock_access'   => [
+                'can_unlock' => $contract->status === Contract::STATUS_ACTIVE
+                    && (bool) $contract->room?->lock_id
+                    && ! $contract->room?->emergency_locked_at,
+                'is_emergency_locked' => $contract->room?->emergency_locked_at !== null,
+            ],
         ];
     }
 

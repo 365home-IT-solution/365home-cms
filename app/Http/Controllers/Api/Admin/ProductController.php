@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\AdminNotificationService;
 use App\Services\TelegramService;
+use App\Services\RoomEmergencyAccessService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -611,6 +612,132 @@ class ProductController extends Controller
         ]);
     }
 
+    /**
+     * POST /api/admin/rooms/{id}/emergency-lock
+     * Khóa quyền mở phòng qua ứng dụng của khách. Không thu hồi mật mã/thẻ TTLock.
+     */
+    public function emergencyLock(Request $request, string $id, RoomEmergencyAccessService $service): JsonResponse
+    {
+        /** @var User $admin */
+        $admin = $request->user();
+
+        if (! $admin->isSuperAdmin() && ! $admin->isPartnerOwner()) {
+            return response()->json(['message' => 'Chỉ chủ Homestay mới được khóa phòng khẩn cấp.'], 403);
+        }
+
+        $room = $this->visibleProductsQuery($admin)->find($id);
+        if (! $room) {
+            return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
+        }
+        if (! $room->lock_id) {
+            return response()->json(['message' => 'Phòng này chưa gán khóa TTLock.'], 422);
+        }
+
+        $data = $request->validate(['reason' => ['required', 'string', 'min:5', 'max:1000']]);
+        $room = $service->lock($room, $admin, $data['reason']);
+
+        return response()->json(['data' => $service->payload($room), 'message' => 'Đã khóa quyền mở phòng qua ứng dụng.']);
+    }
+
+    /**
+     * POST /api/admin/rooms/emergency-lock/bulk
+     * Khóa/gỡ khóa quyền mở qua ứng dụng cho nhiều phòng Homestay. Mỗi phòng có kết quả riêng.
+     */
+    public function bulkEmergencyLock(Request $request, RoomEmergencyAccessService $service): JsonResponse
+    {
+        /** @var User $admin */
+        $admin = $request->user();
+
+        if (! $admin->isSuperAdmin() && ! $admin->isPartnerOwner()) {
+            return response()->json(['message' => 'Chỉ chủ Homestay mới được khóa hoặc gỡ khóa phòng khẩn cấp.'], 403);
+        }
+
+        $data = $request->validate([
+            'room_ids' => ['required', 'array', 'min:1', 'max:100'],
+            'room_ids.*' => ['required', 'string', 'distinct'],
+            'action' => ['required', Rule::in(['lock', 'release'])],
+            'reason' => ['nullable', 'required_if:action,lock', 'string', 'min:5', 'max:1000'],
+        ]);
+
+        $rooms = $this->visibleProductsQuery($admin)
+            ->whereIn('id', $data['room_ids'])
+            ->get()
+            ->keyBy(fn (Product $room) => (string) $room->getKey());
+
+        $results = collect($data['room_ids'])->map(function (string $roomId) use ($rooms, $data, $service, $admin): array {
+            /** @var Product|null $room */
+            $room = $rooms->get($roomId);
+
+            if (! $room) {
+                return $this->bulkEmergencyResult($roomId, false, 'Không tìm thấy phòng hoặc phòng nằm ngoài phạm vi quản lý.', 404);
+            }
+            if ($data['action'] === 'lock' && ! $room->lock_id) {
+                return $this->bulkEmergencyResult($roomId, false, 'Phòng chưa gán khóa TTLock.', 422, $room->name);
+            }
+
+            try {
+                $room = DB::transaction(fn () => $data['action'] === 'lock'
+                    ? $service->lock($room, $admin, $data['reason'])
+                    : $service->release($room, $admin));
+
+                return $this->bulkEmergencyResult(
+                    $roomId,
+                    true,
+                    $data['action'] === 'lock' ? 'Đã khóa quyền mở qua ứng dụng.' : 'Đã gỡ khóa truy cập khẩn cấp.',
+                    200,
+                    $room->name,
+                    $service->payload($room),
+                );
+            } catch (\Throwable $exception) {
+                report($exception);
+
+                return $this->bulkEmergencyResult($roomId, false, 'Không thể cập nhật trạng thái phòng.', 500, $room->name);
+            }
+        })->values();
+
+        $succeeded = $results->where('success', true)->count();
+
+        return response()->json([
+            'success' => $succeeded === $results->count(),
+            'message' => "Đã xử lý {$succeeded}/{$results->count()} phòng.",
+            'summary' => ['total' => $results->count(), 'succeeded' => $succeeded, 'failed' => $results->count() - $succeeded],
+            'results' => $results,
+        ]);
+    }
+
+    /** DELETE /api/admin/rooms/{id}/emergency-lock */
+    public function releaseEmergencyLock(Request $request, string $id, RoomEmergencyAccessService $service): JsonResponse
+    {
+        /** @var User $admin */
+        $admin = $request->user();
+
+        if (! $admin->isSuperAdmin() && ! $admin->isPartnerOwner()) {
+            return response()->json(['message' => 'Chỉ chủ Homestay mới được gỡ khóa khẩn cấp.'], 403);
+        }
+
+        $room = $this->visibleProductsQuery($admin)->find($id);
+        if (! $room) {
+            return response()->json(['message' => 'Không tìm thấy phòng.'], 404);
+        }
+
+        $room = $service->release($room, $admin);
+
+        return response()->json(['data' => $service->payload($room), 'message' => 'Đã gỡ khóa truy cập khẩn cấp.']);
+    }
+
+    /** @param array<string, mixed>|null $state */
+    private function bulkEmergencyResult(string $roomId, bool $success, string $message, int $status, ?string $roomName = null, ?array $state = null): array
+    {
+        return array_filter([
+            'room_id' => $roomId,
+            'room_name' => $roomName,
+            'success' => $success,
+            'status' => $status,
+            'message' => $message,
+            'data' => $state,
+        ], static fn ($value) => $value !== null);
+    }
+
     private function notifyRoomUnlockResult(Product $product, ?int $categoryId, bool $success): void
     {
         $notificationService = app(AdminNotificationService::class);
@@ -964,6 +1091,9 @@ class ProductController extends Controller
             'room_clean' => $product->housekeeping_status === 'cleaning' && $occupancyStatus !== 'overtime'
                 ? 'available'
                 : $product->housekeeping_status,
+            'is_emergency_locked' => $product->emergency_locked_at !== null,
+            'emergency_locked_at' => $product->emergency_locked_at?->toIso8601String(),
+            'emergency_lock_reason' => $product->emergency_lock_reason,
         ];
     }
 

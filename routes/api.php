@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\AskUserController;
 use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\PopupController;
 use App\Http\Controllers\Api\ProvinceController;
+use App\Http\Controllers\Api\PartnerContractSignController;
 use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\WardController;
 use App\Http\Controllers\Api\LockRecordCallbackController;
@@ -33,6 +34,12 @@ use App\Http\Controllers\Api\RatingController;
 use App\Http\Controllers\Api\WishlistController;
 use Illuminate\Support\Facades\Route;
 use Modules\AppPage\App\Http\Controllers\AppPageController;
+
+Route::middleware('throttle:30,1')->prefix('partner-contracts/{token}')->name('api.partner-contracts.')->group(function () {
+    Route::get('/', [PartnerContractSignController::class, 'show'])->name('show');
+    Route::post('otp', [PartnerContractSignController::class, 'sendOtp'])->name('otp');
+    Route::post('confirm', [PartnerContractSignController::class, 'confirm'])->name('confirm');
+});
 
 /*
 |--------------------------------------------------------------------------

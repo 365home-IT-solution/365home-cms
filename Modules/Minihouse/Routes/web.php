@@ -95,6 +95,7 @@ Route::prefix('minihouse/portal')->name('minihouse.portal.')->group(function () 
         Route::get('/contracts', [TenantPortalController::class, 'contracts'])->name('contracts.index');
         Route::get('/contracts/{contract}', [TenantPortalController::class, 'showContract'])->name('contracts.show');
         Route::post('/contracts/{contract}/lock-code/regenerate', [TenantPortalController::class, 'regenerateLockCode'])->whereNumber('contract')->name('contracts.lock-code.regenerate');
+        Route::post('/contracts/{contract}/unlock', [TenantPortalController::class, 'unlockRoom'])->whereNumber('contract')->middleware('throttle:10,1')->name('contracts.unlock');
 
         // Chat với nhân viên toà nhà — xem ChatPortalController.
         Route::get('/chat', [ChatPortalController::class, 'show'])->name('chat.show');

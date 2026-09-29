@@ -52,6 +52,7 @@ class Room extends Product
         // nào ngoài danh sách này cho mass-assignment (Room::create()/update() sẽ ÂM THẦM bỏ qua các
         // field không có mặt ở đây, không lỗi, không warning).
         'lock_id', 'lock_id_checkout', 'unlock_both_locks',
+        'emergency_locked_at', 'emergency_locked_by', 'emergency_lock_reason',
         'slug', 'address', 'latitude', 'longitude', 'map_url', 'hotline', 'setting_video_room',
     ];
 

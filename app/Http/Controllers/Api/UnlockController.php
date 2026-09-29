@@ -93,6 +93,14 @@ class UnlockController extends Controller
             ], 422);
         }
 
+        if ($product->emergency_locked_at) {
+            return response()->json([
+                'success' => false,
+                'type'    => 'emergency_locked',
+                'message' => 'Quyền mở cửa qua ứng dụng đang bị khóa khẩn cấp. Vui lòng liên hệ chủ nhà hoặc nhân viên hỗ trợ.',
+            ], 423);
+        }
+
         // Kiểm tra cửa sổ thời gian - hỗ trợ nhiều khung giờ (buffer 30 phút trước/sau).
         // $bypassTimeWindow: admin mở hộ được phép bỏ qua cửa sổ giờ (vd hỗ trợ khách vào sớm/muộn) —
         // xem Admin\UnlockController::unlock().
