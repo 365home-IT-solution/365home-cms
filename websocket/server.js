@@ -738,11 +738,11 @@ function verifyCameraToken(token) {
     }
 }
 
-async function fetchFrigateSessionCookie(partnerId) {
+async function fetchFrigateSessionCookie(partnerId, branchId) {
     const resp = await fetch(`${LARAVEL_INTERNAL_URL}/internal/frigate-session`, {
         method: 'POST',
         headers: { 'x-internal-key': INTERNAL_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ partner_id: partnerId }),
+        body: JSON.stringify({ partner_id: partnerId, branch_id: branchId }),
     });
     const data = await resp.json();
     if (!resp.ok || !data.cookie) {
@@ -826,7 +826,7 @@ cameraWss.on('connection', (clientWs, request) => {
 
         let cookie;
         try {
-            cookie = await fetchFrigateSessionCookie(payload.partner_id);
+            cookie = await fetchFrigateSessionCookie(payload.partner_id, payload.branch_id ?? null);
         } catch (e) {
             console.error('[CameraProxy] không lấy được cookie phiên Frigate:', e.message);
             closeBoth(4002, 'Cannot get Frigate session');

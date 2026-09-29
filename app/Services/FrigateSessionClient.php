@@ -38,9 +38,18 @@ class FrigateSessionClient
         return new self(CameraSetting::forPartner($partnerId));
     }
 
+    public static function forScope(?string $partnerId, ?int $branchId): self
+    {
+        return new self(\App\Models\Camera::resolveSettingsFor($partnerId, $branchId));
+    }
+
     private function cacheKey(): string
     {
-        return self::CACHE_KEY_PREFIX . ($this->settings->partner_id ?? 'none');
+        // MiniHouse lưu cấu hình theo building_id, còn Home lưu theo partner_id. Dùng cả class
+        // model và khóa chính để cookie của hai tòa nhà/server Frigate không ghi đè lên nhau.
+        $scope = get_class($this->settings) . ':' . ($this->settings->getKey() ?? 'none');
+
+        return self::CACHE_KEY_PREFIX . hash('sha256', $scope);
     }
 
     // Trả về chuỗi header "Cookie: ..." để gắn vào request lấy luồng video, hoặc null nếu chưa cấu
