@@ -1066,13 +1066,14 @@ Route::post('/internal/frigate-session', function (\Illuminate\Http\Request $req
     }
 
     $partnerId = (string) $request->input('partner_id');
+    $branchId = $request->filled('branch_id') ? (int) $request->input('branch_id') : null;
 
     if ($partnerId === '') {
         return response()->json(['error' => 'Thiếu partner_id.'], 422);
     }
 
     $error  = null;
-    $cookie = \App\Services\FrigateSessionClient::forPartner($partnerId)->getSessionCookie(false, $error);
+    $cookie = \App\Services\FrigateSessionClient::forScope($partnerId, $branchId)->getSessionCookie(false, $error);
 
     if ($cookie === null) {
         return response()->json(['error' => $error], 502);

@@ -202,7 +202,9 @@ export class VideoRTC extends HTMLElement {
      * @param {Object} value
      */
     send(value) {
-        if (this.ws) this.ws.send(JSON.stringify(value));
+        if (this.ws?.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify(value));
+        }
     }
 
     /** @param {Function} isSupported */

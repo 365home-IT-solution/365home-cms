@@ -114,7 +114,13 @@ class Camera extends Model
         // viễn cho tới khi người dùng tự tải lại trang. Đã tự xác nhận đúng lỗi này qua log thật:
         // "token không hợp lệ/hết hạn" xuất hiện đúng sau khoảng 1 phút xem camera. 12 tiếng đủ cho
         // 1 ca làm việc xem liên tục, hết hạn thì tải lại trang "Xem camera" là có token mới.
-        $token = CameraWsToken::issue($this->stream_key, (string) $settings->base_url, (string) $this->partner_id, ttlSeconds: 12 * 3600);
+        $token = CameraWsToken::issue(
+            $this->stream_key,
+            (string) $settings->base_url,
+            (string) $this->partner_id,
+            $this->branch_id === null ? null : (int) $this->branch_id,
+            ttlSeconds: 12 * 3600,
+        );
 
         return "{$wsBase}/camera-proxy?token=" . urlencode($token);
     }
