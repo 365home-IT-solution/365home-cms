@@ -66,9 +66,8 @@ class TtlockAccountResource extends Resource
 
                     Grid::make(2)->schema([
                         TextInput::make('username')
-                            ->label('Username (Email TTLock App)')
+                            ->label('Username (email hoặc số điện thoại TTLock App)')
                             ->required()
-                            ->email()
                             ->maxLength(100),
 
                         TextInput::make('password_md5')

@@ -107,8 +107,8 @@ class TtlockAccountResource extends Resource
                             ->revealable(),
 
                         TextInput::make('username')
-                            ->label('Username')
-                            ->placeholder('Email tài khoản TTLock App')
+                            ->label('Username (email hoặc số điện thoại)')
+                            ->placeholder('Email hoặc số điện thoại tài khoản TTLock App')
                             ->maxLength(100),
 
                         TextInput::make('password_md5')

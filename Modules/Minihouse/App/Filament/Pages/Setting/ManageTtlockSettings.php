@@ -94,7 +94,7 @@ class ManageTtlockSettings extends Page implements HasForms
                             ->password()->revealable()->maxLength(100)
                             ->required(fn () => ! $this->hasSecrets())
                             ->helperText('Để trống = giữ nguyên giá trị đã lưu.'),
-                        Forms\Components\TextInput::make('username')->label('Username (email tài khoản TTLock App)')->required()->maxLength(100),
+                        Forms\Components\TextInput::make('username')->label('Username (email hoặc số điện thoại TTLock App)')->required()->maxLength(100),
                         Forms\Components\TextInput::make('password_md5')->label('Mật khẩu TTLock')
                             ->password()->revealable()->maxLength(64)
                             ->required(fn () => ! $this->hasSecrets())
