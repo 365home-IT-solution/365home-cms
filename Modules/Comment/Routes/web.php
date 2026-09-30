@@ -11,6 +11,4 @@
 |
 */
 
-Route::prefix('comment')->group(function() {
-    Route::get('/hello', 'CommentController@index');
-});
+// Route mẫu của module (CommentController::index không tồn tại → 500) đã gỡ; bình luận quản trị qua Filament.

@@ -4,6 +4,7 @@ namespace Modules\Minihouse\App\Filament\Resources\TenantFeedbackResource\Forms;
 
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Section;
+use Filament\Forms\Components\SpatieMediaLibraryFileUpload;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
@@ -15,7 +16,7 @@ class TenantFeedbackForm
     {
         return $form->schema([
             Section::make('Nội dung khách gửi')
-                ->description('Chỉ đọc — khách thuê tự gửi qua link công khai, không sửa được ở đây.')
+                ->description('Khách thuê tự gửi — nội dung không sửa được ở đây, chỉ có thể gỡ hoặc bổ sung ảnh đính kèm.')
                 ->columns(2)
                 ->schema([
                     Placeholder::make('room_view')
@@ -34,6 +35,19 @@ class TenantFeedbackForm
                         ->label('Nội dung góp ý')
                         ->columnSpanFull()
                         ->content(fn (TenantFeedback $record) => $record->content ?: '(Không có nội dung)'),
+                    SpatieMediaLibraryFileUpload::make('images')
+                        ->label('Ảnh đính kèm')
+                        ->collection(TenantFeedback::IMAGE_COLLECTION)
+                        ->conversion('thumb')
+                        ->multiple()
+                        ->reorderable()
+                        ->image()
+                        ->openable()
+                        ->maxFiles(TenantFeedback::MAX_IMAGES)
+                        ->maxSize(TenantFeedback::MAX_IMAGE_KB)
+                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
+                        ->helperText('Tối đa ' . TenantFeedback::MAX_IMAGES . ' ảnh, mỗi ảnh ≤ ' . (TenantFeedback::MAX_IMAGE_KB / 1024) . 'MB.')
+                        ->columnSpanFull(),
                 ]),
 
             Section::make('Xử lý nội bộ')

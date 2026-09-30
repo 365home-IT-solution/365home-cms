@@ -54,11 +54,11 @@ class RoomTable
                     ->searchable(query: fn ($query, string $search) => \Modules\Minihouse\App\Filament\Support\RoomCodeSearch::direct($query, $search))
                     ->sortable(query: fn ($query, string $direction) => \Modules\Minihouse\App\Filament\Support\RoomCodeSearch::sortDirect($query, $direction))
                     ->visibleFrom('md'),
-                TextColumn::make('floor')->label('Tầng')->sortable()->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
+                TextColumn::make('floor')->label('Tầng')->sortable(query: fn ($query, string $direction) => $query->orderBy(\Modules\Minihouse\App\Models\RoomDetail::select('floor')->whereColumn('minihouse_room_details.product_id', 'products.id'), $direction))->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
                 TextColumn::make('position_row')->label('Hàng')->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
                 TextColumn::make('position_col')->label('Cột')->toggleable(isToggledHiddenByDefault: true)->visibleFrom('md'),
                 TextColumn::make('building.name')->label('Toà nhà')->searchable()->sortable()->visibleFrom('md'),
-                TextColumn::make('area')->label('Diện tích')->suffix(' m²')->sortable()->visibleFrom('md'),
+                TextColumn::make('area')->label('Diện tích')->suffix(' m²')->sortable(query: fn ($query, string $direction) => $query->orderBy('room_area_sqm', $direction))->visibleFrom('md'),
                 TextColumn::make('price')->label('Giá thuê')->formatStateUsing(fn ($state) => Money::format($state))->sortable()->visibleFrom('md'),
                 TextColumn::make('status')->label('Tình trạng')->badge()->formatStateUsing(fn (string $state) => match ($state) {
                     Room::STATUS_EMPTY    => 'Trống',

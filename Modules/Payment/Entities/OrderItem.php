@@ -56,7 +56,8 @@ class OrderItem extends Model implements HasMedia
     }
     public function product()
     {
-        return $this->belongsTo(Product::class);
+        // Lịch sử/tham chiếu tới phòng vẫn phải đọc được khi phòng mất chi nhánh (scope has_branch chỉ để ẩn khỏi danh sách).
+        return $this->belongsTo(Product::class)->withoutGlobalScope('has_branch');
     }
 
     public function getFormattedCheckinDateAttribute()

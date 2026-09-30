@@ -8,7 +8,7 @@ use Filament\Tables\Actions\Action;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 use Filament\Support\Colors\Color;
-use Modules\Comment\App\Filament\Resources\CommentPostResource\Tables\Actions\CommentProductAction;
+use Modules\Comment\App\Filament\Resources\CommentProductResource\Tables\Actions\CommentProductAction;
 use Modules\Comment\App\Filament\Resources\CommentProductResource\CommentProductResource;
 use Modules\Comment\App\Filament\Resources\CommentProductResource\Tables\Filters\CommentProductFilter;
 use Modules\Comment\Entities\Comment;

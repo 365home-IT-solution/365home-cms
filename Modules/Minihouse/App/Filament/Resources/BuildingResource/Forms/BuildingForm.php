@@ -48,7 +48,14 @@ class BuildingForm
             ->schema([
                 Select::make('partner_id')
                     ->label('Đối tác MiniHouse')
-                    ->options(fn () => Partner::query()->where('partner_type', Partner::TYPE_MINIHOUSE)->orderBy('legal_name')->pluck('legal_name', 'id'))
+                    // Đối tác nội bộ mặc định chỉ có `name` (legal_name = null) — nhãn null làm Select ném TypeError
+                    // (500 toàn bộ trang tạo/sửa toà nhà), nên luôn rơi về `name` khi thiếu tên pháp lý.
+                    ->options(fn () => Partner::query()
+                        ->where('partner_type', Partner::TYPE_MINIHOUSE)
+                        ->get()
+                        ->mapWithKeys(fn (Partner $p) => [$p->id => $p->legal_name ?: ($p->name ?: 'Đối tác ' . $p->id)])
+                        ->sort()
+                        ->all())
                     ->default(fn () => auth()->user()?->partner?->partner_type === Partner::TYPE_MINIHOUSE ? auth()->user()->partner_id : null)
                     ->required()
                     ->searchable()

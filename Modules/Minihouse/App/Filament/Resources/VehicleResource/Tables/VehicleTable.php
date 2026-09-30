@@ -37,9 +37,9 @@ class VehicleTable
             ]))
             ->columns([
                 TextColumn::make('plate_display')->label('Biển số')
-                    ->searchable(query: fn (Builder $q, string $s) => $q->where(fn ($w) => $w
-                        ->where('plate_display', 'like', "%{$s}%")
-                        ->orWhere('plate', 'like', '%' . VehicleService::normalizePlate($s) . '%')))
+                    ->searchable(query: fn (Builder $query, string $search) => $query->where(fn ($w) => $w
+                        ->where('plate_display', 'like', "%{$search}%")
+                        ->orWhere('plate', 'like', '%' . VehicleService::normalizePlate($search) . '%')))
                     ->weight('bold')->sortable(),
                 TextColumn::make('vehicle_type')->label('Loại')->formatStateUsing(fn (string $state) => Vehicle::TYPES[$state] ?? $state),
                 TextColumn::make('name')->label('Tên xe')->searchable(),

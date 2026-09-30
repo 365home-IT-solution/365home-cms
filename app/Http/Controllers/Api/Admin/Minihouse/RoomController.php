@@ -29,8 +29,10 @@ class RoomController extends Controller
             return response()->json(['message' => 'Không có quyền xem toà nhà này.'], 403);
         }
 
+        // Chỉ gỡ scope activeBuilding (đã tự lọc bằng permittedBuildingIds) — KHÔNG dùng
+        // withoutGlobalScopes() vì sẽ gỡ luôn SoftDeletingScope khiến phòng đã xoá vẫn hiện.
         $rooms = Room::query()
-            ->withoutGlobalScopes()
+            ->withoutGlobalScope('activeBuilding')
             ->with('building:id,name')
             ->whereIn('building_id', $permitted)
             ->when($request->filled('building_id'), fn ($q) => $q->where('building_id', $request->integer('building_id')))

@@ -40,5 +40,15 @@
                 </button>
             </div>
         </template>
+        <template x-if="r.images && r.images.length">
+            <div class="flex flex-wrap gap-1.5 mt-2">
+                <template x-for="img in r.images" :key="img.id">
+                    <button type="button" @click="openLightbox(img.url)"
+                        class="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-gray-100">
+                        <img :src="img.thumb_url" alt="Ảnh đánh giá" loading="lazy" class="h-full w-full object-cover">
+                    </button>
+                </template>
+            </div>
+        </template>
     </div>
 </div>

@@ -32,9 +32,10 @@ class TenantFeedbackController extends Controller
             'tenant_phone' => ['nullable', 'string', 'max:20'],
             'rating'       => ['required', 'integer', 'min:1', 'max:5'],
             'content'      => ['nullable', 'string', 'max:2000'],
-        ]);
+        ] + TenantFeedback::imageRules());
 
-        TenantFeedback::create($data);
+        $feedback = TenantFeedback::create(collect($data)->except('images')->all());
+        $feedback->addReviewImages($request->file('images', []));
 
         return redirect()
             ->route('minihouse.feedback.create', $request->only('room'))

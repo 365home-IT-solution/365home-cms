@@ -36,7 +36,31 @@ class PartnerTableHelpers
                 : 'Dữ liệu dùng chung / hệ thống — không thuộc đối tác nào')
             ->placeholder('— Dùng chung / dữ liệu hệ thống —')
             ->toggleable()
-            ->sortable()
+            // Sắp xếp theo tên đối tác bằng truy vấn con — sortable() mặc định suy ra tên bảng quan hệ sai
+            // ("cms_partner.name" không tồn tại) → 500 khi bấm sắp xếp. Quan hệ lồng nhau thì bỏ qua sắp xếp.
+            ->sortable(query: function ($query, string $direction) use ($relationOrColumn) {
+                $parts = explode('.', $relationOrColumn);
+
+                if (count($parts) !== 2) {
+                    return $query;
+                }
+
+                $relation = $query->getModel()->{$parts[0]}();
+
+                if (! $relation instanceof \Illuminate\Database\Eloquent\Relations\BelongsTo) {
+                    return $query;
+                }
+
+                $related = $relation->getRelated();
+
+                return $query->orderBy(
+                    $related->newQuery()->select($parts[1])->whereColumn(
+                        $related->getTable() . '.' . $relation->getOwnerKeyName(),
+                        $query->getModel()->getTable() . '.' . $relation->getForeignKeyName()
+                    ),
+                    $direction
+                );
+            })
             ->searchable();
     }
 

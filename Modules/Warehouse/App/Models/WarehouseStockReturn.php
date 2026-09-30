@@ -91,6 +91,7 @@ class WarehouseStockReturn extends Model
 
     public function room(): BelongsTo
     {
-        return $this->belongsTo(Product::class, 'product_id');
+        // Lịch sử/tham chiếu tới phòng vẫn phải đọc được khi phòng mất chi nhánh (scope has_branch chỉ để ẩn khỏi danh sách).
+        return $this->belongsTo(Product::class, 'product_id')->withoutGlobalScope('has_branch');
     }
 }

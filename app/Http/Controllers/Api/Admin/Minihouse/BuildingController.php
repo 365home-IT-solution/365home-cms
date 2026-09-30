@@ -27,8 +27,9 @@ class BuildingController extends Controller
             return response()->json(['message' => 'Không có quyền xem toà nhà.'], 403);
         }
 
+        // Chỉ gỡ scope activeBuilding — giữ SoftDeletingScope để toà nhà đã xoá không còn hiện.
         $buildings = Building::query()
-            ->withoutGlobalScopes()
+            ->withoutGlobalScope('activeBuilding')
             ->whereIn('id', $this->permittedBuildingIds($request))
             ->with('partner:id,name,legal_name,partner_type')
             ->withCount('rooms')

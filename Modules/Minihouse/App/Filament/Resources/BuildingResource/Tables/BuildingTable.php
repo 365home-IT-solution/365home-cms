@@ -39,7 +39,7 @@ class BuildingTable
 
                 ImageColumn::make('image')->label('Ảnh')->circular()->visibleFrom('md'),
                 TextColumn::make('name')->label('Tên toà nhà')->searchable()->sortable()->visibleFrom('md'),
-                TextColumn::make('zone.name')->label('Khu vực')->badge()->color('gray')->placeholder('—')->sortable()->visibleFrom('md'),
+                TextColumn::make('zone.name')->label('Khu vực')->badge()->color('gray')->placeholder('—')->visibleFrom('md'), // không sortable: zone_id nằm ở bảng phụ, không phải cột categories
                 TextColumn::make('address')->label('Địa chỉ')
                     ->searchable(query: fn ($query, string $search) => \Modules\Minihouse\App\Filament\Support\RoomCodeSearch::buildingAddress($query, $search))
                     ->visibleFrom('md'),

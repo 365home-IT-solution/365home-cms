@@ -13,8 +13,9 @@ Route::get('/success', function (Request $request) {
     $orderCode = $request->query('orderCode');
 
     // Kiểm tra xem orderCode có tồn tại không
+    // View success chỉ hiển thị được khi có đơn — thiếu mã/không thấy đơn thì 404 (trước đây view đọc $order null → 500).
     if (!$orderCode) {
-        return view('payment::success', ['order' => null, 'error' => 'Không tìm thấy mã đơn hàng']);
+        abort(404);
     }
     // Tìm order theo order_code trước (vì orderCode từ PayOS là order_code)
     $order = Order::where('order_code', $orderCode)->with('items')->first();
@@ -43,7 +44,7 @@ Route::get('/success', function (Request $request) {
     }
 
     if (!$order) {
-        return view('payment::success', ['order' => null, 'error' => 'Không tìm thấy đơn hàng']);
+        abort(404);
     }
 
     // Gọi checkPaymentStatus để cập nhật trạng thái từ PayOS

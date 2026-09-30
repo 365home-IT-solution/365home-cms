@@ -50,9 +50,11 @@ class TagTable
                     ->label(__('tag::tag.table.label.usage_count'))
                     ->badge()
                     ->sortable(query: function ($query, $direction) {
-                        return $query
-                            ->withCount('taggables')
-                            ->orderBy('taggables_count', $direction);
+                        // Model Tag không có quan hệ taggables() → đếm bằng truy vấn con (tự kèm tiền tố bảng).
+                        return $query->orderBy(
+                            DB::table('taggables')->selectRaw('count(*)')->whereColumn('taggables.tag_id', $query->getModel()->getTable() . '.id'),
+                            $direction
+                        );
                     })
                     ->getStateUsing(function ($record) {
                         return DB::table('taggables')

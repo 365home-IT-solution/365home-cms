@@ -12,7 +12,8 @@ use Modules\Category\Entities\Category;
 use Modules\Product\App\Models\Product;
 
 /**
- * Quản lý ĐÁNH GIÁ PHÒNG (bảng `room_ratings`, model App\Models\RoomRating) — xem, phản hồi VÀ xoá
+ * Quản lý ĐÁNH GIÁ PHÒNG HOMESTAY (bảng `room_ratings`, model App\Models\RoomRating) — chỉ phòng Homestay,
+ * nhận xét phòng MiniHouse quản trị riêng ở panel MiniHouse (RoomReviewResource) — xem, phản hồi VÀ xoá
  * đánh giá của khách (vd spam, ngôn từ không phù hợp). Admin không TẠO/SỬA nội dung đánh giá của
  * khách — chỉ xem/xoá/trả lời (admin_reply). Khách xem được phản hồi qua GET /api/rooms/{id}/ratings
  * (Api\RatingController::index(), field 'admin_reply'/'replied_at').
@@ -54,7 +55,7 @@ class RatingController extends Controller
             return response()->json(['message' => 'Không có quyền xem đánh giá.'], 403);
         }
 
-        $query = RoomRating::with(['customer:id,fullname,phone', 'room:id,name', 'repliedBy:id,fullname'])
+        $query = RoomRating::forHomestay()->with(['customer:id,fullname,phone', 'room:id,name', 'repliedBy:id,fullname', 'media'])
             ->orderByDesc('created_at');
 
         if ($request->filled('room_id')) {
@@ -108,7 +109,7 @@ class RatingController extends Controller
             return response()->json(['message' => 'Không có quyền xem đánh giá.'], 403);
         }
 
-        $rating = RoomRating::with(['customer:id,fullname,phone', 'room:id,name', 'repliedBy:id,fullname'])->find($id);
+        $rating = RoomRating::forHomestay()->with(['customer:id,fullname,phone', 'room:id,name', 'repliedBy:id,fullname', 'media'])->find($id);
 
         if (! $rating || ! $this->userCanAccess($request, $rating)) {
             return response()->json(['message' => 'Không tìm thấy đánh giá.'], 404);
@@ -131,7 +132,7 @@ class RatingController extends Controller
             'reply' => 'required|string|max:1000',
         ]);
 
-        $rating = RoomRating::find($id);
+        $rating = RoomRating::forHomestay()->find($id);
 
         if (! $rating || ! $this->userCanAccess($request, $rating)) {
             return response()->json(['message' => 'Không tìm thấy đánh giá.'], 404);
@@ -143,7 +144,7 @@ class RatingController extends Controller
             'replied_at'  => now(),
         ]);
 
-        $rating->load(['customer:id,fullname,phone', 'room:id,name', 'repliedBy:id,fullname']);
+        $rating->load(['customer:id,fullname,phone', 'room:id,name', 'repliedBy:id,fullname', 'media']);
 
         return response()->json(['data' => $this->toItem($rating)]);
     }
@@ -158,7 +159,7 @@ class RatingController extends Controller
             return response()->json(['message' => 'Không có quyền gỡ phản hồi đánh giá.'], 403);
         }
 
-        $rating = RoomRating::find($id);
+        $rating = RoomRating::forHomestay()->find($id);
 
         if (! $rating || ! $this->userCanAccess($request, $rating)) {
             return response()->json(['message' => 'Không tìm thấy đánh giá.'], 404);
@@ -181,7 +182,7 @@ class RatingController extends Controller
             return response()->json(['message' => 'Không có quyền xoá đánh giá.'], 403);
         }
 
-        $rating = RoomRating::find($id);
+        $rating = RoomRating::forHomestay()->find($id);
 
         if (! $rating || ! $this->userCanAccess($request, $rating)) {
             return response()->json(['message' => 'Không tìm thấy đánh giá.'], 404);
@@ -193,6 +194,33 @@ class RatingController extends Controller
         $this->recalcRatingScore($roomId);
 
         return response()->json(['message' => 'Đã xoá đánh giá.']);
+    }
+
+    /**
+     * DELETE /api/admin/ratings/{id}/images/{mediaId}
+     * Gỡ 1 ảnh khỏi đánh giá của khách (vd ảnh nhạy cảm/không phù hợp) — giữ nguyên đánh giá.
+     */
+    public function deleteImage(Request $request, int $id, int $mediaId): JsonResponse
+    {
+        if (! $this->hasPermission($request)) {
+            return response()->json(['message' => 'Không có quyền xoá ảnh đánh giá.'], 403);
+        }
+
+        $rating = RoomRating::forHomestay()->find($id);
+
+        if (! $rating || ! $this->userCanAccess($request, $rating)) {
+            return response()->json(['message' => 'Không tìm thấy đánh giá.'], 404);
+        }
+
+        $media = $rating->getMedia(RoomRating::IMAGE_COLLECTION)->firstWhere('id', $mediaId);
+
+        if (! $media) {
+            return response()->json(['message' => 'Không tìm thấy ảnh.'], 404);
+        }
+
+        $media->delete();
+
+        return response()->json(['message' => 'Đã xoá ảnh.']);
     }
 
     /**
@@ -271,6 +299,7 @@ class RatingController extends Controller
             'id'         => $r->id,
             'star'       => $r->star,
             'comment'    => $r->comment,
+            'images'     => $r->imagesPayload(),
             'created_at' => optional($r->created_at)->toISOString(),
             'customer'   => $r->customer ? [
                 'id'       => $r->customer->id,

@@ -228,12 +228,26 @@ class HomeController extends Controller
         return $slugs->isNotEmpty() ? '/s/' . $slugs->implode(',') : null;
     }
 
+    private const ROOM_CACHE_VERSION_KEY = 'home:rooms_version';
+
+    // Khoá cache danh sách phòng trang chủ gắn kèm "version" — đổi version (bumpRoomCache) là toàn bộ
+    // khoá cũ bị bỏ qua ngay, để phòng/chi nhánh vừa xoá/sửa không còn hiện trên app tới khi hết TTL.
+    private static function roomCacheVersion(): string
+    {
+        return (string) Cache::get(self::ROOM_CACHE_VERSION_KEY, '0');
+    }
+
+    public static function bumpRoomCache(): void
+    {
+        Cache::forever(self::ROOM_CACHE_VERSION_KEY, (string) microtime(true));
+    }
+
     private function getRooms(array $data, string $displayMode, ?array $wishlistedIds, ?int $tabRoomTypeId, ?Province $province = null): array
     {
         // Cache phần dữ liệu phòng (ảnh/giá/tên...) dùng chung cho mọi user — KHÔNG cache
         // wishlist_status vì đó là dữ liệu riêng theo từng user, gắn lại ngay bên dưới sau khi lấy
         // từ cache/DB để tránh lộ/lẫn trạng thái yêu thích giữa các user.
-        $cacheKey = 'home:room_list:' . md5(json_encode([
+        $cacheKey = 'home:room_list:' . self::roomCacheVersion() . ':' . md5(json_encode([
             'data'         => $data,
             'display_mode' => $displayMode,
             'tab'          => $tabRoomTypeId,
@@ -479,7 +493,7 @@ class HomeController extends Controller
     {
         // Cùng nguyên tắc như getRooms(): cache phần dữ liệu phòng dùng chung theo khu vực, gắn
         // wishlist_status theo user sau khi lấy từ cache (không cache dữ liệu riêng theo user).
-        $cacheKey = 'home:suggestion_rooms:' . $province->id;
+        $cacheKey = 'home:suggestion_rooms:' . self::roomCacheVersion() . ':' . $province->id;
 
         $rooms = Cache::remember($cacheKey, now()->addMinutes(5), function () use ($province) {
             return $this->fetchSuggestionRooms($province);

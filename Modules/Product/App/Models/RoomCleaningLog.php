@@ -28,7 +28,8 @@ class RoomCleaningLog extends Model
 
     public function product(): BelongsTo
     {
-        return $this->belongsTo(Product::class);
+        // Lịch sử/tham chiếu tới phòng vẫn phải đọc được khi phòng mất chi nhánh (scope has_branch chỉ để ẩn khỏi danh sách).
+        return $this->belongsTo(Product::class)->withoutGlobalScope('has_branch');
     }
 
     public function orderItem(): BelongsTo

@@ -6,12 +6,14 @@ use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Actions\DeleteBulkAction;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Columns\IconColumn;
+use Filament\Tables\Columns\SpatieMediaLibraryImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Columns\ViewColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Modules\Minihouse\App\Models\Room;
+use Modules\Minihouse\App\Models\TenantFeedback;
 
 class TenantFeedbackTable
 {
@@ -41,6 +43,9 @@ class TenantFeedbackTable
                 TextColumn::make('rating')->label('Đánh giá')->formatStateUsing(fn (int $state) => str_repeat('★', $state) . str_repeat('☆', 5 - $state))->sortable()->visibleFrom('md'),
                 TextColumn::make('tenant_name')->label('Khách')->placeholder('Ẩn danh')->searchable()->visibleFrom('md'),
                 TextColumn::make('content')->label('Góp ý')->limit(60)->wrap()->visibleFrom('md'),
+                SpatieMediaLibraryImageColumn::make('images')->label('Ảnh')
+                    ->collection(TenantFeedback::IMAGE_COLLECTION)->conversion('thumb')
+                    ->circular()->stacked()->limit(3)->limitedRemainingText()->visibleFrom('md'),
                 IconColumn::make('is_reviewed')->label('Đã xử lý')->boolean()->visibleFrom('md'),
                 TextColumn::make('created_at')->label('Ngày gửi')->dateTime('d/m/Y H:i')->sortable()->visibleFrom('md'),
             ])

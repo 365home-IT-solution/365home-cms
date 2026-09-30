@@ -816,6 +816,9 @@ class BladeThemeV1Controller extends Controller
 
     public function domainLookupDetail()
     {
+        // Trang legacy: view livewire.domain-lookup-detail đã không còn → trước đây trả 500. Không có trang này nữa.
+        abort(404);
+
         $this->primaryColor = $this->getFilamentPrimaryColor();
 
         return view('bladethemev1::pages.domain-lookup.index', [
@@ -1033,6 +1036,9 @@ class BladeThemeV1Controller extends Controller
 
     public function cartPage()
     {
+        // Trang legacy: component bladethemev1::cart không tồn tại (Homestay đặt phòng trực tiếp, không có giỏ hàng) → 404.
+        abort(404);
+
         return view('bladethemev1::pages.cart.cart', [
             'primaryColor' => $this->primaryColor,
             'primaryColorRgb' => $this->primaryColorRgb,

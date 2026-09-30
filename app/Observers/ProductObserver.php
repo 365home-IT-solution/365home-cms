@@ -2,6 +2,7 @@
 
 namespace App\Observers;
 
+use App\Http\Controllers\Api\HomeController;
 use App\Support\AuditFieldFilter;
 use Modules\AuditLog\Services\AuditLogger;
 use Modules\Product\App\Models\Product;
@@ -10,6 +11,8 @@ class ProductObserver
 {
     public function created(Product $product): void
     {
+        HomeController::bumpRoomCache();
+
         AuditLogger::log(
             action: 'create',
             module: 'Product',
@@ -24,6 +27,8 @@ class ProductObserver
     // KHÔNG có log. Bỏ whitelist, ghi lại TOÀN BỘ field thực sự thay đổi.
     public function updated(Product $product): void
     {
+        HomeController::bumpRoomCache();
+
         $changed = AuditFieldFilter::filter($product->getChanges());
 
         if (empty($changed)) {
@@ -42,6 +47,8 @@ class ProductObserver
 
     public function deleted(Product $product): void
     {
+        HomeController::bumpRoomCache();
+
         AuditLogger::log(
             action: 'delete',
             module: 'Product',
