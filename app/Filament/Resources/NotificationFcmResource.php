@@ -297,7 +297,7 @@ class NotificationFcmResource extends Resource
                     ->color('warning')
                     ->sortable(),
 
-                TextColumn::make('creator.name')
+                TextColumn::make('creator.fullname')
                     ->label('Người gửi')
                     ->sortable(),
 
@@ -369,7 +369,7 @@ class NotificationFcmResource extends Resource
                 ]),
 
                 Grid::make(3)->schema([
-                    TextEntry::make('creator.name')->label('Người gửi'),
+                    TextEntry::make('creator.fullname')->label('Người gửi'),
                     TextEntry::make('scheduled_at')
                         ->label('Lịch gửi')
                         ->dateTime('d/m/Y H:i')

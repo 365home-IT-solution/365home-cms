@@ -81,11 +81,12 @@ trait InteractsWithTenantPortalData
         return $invoice;
     }
 
-    protected function createFeedback(Tenant $tenant, array $data): TenantFeedback
+    // $images: các file ảnh đính kèm đã validate (xem TenantFeedback::imageRules()), có thể rỗng.
+    protected function createFeedback(Tenant $tenant, array $data, array $images = []): TenantFeedback
     {
         $activeContract = TenantPortalService::tenantContracts($tenant)->firstWhere('status', Contract::STATUS_ACTIVE);
 
-        return TenantFeedback::create([
+        $feedback = TenantFeedback::create([
             'room_id'      => $activeContract?->room_id ?? $tenant->room_id,
             'tenant_id'    => $tenant->id,
             'tenant_name'  => $tenant->fullname,
@@ -93,6 +94,10 @@ trait InteractsWithTenantPortalData
             'rating'       => $data['rating'],
             'content'      => $data['content'] ?? null,
         ]);
+
+        $feedback->addReviewImages($images);
+
+        return $feedback;
     }
 
     // QUAN TRỌNG: $returnUrl phải là route riêng của giao diện đang gọi (Portal web HOẶC API) —

@@ -47,5 +47,15 @@ TenantFeedbackTable::table()), các cột gốc còn lại ->visibleFrom('md') �
         <div style="margin-bottom: 5px;"><span class="text-gray-400 dark:text-gray-500">Phòng: </span><span class="font-medium text-gray-700 dark:text-gray-300">{{ $feedback->room?->code ?? 'Chung' }}</span></div>
         <div style="margin-bottom: 5px;"><span class="text-gray-400 dark:text-gray-500">Đánh giá: </span><span class="font-medium text-gray-700 dark:text-gray-300">{{ $stars }}</span></div>
         <div><span class="text-gray-400 dark:text-gray-500">Góp ý: </span><span class="font-medium text-gray-700 dark:text-gray-300">{{ $feedback->content ?: '—' }}</span></div>
+        @php($images = $feedback->getMedia(\Modules\Minihouse\App\Models\TenantFeedback::IMAGE_COLLECTION))
+        @if ($images->isNotEmpty())
+            <div class="flex flex-wrap gap-1.5" style="margin-top: 6px;">
+                @foreach ($images as $image)
+                    <a href="{{ $image->getUrl() }}" target="_blank" rel="noopener">
+                        <img src="{{ $image->hasGeneratedConversion('thumb') ? $image->getUrl('thumb') : $image->getUrl() }}" alt="Ảnh đính kèm" loading="lazy" class="h-12 w-12 rounded-md object-cover">
+                    </a>
+                @endforeach
+            </div>
+        @endif
     </div>
 </div>

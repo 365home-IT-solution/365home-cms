@@ -23,6 +23,7 @@ class OverrideRoomPrice extends Model
 
     public function room()
     {
-        return $this->belongsTo(Product::class, 'room_id');
+        // Lịch sử/tham chiếu tới phòng vẫn phải đọc được khi phòng mất chi nhánh (scope has_branch chỉ để ẩn khỏi danh sách).
+        return $this->belongsTo(Product::class, 'room_id')->withoutGlobalScope('has_branch');
     }
 }

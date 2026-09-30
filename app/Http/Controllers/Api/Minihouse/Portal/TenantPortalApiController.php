@@ -376,13 +376,15 @@ class TenantPortalApiController extends Controller
     // chỉ tạo mới, trước đây không có cách nào xem lại đã gửi gì/khi nào).
     public function feedback(Request $request): JsonResponse
     {
-        $feedbacks = TenantFeedback::where('tenant_id', $this->tenant($request)->id)
+        $feedbacks = TenantFeedback::with('media')
+            ->where('tenant_id', $this->tenant($request)->id)
             ->orderByDesc('created_at')
             ->paginate((int) $request->integer('per_page', 20));
 
         return response()->json([
             'data' => collect($feedbacks->items())->map(fn (TenantFeedback $f) => [
                 'id' => $f->id, 'rating' => $f->rating, 'content' => $f->content,
+                'images' => $f->imagesPayload(),
                 'created_at' => $f->created_at->toIso8601String(),
             ]),
             'meta' => $this->paginationMeta($feedbacks),
@@ -508,14 +510,15 @@ class TenantPortalApiController extends Controller
     // POST /api/minihouse/portal/feedback
     public function storeFeedback(Request $request): JsonResponse
     {
+        // Ảnh gửi dạng multipart: images[] (tối đa TenantFeedback::MAX_IMAGES ảnh).
         $data = $request->validate([
             'rating'  => ['required', 'integer', 'min:1', 'max:5'],
             'content' => ['nullable', 'string', 'max:2000'],
-        ]);
+        ] + TenantFeedback::imageRules());
 
-        $feedback = $this->createFeedback($this->tenant($request), $data);
+        $feedback = $this->createFeedback($this->tenant($request), $data, $request->file('images', []));
 
-        return response()->json(['data' => ['id' => $feedback->id]], 201);
+        return response()->json(['data' => ['id' => $feedback->id, 'images' => $feedback->imagesPayload()]], 201);
     }
 
     // POST /api/minihouse/portal/password — xem giải thích ĐẦY ĐỦ tại sao KHÔNG bắt nhập mật khẩu cũ

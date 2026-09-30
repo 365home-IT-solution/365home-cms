@@ -16,9 +16,25 @@ use JoseEspinal\RecordNavigation\Traits\HasRecordsList;
 class ListUsers extends ListRecords
 {
     use ExposesTableToWidgets;
-    use HasRecordsList;
+    use HasRecordsList {
+        rendered as private recordNavigationRendered;
+    }
 
     protected static string $resource = UserResource::class;
+
+    // Thư viện record-navigation sắp xếp THẲNG theo tên cột đang chọn — cột quan hệ như "partner.name"
+    // không phải cột thật của bảng users → 500 ngay khi bấm sắp xếp. Chỉ dùng thư viện khi cột sắp xếp
+    // là cột thật (hoặc chưa chọn); ngược lại bỏ qua (chỉ ảnh hưởng thứ tự nút "bản ghi trước/sau").
+    public function rendered($view, $html)
+    {
+        $sort = $this->tableSortColumn;
+
+        if ($sort && (str_contains($sort, '.') || ! \Illuminate\Support\Facades\Schema::hasColumn((new User)->getTable(), $sort))) {
+            return static::getResource()::getEloquentQuery();
+        }
+
+        return $this->recordNavigationRendered($view, $html);
+    }
 
     protected function getHeaderActions(): array
     {

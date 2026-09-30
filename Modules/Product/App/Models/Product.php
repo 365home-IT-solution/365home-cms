@@ -164,6 +164,15 @@ class Product extends Model implements HasMedia, Resourceable
         static::addGlobalScope('exclude_minihouse', function (Builder $query) {
             $query->whereDoesntHave('roomType', fn ($q) => $q->where('slug', RoomType::MINIHOUSE_SLUG));
         });
+
+        // Xoá chi nhánh (Category xoá cứng, không cascade) để lại phòng mồ côi — không còn gắn danh
+        // mục nào. Web đã không hiện được chúng, nhưng API (app) từng vẫn trả ra. Chặn tập trung ở
+        // đây để MỌI API/trang công khai đi qua Product:: đều khớp web: chỉ phòng còn gắn chi nhánh
+        // mới hiển thị — áp dụng cả trong admin panel Filament (danh sách, dropdown chọn phòng).
+        // Phòng MiniHouse (Room) không bị ảnh hưởng vì Room ghi đè booted() (xem ghi chú phía trên).
+        static::addGlobalScope('has_branch', function (Builder $query) {
+            $query->whereHas('categories');
+        });
     }
 
     public function roomType()

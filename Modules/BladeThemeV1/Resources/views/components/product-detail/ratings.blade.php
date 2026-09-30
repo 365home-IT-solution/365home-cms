@@ -2,8 +2,11 @@
  * ĐÁNH GIÁ SAO — thay cho khối "Bình luận" cũ.
  * API: GET/POST/DELETE /api/rooms/{id}/ratings (xem app/Http/Controllers/Api/RatingController.php)
  * Biến nhận vào: $product (Eloquent Product model, bắt buộc)
+ *                $ratingsApi (tuỳ chọn) — địa chỉ API đánh giá, mặc định /api/rooms/{id}/ratings của Homestay.
+ *                Trang chi tiết phòng MiniHouse truyền /api/minihouse/public/rooms/{id}/reviews (cùng
+ *                request/response) — nhận xét phòng cho người xem TRƯỚC KHI thuê, KHÁC phản hồi trong Portal.
 --}}
-<div class="mb-6" id="pd-ratings-section" x-data="pdRatingsWidget('{{ $product->id }}')" x-init="init()">
+<div class="mb-6" id="pd-ratings-section" x-data="pdRatingsWidget('{{ $product->id }}', '{{ $ratingsApi ?? '/api/rooms/' . $product->id . '/ratings' }}')" x-init="init()">
 
     <h2 class="text-xl font-bold text-gray-900 mb-4">Đánh giá</h2>
 
@@ -210,6 +213,15 @@
                                     </div>
                                     <p class="text-sm text-gray-700 mt-1.5 break-words" x-show="r.comment"
                                         x-text="r.comment"></p>
+                                    <div class="flex flex-wrap gap-2 mt-2" x-show="r.images && r.images.length">
+                                        <template x-for="img in (r.images || [])" :key="img.id">
+                                            <button type="button" @click="openLightbox(img.url)"
+                                                class="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-gray-100">
+                                                <img :src="img.thumb_url" alt="Ảnh đánh giá" loading="lazy"
+                                                    class="h-full w-full object-cover">
+                                            </button>
+                                        </template>
+                                    </div>
                                 </div>
                             </div>
                         </template>
@@ -272,6 +284,46 @@
                         placeholder="Chia sẻ trải nghiệm của bạn (không bắt buộc)..."
                         class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2"
                         style="--tw-ring-color: var(--color-primary);"></textarea>
+
+                    {{-- Ảnh đính kèm: ảnh đã đăng (sửa đánh giá) + ảnh mới chọn, tối đa maxImages --}}
+                    <div class="flex flex-wrap gap-2 mt-3">
+                        <template x-for="img in keptImages" :key="'k' + img.id">
+                            <div class="relative h-16 w-16">
+                                <img :src="img.thumb_url" alt="" class="h-full w-full rounded-lg object-cover">
+                                <button type="button" @click="removeExistingImage(img)" aria-label="Xoá ảnh"
+                                    class="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-gray-900 text-white">
+                                    <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                        <path stroke-linecap="round" d="M18 6L6 18M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </template>
+                        <template x-for="(img, idx) in newImages" :key="img.url">
+                            <div class="relative h-16 w-16">
+                                <img :src="img.url" alt="" class="h-full w-full rounded-lg object-cover">
+                                <button type="button" @click="removeNewImage(idx)" aria-label="Xoá ảnh"
+                                    class="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-gray-900 text-white">
+                                    <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                                        <path stroke-linecap="round" d="M18 6L6 18M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </template>
+                        <label x-show="imageCount() < maxImages" x-cloak
+                            class="flex h-16 w-16 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-gray-300 text-gray-500 hover:border-gray-900 hover:text-gray-900">
+                            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A1.5 1.5 0 0021.75 19.5v-15A1.5 1.5 0 0020.25 3H3.75A1.5 1.5 0 002.25 4.5v15A1.5 1.5 0 003.75 21zm10.5-11.25h.008v.008h-.008V9.75z" />
+                            </svg>
+                            <span class="mt-0.5 text-[10px] font-medium">Thêm ảnh</span>
+                            <input type="file" accept="image/jpeg,image/png,image/webp" multiple class="hidden"
+                                @change="pickImages($event)">
+                        </label>
+                    </div>
+                    <p class="text-xs text-gray-400 mt-1.5" x-show="imageCount() > 0" x-cloak>
+                        <span x-text="imageCount()"></span>/<span x-text="maxImages"></span> ảnh
+                    </p>
+
                     <p class="text-xs text-red-500 mt-1" x-show="formError" x-cloak x-text="formError"></p>
                     <div class="flex items-center gap-4 mt-4">
                         <button type="button" @click="submitRating()" :disabled="form.star === 0 || submitting"
@@ -287,6 +339,20 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </template>
+
+    {{-- Xem ảnh đánh giá kích thước lớn --}}
+    <template x-teleport="body">
+        <div x-show="lightboxSrc" x-cloak @keydown.escape.window="lightboxSrc = ''"
+            class="fixed inset-0 z-[10070] flex items-center justify-center bg-black/80 p-4" @click="lightboxSrc = ''">
+            <button type="button" @click="lightboxSrc = ''" aria-label="Đóng"
+                class="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-gray-900">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" d="M18 6L6 18M6 6l12 12" />
+                </svg>
+            </button>
+            <img :src="lightboxSrc" alt="Ảnh đánh giá" class="max-h-full max-w-full rounded-lg object-contain" @click.stop>
         </div>
     </template>
 </div>
@@ -320,9 +386,10 @@
         };
     }
 
-    function pdRatingsWidget(roomId) {
+    function pdRatingsWidget(roomId, apiUrl) {
         return {
             roomId: roomId,
+            apiUrl: apiUrl || ('/api/rooms/' + roomId + '/ratings'),
             summary: { average: null, total_count: 0, distribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 } },
             previewList: [],
             loadingSummary: true,
@@ -343,6 +410,62 @@
             modalObserver: null,
 
             form: { star: 0, comment: '' },
+
+            // Ảnh đính kèm — khớp giới hạn của API (RoomRating::MAX_IMAGES / MAX_IMAGE_KB).
+            maxImages: 5,
+            maxImageBytes: 5 * 1024 * 1024,
+            keptImages: [],   // ảnh đã đăng của chính mình (khi sửa đánh giá)
+            removedImageIds: [],
+            newImages: [],    // ảnh mới chọn: { file, url }
+            lightboxSrc: '',
+
+            openLightbox(src) {
+                this.lightboxSrc = src;
+            },
+
+            imageCount() {
+                return this.keptImages.length + this.newImages.length;
+            },
+
+            pickImages(event) {
+                var self = this;
+                var files = Array.prototype.slice.call(event.target.files || []);
+                event.target.value = '';
+                this.formError = '';
+                files.forEach(function (file) {
+                    if (self.imageCount() >= self.maxImages) {
+                        self.formError = 'Mỗi đánh giá tối đa ' + self.maxImages + ' ảnh.';
+                        return;
+                    }
+                    if (['image/jpeg', 'image/png', 'image/webp'].indexOf(file.type) === -1) {
+                        self.formError = 'Chỉ nhận ảnh JPG, PNG hoặc WEBP.';
+                        return;
+                    }
+                    if (file.size > self.maxImageBytes) {
+                        self.formError = 'Mỗi ảnh tối đa 5MB.';
+                        return;
+                    }
+                    self.newImages.push({ file: file, url: URL.createObjectURL(file) });
+                });
+            },
+
+            removeNewImage(idx) {
+                URL.revokeObjectURL(this.newImages[idx].url);
+                this.newImages.splice(idx, 1);
+            },
+
+            removeExistingImage(img) {
+                this.removedImageIds.push(img.id);
+                this.keptImages = this.keptImages.filter(function (i) { return i.id !== img.id; });
+            },
+
+            resetImages(kept) {
+                this.newImages.forEach(function (i) { URL.revokeObjectURL(i.url); });
+                this.newImages = [];
+                this.removedImageIds = [];
+                this.keptImages = kept || [];
+            },
+
             hoverStar: 0,
             submitting: false,
             formError: '',
@@ -386,7 +509,7 @@
                 var self = this;
                 this.loadingSummary = true;
                 this.loadingPreview = true;
-                fetch('/api/rooms/' + this.roomId + '/ratings?page=1', { headers: this.authHeaders() })
+                fetch(this.apiUrl + '?page=1', { headers: this.authHeaders() })
                     .then(function (res) { return res.json(); })
                     .then(function (json) {
                         self.summary = json.summary;
@@ -395,9 +518,11 @@
                             self.myRatingId = json.my_rating.id;
                             self.form.star = json.my_rating.star;
                             self.form.comment = json.my_rating.comment || '';
+                            self.resetImages(json.my_rating.images || []);
                         } else {
                             self.myRatingId = null;
                             self.form = { star: 0, comment: '' };
+                            self.resetImages([]);
                         }
                     })
                     .catch(function () { self.previewList = []; })
@@ -464,7 +589,7 @@
             loadModalPage(page) {
                 var self = this;
                 this.modalLoadingMore = true;
-                fetch('/api/rooms/' + this.roomId + '/ratings?page=' + page, { headers: this.authHeaders() })
+                fetch(this.apiUrl + '?page=' + page, { headers: this.authHeaders() })
                     .then(function (res) { return res.json(); })
                     .then(function (json) {
                         self.modalList = self.modalList.concat(json.data || []);
@@ -488,10 +613,17 @@
                 var self = this;
                 this.submitting = true;
                 this.formError = '';
-                fetch('/api/rooms/' + this.roomId + '/ratings', {
+                // multipart/form-data (để kèm file ảnh) — KHÔNG tự set Content-Type, trình duyệt sẽ tự
+                // thêm boundary. comment luôn gửi (rỗng = xoá nhận xét) vì API chỉ ghi đè khi có key.
+                var body = new FormData();
+                body.append('star', this.form.star);
+                body.append('comment', this.form.comment || '');
+                this.removedImageIds.forEach(function (id) { body.append('remove_image_ids[]', id); });
+                this.newImages.forEach(function (img) { body.append('images[]', img.file); });
+                fetch(this.apiUrl + '', {
                     method: 'POST',
-                    headers: Object.assign({ 'Content-Type': 'application/json' }, this.authHeaders()),
-                    body: JSON.stringify({ star: this.form.star, comment: this.form.comment || null }),
+                    headers: this.authHeaders(),
+                    body: body,
                 })
                     .then(function (res) {
                         return res.json().then(function (json) {
@@ -509,7 +641,10 @@
                     .catch(function (err) {
                         if (self.handleAuthError(err)) return;
                         var body = err && err.body;
-                        self.formError = (body && body.errors && body.errors.star && body.errors.star[0])
+                        var firstError = body && body.errors
+                            ? (Object.values(body.errors)[0] || [])[0]
+                            : null;
+                        self.formError = firstError
                             || (body && body.message)
                             || 'Có lỗi xảy ra, vui lòng thử lại.';
                     })
@@ -535,7 +670,7 @@
                 if (!localStorage.getItem('auth_token')) return;
                 if (!confirm('Xoá đánh giá của bạn cho phòng này?')) return;
                 var self = this;
-                fetch('/api/rooms/' + this.roomId + '/ratings', {
+                fetch(this.apiUrl + '', {
                     method: 'DELETE',
                     headers: this.authHeaders(),
                 })
@@ -548,6 +683,7 @@
                     .then(function () {
                         self.myRatingId = null;
                         self.form = { star: 0, comment: '' };
+                        self.resetImages([]);
                         self.modalList = [];
                         self.modalPage = 0;
                         self.reviewModalOpen = false;

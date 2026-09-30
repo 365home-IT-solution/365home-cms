@@ -42,6 +42,7 @@ use App\Http\Controllers\Api\Minihouse\Public\AmenityController as PublicAmenity
 use App\Http\Controllers\Api\Minihouse\Public\BuildingController as PublicBuildingController;
 use App\Http\Controllers\Api\Minihouse\Public\RentalInquiryController;
 use App\Http\Controllers\Api\Minihouse\Public\RoomController as PublicRoomController;
+use App\Http\Controllers\Api\Minihouse\Public\RoomReviewController;
 use App\Http\Controllers\Api\Minihouse\Public\ZoneController as PublicZoneController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\Admin\PartnerController as MinihousePartnerController;
@@ -346,6 +347,15 @@ Route::prefix('minihouse/public')->name('api.minihouse.public.')->middleware('th
 
     Route::get('rooms', [PublicRoomController::class, 'index'])->name('rooms.index');
     Route::get('rooms/{id}', [PublicRoomController::class, 'show'])->name('rooms.show');
+
+    // NHẬN XÉT PHÒNG (người xem phòng TRƯỚC KHI thuê) — KHÁC "Phản hồi khách thuê" của Portal. Cùng
+    // request/response với đánh giá phòng Homestay (GET/POST/DELETE /api/rooms/{id}/ratings): xem
+    // công khai, viết/xoá cần đăng nhập tài khoản khách hàng (Customer) — xem RoomReviewController.
+    Route::get('rooms/{id}/reviews', [RoomReviewController::class, 'index'])->name('rooms.reviews.index');
+    Route::middleware(['auth:sanctum', 'customer.active'])->group(function () {
+        Route::post('rooms/{id}/reviews', [RoomReviewController::class, 'store'])->name('rooms.reviews.store');
+        Route::delete('rooms/{id}/reviews', [RoomReviewController::class, 'destroy'])->name('rooms.reviews.destroy');
+    });
 
     // Throttle CHẶT hơn hẳn (5 lần/phút/IP, cùng mức với TenantFeedbackController::store) — endpoint
     // GHI DỮ LIỆU công khai không đăng nhập, không giới hạn thì 1 script có thể spam hàng loạt lead

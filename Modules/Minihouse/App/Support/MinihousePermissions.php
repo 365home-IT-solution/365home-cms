@@ -14,7 +14,7 @@ use Illuminate\Database\Eloquent\Builder;
 class MinihousePermissions
 {
     public const RESOURCE_GROUPS = [
-        'buildings', 'zones', 'rooms', 'tenants', 'contracts', 'invoices', 'transactions', 'reminders', 'residence_declarations', 'feedbacks', 'announcements', 'cameras', 'warehouse', 'vehicles',
+        'buildings', 'zones', 'rooms', 'tenants', 'contracts', 'invoices', 'transactions', 'reminders', 'residence_declarations', 'feedbacks', 'room_reviews', 'announcements', 'cameras', 'warehouse', 'vehicles',
     ];
 
     public const RESOURCE_ACTIONS = ['view_any', 'create', 'update', 'delete'];
@@ -46,6 +46,7 @@ class MinihousePermissions
         'reminders'              => 'Nhắc việc',
         'residence_declarations' => 'Khai báo lưu trú',
         'feedbacks'              => 'Phản hồi khách thuê',
+        'room_reviews'           => 'Nhận xét phòng (trang chi tiết)',
         'announcements'          => 'Thông báo (Portal)',
         'cameras'                => 'Camera',
         'vehicles'               => 'Xe khách thuê',

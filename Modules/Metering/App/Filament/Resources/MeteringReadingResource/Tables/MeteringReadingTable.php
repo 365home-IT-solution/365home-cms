@@ -17,7 +17,7 @@ class MeteringReadingTable
     {
         return $table
             ->columns([
-                TextColumn::make('room.code')->label('Phòng')->searchable()->sortable(),
+                TextColumn::make('room.code')->label('Phòng')->searchable(query: fn ($query, string $search) => \Modules\Minihouse\App\Filament\Support\RoomCodeSearch::viaRelation($query, $search))->sortable(),
                 TextColumn::make('room.building.name')->label('Toà nhà')->sortable(),
                 TextColumn::make('month')->label('Tháng')->date('m/Y')->sortable(),
                 TextColumn::make('electric_start')->label('Điện đầu kỳ')->numeric(),

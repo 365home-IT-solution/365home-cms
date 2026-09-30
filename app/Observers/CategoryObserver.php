@@ -2,6 +2,7 @@
 
 namespace App\Observers;
 
+use App\Http\Controllers\Api\HomeController;
 use App\Models\Partner;
 use App\Models\Camera;
 use App\Support\GeneratesImagePresets;
@@ -30,8 +31,15 @@ class CategoryObserver
     // tác cho 1 chi nhánh ĐÃ CÓ SẴN dữ liệu (tạo trước đó, mang partner_id cũ/null) khiến tài khoản
     // đối tác thấy được chi nhánh nhưng KHÔNG thấy phòng/lịch đặt/mã cổng bên trong để quản lý —
     // "có chi nhánh nhưng không có gì bên trong" thay vì phải "có TOÀN BỘ hoặc không có gì".
+    public function deleted(Category $category): void
+    {
+        HomeController::bumpRoomCache();
+    }
+
     public function saved(Category $category): void
     {
+        HomeController::bumpRoomCache();
+
         if (filled($category->image) && ($category->wasRecentlyCreated || $category->wasChanged('image'))) {
             $path = Storage::disk('public')->path($category->image);
             ResizesOversizedImage::apply($path);

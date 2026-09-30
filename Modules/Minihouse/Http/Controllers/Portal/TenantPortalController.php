@@ -10,6 +10,7 @@ use Illuminate\View\View;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\PortalNotification;
 use Modules\Minihouse\App\Models\Tenant;
+use Modules\Minihouse\App\Models\TenantFeedback;
 use Modules\Minihouse\App\Services\ContractTtlockService;
 use Modules\Minihouse\App\Services\TenantPortalService;
 use Modules\Minihouse\App\Services\TenantRoomUnlockService;
@@ -79,9 +80,9 @@ class TenantPortalController extends Controller
         $data = $request->validate([
             'rating'  => ['required', 'integer', 'min:1', 'max:5'],
             'content' => ['nullable', 'string', 'max:2000'],
-        ]);
+        ] + TenantFeedback::imageRules());
 
-        $this->createFeedback($this->tenant(), $data);
+        $this->createFeedback($this->tenant(), $data, $request->file('images', []));
 
         return redirect()->route('minihouse.portal.dashboard')
             ->with('portal_info', 'Đã gửi phản hồi — cảm ơn bạn! Chủ nhà sẽ xem và phản hồi lại sớm.');

@@ -788,6 +788,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/coupons')->name(
 | GET    /api/admin/ratings/{id}       → chi tiết 1 đánh giá
 | POST   /api/admin/ratings/{id}/reply → phản hồi (body: reply) — gọi lại = sửa phản hồi cũ
 | DELETE /api/admin/ratings/{id}/reply → gỡ phản hồi (không xoá đánh giá của khách)
+| DELETE /api/admin/ratings/{id}/images/{mediaId} → gỡ 1 ảnh khỏi đánh giá (giữ đánh giá)
 | DELETE /api/admin/ratings/{id}       → xoá hẳn đánh giá — tự tính lại rating_score của phòng
 |--------------------------------------------------------------------------
 */
@@ -796,6 +797,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/ratings')->name(
     Route::get('/{id}', [AdminRatingController::class, 'show'])->name('show');
     Route::post('/{id}/reply', [AdminRatingController::class, 'reply'])->name('reply');
     Route::delete('/{id}/reply', [AdminRatingController::class, 'deleteReply'])->name('reply.destroy');
+    Route::delete('/{id}/images/{mediaId}', [AdminRatingController::class, 'deleteImage'])->name('images.destroy');
     Route::delete('/{id}', [AdminRatingController::class, 'destroy'])->name('destroy');
 });
 

@@ -36,11 +36,12 @@ class FormSubmissionForm
                     ->disableDeletingRows()
                     ->disableEditingKeys()
                     ->columnSpanFull()
-                    ->formatStateUsing(fn(FormSubmission $record) => $record->formFieldValues->mapWithKeys(
+                    // $record = null ở trang Tạo mới — không có dữ liệu thì trả mảng rỗng, không được gọi ->formFieldValues.
+                    ->formatStateUsing(fn(?FormSubmission $record) => $record?->formFieldValues->mapWithKeys(
                         fn($fieldValue) => [
                             $fieldValue->field->label ?? $fieldValue->field->name ?? 'Thông tin bổ sung' => $fieldValue->value
                         ]
-                    )->toArray())
+                    )->toArray() ?? [])
             ]);
     }
 

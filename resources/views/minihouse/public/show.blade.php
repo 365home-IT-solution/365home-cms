@@ -151,6 +151,16 @@
             </div>
         </div>
 
+        {{-- NHẬN XÉT PHÒNG (người xem phòng TRƯỚC KHI thuê) — dùng lại đúng khối "Đánh giá" của trang chi
+             tiết Homestay, chỉ đổi API sang /api/minihouse/public/rooms/{id}/reviews. KHÁC HẲN "Phản hồi"
+             trong Portal khách thuê (khách ĐÃ thuê báo cáo tình trạng/sự cố, không công khai). --}}
+        <div class="mt-10 pt-8 border-t border-gray-200">
+            @include('bladethemev1::components.product-detail.ratings', [
+                'product'    => $room,
+                'ratingsApi' => '/api/minihouse/public/rooms/' . $room->id . '/reviews',
+            ])
+        </div>
+
         {{-- Địa chỉ + bản đồ nhúng — CÙNG công thức Google Maps embed (không cần API key) đang dùng
              ở trang chi tiết phòng Homestay thật (xem product-detail.blade.php dòng ~1582-1596),
              chỉ đổi nguồn toạ độ sang của Room. --}}
