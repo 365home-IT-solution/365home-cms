@@ -109,8 +109,6 @@ class TtlockAccountResource extends Resource
                         TextInput::make('username')
                             ->label('Username')
                             ->placeholder('Email tài khoản TTLock App')
-                            ->required()
-                            ->email()
                             ->maxLength(100),
 
                         TextInput::make('password_md5')
