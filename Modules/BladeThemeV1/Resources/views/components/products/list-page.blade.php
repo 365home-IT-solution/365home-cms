@@ -61,7 +61,7 @@
                             ], key('cart-'.$product->id))
                         </div>
                     @endif
-                    <button @click="openModal('{{ $product->name }}')"
+                    <button @click="openModal(@js($product->name))"
                             class="md:text-md text-xs block px-4 py-2 border primaryBorder colorPrimary rounded hover:bg-indigo-50 transition-colors duration-200">
                         Liên hệ ngay
                     </button>

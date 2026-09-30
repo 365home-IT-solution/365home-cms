@@ -881,7 +881,7 @@
                                                                                 data-room-id="{{ $product['id'] }}"
                                                                                 data-timeslot-id="{{ $timeSlot['timeslot_id'] }}"
                                                                                 data-iso-date="{{ $date['carbon_date']->format('Y-m-d') }}"
-                                                                                @click="toggleSlot('{{ $date['carbon_date']->format('Y-m-d') }}','{{ $timeSlot['timeslot_id'] }}','{{ $mFinal }}','{{ $mPAI }}','{{ $mBase }}','{{ $mInc }}','{{ $mPromo }}','{{ \Carbon\Carbon::parse($timeSlot['start_time'])->format('H:i') }}','{{ \Carbon\Carbon::parse($timeSlot['end_time'])->format('H:i') }}','{{ $mStatus }}','{{ $product['id'] }}','{{ $product['name'] }}','{{ $timeSlot['timeslot_label'] }}','{{ $timeSlot['over_night'] ?? 0 }}')">
+                                                                                @click="toggleSlot('{{ $date['carbon_date']->format('Y-m-d') }}','{{ $timeSlot['timeslot_id'] }}','{{ $mFinal }}','{{ $mPAI }}','{{ $mBase }}','{{ $mInc }}','{{ $mPromo }}','{{ \Carbon\Carbon::parse($timeSlot['start_time'])->format('H:i') }}','{{ \Carbon\Carbon::parse($timeSlot['end_time'])->format('H:i') }}','{{ $mStatus }}','{{ $product['id'] }}',@js($product['name']),@js($timeSlot['timeslot_label']),'{{ $timeSlot['over_night'] ?? 0 }}')">
                                                                                 @if (str_contains($mClasses, 'held'))
                                                                                     <div class="lock-icon" title="Đang được {{ $mHeldByName }} xử lý cho 1 đơn khác">
                                                                                         <svg viewBox="0 0 24 24" fill="none"
@@ -1231,8 +1231,8 @@
                                                                 '{{ \Carbon\Carbon::parse($timeSlot['end_time'])->format('H:i') }}',
                                                                 '{{ $timeslotStatus }}',
                                                                 '{{ $product['id'] }}',
-                                                                '{{ $product['name'] }}',
-                                                                '{{ $timeSlot['timeslot_label'] }}',
+                                                                @js($product['name']),
+                                                                @js($timeSlot['timeslot_label']),
                                                                 '{{ $timeSlot['over_night'] ?? 0 }}'
                                                              )">
 

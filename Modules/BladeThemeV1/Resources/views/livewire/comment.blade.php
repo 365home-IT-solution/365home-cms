@@ -211,7 +211,7 @@
                         </div>
                     </div>
                     <div class="flex items-center space-x-4 mt-4 sm:mt-0">
-                        <button wire:click="openReplyModal({{ $comment['id'] }}, '{{ $comment['name'] }}')" type="button"
+                        <button wire:click="openReplyModal({{ $comment['id'] }}, @js($comment['name']))" type="button"
                                 class="flex items-center text-sm text-primary hover:underline dark:text-gray-400 font-medium">
                             <svg class="mr-1.5 w-3.5 h-3.5" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"
                                  fill="none" viewBox="0 0 20 18">
