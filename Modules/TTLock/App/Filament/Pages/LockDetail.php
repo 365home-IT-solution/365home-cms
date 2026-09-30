@@ -34,9 +34,11 @@ class LockDetail extends Page
 
     protected string $paginationTheme = 'tailwind';
 
-    public int $categoryId;
+    // Shield khởi tạo Page để lấy nhãn quyền mà không chạy mount(). Giá trị mặc định ngăn lỗi
+    // "typed property must not be accessed before initialization" khi mở trang sửa Role.
+    public int $categoryId = 0;
 
-    public int $lockId;
+    public int $lockId = 0;
 
     public ?array $lock = null;
 
