@@ -35,7 +35,7 @@ class PartnerLegalDocument extends Model implements HasMedia
     ];
 
     protected $fillable = [
-        'partner_id', 'type', 'name', 'document_number', 'issuer', 'issued_at', 'expires_at',
+        'partner_id', 'building_id', 'type', 'name', 'document_number', 'issuer', 'issued_at', 'expires_at',
         'is_required', 'status', 'review_note', 'submitted_at', 'reviewed_at', 'reviewed_by', 'created_by',
     ];
 
@@ -50,7 +50,20 @@ class PartnerLegalDocument extends Model implements HasMedia
     protected static function booted(): void
     {
         static::saving(function (self $document): void {
-            if ($document->type === 'business_license' || ($document->partner?->partner_type === Partner::TYPE_MINIHOUSE && in_array($document->type, ['fire_safety', 'property_ownership_or_use'], true))) {
+            $buildingTypes = ['fire_safety', 'security_order', 'property_ownership_or_use'];
+            $isMinihouseBuildingDocument = $document->partner?->isMinihouse()
+                && in_array($document->type, $buildingTypes, true);
+
+            if ($isMinihouseBuildingDocument) {
+                if (! $document->building_id || ! $document->partner->categories()
+                    ->whereKey($document->building_id)->where('category_type', 'product')->whereNull('parent_id')->exists()) {
+                    throw new \DomainException('Giấy tờ tòa nhà phải thuộc đúng Partner MiniHouse.');
+                }
+            } else {
+                $document->building_id = null;
+            }
+
+            if ($document->type === 'business_license' || $isMinihouseBuildingDocument) {
                 $document->is_required = true;
             }
         });
@@ -65,6 +78,11 @@ class PartnerLegalDocument extends Model implements HasMedia
     public function partner(): BelongsTo
     {
         return $this->belongsTo(Partner::class);
+    }
+
+    public function building(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Minihouse\App\Models\Building::class, 'building_id');
     }
 
     public function reviewer(): BelongsTo

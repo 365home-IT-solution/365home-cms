@@ -9,6 +9,8 @@ use App\Models\Concerns\BelongsToPartner;
 use App\Services\Go2RtcClient;
 use App\Support\CameraWsToken;
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Partner;
+use Modules\Category\Entities\Category;
 
 class Camera extends Model
 {
@@ -16,6 +18,11 @@ class Camera extends Model
 
     protected static function booted(): void
     {
+        static::saving(function (Camera $camera): void {
+            if ($camera->branch_id && ($camera->isDirty('branch_id') || blank($camera->partner_id))) {
+                $camera->partner_id = Category::withoutGlobalScopes()->whereKey($camera->branch_id)->value('partner_id');
+            }
+        });
         // Xoá bản ghi ở BẤT KỲ đâu (nút Xoá trên trang sửa, bulk action trên danh sách...) đều dọn
         // luôn nguồn tương ứng trên go2rtc — CHỈ khi camera này có rtsp_url (nghĩa là do CHÍNH web
         // này khai báo nguồn qua API). Đa số camera chỉ THAM CHIẾU tới nguồn ĐÃ CÓ SẴN trong Frigate
@@ -86,7 +93,7 @@ class Camera extends Model
     // lại lịch sử ghi hình, cùng 1 nguồn logic với đây để tránh viết trùng quy tắc nhận diện MiniHouse.
     public static function resolveSettingsFor(?string $partnerId, ?int $branchId): CameraSetting
     {
-        if ($partnerId === \Modules\Minihouse\App\Support\HomestayBridge::PARTNER_ID) {
+        if ($branchId && Partner::query()->whereKey($partnerId)->where('partner_type', Partner::TYPE_MINIHOUSE)->exists()) {
             return \Modules\Minihouse\App\Models\CameraSetting::forBuilding((int) $branchId);
         }
 

@@ -27,7 +27,9 @@ class PartnerController extends Controller
     public function index(Request $request, PartnerLegalDocumentService $documents): JsonResponse
     {
         $this->superAdmin($request);
-        $partners = Partner::query()->where('partner_type', $this->partnerType($request))->latest()->paginate(min($request->integer('per_page', 20), 100));
+        $partners = Partner::query()->where('partner_type', $this->partnerType($request))
+            ->where('id', '!=', \Modules\Minihouse\App\Support\HomestayBridge::PARTNER_ID)
+            ->latest()->paginate(min($request->integer('per_page', 20), 100));
 
         return response()->json($partners->through(fn (Partner $partner) => $this->format($partner, $documents)));
     }
@@ -44,6 +46,7 @@ class PartnerController extends Controller
 
     public function show(Request $request, Partner $partner, PartnerLegalDocumentService $documents): JsonResponse
     {
+        abort_if($partner->isSystemPartner(), 404);
         $this->partnerAccess($request, $partner);
 
         return response()->json(['data' => $this->format($partner, $documents)]);
@@ -331,6 +334,7 @@ class PartnerController extends Controller
 
     private function partnerAccess(Request $request, Partner $partner): void
     {
+        abort_if($partner->isSystemPartner(), 404);
         abort_unless($request->user()->isSuperAdmin() || $request->user()->partner_id === $partner->id, 403);
     }
 }

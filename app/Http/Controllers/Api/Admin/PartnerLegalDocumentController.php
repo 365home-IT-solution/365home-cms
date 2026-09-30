@@ -21,7 +21,7 @@ class PartnerLegalDocumentController extends Controller
     public function index(Request $request, Partner $partner): JsonResponse
     {
         $this->authorizePartner($request, $partner);
-        $documents = $partner->legalDocuments()->with(['reviewer:id,fullname', 'media'])->latest()->get();
+        $documents = $partner->legalDocuments()->with(['reviewer:id,fullname', 'building:id,name', 'media'])->latest()->get();
 
         return response()->json([
             'data' => $documents->map(fn ($document) => $this->format($document)),
@@ -41,6 +41,7 @@ class PartnerLegalDocumentController extends Controller
     {
         $this->authorizePartner($request, $partner);
         $data = $this->validateDocument($request);
+        $this->validateBuildingScope($partner, $data);
         $isSuperAdmin = $request->user()->isSuperAdmin();
 
         $document = DB::transaction(function () use ($request, $partner, $data, $isSuperAdmin) {
@@ -68,6 +69,7 @@ class PartnerLegalDocumentController extends Controller
         }
 
         $data = $this->validateDocument($request, false);
+        $this->validateBuildingScope($partner, $data, $document);
         if (isset($data['is_required']) && ! $request->user()->isSuperAdmin()) {
             unset($data['is_required']);
         }
@@ -150,6 +152,7 @@ class PartnerLegalDocumentController extends Controller
     {
         return $request->validate([
             'type' => [$fileRequired ? 'required' : 'sometimes', Rule::in(array_keys(PartnerLegalDocument::TYPES))],
+            'building_id' => ['nullable', 'integer', Rule::exists('categories', 'id')],
             'name' => ['nullable', 'string', 'max:255'],
             'document_number' => ['nullable', 'string', 'max:100'],
             'issuer' => ['nullable', 'string', 'max:255'],
@@ -158,6 +161,20 @@ class PartnerLegalDocumentController extends Controller
             'is_required' => ['sometimes', 'boolean'],
             'file' => [$fileRequired ? 'required' : 'sometimes', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
         ]);
+    }
+
+    private function validateBuildingScope(Partner $partner, array $data, ?PartnerLegalDocument $document = null): void
+    {
+        $type = $data['type'] ?? $document?->type;
+        $buildingId = array_key_exists('building_id', $data) ? $data['building_id'] : $document?->building_id;
+        $buildingTypes = ['fire_safety', 'security_order', 'property_ownership_or_use'];
+
+        if ($partner->isMinihouse() && in_array($type, $buildingTypes, true)) {
+            abort_if(blank($buildingId), 422, 'Giấy tờ PCCC, ANTT và quyền khai thác phải chọn tòa nhà.');
+            abort_unless($partner->categories()->whereKey($buildingId)->where('category_type', 'product')->whereNull('parent_id')->exists(), 422, 'Tòa nhà không thuộc đối tác MiniHouse này.');
+        } else {
+            abort_if(filled($buildingId), 422, 'Loại giấy tờ này được quản lý ở cấp đối tác, không gắn với tòa nhà.');
+        }
     }
 
     private function authorizePartner(Request $request, Partner $partner): void
@@ -195,6 +212,8 @@ class PartnerLegalDocumentController extends Controller
         return [
             'id' => $document->id,
             'partner_id' => $document->partner_id,
+            'building_id' => $document->building_id,
+            'building' => $document->building ? ['id' => $document->building->id, 'name' => $document->building->name] : null,
             'type' => $document->type,
             'type_label' => PartnerLegalDocument::TYPES[$document->type] ?? $document->type,
             'name' => $document->name,

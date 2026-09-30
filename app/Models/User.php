@@ -447,6 +447,15 @@ public function getFilamentAvatarUrl(): ?string
             return \Modules\Minihouse\App\Models\Building::withoutGlobalScope('activeBuilding')->pluck('id')->all();
         }
 
+        // Chủ đối tác MiniHouse luôn quản lý toàn bộ tòa nhà thuộc pháp nhân của mình. Nhân viên
+        // vẫn phải được cấp tòa/khu vực cụ thể ở các bảng phân quyền bên dưới.
+        if ($this->partner?->partner_type === \App\Models\Partner::TYPE_MINIHOUSE
+            && $this->hasRole('partner')) {
+            return \Modules\Minihouse\App\Models\Building::withoutGlobalScope('activeBuilding')
+                ->where('partner_id', $this->partner_id)
+                ->pluck('id')->all();
+        }
+
         // ->withoutGlobalScope('activeBuilding') BẮT BUỘC ở đây — minihouseBuildings() là quan hệ tới
         // Building, mà Building có global scope riêng (ScopedToActiveBuilding) đọc lại CHÍNH
         // rootBuildingIds() này để tính activeBuildingIds(). Thiếu dòng này thì mọi tài khoản KHÔNG

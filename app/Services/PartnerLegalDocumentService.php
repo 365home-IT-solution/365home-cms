@@ -18,16 +18,35 @@ class PartnerLegalDocumentService
         $documents = $partner->legalDocuments()->with('media')->get();
         $required = $documents->filter(fn (PartnerLegalDocument $document) => $document->is_required || $document->type === 'business_license');
         $problems = [];
-        $requiredTypes = $partner->partner_type === Partner::TYPE_MINIHOUSE
-            ? ['business_license', 'fire_safety', 'property_ownership_or_use']
-            : ['business_license'];
+        $requiredTypes = ['business_license'];
 
         foreach ($requiredTypes as $requiredType) {
-            $matching = $documents->where('type', $requiredType);
+            $matching = $documents->where('type', $requiredType)->whereNull('building_id');
             if ($matching->isEmpty()) {
                 $problems[] = 'Thiếu '.(PartnerLegalDocument::TYPES[$requiredType] ?? $requiredType).'.';
             } elseif (! $matching->contains(fn (PartnerLegalDocument $document) => $this->isUsable($document))) {
                 $problems[] = (PartnerLegalDocument::TYPES[$requiredType] ?? $requiredType).' chưa được duyệt hoặc đã hết hạn.';
+            }
+        }
+
+        if ($partner->isMinihouse()) {
+            $buildingTypes = ['fire_safety', 'security_order', 'property_ownership_or_use'];
+            $buildings = $partner->categories()->where('category_type', 'product')->whereNull('parent_id')->get(['id', 'name']);
+
+            if ($buildings->isEmpty()) {
+                $problems[] = 'Đối tác MiniHouse chưa được gán tòa nhà.';
+            }
+
+            foreach ($buildings as $building) {
+                foreach ($buildingTypes as $requiredType) {
+                    $matching = $documents->where('building_id', $building->id)->where('type', $requiredType);
+                    $label = PartnerLegalDocument::TYPES[$requiredType] ?? $requiredType;
+                    if ($matching->isEmpty()) {
+                        $problems[] = "Tòa nhà {$building->name}: thiếu {$label}.";
+                    } elseif (! $matching->contains(fn (PartnerLegalDocument $document) => $this->isUsable($document))) {
+                        $problems[] = "Tòa nhà {$building->name}: {$label} chưa được duyệt hoặc đã hết hạn.";
+                    }
+                }
             }
         }
 
@@ -41,7 +60,9 @@ class PartnerLegalDocumentService
         return [
             'ready' => $problems === [],
             'approved' => $required->filter(fn ($document) => $this->isUsable($document))->count(),
-            'required' => max(count($requiredTypes), $required->count()),
+            'required' => max(count($requiredTypes) + ($partner->isMinihouse()
+                ? max(1, $partner->categories()->where('category_type', 'product')->whereNull('parent_id')->count()) * 3
+                : 0), $required->count()),
             'problems' => array_values(array_unique($problems)),
         ];
     }

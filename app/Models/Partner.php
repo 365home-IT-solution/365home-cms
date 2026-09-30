@@ -163,6 +163,20 @@ class Partner extends Model implements HasMedia
         return $this->partner_type === self::TYPE_MINIHOUSE;
     }
 
+    public function isSystemPartner(): bool
+    {
+        return $this->id === HomestayBridge::PARTNER_ID;
+    }
+
+    protected static function booted(): void
+    {
+        static::deleting(function (Partner $partner): void {
+            if ($partner->isSystemPartner()) {
+                throw new \DomainException('Không thể xóa đối tác MiniHouse nội bộ của hệ thống.');
+            }
+        });
+    }
+
     // Query chi nhánh gốc (categories parent_id=null, category_type=product) được phép gán cho đối
     // tác này ở tab "Chi nhánh"/"Gán tòa nhà" và API branch-/building-assignments. Homestay: chi nhánh
     // của đối tác Homestay + chi nhánh chưa có chủ. MiniHouse: CHỈ tòa nhà đang thuộc đối tác

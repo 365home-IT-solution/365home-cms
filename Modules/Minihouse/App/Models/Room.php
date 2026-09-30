@@ -194,13 +194,21 @@ class Room extends Product
         });
 
         static::creating(function (Room $room) {
-            $room->partner_id   ??= HomestayBridge::PARTNER_ID;
+            $room->partner_id ??= $room->building_id
+                ? Building::withoutGlobalScopes()->whereKey($room->building_id)->value('partner_id')
+                : HomestayBridge::PARTNER_ID;
             $room->room_type_id ??= RoomType::where('slug', RoomType::MINIHOUSE_SLUG)->value('id');
             $room->styles       ??= 2;
             $room->is_in_stock  ??= true;
 
             if (! $room->slug) {
                 $room->slug = self::generateUniqueSlug($room->name ?: 'phong');
+            }
+        });
+
+        static::saving(function (Room $room) {
+            if ($room->building_id && ($room->isDirty('building_id') || blank($room->partner_id))) {
+                $room->partner_id = Building::withoutGlobalScopes()->whereKey($room->building_id)->value('partner_id');
             }
         });
 

@@ -38,13 +38,15 @@ class PartnerForm
 {
     public static function form(Form $form): Form
     {
+        $isMinihouse = Filament::getCurrentPanel()?->getId() === 'minihouse-admin';
+
         return $form->schema([
             Forms\Components\Tabs::make('partner_tabs')
                 ->tabs([
                     self::representativeTab(),
                     self::businessTab(),
                     self::financialTab(),
-                    self::propertiesTab(),
+                    ...($isMinihouse ? [] : [self::propertiesTab()]),
                     self::branchAssignmentTab(),
                     self::userAssignmentTab(),
                     self::contractTab(),
@@ -167,6 +169,9 @@ class PartnerForm
             ->icon('heroicon-o-banknotes')
             ->schema([
                 Forms\Components\Section::make('Thông tin Ngân hàng')
+                    ->description(fn () => Filament::getCurrentPanel()?->getId() === 'minihouse-admin'
+                        ? 'Dùng cho đối soát và thanh toán giữa nền tảng với Partner. Tiền thuê của khách được cấu hình riêng tại từng tòa nhà.'
+                        : 'Dùng cho đối soát và thanh toán giữa nền tảng với Partner Homestay.')
                     ->schema([
                         Forms\Components\Grid::make(2)->schema([
                             Forms\Components\Grid::make(1)->schema([

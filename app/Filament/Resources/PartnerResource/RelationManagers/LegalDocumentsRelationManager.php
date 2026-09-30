@@ -30,7 +30,22 @@ class LegalDocumentsRelationManager extends RelationManager
         return $form->schema([
             Forms\Components\Select::make('type')->label('Loại giấy tờ')
                 ->options(PartnerLegalDocument::TYPES)->required()->live()
-                ->afterStateUpdated(fn ($state, Forms\Set $set) => $state === 'business_license' ? $set('is_required', true) : null),
+                ->afterStateUpdated(function ($state, Forms\Set $set): void {
+                    if ($state === 'business_license') {
+                        $set('is_required', true);
+                    }
+                    if (! in_array($state, ['fire_safety', 'security_order', 'property_ownership_or_use'], true)) {
+                        $set('building_id', null);
+                    }
+                }),
+            Forms\Components\Select::make('building_id')->label('Tòa nhà áp dụng')
+                ->options(fn () => $this->getOwnerRecord()->categories()
+                    ->where('category_type', 'product')->whereNull('parent_id')->orderBy('name')->pluck('name', 'id'))
+                ->required(fn (Forms\Get $get) => $this->getOwnerRecord()->isMinihouse()
+                    && in_array($get('type'), ['fire_safety', 'security_order', 'property_ownership_or_use'], true))
+                ->visible(fn (Forms\Get $get) => $this->getOwnerRecord()->isMinihouse()
+                    && in_array($get('type'), ['fire_safety', 'security_order', 'property_ownership_or_use'], true))
+                ->searchable()->preload(),
             Forms\Components\TextInput::make('name')->label('Tên giấy tờ')->maxLength(255),
             Forms\Components\TextInput::make('document_number')->label('Số giấy tờ')->maxLength(100),
             Forms\Components\TextInput::make('issuer')->label('Cơ quan cấp')->maxLength(255),

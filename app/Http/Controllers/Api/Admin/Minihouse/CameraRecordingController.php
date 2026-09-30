@@ -144,7 +144,6 @@ class CameraRecordingController extends Controller
     private function findInScope(Request $request, int $id): ?Camera
     {
         return Camera::query()
-            ->where('partner_id', HomestayBridge::PARTNER_ID)
             ->whereIn('branch_id', $this->permittedBuildingIds($request))
             ->find($id);
     }

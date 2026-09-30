@@ -43,7 +43,8 @@ class PartnerResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->where('partner_type', Partner::TYPE_MINIHOUSE);
+        return parent::getEloquentQuery()->where('partner_type', Partner::TYPE_MINIHOUSE)
+            ->where('id', '!=', \Modules\Minihouse\App\Support\HomestayBridge::PARTNER_ID);
     }
 
     public static function getRelations(): array
@@ -68,7 +69,7 @@ class PartnerResource extends Resource
 
     public static function canEdit(Model $record): bool
     {
-        return static::canViewAny() && $record->partner_type === Partner::TYPE_MINIHOUSE;
+        return static::canViewAny() && $record->partner_type === Partner::TYPE_MINIHOUSE && ! $record->isSystemPartner();
     }
 
     public static function canDelete(Model $record): bool

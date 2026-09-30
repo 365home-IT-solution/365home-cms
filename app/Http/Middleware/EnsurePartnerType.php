@@ -12,7 +12,7 @@ class EnsurePartnerType
     {
         $partner = $request->route('partner');
 
-        if ($partner instanceof Partner && $partner->partner_type !== $expectedType) {
+        if ($partner instanceof Partner && ($partner->partner_type !== $expectedType || $partner->isSystemPartner())) {
             abort(404);
         }
 

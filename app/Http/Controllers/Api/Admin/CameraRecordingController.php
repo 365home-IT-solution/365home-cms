@@ -139,7 +139,8 @@ class CameraRecordingController extends Controller
             return null;
         }
 
-        $query = Camera::query();
+        $query = Camera::query()
+            ->whereDoesntHave('partner', fn ($query) => $query->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE));
 
         if (! $user->isSuperAdmin()) {
             $query->where('partner_id', $user->partner_id)

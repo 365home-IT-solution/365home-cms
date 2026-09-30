@@ -3,6 +3,7 @@
 namespace App\Observers;
 
 use App\Models\Partner;
+use App\Models\Camera;
 use App\Support\GeneratesImagePresets;
 use App\Support\ResizesOversizedImage;
 use Illuminate\Support\Facades\Storage;
@@ -75,6 +76,12 @@ class CategoryObserver
 
         $accessCodeCount = AccessCode::withoutGlobalScope('partner')
             ->whereIn('category_id', $categoryIds)
+            ->update(['partner_id' => $partnerId]);
+
+        // Camera MiniHouse dùng branch_id chính là ID tòa nhà. Khi chuyển tòa nhà sang đối tác
+        // MiniHouse khác, quyền sở hữu camera phải chuyển theo ngay trong cùng cascade.
+        Camera::withoutGlobalScopes()
+            ->whereIn('branch_id', $categoryIds)
             ->update(['partner_id' => $partnerId]);
 
         // Các câu UPDATE hàng loạt ở trên dùng query builder (::whereIn()->update()) nên KHÔNG bắn

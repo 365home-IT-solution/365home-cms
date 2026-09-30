@@ -29,6 +29,12 @@ class CameraResource extends Resource
 {
     protected static ?string $model = Camera::class;
 
+    public static function getEloquentQuery(): \Illuminate\Database\Eloquent\Builder
+    {
+        return parent::getEloquentQuery()
+            ->whereDoesntHave('partner', fn ($query) => $query->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE));
+    }
+
     protected static ?int $navigationSort = 20;
 
     public static function getNavigationIcon(): string
@@ -171,6 +177,7 @@ class CameraResource extends Resource
                     $narrowedIds = self::headerActiveBranchIds();
 
                     $query = Category::query()
+                        ->whereDoesntHave('partner', fn ($partnerQuery) => $partnerQuery->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE))
                         ->where('category_type', 'product')
                         ->whereNull('parent_id');
 
@@ -182,6 +189,7 @@ class CameraResource extends Resource
                 }
 
                 return Category::query()
+                    ->whereDoesntHave('partner', fn ($partnerQuery) => $partnerQuery->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE))
                     ->whereIn('id', $user?->effectiveBranchIds() ?? [])
                     ->orderBy('name')
                     ->pluck('name', 'id')
