@@ -59,7 +59,7 @@ class CameraResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
-            ->where('partner_id', HomestayBridge::PARTNER_ID)
+            ->whereHas('partner', fn ($query) => $query->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE))
             ->whereIn('branch_id', ActiveBuildingScope::permittedBuildingIds());
     }
 

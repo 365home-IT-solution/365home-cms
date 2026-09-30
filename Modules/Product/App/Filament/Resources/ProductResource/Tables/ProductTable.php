@@ -101,6 +101,14 @@ class ProductTable extends Table
                         ? ($state ? 'warning' : 'gray')
                         : 'gray')
                     ->sortable(),
+                TextColumn::make('emergency_locked_at')
+                    ->label('Truy cập app')
+                    ->hidden(fn ($livewire) => self::shouldHideTTLockColumns() || self::isFilteredToBranchWithoutTTLock($livewire))
+                    ->badge()
+                    ->formatStateUsing(fn ($state) => $state ? 'Khóa khẩn cấp' : 'Bình thường')
+                    ->color(fn ($state) => $state ? 'danger' : 'success')
+                    ->placeholder('Bình thường')
+                    ->toggleable(),
                 ToggleColumn::make('is_activated')
                     ->label(__('product::product.table.label.is_activated'))
                     ->tooltip(function ($record) {

@@ -56,6 +56,11 @@ class ContractOtpService
 
             return true;
         } catch (\Throwable $e) {
+            // Không giữ OTP/cooldown khi email không gửi được: client phải được phép sửa cấu hình
+            // SMTP rồi yêu cầu lại ngay, và không tồn tại một mã bí mật mà người nhận chưa hề nhận.
+            Cache::forget($this->otpKey($version));
+            Cache::forget($this->attemptKey($version));
+            Cache::forget($this->cooldownKey($version));
             Log::error('Contract sign OTP mail failed', ['version_id' => $version->id, 'error' => $e->getMessage()]);
 
             return false;

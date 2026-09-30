@@ -6,12 +6,14 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\PartnerResource\Forms\PartnerForm;
 use App\Filament\Resources\PartnerResource\Pages;
+use App\Filament\Resources\PartnerResource\RelationManagers\LegalDocumentsRelationManager;
 use App\Filament\Resources\PartnerResource\Tables\PartnerTable;
 use App\Models\Partner;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Builder;
 
 // Quản lý đối tác đầy đủ — CHỈ super_admin được tạo/xem/sửa (đối tác/nhân viên không được tạo
 // đối tác khác, xem UserForm::createAccountTypeSelector()). Không dựa vào permission Shield mà
@@ -44,14 +46,24 @@ class PartnerResource extends Resource
         return PartnerTable::table($table);
     }
 
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->where('partner_type', Partner::TYPE_HOMESTAY);
+    }
+
     public static function getPages(): array
     {
         return [
-            'index'         => Pages\ListPartners::route('/'),
-            'create'        => Pages\CreatePartner::route('/create'),
-            'edit'          => Pages\EditPartner::route('/{record}/edit'),
+            'index' => Pages\ListPartners::route('/'),
+            'create' => Pages\CreatePartner::route('/create'),
+            'edit' => Pages\EditPartner::route('/{record}/edit'),
             'branch-detail' => Pages\BranchDetail::route('/{record}/branches/{branch}'),
         ];
+    }
+
+    public static function getRelations(): array
+    {
+        return [LegalDocumentsRelationManager::class];
     }
 
     private static function isSuperAdmin(): bool

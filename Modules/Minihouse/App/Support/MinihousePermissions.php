@@ -33,7 +33,7 @@ class MinihousePermissions
     // địa chỉ/tài khoản máy chủ Frigate/go2rtc dùng CHUNG cho mọi camera MiniHouse (1 cấu hình duy
     // nhất, xem HomestayBridge::PARTNER_ID) — nhạy cảm hơn CRUD camera thường nên tách quyền riêng,
     // cùng nguyên tắc page_ManageCamera bên Home.
-    public const EXTRA_PERMISSIONS = ['access_minihouse', 'view_any_reports', 'view_any_activity_logs', 'approve_invoice_payments', 'page_camera_monitor', 'page_manage_camera_settings', 'page_ttlock_locks', 'page_manage_ttlock_settings', 'page_manage_vehicle_rates'];
+    public const EXTRA_PERMISSIONS = ['access_minihouse', 'view_any_reports', 'view_any_activity_logs', 'approve_invoice_payments', 'page_camera_monitor', 'page_manage_camera_settings', 'page_ttlock_locks', 'page_manage_ttlock_settings', 'page_emergency_room_lock', 'page_manage_vehicle_rates'];
 
     public const GROUP_LABELS = [
         'buildings'              => 'Toà nhà / Phụ thu',

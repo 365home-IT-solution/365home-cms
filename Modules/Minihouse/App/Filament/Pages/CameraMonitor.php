@@ -35,7 +35,7 @@ class CameraMonitor extends Page
     public function getCameras(): \Illuminate\Support\Collection
     {
         return Camera::query()
-            ->where('partner_id', HomestayBridge::PARTNER_ID)
+            ->whereHas('partner', fn ($query) => $query->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE))
             ->whereIn('branch_id', ActiveBuildingScope::permittedBuildingIds())
             ->where('status', true)
             ->orderBy('name')
@@ -45,7 +45,7 @@ class CameraMonitor extends Page
     public function loadPlayback(int $cameraId, float $after, float $before): ?string
     {
         $camera = Camera::query()
-            ->where('partner_id', HomestayBridge::PARTNER_ID)
+            ->whereHas('partner', fn ($query) => $query->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE))
             ->whereIn('branch_id', ActiveBuildingScope::permittedBuildingIds())
             ->find($cameraId);
 

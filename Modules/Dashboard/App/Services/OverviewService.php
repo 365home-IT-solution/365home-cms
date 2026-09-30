@@ -103,7 +103,8 @@ class OverviewService
      * order_item hết giờ (đã xử lý đúng case nhiều order_items/khung giờ nối tiếp cùng 1 đơn — chỉ
      * bật ở lượt checkout TRỄ NHẤT của đơn đó, xem MarkRoomsForCleaningCommand::handle()), và tắt
      * lại khi nhân viên xác nhận đã dọn xong (ProductAction::confirmCleaning()) — KHÔNG tính lại từ
-     * đầu ở đây, chỉ đọc cột đã có sẵn.
+     * đầu ở đây, chỉ đọc cột đã có sẵn. 4 số còn lại lấy từ FrontDeskService::counts() — định nghĩa
+     * chi tiết từng số xem docblock FrontDeskService.
      * Public — tái dùng bởi DashboardController::frontDesk() (GET /api/admin/dashboard/front-desk).
      */
     public static function frontDesk(array $productIds, Carbon $start, Carbon $end): array
@@ -113,41 +114,9 @@ class OverviewService
             return ['period' => static::periodMeta($start, $end), 'checked_in_count' => 0, 'checked_out_count' => 0, 'occupied_rooms' => 0, 'total_rooms' => 0, 'overstay_rooms' => 0, 'needs_cleaning_rooms' => 0];
         }
 
-        $today = Carbon::today();
-        $now   = Carbon::now();
-
-        $orderScope = fn ($q) => $q->whereIn('product_id', $productIds)
-            ->whereHas('order', fn ($o) => $o->where('exclude_from_stats', false));
-
-        $checkedInCount = Order::query()
-            ->where('exclude_from_stats', false)
-            ->whereHas('items', fn ($q) => $q->whereIn('product_id', $productIds))
-            ->whereBetween('checked_in_at', [$start, $end])
-            ->count();
-
-        // Chưa có cột "checked_out_at"/"order_status" (migration lifecycle chưa chạy trên DB này),
-        // nên "đã trả" tạm tính theo lịch checkout_date của order_items rơi vào trong kỳ.
-        $checkedOutCount = OrderItem::query()
-            ->tap($orderScope)
-            ->whereBetween('checkout_date', [$start, $end])
-            ->distinct('order_id')
-            ->count('order_id');
-
-        $occupiedRooms = OrderItem::query()
-            ->tap($orderScope)
-            ->where('checkin_date', '<=', $now)
-            ->where('checkout_date', '>=', $now)
-            ->distinct('product_id')
-            ->count('product_id');
-
-        // "Ở quá giờ": đã nhận phòng, giờ trả phòng dự kiến hôm nay đã qua nhưng vẫn còn hiệu lực đơn.
-        $overstayRooms = OrderItem::query()
-            ->tap($orderScope)
-            ->where('checkin_date', '<=', $now)
-            ->where('checkout_date', '>=', $today->copy()->startOfDay())
-            ->where('checkout_date', '<', $now)
-            ->distinct('product_id')
-            ->count('product_id');
+        // Đã nhận / Đã trả / Có khách / Ở quá giờ — tính qua FrontDeskService, CÙNG query với danh
+        // sách chi tiết GET /api/admin/dashboard/front-desk/{type} để số trên thẻ luôn khớp số dòng.
+        $counts = FrontDeskService::counts($productIds, $start, $end);
 
         $needsCleaningRooms = Product::whereIn('id', $productIds)
             ->where('housekeeping_status', 'cleaning')
@@ -155,11 +124,11 @@ class OverviewService
 
         return [
             'period'               => static::periodMeta($start, $end),
-            'checked_in_count'     => $checkedInCount,
-            'checked_out_count'    => $checkedOutCount,
-            'occupied_rooms'       => $occupiedRooms,
+            'checked_in_count'     => $counts['checked_in_count'],
+            'checked_out_count'    => $counts['checked_out_count'],
+            'occupied_rooms'       => $counts['occupied_rooms'],
             'total_rooms'          => $totalRooms,
-            'overstay_rooms'       => $overstayRooms,
+            'overstay_rooms'       => $counts['overstay_rooms'],
             'needs_cleaning_rooms' => $needsCleaningRooms,
         ];
     }

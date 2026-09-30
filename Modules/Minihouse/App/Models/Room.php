@@ -52,6 +52,7 @@ class Room extends Product
         // nào ngoài danh sách này cho mass-assignment (Room::create()/update() sẽ ÂM THẦM bỏ qua các
         // field không có mặt ở đây, không lỗi, không warning).
         'lock_id', 'lock_id_checkout', 'unlock_both_locks',
+        'emergency_locked_at', 'emergency_locked_by', 'emergency_lock_reason',
         'slug', 'address', 'latitude', 'longitude', 'map_url', 'hotline', 'setting_video_room',
     ];
 
@@ -193,13 +194,21 @@ class Room extends Product
         });
 
         static::creating(function (Room $room) {
-            $room->partner_id   ??= HomestayBridge::PARTNER_ID;
+            $room->partner_id ??= $room->building_id
+                ? Building::withoutGlobalScopes()->whereKey($room->building_id)->value('partner_id')
+                : HomestayBridge::PARTNER_ID;
             $room->room_type_id ??= RoomType::where('slug', RoomType::MINIHOUSE_SLUG)->value('id');
             $room->styles       ??= 2;
             $room->is_in_stock  ??= true;
 
             if (! $room->slug) {
                 $room->slug = self::generateUniqueSlug($room->name ?: 'phong');
+            }
+        });
+
+        static::saving(function (Room $room) {
+            if ($room->building_id && ($room->isDirty('building_id') || blank($room->partner_id))) {
+                $room->partner_id = Building::withoutGlobalScopes()->whereKey($room->building_id)->value('partner_id');
             }
         });
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Services\ContractSigning\ContractSigningManager;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Spatie\MediaLibrary\HasMedia;
@@ -28,6 +29,7 @@ class PartnerContractVersion extends Model implements HasMedia
         'changed_by',
         'content',
         'content_hash',
+        'legal_document_snapshot',
         'signing_token',
         'partner_confirmed_at',
         'partner_signing_provider',
@@ -47,11 +49,12 @@ class PartnerContractVersion extends Model implements HasMedia
     ];
 
     protected $casts = [
-        'partner_confirmed_at'          => 'datetime',
-        'partner_signed_at'             => 'datetime',
-        'platform_signed_at'            => 'datetime',
-        'partner_signature_certificate'  => 'array',
+        'partner_confirmed_at' => 'datetime',
+        'partner_signed_at' => 'datetime',
+        'platform_signed_at' => 'datetime',
+        'partner_signature_certificate' => 'array',
         'platform_signature_certificate' => 'array',
+        'legal_document_snapshot' => 'array',
     ];
 
     public function registerMediaCollections(): void
@@ -130,11 +133,12 @@ class PartnerContractVersion extends Model implements HasMedia
         // verify() có thể ném lỗi (vd provider chưa hoàn thiện, lỗi mạng khi cần tra CA...) — đây
         // chỉ là 1 badge hiển thị PHỤ trên trang, KHÔNG được để crash cả trang chỉ vì badge này.
         try {
-            return app(\App\Services\ContractSigning\ContractSigningManager::class)
+            return app(ContractSigningManager::class)
                 ->driver($this->partner_signing_provider)
                 ->verify($this->content_hash, $this->partner_signature, $this->partner_signature_certificate);
         } catch (\Throwable $e) {
             report($e);
+
             return false;
         }
     }
@@ -146,11 +150,12 @@ class PartnerContractVersion extends Model implements HasMedia
         }
 
         try {
-            return app(\App\Services\ContractSigning\ContractSigningManager::class)
+            return app(ContractSigningManager::class)
                 ->driver($this->platform_signing_provider)
                 ->verify($this->content_hash, $this->platform_signature, $this->platform_signature_certificate);
         } catch (\Throwable $e) {
             report($e);
+
             return false;
         }
     }

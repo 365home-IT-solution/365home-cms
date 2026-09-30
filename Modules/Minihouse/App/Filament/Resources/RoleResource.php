@@ -226,12 +226,11 @@ class RoleResource extends Resource implements HasShieldPermissions
             }
 
             if ($component->isVisible() && count($permissions) > 0) {
+                $record->loadMissing('permissions');
+                $assignedNames = $record->permissions->pluck('name');
+
                 $component->state(
-                    collect($permissions)
-                        /** @phpstan-ignore-next-line */
-                        ->filter(fn ($value, $key) => $record->checkPermissionTo($key))
-                        ->keys()
-                        ->toArray()
+                    collect(array_keys($permissions))->intersect($assignedNames)->values()->all()
                 );
             }
         }

@@ -37,6 +37,10 @@ class CameraMonitor extends Page
     public function getCameras(): \Illuminate\Support\Collection
     {
         return Camera::query()
+            // MiniHouse dùng panel và cấu hình Frigate riêng theo từng tòa nhà. Super admin không bị
+            // global partner scope giới hạn nên nếu không loại trừ ở đây, cùng một camera MiniHouse
+            // sẽ bị mở đồng thời ở cả trang Home lẫn MiniHouse, nhân đôi kết nối MSE tới go2rtc.
+            ->whereDoesntHave('partner', fn ($query) => $query->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE))
             ->where('status', true)
             ->orderBy('name')
             ->get();

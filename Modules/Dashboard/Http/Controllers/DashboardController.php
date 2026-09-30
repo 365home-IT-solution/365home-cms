@@ -5,6 +5,7 @@ namespace Modules\Dashboard\Http\Controllers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Modules\Dashboard\App\Services\FrontDeskService;
 use Modules\Dashboard\App\Services\KpiService;
 use Modules\Dashboard\App\Services\OccupancyService;
 use Modules\Dashboard\App\Services\OverviewService;
@@ -140,6 +141,66 @@ class DashboardController extends Controller
         $data       = OverviewService::frontDesk($productIds, $start, $end);
 
         return response()->json(['data' => $data]);
+    }
+
+    /**
+     * GET /api/admin/dashboard/front-desk/{type}
+     * Danh sách CHI TIẾT khi bấm vào 1 thẻ LỄ TÂN — type: checked-in (Đã nhận) | checked-out (Đã
+     * trả) | has-guest (Có khách) | overstay (Ở quá giờ). "Cần dọn" dùng GET /api/admin/products
+     * ?front_desk_status=needs_cleaning. meta.total luôn bằng đúng số tương ứng ở GET front-desk
+     * (cùng query, xem FrontDeskService) khi truyền cùng filter/categories/branch_id và không search.
+     *
+     * Query params:
+     *  - filter, start_date, end_date: như GET front-desk — CHỈ có tác dụng với checked-in/
+     *    checked-out; has-guest/overstay luôn là ảnh chụp tức thời (meta.period = null)
+     *  - categories / branch_id: như GET front-desk
+     *  - search: mã đơn / tên khách / SĐT khách / tên phòng
+     *  - per_page (mặc định 20, tối đa 100), page
+     */
+    public function frontDeskDetails(Request $request, string $type): JsonResponse
+    {
+        $type = str_replace('-', '_', $type);
+
+        $filter = in_array($request->query('filter'), self::KPI_FILTERS, true)
+            ? $request->query('filter')
+            : 'today';
+
+        [$start, $end] = OverviewService::resolveRange(
+            $filter,
+            $filter === 'custom' ? $request->query('start_date') : null,
+            $filter === 'custom' ? $request->query('end_date') : null,
+        );
+
+        $productIds = OverviewService::scopedProductIds($request->user(), $this->resolveBranchCategoryIds($request));
+        $perPage    = max(1, min(100, (int) $request->query('per_page', 20)));
+        $page       = max(1, (int) $request->query('page', 1));
+        $isSnapshot = in_array($type, FrontDeskService::SNAPSHOT_TYPES, true);
+
+        ['paginator' => $paginator, 'summary' => $summary] = FrontDeskService::details(
+            $type,
+            $productIds,
+            $start,
+            $end,
+            trim((string) $request->query('search', '')) ?: null,
+            $perPage,
+            $page,
+        );
+
+        return response()->json([
+            'data' => $paginator->items(),
+            'meta' => [
+                'type'         => $type,
+                'label'        => FrontDeskService::TYPE_LABELS[$type],
+                'is_snapshot'  => $isSnapshot,
+                'period'       => $isSnapshot ? null : ['start' => $start->toDateString(), 'end' => $end->toDateString()],
+                'generated_at' => now(),
+                'total'        => $summary['total'],
+                'total_slots'  => $summary['total_slots'],
+                'current_page' => $paginator->currentPage(),
+                'per_page'     => $paginator->perPage(),
+                'last_page'    => $paginator->lastPage(),
+            ],
+        ]);
     }
 
     /**

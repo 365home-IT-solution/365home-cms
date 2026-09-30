@@ -7,12 +7,15 @@ namespace Modules\Minihouse\App\Filament\Support;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Toggle;
+use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Tables\Actions\Action;
 use Illuminate\Support\HtmlString;
 use Modules\Minihouse\App\Models\Room;
 use Modules\Minihouse\App\Services\ContractTtlockService;
 use Modules\Minihouse\App\Support\TtlockLocks;
+use App\Models\User;
+use App\Services\RoomEmergencyAccessService;
 
 // "Gán khóa TTLock" + "Mở khóa" cho từng Phòng — mirror AssignLockAction (Home). Khác Home: tài
 // khoản TTLock lấy THEO TOÀ NHÀ của phòng (TtlockLocks::service($room->building_id)), không theo
@@ -111,5 +114,45 @@ class RoomLockActions
                     ? Notification::make()->title('Đã gửi lệnh mở khóa phòng ' . $record->code)->success()->send()
                     : Notification::make()->title('Không mở được khóa')->body('Kiểm tra khóa còn kết nối mạng và đã bật "Mở khóa từ xa" trong app Sciener chưa.')->danger()->send();
             });
+    }
+
+    public static function emergencyAccess(): Action
+    {
+        return Action::make('emergencyAccess')
+            ->label(fn (Room $record) => $record->emergency_locked_at ? 'Gỡ khóa khẩn cấp' : 'Khóa khẩn cấp')
+            ->icon(fn (Room $record) => $record->emergency_locked_at ? 'heroicon-o-lock-open' : 'heroicon-o-shield-exclamation')
+            ->color(fn (Room $record) => $record->emergency_locked_at ? 'success' : 'danger')
+            ->extraAttributes(['class' => 'mh-row-action'])
+            ->visible(fn (Room $record) => $record->lock_id && self::canEmergencyLock())
+            ->requiresConfirmation()
+            ->modalHeading(fn (Room $record) => $record->emergency_locked_at
+                ? 'Gỡ khóa truy cập khẩn cấp — phòng ' . $record->code . '?'
+                : 'Khóa quyền mở qua ứng dụng — phòng ' . $record->code . '?')
+            ->modalDescription(fn (Room $record) => $record->emergency_locked_at
+                ? 'Khách có hợp đồng hiệu lực sẽ mở cửa qua ứng dụng được trở lại.'
+                : 'Khách thuê sẽ không thể mở cửa qua ứng dụng. Mật mã và thẻ TTLock không bị thu hồi.')
+            ->form(fn (Room $record): array => $record->emergency_locked_at ? [] : [
+                Textarea::make('reason')->label('Lý do')->required()->minLength(5)->maxLength(1000),
+            ])
+            ->action(function (Room $record, array $data): void {
+                /** @var User $actor */
+                $actor = auth()->user();
+                $service = app(RoomEmergencyAccessService::class);
+
+                $record->emergency_locked_at
+                    ? $service->release($record, $actor)
+                    : $service->lock($record, $actor, (string) $data['reason']);
+
+                Notification::make()
+                    ->title($record->emergency_locked_at ? 'Đã gỡ khóa khẩn cấp' : 'Đã khóa quyền mở qua ứng dụng')
+                    ->success()->send();
+            });
+    }
+
+    private static function canEmergencyLock(): bool
+    {
+        $user = auth()->user();
+
+        return $user instanceof User && ($user->isSuperAdmin() || $user->can('page_emergency_room_lock'));
     }
 }

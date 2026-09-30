@@ -12,6 +12,7 @@ use Modules\Minihouse\App\Models\PortalNotification;
 use Modules\Minihouse\App\Models\Tenant;
 use Modules\Minihouse\App\Services\ContractTtlockService;
 use Modules\Minihouse\App\Services\TenantPortalService;
+use Modules\Minihouse\App\Services\TenantRoomUnlockService;
 use Modules\Minihouse\Http\Controllers\Portal\Concerns\InteractsWithTenantPortalData;
 
 // Portal khách thuê ĐÃ ĐĂNG NHẬP (guard "tenant", xem TenantAuthController) — xem hợp đồng/hoá đơn/
@@ -183,6 +184,20 @@ class TenantPortalController extends Controller
         }
 
         return back()->with('portal_info', $result['message'] . ' Mã mới: ' . $result['code']);
+    }
+
+    public function unlockRoom(int $id, TenantRoomUnlockService $service): RedirectResponse
+    {
+        $tenant = $this->tenant();
+        $contract = TenantPortalService::tenantContracts($tenant)->firstWhere('id', $id);
+
+        abort_unless($contract, 403);
+
+        $result = $service->unlock($tenant, $contract);
+
+        return $result['success']
+            ? back()->with('portal_info', $result['message'])
+            : back()->withErrors(['unlock' => $result['message']]);
     }
 
     public function invoices(): View

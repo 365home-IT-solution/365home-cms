@@ -314,12 +314,16 @@ class RoleResource extends Resource implements HasShieldPermissions
                 return;
             }
             if ($component->isVisible() && count($permissions) > 0) {
+                // Không gọi checkPermissionTo() cho từng checkbox: trang có hàng trăm quyền và
+                // permission vừa sinh từ Resource có thể chưa tồn tại trong DB. Spatie sẽ ném
+                // PermissionDoesNotExist (500), đồng thời cách cũ tạo rất nhiều lần kiểm tra lặp.
+                // Role đã có quan hệ permissions là nguồn sự thật; chỉ lấy phần giao với options
+                // đang hiển thị, một lần duy nhất và không phụ thuộc cache/guard của permission ảo.
+                $record->loadMissing('permissions');
+                $assignedNames = $record->permissions->pluck('name');
+
                 $component->state(
-                    collect($permissions)
-                        /** @phpstan-ignore-next-line */
-                        ->filter(fn ($value, $key) => $record->checkPermissionTo($key))
-                        ->keys()
-                        ->toArray()
+                    collect(array_keys($permissions))->intersect($assignedNames)->values()->all()
                 );
             }
         }

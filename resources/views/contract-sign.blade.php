@@ -82,7 +82,7 @@
                         Đang chờ nền tảng ký số và phát hành hợp đồng chính thức.
                     @endif
                 </div>
-            @else
+            @elseif ($canSign)
                 <form method="POST" action="{{ route('contract.sign.send-otp', $version->signing_token) }}" style="margin-bottom:16px;">
                     @csrf
                     <button type="submit" class="btn-secondary">Gửi mã xác nhận qua email</button>
@@ -110,6 +110,10 @@
 
                     <button type="submit" class="btn-primary">Xác nhận ký hợp đồng</button>
                 </form>
+            @else
+                <div class="alert alert-error">
+                    Hồ sơ pháp lý của đối tác chưa được Super Admin phê duyệt hoặc đang cần xác minh lại. Hợp đồng tạm thời chưa thể ký.
+                </div>
             @endif
         </div>
     </div>

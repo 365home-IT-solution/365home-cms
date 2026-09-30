@@ -710,7 +710,7 @@ class ContractDocumentService
         }
 
         $service    = app(AdminNotificationService::class);
-        $recipients = $service->recipientsForCategory($buildingId, HomestayBridge::PARTNER_ID);
+        $recipients = $service->recipientsForCategory($buildingId, $contract?->room?->partner_id);
 
         $service->notify(
             $recipients,

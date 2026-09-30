@@ -1512,7 +1512,8 @@ class OrderController extends Controller
 
             return [
                 'type'           => 'ttlock',
-                'can_unlock'     => true,
+                'can_unlock'     => $product->emergency_locked_at === null,
+                'is_emergency_locked' => $product->emergency_locked_at !== null,
                 'gate_password'  => $accessCode?->code,
                 'status'         => $accessCode?->status,
                 'valid_from'     => $accessCode?->valid_from?->toIso8601String(),

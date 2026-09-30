@@ -36,7 +36,8 @@ class CameraController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        $query = Camera::query()->with('branch:id,name');
+        $query = Camera::query()->with('branch:id,name')
+            ->whereDoesntHave('partner', fn ($query) => $query->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE));
 
         if (! $user->isSuperAdmin()) {
             $query->where('partner_id', $user->partner_id)
@@ -72,7 +73,8 @@ class CameraController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        $query = Camera::query()->with('branch:id,name');
+        $query = Camera::query()->with('branch:id,name')
+            ->whereDoesntHave('partner', fn ($query) => $query->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE));
 
         if (! $user->isSuperAdmin()) {
             $query->where('partner_id', $user->partner_id)
@@ -227,7 +229,8 @@ class CameraController extends Controller
 
     private function findInScope(User $user, int $id): ?Camera
     {
-        $query = Camera::query();
+        $query = Camera::query()
+            ->whereDoesntHave('partner', fn ($query) => $query->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE));
 
         if (! $user->isSuperAdmin()) {
             $query->where('partner_id', $user->partner_id)
@@ -247,6 +250,7 @@ class CameraController extends Controller
         $branch = Category::query()
             ->where('category_type', 'product')
             ->whereNull('parent_id')
+            ->whereDoesntHave('partner', fn ($query) => $query->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE))
             ->find($branchId);
 
         if (! $branch) {

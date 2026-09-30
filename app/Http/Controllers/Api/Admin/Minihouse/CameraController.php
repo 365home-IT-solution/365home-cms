@@ -12,7 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Modules\Minihouse\App\Models\CameraSetting;
-use Modules\Minihouse\App\Support\HomestayBridge;
+use Modules\Minihouse\App\Models\Building;
 
 // Mirror App\Http\Controllers\Api\Admin\CameraController (Home) — dùng CHUNG bảng "cameras"/model
 // App\Models\Camera (không có model/bảng riêng cho MiniHouse), chỉ đổi ranh giới quyền: Home lọc theo
@@ -38,7 +38,6 @@ class CameraController extends Controller
 
         $query = Camera::query()
             ->with('branch:id,name')
-            ->where('partner_id', HomestayBridge::PARTNER_ID)
             ->whereIn('branch_id', $permitted);
 
         if ($request->query('status', '1') !== 'all') {
@@ -100,8 +99,9 @@ class CameraController extends Controller
             return response()->json(['message' => 'Không có quyền tạo camera cho toà nhà này.'], 403);
         }
 
+        $building = Building::withoutGlobalScopes()->findOrFail((int) $data['building_id']);
         $camera = Camera::create([
-            'partner_id'           => HomestayBridge::PARTNER_ID,
+            'partner_id'           => $building->partner_id,
             'branch_id'            => $data['building_id'],
             'name'                 => $data['name'],
             'stream_key'           => $data['stream_key'],
@@ -155,7 +155,9 @@ class CameraController extends Controller
                 return response()->json(['message' => 'Không có quyền chuyển camera sang toà nhà này.'], 403);
             }
 
-            $data['branch_id'] = $data['building_id'];
+            $building = Building::withoutGlobalScopes()->findOrFail((int) $data['building_id']);
+            $data['branch_id'] = $building->id;
+            $data['partner_id'] = $building->partner_id;
             unset($data['building_id']);
         }
 
@@ -190,7 +192,6 @@ class CameraController extends Controller
     private function findInScope(Request $request, int $id): ?Camera
     {
         return Camera::query()
-            ->where('partner_id', HomestayBridge::PARTNER_ID)
             ->whereIn('branch_id', $this->permittedBuildingIds($request))
             ->find($id);
     }

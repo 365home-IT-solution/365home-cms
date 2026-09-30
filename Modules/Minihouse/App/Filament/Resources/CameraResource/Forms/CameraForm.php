@@ -69,7 +69,7 @@ class CameraForm
                 ->searchable()
                 ->required(),
 
-            Hidden::make('partner_id')->default(HomestayBridge::PARTNER_ID)->dehydrated(),
+            Hidden::make('partner_id')->dehydrated(false),
 
             Toggle::make('status')
                 ->label('Đang hoạt động')

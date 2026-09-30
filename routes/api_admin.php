@@ -26,6 +26,8 @@ use App\Http\Controllers\Api\Admin\NotificationController as AdminNotificationCo
 use App\Http\Controllers\Api\Admin\OrderController;
 use App\Http\Controllers\Api\Admin\OrderPaymentController;
 use App\Http\Controllers\Api\Admin\PositionController;
+use App\Http\Controllers\Api\Admin\PartnerLegalDocumentController;
+use App\Http\Controllers\Api\Admin\PartnerController as AdminPartnerController;
 use App\Http\Controllers\Api\Admin\ProductController as AdminProductController;
 use App\Http\Controllers\Api\Admin\PromotionController as AdminPromotionController;
 use App\Http\Controllers\Api\Admin\PushNotificationController as AdminPushNotificationController;
@@ -70,6 +72,38 @@ Route::post('admin/login', [AdminAuthController::class, 'login'])->name('api.adm
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.admin.')->group(function () {
     Route::post('logout', [AdminAuthController::class, 'logout'])->name('logout');
     Route::get('me',      [AdminAuthController::class, 'me'])->name('me');
+
+    Route::middleware('partner.type:homestay')->group(function () {
+    Route::get('partners', [AdminPartnerController::class, 'index'])->name('partners.index');
+    Route::post('partners', [AdminPartnerController::class, 'store'])->name('partners.store');
+    Route::get('partners/{partner}', [AdminPartnerController::class, 'show'])->name('partners.show');
+    Route::match(['put', 'patch'], 'partners/{partner}', [AdminPartnerController::class, 'update'])->name('partners.update');
+    Route::get('partners/{partner}/contract', [AdminPartnerController::class, 'contract'])->name('partners.contract.show');
+    Route::post('partners/{partner}/contract/send', [AdminPartnerController::class, 'createContract'])->name('partners.contract.send');
+    Route::post('partners/{partner}/contract/platform-sign', [AdminPartnerController::class, 'platformSign'])->name('partners.contract.platform-sign');
+    Route::get('partners/{partner}/financial', [AdminPartnerController::class, 'financial'])->name('partners.financial.show');
+    Route::post('partners/{partner}/financial', [AdminPartnerController::class, 'updateFinancial'])->name('partners.financial.update');
+    Route::get('partners/{partner}/facilities', [AdminPartnerController::class, 'facilities'])->name('partners.facilities.index');
+    Route::post('partners/{partner}/facilities', [AdminPartnerController::class, 'storeFacility'])->name('partners.facilities.store');
+    Route::get('partners/{partner}/facilities/{facility}', [AdminPartnerController::class, 'showFacility'])->name('partners.facilities.show');
+    Route::patch('partners/{partner}/facilities/{facility}', [AdminPartnerController::class, 'updateFacility'])->name('partners.facilities.update');
+    Route::get('partners/{partner}/branch-assignments', [AdminPartnerController::class, 'branchAssignments'])->name('partners.branch-assignments.show');
+    Route::put('partners/{partner}/branch-assignments', [AdminPartnerController::class, 'updateBranchAssignments'])->name('partners.branch-assignments.update');
+    Route::get('partners/{partner}/user-assignments', [AdminPartnerController::class, 'userAssignments'])->name('partners.user-assignments.show');
+    Route::put('partners/{partner}/user-assignments', [AdminPartnerController::class, 'updateUserAssignments'])->name('partners.user-assignments.update');
+
+    Route::prefix('partners/{partner}/legal-documents')->name('partners.legal-documents.')->group(function () {
+        Route::get('/', [PartnerLegalDocumentController::class, 'index'])->name('index');
+        Route::post('/', [PartnerLegalDocumentController::class, 'store'])->name('store');
+        Route::post('submit', [PartnerLegalDocumentController::class, 'submit'])->name('submit');
+        Route::post('approve-dossier', [PartnerLegalDocumentController::class, 'approveDossier'])->name('approve-dossier');
+        Route::get('{document}', [PartnerLegalDocumentController::class, 'show'])->name('show');
+        Route::post('{document}', [PartnerLegalDocumentController::class, 'update'])->name('update');
+        Route::delete('{document}', [PartnerLegalDocumentController::class, 'destroy'])->name('destroy');
+        Route::post('{document}/review', [PartnerLegalDocumentController::class, 'review'])->name('review');
+        Route::get('{document}/download', [PartnerLegalDocumentController::class, 'download'])->name('download');
+    });
+    });
 
     // Đăng ký FCM/Expo push token cho app admin (Bearer) — KHÁC route web /admin/api/fcm-token
     // (session + CSRF, dành cho trình duyệt), xem docblock FcmTokenController.
@@ -343,6 +377,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::delete('rooms/{id}/room-type/{roomTypeId}', [AdminProductController::class, 'destroyRoomType'])->name('rooms.room-type.destroy');
     Route::patch('rooms/{id}/confirm-cleaning', [AdminProductController::class, 'confirmCleaning'])->name('rooms.confirm-cleaning');
     Route::post('rooms/{id}/unlock', [AdminProductController::class, 'unlock'])->name('rooms.unlock');
+    Route::post('rooms/emergency-lock/bulk', [AdminProductController::class, 'bulkEmergencyLock'])->name('rooms.emergency-lock.bulk');
+    Route::post('rooms/{id}/emergency-lock', [AdminProductController::class, 'emergencyLock'])->name('rooms.emergency-lock');
+    Route::delete('rooms/{id}/emergency-lock', [AdminProductController::class, 'releaseEmergencyLock'])->name('rooms.emergency-lock.release');
     Route::post('rooms/{id}/block',   [AdminRoomBlockController::class, 'block'])->name('rooms.block');
     Route::delete('rooms/{id}/block', [AdminRoomBlockController::class, 'unblock'])->name('rooms.block.release');
     Route::patch('rooms/{id}/booking-settings', [AdminProductController::class, 'updateBookingSettings'])->name('rooms.booking-settings');

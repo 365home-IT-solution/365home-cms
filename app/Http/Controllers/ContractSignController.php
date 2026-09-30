@@ -6,6 +6,7 @@ namespace App\Http\Controllers;
 
 use App\Models\PartnerContractVersion;
 use App\Services\ContractOtpService;
+use App\Services\PartnerLegalDocumentService;
 use App\Support\PartnerContractRenderer;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -23,21 +24,27 @@ use Illuminate\View\View;
 // ("Hoàn tất ký số (Đối tác)"), thực hiện sau đó khi thuận tiện, tự nhập OTP đọc từ app SmartCA.
 class ContractSignController extends Controller
 {
-    public function show(string $token): View
+    public function show(string $token, PartnerLegalDocumentService $documents): View
     {
         $version = $this->findVersion($token);
+        $eligible = $documents->isContractEligible($version->partner);
 
         return view('contract-sign', [
-            'version'        => $version,
-            'partner'        => $version->partner,
-            'canSign'        => ! $version->isPartnerConfirmed(),
-            'framedContent'  => PartnerContractRenderer::renderFramed($version->content, $version->partner, $version),
+            'version' => $version,
+            'partner' => $version->partner,
+            'canSign' => $eligible && ! $version->isPartnerConfirmed(),
+            'legalDocumentsEligible' => $eligible,
+            'framedContent' => PartnerContractRenderer::renderFramed($version->content, $version->partner, $version),
         ]);
     }
 
-    public function sendOtp(string $token, ContractOtpService $otp): RedirectResponse
+    public function sendOtp(string $token, ContractOtpService $otp, PartnerLegalDocumentService $documents): RedirectResponse
     {
         $version = $this->findVersion($token);
+
+        if (! $documents->isContractEligible($version->partner)) {
+            return back()->with('error', 'Hồ sơ pháp lý của đối tác chưa được phê duyệt hoặc cần xác minh lại.');
+        }
 
         if ($version->isPartnerConfirmed()) {
             return back()->with('error', 'Hợp đồng này đã được xác nhận trước đó.');
@@ -56,29 +63,35 @@ class ContractSignController extends Controller
             return back()->with('error', 'Đối tác chưa có email liên hệ để gửi mã xác nhận.');
         }
 
-        $otp->send($version, $email);
+        if (! $otp->send($version, $email)) {
+            return back()->with('error', 'Không gửi được mã xác nhận qua email. Vui lòng liên hệ quản trị viên hoặc thử lại sau.');
+        }
 
         $maskedEmail = preg_replace('/^(.{2}).*(@.*)$/', '$1***$2', $email);
 
         return back()->with('success', "Đã gửi mã xác nhận đến email {$maskedEmail}.");
     }
 
-    public function sign(Request $request, string $token, ContractOtpService $otp): RedirectResponse
+    public function sign(Request $request, string $token, ContractOtpService $otp, PartnerLegalDocumentService $documents): RedirectResponse
     {
         $version = $this->findVersion($token);
+
+        if (! $documents->isContractEligible($version->partner)) {
+            return back()->with('error', 'Hồ sơ pháp lý của đối tác chưa được phê duyệt hoặc cần xác minh lại.');
+        }
 
         if ($version->isPartnerConfirmed()) {
             return back()->with('error', 'Hợp đồng này đã được xác nhận trước đó.');
         }
 
         $data = $request->validate([
-            'otp'         => ['required', 'string', 'size:6'],
+            'otp' => ['required', 'string', 'size:6'],
             'signer_name' => ['required', 'string', 'max:255'],
-            'agree'       => ['required', 'accepted'],
+            'agree' => ['required', 'accepted'],
         ], [], [
-            'otp'         => 'mã xác nhận',
+            'otp' => 'mã xác nhận',
             'signer_name' => 'họ tên người ký',
-            'agree'       => 'đồng ý điều khoản',
+            'agree' => 'đồng ý điều khoản',
         ]);
 
         if (! $otp->verify($version, $data['otp'])) {
@@ -88,9 +101,9 @@ class ContractSignController extends Controller
         // OTP xác thực danh tính xong — CHỈ ghi nhận đồng ý ở đây (xem comment đầu file lý do
         // không ký số thật ngay tại bước này). Nhân viên sẽ hoàn tất ký số thật sau đó.
         $version->update([
-            'partner_confirmed_at'      => now(),
-            'partner_signed_by_name'    => $data['signer_name'],
-            'partner_signed_ip'         => $request->ip(),
+            'partner_confirmed_at' => now(),
+            'partner_signed_by_name' => $data['signer_name'],
+            'partner_signed_ip' => $request->ip(),
             'partner_signed_user_agent' => (string) $request->userAgent(),
         ]);
 

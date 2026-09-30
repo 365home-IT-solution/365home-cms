@@ -1,0 +1,194 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services;
+
+use App\Models\Partner;
+use App\Models\PartnerLegalDocument;
+use App\Models\PartnerStatusLog;
+use App\Models\User;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+
+class PartnerLegalDocumentService
+{
+    public function readiness(Partner $partner): array
+    {
+        $documents = $partner->legalDocuments()->with('media')->get();
+        $required = $documents->filter(fn (PartnerLegalDocument $document) => $document->is_required || $document->type === 'business_license');
+        $problems = [];
+        $requiredTypes = ['business_license'];
+
+        foreach ($requiredTypes as $requiredType) {
+            $matching = $documents->where('type', $requiredType)->whereNull('building_id');
+            if ($matching->isEmpty()) {
+                $problems[] = 'Thiếu '.(PartnerLegalDocument::TYPES[$requiredType] ?? $requiredType).'.';
+            } elseif (! $matching->contains(fn (PartnerLegalDocument $document) => $this->isUsable($document))) {
+                $problems[] = (PartnerLegalDocument::TYPES[$requiredType] ?? $requiredType).' chưa được duyệt hoặc đã hết hạn.';
+            }
+        }
+
+        if ($partner->isMinihouse()) {
+            $buildingTypes = ['fire_safety', 'security_order', 'property_ownership_or_use'];
+            $buildings = $partner->categories()->where('category_type', 'product')->whereNull('parent_id')->get(['id', 'name']);
+
+            if ($buildings->isEmpty()) {
+                $problems[] = 'Đối tác MiniHouse chưa được gán tòa nhà.';
+            }
+
+            foreach ($buildings as $building) {
+                foreach ($buildingTypes as $requiredType) {
+                    $matching = $documents->where('building_id', $building->id)->where('type', $requiredType);
+                    $label = PartnerLegalDocument::TYPES[$requiredType] ?? $requiredType;
+                    if ($matching->isEmpty()) {
+                        $problems[] = "Tòa nhà {$building->name}: thiếu {$label}.";
+                    } elseif (! $matching->contains(fn (PartnerLegalDocument $document) => $this->isUsable($document))) {
+                        $problems[] = "Tòa nhà {$building->name}: {$label} chưa được duyệt hoặc đã hết hạn.";
+                    }
+                }
+            }
+        }
+
+        foreach ($required as $document) {
+            if (! $this->isUsable($document)) {
+                $problems[] = (PartnerLegalDocument::TYPES[$document->type] ?? $document->name ?? $document->type)
+                    .' chưa được duyệt hoặc đã hết hạn.';
+            }
+        }
+
+        return [
+            'ready' => $problems === [],
+            'approved' => $required->filter(fn ($document) => $this->isUsable($document))->count(),
+            'required' => max(count($requiredTypes) + ($partner->isMinihouse()
+                ? max(1, $partner->categories()->where('category_type', 'product')->whereNull('parent_id')->count()) * 3
+                : 0), $required->count()),
+            'problems' => array_values(array_unique($problems)),
+        ];
+    }
+
+    public function isContractEligible(Partner $partner): bool
+    {
+        return $partner->verification_status === 'approved' && $this->readiness($partner)['ready'];
+    }
+
+    public function assertContractEligible(Partner $partner): void
+    {
+        $readiness = $this->readiness($partner);
+
+        if ($partner->verification_status !== 'approved' || ! $readiness['ready']) {
+            throw ValidationException::withMessages([
+                'legal_documents' => $readiness['problems'] ?: ['Hồ sơ pháp lý chưa được Super Admin phê duyệt.'],
+            ]);
+        }
+    }
+
+    public function submit(Partner $partner): void
+    {
+        $documents = $partner->legalDocuments()->with('media')->get();
+        if ($documents->whereIn('status', ['draft', 'changes_requested', 'rejected'])->isEmpty()) {
+            throw ValidationException::withMessages(['documents' => 'Không có giấy tờ mới để gửi duyệt.']);
+        }
+
+        foreach ($documents->whereIn('status', ['draft', 'changes_requested', 'rejected']) as $document) {
+            if (! $document->hasMedia('file')) {
+                throw ValidationException::withMessages(['documents' => 'Mỗi giấy tờ gửi duyệt phải có tệp đính kèm.']);
+            }
+        }
+
+        DB::transaction(function () use ($partner) {
+            $partner->legalDocuments()->whereIn('status', ['draft', 'changes_requested', 'rejected'])->update([
+                'status' => 'pending_review',
+                'submitted_at' => now(),
+                'review_note' => null,
+                'reviewed_at' => null,
+                'reviewed_by' => null,
+            ]);
+            $this->changePartnerStatus($partner, 'pending', 'Đối tác đã gửi hồ sơ pháp lý để xét duyệt.');
+            $partner->update(['verification_submitted_at' => now(), 'verified_at' => null, 'verified_by' => null]);
+        });
+    }
+
+    public function review(PartnerLegalDocument $document, string $status, ?string $note, User $reviewer): void
+    {
+        if (! $reviewer->isSuperAdmin()) {
+            abort(403, 'Chỉ Super Admin được xác minh giấy tờ.');
+        }
+        if (! in_array($status, ['approved', 'changes_requested', 'rejected'], true)) {
+            throw ValidationException::withMessages(['status' => 'Trạng thái xét duyệt không hợp lệ.']);
+        }
+        if ($status !== 'approved' && blank($note)) {
+            throw ValidationException::withMessages(['review_note' => 'Phải nhập lý do khi yêu cầu bổ sung hoặc từ chối.']);
+        }
+        if (! $document->hasMedia('file')) {
+            throw ValidationException::withMessages(['file' => 'Giấy tờ chưa có tệp đính kèm.']);
+        }
+
+        $document->update([
+            'status' => $status,
+            'review_note' => $note,
+            'reviewed_at' => now(),
+            'reviewed_by' => $reviewer->id,
+        ]);
+
+        if ($status !== 'approved' && $document->partner->verification_status === 'approved') {
+            $this->changePartnerStatus($document->partner, 'pending', 'Giấy tờ pháp lý cần được xác minh lại.');
+        }
+    }
+
+    public function approveDossier(Partner $partner, User $reviewer, ?string $note = null): void
+    {
+        if (! $reviewer->isSuperAdmin()) {
+            abort(403, 'Chỉ Super Admin được phê duyệt hồ sơ.');
+        }
+        $readiness = $this->readiness($partner);
+        if (! $readiness['ready']) {
+            throw ValidationException::withMessages(['legal_documents' => $readiness['problems']]);
+        }
+
+        DB::transaction(function () use ($partner, $reviewer, $note) {
+            $this->changePartnerStatus($partner, 'approved', $note ?: 'Super Admin đã xác minh toàn bộ hồ sơ pháp lý.');
+            $partner->update([
+                'status' => true,
+                'verified_at' => now(),
+                'verified_by' => $reviewer->id,
+                'verification_note' => $note,
+            ]);
+        });
+    }
+
+    public function snapshot(Partner $partner): array
+    {
+        return $partner->legalDocuments()->with('media')->get()->map(fn (PartnerLegalDocument $document) => [
+            'id' => $document->id,
+            'type' => $document->type,
+            'document_number' => $document->document_number,
+            'issuer' => $document->issuer,
+            'issued_at' => $document->issued_at?->toDateString(),
+            'expires_at' => $document->expires_at?->toDateString(),
+            'file_sha256' => ($media = $document->getFirstMedia('file')) && is_file($media->getPath())
+                ? hash_file('sha256', $media->getPath()) : null,
+            'approved_at' => $document->reviewed_at?->toIso8601String(),
+        ])->all();
+    }
+
+    private function isUsable(PartnerLegalDocument $document): bool
+    {
+        return $document->status === 'approved' && ! $document->isExpired() && $document->hasMedia('file');
+    }
+
+    private function changePartnerStatus(Partner $partner, string $status, string $note): void
+    {
+        $from = $partner->verification_status;
+        $partner->update(['verification_status' => $status]);
+        if ($from !== $status) {
+            PartnerStatusLog::create([
+                'partner_id' => $partner->id,
+                'from_status' => $from,
+                'to_status' => $status,
+                'note' => $note,
+                'changed_by' => auth()->id(),
+            ]);
+        }
+    }
+}
