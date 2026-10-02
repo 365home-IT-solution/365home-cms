@@ -45,10 +45,36 @@ class TTLockService
     ) {
         $this->clientId     = $clientId;
         $this->clientSecret = $clientSecret;
-        $this->username     = $username;
+        $this->username     = self::normalizeUsername($username);
         $this->password     = $password;
         $this->apiBase      = $apiBase;
         $this->cachePrefix  = $cachePrefix;
+    }
+
+    // TTLock chỉ nhận tài khoản số điện thoại ở dạng quốc tế có dấu "+" ("+84352423133") — LỖI THẬT
+    // 2026-10-02: tài khoản "Về nhà StayCation" lưu "0352423133" (và thử "84352423133") đều bị
+    // /oauth2/token trả errcode 10007 "invalid account or invalid password" dù mật khẩu đúng, nên
+    // không lấy được token → "Gán khóa TTLock" không ra khoá. Số VN nhập kiểu 0xxx / 84xxx thì tự
+    // đổi sang +84xxx; email và số đã có "+" giữ nguyên.
+    public static function normalizeUsername(string $username): string
+    {
+        $username = trim($username);
+
+        if ($username === '' || str_contains($username, '@')) {
+            return $username;
+        }
+
+        $digits = preg_replace('/[\s.\-()]/', '', $username);
+
+        if (preg_match('/^0(\d{9})$/', $digits, $m)) {
+            return '+84' . $m[1];
+        }
+
+        if (preg_match('/^84(\d{9})$/', $digits, $m)) {
+            return '+84' . $m[1];
+        }
+
+        return $digits;
     }
 
     // =========================================================
@@ -62,16 +88,30 @@ class TTLockService
             return null;
         }
 
+        // 1 chi nhánh lỡ gắn vào NHIỀU tài khoản đang bật (tài khoản cũ chưa gỡ chi nhánh / chưa tắt)
+        // thì ưu tiên tài khoản mới tạo nhất — trước đây ->first() không sắp xếp nên MySQL trả về
+        // tài khoản cũ, danh sách khoá "Gán khóa TTLock" vẫn ra khoá của tài khoản cũ.
         $account = TtlockAccount::whereHas(
                 'categories',
                 fn ($q) => $q->where('categories.id', $categoryId)
             )
             ->where('is_active', true)
+            ->latest('id')
             ->first();
 
         if (!$account) {
             return null;
         }
+
+        // Cache key gắn với CHÍNH thông tin đăng nhập, không chỉ id tài khoản: sửa username/mật
+        // khẩu/client trên CÙNG 1 bản ghi thì access token cũ (cache tới ~90 ngày) vẫn thuộc tài
+        // khoản TTLock cũ → lock/list trả khoá cũ. Đổi thông tin → đổi key → tự xin token mới.
+        $credentialHash = substr(md5(implode('|', [
+            $account->client_id,
+            $account->username,
+            $account->password_md5,
+            $account->api_base,
+        ])), 0, 12);
 
         return new self(
             $account->client_id,
@@ -79,7 +119,7 @@ class TTLockService
             $account->username,
             $account->password_md5,
             $account->api_base,
-            "ttlock_acct_{$account->id}"
+            "ttlock_acct_{$account->id}_{$credentialHash}"
         );
     }
 

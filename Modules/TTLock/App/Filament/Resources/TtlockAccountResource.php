@@ -109,6 +109,7 @@ class TtlockAccountResource extends Resource
                         TextInput::make('username')
                             ->label('Username (email hoặc số điện thoại)')
                             ->placeholder('Email hoặc số điện thoại tài khoản TTLock App')
+                            ->helperText('Số điện thoại VN nhập 0352… hoặc +84352… đều được — hệ thống tự đổi sang dạng +84 mà TTLock yêu cầu.')
                             ->maxLength(100),
 
                         TextInput::make('password_md5')
