@@ -34,7 +34,7 @@ class ManualLockPasswordTtlockBulkAction
             ->color('warning')
             ->visible(fn (): bool => auth()->user()?->can('create', ManualLockPassword::class) ?? false)
             ->modalHeading('Cấp mã mở TTLock hàng loạt')
-            ->modalDescription('Hệ thống tự sinh Pass Cổng qua TTLock cho từng ngày (hoặc 1 mã cho cả khoảng), cấp lên khóa cổng đã chọn và lưu thành các bộ mật khẩu trong bảng này.')
+            ->modalDescription('Hệ thống tự sinh Pass Cổng qua TTLock cho từng ngày (hoặc 1 mã cho cả khoảng) — mỗi phòng đã chọn 1 mã riêng — cấp lên khóa cổng đã chọn và lưu thành các bộ mật khẩu trong bảng này.')
             ->modalWidth('3xl')
             ->modalSubmitActionLabel('Cấp mã')
             ->form([
@@ -74,7 +74,7 @@ class ManualLockPasswordTtlockBulkAction
 
                         Select::make('product_ids')
                             ->label('Phòng áp dụng')
-                            ->helperText('Bỏ trống = áp dụng cho cả chi nhánh.')
+                            ->helperText('Mỗi phòng được cấp 1 mã riêng (khác nhau) — TTLock chỉ sinh mã khác nhau khi khung giờ lệch nhau, nên khung giờ trên khóa của phòng thứ 2 trở đi được nới thêm 1–' . Issuer::MAX_SHIFT_HOURS . ' tiếng; tối đa ' . ((Issuer::MAX_SHIFT_HOURS + 1) ** 2) . ' phòng/ngày. Bỏ trống = 1 mã chung cho cả chi nhánh.')
                             ->multiple()
                             ->searchable()
                             ->native(false)
@@ -95,9 +95,11 @@ class ManualLockPasswordTtlockBulkAction
                         TextInput::make('name')
                             ->label('Tên / Ghi chú')
                             ->placeholder('VD: neoclassic')
-                            ->helperText(fn (Get $get) => $get('per_day')
-                                ? 'Mỗi bản ghi sẽ có tên "<tên> – dd/mm/yyyy".'
-                                : null)
+                            ->helperText(fn (Get $get) => match (true) {
+                                count($get('product_ids') ?? []) > 1 => 'Mỗi bản ghi sẽ có tên "<tên> – <phòng>' . ($get('per_day') ? ' – dd/mm/yyyy' : '') . '".',
+                                (bool) $get('per_day')               => 'Mỗi bản ghi sẽ có tên "<tên> – dd/mm/yyyy".',
+                                default                              => null,
+                            })
                             ->required()
                             ->maxLength(200),
 
@@ -192,7 +194,7 @@ class ManualLockPasswordTtlockBulkAction
 
         if ($errors || $warnings) {
             Notification::make()
-                ->title(count($errors) . ' ngày lỗi' . ($warnings ? ', ' . count($warnings) . ' ngày lỗi 1 phần' : ''))
+                ->title(count($errors) . ' mã lỗi' . ($warnings ? ', ' . count($warnings) . ' mã lỗi 1 phần' : ''))
                 ->body(implode("\n", array_slice([...$errors, ...$warnings], 0, 10)))
                 ->status($errors && ! $created ? 'danger' : 'warning')
                 ->persistent()
@@ -206,14 +208,22 @@ class ManualLockPasswordTtlockBulkAction
             return '';
         }
 
-        $days = Carbon::parse($get('from_date'))->diffInDays(Carbon::parse($get('to_date'))) + 1;
+        $rooms = count($get('product_ids') ?? []);
+        $total = Issuer::codeCount([
+            'from_date'   => (string) $get('from_date'),
+            'to_date'     => (string) $get('to_date'),
+            'per_day'     => (bool) $get('per_day'),
+            'product_ids' => $get('product_ids') ?? [],
+        ]);
+        $scope = $rooms > 1 ? " cho {$rooms} phòng, mỗi phòng mã riêng" : '';
+        $limit = $total > Issuer::MAX_CODES ? ' ⚠ Vượt quá tối đa ' . Issuer::MAX_CODES . ' mã mỗi lần.' : '';
 
         if (! $get('per_day')) {
-            return 'Sẽ tạo 1 mã, hiệu lực ' . Carbon::parse($get('from_date'))->format('d/m/Y') . ' ' . substr((string) $get('from_time'), 0, 5)
-                . ' → ' . Carbon::parse($get('to_date'))->format('d/m/Y') . ' ' . substr((string) $get('until_time'), 0, 5) . '.';
+            return "Sẽ tạo {$total} mã{$scope}, hiệu lực " . Carbon::parse($get('from_date'))->format('d/m/Y') . ' ' . substr((string) $get('from_time'), 0, 5)
+                . ' → ' . Carbon::parse($get('to_date'))->format('d/m/Y') . ' ' . substr((string) $get('until_time'), 0, 5) . '.' . $limit;
         }
 
-        return "Sẽ tạo {$days} mã (mỗi ngày 1 mã), mỗi mã hiệu lực từ " . substr((string) $get('from_time'), 0, 5)
-            . ' ngày đó tới ' . substr((string) $get('until_time'), 0, 5) . ' hôm sau.';
+        return "Sẽ tạo {$total} mã (mỗi ngày 1 mã{$scope}), mỗi mã hiệu lực từ " . substr((string) $get('from_time'), 0, 5)
+            . ' ngày đó tới ' . substr((string) $get('until_time'), 0, 5) . ' hôm sau.' . $limit;
     }
 }
