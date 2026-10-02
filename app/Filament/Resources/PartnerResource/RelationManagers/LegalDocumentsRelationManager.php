@@ -93,7 +93,19 @@ class LegalDocumentsRelationManager extends RelationManager
                     ->label('Duyệt toàn bộ hồ sơ')->icon('heroicon-o-check-badge')->color('success')
                     ->requiresConfirmation()
                     ->action(function () {
-                        app(PartnerLegalDocumentService::class)->approveDossier($this->getOwnerRecord(), auth()->user());
+                        try {
+                            app(PartnerLegalDocumentService::class)->approveDossier($this->getOwnerRecord(), auth()->user());
+                        } catch (\Illuminate\Validation\ValidationException $e) {
+                            Notification::make()
+                                ->title('Chưa thể phê duyệt — hồ sơ pháp lý chưa đủ điều kiện')
+                                ->body(collect($e->errors())->flatten()->map(fn ($m) => '• ' . $m)->implode("\n"))
+                                ->danger()
+                                ->persistent()
+                                ->send();
+
+                            return;
+                        }
+
                         Notification::make()->title('Đã phê duyệt hồ sơ pháp lý')->success()->send();
                     }),
             ])

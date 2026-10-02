@@ -8,6 +8,13 @@ class Media extends \Spatie\MediaLibrary\MediaCollections\Models\Media
 {
     protected static function booted(): void
     {
+        // Ảnh/tệp của phòng MiniHouse không được lọt vào Thư viện media của Homestay (và ngược lại không cần lọc).
+        static::addGlobalScope('exclude_minihouse', function (Builder $query) {
+            if (! \Modules\Minihouse\App\Support\MinihouseContext::active()) {
+                $query->where($query->getModel()->getTable() . '.model_type', '!=', \Modules\Minihouse\App\Models\Room::class);
+            }
+        });
+
         static::addGlobalScope('folder', function (Builder $query) {
             $folder = Folder::find(session()->get('folder_id'));
             if($folder){

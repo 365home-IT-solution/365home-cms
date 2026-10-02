@@ -20,16 +20,62 @@ class CccdScannerService
     // Giới hạn tổng thời gian scan để không vượt quá max_execution_time của PHP web SAPI
     // (đã thấy trong log thực tế = 30s) khi được gọi ĐỒNG BỘ ngay lúc tạo/sửa đơn — phải
     // để dư ít nhất ~10s cho phần còn lại của afterCreate()/afterSave() (PayOS, gán mã cổng...).
-    private const MAX_SCAN_SECONDS = 18;
+    private const MAX_SCAN_SECONDS = 22;
 
     // Timeout riêng cho từng bước con — CỘNG DỒN các bước có thể vượt MAX_SCAN_SECONDS nếu
     // không được canh theo thời gian còn lại thực tế, nên mỗi bước còn phải tự co lại theo
     // remainingSeconds() chứ không chỉ dùng đúng hằng số này.
-    private const NODE_QR_TIMEOUT_SECONDS = 8;
+    private const NODE_QR_TIMEOUT_SECONDS = 4;
+    private const ZXING_TIMEOUT_SECONDS   = 5;
     private const ZBAR_TIMEOUT_SECONDS    = 4;
-    private const OCR_TIMEOUT_SECONDS     = 8;
+    private const OCR_TIMEOUT_SECONDS     = 12;
+
+    // Ảnh CCCD có QR vỡ nét (ảnh nén/chụp màn hình/QR nhỏ) KHÔNG giải mã được dù thử bao lâu — chỉ OCR cứu được. Trước đây các bước
+    // QR (jsQR 8s, ...) có thể ăn gần hết ngân sách 18s khiến OCR bị bỏ qua/hết giờ → khách bị báo "không đọc được QR". Giờ luôn
+    // DÀNH SẴN ngần này giây cho OCR (nếu đã cấu hình khoá OCR): các bước QR chỉ được dùng phần ngân sách còn lại phía trước.
+    private const OCR_RESERVE_SECONDS = 13;
 
     private float $scanDeadline = 0;
+
+    // Lý do lần quét GẦN NHẤT thất bại (dùng chung mọi instance trong 1 request): 'timeout' | 'low_resolution' | 'no_file' | 'qr_not_found'.
+    // Để thông báo cho khách ĐÚNG nguyên nhân thay vì lúc nào cũng nói "ảnh mờ".
+    private static ?string $lastFailure = null;
+
+    public static function lastFailure(): ?string
+    {
+        return self::$lastFailure;
+    }
+
+    /** Câu hướng dẫn cho khách theo lý do quét thất bại gần nhất. */
+    public static function failureHint(): string
+    {
+        return match (self::$lastFailure) {
+            'timeout'        => 'Hệ thống đang bận xử lý ảnh nên chưa đọc xong — vui lòng thử lại sau ít phút.',
+            'low_resolution' => 'Ảnh quá nhỏ hoặc đã bị nén/cắt nhỏ — vui lòng chụp lại gần hơn bằng camera gốc và chọn ảnh gốc (không dùng ảnh đã giảm dung lượng).',
+            'no_file'        => 'Không nhận được ảnh CCCD — vui lòng chọn lại ảnh.',
+            default          => 'Không tìm thấy mã QR trên ảnh — hãy chụp thẳng, đủ sáng, lấy trọn cả thẻ và đúng mặt có mã QR, không chụp lại từ màn hình.',
+        };
+    }
+
+    // Phân loại lý do thất bại sau khi mọi bước quét đều không ra kết quả.
+    private function classifyFailure(array $paths): string
+    {
+        if ($paths === []) {
+            return 'no_file';
+        }
+
+        if ($this->isTimedOut()) {
+            return 'timeout';
+        }
+
+        $maxSide = 0;
+        foreach ($paths as $p) {
+            $size = @getimagesize($p);
+            $maxSide = max($maxSide, $size ? max($size[0], $size[1]) : 0);
+        }
+
+        return ($maxSide > 0 && $maxSide < 700) ? 'low_resolution' : 'qr_not_found';
+    }
 
     private function startTimer(): void
     {
@@ -44,6 +90,20 @@ class CccdScannerService
     // Số giây còn lại trước khi hết ngân sách quét — dùng để mỗi bước con tự giới hạn timeout
     // của CHÍNH NÓ, tránh trường hợp bước trước ăn gần hết thời gian nhưng bước sau vẫn cứ chờ
     // đủ timeout riêng của nó, khiến tổng thời gian thực tế vượt xa MAX_SCAN_SECONDS.
+    // Ngân sách CÒN LẠI cho các bước đọc QR = tổng còn lại trừ phần dành riêng cho OCR dự phòng.
+    private function qrSecondsLeft(): float
+    {
+        $reserve = 0.0;
+
+        try {
+            $reserve = app(\Modules\BladeThemeV1\Services\OcrSpaceService::class)->isConfigured() ? (float) self::OCR_RESERVE_SECONDS : 0.0;
+        } catch (\Throwable) {
+            // không cấu hình được OCR → không giữ chỗ
+        }
+
+        return max(0.0, $this->remainingSeconds() - $reserve);
+    }
+
     private function remainingSeconds(): float
     {
         if ($this->scanDeadline <= 0) {
@@ -152,6 +212,8 @@ class CccdScannerService
      */
     protected function scanBothSides(?string $frontPath, ?string $backPath, array $logCtx = []): ?array
     {
+        self::$lastFailure = null;
+
         // Normalize EXIF orientation trước mọi bước — ảnh điện thoại thường có
         // EXIF Orientation ≠ 1 nhưng pixel thô vẫn xoay → jsQR/ZBar không decode được.
         $frontNorm = $frontPath && file_exists($frontPath)
@@ -171,7 +233,16 @@ class CccdScannerService
 
         try {
             if (empty($paths)) {
+                self::$lastFailure = 'no_file';
+
                 return null;
+            }
+
+            // Bước 0: ZXing (Node) — CÙNG engine với bộ quét trên trình duyệt ở form đặt phòng Filament. Cắt sát vùng QR + phóng to nên đọc được cả
+            // ảnh QR nhỏ/vỡ nét/bị nén mà jsQR và zbar bó tay (ảnh đó trước đây buộc phải rơi xuống OCR chậm, kém chính xác, hay bị giới hạn).
+            $data = $this->tryNodeZxing(...$paths);
+            if ($data) {
+                return $data;
             }
 
             // Bước 1: Node.js jsQR với tất cả ảnh cùng 1 lần — crop + scale đa chiến lược
@@ -181,8 +252,8 @@ class CccdScannerService
                 return $data;
             }
 
-            if ($this->isTimedOut()) {
-                Log::warning('[CccdScanner] timeout sau jsQR — bỏ qua zbarimg, nhảy thẳng OCR', $logCtx);
+            if ($this->isTimedOut() || $this->qrSecondsLeft() <= 0.5) {
+                Log::warning('[CccdScanner] hết ngân sách QR sau jsQR — bỏ qua zbarimg, nhảy thẳng OCR', $logCtx);
             } else {
                 // Bước 2: zbarimg CLI nếu có — nhanh, không cần PHP memory
                 foreach ($paths as $path) {
@@ -190,7 +261,7 @@ class CccdScannerService
                     if ($data) {
                         return $data;
                     }
-                    if ($this->isTimedOut()) {
+                    if ($this->isTimedOut() || $this->qrSecondsLeft() <= 0.5) {
                         break;
                     }
                 }
@@ -209,6 +280,8 @@ class CccdScannerService
                     return $data;
                 }
             }
+
+            self::$lastFailure = $this->classifyFailure($paths);
 
             return null;
 
@@ -317,6 +390,12 @@ class CccdScannerService
      */
     protected function tryQrScan(string $imagePath): ?array
     {
+        // Chiến lược 0: ZXing (Node) — crop sát QR + phóng to, đọc được ảnh QR vỡ nét mà jsQR/zbar bó tay
+        $data = $this->tryNodeZxing($imagePath);
+        if ($data) {
+            return $data;
+        }
+
         // Chiến lược 1: Node.js jsQR — xử lý tốt nhất với ảnh JPEG chất lượng thấp
         $data = $this->tryNodeJsQR($imagePath);
         if ($data) {
@@ -479,6 +558,59 @@ class CccdScannerService
      * Script qr_scan.cjs phải ở root dự án.
      * Không pre-downscale ở PHP: Node.js tự crop + scale với độ phân giải cao hơn.
      */
+    protected function tryNodeZxing(string ...$imagePaths): ?array
+    {
+        $scriptPath = base_path('qr_scan_zxing.cjs');
+        if (! file_exists($scriptPath) || ! is_dir(base_path('node_modules/@zxing/library'))) {
+            return null; // chưa cài @zxing/library (npm install) → bỏ qua, các bước sau vẫn chạy
+        }
+
+        $nodeBin = $this->resolveNodeBin();
+        if (! $nodeBin) {
+            return null;
+        }
+
+        $realPaths = [];
+        foreach ($imagePaths as $path) {
+            $real = realpath($path) ?: str_replace('/', DIRECTORY_SEPARATOR, $path);
+            if ($real && file_exists($real)) {
+                $realPaths[] = $real;
+            }
+        }
+
+        if ($realPaths === []) {
+            return null;
+        }
+
+        $timeoutSeconds = min(self::ZXING_TIMEOUT_SECONDS, $this->qrSecondsLeft());
+        if ($timeoutSeconds <= 0.5) {
+            return null;
+        }
+
+        try {
+            $result = $this->runProcessWithTimeout(array_merge([$nodeBin, $scriptPath], $realPaths), $timeoutSeconds);
+
+            if ($result['timedOut'] || $result['exitCode'] !== 0) {
+                return null;
+            }
+
+            $text = trim($result['stdout']);
+            if ($text !== '' && class_exists(\Normalizer::class)) {
+                $text = \Normalizer::normalize($text, \Normalizer::FORM_C) ?: $text;
+            }
+
+            if ($text !== '' && $this->isCccdQr($text)) {
+                Log::info('[CccdScanner] ZXing thành công');
+
+                return $this->parseQrData($text);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[CccdScanner] ZXing exception', ['error' => $e->getMessage()]);
+        }
+
+        return null;
+    }
+
     protected function tryNodeJsQR(string ...$imagePaths): ?array
     {
         $scriptPath = base_path('qr_scan.cjs');
@@ -511,7 +643,7 @@ class CccdScannerService
             // Timeout co giãn theo ngân sách CÒN LẠI của toàn bộ lượt quét (không chỉ 1 hằng
             // số cố định) — nếu các bước trước đó (vd normalize EXIF nhiều ảnh) đã ăn bớt thời
             // gian, bước này cũng phải tự rút ngắn theo, tránh cộng dồn vượt MAX_SCAN_SECONDS.
-            $timeoutSeconds = min(self::NODE_QR_TIMEOUT_SECONDS, $this->remainingSeconds());
+            $timeoutSeconds = min(self::NODE_QR_TIMEOUT_SECONDS, $this->qrSecondsLeft());
 
             if ($timeoutSeconds <= 0) {
                 Log::warning('[CccdScanner] jsQR bỏ qua — đã hết ngân sách thời gian quét');
@@ -703,7 +835,7 @@ class CccdScannerService
                 // Có tới 4 tổ hợp (2 ảnh x 2 argSets) mỗi lần gọi — mỗi tổ hợp phải tự canh
                 // theo ngân sách thời gian CÒN LẠI (không phải hằng số cố định), nếu không tổng
                 // thời gian của riêng bước zbarimg có thể vượt xa MAX_SCAN_SECONDS.
-                $timeoutSeconds = min(self::ZBAR_TIMEOUT_SECONDS, $this->remainingSeconds());
+                $timeoutSeconds = min(self::ZBAR_TIMEOUT_SECONDS, $this->qrSecondsLeft());
                 if ($timeoutSeconds <= 0) {
                     Log::debug('[CccdScanner] zbarimg bỏ qua — đã hết ngân sách thời gian quét');
                     if ($prePath && file_exists($prePath)) { @unlink($prePath); }
@@ -904,6 +1036,13 @@ class CccdScannerService
             }
 
             $text = $ocr->extractTextFromImage($imagePath, (int) round($timeoutSeconds));
+
+            // OCR.space thỉnh thoảng trả rỗng/lỗi tạm thời (quá tải, mạng chập chờn) — thử lại 1 lần nếu còn đủ thời gian.
+            if (empty($text) && $this->remainingSeconds() >= 4.0) {
+                Log::info('[CccdScanner] OCR.space trả rỗng — thử lại 1 lần');
+                $text = $ocr->extractTextFromImage($imagePath, (int) round(min(self::OCR_TIMEOUT_SECONDS, $this->remainingSeconds())));
+            }
+
             if (empty($text)) {
                 return null;
             }

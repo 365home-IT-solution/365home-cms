@@ -518,6 +518,27 @@ class BladeThemeV1Controller extends Controller
         ]);
     }
 
+    // /dang-ky-hop-tac — đối tác Homestay / MiniHouse tự gửi hồ sơ hợp tác (giấy tờ, ký hợp đồng) để admin duyệt; gọi API /api/public/partner-onboarding.
+    public function partnerOnboardingPage(\Illuminate\Http\Request $request)
+    {
+        $seoData = [
+            'seo_title' => 'Đăng ký hợp tác Homestay, MiniHouse với 365 HOME',
+            'seo_description' => 'Đăng ký trở thành đối tác 365 Home: nộp giấy tờ pháp lý, ký hợp đồng trực tuyến và nhận tài khoản quản trị sau khi được duyệt. MiniHouse không thu hoa hồng, gói 199.000đ/tháng, miễn phí 6 tháng đầu.',
+            'seo_keywords' => 'đăng ký hợp tác, đối tác homestay, đăng ký bán phòng, cho thuê phòng trọ, minihouse, 365 home',
+            'og_type' => 'website',
+        ];
+
+        return view('bladethemev1::pages.partner-onboarding', [
+            'seoData' => $seoData,
+            'initialType' => in_array($request->query('loai'), ['homestay', 'minihouse'], true) ? $request->query('loai') : 'homestay',
+            'primaryColor' => $this->primaryColor,
+            'primaryColorRgb' => $this->primaryColorRgb,
+            'heavyPrimaryColor' => $this->heavyPrimaryColor,
+            'lightPrimaryColor' => $this->lightPrimaryColor,
+            'textOnPrimary' => $this->textOnPrimaryColor(),
+        ]);
+    }
+
     // /hinh-thuc-thanh-toan — trang tĩnh riêng (trước đây là CMS Page id 63, đã bỏ vì component
     // "Nội dung" dump HTML thô chứa sẵn 1 thẻ <h1> khác, trùng với <h1 class="sr-only"> của layout
     // CMS chung — xem Modules/BladeThemeV1/Resources/views/pages/index.blade.php).

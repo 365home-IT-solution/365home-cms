@@ -101,7 +101,8 @@ class GuestBookingController extends Controller
             Storage::disk('public')->delete($cccdBack);
 
             return response()->json([
-                'message' => 'Không đọc được QR trên ảnh CCCD. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.',
+                'message' => 'Không đọc được QR trên ảnh CCCD. ' . \Modules\Payment\App\Services\CccdScannerService::failureHint(),
+                    'reason'  => \Modules\Payment\App\Services\CccdScannerService::lastFailure(),
             ], 422);
         }
 
@@ -186,7 +187,7 @@ class GuestBookingController extends Controller
                     $this->cleanupUploadedFiles($cccdFront, $cccdBack, $guestCccdRows);
 
                     return response()->json([
-                        'message' => "Không đọc được QR trên ảnh CCCD của khách thứ {$guestIndex}. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.",
+                        'message' => "Không đọc được QR trên ảnh CCCD của khách thứ {$guestIndex}. " . \Modules\Payment\App\Services\CccdScannerService::failureHint(),
                     ], 422);
                 }
 
@@ -553,7 +554,8 @@ class GuestBookingController extends Controller
                 if ($newBack)  Storage::disk('public')->delete($newBack);
 
                 return response()->json([
-                    'message' => 'Không đọc được QR trên ảnh CCCD. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.',
+                    'message' => 'Không đọc được QR trên ảnh CCCD. ' . \Modules\Payment\App\Services\CccdScannerService::failureHint(),
+                    'reason'  => \Modules\Payment\App\Services\CccdScannerService::lastFailure(),
                 ], 422);
             }
 
@@ -630,7 +632,7 @@ class GuestBookingController extends Controller
                         }
 
                         return response()->json([
-                            'message' => "Không đọc được QR trên ảnh CCCD của khách thứ {$guestIndex}. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.",
+                            'message' => "Không đọc được QR trên ảnh CCCD của khách thứ {$guestIndex}. " . \Modules\Payment\App\Services\CccdScannerService::failureHint(),
                         ], 422);
                     }
 

@@ -17,6 +17,11 @@ class AdminApiAuth
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
 
+        // Gói dịch vụ: hết hạn → 402, tính năng ngoài gói → 403 (xem App\Support\SubscriptionGate).
+        if ($blocked = \App\Support\SubscriptionGate::checkRequest($request, $request->user())) {
+            return $blocked;
+        }
+
         return $next($request);
     }
 }

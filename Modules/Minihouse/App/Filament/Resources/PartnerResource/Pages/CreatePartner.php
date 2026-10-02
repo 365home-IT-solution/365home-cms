@@ -15,11 +15,14 @@ class CreatePartner extends CreateRecord
 
     protected array $userIds = [];
 
+    protected ?int $planId = null;
+
     protected function mutateFormDataBeforeCreate(array $data): array
     {
         $this->branchIds = $data['branch_ids'] ?? [];
         $this->userIds = $data['user_ids'] ?? [];
-        unset($data['branch_ids'], $data['user_ids']);
+        $this->planId = $data['trial_plan_id'] ?? null;
+        unset($data['branch_ids'], $data['user_ids'], $data['trial_plan_id']);
         $data['partner_type'] = Partner::TYPE_MINIHOUSE;
         $data['name'] = $data['legal_name'];
         $data['created_by'] = auth()->id();
@@ -32,5 +35,6 @@ class CreatePartner extends CreateRecord
     protected function afterCreate(): void
     {
         PartnerForm::syncAssignments($this->record, $this->branchIds, $this->userIds);
+        PartnerForm::applyTrialPlan($this->record, $this->planId);
     }
 }

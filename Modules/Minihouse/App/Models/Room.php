@@ -246,7 +246,9 @@ class Room extends Product
         $slug = 'mh-' . Str::slug($base);
         $i    = 1;
 
-        while (Product::withoutGlobalScope('exclude_minihouse')->where('slug', $slug)->exists()) {
+        // withoutGlobalScopes() (bỏ CẢ scope partner/has_branch/SoftDeletes): slug là UNIQUE toàn bảng products — nếu chỉ bỏ 'exclude_minihouse' thì
+        // phòng của đối tác khác (hoặc phòng chưa gắn nhóm, đã xoá mềm) bị che → trùng slug → lỗi 500 khi 2 nơi cùng dùng 1 mã phòng (vd "101").
+        while (Product::withoutGlobalScopes()->where('slug', $slug)->exists()) {
             $slug = 'mh-' . Str::slug($base) . '-' . (++$i);
         }
 

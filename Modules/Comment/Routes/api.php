@@ -13,6 +13,4 @@ use Illuminate\Http\Request;
 |
 */
 
-Route::middleware('auth:api')->get('/comment', function (Request $request) {
-    return $request->user();
-});
+// Route mẫu của module (guard "api" không tồn tại → 500 với mọi request) đã gỡ.

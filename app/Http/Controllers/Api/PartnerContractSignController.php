@@ -75,6 +75,8 @@ class PartnerContractSignController extends Controller
             'partner_signed_ip' => $request->ip(), 'partner_signed_user_agent' => (string) $request->userAgent(),
         ]);
 
+        app(\App\Services\PartnerOnboardingService::class)->notifyPartnerSigned($version->partner);
+
         return response()->json(['message' => 'Đã xác nhận hợp đồng.', 'data' => ['partner_confirmed_at' => $version->fresh()->partner_confirmed_at->toIso8601String()]]);
     }
 

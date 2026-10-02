@@ -131,6 +131,7 @@ class BlockTimeslotModal extends Component
     #[On('open-block-timeslot-modal')]
     public function openModal(): void
     {
+
         $this->resetModal();
         $this->showModal = true;
     }
@@ -142,6 +143,7 @@ class BlockTimeslotModal extends Component
     #[On('open-block-timeslot-modal-for-room')]
     public function openForProduct($productId): void
     {
+
         $this->resetModal();
         $this->lockedToProduct = true;
         $this->product_id      = $productId;
@@ -271,6 +273,7 @@ class BlockTimeslotModal extends Component
     // Lưu tô đen
     public function saveBlock(): void
     {
+
         // ── Styles = 2: khóa khoảng ngày trên product ──────────────────
         if ($this->isStyle2) {
             $this->validate([
@@ -385,6 +388,7 @@ class BlockTimeslotModal extends Component
     // Xóa 1 ngày blocked của 1 RoomTimeSlot (styles=1)
     public function removeBlockedDate(int $rtsId, string $date): void
     {
+
         $rts = RoomTimeSlot::find($rtsId);
         if (!$rts) return;
 
@@ -414,6 +418,7 @@ class BlockTimeslotModal extends Component
     // Xóa 1 khoảng khóa của phòng styles=2
     public function removeBlockedRange(int $index): void
     {
+
         $product = Product::find($this->product_id);
         if (!$product) return;
 
@@ -442,6 +447,7 @@ class BlockTimeslotModal extends Component
     // Xóa hàng loạt các mục đã chọn (checkbox) trong danh sách bên phải — cả 2 kiểu style.
     public function removeSelectedBlocked(): void
     {
+
         if (empty($this->selectedBlockedKeys)) return;
 
         $realtime = app(SlotRealtimeService::class);
@@ -556,6 +562,7 @@ class BlockTimeslotModal extends Component
     // Xóa tất cả khung giờ bị khóa của phòng đang chọn
     public function clearAllBlocked(): void
     {
+
         if (!$this->product_id) return;
 
         $realtime = app(SlotRealtimeService::class);

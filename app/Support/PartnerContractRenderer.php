@@ -36,6 +36,10 @@ class PartnerContractRenderer
         $serviceDescription = $partner->partner_type === Partner::TYPE_MINIHOUSE
             ? 'dịch vụ quản lý và vận hành nhà cho thuê dài hạn MiniHouse'
             : 'dịch vụ lưu trú Homestay';
+        // MiniHouse: không thu hoa hồng, đối tác chỉ trả phí gói dịch vụ. Homestay: hoa hồng theo tỷ lệ như cũ.
+        $feeClause = $partner->partner_type === Partner::TYPE_MINIHOUSE
+            ? '<p><strong>Điều 1. Phí dịch vụ</strong><br>Bên A <strong>không thu hoa hồng</strong> trên các giao dịch của Bên B. Bên B chỉ thanh toán phí gói dịch vụ quản lý MiniHouse theo bảng giá hiện hành của Bên A (thanh toán theo kỳ 1, 3, 6, 9 hoặc 12 tháng).</p>'
+            : "<p><strong>Điều 1. Tỷ lệ hoa hồng</strong><br>Bên B trích hoa hồng cho Bên A theo tỷ lệ: <strong>{$commissionRate}</strong> trên mỗi giao dịch phát sinh qua nền tảng.</p>";
         $policyTitle = $partner->partner_type === Partner::TYPE_MINIHOUSE
             ? 'Chính sách vận hành, chấm dứt hợp tác và xử lý công nợ'
             : 'Chính sách hủy/hoàn tiền';
@@ -57,8 +61,7 @@ class PartnerContractRenderer
 
                 <p>Hai bên thống nhất ký kết hợp đồng hợp tác kinh doanh {$serviceDescription} với các điều khoản sau:</p>
 
-                <p><strong>Điều 1. Tỷ lệ hoa hồng</strong><br>
-                Bên B trích hoa hồng cho Bên A theo tỷ lệ: <strong>{$commissionRate}</strong> trên mỗi giao dịch phát sinh qua nền tảng.</p>
+                {$feeClause}
 
                 <p><strong>Điều 2. {$policyTitle}</strong><br>
                 {$cancellationPolicy}</p>

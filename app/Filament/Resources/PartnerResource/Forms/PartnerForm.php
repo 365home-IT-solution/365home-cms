@@ -44,6 +44,7 @@ class PartnerForm
             Forms\Components\Tabs::make('partner_tabs')
                 ->tabs([
                     self::representativeTab(),
+                    self::subscriptionTab($isMinihouse),
                     self::businessTab(),
                     self::financialTab(),
                     ...($isMinihouse ? [] : [self::propertiesTab()]),
@@ -55,6 +56,43 @@ class PartnerForm
                 ])
                 ->columnSpanFull(),
         ]);
+    }
+
+    // ── TAB: Gói dịch vụ (CHỈ lúc tạo) — chọn gói dùng thử cho đối tác mới ──────
+    private static function subscriptionTab(bool $isMinihouse): Forms\Components\Tabs\Tab
+    {
+        $type = $isMinihouse ? Partner::TYPE_MINIHOUSE : Partner::TYPE_HOMESTAY;
+
+        return Forms\Components\Tabs\Tab::make('Gói dịch vụ')
+            ->icon('heroicon-o-credit-card')
+            ->visible(fn (string $operation) => $operation === 'create' && $type === Partner::TYPE_MINIHOUSE)
+            ->schema([
+                Forms\Components\Section::make('Gói dùng thử')
+                    ->description('Đối tác mới được dùng thử miễn phí theo số tháng ghi trên gói đã chọn; sau đó phải thanh toán để tiếp tục. Đổi gói/hạn sau này ở Quản lý → Gói của đối tác.')
+                    ->schema([
+                        Forms\Components\Select::make('trial_plan_id')
+                            ->label('Gói dùng thử')
+                            ->options(fn () => \App\Models\SubscriptionPlan::query()->where('is_active', true)->where('partner_type', $type)->orderBy('sort_order')->get()
+                                ->mapWithKeys(fn ($p) => [$p->id => $p->name . ' — dùng thử ' . ($p->trial_months > 0 ? $p->trial_months : config('subscription.default_trial_months', 3)) . ' tháng' . ($p->is_default ? ' (mặc định)' : '')])->all())
+                            ->default(fn () => \App\Models\SubscriptionPlan::query()->where('is_active', true)->where('is_default', true)->where('partner_type', $type)->value('id'))
+                            ->native(false)
+                            ->helperText('Mặc định là gói đang đặt "Gói mặc định cho đối tác mới". Có thể chọn gói khác.'),
+                    ]),
+            ]);
+    }
+
+    // Áp dụng gói dùng thử đã chọn (nếu khác gói mặc định đã tự gán lúc tạo).
+    public static function applyTrialPlan(\Illuminate\Database\Eloquent\Model $partner, ?int $planId): void
+    {
+        if (! $planId) {
+            return;
+        }
+
+        try {
+            app(\App\Services\SubscriptionService::class)->startTrialWithPlan($partner, \App\Models\SubscriptionPlan::findOrFail($planId));
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     // ── TAB 1: Người đại diện ────────────────────────────────────────────────

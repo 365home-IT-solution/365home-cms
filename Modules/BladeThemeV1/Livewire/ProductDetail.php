@@ -1376,7 +1376,7 @@ public function confirmBooking()
             if (!$cccdData) {
                 // Không đọc được QR → xóa file, yêu cầu upload lại
                 $deleteAllUploaded();
-                $this->bookingConfirmError = 'Không đọc được mã QR trên CCCD. Vui lòng upload ảnh gốc rõ nét, chụp thẳng mặt sau CCCD, không chụp lại màn hình.';
+                $this->bookingConfirmError = 'Không đọc được mã QR trên CCCD. ' . \Modules\Payment\App\Services\CccdScannerService::failureHint();
                 return;
             }
 
@@ -1411,7 +1411,7 @@ public function confirmBooking()
 
             if (!$data) {
                 $deleteAllUploaded();
-                $this->bookingConfirmError = "Không đọc được mã QR trên CCCD người đi cùng thứ {$guestNumber}. Vui lòng upload ảnh gốc rõ nét, chụp thẳng mặt sau CCCD, không chụp lại màn hình.";
+                $this->bookingConfirmError = "Không đọc được mã QR trên CCCD người đi cùng thứ {$guestNumber}. " . \Modules\Payment\App\Services\CccdScannerService::failureHint();
                 return;
             }
 

@@ -77,6 +77,8 @@ class AuthController extends Controller
             'is_super_admin' => $user->isSuperAdmin(),
             'access'         => $this->panelAccess($user),
             'categories'     => $this->branchCategories($user),
+            // Gói dịch vụ: trạng thái, hạn, cờ khoá và danh sách tính năng tài khoản được dùng.
+            'subscription'   => \App\Http\Controllers\Api\Admin\SubscriptionController::summary($user),
         ];
     }
 

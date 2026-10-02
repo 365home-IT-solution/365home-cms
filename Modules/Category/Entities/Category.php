@@ -10,6 +10,8 @@ use Modules\DataPermission\Entities\UserBranchPermission;
 use Modules\Post\Entities\Post;
 use Modules\Product\App\Models\Product;
 use Modules\Payment\Entities\Order;
+use Illuminate\Database\Eloquent\Builder;
+use Modules\Minihouse\App\Support\MinihouseContext;
 
 class Category extends Model
 {
@@ -38,6 +40,24 @@ class Category extends Model
         'checkout_time',
         'default_policy',
     ];
+
+    // Toà nhà MiniHouse (Building) mượn bảng categories nhưng KHÔNG được lọt vào Homestay: ẩn tập trung ở đây (giống
+    // Product 'exclude_minihouse') để mọi danh sách/dropdown/API/web của Homestay tự khớp. Ngữ cảnh MiniHouse (panel
+    // minihouse-admin, API admin/minihouse, tài khoản đối tác MiniHouse, artisan) không bị lọc. Building có booted() riêng
+    // (không gọi parent) nên không dính scope này.
+    protected static function booted(): void
+    {
+        static::addGlobalScope('exclude_minihouse', function (Builder $query) {
+            if (MinihouseContext::active()) {
+                return;
+            }
+
+            $query->where(function (Builder $q) {
+                $q->whereNull($q->getModel()->getTable() . '.partner_id')
+                    ->orWhereNotIn($q->getModel()->getTable() . '.partner_id', \App\Models\Partner::query()->withoutGlobalScopes()->where('partner_type', \App\Models\Partner::TYPE_MINIHOUSE)->select('id'));
+            });
+        });
+    }
 
     protected $casts = [
         'status'       => 'boolean',

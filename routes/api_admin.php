@@ -70,6 +70,17 @@ use Illuminate\Support\Facades\Route;
 Route::post('admin/login', [AdminAuthController::class, 'login'])->name('api.admin.login')->middleware('throttle:6,1');
 
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.admin.')->group(function () {
+    // Gói dịch vụ (luôn dùng được kể cả khi hết hạn): xem gói, chọn gói & thanh toán, bật tự gia hạn.
+    Route::prefix('subscription')->name('subscription.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\Admin\SubscriptionController::class, 'show'])->name('show');
+        Route::get('plans', [\App\Http\Controllers\Api\Admin\SubscriptionController::class, 'plans'])->name('plans');
+        Route::post('checkout', [\App\Http\Controllers\Api\Admin\SubscriptionController::class, 'checkout'])->name('checkout');
+        Route::get('payments', [\App\Http\Controllers\Api\Admin\SubscriptionController::class, 'payments'])->name('payments');
+        Route::get('payments/{id}', [\App\Http\Controllers\Api\Admin\SubscriptionController::class, 'payment'])->whereNumber('id')->name('payments.show');
+        Route::post('payments/{id}/cancel', [\App\Http\Controllers\Api\Admin\SubscriptionController::class, 'cancel'])->whereNumber('id')->name('payments.cancel');
+        Route::put('auto-renew', [\App\Http\Controllers\Api\Admin\SubscriptionController::class, 'autoRenew'])->name('auto-renew');
+    });
+
     Route::post('logout', [AdminAuthController::class, 'logout'])->name('logout');
     Route::get('me',      [AdminAuthController::class, 'me'])->name('me');
 

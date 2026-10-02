@@ -11,6 +11,18 @@ class Folder extends Model implements HasMedia
 {
     use InteractsWithMedia;
 
+    protected static function booted(): void
+    {
+        // Thư mục media gắn với phòng MiniHouse chỉ hiện ở ngữ cảnh MiniHouse, không lẫn vào Homestay.
+        static::addGlobalScope('exclude_minihouse', function ($query) {
+            if (! \Modules\Minihouse\App\Support\MinihouseContext::active()) {
+                $query->where(function ($q) {
+                    $q->whereNull('model_type')->orWhere('model_type', '!=', \Modules\Minihouse\App\Models\Room::class);
+                });
+            }
+        });
+    }
+
     protected $fillable = [
         'parent_id',
         'model_type',

@@ -472,6 +472,13 @@ private function buildTelegramMessage(Order $order, string $status): string
                 return response()->json(['error' => 'Invalid signature'], 401);
             }
 
+            // Phí gói dịch vụ của đối tác cũng đi qua kênh này (mã đơn dải 8..., hoặc nội dung chứa mã SBxxxxxx).
+            // Đặt SAU bước xác thực chữ ký: mã gói không thuộc đơn nào nên chỉ được nhận key PayOS chung.
+            $subscriptionResponse = app(\App\Services\SubscriptionPayosService::class)->handleWebhook($webhookData);
+            if ($subscriptionResponse !== null) {
+                return response()->json($subscriptionResponse, 200);
+            }
+
             if (!$orderCode) {
                 Log::error('PayOS Webhook: No orderCode provided', ['data' => $webhookData]);
                 return response()->json(['error' => 'No orderCode provided'], 400);

@@ -1,9 +1,13 @@
 <div>
     @php
-        $manifest = json_decode(file_get_contents(public_path('build-post/manifest.json')), true);
-        $cssFile = $manifest['poss.css']['file'] ?? 'assets/poss.6cc9d075.css';
+        // Chưa build asset (public/build-post/manifest.json không tồn tại) → bỏ qua CSS riêng thay vì làm trang tạo/sửa bài viết lỗi 500.
+        $manifestPath = public_path('build-post/manifest.json');
+        $manifest = is_file($manifestPath) ? (json_decode((string) file_get_contents($manifestPath), true) ?: []) : [];
+        $cssFile = $manifest['poss.css']['file'] ?? null;
     @endphp
-    <link rel="stylesheet" href="{{ asset('build-post/' . $cssFile) }}">
+    @if ($cssFile)
+        <link rel="stylesheet" href="{{ asset('build-post/' . $cssFile) }}">
+    @endif
     <div class="v-w-full">
 
         <div class="v-mb-6">

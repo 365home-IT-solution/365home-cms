@@ -51,6 +51,14 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
         });
 
+        // Đăng ký hợp tác công khai: tạo hồ sơ 5/phút + 20/giờ mỗi IP; các bước sau (giấy tờ, thông tin, gửi duyệt) 60/phút mỗi IP + mã hồ sơ —
+        // bộ đếm RIÊNG, không dùng chung với các route throttle:N,1 khác (throttle số nguyên dùng chung 1 khoá theo IP).
+        RateLimiter::for('partner-onboarding-register', fn (Request $request) => [
+            Limit::perMinute(5)->by('onb-reg:' . $request->ip()),
+            Limit::perHour(20)->by('onb-reg-h:' . $request->ip()),
+        ]);
+        RateLimiter::for('partner-onboarding', fn (Request $request) => Limit::perMinute(60)->by('onb:' . $request->ip() . '|' . $request->route('token')));
+
         // otp-send: 5/phút/IP  +  2/phút/số điện thoại (chặn VPN rotation spam)
         RateLimiter::for('otp-send', function (Request $request) {
             return [
