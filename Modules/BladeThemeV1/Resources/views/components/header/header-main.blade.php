@@ -44,8 +44,11 @@
     // chạm/chèn vào hàng tab canh giữa tuyệt đối (Theo giờ/Qua đêm/Theo ngày) ở các trang không
     // phải trang chủ. Match theo url (ổn định hơn title — admin có thể đổi tên hiển thị bất cứ lúc
     // nào) thay vì so title "Đặt phòng của tôi" trực tiếp.
-    $bookingMenuItem = $menu?->menuItems?->firstWhere('url', '/ticket-booking');
-    $remainingMenuItems = $menu?->menuItems?->skip(1);
+    // Header không hiện "Trang chủ" (logo đã về trang chủ) — bỏ mọi item trỏ url "/"; nút "Làm đối tác" đứng ngay sau "Tin tức".
+    $headerMenuItems = $menu?->menuItems?->reject(fn ($item) => trim((string) $item->url, '/') === '')->values();
+    $bookingMenuItem = $headerMenuItems?->firstWhere('url', '/ticket-booking');
+    $remainingMenuItems = $headerMenuItems?->skip(1);
+    $partnerBtnAfterId = $headerMenuItems?->first(fn ($item) => trim((string) $item->url, '/') === 'tin-tuc')?->id ?? $headerMenuItems?->last()?->id;
     if ($remainingMenuItems && $bookingMenuItem) {
         $remainingMenuItems = $remainingMenuItems->reject(fn ($item) => $item->id === $bookingMenuItem->id);
     }
@@ -228,18 +231,21 @@
                          cạnh logo biến mất trên trang đăng nhập.
                          "Đặt phòng của tôi" ($bookingMenuItem) hiện thêm ngay sau, cùng cụm cạnh
                          logo — xem giải thích lý do ở khối @php phía trên. --}}
-                    @if (!empty($menu?->menuItems) && $menu->menuItems->isNotEmpty())
+                    @if (!empty($headerMenuItems) && $headerMenuItems->isNotEmpty())
                         <ul class="hidden lg:flex items-center order-2" style="margin-left:18px;"
                             x-show="!isSticky || searchExpanded || {{ $isAuthPage ? 'true' : 'false' }}" x-cloak>
                             @livewire('bladethemev1::menu-item', [
-                                'menuItem' => $menu->menuItems->first(),
+                                'menuItem' => $headerMenuItems->first(),
                                 'depth' => 1,
                                 'loop' => null,
                                 'navStyle' => $navStyle,
                                 'navSize' => $navSize,
-                            ], key('near-logo-'.$menu->menuItems->first()->id))
+                            ], key('near-logo-'.$headerMenuItems->first()->id))
+                            @if ($headerMenuItems->first()->id === $partnerBtnAfterId)
+                                <x-bladethemev1::header.actions.partner-button />
+                            @endif
 
-                            @if ($bookingMenuItem && $bookingMenuItem->id !== $menu->menuItems->first()->id)
+                            @if ($bookingMenuItem && $bookingMenuItem->id !== $headerMenuItems->first()->id)
                                 @livewire('bladethemev1::menu-item', [
                                     'menuItem' => $bookingMenuItem,
                                     'depth' => 1,
@@ -327,6 +333,9 @@
                                         'navStyle' => $navStyle,
                                         'navSize' => $navSize,
                                         ], key('compact-'.$menuItem->id))
+                                        @if ($menuItem->id === $partnerBtnAfterId)
+                                            <x-bladethemev1::header.actions.partner-button />
+                                        @endif
                                     @endforeach
                                 @endif
                             </ul>
@@ -400,14 +409,19 @@
                                     x-transition:leave-start="opacity-100 scale-100 translate-y-0"
                                     x-transition:leave-end="opacity-0 scale-95 -translate-y-1"
                                     class="absolute right-0 mt-2 w-56 rounded-2xl border border-gray-100 bg-white shadow-lg shadow-black/10 py-2 z-50">
-                                    @if (!empty($menu?->menuItems))
-                                        @foreach ($menu->menuItems as $menuItem)
+                                    @if (!empty($headerMenuItems))
+                                        @foreach ($headerMenuItems as $menuItem)
                                             <a href="{{ $menuItem->branch_booking_url ?: $menuItem->getFullUrl() }}"
                                                 @click="menuDropOpen = false"
                                                 class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-gray-900 transition-colors duration-150 flex items-center gap-2.5">
                                                 {{ $menuItem->title }}
                                             </a>
                                         @endforeach
+                                        <a href="{{ route('partner-onboarding.page') }}"
+                                            @click="menuDropOpen = false"
+                                            class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 hover:text-gray-900 transition-colors duration-150 flex items-center gap-2.5">
+                                            Làm đối tác
+                                        </a>
                                     @endif
                                 </div>
                             </div>

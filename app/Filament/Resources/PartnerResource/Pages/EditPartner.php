@@ -67,7 +67,22 @@ class EditPartner extends EditRecord
                 ->requiresConfirmation()
                 ->visible(fn () => $this->record->verification_status !== 'approved')
                 ->action(function () {
-                    app(PartnerLegalDocumentService::class)->approveDossier($this->record, auth()->user());
+                    // Hồ sơ pháp lý chưa đủ điều kiện → service ném ValidationException(legal_documents) mà form không có ô nào hiển thị,
+                    // nên trước đây bấm "Xác nhận" không thấy gì. Hiện rõ lý do thay vì im lặng.
+                    try {
+                        app(PartnerLegalDocumentService::class)->approveDossier($this->record, auth()->user());
+                    } catch (\Illuminate\Validation\ValidationException $e) {
+                        Notification::make()
+                            ->title('Chưa thể phê duyệt — hồ sơ pháp lý chưa đủ điều kiện')
+                            ->body(collect($e->errors())->flatten()->map(fn ($m) => '• ' . $m)->implode("\n"))
+                            ->danger()
+                            ->persistent()
+                            ->send();
+
+                        return;
+                    }
+
+                    $this->record->refresh();
                     Notification::make()->title('Đã phê duyệt hồ sơ pháp lý')->success()->send();
                 }),
 

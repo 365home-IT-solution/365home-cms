@@ -68,6 +68,7 @@ class Partner extends Model implements HasMedia
         'verified_by',
         'verification_note',
         'is_platform_partner',
+        'onboarding_token',
 
         // Hợp đồng
         'contract_code',
@@ -148,6 +149,17 @@ class Partner extends Model implements HasMedia
         return $this->hasMany(PartnerStatusLog::class)->latest();
     }
 
+    // Gói dịch vụ hiện tại của đối tác (1 dòng/đối tác) và các lần thanh toán phí gói.
+    public function subscription(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(PartnerSubscription::class);
+    }
+
+    public function subscriptionPayments(): HasMany
+    {
+        return $this->hasMany(SubscriptionPayment::class)->latest('id');
+    }
+
     public function legalDocuments(): HasMany
     {
         return $this->hasMany(PartnerLegalDocument::class);
@@ -170,6 +182,13 @@ class Partner extends Model implements HasMedia
 
     protected static function booted(): void
     {
+        // Hồ sơ đăng ký hợp tác công khai: hợp đồng có hiệu lực (nền tảng đã ký xong) → tự tạo tài khoản chủ đối tác + gửi email đăng nhập.
+        static::updated(function (Partner $partner): void {
+            if ($partner->wasChanged('contract_status') && $partner->contract_status === 'active' && filled($partner->onboarding_token)) {
+                app(\App\Services\PartnerOnboardingService::class)->provisionAccount($partner);
+            }
+        });
+
         static::deleting(function (Partner $partner): void {
             if ($partner->isSystemPartner()) {
                 throw new \DomainException('Không thể xóa đối tác MiniHouse nội bộ của hệ thống.');

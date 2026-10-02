@@ -19,6 +19,12 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping();
 
         // ✅ Thêm mới - tự động hủy đơn hàng hết hạn sau 15 phút
+        // Gói dịch vụ đối tác: nhắc hạn, báo hết hạn, link tự gia hạn.
+        $schedule->command('subscriptions:process')
+            ->dailyAt('08:00')
+            ->timezone('Asia/Ho_Chi_Minh')
+            ->withoutOverlapping();
+
         $schedule->command('orders:expire-pending')
             ->everyMinute()
             ->timezone('Asia/Ho_Chi_Minh')

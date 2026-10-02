@@ -61,6 +61,19 @@ class Handler extends ExceptionHandler
                 FilamentExceptions::report($e);
             }
         });
+
+        // Tham số route khai báo `int $id` nhưng client gửi ID dạng chữ (vd ULID của phòng vào endpoint
+        // khuyến mãi/mã giảm giá/hạng thành viên) → PHP ném TypeError tại điểm gọi controller → trước đây
+        // trả 500. Đây là lỗi do người gọi (không tìm thấy tài nguyên) nên trả 404, không phải lỗi máy chủ.
+        $this->renderable(function (\TypeError $e, $request) {
+            if (preg_match('~Argument #\d+ \(\$\w+\) must be of type int, string given, called in .*Illuminate[\\\\/]Routing~', $e->getMessage())) {
+                return $request->expectsJson()
+                    ? response()->json(['message' => 'Không tìm thấy.'], 404)
+                    : abort(404);
+            }
+
+            return null;
+        });
     }
 
     /**

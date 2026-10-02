@@ -67,6 +67,15 @@ class EventServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Đối tác mới đăng ký → tự tặng gói dùng thử mặc định (số tháng ghi trên gói).
+        \App\Models\Partner::created(function (\App\Models\Partner $partner) {
+            try {
+                app(\App\Services\SubscriptionService::class)->startTrial($partner);
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        });
+
         Customer::observe(CustomerObserver::class);
         Order::observe(OrderObserver::class);
         Role::observe(RoleObserver::class);

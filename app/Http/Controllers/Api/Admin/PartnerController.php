@@ -37,9 +37,19 @@ class PartnerController extends Controller
     public function store(Request $request, PartnerLegalDocumentService $documents): JsonResponse
     {
         $this->superAdmin($request);
-        $data = $request->validate($this->rules());
+        $data = $request->validate([...$this->rules(), 'plan_id' => ['nullable', 'integer', 'exists:subscription_plans,id']]);
+        // Gói dùng thử được chọn lúc tạo (không phải cột của partners). Bỏ trống → gói mặc định của loại đối tác.
+        $planId = $data['plan_id'] ?? null;
+        unset($data['plan_id']);
+        $plan = $planId ? \App\Models\SubscriptionPlan::findOrFail($planId) : null;
+        if ($plan && ($plan->partner_type !== $this->partnerType($request) || ! $plan->is_active)) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['plan_id' => 'Gói không áp dụng cho loại đối tác này.']);
+        }
         $partner = Partner::create([...$data, 'partner_type' => $this->partnerType($request), 'name' => $data['legal_name'], 'created_by' => $request->user()->id, 'verification_status' => 'pending', 'contract_status' => 'draft', 'status' => true]);
         PartnerStatusLog::create(['partner_id' => $partner->id, 'to_status' => 'pending', 'note' => 'Hồ sơ đối tác được tạo qua API.', 'changed_by' => $request->user()->id]);
+        if ($plan) {
+            app(\App\Services\SubscriptionService::class)->startTrialWithPlan($partner, $plan);
+        }
 
         return response()->json(['message' => 'Đã tạo đối tác.', 'data' => $this->format($partner, $documents)], 201);
     }
@@ -319,7 +329,9 @@ class PartnerController extends Controller
 
     private function format(Partner $partner, PartnerLegalDocumentService $documents): array
     {
-        return [...$partner->only(['id', 'partner_type', 'legal_name', 'tax_code', 'phone', 'email', 'address', 'representative_name', 'representative_dob', 'representative_id_number', 'business_license_date', 'business_license_issuer', 'verification_status', 'contract_code', 'contract_type', 'contract_status', 'contract_signed_at', 'contract_expires_at', 'commission_rate']), 'verification' => $documents->readiness($partner)];
+        $sub = $partner->subscription()->with('plan:id,code,name')->first();
+
+        return ['subscription' => $sub ? ['plan' => $sub->plan?->only(['id', 'code', 'name']), 'status' => $sub->state(), 'is_trial' => $sub->is_trial, 'expires_at' => $sub->expires_at?->toIso8601String()] : null, ...$partner->only(['id', 'partner_type', 'legal_name', 'tax_code', 'phone', 'email', 'address', 'representative_name', 'representative_dob', 'representative_id_number', 'business_license_date', 'business_license_issuer', 'verification_status', 'contract_code', 'contract_type', 'contract_status', 'contract_signed_at', 'contract_expires_at', 'commission_rate']), 'verification' => $documents->readiness($partner)];
     }
 
     private function partnerType(Request $request): string

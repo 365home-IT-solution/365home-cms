@@ -160,7 +160,7 @@ class OrderController extends Controller
                         }
 
                         return response()->json([
-                            'message' => "Không đọc được QR trên ảnh CCCD của khách thứ {$guestIndex}. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.",
+                            'message' => "Không đọc được QR trên ảnh CCCD của khách thứ {$guestIndex}. " . \Modules\Payment\App\Services\CccdScannerService::failureHint(),
                         ], 422);
                     }
 

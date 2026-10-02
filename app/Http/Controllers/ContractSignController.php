@@ -107,6 +107,8 @@ class ContractSignController extends Controller
             'partner_signed_user_agent' => (string) $request->userAgent(),
         ]);
 
+        app(\App\Services\PartnerOnboardingService::class)->notifyPartnerSigned($version->partner);
+
         return back()->with('success', 'Xác nhận thành công! Hợp đồng sẽ được hoàn tất chữ ký số bởi nền tảng trong ít phút. Cảm ơn bạn đã hợp tác.');
     }
 

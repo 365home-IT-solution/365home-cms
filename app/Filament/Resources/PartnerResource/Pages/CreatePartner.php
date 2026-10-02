@@ -21,11 +21,15 @@ class CreatePartner extends CreateRecord
 
     private array $pendingUserIds = [];
 
+    // Gói dùng thử được chọn ở tab "Gói dịch vụ" (không phải cột của partners).
+    private ?int $pendingPlanId = null;
+
     protected function mutateFormDataBeforeCreate(array $data): array
     {
         $this->pendingBranchIds = $data['branch_ids'] ?? [];
         $this->pendingUserIds = $data['user_ids'] ?? [];
-        unset($data['branch_ids'], $data['user_ids']);
+        $this->pendingPlanId = $data['trial_plan_id'] ?? null;
+        unset($data['branch_ids'], $data['user_ids'], $data['trial_plan_id']);
 
         // Cột 'name' (bắt buộc, không có default) là tên hiển thị dùng chung ở mọi nơi khác
         // trong hệ thống (dropdown chọn đối tác, cột "Đối tác" trên bảng...) — form 7 tab không
@@ -53,6 +57,8 @@ class CreatePartner extends CreateRecord
         ]);
 
         PartnerForm::syncAssignments($record, $this->pendingBranchIds, $this->pendingUserIds);
+
+        PartnerForm::applyTrialPlan($record, $this->pendingPlanId);
     }
 
     protected function getRedirectUrl(): string

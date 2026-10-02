@@ -147,6 +147,10 @@ if ($menus->isNotEmpty()) {
 // Trang tĩnh riêng, thay cho CMS Page id 63 — menu item "Hình thức thanh toán" vẫn trỏ url này
 // (createRoutes() ở trên đăng ký nó về BladeThemeV1Controller@index/page_id=63).
 Route::get('/hinh-thuc-thanh-toan', [BladeThemeV1Controller::class, 'paymentMethodsPage'])->name('payment-methods.page');
+// Đăng ký hợp tác (Homestay / MiniHouse): gửi hồ sơ, giấy tờ, ký hợp đồng để admin duyệt — gọi API /api/public/partner-onboarding.
+Route::get('/dang-ky-hop-tac', [BladeThemeV1Controller::class, 'partnerOnboardingPage'])->name('partner-onboarding.page');
+// Link cũ "Đăng ký bán phòng MiniHouse" → trang đăng ký hợp tác, chọn sẵn MiniHouse.
+Route::redirect('/dang-ky-ban-phong', '/dang-ky-hop-tac?loai=minihouse', 301)->name('minihouse-register.page');
 // Trang tĩnh riêng, thay cho CMS Page id 54 — menu item "Tra cứu đơn đặt phòng" vẫn trỏ url này
 // (createRoutes() ở trên đăng ký nó về BladeThemeV1Controller@index/page_id=54). URL này còn bị
 // hardcode ở nhiều nơi khác trong giao diện (bottom-sidebar, header-main, HeroSection,

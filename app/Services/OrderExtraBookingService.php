@@ -118,7 +118,7 @@ class OrderExtraBookingService
                     Storage::disk('public')->delete($backPath);
                     $this->cleanupGuestUploads($guestCccdRows);
 
-                    return ['error' => "Không đọc được QR trên ảnh CCCD của khách thứ {$guestIndex}. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình."];
+                    return ['error' => "Không đọc được QR trên ảnh CCCD của khách thứ {$guestIndex}. " . \Modules\Payment\App\Services\CccdScannerService::failureHint()];
                 }
 
                 $guestCccdRows[] = [

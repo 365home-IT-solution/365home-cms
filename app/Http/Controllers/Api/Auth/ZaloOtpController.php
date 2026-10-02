@@ -71,6 +71,13 @@ class ZaloOtpController extends Controller
         $normalizedPhone = $this->otp->normalizePhone($request->phone);
         $customer        = Customer::withTrashed()->where('phone', $normalizedPhone)->first();
 
+        // Khách thuê MiniHouse dùng CHUNG tài khoản với khách đặt phòng: OTP đã chứng minh quyền sở hữu SĐT nên tự tạo tài khoản khách từ hồ sơ khách thuê.
+        $fromTenant = false;
+        if (! $customer && ($tenant = $this->findTenantByPhone($normalizedPhone))) {
+            $customer   = $this->customerFromTenant($tenant, $normalizedPhone);
+            $fromTenant = true;
+        }
+
         if ($customer) {
             // Tài khoản bị xoá vĩnh viễn hoặc soft-delete → không cho đăng nhập/đăng ký lại
             if ($customer->trashed()) {
@@ -94,6 +101,7 @@ class ZaloOtpController extends Controller
 
             return response()->json([
                 'is_new_user' => false,
+                'is_tenant'   => $fromTenant || (bool) $this->findTenantByPhone($normalizedPhone),
                 'token'       => $token,
                 'expires_at'  => $expiresAt->toIso8601String(),
                 'user'        => $this->customerResource($customer),
@@ -107,6 +115,37 @@ class ZaloOtpController extends Controller
             'phone_token' => $phoneToken,
             'expires_in'  => 1800,
         ]);
+    }
+
+    /** Khách thuê MiniHouse theo SĐT (so cả dạng 0xxx / +84xxx / 84xxx vì hồ sơ khách thuê nhập tay). */
+    private function findTenantByPhone(string $normalizedPhone): ?\Modules\Minihouse\App\Models\Tenant
+    {
+        // Customer lưu SĐT dạng 84xxxxxxxxx (ZaloOtpService::normalizePhone); hồ sơ khách thuê nhập tay có thể là 0xxxxxxxxx / +84xxxxxxxxx.
+        $digits   = preg_replace('/\D/', '', $normalizedPhone);
+        $national = str_starts_with($digits, '84') ? substr($digits, 2) : ltrim($digits, '0');
+        $variants = array_unique([$normalizedPhone, $digits, '0' . $national, '+84' . $national, '84' . $national]);
+
+        return \Modules\Minihouse\App\Models\Tenant::withoutGlobalScopes()->whereIn('phone', $variants)->latest('id')->first();
+    }
+
+    /** Tạo tài khoản khách (dùng chung) từ hồ sơ khách thuê — cùng SĐT, giữ tên/ngày sinh; $passwordHash đã băm (nếu đăng nhập bằng mật khẩu khách thuê). */
+    private function customerFromTenant(\Modules\Minihouse\App\Models\Tenant $tenant, string $normalizedPhone, ?string $passwordHash = null): Customer
+    {
+        $customer = new Customer();
+        $customer->forceFill([
+            'fullname'          => $tenant->fullname ?: 'Khách thuê',
+            'date_of_birth'     => $tenant->date_of_birth,
+            'phone'             => $normalizedPhone,
+            'phone_verified_at' => now(),
+            'status'            => Customer::STATUS_ACTIVE,
+        ]);
+        // Gán mật khẩu đã băm trực tiếp (tránh băm 2 lần nếu Customer có cast hashed).
+        if ($passwordHash) {
+            $customer->setRawAttributes(array_merge($customer->getAttributes(), ['password' => $passwordHash]));
+        }
+        $customer->save();
+
+        return $customer;
     }
 
     /**
@@ -123,6 +162,19 @@ class ZaloOtpController extends Controller
         $normalizedPhone = $this->otp->normalizePhone($request->phone);
         $customer        = Customer::where('phone', $normalizedPhone)->first();
 
+        // Khách thuê MiniHouse đăng nhập bằng CHÍNH mật khẩu cổng khách thuê của mình: khớp mật khẩu khách thuê thì dùng/tạo tài khoản khách chung.
+        $tenant = $this->findTenantByPhone($normalizedPhone);
+        $viaTenantPassword = $tenant && $tenant->password && password_verify($request->password, $tenant->password)
+            && (! $customer || ! $customer->password || ! password_verify($request->password, $customer->password));
+
+        if ($viaTenantPassword) {
+            if ($customer && $customer->trashed()) {
+                return response()->json(['message' => 'Tài khoản này đã bị xoá. Vui lòng liên hệ hỗ trợ.'], 403);
+            }
+
+            $customer ??= $this->customerFromTenant($tenant, $normalizedPhone, $tenant->password);
+        }
+
         if (! $customer || ! $customer->password) {
             return response()->json([
                 'message' => 'Số điện thoại hoặc mật khẩu không đúng.',
@@ -135,7 +187,7 @@ class ZaloOtpController extends Controller
             ], 403);
         }
 
-        if (! password_verify($request->password, $customer->password)) {
+        if (! $viaTenantPassword && ! password_verify($request->password, $customer->password)) {
             return response()->json([
                 'message' => 'Số điện thoại hoặc mật khẩu không đúng.',
             ], 401);
@@ -147,6 +199,7 @@ class ZaloOtpController extends Controller
 
         return response()->json([
             'is_new_user' => false,
+            'is_tenant'   => (bool) $tenant,
             'token'       => $token,
             'expires_at'  => $expiresAt->toIso8601String(),
             'user'        => $this->customerResource($customer),
@@ -366,7 +419,8 @@ class ZaloOtpController extends Controller
                 }
 
                 return response()->json([
-                    'message' => 'Không đọc được QR trên ảnh CCCD. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.',
+                    'message' => 'Không đọc được QR trên ảnh CCCD. ' . \Modules\Payment\App\Services\CccdScannerService::failureHint(),
+                    'reason'  => \Modules\Payment\App\Services\CccdScannerService::lastFailure(),
                 ], 422);
             }
 
@@ -402,7 +456,7 @@ class ZaloOtpController extends Controller
 
                         if (! $cccdData) {
                             throw new \RuntimeException(
-                                'Không đọc được QR trên CCCD người đi cùng thứ ' . ($index + 1) . '. Vui lòng upload ảnh gốc rõ nét, không chụp lại màn hình.'
+                                'Không đọc được QR trên CCCD người đi cùng thứ ' . ($index + 1) . '. ' . \Modules\Payment\App\Services\CccdScannerService::failureHint()
                             );
                         }
 

@@ -128,6 +128,7 @@ class MinihouseAdminPanelProvider extends PanelProvider
             ->authGuard('web')
             ->authMiddleware([
                 Authenticate::class,
+                \App\Http\Middleware\RedirectExpiredSubscription::class,
             ]);
     }
 }

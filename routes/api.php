@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\PopupController;
 use App\Http\Controllers\Api\ProvinceController;
 use App\Http\Controllers\Api\PartnerContractSignController;
+use App\Http\Controllers\Api\Public\PartnerOnboardingController;
 use App\Http\Controllers\Api\SearchController;
 use App\Http\Controllers\Api\WardController;
 use App\Http\Controllers\Api\LockRecordCallbackController;
@@ -34,6 +35,20 @@ use App\Http\Controllers\Api\RatingController;
 use App\Http\Controllers\Api\WishlistController;
 use Illuminate\Support\Facades\Route;
 use Modules\AppPage\App\Http\Controllers\AppPageController;
+
+// Đăng ký hợp tác công khai (khách chưa có tài khoản đối tác): đăng ký → giấy tờ → thông tin hợp đồng → ký → gửi duyệt.
+Route::prefix('public/partner-onboarding')->name('api.partner-onboarding.')->group(function () {
+    Route::post('/', [PartnerOnboardingController::class, 'register'])->middleware('throttle:partner-onboarding-register')->name('register');
+    Route::post('recover', [PartnerOnboardingController::class, 'recover'])->middleware('throttle:partner-onboarding-register')->name('recover');
+    Route::middleware('throttle:partner-onboarding')->prefix('{token}')->group(function () {
+        Route::get('/', [PartnerOnboardingController::class, 'show'])->name('show');
+        Route::post('documents', [PartnerOnboardingController::class, 'storeDocument'])->name('documents.store');
+        Route::delete('documents/{document}', [PartnerOnboardingController::class, 'destroyDocument'])->name('documents.destroy');
+        Route::put('contract-info', [PartnerOnboardingController::class, 'updateContractInfo'])->name('contract-info');
+        Route::post('submit', [PartnerOnboardingController::class, 'submit'])->name('submit');
+        Route::post('withdraw', [PartnerOnboardingController::class, 'withdraw'])->name('withdraw');
+    });
+});
 
 Route::middleware('throttle:30,1')->prefix('partner-contracts/{token}')->name('api.partner-contracts.')->group(function () {
     Route::get('/', [PartnerContractSignController::class, 'show'])->name('show');

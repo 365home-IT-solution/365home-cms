@@ -29,7 +29,10 @@ class PartnerLegalDocumentService
             }
         }
 
-        if ($partner->isMinihouse()) {
+        // Hồ sơ đăng ký hợp tác công khai (chưa có tài khoản/toà nhà): chỉ xét Giấy phép kinh doanh; giấy tờ cấp toà nhà bổ sung sau khi có toà nhà.
+        $preAccount = filled($partner->onboarding_token) && ! $partner->users()->exists();
+
+        if ($partner->isMinihouse() && ! $preAccount) {
             $buildingTypes = ['fire_safety', 'security_order', 'property_ownership_or_use'];
             $buildings = $partner->categories()->where('category_type', 'product')->whereNull('parent_id')->get(['id', 'name']);
 
@@ -60,7 +63,7 @@ class PartnerLegalDocumentService
         return [
             'ready' => $problems === [],
             'approved' => $required->filter(fn ($document) => $this->isUsable($document))->count(),
-            'required' => max(count($requiredTypes) + ($partner->isMinihouse()
+            'required' => max(count($requiredTypes) + ($partner->isMinihouse() && ! $preAccount
                 ? max(1, $partner->categories()->where('category_type', 'product')->whereNull('parent_id')->count()) * 3
                 : 0), $required->count()),
             'problems' => array_values(array_unique($problems)),
@@ -131,6 +134,11 @@ class PartnerLegalDocumentService
             'reviewed_by' => $reviewer->id,
         ]);
 
+        // Hồ sơ đăng ký hợp tác công khai: admin yêu cầu bổ sung/từ chối → mở lại cho đối tác sửa và nộp lại (gửi duyệt lần nữa).
+        if ($status !== 'approved' && filled($document->partner->onboarding_token) && $document->partner->verification_status === 'pending') {
+            $document->partner->update(['verification_submitted_at' => null]);
+        }
+
         if ($status !== 'approved' && $document->partner->verification_status === 'approved') {
             $this->changePartnerStatus($document->partner, 'pending', 'Giấy tờ pháp lý cần được xác minh lại.');
         }
@@ -155,6 +163,11 @@ class PartnerLegalDocumentService
                 'verification_note' => $note,
             ]);
         });
+
+        // Hồ sơ gửi từ luồng đăng ký hợp tác công khai: giấy tờ đã được duyệt → tự tạo hợp đồng và gửi link ký cho đối tác.
+        if (filled($partner->onboarding_token)) {
+            app(PartnerOnboardingService::class)->sendContractAfterApproval($partner->fresh());
+        }
     }
 
     public function snapshot(Partner $partner): array
