@@ -48,6 +48,26 @@ class ManualLockPassword extends Model
         return $query->where('is_active', true);
     }
 
+    /**
+     * Bộ mật khẩu user được thấy — dùng chung cho bảng Khóa thủ công (Filament) và API app.
+     * super_admin thấy hết; có quyền chi nhánh cụ thể thì theo các chi nhánh đó; chưa gán chi
+     * nhánh cụ thể thì thấy các bộ gắn với chi nhánh của đối tác mình (category.partner_id).
+     */
+    public function scopeVisibleTo(Builder $query, \App\Models\User $user): Builder
+    {
+        if ($user->isSuperAdmin()) {
+            return $query;
+        }
+
+        $allowedIds = $user->allowedCategoryIds();
+
+        if (empty($allowedIds)) {
+            return $query->whereHas('category', fn (Builder $q) => $q->where('partner_id', $user->partner_id));
+        }
+
+        return $query->whereIn('category_id', $allowedIds);
+    }
+
     public function scopeExpired(Builder $query): Builder
     {
         return $query->where('is_active', true)
@@ -102,6 +122,23 @@ class ManualLockPassword extends Model
         }
 
         return 'success';
+    }
+
+    /**
+     * Bật cờ has_manual_lock cho các phòng — đơn/vé chỉ tra ManualLockPassword khi phòng có cờ
+     * này (xem getForProductAndDate() và các chỗ gọi). Mọi đường tạo bộ mật khẩu ngoài trang
+     * CreateManualLockPassword (Import Excel, Cấp mã mở hàng loạt...) phải gọi hàm này, nếu không
+     * đơn của phòng vẫn báo "Chưa có mã cổng" dù đã có mật khẩu.
+     *
+     * @param  iterable<string>  $productIds
+     */
+    public static function markProductsAsManualLock(iterable $productIds): void
+    {
+        $ids = collect($productIds)->filter()->unique()->values()->all();
+
+        if ($ids) {
+            Product::whereIn('id', $ids)->where('has_manual_lock', false)->update(['has_manual_lock' => true]);
+        }
     }
 
     /**

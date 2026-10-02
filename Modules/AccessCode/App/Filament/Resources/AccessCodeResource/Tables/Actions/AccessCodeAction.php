@@ -16,7 +16,10 @@ class AccessCodeAction
         return [
             ActionGroup::make([
                 ViewAction::make()->label('Xem chi tiết'),
-                EditAction::make()->label('Cập nhật'),
+                // Sang TRANG sửa — trong widget của trang Khóa cổng, EditAction mặc định mở modal
+                // không có form (trống trơn).
+                EditAction::make()->label('Cập nhật')
+                    ->url(fn ($record) => \Modules\AccessCode\App\Filament\Resources\AccessCodeResource::getUrl('edit', ['record' => $record])),
                 DeleteAction::make('Xóa'),
             ])
         ];

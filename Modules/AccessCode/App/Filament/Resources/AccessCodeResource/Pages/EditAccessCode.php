@@ -15,7 +15,14 @@ class EditAccessCode extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            Actions\DeleteAction::make(),
+            Actions\DeleteAction::make()
+                ->successRedirectUrl(fn () => \App\Filament\Pages\GateLockManagement::getUrl()),
         ];
+    }
+
+    // Bảng Pass Cổng giờ nằm trong trang gộp "Khóa cổng" — lưu xong quay về đó.
+    protected function getRedirectUrl(): string
+    {
+        return \App\Filament\Pages\GateLockManagement::getUrl();
     }
 }

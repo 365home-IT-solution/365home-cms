@@ -150,6 +150,8 @@ class CreateOrder extends CreateRecord
             OrderForm::expandOrderItemsForPersistence(is_array($data['orderItems'] ?? null) ? $data['orderItems'] : [])
         );
 
+        $this->assertPrimaryGuestCccd($data);
+
         if (! empty($data['category_id'])) {
             $category = \Modules\Category\Entities\Category::find($data['category_id']);
 
@@ -167,6 +169,33 @@ class CreateOrder extends CreateRecord
         $data['full_amount'] = (int) ($data['amount'] ?? 0);
 
         return $data;
+    }
+
+    // CCCD khách chính BẮT BUỘC khi tạo đơn (khai báo lưu trú) — khách vãng lai phải tải đủ mặt
+    // trước + mặt sau qua nút "CCCD khách #1" (lưu tạm vào Hidden cccd_front/cccd_back của form);
+    // thành viên thì hồ sơ (customers) phải có sẵn CCCD — cập nhật qua nút "CCCD thành viên".
+    // Cùng quy tắc với API POST /api/admin/orders (Api\Admin\BookingController::store()).
+    private function assertPrimaryGuestCccd(array $data): void
+    {
+        if (! empty($data['customer_id'])) {
+            $customer = \App\Models\Customer::find($data['customer_id']);
+
+            if ($customer?->cccd_front && $customer?->cccd_back) {
+                return;
+            }
+
+            $title = 'Thành viên chưa có CCCD';
+            $body  = 'Hồ sơ thành viên chưa có đủ ảnh CCCD mặt trước và mặt sau — bấm "CCCD thành viên" để tải lên trước khi tạo đơn.';
+        } elseif (! empty($data['cccd_front']) && ! empty($data['cccd_back'])) {
+            return;
+        } else {
+            $title = 'Thiếu CCCD khách chính';
+            $body  = 'Bấm "Tải CCCD khách #1 (bắt buộc)" để tải ảnh CCCD mặt trước và mặt sau trước khi tạo đơn.';
+        }
+
+        Notification::make()->title($title)->body($body)->danger()->send();
+
+        throw new \Filament\Support\Exceptions\Halt();
     }
 
     // Repeater 'orderItems' KHÔNG còn dùng ->relationship('items') (xem OrderForm.php) — 1 dòng

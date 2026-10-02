@@ -71,7 +71,10 @@
             @if (filament()->hasNavigation())
                 <ul class="me-4 hidden items-center gap-x-4 lg:flex">
                     @foreach ($navigation as $group)
-                        @if ($groupLabel = $group->getLabel())
+                        {{-- Nhóm chỉ còn ĐÚNG 1 mục user được thấy (VD role chỉ có quyền "Khóa cổng"
+                             trong "Cấu hình web") thì hiện thẳng mục đó trên thanh menu (nhánh @else
+                             bên dưới) thay vì 1 dropdown nhóm chỉ chứa 1 dòng. --}}
+                        @if (($groupLabel = $group->getLabel()) && count($group->getItems()) > 1)
                             {{-- MEGA MENU: nếu config/mega-menu.php có khai báo cho nhóm này, chia
                                  dropdown thành nhiều CỘT CÓ TIÊU ĐỀ (kiểu "Resources"/"Company" của
                                  các mega menu SaaS phổ biến) — thuần trình bày, không đụng tới

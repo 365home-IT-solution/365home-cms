@@ -113,6 +113,7 @@ class ManualLockPasswordExcelImport
 
                     if ($product) {
                         $record->products()->attach($product->id);
+                        ManualLockPassword::markProductsAsManualLock([$product->id]);
                     }
 
                     $created++;

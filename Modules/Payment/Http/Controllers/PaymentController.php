@@ -5,8 +5,6 @@ namespace Modules\Payment\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
-use App\Mail\OrderNotificationMail;
 use App\Services\TelegramService;
 use Modules\BladeThemeV1\Services\AccessCode\AccessCodeService;
 use Modules\BladeThemeV1\Services\Zns\ZaloZnsService;
@@ -345,8 +343,9 @@ private function buildTelegramMessage(Order $order, string $status): string
                 ]);
             }
 
-            // Không dùng ZaloZNS nữa — Telegram xử lý ở caller
-            $this->sendAdminNotification($order);
+            // Không dùng ZaloZNS nữa — Telegram xử lý ở caller. Đã TẮT email báo đơn cho admin
+            // (OrderNotificationMail tới mail.admin_email) theo yêu cầu 2026-10-02 — thông báo đơn
+            // đi qua chuông admin / app (OrderObserver → AdminNotificationService) là đủ.
 
             return true;
         } catch (\Exception $e) {
@@ -845,29 +844,6 @@ private function buildTelegramMessage(Order $order, string $status): string
             Log::error('Error releasing access code', [
                 'order_id' => $order->id,
                 'error'    => $e->getMessage(),
-            ]);
-        }
-    }
-
-    // =========================================================
-    // SEND ADMIN EMAIL NOTIFICATION
-    // =========================================================
-
-    private function sendAdminNotification(Order $order)
-    {
-        try {
-            $adminEmail = config('mail.admin_email');
-            Mail::to($adminEmail)->send(new OrderNotificationMail($order));
-            Log::info('Admin notification email sent', [
-                'order_id'    => $order->id,
-                'order_code'  => $order->order_code,
-                'admin_email' => $adminEmail,
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Failed to send admin notification email', [
-                'order_id'   => $order->id,
-                'order_code' => $order->order_code,
-                'error'      => $e->getMessage(),
             ]);
         }
     }

@@ -10,6 +10,7 @@ use Filament\Tables\Table;
 use Filament\Widgets\TableWidget;
 use Modules\Product\App\Filament\Resources\ManualLockPasswordResource;
 use Modules\Product\App\Filament\Resources\ManualLockPasswordResource\Tables\Actions\ManualLockPasswordImportAction;
+use Modules\Product\App\Filament\Resources\ManualLockPasswordResource\Tables\Actions\ManualLockPasswordTtlockBulkAction;
 use Modules\Product\App\Models\ManualLockPassword;
 
 // Bảng "Khóa thủ công" bên trong trang gộp "Khóa cổng" (App\Filament\Pages\GateLockManagement) —
@@ -19,9 +20,14 @@ class ManualLockPasswordTableWidget extends TableWidget
 {
     protected int | string | array $columnSpan = 'full';
 
+    // page_GateLockManagement đủ để XEM bảng (đã lọc theo chi nhánh của đối tác — xem
+    // ManualLockPasswordResource::getEloquentQuery()); thêm/sửa/xóa vẫn theo quyền manual::lock::password.
     public static function canView(): bool
     {
-        return auth()->user()?->can('viewAny', ManualLockPassword::class) ?? false;
+        $user = auth()->user();
+
+        return $user !== null
+            && ($user->can('viewAny', ManualLockPassword::class) || $user->can('page_GateLockManagement'));
     }
 
     // Ghi đè table() thay hẳn logic mặc định của InteractsWithTable (gồm cả
@@ -38,9 +44,15 @@ class ManualLockPasswordTableWidget extends TableWidget
         return ManualLockPasswordResource::table($table->query(ManualLockPasswordResource::getEloquentQuery()))
             ->heading('Khóa thủ công')
             ->headerActions([
+                ManualLockPasswordTtlockBulkAction::make(),
                 ManualLockPasswordImportAction::make(),
                 CreateAction::make()
-                    ->form(fn (Form $form): Form => ManualLockPasswordResource::form($form)),
+                    ->form(fn (Form $form): Form => ManualLockPasswordResource::form($form))
+                    // Modal này không chạy CreateManualLockPassword::afterCreate() — tự bật
+                    // has_manual_lock cho phòng vừa gán, nếu không đơn vẫn báo "Chưa có mã cổng".
+                    ->after(fn (ManualLockPassword $record) => ManualLockPassword::markProductsAsManualLock(
+                        $record->products()->pluck('products.id')
+                    )),
             ]);
     }
 }

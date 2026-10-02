@@ -45,6 +45,7 @@ use App\Http\Controllers\Api\Admin\TagController as AdminTagController;
 use App\Http\Controllers\Api\Admin\TimeSlotController as AdminTimeSlotController;
 use App\Http\Controllers\Api\Admin\TimeSlotHoldController as AdminTimeSlotHoldController;
 use App\Http\Controllers\Api\Admin\TtlockLockController;
+use App\Http\Controllers\Api\Admin\ManualLockPasswordController;
 use App\Http\Controllers\Api\Admin\UnlockController as AdminUnlockController;
 use App\Http\Controllers\Api\Admin\WarehouseCategoryController;
 use App\Http\Controllers\Api\Admin\WarehouseItemController;
@@ -392,6 +393,12 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     // App\Http\Controllers\Api\Admin\TtlockLockController.
     Route::get('ttlock/locks', [TtlockLockController::class, 'index'])->name('ttlock.locks.index');
     Route::post('ttlock/locks/unlock', [TtlockLockController::class, 'unlock'])->name('ttlock.locks.unlock');
+
+    // Mật khẩu khóa thủ công (Pass cổng/Pass phòng) + "Cấp mã mở hàng loạt" qua TTLock — bản API
+    // của bảng Khóa thủ công trong trang Khóa cổng, xem App\Http\Controllers\Api\Admin\ManualLockPasswordController.
+    Route::get('manual-lock-passwords', [ManualLockPasswordController::class, 'index'])->name('manual-lock-passwords.index');
+    Route::get('manual-lock-passwords/ttlock-options', [ManualLockPasswordController::class, 'ttlockOptions'])->name('manual-lock-passwords.ttlock-options');
+    Route::post('manual-lock-passwords/ttlock-issue', [ManualLockPasswordController::class, 'ttlockIssue'])->name('manual-lock-passwords.ttlock-issue');
 });
 
 /*
