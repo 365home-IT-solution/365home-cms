@@ -247,6 +247,16 @@ class OrderForm
                                                             ->hidden()
                                                             ->dehydrated(),
 
+                                                        // Ảnh CCCD khách #1 lúc TẠO đơn — popup "CCCD khách #1" chưa có
+                                                        // $record để lưu thẳng nên ghi tạm vào 2 field này, Order::create()
+                                                        // lưu cùng đơn (CreateOrder::afterCreate() tự quét QR). Chỉ có ở
+                                                        // trang tạo: ở trang sửa popup lưu thẳng vào đơn, nếu để field này
+                                                        // dehydrate sẽ ghi đè ảnh vừa lưu bằng giá trị cũ lúc mở trang.
+                                                        Hidden::make('cccd_front')
+                                                            ->visible(fn (string $operation) => $operation === 'create'),
+                                                        Hidden::make('cccd_back')
+                                                            ->visible(fn (string $operation) => $operation === 'create'),
+
                                                         // Không còn hiện ảnh CCCD trực tiếp dưới ghi chú nữa — bấm nút "Xem
                                                         // CCCD khách #N" bên dưới để xem (và với khách #1, upload/thay ảnh
                                                         // luôn trong popup, xem self::buildGuestOneCccdAction()). Dãy nút
@@ -1877,17 +1887,24 @@ class OrderForm
     // FileUpload để THAY ảnh mới nằm RIÊNG bên dưới với ->label() bình thường của Filament.
     private static function buildGuestOneCccdAction(): \Filament\Forms\Components\Actions\Action
     {
+        // CCCD khách #1 BẮT BUỘC khi tạo đơn (xem CreateOrder::assertPrimaryGuestCccd()) — nút đổi
+        // nhãn/màu khi chưa có ảnh để lễ tân thấy ngay cần làm gì.
+        $hasCccd = fn ($record, Get $get): bool => (bool) (($record?->cccd_front || $get('cccd_front'))
+            && ($record?->cccd_back || $get('cccd_back')));
+
         return \Filament\Forms\Components\Actions\Action::make('view_cccd_guest_1')
-            ->label('Xem CCCD khách #1')
-            ->icon('heroicon-o-eye')
-            ->color('gray')
+            ->label(fn ($record, Get $get) => $hasCccd($record, $get) ? 'Xem CCCD khách #1' : 'Tải CCCD khách #1 (bắt buộc)')
+            ->icon(fn ($record, Get $get) => $hasCccd($record, $get) ? 'heroicon-o-eye' : 'heroicon-o-exclamation-triangle')
+            ->color(fn ($record, Get $get) => $hasCccd($record, $get) ? 'gray' : 'danger')
             ->size('sm')
             ->visible(fn (Get $get, $record) => self::shouldShowGuestCccdAction($record, 1, $get))
             ->modalHeading('CCCD — Khách #1 (khách chính)')
             ->modalWidth('4xl')
-            ->fillForm(fn ($record) => [
-                'cccd_front' => $record?->cccd_front,
-                'cccd_back'  => $record?->cccd_back,
+            // Trang tạo đơn: chưa có $record — lấy lại ảnh đã tải tạm trong form chính (Hidden
+            // 'cccd_front'/'cccd_back', xem cột 1 của form).
+            ->fillForm(fn ($record, Get $get) => [
+                'cccd_front' => $record?->cccd_front ?? $get('cccd_front'),
+                'cccd_back'  => $record?->cccd_back ?? $get('cccd_back'),
             ])
             ->form([
                 // Cột 1: thông tin đã trích xuất. Cột 2: ảnh mặt trước/sau CHUNG 1 hàng, rồi khung
@@ -1934,7 +1951,8 @@ class OrderForm
                                 ->panelLayout('integrated')
                                 ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
                                 ->maxSize(10240)
-                                ->nullable(),
+                                ->required()
+                                ->validationMessages(['required' => 'Bắt buộc ảnh CCCD mặt trước của khách chính.']),
 
                             FileUpload::make('cccd_back')
                                 ->label(fn ($record) => $record?->cccd_back ? 'Thay ảnh mặt sau' : 'Tải ảnh mặt sau')
@@ -1944,13 +1962,24 @@ class OrderForm
                                 ->panelLayout('integrated')
                                 ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
                                 ->maxSize(10240)
-                                ->nullable(),
+                                ->required()
+                                ->validationMessages(['required' => 'Bắt buộc ảnh CCCD mặt sau của khách chính.']),
                         ]),
                     ]),
                 ]),
             ])
-            ->action(function (array $data, $record) {
+            ->action(function (array $data, $record, Set $set) {
+                // Trang tạo đơn: giữ tạm ảnh vào form chính, lưu cùng lúc tạo đơn.
                 if (! $record) {
+                    $set('cccd_front', $data['cccd_front'] ?? null);
+                    $set('cccd_back', $data['cccd_back'] ?? null);
+
+                    \Filament\Notifications\Notification::make()
+                        ->title('Đã đính kèm CCCD khách #1')
+                        ->body('Ảnh sẽ được lưu và quét thông tin khi bấm Tạo đơn.')
+                        ->success()
+                        ->send();
+
                     return;
                 }
 

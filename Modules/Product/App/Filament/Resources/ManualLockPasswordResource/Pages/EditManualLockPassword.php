@@ -77,6 +77,7 @@ class EditManualLockPassword extends EditRecord
     {
         return [
             DeleteAction::make()
+                ->successRedirectUrl(fn () => \App\Filament\Pages\GateLockManagement::getUrl())
                 ->before(function () {
                     // Khi xóa record, gỡ cờ cho các phòng không còn liên kết
                     $productIds = $this->record->products()->pluck('products.id')->toArray();
@@ -93,8 +94,10 @@ class EditManualLockPassword extends EditRecord
         ];
     }
 
+    // Bảng Khóa thủ công giờ nằm trong trang gộp "Khóa cổng" (danh sách riêng của resource đã ẩn
+    // khỏi menu) — lưu xong quay về đó.
     protected function getRedirectUrl(): string
     {
-        return $this->getResource()::getUrl('index');
+        return \App\Filament\Pages\GateLockManagement::getUrl();
     }
 }

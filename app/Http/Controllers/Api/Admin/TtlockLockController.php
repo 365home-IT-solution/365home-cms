@@ -32,7 +32,7 @@ class TtlockLockController extends Controller
 
         $locks = [];
 
-        $accounts = TtlockAccount::query()->where('is_active', true)->with('categories:id,name')->get();
+        $accounts = $this->accountQuery($request->user())->where('is_active', true)->with('categories:id,name')->get();
 
         foreach ($accounts as $account) {
             $categoryId = $account->categories->first()?->id;
@@ -77,7 +77,19 @@ class TtlockLockController extends Controller
             'lock_id'     => 'required|integer',
         ]);
 
-        $ttlock = TTLockService::forCategory((int) $data['category_id']);
+        // forCategory() chọn tài khoản đang bật MỚI NHẤT của chi nhánh — kiểm tra đúng tài khoản đó
+        // thuộc partner của người gọi, nếu không thì coi như không có (không lộ khóa partner khác).
+        $account = TtlockAccount::query()
+            ->whereHas('categories', fn ($q) => $q->where('categories.id', (int) $data['category_id']))
+            ->where('is_active', true)
+            ->latest('id')
+            ->first();
+
+        if ($account && ! $this->ownsAccount($request->user(), $account)) {
+            return response()->json(['success' => false, 'message' => 'Không có quyền mở khóa của chi nhánh này.'], 403);
+        }
+
+        $ttlock = $account ? TTLockService::forCategory((int) $data['category_id']) : null;
 
         if (! $ttlock) {
             return response()->json(['success' => false, 'message' => 'Chi nhánh này chưa kết nối tài khoản TTLock.'], 422);
@@ -105,6 +117,26 @@ class TtlockLockController extends Controller
     // super_admin bypass; tài khoản thường phải có đúng quyền trang Filament tương ứng
     // (page_LockDashboard, gác chung cả LockDashboard/LockDetail bên Filament) — dùng $user->can()
     // (không dùng hasPermissionTo() thuần Spatie) để super_admin không bị chặn nhầm.
+    // Route /api/admin/* KHÔNG chạy MarkAdminPanelContext nên global scope 'partner' của
+    // BelongsToPartner không tự áp — lọc tay theo partner_id giống trang CMS "Thông tin TTLock":
+    // super_admin thấy mọi tài khoản, còn lại chỉ thấy tài khoản TTLock cùng partner_id.
+    private function accountQuery(User $user): \Illuminate\Database\Eloquent\Builder
+    {
+        $query = TtlockAccount::query();
+
+        if (! $user->isSuperAdmin()) {
+            $query->where('partner_id', $user->partner_id);
+        }
+
+        return $query;
+    }
+
+    private function ownsAccount(User $user, TtlockAccount $account): bool
+    {
+        return $user->isSuperAdmin()
+            || ($user->partner_id !== null && $account->partner_id === $user->partner_id);
+    }
+
     private function authorized(Request $request): bool
     {
         $user = $request->user();

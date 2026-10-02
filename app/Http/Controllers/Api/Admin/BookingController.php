@@ -36,10 +36,11 @@ class BookingController extends Controller
      * đặt cọc) của app khách hàng — xem BuildsRoomBooking — để giá tạo ra ở đây không lệch với giá
      * app hiển thị. KHÔNG xử lý mã giảm giá (coupon_codes) — admin tạo đơn nền, không cần áp coupon.
      *
-     * CCCD (mặt trước/sau) là TÙY CHỌN (khác app khách/guest luôn bắt buộc) — lễ tân đã xác minh
-     * giấy tờ trực tiếp tại quầy nên không bắt phải chụp ảnh ngay bước này; nếu có gửi kèm thì hệ
-     * thống vẫn tự quét QR và lưu vào "Khai báo lưu trú" (Luật Cư trú) giống hệt luồng CMS admin —
-     * xem CccdDeclarationService. Khung giờ qua đêm (over_night) với guest_count > 1 thì cho gửi
+     * CCCD khách chính (cccd_front + cccd_back) BẮT BUỘC — khách vãng lai phải gửi đủ 2 ảnh; khách
+     * thành viên được bỏ qua nếu hồ sơ (customers) đã có sẵn đủ 2 ảnh CCCD (đơn dùng lại ảnh đó).
+     * Cùng quy tắc với form tạo đơn CMS (CreateOrder::assertPrimaryGuestCccd()). Hệ thống tự quét
+     * QR và lưu vào "Khai báo lưu trú" (Luật Cư trú) — xem CccdDeclarationService; quét lỗi KHÔNG
+     * chặn tạo đơn (lễ tân đã xác minh tại quầy). Khung giờ qua đêm (over_night) với guest_count > 1 thì cho gửi
      * thêm CCCD của khách đi cùng qua guests[{guest_index}][front]/[back] (guest_index từ 2), cũng
      * không bắt buộc — chỉ những khách nào có gửi ảnh mới được quét/lưu.
      */
@@ -69,7 +70,8 @@ class BookingController extends Controller
             'short_description'       => 'sometimes|nullable|string|max:255',
             'return_url'              => 'sometimes|nullable|string|max:500',
             'cancel_url'              => 'sometimes|nullable|string|max:500',
-            // CCCD khách chính — không bắt buộc (xem docblock). Chỉ validate ĐỊNH DẠNG nếu có gửi.
+            // CCCD khách chính — bắt buộc (kiểm tra ở bước 2, sau khi biết có phải thành viên đã có
+            // CCCD trong hồ sơ hay không). Ở đây chỉ validate ĐỊNH DẠNG nếu có gửi.
             'cccd_front'              => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'cccd_back'               => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             // CCCD khách đi cùng (khung giờ qua đêm) — guests[{guest_index}][front|back], guest_index
@@ -117,6 +119,20 @@ class BookingController extends Controller
             $buyerPhone = trim($request->input('buyer_phone'));
         }
 
+        // CCCD khách chính bắt buộc (xem docblock) — thành viên đã có đủ ảnh trong hồ sơ thì thôi.
+        $memberHasCccd = $customer && $customer->cccd_front && $customer->cccd_back;
+
+        if (! $memberHasCccd && (! $request->hasFile('cccd_front') || ! $request->hasFile('cccd_back'))) {
+            $message = $customer
+                ? 'Thành viên chưa có CCCD trong hồ sơ — gửi kèm ảnh CCCD mặt trước (cccd_front) và mặt sau (cccd_back).'
+                : 'Bắt buộc ảnh CCCD mặt trước (cccd_front) và mặt sau (cccd_back) của khách chính.';
+
+            throw ValidationException::withMessages(array_filter([
+                'cccd_front' => $request->hasFile('cccd_front') ? null : [$message],
+                'cccd_back'  => $request->hasFile('cccd_back') ? null : [$message],
+            ]));
+        }
+
         // ── 3. Load phòng + kiểm tra quyền theo đối tác ────────────────────────
         $room = Product::where('id', $request->input('room_id'))
             ->where('is_activated', true)
@@ -151,7 +167,7 @@ class BookingController extends Controller
             [$basePrice, $summaryName, $itemsData] = $this->buildMonthlyItem($request, $room);
         }
 
-        // ── 4.5 CCCD (tùy chọn) — khách chính + khách đi cùng nếu có khung giờ qua đêm ─────────
+        // ── 4.5 CCCD — khách chính (bắt buộc, đã kiểm tra ở bước 2) + khách đi cùng nếu qua đêm ─────────
         // type != 'slot' (đặt theo ngày) LUÔN là qua đêm — xem over_night => true hardcode trong
         // buildDailyItems(). $rtsCollection ở đó chỉ chứa RoomTimeSlot có type 'date' nên có thể
         // rỗng dù đơn thực chất qua đêm — phải check type riêng (giống BookingController khách hàng).

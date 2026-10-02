@@ -30,6 +30,7 @@ use Modules\Category\Entities\Categorizable;
 use Modules\Product\App\Filament\Resources\ManualLockPasswordResource\Pages;
 use Modules\Product\App\Models\ManualLockPassword;
 use Modules\Product\App\Models\Product;
+use Modules\Product\App\Support\ManualLockPasswordTtlockIssuer;
 
 class ManualLockPasswordResource extends Resource
 {
@@ -72,22 +73,16 @@ class ManualLockPasswordResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery();
-        $user  = auth()->user();
+        $user = auth()->user();
 
-        if (! $user || $user->isSuperAdmin()) {
-            return $query;
-        }
+        return $user ? parent::getEloquentQuery()->visibleTo($user) : parent::getEloquentQuery();
+    }
 
-        $allowedIds = $user->allowedCategoryIds();
-
-        // Chưa gán quyền chi nhánh cụ thể thì mặc định thấy các bộ mật khẩu gắn với chi nhánh của
-        // đối tác mình (category.partner_id), không chặn hết.
-        if (empty($allowedIds)) {
-            return $query->whereHas('category', fn (Builder $q) => $q->where('partner_id', $user->partner_id));
-        }
-
-        return $query->whereIn('category_id', $allowedIds);
+    // Chi nhánh user được thấy — dùng chung cho ô chọn trong form và bộ lọc của bảng (trước đây bộ
+    // lọc liệt kê chi nhánh của MỌI đối tác).
+    public static function branchOptions(): array
+    {
+        return ManualLockPasswordTtlockIssuer::visibleBranches(auth()->user());
     }
 
     public static function form(Form $form): Form
@@ -106,21 +101,7 @@ class ManualLockPasswordResource extends Resource
 
                         Select::make('category_id')
                             ->label('Chi nhánh')
-                            ->options(function () {
-                                $user  = auth()->user();
-                                $query = Category::query()
-                                    ->where('category_type', 'product')
-                                    ->orderBy('name');
-                                if ($user && ! $user->isSuperAdmin()) {
-                                    $allowedIds = $user->allowedCategoryIds();
-                                    if (! empty($allowedIds)) {
-                                        $query->whereIn('id', $allowedIds);
-                                    } else {
-                                        $query->where('partner_id', $user->partner_id);
-                                    }
-                                }
-                                return $query->pluck('name', 'id');
-                            })
+                            ->options(fn () => static::branchOptions())
                             ->searchable()
                             ->required()
                             ->native(false)
@@ -307,7 +288,7 @@ class ManualLockPasswordResource extends Resource
 
                 SelectFilter::make('category_id')
                     ->label('Chi nhánh')
-                    ->options(fn () => Category::where('category_type', 'product')->pluck('name', 'id'))
+                    ->options(fn () => static::branchOptions())
                     ->native(false),
 
                 PartnerTableHelpers::filterThroughRelation('category'),
@@ -320,7 +301,7 @@ class ManualLockPasswordResource extends Resource
                     ->requiresConfirmation()
                     ->modalHeading('Ngừng hoạt động bộ mật khẩu này?')
                     ->modalDescription('Bộ mật khẩu sẽ không còn được áp dụng cho các phòng liên quan.')
-                    ->visible(fn (ManualLockPassword $r) => $r->is_active)
+                    ->visible(fn (ManualLockPassword $r) => $r->is_active && (auth()->user()?->can('update', $r) ?? false))
                     ->action(fn (ManualLockPassword $r) => $r->deactivate()),
 
                 Action::make('activate')
@@ -329,10 +310,14 @@ class ManualLockPasswordResource extends Resource
                     ->color('success')
                     ->requiresConfirmation()
                     ->modalHeading('Kích hoạt lại bộ mật khẩu này?')
-                    ->visible(fn (ManualLockPassword $r) => ! $r->is_active)
+                    ->visible(fn (ManualLockPassword $r) => ! $r->is_active && (auth()->user()?->can('update', $r) ?? false))
                     ->action(fn (ManualLockPassword $r) => $r->update(['is_active' => true])),
 
-                EditAction::make(),
+                // Luôn sang TRANG sửa (EditManualLockPassword) — trong widget của trang Khóa cổng,
+                // EditAction mặc định mở modal KHÔNG có form (trống trơn), và cũng không chạy
+                // afterSave() (bật/tắt has_manual_lock theo phòng thêm/bớt).
+                EditAction::make()
+                    ->url(fn (ManualLockPassword $r) => static::getUrl('edit', ['record' => $r])),
                 DeleteAction::make(),
             ])
             ->bulkActions([

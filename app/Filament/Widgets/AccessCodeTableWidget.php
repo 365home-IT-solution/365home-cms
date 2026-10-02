@@ -19,9 +19,18 @@ class AccessCodeTableWidget extends TableWidget
 {
     protected int | string | array $columnSpan = 'full';
 
+    // Pass Cổng (mã TTLock cấp theo đơn của hệ thống) chỉ dành cho super_admin / đối tác nền tảng —
+    // tài khoản đối tác thường chỉ quản lý mật khẩu khóa thủ công của chi nhánh mình, kể cả khi lỡ
+    // được tick quyền access::code trong role.
     public static function canView(): bool
     {
-        return auth()->user()?->can('view_any_access::code') ?? false;
+        $user = auth()->user();
+
+        if (! $user || ! $user->can('view_any_access::code')) {
+            return false;
+        }
+
+        return $user->isSuperAdmin() || $user->belongsToPlatformPartner();
     }
 
     // Ghi đè table() thay hẳn logic mặc định của InteractsWithTable (gồm cả

@@ -26,10 +26,11 @@ class GateLockManagement extends Page
 
     protected static string $view = 'filament.pages.gate-lock-management';
 
+    // Vào được trang khi xem được ít nhất 1 trong 2 bảng — quyền page_GateLockManagement (tick ở
+    // Roles) giờ cũng tính: nó cho xem bảng Khóa thủ công (xem ManualLockPasswordTableWidget).
     public static function canAccess(): bool
     {
-        return (auth()->user()?->can('view_any_access::code') ?? false)
-            || (auth()->user()?->can('viewAny', \Modules\Product\App\Models\ManualLockPassword::class) ?? false);
+        return AccessCodeTableWidget::canView() || ManualLockPasswordTableWidget::canView();
     }
 
     protected function getHeaderWidgets(): array
