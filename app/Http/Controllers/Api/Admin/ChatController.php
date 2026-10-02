@@ -6,9 +6,11 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Models\ChatConversation;
 use App\Models\ChatMessage;
+use App\Models\User;
 use App\Services\ChatRealtimeService;
 use App\Services\NotificationFcmService;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -22,11 +24,11 @@ class ChatController extends Controller
 
     /**
      * GET /api/admin/chat
-     * Danh sách conversation, sắp theo tin mới nhất — mặc định CHỈ lấy hội thoại có ít nhất 1 đơn
-     * (bất kỳ order thread nào trong hội thoại, xem quan hệ ChatConversation::messages()→order())
-     * thuộc chi nhánh mà admin đang đăng nhập được phép xem (User::allowedCategoryIds() — chi
-     * nhánh CHA user được gán + toàn bộ chi nhánh CON, đệ quy). Super_admin hoặc admin không bị
-     * gán quyền chi nhánh cụ thể (allowedCategoryIds() rỗng) thì thấy TẤT CẢ, không giới hạn.
+     * Danh sách conversation, sắp theo tin mới nhất. Super_admin thấy TẤT CẢ. User khác chỉ thấy
+     * hội thoại có khung chat của 1 ĐƠN thuộc đúng đối tác mình (thu hẹp thêm theo chi nhánh được
+     * gán — User::allowedCategoryIds(), rỗng = mọi chi nhánh của đối tác), hoặc tin hỗ trợ chung
+     * của khách từng đặt đơn trong phạm vi đó — xem scopedOrders()/constrainConversations(). Cùng
+     * phạm vi áp dụng cho show/orders/send/read theo {id} (ngoài phạm vi → 404).
      *
      * Query param tuỳ chọn 'categories': danh sách SLUG chi nhánh (bảng categories.slug), CHỌN
      * NHIỀU bằng dấu phẩy (vd "89-xuan-thuy-an-binh-can-tho,254-xuan-thuy-an-binh-can-tho") để LỌC
@@ -37,23 +39,10 @@ class ChatController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
-        $categoryIds = $this->resolveCategoryFilter($request);
-
         $query = ChatConversation::with('customer:id,fullname,phone')
             ->orderByDesc('last_message_at');
 
-        if ($categoryIds !== null) {
-            if (empty($categoryIds)) {
-                // Phạm vi quyền/lọc thu hẹp về rỗng (vd categories gửi lên không nằm trong quyền
-                // admin) → không thấy hội thoại nào, KHÁC với null (không giới hạn gì).
-                $query->whereRaw('1 = 0');
-            } else {
-                $query->whereHas(
-                    'messages',
-                    fn ($q) => $q->whereHas('order', fn ($oq) => $oq->whereIn('category_id', $categoryIds))
-                );
-            }
-        }
+        $this->constrainConversations($query, $this->scopedOrders($request));
 
         $conversations = $query->paginate(20);
 
@@ -121,6 +110,76 @@ class ChatController extends Controller
     }
 
     /**
+     * Phạm vi ĐƠN admin được xem, dùng làm gốc phân quyền chat: super_admin không lọc gì (null, trừ
+     * khi tự lọc thêm ?categories=); user khác chỉ đơn của đúng đối tác mình (Order không có global
+     * scope partner ngoài Filament panel nên phải lọc tường minh — trước đây thiếu, chủ đối tác thấy
+     * hội thoại của MỌI đối tác), thu hẹp thêm theo chi nhánh (resolveCategoryFilter()).
+     */
+    private function scopedOrders(Request $request): ?Builder
+    {
+        /** @var User $user */
+        $user        = $request->user();
+        $categoryIds = $this->resolveCategoryFilter($request);
+
+        if ($user->isSuperAdmin() && $categoryIds === null) {
+            return null;
+        }
+
+        $query = Order::query();
+
+        if (! $user->isSuperAdmin()) {
+            empty($user->partner_id)
+                ? $query->whereRaw('1 = 0')
+                : $query->where('partner_id', $user->partner_id);
+        }
+
+        if ($categoryIds !== null) {
+            // [] = phạm vi quyền/lọc thu hẹp về rỗng → không thấy gì, KHÁC null (không giới hạn).
+            $query->whereIn('category_id', $categoryIds ?: [-1]);
+        }
+
+        return $query;
+    }
+
+    /**
+     * Hội thoại admin được xem: có ít nhất 1 khung chat của ĐƠN trong phạm vi, HOẶC có tin hỗ trợ
+     * chung (order_id null) của khách hàng từng đặt đơn trong phạm vi — khung hỗ trợ chung không gắn
+     * đơn nào nên chỉ xác định được "khách của ai" qua lịch sử đặt phòng.
+     */
+    private function constrainConversations(Builder $query, ?Builder $orders): void
+    {
+        if ($orders === null) {
+            return;
+        }
+
+        $orderIds    = (clone $orders)->select('id');
+        $customerIds = (clone $orders)->whereNotNull('customer_id')->select('customer_id');
+
+        $query->where(function (Builder $q) use ($orderIds, $customerIds) {
+            $q->whereHas('messages', fn ($m) => $m->whereIn('order_id', $orderIds))
+                ->orWhere(fn (Builder $q2) => $q2
+                    ->whereIn('customer_id', $customerIds)
+                    ->whereHas('messages', fn ($m) => $m->whereNull('order_id')));
+        });
+    }
+
+    // Tìm 1 hội thoại theo id NHƯNG chỉ trong phạm vi admin được xem — ngoài phạm vi trả null (404),
+    // không lộ sự tồn tại của hội thoại đối tác/chi nhánh khác.
+    private function findVisibleConversation(Request $request, string $id, array $with = []): ?ChatConversation
+    {
+        $query = ChatConversation::with($with);
+        $this->constrainConversations($query, $this->scopedOrders($request));
+
+        return $query->find($id);
+    }
+
+    // Đơn có nằm trong phạm vi admin được xem không (null = không giới hạn).
+    private function orderInScope(?Builder $orders, ?Order $order): bool
+    {
+        return $order !== null && ($orders === null || (clone $orders)->whereKey($order->id)->exists());
+    }
+
+    /**
      * GET /api/admin/chat/{id}
      * Chi tiết conversation + tin nhắn. Tự động đánh dấu admin đã đọc.
      *
@@ -132,7 +191,8 @@ class ChatController extends Controller
      */
     public function show(Request $request, string $id): JsonResponse
     {
-        $conv = ChatConversation::with(['customer:id,fullname,phone', 'order.items.product', 'order.services'])->find($id);
+        $orders = $this->scopedOrders($request);
+        $conv   = $this->findVisibleConversation($request, $id, ['customer:id,fullname,phone', 'order.items.product', 'order.services']);
 
         if (! $conv) {
             return response()->json(['message' => 'Không tìm thấy cuộc trò chuyện.'], 404);
@@ -159,12 +219,18 @@ class ChatController extends Controller
 
         $query = ChatMessage::where('conversation_id', $conv->id);
 
+        // 1 khách có thể đặt ở nhiều đối tác/chi nhánh — chỉ trả tin hỗ trợ chung + tin thuộc ĐƠN
+        // trong phạm vi, không lộ nội dung trao đổi về đơn của đối tác/chi nhánh khác.
+        if ($orders !== null) {
+            $query->where(fn ($q) => $q->whereNull('order_id')->orWhereIn('order_id', (clone $orders)->select('id')));
+        }
+
         if ($orderCode) {
             $scopeOrder = Order::where('order_code', $orderCode)
                 ->where('customer_id', $conv->customer_id)
                 ->first();
 
-            if (! $scopeOrder) {
+            if (! $this->orderInScope($orders, $scopeOrder)) {
                 return response()->json(['message' => 'Không tìm thấy đơn hàng này của khách.'], 404);
             }
 
@@ -200,7 +266,7 @@ class ChatController extends Controller
             // không thì fallback về đơn "đang trỏ tới" của conversation (giữ hành vi cũ).
             'order'        => $scopeOrder
                 ? $this->buildOrderInfo($scopeOrder)
-                : ($conv->order ? $this->buildOrderInfo($conv->order) : null),
+                : ($this->orderInScope($orders, $conv->order) ? $this->buildOrderInfo($conv->order) : null),
         ]);
     }
 
@@ -210,9 +276,10 @@ class ChatController extends Controller
      * chat" riêng (tin nhắn có order_id trỏ tới đơn đó). Dùng để admin biết khách đã hỏi về những
      * đơn nào, rồi gọi GET .../{id}?order_code=... để xem đúng khung chat của đơn đó.
      */
-    public function orders(string $id): JsonResponse
+    public function orders(Request $request, string $id): JsonResponse
     {
-        $conv = ChatConversation::find($id);
+        $orders = $this->scopedOrders($request);
+        $conv   = $this->findVisibleConversation($request, $id);
 
         if (! $conv) {
             return response()->json(['message' => 'Không tìm thấy cuộc trò chuyện.'], 404);
@@ -220,6 +287,7 @@ class ChatController extends Controller
 
         $threads = ChatMessage::where('conversation_id', $conv->id)
             ->whereNotNull('order_id')
+            ->when($orders !== null, fn ($q) => $q->whereIn('order_id', (clone $orders)->select('id')))
             ->selectRaw('order_id, COUNT(*) as message_count, MAX(created_at) as last_message_at')
             ->groupBy('order_id')
             ->orderByDesc('last_message_at')
@@ -264,7 +332,7 @@ class ChatController extends Controller
         ]);
 
         // Load customer với đầy đủ fields để gửi FCM (cần token_device)
-        $conv = ChatConversation::with('customer')->find($id);
+        $conv = $this->findVisibleConversation($request, $id, ['customer']);
         if (! $conv) {
             return response()->json(['message' => 'Không tìm thấy cuộc trò chuyện.'], 404);
         }
@@ -278,7 +346,7 @@ class ChatController extends Controller
                 ->where('customer_id', $conv->customer_id)
                 ->first();
 
-            if (! $order) {
+            if (! $this->orderInScope($this->scopedOrders($request), $order)) {
                 return response()->json(['message' => 'Không tìm thấy đơn hàng này của khách.'], 404);
             }
 
@@ -348,9 +416,9 @@ class ChatController extends Controller
      * POST /api/admin/chat/{id}/read
      * Đánh dấu admin đã đọc toàn bộ tin từ khách.
      */
-    public function read(string $id): JsonResponse
+    public function read(Request $request, string $id): JsonResponse
     {
-        $conv = ChatConversation::find($id);
+        $conv = $this->findVisibleConversation($request, $id);
         if (! $conv) {
             return response()->json(['message' => 'Không tìm thấy cuộc trò chuyện.'], 404);
         }

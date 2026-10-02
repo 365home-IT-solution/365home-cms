@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -20,6 +21,10 @@ use Modules\Product\App\Models\RoomType;
  * partner như `products`), khác với App\Http\Controllers\Api\RoomTypeController (API phía khách
  * hàng, chỉ trả room_type is_active kèm danh sách chi nhánh/phòng — mục đích khác hẳn, không dùng
  * cho admin quản trị).
+ *
+ * Phân quyền: vì là danh mục dùng chung, CHỈ super_admin được thêm/sửa/xoá (tránh admin 1 đối tác
+ * sửa/xoá danh mục đang dùng ở đối tác khác). Mọi admin đều xem được danh sách, nhưng room_count/
+ * price chỉ tính trên phòng user đó được phép xem (cùng phạm vi GET /api/admin/rooms).
  */
 class RoomTypeController extends Controller
 {
@@ -40,8 +45,9 @@ class RoomTypeController extends Controller
      *                 — chỉ tính room_count/price trên phòng ĐÚNG kiểu này.
      *
      * Mỗi room_type trả kèm:
-     *  - room_count : số phòng (products, đang active) thuộc danh mục này, đã áp dụng filter
-     *                 categories/type ở trên nếu có.
+     *  - room_count : số phòng (products, đang active) thuộc danh mục này, trong phạm vi phòng user
+     *                 được xem (super_admin: mọi đối tác; còn lại: đúng đối tác + chi nhánh được
+     *                 gán), đã áp dụng filter categories/type ở trên nếu có.
      *  - price      : giá thấp nhất (MIN) trong số các phòng thoả room_count ở trên — phòng styles=1
      *                 lấy giá của khung giờ ĐẦU TIÊN trong ngày (start_time nhỏ nhất, bảng
      *                 room_time_slots); phòng styles=2 lấy thẳng cột products.price. null nếu
@@ -81,6 +87,19 @@ class RoomTypeController extends Controller
             $matchedProducts = collect();
         } else {
             $productsQuery = Product::where('is_activated', true)->whereNotNull('room_type_id');
+
+            /** @var User $user */
+            $user = $request->user();
+            if (! $user->isSuperAdmin()) {
+                // Product không có global scope partner ngoài Filament panel — lọc tường minh, giống
+                // RoomController::index(). allowedCategoryIds() rỗng = không giới hạn chi nhánh cụ thể.
+                $productsQuery->where('partner_id', $user->partner_id);
+
+                $allowedCategoryIds = $user->allowedCategoryIds();
+                if (! empty($allowedCategoryIds)) {
+                    $productsQuery->whereHas('categories', fn ($q) => $q->whereIn('categories.id', $allowedCategoryIds));
+                }
+            }
 
             if ($styles !== null) {
                 $productsQuery->where('styles', $styles);
@@ -140,6 +159,10 @@ class RoomTypeController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        if ($denied = $this->denyUnlessSuperAdmin($request)) {
+            return $denied;
+        }
+
         $data = $request->validate($this->rules());
 
         $roomType = RoomType::create($data);
@@ -152,6 +175,10 @@ class RoomTypeController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
+        if ($denied = $this->denyUnlessSuperAdmin($request)) {
+            return $denied;
+        }
+
         $roomType = RoomType::find($id);
 
         if (! $roomType) {
@@ -170,8 +197,12 @@ class RoomTypeController extends Controller
      * Chặn xoá nếu còn phòng nào đang gán danh mục này (products.room_type_id) — tránh mồ côi dữ
      * liệu, gỡ khỏi các phòng trước qua PATCH /api/admin/rooms/{id}/room-type (room_type_id=null).
      */
-    public function destroy(int $id): JsonResponse
+    public function destroy(Request $request, int $id): JsonResponse
     {
+        if ($denied = $this->denyUnlessSuperAdmin($request)) {
+            return $denied;
+        }
+
         $roomType = RoomType::find($id);
 
         if (! $roomType) {
@@ -185,6 +216,16 @@ class RoomTypeController extends Controller
         $roomType->delete();
 
         return response()->json(['message' => 'Đã xoá danh mục phòng.']);
+    }
+
+    private function denyUnlessSuperAdmin(Request $request): ?JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        return $user->isSuperAdmin()
+            ? null
+            : response()->json(['message' => 'Chỉ super_admin được thêm/sửa/xoá danh mục phòng dùng chung.'], 403);
     }
 
     private function rules(bool $isUpdate = false, ?int $roomTypeId = null): array

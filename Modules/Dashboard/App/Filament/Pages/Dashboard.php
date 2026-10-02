@@ -528,8 +528,12 @@ class Dashboard extends FilamentDashboard
             ->whereIn('payment_method', ['PayOS', 'cod']);
 
         if ($user && ! $user->isSuperAdmin()) {
-            // Order (Eloquent) đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds
-            // chỉ thu hẹp thêm, không dùng để chặn hết khi rỗng.
+            // PHẢI lọc partner_id tường minh: global scope BelongsToPartner của Order chỉ chạy
+            // trong Filament panel (AdminPanelContext), còn hàm này được gọi lại từ API token
+            // (RankingService — GET /api/admin/dashboard/rankings), nơi scope đó KHÔNG áp dụng —
+            // thiếu dòng này chủ đối tác thấy doanh thu theo tháng của TẤT CẢ đối tác.
+            // allowedCategoryIds chỉ thu hẹp thêm, không dùng để chặn hết khi rỗng.
+            static::scopeToPartner($baseQuery, $user);
             $categoryIds = $user->allowedCategoryIds() ?? [];
             if (! empty($categoryIds)) {
                 $allowedProductIds = Product::whereHas('categories', function ($q) use ($categoryIds) {
@@ -589,8 +593,12 @@ class Dashboard extends FilamentDashboard
             ->orderByRaw('YEAR(created_at) DESC');
 
         if ($user && ! $user->isSuperAdmin()) {
-            // Order (Eloquent) đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds
-            // chỉ thu hẹp thêm, không dùng để chặn hết khi rỗng.
+            // PHẢI lọc partner_id tường minh: global scope BelongsToPartner của Order chỉ chạy
+            // trong Filament panel (AdminPanelContext), còn hàm này được gọi lại từ API token
+            // (RankingService — GET /api/admin/dashboard/rankings), nơi scope đó KHÔNG áp dụng —
+            // thiếu dòng này chủ đối tác thấy doanh thu theo tháng của TẤT CẢ đối tác.
+            // allowedCategoryIds chỉ thu hẹp thêm, không dùng để chặn hết khi rỗng.
+            static::scopeToPartner($query, $user);
             $categoryIds = $user->allowedCategoryIds() ?? [];
             if (! empty($categoryIds)) {
                 $allowedProductIds = Product::whereHas('categories', function ($q) use ($categoryIds) {
@@ -614,12 +622,26 @@ class Dashboard extends FilamentDashboard
         if (! $user || $user->isSuperAdmin()) {
             return $query;
         }
+        static::scopeToPartner($query, $user);
         $allCategoryIds = $user->allowedCategoryIds();
-        // Order đã tự lọc theo partner_id (BelongsToPartner); allowedCategoryIds chỉ thu hẹp thêm.
+        // allowedCategoryIds chỉ thu hẹp thêm trong phạm vi đối tác.
         if (empty($allCategoryIds)) {
             return $query;
         }
         return $query->whereIn('category_id', $allCategoryIds);
+    }
+
+    // Lọc đơn về đúng đối tác của user (user không có partner_id → không thấy gì) — không dựa vào
+    // global scope BelongsToPartner vì scope đó không chạy ngoài Filament panel (API token).
+    private static function scopeToPartner($query, $user): void
+    {
+        if (empty($user->partner_id)) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $query->where($query->getModel()->getTable() . '.partner_id', $user->partner_id);
     }
 
     /** Tổng tiền đơn đã thanh toán: ưu tiên amount (tổng thực thu cuối cùng), fallback full_amount */

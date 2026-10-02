@@ -222,12 +222,34 @@ public function getFilamentAvatarUrl(): ?string
 
     /**
      * Trả về danh sách category_id loại PRODUCT (chi nhánh gốc) mà user được phép xem.
+     *
+     * Ưu tiên "Phân quyền chi nhánh" (user_branch_permissions). Nếu tài khoản không được gán ở đó
+     * nhưng là NHÂN VIÊN (có hồ sơ Employee, không bật works_all_branches) đã được giao "Chi nhánh
+     * làm việc" (employee_branches — form Tạo/Sửa User, API /api/admin/employees) thì dùng luôn các
+     * chi nhánh làm việc đó — trước đây nguồn này bị bỏ qua hoàn toàn, khiến nhân viên chỉ làm ở 1
+     * chi nhánh vẫn xem được KPI/chat/phòng/đơn của MỌI chi nhánh trong đối tác. Chỉ nhận chi nhánh
+     * thuộc đúng đối tác của tài khoản. Rỗng = không giới hạn chi nhánh cụ thể (như cũ).
      */
     public function allowedBranchIds(): array
     {
-        return $this->branchPermissions()
+        $ids = $this->branchPermissions()
             ->whereHas('branch', fn ($q) => $q->where('category_type', 'product'))
             ->pluck('category_id')
+            ->toArray();
+
+        if (! empty($ids) || empty($this->partner_id) || $this->isSuperAdmin()) {
+            return $ids;
+        }
+
+        $employee = $this->employee;
+        if (! $employee || $employee->works_all_branches) {
+            return [];
+        }
+
+        return $employee->workBranches()
+            ->where('categories.category_type', 'product')
+            ->where('categories.partner_id', $this->partner_id)
+            ->pluck('categories.id')
             ->toArray();
     }
 
