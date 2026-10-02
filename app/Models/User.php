@@ -241,7 +241,12 @@ public function getFilamentAvatarUrl(): ?string
             return $ids;
         }
 
-        $employee = $this->employee;
+        // KHÔNG dùng $this->employee: Employee có global scope 'active_branch' gọi ngược lại
+        // effectiveBranchIds() → rootProductCategoryIds() → hàm này → đệ quy vô hạn (lỗi 500 khi
+        // đăng nhập Filament). Tra hồ sơ của CHÍNH tài khoản này nên bỏ qua mọi global scope.
+        $employee = \Modules\Employee\Entities\Employee::withoutGlobalScopes()
+            ->where('user_id', $this->id)
+            ->first();
         if (! $employee || $employee->works_all_branches) {
             return [];
         }
