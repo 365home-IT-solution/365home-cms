@@ -19,6 +19,8 @@ use Modules\TTLock\App\Services\TTLockService;
 // Giống Import Excel (mỗi ngày 1 bản ghi "<tên> – dd/mm/YYYY", hiệu lực từ giờ X ngày đó tới giờ Y
 // hôm sau) nhưng Pass Cổng do TTLock TỰ SINH và cấp thẳng lên khóa (keyboardPwdType 3 — theo thời
 // gian). Đối tác không chọn riêng: ManualLockPassword không có partner_id, luôn suy ra từ chi nhánh.
+// Chọn phòng → MỖI PHÒNG 1 mã riêng cho từng ngày (bản ghi chỉ gắn phòng đó), để khách phòng này
+// không mở được bằng mã của phòng khác; không chọn phòng → 1 mã chung cho cả chi nhánh như cũ.
 //
 // KHÔNG dựa vào global scope 'partner' (chỉ bật trong panel Filament, không bật ở /api/admin/*) —
 // phạm vi chi nhánh lọc tay theo $user ở branches(), mọi thứ khác đều đi qua chi nhánh đã kiểm tra.
@@ -26,6 +28,29 @@ class ManualLockPasswordTtlockIssuer
 {
     // Mỗi ngày = 1+ lần gọi TTLock (đồng bộ, ~1-2s/lần) — chặn khoảng quá dài kẻo request timeout.
     public const MAX_DAYS = 31;
+
+    // Tổng số mã 1 lần (số ngày × số phòng) — cùng ngân sách thời gian với MAX_DAYS ở trên.
+    public const MAX_CODES = 31;
+
+    // TTLock làm tròn khung giờ mã theo GIỜ và trả CÙNG 1 mã cho cùng khóa + cùng khung giờ — các
+    // phòng cùng ngày chỉ có mã khác nhau khi khung giờ trên khóa khác nhau ít nhất 1 tiếng. Mỗi phòng
+    // được nới khung giờ thêm tối đa N tiếng (bắt đầu sớm hơn / kết thúc muộn hơn) → (N+1)² khung khác
+    // nhau = tối đa 9 phòng/ngày với N = 2.
+    public const MAX_SHIFT_HOURS = 2;
+
+    /**
+     * Số mã sẽ tạo (1 mã / ngày / phòng) — dùng cho kiểm tra MAX_CODES và dòng tóm tắt trên form.
+     *
+     * @param  array{from_date: string, to_date: string, per_day?: bool, product_ids?: array}  $data
+     */
+    public static function codeCount(array $data): int
+    {
+        $days = empty($data['per_day'])
+            ? 1
+            : Carbon::parse($data['from_date'])->startOfDay()->diffInDays(Carbon::parse($data['to_date'])->startOfDay()) + 1;
+
+        return (int) $days * max(1, count($data['product_ids'] ?? []));
+    }
 
     /**
      * Chi nhánh user được cấp mã: cùng phạm vi với form "Thêm mới"/Import Excel, và phải có tài
@@ -157,11 +182,31 @@ class ManualLockPasswordTtlockIssuer
             return [...$result, 'message' => 'Không có khóa hợp lệ nào thuộc chi nhánh này.'];
         }
 
-        $branchProductIds = array_map('strval', array_keys(self::products($categoryId)));
+        $branchProducts   = self::products($categoryId);
+        $branchProductIds = array_map('strval', array_keys($branchProducts));
         $productIds       = array_values(array_intersect(array_map('strval', $data['product_ids'] ?? []), $branchProductIds));
 
-        foreach (self::periods($data) as [$validFrom, $validUntil, $name]) {
-            $label = $validFrom->format('d/m/Y');
+        if (self::codeCount([...$data, 'product_ids' => $productIds]) > self::MAX_CODES) {
+            return [...$result, 'message' => 'Tối đa ' . self::MAX_CODES . ' mã mỗi lần (số ngày × số phòng) — hãy chia nhỏ khoảng ngày hoặc số phòng.'];
+        }
+
+        // Mỗi phòng đã chọn 1 mã riêng; không chọn phòng = 1 mã chung cả chi nhánh (null).
+        // Nhiều phòng thì tên kèm tên phòng để phân biệt (và để chống cấp trùng theo từng phòng).
+        $baseName = trim((string) $data['name']);
+        $targets  = $productIds
+            ? array_map(fn (string $id) => [$id, count($productIds) > 1 ? "{$baseName} – {$branchProducts[$id]}" : $baseName], $productIds)
+            : [[null, $baseName]];
+
+        $jobs = [];
+
+        foreach ($targets as [$productId, $targetName]) {
+            foreach (self::periods([...$data, 'name' => $targetName]) as [$validFrom, $validUntil, $name]) {
+                $jobs[] = [$productId, $validFrom, $validUntil, $name];
+            }
+        }
+
+        foreach ($jobs as [$productId, $validFrom, $validUntil, $name]) {
+            $label = $validFrom->format('d/m/Y') . ($productId && count($productIds) > 1 ? " – {$branchProducts[$productId]}" : '');
 
             // Bấm/gọi 2 lần cùng khoảng → không cấp trùng mã lên khóa.
             $exists = ManualLockPassword::query()
@@ -179,17 +224,57 @@ class ManualLockPasswordTtlockIssuer
             $endMs       = $validUntil->getTimestampMs();
             $code        = null;
             $failedLocks = [];
+            $shiftNote   = '';
 
             // Khóa đầu tiên tự sinh mã, các khóa sau thêm ĐÚNG mã đó (giống TTLock IssuePasscode).
             foreach ($lockIds as $lockId) {
-                $res = $code === null
-                    ? $ttlock->generatePasscode($lockId, $startMs, $endMs, $name, 3)
-                    : $ttlock->addCustomPasscode($lockId, $code, $startMs, $endMs, $name, 3);
+                if ($code !== null) {
+                    if (! $ttlock->addCustomPasscode($lockId, $code, $startMs, $endMs, $name, 3)) {
+                        $failedLocks[] = $lockId . ($ttlock->lastErrorMessage ? " ({$ttlock->lastErrorMessage})" : '');
+                    }
 
-                if ($res && $code === null) {
-                    $code = (string) $res['code'];
-                } elseif (! $res) {
-                    $failedLocks[] = $lockId . ($ttlock->lastErrorMessage ? " ({$ttlock->lastErrorMessage})" : '');
+                    continue;
+                }
+
+                // Mã trùng phòng khác (xem MAX_SHIFT_HOURS) → thử khung giờ nới thêm theo giờ.
+                // TUYỆT ĐỐI không xoá mã trùng khỏi khóa — đó chính là mã của phòng kia.
+                // Bắt đầu từ khung thứ <số phòng đã có mã ngày này> để đỡ gọi TTLock thừa.
+                $shifts  = self::hourShifts();
+                $first   = self::issuedCount($categoryId, $validFrom) % count($shifts);
+                $lastDup = null;
+
+                foreach ([...array_slice($shifts, $first), ...array_slice($shifts, 0, $first)] as [$earlier, $later]) {
+                    $tryStartMs = $startMs - $earlier * 3_600_000;
+                    $tryEndMs   = $endMs + $later * 3_600_000;
+                    $res        = $ttlock->generatePasscode($lockId, $tryStartMs, $tryEndMs, $name, 3);
+
+                    if (! $res) {
+                        break;
+                    }
+
+                    if (self::codeInUse($categoryId, (string) $res['code'], $validFrom, $validUntil)) {
+                        $lastDup = (string) $res['code'];
+
+                        continue;
+                    }
+
+                    // Các khóa sau cấp cùng khung giờ với khóa đầu.
+                    $code      = (string) $res['code'];
+                    $startMs   = $tryStartMs;
+                    $endMs     = $tryEndMs;
+                    $shiftNote = $earlier || $later
+                        ? " — trên khóa: sớm {$earlier}h, muộn {$later}h để khác mã phòng khác"
+                        : '';
+
+                    break;
+                }
+
+                if ($code === null) {
+                    $reason = $lastDup !== null
+                        ? 'TTLock hết khung giờ để sinh mã khác các phòng đã có mã ngày này (tối đa ' . count($shifts) . ' phòng/ngày trên cùng khóa)'
+                        : $ttlock->lastErrorMessage;
+
+                    $failedLocks[] = $lockId . ($reason ? " ({$reason})" : '');
                 }
             }
 
@@ -208,14 +293,14 @@ class ManualLockPasswordTtlockIssuer
                 'gate_password' => "{$code}#",
                 'room_password' => ! empty($data['room_same_as_gate']) ? "{$code}#" : null,
                 'category_id'   => $categoryId,
-                'notes'         => 'Cấp tự động qua TTLock (khóa ' . implode(', ', $lockIds) . ')',
+                'notes'         => 'Cấp tự động qua TTLock (khóa ' . implode(', ', $lockIds) . ')' . $shiftNote,
                 'valid_from'    => $validFrom,
                 'valid_until'   => $validUntil,
                 'is_active'     => (bool) ($data['is_active'] ?? true),
             ]);
 
-            if ($productIds) {
-                $record->products()->sync($productIds);
+            if ($productId) {
+                $record->products()->sync([$productId]);
             }
 
             $result['created'][] = $record;
@@ -244,5 +329,45 @@ class ManualLockPasswordTtlockIssuer
         $result['ok'] = $result['created'] || $result['skipped'];
 
         return $result;
+    }
+
+    /**
+     * Các cách nới khung giờ [sớm hơn, muộn hơn] (giờ), ít nới nhất trước: [0,0], [0,1], [1,0], [1,1], [0,2]...
+     *
+     * @return list<array{0: int, 1: int}>
+     */
+    private static function hourShifts(): array
+    {
+        $shifts = [];
+
+        foreach (range(0, self::MAX_SHIFT_HOURS) as $earlier) {
+            foreach (range(0, self::MAX_SHIFT_HOURS) as $later) {
+                $shifts[] = [$earlier, $later];
+            }
+        }
+
+        usort($shifts, fn ($a, $b) => [max($a), array_sum($a)] <=> [max($b), array_sum($b)]);
+
+        return $shifts;
+    }
+
+    // Số bộ mật khẩu chi nhánh đã có cho đúng ngày bắt đầu này (≈ số phòng đã cấp mã ngày đó).
+    private static function issuedCount(int $categoryId, Carbon $validFrom): int
+    {
+        return ManualLockPassword::query()
+            ->where('category_id', $categoryId)
+            ->where('valid_from', $validFrom)
+            ->count();
+    }
+
+    // Mã đã được dùng cho bộ mật khẩu khác của chi nhánh có khoảng hiệu lực chồng lên khoảng này.
+    private static function codeInUse(int $categoryId, string $code, Carbon $validFrom, Carbon $validUntil): bool
+    {
+        return ManualLockPassword::query()
+            ->where('category_id', $categoryId)
+            ->where('gate_password', "{$code}#")
+            ->where('valid_from', '<', $validUntil)
+            ->where('valid_until', '>', $validFrom)
+            ->exists();
     }
 }

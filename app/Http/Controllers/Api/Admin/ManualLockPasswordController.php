@@ -65,9 +65,11 @@ class ManualLockPasswordController extends Controller
 
         $branches = Issuer::branches($user);
         $data     = [
-            'branches' => collect($branches)->map(fn ($name, $id) => ['id' => (int) $id, 'name' => $name])->values(),
-            'max_days' => Issuer::MAX_DAYS,
-            'defaults' => ['from_time' => '06:00', 'until_time' => '12:00', 'per_day' => true, 'room_same_as_gate' => true, 'is_active' => true],
+            'branches'  => collect($branches)->map(fn ($name, $id) => ['id' => (int) $id, 'name' => $name])->values(),
+            'max_days'  => Issuer::MAX_DAYS,
+            // Tổng mã 1 lần = số ngày × số phòng đã chọn (mỗi phòng 1 mã riêng).
+            'max_codes' => Issuer::MAX_CODES,
+            'defaults'  => ['from_time' => '06:00', 'until_time' => '12:00', 'per_day' => true, 'room_same_as_gate' => true, 'is_active' => true],
         ];
 
         if ($request->filled('category_id')) {
