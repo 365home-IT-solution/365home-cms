@@ -134,6 +134,9 @@ class PartnerLegalDocumentService
             'reviewed_by' => $reviewer->id,
         ]);
 
+        // Hồ sơ đăng ký công khai: báo lý do cho đối tác qua email (họ chưa có tài khoản để xem thông báo).
+        app(PartnerOnboardingService::class)->notifyDocumentReviewed($document->fresh('partner'), $status, $note);
+
         // Hồ sơ đăng ký hợp tác công khai: admin yêu cầu bổ sung/từ chối → mở lại cho đối tác sửa và nộp lại (gửi duyệt lần nữa).
         if ($status !== 'approved' && filled($document->partner->onboarding_token) && $document->partner->verification_status === 'pending') {
             $document->partner->update(['verification_submitted_at' => null]);

@@ -97,6 +97,16 @@ class PartnerOnboardingService
             return $partner;
         });
 
+        $url = route('partner-onboarding.page') . '?ma=' . $token;
+        $this->mailPartner(
+            $partner,
+            'Đã nhận đăng ký hợp tác với 365 Home',
+            '<p>Xin chào <strong>' . e($partner->representative_name ?: $partner->name) . '</strong>,</p>'
+            . '<p>365 Home đã tạo hồ sơ đăng ký hợp tác cho <strong>' . e($partner->name) . '</strong>. Mở liên kết sau để tiếp tục nộp giấy tờ, điền thông tin hợp đồng và gửi duyệt (lưu lại email này để quay lại hồ sơ):</p>'
+            . "<p><a href=\"{$url}\">{$url}</a></p>"
+        );
+        $this->notifyAdmins($partner, 'Có đăng ký hợp tác mới', $this->partnerLabel($partner) . ' vừa tạo hồ sơ đăng ký hợp tác, đang hoàn thiện giấy tờ.', 'partner_onboarding_registered', 'info', 'heroicon-o-user-plus');
+
         return ['partner' => $partner, 'token' => $token];
     }
 
@@ -200,6 +210,7 @@ class PartnerOnboardingService
         if (blank($partner->onboarding_token)) {
             return;
         }
+        $this->mailPartner($partner, 'Đã nhận chữ ký hợp đồng hợp tác của bạn', '<p>365 Home đã nhận xác nhận ký hợp đồng của bạn. Bước cuối: 365 Home ký xác nhận phía nền tảng, sau đó tài khoản quản trị sẽ được gửi về email này.</p>');
         try {
             app(AdminNotificationService::class)->notify(
                 User::role(config('filament-shield.super_admin.name'))->get(),
@@ -243,6 +254,12 @@ class PartnerOnboardingService
             report($e);
         }
 
+        $this->mailPartner(
+            $partner,
+            'Đã nhận hồ sơ hợp tác — chờ 365 Home duyệt',
+            '<p>365 Home đã nhận hồ sơ hợp tác của <strong>' . e($partner->legal_name ?: $partner->name) . '</strong>. Chúng tôi sẽ xem xét giấy tờ; nếu hợp lệ, hợp đồng sẽ được gửi về email này để bạn ký trực tuyến. Nếu cần bổ sung, chúng tôi sẽ báo lý do qua email.</p>'
+        );
+
         return $partner->fresh();
     }
 
@@ -279,6 +296,65 @@ class PartnerOnboardingService
         }
     }
 
+    /** Gửi email cho đối tác đăng ký (không làm hỏng luồng chính nếu lỗi). */
+    private function mailPartner(Partner $partner, string $subject, string $html): bool
+    {
+        if (blank($partner->email)) {
+            return false;
+        }
+
+        try {
+            Mail::to($partner->email)->send(new LockNotificationMail($subject, $html));
+
+            return true;
+        } catch (\Throwable $e) {
+            report($e);
+
+            return false;
+        }
+    }
+
+    /** Thông báo cho Super Admin (chuông trong trang quản trị). */
+    private function notifyAdmins(Partner $partner, string $title, string $body, string $type, string $color = 'info', string $icon = 'heroicon-o-bell'): void
+    {
+        try {
+            app(AdminNotificationService::class)->notify(
+                User::role(config('filament-shield.super_admin.name'))->get(),
+                $title,
+                $body,
+                ['type' => $type, 'partner_id' => $partner->id],
+                $icon,
+                $color,
+            );
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
+    private function partnerLabel(Partner $partner): string
+    {
+        return ($partner->legal_name ?: $partner->name) . ' (' . ($partner->isMinihouse() ? 'MiniHouse' : 'Homestay') . ', ' . $partner->phone . ')';
+    }
+
+    /** Admin yêu cầu bổ sung / từ chối một giấy tờ của hồ sơ đăng ký công khai → báo cho đối tác qua email (họ không đăng nhập nên không thấy thông báo trong app). */
+    public function notifyDocumentReviewed(PartnerLegalDocument $document, string $status, ?string $note): void
+    {
+        $partner = $document->partner;
+        if (blank($partner->onboarding_token) || $status === 'approved') {
+            return;
+        }
+
+        $docName = e(PartnerLegalDocument::TYPES[$document->type] ?? $document->type);
+        $what = $status === 'rejected' ? 'bị từ chối' : 'cần bổ sung';
+        $url = route('partner-onboarding.page');
+        $this->mailPartner(
+            $partner,
+            "Hồ sơ hợp tác 365 Home: giấy tờ {$what}",
+            "<p>Giấy tờ <strong>{$docName}</strong> trong hồ sơ hợp tác của bạn {$what}.</p><p>Lý do: <strong>" . e((string) $note) . "</strong></p>"
+            . "<p>Vui lòng mở <a href=\"{$url}\">{$url}</a> (chọn “Đã đăng ký trước đó? Lấy lại hồ sơ” nếu chưa mở được hồ sơ), chỉnh sửa giấy tờ rồi gửi duyệt lại.</p>"
+        );
+    }
+
     /** Đối tác rút hồ sơ đã gửi (admin chưa duyệt) về trạng thái nháp để chỉnh sửa rồi gửi lại. */
     public function withdraw(Partner $partner): Partner
     {
@@ -295,6 +371,8 @@ class PartnerOnboardingService
             $partner->update(['verification_submitted_at' => null]);
             $this->log($partner, 'Đối tác rút hồ sơ chờ duyệt để chỉnh sửa.');
         });
+
+        $this->notifyAdmins($partner, 'Đối tác rút hồ sơ để chỉnh sửa', $this->partnerLabel($partner) . ' đã rút hồ sơ chờ duyệt về bản nháp để sửa; hồ sơ sẽ được gửi duyệt lại sau.', 'partner_onboarding_withdrawn', 'warning', 'heroicon-o-arrow-uturn-left');
 
         return $partner->fresh();
     }
@@ -316,6 +394,7 @@ class PartnerOnboardingService
         if (blank($email) || User::query()->where('email', $email)->exists()) {
             $reason = blank($email) ? 'Hồ sơ không có email.' : "Email {$email} đã thuộc một tài khoản khác.";
             $this->log($partner, "Không tự tạo được tài khoản đối tác: {$reason} Vui lòng tạo tài khoản thủ công.");
+            $this->notifyAdmins($partner, 'Không tự tạo được tài khoản đối tác', $this->partnerLabel($partner) . ": {$reason} Hãy xử lý rồi bấm “Gửi lại tài khoản đăng nhập” ở trang đối tác.", 'partner_account_failed', 'danger', 'heroicon-o-exclamation-triangle');
 
             return ['created' => false, 'email' => $email, 'mail_sent' => false, 'reason' => $reason];
         }
@@ -325,40 +404,96 @@ class PartnerOnboardingService
         if (! $role) {
             $reason = "Chưa có vai trò \"{$roleName}\".";
             $this->log($partner, "Không tự tạo được tài khoản đối tác: {$reason}");
+            $this->notifyAdmins($partner, 'Không tự tạo được tài khoản đối tác', $this->partnerLabel($partner) . ": {$reason} Hãy xử lý rồi bấm “Gửi lại tài khoản đăng nhập” ở trang đối tác.", 'partner_account_failed', 'danger', 'heroicon-o-exclamation-triangle');
 
             return ['created' => false, 'email' => $email, 'mail_sent' => false, 'reason' => $reason];
         }
 
         $password = Str::password(12, true, true, false);
 
-        DB::transaction(function () use ($partner, $email, $password, $role) {
+        // SĐT người dùng là UNIQUE: đã thuộc tài khoản khác (vd đối tác khác dùng chung SĐT) thì tạo tài khoản KHÔNG kèm SĐT thay vì lỗi 500.
+        $phone = filled($partner->phone) && ! User::query()->where('phone', $partner->phone)->exists() ? $partner->phone : null;
+        if ($phone === null && filled($partner->phone)) {
+            $this->log($partner, "SĐT {$partner->phone} đã thuộc tài khoản khác nên tài khoản đối tác được tạo không kèm SĐT.");
+        }
+
+        DB::transaction(function () use ($partner, $email, $password, $role, $phone) {
             $user = User::create([
                 'fullname'   => $partner->representative_name ?: ($partner->legal_name ?: $partner->name),
                 'email'      => $email,
-                'phone'      => $partner->phone,
+                'phone'      => $phone,
                 'password'   => $password,
                 'partner_id' => $partner->id,
             ]);
             $user->roles()->syncWithoutDetaching([$role->id]);
         });
 
-        $loginUrl = $this->loginUrl($partner);
-        $mailSent = false;
-        try {
-            Mail::to($email)->send(new LockNotificationMail(
-                'Tài khoản đối tác 365 Home đã được kích hoạt',
-                '<p>Hồ sơ hợp tác của bạn đã được duyệt. Thông tin đăng nhập trang quản trị:</p>'
-                . "<p>Địa chỉ: <a href=\"{$loginUrl}\">{$loginUrl}</a><br>Email: <strong>" . e($email) . '</strong><br>Mật khẩu: <strong>' . e($password) . '</strong></p>'
-                . '<p>Vui lòng đổi mật khẩu sau khi đăng nhập lần đầu.</p>'
-            ));
-            $mailSent = true;
-        } catch (\Throwable $e) {
-            report($e);
-        }
+        $mailSent = $this->sendWelcomeMail($partner, $email, $password);
 
-        $this->log($partner, "Đã tự tạo tài khoản đối tác {$email}" . ($mailSent ? ' và gửi thông tin đăng nhập qua email.' : '. Gửi email thất bại — admin cần đặt lại mật khẩu và báo cho đối tác.'));
+        $this->log($partner, "Đã tự tạo tài khoản đối tác {$email}" . ($mailSent ? ' và gửi email xác nhận hợp tác kèm thông tin đăng nhập.' : '. Gửi email thất bại — dùng nút "Gửi lại tài khoản đăng nhập" ở trang đối tác sau khi kiểm tra cấu hình mail.'));
+        $this->toastAdmin($mailSent, $partner, $email);
 
         return ['created' => true, 'email' => $email, 'mail_sent' => $mailSent, 'reason' => null];
+    }
+
+    /** Gửi lại thông tin đăng nhập: chưa có tài khoản thì tạo; đã có thì đặt mật khẩu mới cho tài khoản chủ đối tác rồi gửi email. */
+    public function resendCredentials(Partner $partner): array
+    {
+        $user = $partner->users()->orderBy('created_at')->first();
+        if (! $user) {
+            return $this->provisionAccount($partner);
+        }
+
+        $password = Str::password(12, true, true, false);
+        $user->forceFill(['password' => $password])->save();
+        $mailSent = $this->sendWelcomeMail($partner, $user->email, $password);
+        $this->log($partner, "Admin gửi lại thông tin đăng nhập cho {$user->email}" . ($mailSent ? '.' : ' — gửi email thất bại.'));
+        $this->toastAdmin($mailSent, $partner, $user->email);
+
+        return ['created' => false, 'email' => $user->email, 'mail_sent' => $mailSent, 'reason' => null];
+    }
+
+    /** Email "Xác nhận hợp tác" kèm tài khoản đăng nhập của ĐÚNG đối tác đang đăng ký. */
+    private function sendWelcomeMail(Partner $partner, string $email, string $password): bool
+    {
+        $loginUrl = $this->loginUrl($partner);
+        $name = e($partner->legal_name ?: $partner->name);
+        $next = $partner->isMinihouse()
+            ? 'Sau khi đăng nhập, bạn tạo toà nhà, phòng và bổ sung giấy tờ cấp toà nhà (PCCC, an ninh trật tự, quyền khai thác) để bắt đầu vận hành.'
+            : 'Sau khi đăng nhập, bạn tạo chi nhánh, phòng và bảng giá để bắt đầu nhận khách.';
+
+        try {
+            Mail::to($email)->send(new LockNotificationMail(
+                'Xác nhận hợp tác với 365 Home — tài khoản đăng nhập của bạn',
+                "<p>Xin chào <strong>{$name}</strong>,</p>"
+                . '<p>365 Home xác nhận đã nhận hợp đồng hợp tác đã ký và hồ sơ của bạn đã được duyệt. Chào mừng bạn trở thành đối tác của 365 Home.</p>'
+                . "<p>Thông tin đăng nhập trang quản trị:<br>Địa chỉ: <a href=\"{$loginUrl}\">{$loginUrl}</a><br>Email đăng nhập: <strong>" . e($email) . '</strong><br>Mật khẩu: <strong>' . e($password) . '</strong></p>'
+                . "<p>{$next}</p><p>Vui lòng đổi mật khẩu sau khi đăng nhập lần đầu.</p>"
+            ));
+
+            return true;
+        } catch (\Throwable $e) {
+            report($e);
+
+            return false;
+        }
+    }
+
+    // Báo ngay cho admin đang thao tác (ký hợp đồng / gửi lại) kết quả tạo tài khoản + gửi mail, tránh im lặng khi lỗi.
+    private function toastAdmin(bool $mailSent, Partner $partner, string $email): void
+    {
+        if (! auth()->check()) {
+            return;
+        }
+
+        try {
+            $n = \Filament\Notifications\Notification::make()
+                ->title($mailSent ? 'Đã gửi email xác nhận hợp tác kèm tài khoản' : 'Đã tạo tài khoản nhưng GỬI EMAIL THẤT BẠI')
+                ->body(($partner->legal_name ?: $partner->name) . " — {$email}" . ($mailSent ? '' : '. Kiểm tra cấu hình mail rồi bấm "Gửi lại tài khoản đăng nhập" ở trang đối tác.'));
+            ($mailSent ? $n->success() : $n->danger()->persistent())->send();
+        } catch (\Throwable) {
+            // thông báo chỉ để tiện theo dõi — không được làm hỏng luồng chính
+        }
     }
 
     public function loginUrl(Partner $partner): string

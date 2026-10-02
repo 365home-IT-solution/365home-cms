@@ -185,7 +185,12 @@ class Partner extends Model implements HasMedia
         // Hồ sơ đăng ký hợp tác công khai: hợp đồng có hiệu lực (nền tảng đã ký xong) → tự tạo tài khoản chủ đối tác + gửi email đăng nhập.
         static::updated(function (Partner $partner): void {
             if ($partner->wasChanged('contract_status') && $partner->contract_status === 'active' && filled($partner->onboarding_token)) {
-                app(\App\Services\PartnerOnboardingService::class)->provisionAccount($partner);
+                // Lỗi tạo tài khoản không được làm hỏng thao tác ký hợp đồng của admin: ghi log để tạo tay.
+                try {
+                    app(\App\Services\PartnerOnboardingService::class)->provisionAccount($partner);
+                } catch (\Throwable $e) {
+                    report($e);
+                }
             }
         });
 

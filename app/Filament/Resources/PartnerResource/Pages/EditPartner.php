@@ -86,6 +86,20 @@ class EditPartner extends EditRecord
                     Notification::make()->title('Đã phê duyệt hồ sơ pháp lý')->success()->send();
                 }),
 
+            Action::make('resendCredentials')
+                ->label('Gửi lại tài khoản đăng nhập')
+                ->color('info')
+                ->icon('heroicon-o-envelope')
+                ->requiresConfirmation()
+                ->modalDescription('Tạo tài khoản (nếu chưa có) hoặc đặt mật khẩu mới cho tài khoản chủ đối tác, rồi gửi email xác nhận hợp tác kèm thông tin đăng nhập.')
+                ->visible(fn () => $this->record->contract_status === 'active' && filled($this->record->onboarding_token))
+                ->action(function () {
+                    $result = app(\App\Services\PartnerOnboardingService::class)->resendCredentials($this->record);
+                    if (! $result['created'] && ! $result['mail_sent'] && filled($result['reason'] ?? null)) {
+                        Notification::make()->title('Không tạo được tài khoản')->body($result['reason'])->danger()->persistent()->send();
+                    }
+                }),
+
             DeleteAction::make(),
         ];
     }
