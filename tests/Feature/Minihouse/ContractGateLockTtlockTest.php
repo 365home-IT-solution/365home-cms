@@ -121,6 +121,47 @@ class ContractGateLockTtlockTest extends TestCase
         $this->assertSame($rows[self::GATE_LOCK]->code, ContractTtlockService::currentCode($contract));
     }
 
+    // Khoá cổng của toà cũng chính là khoá phòng -> hợp đồng chỉ có 1 loại mã; target=gate vẫn phải đổi
+    // được (đổi tất cả), không được báo lỗi "kiểm tra khoá còn kết nối mạng".
+    public function test_gate_target_changes_the_only_code_when_gate_lock_is_the_room_lock(): void
+    {
+        $this->setUpBuilding(['gate_code_mode' => TtlockSetting::GATE_CODE_SEPARATE], roomLock: self::GATE_LOCK);
+
+        $contract = $this->makeContract();
+
+        $this->assertFalse(ContractTtlockService::hasSeparateGateCode($contract));
+
+        $result = ContractTtlockService::regenerateCode($contract, '739152', 'gate');
+
+        $this->assertTrue($result['success'], $result['message']);
+        $this->assertSame('739152', ContractTtlockService::currentCode($contract));
+    }
+
+    // TTLock từ chối tự sinh lại mã cho đúng khung giờ vừa xoá (errcode -1026) -> phải tự sinh số ngẫu
+    // nhiên thay thế, không để hợp đồng mất mã.
+    public function test_regenerate_falls_back_to_a_random_code_when_ttlock_refuses_to_generate(): void
+    {
+        $this->setUpBuilding(['gate_lock_ids' => []]);
+
+        $contract = $this->makeContract();
+        $this->assertSame('481957', ContractTtlockService::currentCode($contract));
+
+        Http::swap(new \Illuminate\Http\Client\Factory());
+        Http::fake([
+            '*/oauth2/token'          => Http::response(['access_token' => 'tok', 'refresh_token' => 'ref', 'expires_in' => 7200]),
+            '*/v3/keyboardPwd/get'    => Http::response(['errcode' => -1026, 'errmsg' => 'Passcode with this validity period has been generated before and deleted.']),
+            '*/v3/keyboardPwd/add'    => Http::response(['keyboardPwdId' => 99]),
+            '*/v3/keyboardPwd/delete' => Http::response(['errcode' => 0]),
+        ]);
+
+        $result = ContractTtlockService::regenerateCode($contract);
+
+        $this->assertTrue($result['success'], $result['message']);
+        $this->assertMatchesRegularExpression('/^\d{6}$/', $result['code']);
+        $this->assertNotSame('481957', $result['code']);
+        $this->assertCount(1, $this->rows($contract));
+    }
+
     public function test_payment_mode_waits_for_the_deposit(): void
     {
         $this->setUpBuilding(['issue_mode' => TtlockSetting::ISSUE_ON_PAYMENT]);

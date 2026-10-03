@@ -211,7 +211,13 @@ class ContractTtlockService
         $setting  = TtlockSetting::forBuilding((int) $room->building_id);
         $targets  = self::targetLocksFor($room, $setting);
         $separate = $setting->usesSeparateGateCode();
-        $scope    = $separate && in_array($scope, ['room', 'gate'], true) ? $scope : null;
+        // $scope chỉ có nghĩa khi hợp đồng có CẢ khoá phòng LẪN khoá cổng với 2 mã riêng. Còn lại (toà
+        // dùng chung 1 mã, phòng không gắn khoá, khoá cổng trùng khoá phòng) chỉ có đúng 1 loại mã ->
+        // luôn đổi tất cả. LỖI THẬT 2026-10-03: gửi target=gate cho hợp đồng mà khoá cổng của toà cũng
+        // chính là khoá phòng -> không có ổ nào thuộc nhóm "cổng" để đổi, không gọi TTLock lần nào mà
+        // vẫn báo "kiểm tra khoá còn kết nối mạng".
+        $hasBothPools = $separate && in_array(true, $targets, true) && in_array(false, $targets, true);
+        $scope        = $hasBothPools && in_array($scope, ['room', 'gate'], true) ? $scope : null;
         $inScope  = fn (bool $isGate): bool => $scope === null || $isGate === ($scope === 'gate');
         $existing = ContractTtlockPasscode::where('contract_id', $contract->id)->get()->keyBy('lock_id');
 
@@ -357,7 +363,7 @@ class ContractTtlockService
 
             match (true) {
                 $codes[$pool] !== null => self::issueAdditional($ttlock, $contract, $room, $lockId, $isGate, $codes[$pool], $startMs, $endMs, $name),
-                $isGate                => self::issueFirstOnGate($ttlock, $contract, $room, $lockId, $startMs, $endMs, $name, $codes[$pool]),
+                $isGate                => self::issueRandom($ttlock, $contract, $room, $lockId, true, $startMs, $endMs, $name, $codes[$pool]),
                 default                => self::issueFirst($ttlock, $contract, $room, $lockId, $startMs, $endMs, $name, $codes[$pool]),
             };
         }
@@ -392,6 +398,13 @@ class ContractTtlockService
         if (! $result) {
             Log::error('MiniHouse ContractTtlockService: generatePasscode thất bại', ['contract_id' => $contract->id, 'lock_id' => $lockId]);
 
+            // LỖI THẬT 2026-10-03 (production, "Đổi mã mở" để hệ thống tự sinh): TTLock errcode -1026
+            // "Passcode with this validity period has been generated before and deleted" — mã tự sinh
+            // của TTLock tính theo khoá + khung giờ, đã xoá mã cũ thì KHÔNG xin lại được mã cho đúng
+            // khung giờ đó nữa, trong khi mã cũ đã bị xoá khỏi khoá -> khách mất mã. Tự sinh số ngẫu
+            // nhiên rồi thêm như mã tự chọn (cần khoá online qua gateway).
+            self::issueRandom($ttlock, $contract, $room, $lockId, false, $startMs, $endMs, $name, $code);
+
             return;
         }
 
@@ -404,12 +417,13 @@ class ContractTtlockService
         ]);
     }
 
-    // Mã ĐẦU TIÊN của 1 nhóm mà ổ đầu tiên lại là KHOÁ CỔNG (mã cổng riêng, hoặc phòng không gắn
+    // Tự sinh 1 số ngẫu nhiên rồi thêm như mã tự chọn. Dùng cho: (1) issueFirst() bị TTLock từ chối, và
+    // (2) mã ĐẦU TIÊN của 1 nhóm mà ổ đầu tiên lại là KHOÁ CỔNG (mã cổng riêng, hoặc phòng không gắn
     // khoá): KHÔNG để TTLock tự sinh như issueFirst() — khoá cổng dùng chung cho mọi hợp đồng, mà
     // TTLock trả CÙNG 1 mã cho cùng khoá + cùng khung giờ (xem ManualLockPasswordTtlockIssuer), 2 hợp
     // đồng cùng ngày bắt đầu/kết thúc sẽ trùng mã cổng. Tự sinh số ngẫu nhiên chưa ai trong toà dùng
     // rồi thêm như mã tự chọn; TTLock chê "quá đơn giản"/trùng thì thử số khác.
-    private static function issueFirstOnGate(TTLockService $ttlock, Contract $contract, Room $room, int $lockId, int $startMs, int $endMs, string $name, ?string &$code): void
+    private static function issueRandom(TTLockService $ttlock, Contract $contract, Room $room, int $lockId, bool $isGate, int $startMs, int $endMs, string $name, ?string &$code): void
     {
         for ($attempt = 0; $attempt < 3; $attempt++) {
             $candidate = (string) random_int(100000, 999999);
@@ -427,7 +441,7 @@ class ContractTtlockService
             $code = $candidate;
 
             ContractTtlockPasscode::create([
-                'contract_id' => $contract->id, 'building_id' => $room->building_id, 'lock_id' => $lockId, 'is_gate' => true,
+                'contract_id' => $contract->id, 'building_id' => $room->building_id, 'lock_id' => $lockId, 'is_gate' => $isGate,
                 'keyboard_pwd_id' => $result['keyboardPwdId'], 'code' => $code,
                 'start_date' => date('Y-m-d H:i:s', intdiv($startMs, 1000)), 'end_date' => $endMs > 0 ? date('Y-m-d H:i:s', intdiv($endMs, 1000)) : null,
             ]);
@@ -435,7 +449,7 @@ class ContractTtlockService
             return;
         }
 
-        Log::error('MiniHouse ContractTtlockService: cấp mã khoá cổng thất bại', ['contract_id' => $contract->id, 'lock_id' => $lockId]);
+        Log::error('MiniHouse ContractTtlockService: cấp mã ngẫu nhiên thất bại', ['contract_id' => $contract->id, 'lock_id' => $lockId]);
     }
 
     private static function issueAdditional(TTLockService $ttlock, Contract $contract, Room $room, int $lockId, bool $isGate, string $code, int $startMs, int $endMs, string $name): void
