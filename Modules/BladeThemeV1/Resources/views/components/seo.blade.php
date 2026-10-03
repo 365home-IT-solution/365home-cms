@@ -2,8 +2,10 @@
 
 @php
     $gs       = app(\App\Settings\GeneralSettings::class);
-    $ogTitle  = e($seoData['seo_title']        ?? $gs->og_title        ?? '');
-    $ogDesc   = e($seoData['seo_description']  ?? $gs->og_description  ?? '');
+    // KHÔNG bọc e() ở đây: các biến này chỉ được in ra qua {{ }} (đã tự escape) — bọc thêm e()
+    // là escape 2 lần, "&" trong tiêu đề ra thành "&amp;amp;" ở og:title/twitter:title/alt.
+    $ogTitle  = $seoData['seo_title']        ?? $gs->og_title        ?? '';
+    $ogDesc   = $seoData['seo_description']  ?? $gs->og_description  ?? '';
     $ogType   = $seoData['og_type']            ?? $gs->og_type         ?? 'website';
     $ogLocale = $seoData['og_locale']          ?? $gs->og_locale       ?? 'vi_VN';
     $ogImage  = $seoData['og_image']           ?? ($gs->og_image ? url('/storage/' . $gs->og_image) : '');
@@ -15,9 +17,9 @@
 @section('meta')
     {{-- Basic --}}
     <meta name="description" content="{{ $ogDesc }}">
-    <meta name="keywords"    content="{{ e($seoData['seo_keywords'] ?? '') }}">
+    <meta name="keywords"    content="{{ $seoData['seo_keywords'] ?? '' }}">
     @if(!empty($seoData['author_name'] ?? $gs->author ?? ''))
-        <meta name="author" content="{{ e($seoData['author_name'] ?? $gs->author) }}">
+        <meta name="author" content="{{ $seoData['author_name'] ?? $gs->author }}">
     @endif
 
     {{-- Canonical --}}
@@ -29,6 +31,7 @@
     <meta property="og:title"       content="{{ $ogTitle }}">
     <meta property="og:description" content="{{ $ogDesc }}">
     <meta property="og:locale"      content="{{ $ogLocale }}">
+    <meta property="og:site_name"   content="{{ $seoData['site_name'] ?? config('app.name') }}">
     @if($ogImage)
         <meta property="og:image" content="{{ $ogImage }}">
         {{-- og:image:alt: dùng seo_title (tiêu đề hiển thị) làm alt, cùng nguồn dữ liệu với alt
@@ -72,20 +75,27 @@
             // tên rỗng, tránh lặp lại đúng lỗi vừa bị flag.
             $authorName = trim((string) ($seoData['author_name'] ?? ''));
 
+            $publisher = ['@type' => 'Organization', 'name' => $seoData['site_name'] ?? config('app.name'), 'url' => url('/')];
+            if (!empty($gs->brand_logo)) {
+                $publisher['logo'] = ['@type' => 'ImageObject', 'url' => url('/storage/' . $gs->brand_logo)];
+            }
+
             $schema = [
-                '@context'      => 'https://schema.org',
-                '@type'         => 'Article',
-                'headline'      => $seoData['seo_title']      ?? '',
-                'description'   => $seoData['seo_description'] ?? '',
-                'url'           => url()->current(),
-                'author'        => $authorName !== ''
+                '@context'         => 'https://schema.org',
+                '@type'            => 'Article',
+                'mainEntityOfPage' => ['@type' => 'WebPage', '@id' => $canonical],
+                'headline'         => $seoData['seo_title']      ?? '',
+                'description'      => $seoData['seo_description'] ?? '',
+                'inLanguage'       => 'vi-VN',
+                'url'              => url()->current(),
+                'author'           => $authorName !== ''
                     ? ['@type' => 'Person', 'name' => $authorName, 'url' => url('/')]
                     : ['@type' => 'Organization', 'name' => $seoData['site_name'] ?? config('app.name'), 'url' => url('/')],
-                'publisher'     => ['@type' => 'Organization', 'name' => $seoData['site_name'] ?? config('app.name'), 'url' => url('/')],
-                'datePublished' => $seoData['article_published_time'] ?? '',
-                'dateModified'  => $seoData['article_modified_time']  ?? '',
+                'publisher'        => $publisher,
+                'datePublished'    => $seoData['article_published_time'] ?? '',
+                'dateModified'     => $seoData['article_modified_time']  ?? '',
             ];
-            if ($ogImage) $schema['image'] = $ogImage;
+            if ($ogImage) $schema['image'] = [$ogImage];
 
             // KHÔNG gắn aggregateRating vào khối Article ở trên: Article/BlogPosting không nằm
             // trong danh sách @type mà Google cho phép chứa aggregateRating (chỉ Book/Course/Event/

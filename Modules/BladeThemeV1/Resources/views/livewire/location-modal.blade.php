@@ -39,10 +39,7 @@
         initProvince() {
             const token = localStorage.getItem('auth_token');
             if (!token) {
-                if (!localStorage.getItem('home_province_id') && !localStorage.getItem('home_location_popup_dismissed')) {
-                    this.open = true;
-                    this.loadProvinces();
-                }
+                this.autoOpen();
                 return;
             }
 
@@ -55,17 +52,23 @@
                         localStorage.setItem('home_province_id', data.id);
                         localStorage.setItem('home_province_name', data.name);
                         window.dispatchEvent(new CustomEvent('province-selected', { detail: data }));
-                    } else if (!localStorage.getItem('home_province_id') && !localStorage.getItem('home_location_popup_dismissed')) {
-                        this.open = true;
-                        this.loadProvinces();
+                    } else {
+                        this.autoOpen();
                     }
                 })
-                .catch(() => {
-                    if (!localStorage.getItem('home_province_id') && !localStorage.getItem('home_location_popup_dismissed')) {
-                        this.open = true;
-                        this.loadProvinces();
-                    }
-                });
+                .catch(() => this.autoOpen());
+        },
+
+        // Tự mở popup hỏi khu vực khi chưa chọn và chưa từng tắt — TRỪ trang bài viết
+        // (/bai-viet/...): Googlebot không có localStorage nên luôn rơi vào nhánh này, render
+        // bài viết với overlay đen phủ toàn màn hình (intrusive interstitial). Bài viết không
+        // phụ thuộc khu vực; khách vẫn mở được thủ công qua nút 'Chọn khu vực' ở header.
+        autoOpen() {
+            if (window.location.pathname.startsWith('/bai-viet/')) return;
+            if (!localStorage.getItem('home_province_id') && !localStorage.getItem('home_location_popup_dismissed')) {
+                this.open = true;
+                this.loadProvinces();
+            }
         },
 
         get filteredProvinces() {

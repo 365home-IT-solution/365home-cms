@@ -3,7 +3,7 @@
     @if ($isProduct)
         <h2 class="text-2xl font-bold mb-4 text-gray-800">Để lại một bình luận về sản phẩm này</h2>
     @elseif ($isPost)
-        <h2 class="text-2xl font-bold mb-4 text-gray-800">Để lại một bình luận về bài viết này</h2>
+        <h3 class="text-2xl font-bold mb-4 text-gray-800">Để lại một bình luận về bài viết này</h3>
     @endif
 
 

@@ -170,7 +170,15 @@ class PostForm
             ->afterStateUpdated(function ($state, Set $set, Get $get) {
                 // Auto-fill seo_description from summary if seo_description is empty
                 if (empty($get('seo_description')) && !empty($state)) {
-                    $set('seo_description', mb_substr(strip_tags($state), 0, 160));
+                    // Cắt theo từ, không cắt giữa chữ (mb_substr cứng 160 ký tự từng cho ra
+                    // meta description kết thúc kiểu "...12 phòng thiết kế r").
+                    $text = trim(preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags($state))));
+                    if (mb_strlen($text) > 160) {
+                        $text = mb_substr($text, 0, 160);
+                        $lastSpace = mb_strrpos($text, ' ');
+                        $text = rtrim($lastSpace ? mb_substr($text, 0, $lastSpace) : $text, " ,;:-–—");
+                    }
+                    $set('seo_description', $text);
                 }
             })
             ->columnSpan(4);

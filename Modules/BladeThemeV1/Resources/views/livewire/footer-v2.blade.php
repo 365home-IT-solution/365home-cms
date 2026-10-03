@@ -102,7 +102,7 @@
                 <span class="mx-1.5">·</span>
                 <a href="#" class="hover:text-primary transition-colors">Điều khoản</a>
                 <span class="mx-1.5">·</span>
-                <a href="#" class="hover:text-primary transition-colors">Bảo mật</a>
+                <a href="{{ route('privacy.page') }}" class="hover:text-primary transition-colors">Bảo mật</a>
                 <span class="mx-1.5">·</span>
                 <a href="#" class="hover:text-primary transition-colors">Quy định đăng tin</a>
                 <span class="mx-1.5">·</span>
