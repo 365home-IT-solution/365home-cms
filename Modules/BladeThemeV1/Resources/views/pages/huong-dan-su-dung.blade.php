@@ -39,7 +39,7 @@
                     </ul>
                 </section>
 
-                <section class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 sm:p-8">
+                <section id="giai-quyet-tranh-chap" class="scroll-mt-24 bg-white rounded-xl shadow-sm border border-gray-100 p-6 sm:p-8">
                     <h2 class="text-xl font-bold text-gray-900 mb-4">3. Giải quyết các phát sinh trong quá trình giao dịch</h2>
                     <ul class="list-disc list-inside space-y-2 text-gray-700 leading-relaxed">
                         <li>365HOME.VN cam kết tiếp nhận và xử lý kịp thời mọi khiếu nại phát sinh liên quan đến giao dịch trên website. Khi có tranh chấp, khách hàng vui lòng liên hệ hotline <a href="tel:0939174365" class="font-medium text-primary hover:underline">0939 174 365</a> để được hỗ trợ ngay.</li>

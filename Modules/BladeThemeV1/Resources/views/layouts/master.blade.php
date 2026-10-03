@@ -130,6 +130,11 @@
         @vite(['Resources/assets/sass/home.scss', 'Resources/assets/js/home.js'], 'build-bladethemev1')
     @else
         @vite(['Resources/assets/sass/app.scss', 'Resources/assets/js/app.js'], 'build-bladethemev1')
+        {{-- app.css nạp kiểu media="print" + onload (xem AppServiceProvider) — tắt JS thì onload
+             không chạy, trang không có CSS. <noscript> nạp lại đúng file đó theo cách thường. --}}
+        @unless (\Illuminate\Support\Facades\Vite::isRunningHot())
+            <noscript><link rel="stylesheet" href="{{ \Illuminate\Support\Facades\Vite::asset('Resources/assets/sass/app.scss', 'build-bladethemev1') }}"></noscript>
+        @endunless
     @endif
     {{-- Real-time "khung giờ đang bị admin giữ chỗ" (xem App\Services\TimeslotHoldService) — nhúng
          Ở LAYOUT DÙNG CHUNG (không riêng product-detail) để hoạt động trên MỌI trang có bảng chọn
@@ -149,6 +154,8 @@
         @vite(['resources/js/ws-client.js'])
     @endif
     <link rel="shortcut icon" href="{{ asset('/storage/' . $favicon) }}" type="image/x-icon">
+    <link rel="apple-touch-icon" href="{{ asset('/storage/' . $favicon) }}">
+    <meta name="theme-color" content="{{ $primaryColor }}">
     <style>
         :root {
             --color-primary: {{ $primaryColor }};
