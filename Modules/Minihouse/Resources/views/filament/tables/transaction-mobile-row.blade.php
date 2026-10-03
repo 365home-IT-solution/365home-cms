@@ -10,6 +10,7 @@ TransactionTable::table()), các cột gốc còn lại ->visibleFrom('md') — 
     $categoryLabel = match ($transaction->category) {
         \Modules\Minihouse\App\Models\Transaction::CATEGORY_REPAIR         => 'Sửa chữa',
         \Modules\Minihouse\App\Models\Transaction::CATEGORY_OPERATION      => 'Vận hành',
+        \Modules\Minihouse\App\Models\Transaction::CATEGORY_DEPOSIT        => 'Thu cọc',
         \Modules\Minihouse\App\Models\Transaction::CATEGORY_DEPOSIT_REFUND => 'Hoàn cọc',
         \Modules\Minihouse\App\Models\Transaction::CATEGORY_OTHER          => 'Khác',
         default => '—',

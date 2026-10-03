@@ -299,14 +299,23 @@ class TenantPortalApiController extends Controller
 
     // GET /api/minihouse/portal/contracts/{id}/lock-code — mã cổng hiện tại của phòng đang thuê + có
     // đổi được không (xem ContractTtlockService::canChangeCode(): còn hiệu lực + phòng đã gán khoá).
-    public function showLockCode(Request $request, int $id): JsonResponse
+    public function showLockCode(Request $request, int $id, TenantRoomUnlockService $unlockService): JsonResponse
     {
         $contract = TenantPortalService::tenantContracts($this->tenant($request))->firstWhere('id', $id);
         abort_unless($contract, 403);
 
+        $codes = ContractTtlockService::currentCodes($contract);
+
         return response()->json(['data' => [
             'code'       => ContractTtlockService::currentCode($contract),
             'can_change' => ContractTtlockService::canChangeCode($contract),
+            // Mã phòng / mã cổng của toà nhà (null nếu phòng không gắn khoá / toà không có khoá cổng) +
+            // mã cổng có phải mã RIÊNG, đổi độc lập được qua "target" ở regenerate hay không.
+            'room_code'          => $codes['room'],
+            'gate_code'          => $codes['gate'],
+            'separate_gate_code' => ContractTtlockService::hasSeparateGateCode($contract),
+            // Các khoá bấm mở từ xa được — gửi lại target (+ lock_id với khoá cổng) cho POST .../unlock.
+            'locks'              => $unlockService->locks($contract),
         ]]);
     }
 
@@ -319,22 +328,27 @@ class TenantPortalApiController extends Controller
         $contract = TenantPortalService::tenantContracts($this->tenant($request))->firstWhere('id', $id);
         abort_unless($contract, 403);
 
-        $request->validate(['code' => ['nullable', 'digits_between:4,9']]);
+        // "target" (room|gate) chỉ có tác dụng khi hợp đồng có mã cổng RIÊNG — bỏ trống = đổi tất cả.
+        $request->validate(['code' => ['nullable', 'digits_between:4,9'], 'target' => ['nullable', 'in:room,gate']]);
 
-        $result = ContractTtlockService::regenerateCode($contract, $request->filled('code') ? (string) $request->input('code') : null);
+        $result = ContractTtlockService::regenerateCode($contract, $request->filled('code') ? (string) $request->input('code') : null, $request->input('target'));
 
         return $result['success']
-            ? response()->json(['data' => ['code' => $result['code']], 'message' => $result['message']])
+            ? response()->json(['data' => ['code' => $result['code'], 'gate_code' => $result['gate_code']], 'message' => $result['message']])
             : response()->json(['message' => $result['message']], 422);
     }
 
-    // POST /api/minihouse/portal/contracts/{id}/unlock — không nhận lock_id từ client.
+    // POST /api/minihouse/portal/contracts/{id}/unlock  { target?: room|gate, lock_id? }
+    // Bỏ trống body = mở khoá PHÒNG như trước. target=gate mở khoá CỔNG của toà nhà; lock_id chọn cổng
+    // nào khi toà có nhiều cổng (bỏ trống = cổng đầu tiên). lock_id KHÔNG được tin thẳng: chỉ mở được
+    // khoá nằm trong danh sách "locks" của GET .../lock-code (TenantRoomUnlockService::locks()).
     public function unlockRoom(Request $request, int $id, TenantRoomUnlockService $service): JsonResponse
     {
         $tenant = $this->tenant($request);
         $contract = TenantPortalService::tenantContracts($tenant)->firstWhere('id', $id);
         abort_unless($contract, 403);
-        $result = $service->unlock($tenant, $contract);
+        $data = $request->validate(['target' => ['nullable', 'in:room,gate'], 'lock_id' => ['nullable', 'integer']]);
+        $result = $service->unlock($tenant, $contract, $data['target'] ?? TenantRoomUnlockService::TARGET_ROOM, isset($data['lock_id']) ? (int) $data['lock_id'] : null);
         $status = $result['status'];
         unset($result['status']);
 
@@ -632,6 +646,12 @@ class TenantPortalApiController extends Controller
                 'can_unlock' => $contract->status === Contract::STATUS_ACTIVE
                     && (bool) $contract->room?->lock_id
                     && ! $contract->room?->emergency_locked_at,
+                // Toà nhà có khoá CỔNG TTLock — phòng không gắn khoá riêng (can_unlock=false) vẫn mở được
+                // cổng. Danh sách khoá cụ thể lấy ở GET contracts/{id}/lock-code ("locks").
+                'can_unlock_gate' => $contract->status === Contract::STATUS_ACTIVE
+                    && $contract->room
+                    && ! $contract->room->emergency_locked_at
+                    && \Modules\Minihouse\App\Models\TtlockSetting::forBuilding((int) $contract->room->building_id)->gateLockIds() !== [],
                 'is_emergency_locked' => $contract->room?->emergency_locked_at !== null,
             ],
         ];

@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Modules\Minihouse\App\Filament\Pages\Setting\ManageTtlockSettings;
 use Modules\Minihouse\App\Models\Building;
 use Modules\Minihouse\App\Models\TtlockSetting;
+use Modules\Minihouse\App\Services\ContractTtlockService;
 use Modules\TTLock\App\Services\TTLockService;
 
 // Cấu hình tài khoản TTLock THEO TỪNG TOÀ NHÀ — bản API của ManageTtlockSettings (Filament). Mirror
@@ -77,6 +78,11 @@ class TtlockSettingsController extends Controller
             'password'      => 'nullable|string|max:64',
             'api_base'      => 'nullable|url|max:200',
             'is_active'     => 'nullable|boolean',
+            // Khoá cổng + cách cấp mã theo hợp đồng — xem ContractTtlockService. gate_lock_ids: [] = gỡ hết.
+            'gate_lock_ids'   => 'nullable|array',
+            'gate_lock_ids.*' => 'integer',
+            'gate_code_mode'  => 'nullable|in:' . TtlockSetting::GATE_CODE_SHARED . ',' . TtlockSetting::GATE_CODE_SEPARATE,
+            'issue_mode'      => 'nullable|in:' . TtlockSetting::ISSUE_ON_CONTRACT . ',' . TtlockSetting::ISSUE_ON_PAYMENT,
         ]);
 
         $buildingId = (int) $data['building_id'];
@@ -101,6 +107,26 @@ class TtlockSettingsController extends Controller
         if ($request->has('is_active')) {
             $setting->is_active = (bool) $data['is_active'];
         }
+        if ($request->has('gate_lock_ids')) {
+            $gateLockIds = array_values(array_unique(array_map('intval', $data['gate_lock_ids'] ?? [])));
+
+            // Chỉ cho chọn khoá THUỘC tài khoản TTLock của Toà nhà (chặn lockId bất kỳ) — cùng nguyên tắc
+            // RoomLockController::update(). Phải lưu tài khoản trước rồi mới chọn được khoá cổng.
+            if ($gateLockIds) {
+                $owned = collect(TTLockService::forBuilding($buildingId)?->getLockList() ?? [])->pluck('lockId')->map(fn ($v) => (int) $v)->all();
+
+                if (array_diff($gateLockIds, $owned)) {
+                    return response()->json(['message' => 'Khoá cổng không thuộc tài khoản TTLock của Toà nhà này (lưu tài khoản TTLock trước rồi mới chọn khoá cổng).'], 422);
+                }
+            }
+
+            $setting->gate_lock_ids = $gateLockIds;
+        }
+        foreach (['gate_code_mode', 'issue_mode'] as $field) {
+            if (filled($data[$field] ?? null)) {
+                $setting->{$field} = $data[$field];
+            }
+        }
 
         if (! $setting->exists && ! $setting->isConfigured()) {
             return response()->json([
@@ -108,10 +134,18 @@ class TtlockSettingsController extends Controller
             ], 422);
         }
 
+        $gateLocksChanged = $setting->isDirty('gate_lock_ids');
+
         $setting->building_id = $buildingId;
         $setting->save();
 
         TTLockService::forBuilding($buildingId)?->clearTokenCache();
+
+        // Đổi khoá cổng -> cấp/thu hồi mã cổng cho mọi hợp đồng đang hiệu lực, chạy sau khi trả response
+        // (mỗi hợp đồng là 1+ lần gọi TTLock) — cùng cách ManageTtlockSettings::save().
+        if ($gateLocksChanged) {
+            dispatch(fn () => ContractTtlockService::syncForBuilding($buildingId))->afterResponse();
+        }
 
         return response()->json(['data' => $this->transform($buildingId, $setting->fresh())]);
     }
@@ -180,6 +214,9 @@ class TtlockSettingsController extends Controller
             'has_client_secret' => filled($setting->client_secret),
             'has_password'      => filled($setting->password_md5),
             'is_configured'     => $setting->isConfigured(),
+            'gate_lock_ids'     => $setting->gateLockIds(),
+            'gate_code_mode'    => $setting->gate_code_mode ?: TtlockSetting::GATE_CODE_SHARED,
+            'issue_mode'        => $setting->issue_mode ?: TtlockSetting::ISSUE_ON_CONTRACT,
         ];
     }
 }

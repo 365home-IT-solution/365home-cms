@@ -19,6 +19,7 @@ class Transaction extends Model
 
     public const CATEGORY_REPAIR         = 'sua_chua';
     public const CATEGORY_OPERATION      = 'van_hanh';
+    public const CATEGORY_DEPOSIT        = 'dat_coc';
     public const CATEGORY_DEPOSIT_REFUND = 'hoan_coc';
     public const CATEGORY_OTHER          = 'khac';
 

@@ -126,7 +126,7 @@ class ActivityLogFormatter
 
         // Hợp đồng
         'room_id' => 'Phòng', 'tenant_id' => 'Khách thuê', 'start_date' => 'Ngày bắt đầu', 'end_date' => 'Ngày kết thúc',
-        'monthly_price' => 'Giá thuê/tháng', 'deposit_amount' => 'Tiền cọc', 'reason_for_stay' => 'Lý do lưu trú',
+        'monthly_price' => 'Giá thuê/tháng', 'deposit_amount' => 'Tiền cọc', 'deposit_paid_at' => 'Ngày thu cọc', 'reason_for_stay' => 'Lý do lưu trú',
         'custom_reason' => 'Lý do khác', 'contract_content' => 'Nội dung hợp đồng', 'contract_file' => 'File hợp đồng',
         'handover_file' => 'Biên bản bàn giao', 'deposit_receipt_file' => 'Biên bản đặt cọc',
         'checkout_at' => 'Ngày trả phòng', 'deposit_refunded_amount' => 'Tiền cọc hoàn lại',
@@ -291,6 +291,7 @@ class ActivityLogFormatter
             'category' => [
                 Transaction::CATEGORY_REPAIR         => 'Sửa chữa',
                 Transaction::CATEGORY_OPERATION       => 'Vận hành',
+                Transaction::CATEGORY_DEPOSIT         => 'Thu cọc',
                 Transaction::CATEGORY_DEPOSIT_REFUND  => 'Hoàn cọc',
                 Transaction::CATEGORY_OTHER           => 'Khác',
             ],
