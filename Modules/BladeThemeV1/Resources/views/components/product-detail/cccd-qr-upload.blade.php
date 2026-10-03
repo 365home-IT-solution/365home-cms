@@ -52,6 +52,19 @@
         </div>
     </label>
 
+    {{-- Mobile: mở thẳng camera sau (capture) thay vì trình chọn tệp — dùng chung luồng nén/upload/quét QR với ô phía trên. --}}
+    <label
+        class="md:hidden flex items-center justify-center gap-2 w-full rounded-xl border border-[#222222] bg-white py-2.5 text-sm font-semibold text-[#222222] cursor-pointer active:bg-[#F7F7F7]">
+        <input type="file" accept="image/*" capture="environment" class="sr-only"
+            onchange="processAndUpload(this, '{{ $field }}', {maxSize: 2400, quality: 0.92})" />
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+            <circle cx="12" cy="13" r="4" />
+        </svg>
+        Chụp ảnh CCCD
+    </label>
+
     @error($field)
         <p class="text-[11px] text-red-600 font-medium">{{ $message }}</p>
     @else

@@ -8,6 +8,7 @@ use App\Support\CccdIdentity;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 
 /**
@@ -20,7 +21,8 @@ use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
  *  - Dữ liệu CCCD tạm giữ trong session phía server, MÃ HOÁ (Crypt) và hết hạn sau
  *    CCCD_SCAN_TTL_SECONDS, gắn với đúng tên file tạm + sha1 của ảnh đã quét — client không thể
  *    gửi cccd_data tự chế hay đổi ảnh sau khi quét.
- *  - Snapshot Livewire (nằm trong HTML) chỉ chứa trạng thái ok/lỗi, không có thông tin cá nhân.
+ *  - Snapshot Livewire (nằm trong HTML) chỉ chứa trạng thái ok/lỗi, không có thông tin cá nhân —
+ *    ngoại lệ duy nhất: họ tên người đặt được điền sẵn vào buyerName sau khi quét hợp lệ.
  *  - Rate limit theo IP + session (CccdIntakeService) vì mỗi lượt quét chạy Node/zbar tốn CPU.
  *  - Chỉ nhận dữ liệu từ QR (không OCR), đối chiếu cấu trúc số CCCD với ngày sinh/giới tính.
  *
@@ -108,6 +110,13 @@ trait HandlesCccdQrScan
 
         $this->cccdScanStatus[$slot] = ['ok' => true, 'error' => null];
         $this->resetErrorBag($field);
+
+        // Khách vãng lai: điền sẵn họ tên người đặt theo CCCD vừa quét (vẫn sửa được). Khách đã
+        // đăng nhập luôn dùng họ tên trong hồ sơ nên bỏ qua.
+        if ($slot === 'main' && ! $this->isAuthUser) {
+            $this->buyerName = Str::limit(Str::title(Str::squish((string) $data['full_name'])), 50, '');
+            $this->resetErrorBag('buyerName');
+        }
     }
 
     /**
