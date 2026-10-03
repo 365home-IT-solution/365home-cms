@@ -11,8 +11,17 @@ class CreateCustomer extends CreateRecord
 {
     protected static string $resource = CustomerResource::class;
 
+    protected function mutateFormDataBeforeCreate(array $data): array
+    {
+        if (CustomerResource::$scannedCccdData) {
+            $data['cccd_data'] = CustomerResource::$scannedCccdData;
+        }
+
+        return $data;
+    }
+
     protected function getRedirectUrl(): string
     {
-        return $this->getResource()::getUrl('index');
+        return $this->getResource()::getUrl('edit', ['record' => $this->getRecord()]);
     }
 }

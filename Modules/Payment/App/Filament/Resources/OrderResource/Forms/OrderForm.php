@@ -258,6 +258,10 @@ class OrderForm
                                                             ->visible(fn (string $operation) => $operation === 'create'),
                                                         Hidden::make('cccd_back')
                                                             ->visible(fn (string $operation) => $operation === 'create'),
+                                                        // Dữ liệu popup đã quét được ngay lúc tải ảnh (xem liveScanCccdQr()) —
+                                                        // lưu cùng đơn để CreateOrder::afterCreate() không phải quét lại.
+                                                        Hidden::make('cccd_data')
+                                                            ->visible(fn (string $operation) => $operation === 'create'),
 
                                                         // Không còn hiện ảnh CCCD trực tiếp dưới ghi chú nữa — bấm nút "Xem
                                                         // CCCD khách #N" bên dưới để xem (và với khách #1, upload/thay ảnh
@@ -1689,9 +1693,13 @@ class OrderForm
         $back  = array_key_exists('cccd_back', $data) ? $data['cccd_back'] : null;
         $current = self::resolveCccdGuestSource($record, $guestIndex) ?? [];
 
-        $scan = ($qr || $front || $back)
+        // Ảnh QR vừa tải trong popup đã được quét ngay lúc tải (liveScanCccdQr()) — dùng luôn kết quả
+        // đó, không quét lại lần 2. Không có (ảnh QR không đổi/không đọc được) thì quét như cũ.
+        $prescanned = is_array($data['cccd_scanned'] ?? null) && $data['cccd_scanned'] ? $data['cccd_scanned'] : null;
+
+        $scan = $prescanned ?? (($qr || $front || $back)
             ? app(\Modules\Payment\App\Services\CccdScannerService::class)->scanPaths($front, $back, $qr)
-            : null;
+            : null);
 
         if ($scan && ($error = self::cccdRuleError($record, $guestIndex, $scan))) {
             // Chỉ xoá ảnh MỚI tải trong popup này (khác ảnh đang lưu), không đụng ảnh cũ.
@@ -1741,6 +1749,47 @@ class OrderForm
         }
 
         return null;
+    }
+
+    // Quét QR NGAY khi ảnh mặt có mã QR tải lên xong trong popup CCCD (giống form Khách hàng, dùng
+    // chung CustomerResource::scanUploadedQr()): đọc được thì hiện luôn ở "Thông tin đã trích xuất"
+    // và giữ ở state 'cccd_scanned' để lúc bấm Lưu ghi vào đơn; không đọc được thì báo lỗi tại ô ảnh.
+    // Khác form Khách hàng: KHÔNG chặn lưu khi không đọc được QR — đơn vẫn nhận ảnh để lễ tân nhập
+    // tay sau (xem persistCccdUploadAndScan()).
+    private static function liveScanCccdQr(FileUpload $component, mixed $state, Set $set, $livewire, $record, int $guestIndex): void
+    {
+        $file = collect(\Illuminate\Support\Arr::wrap($state))
+            ->first(fn ($f) => $f instanceof \Livewire\Features\SupportFileUploads\TemporaryUploadedFile);
+
+        // Gỡ ảnh / chưa có ảnh mới → bỏ kết quả quét của ảnh trước đó.
+        $set('cccd_scanned', null);
+        $livewire->resetErrorBag($component->getStatePath());
+
+        if (! $file) {
+            return;
+        }
+
+        ['data' => $data, 'error' => $error] = \App\Filament\Resources\CustomerResource::scanUploadedQr($file);
+
+        // Đơn đã lưu: báo luôn lỗi quy tắc chung (dưới 16 tuổi, trùng người trong đơn) thay vì đợi bấm Lưu.
+        if (! $error && $record) {
+            $error = self::cccdRuleError($record, $guestIndex, $data);
+        }
+
+        if ($error) {
+            $livewire->addError($component->getStatePath(), $error);
+            \Filament\Notifications\Notification::make()->title('Không quét được QR CCCD')->body($error)->danger()->persistent()->send();
+
+            return;
+        }
+
+        $set('cccd_scanned', $data);
+
+        \Filament\Notifications\Notification::make()
+            ->title('Quét CCCD thành công')
+            ->body(implode(' · ', array_filter([$data['cccd'] ?? null, $data['full_name'] ?? null, $data['dob'] ?? null])))
+            ->success()
+            ->send();
     }
 
     // Quy tắc chung (CccdIntakeService::assertPeople): khách đang sửa so với mọi khách còn lại trong
@@ -1974,9 +2023,12 @@ class OrderForm
                 // vì nằm cạnh nhau (đã xác nhận thực tế: popup hiện ra chỉ 1 cột).
                 Grid::make(2)->schema([
                     Grid::make(1)->columnSpan(1)->schema([
+                        // Kết quả quét của ảnh vừa tải (liveScanCccdQr()) — chưa lưu tới khi bấm Lưu.
+                        Hidden::make('cccd_scanned'),
+
                         Placeholder::make('cccd_extracted_1')
                             ->label('Thông tin đã trích xuất')
-                            ->content(fn ($record) => self::renderExtractedCccdData($record?->cccd_data)),
+                            ->content(fn ($record, Get $get) => self::renderExtractedCccdData($get('cccd_scanned') ?: $record?->cccd_data)),
                     ]),
 
                     Grid::make(1)->columnSpan(1)->schema([
@@ -2015,6 +2067,7 @@ class OrderForm
                                 ->panelLayout('integrated')
                                 ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
                                 ->maxSize(10240)
+                                ->afterStateUpdated(fn (FileUpload $component, mixed $state, Set $set, $livewire, $record) => self::liveScanCccdQr($component, $state, $set, $livewire, $record, 1))
                                 ->nullable(),
 
                         Grid::make(2)->schema([
@@ -2051,9 +2104,18 @@ class OrderForm
                     $set('cccd_front', $data['cccd_front'] ?? null);
                     $set('cccd_back', $data['cccd_back'] ?? null);
 
+                    // Đã quét được ngay trong popup → giữ dữ liệu để lưu cùng đơn và điền sẵn tên khách.
+                    $scanned = is_array($data['cccd_scanned'] ?? null) && $data['cccd_scanned'] ? $data['cccd_scanned'] : null;
+                    $set('cccd_data', $scanned);
+                    if (! empty($scanned['full_name'])) {
+                        $set('buyer_name', $scanned['full_name']);
+                    }
+
                     \Filament\Notifications\Notification::make()
                         ->title('Đã đính kèm CCCD khách #1')
-                        ->body('Ảnh sẽ được lưu và quét thông tin khi bấm Tạo đơn.')
+                        ->body($scanned
+                            ? 'Đã quét xong thông tin CCCD — ảnh và thông tin sẽ được lưu khi bấm Tạo đơn.'
+                            : 'Ảnh sẽ được lưu và quét thông tin khi bấm Tạo đơn.')
                         ->success()
                         ->send();
 
@@ -2093,9 +2155,11 @@ class OrderForm
             ->form([
                 Grid::make(2)->schema([
                     Grid::make(1)->columnSpan(1)->schema([
+                        Hidden::make('cccd_scanned'),
+
                         Placeholder::make('cccd_extracted_' . $guestIndex)
                             ->label('Thông tin đã trích xuất')
-                            ->content(fn ($record) => self::renderExtractedCccdData(self::resolveCccdGuestSource($record, $guestIndex)['data'] ?? null)),
+                            ->content(fn ($record, Get $get) => self::renderExtractedCccdData($get('cccd_scanned') ?: (self::resolveCccdGuestSource($record, $guestIndex)['data'] ?? null))),
                     ]),
 
                     Grid::make(1)->columnSpan(1)->schema([
@@ -2131,6 +2195,7 @@ class OrderForm
                                 ->panelLayout('integrated')
                                 ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
                                 ->maxSize(10240)
+                                ->afterStateUpdated(fn (FileUpload $component, mixed $state, Set $set, $livewire, $record) => self::liveScanCccdQr($component, $state, $set, $livewire, $record, $guestIndex))
                                 ->nullable(),
 
                         Grid::make(2)->schema([

@@ -603,15 +603,12 @@ class CccdScannerService
      */
     protected function tryNodeZxing(string ...$imagePaths): ?array
     {
-        $scriptPath = base_path('qr_scan_zxing.cjs');
-        if (! file_exists($scriptPath) || ! is_dir(base_path('node_modules/@zxing/library'))) {
-            return null; // chưa cài @zxing/library (npm install) → bỏ qua, các bước sau vẫn chạy
+        if (! $this->nodeZxingAvailable()) {
+            return null; // thiếu node hoặc chưa cài @zxing/library (npm install) → bỏ qua, các bước sau vẫn chạy
         }
 
-        $nodeBin = $this->resolveNodeBin();
-        if (! $nodeBin) {
-            return null;
-        }
+        $scriptPath = base_path('qr_scan_zxing.cjs');
+        $nodeBin    = $this->resolveNodeBin();
 
         $realPaths = [];
         foreach ($imagePaths as $path) {
@@ -732,6 +729,13 @@ class CccdScannerService
         return null;
     }
 
+    private function nodeZxingAvailable(): bool
+    {
+        return file_exists(base_path('qr_scan_zxing.cjs'))
+            && is_dir(base_path('node_modules/@zxing/library'))
+            && $this->resolveNodeBin() !== null;
+    }
+
     /**
      * Tìm đường dẫn tuyệt đối của node executable.
      * Dùng đường dẫn tuyệt đối để tránh PATH không khớp giữa web server và shell.
@@ -741,6 +745,13 @@ class CccdScannerService
         static $cached = false;
         if ($cached !== false) {
             return $cached ?: null;
+        }
+
+        // Ưu tiên đường dẫn cấu hình tay (CCCD_NODE_BIN) — dùng khi node không nằm trong PATH của web server
+        $configured = (string) config('services.cccd_scanner.node_bin', '');
+        if ($configured !== '' && is_executable($configured)) {
+            $cached = $configured;
+            return $configured;
         }
 
         if (PHP_OS_FAMILY === 'Windows') {
@@ -754,6 +765,20 @@ class CccdScannerService
             $candidates = PHP_OS_FAMILY === 'Windows'
                 ? ['C:\\Program Files\\nodejs\\node.exe', 'C:\\Program Files (x86)\\nodejs\\node.exe']
                 : ['/usr/bin/node', '/usr/local/bin/node', '/opt/homebrew/bin/node'];
+
+            // node cài qua nvm (Herd / nvm thường) không có trong PATH của php-fpm → dò thư mục nvm, lấy bản mới nhất
+            if (PHP_OS_FAMILY !== 'Windows') {
+                $home = getenv('HOME') ?: (function_exists('posix_getpwuid') ? (posix_getpwuid(posix_geteuid())['dir'] ?? '') : '');
+                if ($home) {
+                    $nvmBins = array_merge(
+                        glob($home . '/Library/Application Support/Herd/config/nvm/versions/node/*/bin/node') ?: [],
+                        glob($home . '/.nvm/versions/node/*/bin/node') ?: [],
+                    );
+                    usort($nvmBins, fn (string $a, string $b): int => version_compare(basename(dirname($b, 2)), basename(dirname($a, 2))));
+                    $candidates = array_merge($candidates, $nvmBins);
+                }
+            }
+
             foreach ($candidates as $c) {
                 if (file_exists($c)) {
                     $cached = $c;
@@ -933,6 +958,13 @@ class CccdScannerService
     {
         if (! class_exists(\Zxing\QrReader::class)) {
             Log::debug('[CccdScanner] Zxing\QrReader class không tồn tại.');
+            return null;
+        }
+
+        // Bộ giải mã PHP thuần không có giới hạn thời gian/bộ nhớ: ảnh lớn mà QR mờ có thể chạy
+        // hàng phút hoặc tràn memory_limit (lỗi fatal → 500). ZXing bản Node cùng thuật toán, nhanh
+        // và có timeout — đã chạy được thì không cần bước này; chỉ giữ làm dự phòng khi thiếu Node.
+        if ($this->nodeZxingAvailable()) {
             return null;
         }
 

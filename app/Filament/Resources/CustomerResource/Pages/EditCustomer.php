@@ -5,14 +5,15 @@ declare(strict_types=1);
 namespace App\Filament\Resources\CustomerResource\Pages;
 
 use App\Filament\Resources\CustomerResource;
-use Filament\Actions;
+use App\Services\CccdIntakeService;
+use App\Support\CccdIdentity;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\ForceDeleteAction;
 use Filament\Actions\RestoreAction;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
+use Illuminate\Support\Facades\Storage;
 use Modules\AuditLog\Services\AuditLogger;
-use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Promotion\App\Models\Coupon;
 
 class EditCustomer extends EditRecord
@@ -26,6 +27,34 @@ class EditCustomer extends EditRecord
     // Eloquent event nào bắn ra để ghi log (cùng lỗi đã gặp ở Product tags/services). beforeSave()
     // chạy TRƯỚC bước đó nên chụp lại state cũ ở đây, afterSave() so sánh với state mới rồi ghi
     // log thủ công.
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        if (CustomerResource::$scannedCccdData) {
+            $data['cccd_data'] = CustomerResource::$scannedCccdData;
+
+            return $data;
+        }
+
+        // Ảnh QR đã lưu từ trước (không tải ảnh mới) mà hồ sơ chưa có dữ liệu CCCD hợp lệ → quét
+        // ảnh đang lưu; vẫn không đọc được thì chặn lưu: có ảnh QR thì phải có dữ liệu CCCD.
+        $qrPath = $data['cccd_qr_image'] ?? null;
+        if (is_string($qrPath) && $qrPath !== '' && CccdIdentity::validate($this->record->cccd_data, requireQr: false) !== null) {
+            $disk    = Storage::disk('public');
+            $scanned = $disk->exists($qrPath) ? app(CccdIntakeService::class)->scanQr($disk->path($qrPath)) : null;
+
+            if (CccdIdentity::validate($scanned) !== null) {
+                $message = 'Ảnh CCCD mặt có mã QR đang lưu không đọc được mã QR nên chưa có dữ liệu CCCD. Vui lòng tải lên ảnh chụp rõ hơn (hoặc xoá ảnh này) rồi lưu lại.';
+                $this->addError('data.cccd_qr_image', $message);
+                Notification::make()->title('Không quét được QR CCCD')->body($message)->danger()->persistent()->send();
+                $this->halt();
+            }
+
+            $data['cccd_data'] = $scanned;
+        }
+
+        return $data;
+    }
+
     protected function beforeSave(): void
     {
         $this->oldCouponIds = $this->record->coupons()->pluck('coupon_customers.coupon_id')->map(fn ($id) => (string) $id)->all();
@@ -33,6 +62,9 @@ class EditCustomer extends EditRecord
 
     protected function afterSave(): void
     {
+        // Lưu xong ở lại form sửa (không chuyển về danh sách) — nạp lại dữ liệu CCCD vừa quét từ QR.
+        $this->refreshFormData(['cccd_data']);
+
         $record = $this->record->fresh(['coupons']);
 
         $newCouponIds = $record->coupons->pluck('id')->map(fn ($id) => (string) $id)->all();
@@ -66,52 +98,9 @@ class EditCustomer extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            Actions\Action::make('scanCccdQr')
-                ->label('[TEST] Quét QR CCCD')
-                ->icon('heroicon-m-qr-code')
-                ->color('gray')
-                ->visible(fn () => (bool) ($this->record->cccd_qr_image || $this->record->cccd_front || $this->record->cccd_back))
-                ->action(function (): void {
-                    /** @var \App\Models\Customer $record */
-                    $record = $this->record->fresh();
-                    $data   = app(CccdScannerService::class)->scanCustomer($record);
-
-                    if (! $data) {
-                        Notification::make()
-                            ->title('Không đọc được QR CCCD')
-                            ->body('Ảnh quá nhỏ hoặc QR bị mờ. Vui lòng upload lại ảnh gốc chất lượng cao (không resize).')
-                            ->warning()
-                            ->send();
-                        return;
-                    }
-
-                    $record->update(['cccd_data' => $data]);
-
-                    $this->refreshFormData(['cccd_data']);
-
-                    $note = implode("\n", array_filter([
-                        $data['cccd']      ? "Số CCCD:   {$data['cccd']}"      : null,
-                        $data['full_name'] ? "Họ và tên: {$data['full_name']}" : null,
-                        $data['dob']       ? "Ngày sinh: {$data['dob']}"       : null,
-                        $data['gender']    ? "Giới tính: {$data['gender']}"    : null,
-                        $data['address']   ? "Địa chỉ:   {$data['address']}"   : null,
-                    ]));
-
-                    Notification::make()
-                        ->title('Quét CCCD thành công')
-                        ->body($note)
-                        ->success()
-                        ->send();
-                }),
-
             DeleteAction::make()->label('Xoá'),
             RestoreAction::make()->label('Khôi phục'),
             ForceDeleteAction::make()->label('Xoá vĩnh viễn'),
         ];
-    }
-
-    protected function getRedirectUrl(): string
-    {
-        return $this->getResource()::getUrl('index');
     }
 }

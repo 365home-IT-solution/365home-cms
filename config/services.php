@@ -127,4 +127,11 @@ return [
     'ffmpeg' => [
         'binary' => env('FFMPEG_BINARY', 'ffmpeg'),
     ],
+
+    // Đường dẫn tuyệt đối tới node dùng cho bộ quét QR CCCD (qr_scan_zxing.cjs / qr_scan.cjs). Để
+    // trống thì tự dò (`which node`, đường dẫn phổ biến, thư mục nvm) — chỉ cần đặt CCCD_NODE_BIN
+    // trong .env khi node không nằm trong PATH của web server (php-fpm).
+    'cccd_scanner' => [
+        'node_bin' => env('CCCD_NODE_BIN', ''),
+    ],
 ];

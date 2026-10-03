@@ -6,21 +6,27 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\CustomerResource\Pages;
 use App\Filament\Resources\CustomerResource\RelationManagers\AssignedCouponsRelationManager;
+use App\Filament\Resources\CustomerResource\RelationManagers\CompanionsRelationManager;
 use App\Filament\Resources\CustomerResource\RelationManagers\CouponUsagesRelationManager;
 use App\Filament\Resources\CustomerResource\RelationManagers\MembershipLogsRelationManager;
 use App\Filament\Resources\CustomerResource\RelationManagers\PersonalCouponsRelationManager;
 use App\Models\Customer;
 use App\Models\MembershipTier;
+use App\Services\CccdIntakeService;
+use App\Support\CccdIdentity;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Grid;
-use Filament\Forms\Components\KeyValue;
+use Filament\Forms\Components\Group;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Forms\Form;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables\Actions\Action;
 use Filament\Tables\Actions\BulkAction;
@@ -38,7 +44,10 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\HtmlString;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Promotion\App\Models\Coupon;
 
 class CustomerResource extends Resource
@@ -52,6 +61,39 @@ class CustomerResource extends Resource
     protected static ?string $pluralModelLabel = 'Khách hàng';
     protected static ?int    $navigationSort   = 20;
 
+    // Dữ liệu QR đọc được từ ảnh cccd_qr_image vừa tải lên (rule của field ghi vào lúc validate) —
+    // trang Create/Edit lấy ra ghi vào cccd_data trong cùng request lưu.
+    public static ?array $scannedCccdData = null;
+
+    /**
+     * Quét QR trên ảnh CCCD vừa tải lên (file tạm Livewire). Kết quả nhớ theo tên file tạm để lúc
+     * lưu không phải quét lại ảnh đã quét khi tải lên.
+     *
+     * @return array{data: ?array, error: ?string}
+     */
+    public static function scanUploadedQr(TemporaryUploadedFile $file): array
+    {
+        $key = 'cccd-admin-scan:' . md5($file->getFilename());
+        if ($cached = Cache::get($key)) {
+            return $cached;
+        }
+
+        $data  = app(CccdIntakeService::class)->scanQr($file);
+        $error = CccdIdentity::validate($data);
+        if ($error && ! $data) {
+            $error = 'Không đọc được mã QR trên ảnh CCCD nên không lưu được. Vui lòng chụp lại: đủ sáng, lấy nét vào thẻ, thẻ chiếm gần hết khung hình và dùng ảnh gốc (không nén, không chụp lại màn hình).';
+        }
+
+        $result = ['data' => $error ? null : $data, 'error' => $error];
+
+        // Hết thời gian quét (server bận) là lỗi tạm thời — không nhớ, để lần lưu quét lại.
+        if (! $error || CccdScannerService::lastFailure() !== 'timeout') {
+            Cache::put($key, $result, now()->addMinutes(30));
+        }
+
+        return $result;
+    }
+
     // Trước đây hardcode isSuperAdmin() — bỏ qua CustomerPolicy (đã đúng, kiểm tra
     // view_any_customer), khiến tick/bỏ tick quyền này ở Roles & Permissions vô tác dụng.
     public static function canViewAny(): bool
@@ -64,235 +106,303 @@ class CustomerResource extends Resource
         return $form->schema([
             Grid::make(['default' => 1, 'lg' => 3])->schema([
 
-                // ── Cột 1: Thông tin cơ bản + CCCD ──────────────────────
-                Section::make('Thông tin cơ bản')
-                    ->schema([
-                        TextInput::make('fullname')
-                            ->label('Họ và tên')
-                            ->maxLength(255),
+                // ── Cột trái: Thông tin cơ bản + CCCD ───────────────────
+                Group::make([
+                    Section::make('Thông tin cơ bản')
+                        ->icon('heroicon-o-user')
+                        ->schema([
+                            TextInput::make('fullname')
+                                ->label('Họ và tên')
+                                ->maxLength(255),
 
-                        TextInput::make('phone')
-                            ->label('Số điện thoại')
-                            ->required()
-                            ->unique(ignoreRecord: true)
-                            ->maxLength(20),
+                            TextInput::make('phone')
+                                ->label('Số điện thoại')
+                                ->required()
+                                ->unique(ignoreRecord: true)
+                                ->maxLength(20),
 
-                        DatePicker::make('date_of_birth')
-                            ->label('Ngày sinh')
-                            ->displayFormat('d/m/Y'),
+                            DatePicker::make('date_of_birth')
+                                ->label('Ngày sinh')
+                                ->displayFormat('d/m/Y'),
 
-                        Toggle::make('phone_verified_at')
-                            ->label('Đã xác thực SĐT')
-                            ->onIcon('heroicon-o-check')
-                            ->offIcon('heroicon-o-x-mark')
-                            ->formatStateUsing(fn ($record) => ! is_null($record?->phone_verified_at))
-                            ->dehydrated(false),
+                            Toggle::make('status')
+                                ->label('Hoạt động')
+                                ->inline(false)
+                                ->onIcon('heroicon-o-check')
+                                ->offIcon('heroicon-o-x-mark')
+                                ->onColor('success')
+                                ->offColor('danger')
+                                ->formatStateUsing(fn ($state) => $state !== 'inactive')
+                                ->dehydrateStateUsing(fn (bool $state) => $state ? 'active' : 'inactive')
+                                ->default(true),
 
-                        Toggle::make('status')
-                            ->label('Hoạt động')
-                            ->onIcon('heroicon-o-check')
-                            ->offIcon('heroicon-o-x-mark')
-                            ->onColor('success')
-                            ->offColor('danger')
-                            ->formatStateUsing(fn ($state) => $state !== 'inactive')
-                            ->dehydrateStateUsing(fn (bool $state) => $state ? 'active' : 'inactive')
-                            ->default(true),
+                            Toggle::make('phone_verified_at')
+                                ->label('Đã xác thực SĐT')
+                                ->inline(false)
+                                ->onIcon('heroicon-o-check')
+                                ->offIcon('heroicon-o-x-mark')
+                                ->formatStateUsing(fn ($record) => ! is_null($record?->phone_verified_at))
+                                ->dehydrated(false),
+                        ])
+                        ->columns(['default' => 1, 'md' => 3]),
 
-                        FileUpload::make('cccd_qr_image')
-                            ->label('CCCD — mặt có mã QR')
-                            ->image()
-                            ->disk('public')
-                            ->directory('cccd/qr')
-                            ->maxSize(10240)
-                            ->imagePreviewHeight('300')
-                            ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
-                            ->helperText('Ảnh dùng để quét thông tin (khách tải lên từ web/app). Mặt trước/sau bên dưới là tuỳ chọn để lưu trữ.'),
-
-                        FileUpload::make('cccd_front')
-                            ->label('Mặt trước CCCD')
-                            ->image()
-                            ->disk('public')
-                            ->directory('cccd')
-                            ->maxSize(10240)
-                            ->imagePreviewHeight('300')
-                            ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
-                            ->helperText('Upload ảnh gốc không crop/resize để quét QR được. Tối đa 10MB.'),
-
-                        FileUpload::make('cccd_back')
-                            ->label('Mặt sau CCCD')
-                            ->image()
-                            ->disk('public')
-                            ->directory('cccd')
-                            ->maxSize(10240)
-                            ->imagePreviewHeight('300')
-                            ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
-                            ->helperText('Upload ảnh gốc không crop/resize để quét QR được. Tối đa 10MB.'),
-
-                        KeyValue::make('cccd_data')
-                            ->label('Dữ liệu CCCD (sau khi quét)')
-                            ->keyLabel('Trường')
-                            ->valueLabel('Giá trị')
-                            ->disabled()
-                            ->hidden(fn ($record) => blank($record?->cccd_data)),
-
-                        // Lịch sử khách tự xác thực CCCD (trang cá nhân) — hồ sơ dùng lần mới nhất;
-                        // dòng "Khác CCCD lần đầu" là lúc khách đổi sang CCCD khác số, cần để ý.
-                        Placeholder::make('cccd_verifications_history')
-                            ->label('Lịch sử xác thực CCCD')
-                            ->content(fn ($record) => self::renderCccdVerifications($record))
-                            ->hidden(fn ($record) => ! $record || ! $record->cccdVerifications()->exists()),
-                    ])
-                    ->columns(1)
-                    ->columnSpan(fn (?Customer $record): int => $record === null ? 3 : 1),
-
-                // ── Cột 2: Hạng thành viên & quyền lợi ─────────────────
-                Section::make('Hạng thành viên')
-                    ->schema([
-                        Select::make('membership_tier_id')
-                            ->label('Hạng')
-                            ->options(MembershipTier::where('is_active', true)->orderBy('sort_order')->pluck('name', 'id'))
-                            ->searchable()
-                            ->placeholder('— Chưa có hạng —')
-                            ->afterStateUpdated(function ($state, $record): void {
-                                if (! $record || ! $state) {
-                                    return;
-                                }
-                                \App\Models\CustomerMembershipLog::create([
-                                    'customer_id'        => $record->id,
-                                    'from_tier_id'       => $record->getOriginal('membership_tier_id'),
-                                    'to_tier_id'         => $state,
-                                    'reason'             => 'manual',
-                                    'spending_at_change' => $record->total_spending ?? 0,
-                                ]);
-                            })
-                            ->live(),
-
-                        TextInput::make('total_spending')
-                            ->label('Tổng chi tiêu')
-                            ->numeric()
-                            ->suffix('VNĐ'),
-
-                        Placeholder::make('personal_coupons_display')
-                            ->label('Mã giảm giá thành viên')
-                            ->content(function (?Customer $record): HtmlString {
-                                if (! $record) {
-                                    return new HtmlString('<p class="text-sm text-gray-400 italic">—</p>');
-                                }
-
-                                $coupons = $record->personalCoupons()
-                                    ->orderByDesc('created_at')
-                                    ->get();
-
-                                if ($coupons->isEmpty()) {
-                                    return new HtmlString('<p class="text-sm text-gray-400 italic">Chưa có mã nào.</p>');
-                                }
-
-                                $html = '<div class="space-y-2">';
-                                foreach ($coupons as $coupon) {
-                                    $expired = $coupon->end_at && now()->gt($coupon->end_at);
-                                    $used    = $coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit;
-                                    $inactive = ! $coupon->is_active;
-
-                                    if ($expired || $used || $inactive) {
-                                        $wrap = 'rounded-lg bg-gray-100 dark:bg-gray-800 px-3 py-2 opacity-50';
-                                        $code = '<s class="font-mono font-semibold text-sm text-gray-400">' . e($coupon->code) . '</s>';
-                                    } else {
-                                        $wrap = 'rounded-lg bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2 border border-emerald-200 dark:border-emerald-800';
-                                        $code = '<code class="font-mono font-semibold text-sm text-emerald-700 dark:text-emerald-300 select-all">' . e($coupon->code) . '</code>';
+                    Section::make('Căn cước công dân')
+                        ->icon('heroicon-o-identification')
+                        ->description('Tải ảnh mặt có mã QR — hệ thống quét ngay và hiện thông tin bên cạnh. Ảnh không đọc được mã QR sẽ không lưu được.')
+                        ->schema([
+                            FileUpload::make('cccd_qr_image')
+                                ->label('Ảnh mặt có mã QR')
+                                ->image()
+                                ->disk('public')
+                                ->directory('cccd/qr')
+                                ->maxSize(10240)
+                                ->imagePreviewHeight('240')
+                                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                // Quét QR NGAY khi ảnh tải lên xong: đọc được thì hiện dữ liệu CCCD luôn, không đọc
+                                // được thì báo lỗi tại ô ảnh. Lúc lưu, rule bên dưới chặn lại nếu ảnh vẫn không đạt
+                                // (dữ liệu CCCD chỉ lấy từ QR); đạt thì trang Create/Edit ghi cccd_data.
+                                ->afterStateUpdated(function (FileUpload $component, mixed $state, Set $set, $livewire): void {
+                                    $file = collect(\Illuminate\Support\Arr::wrap($state))->first(fn ($f) => $f instanceof TemporaryUploadedFile);
+                                    if (! $file) {
+                                        return;
                                     }
 
-                                    $value = $coupon->type === 'percentage'
-                                        ? $coupon->value . '%'
-                                        : number_format((float) $coupon->value, 0, ',', '.') . ' VNĐ';
+                                    ['data' => $data, 'error' => $error] = self::scanUploadedQr($file);
 
-                                    $expire = $coupon->end_at
-                                        ? ' · HH: ' . \Carbon\Carbon::parse($coupon->end_at)->format('d/m/Y')
-                                        : '';
+                                    if ($error) {
+                                        $livewire->addError($component->getStatePath(), $error);
+                                        Notification::make()->title('Không quét được QR CCCD')->body($error)->danger()->persistent()->send();
 
-                                    $html .= '<div class="flex items-center justify-between gap-2 ' . $wrap . '">';
-                                    $html .= $code;
-                                    $html .= '<span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">' . e($value) . $expire . '</span>';
-                                    $html .= '</div>';
-                                }
-                                $html .= '</div>';
+                                        return;
+                                    }
 
-                                return new HtmlString($html);
-                            })
-                            ->hiddenOn('create'),
+                                    $livewire->resetErrorBag($component->getStatePath());
+                                    $set('cccd_data', $data);
 
-                        Placeholder::make('tier_benefits_display')
-                            ->label('Quyền lợi hạng')
-                            ->content(function (?Customer $record): HtmlString {
-                                $tier = $record?->membershipTier;
+                                    Notification::make()
+                                        ->title('Quét CCCD thành công')
+                                        ->body(implode(' · ', array_filter([$data['cccd'] ?? null, $data['full_name'] ?? null, $data['dob'] ?? null])))
+                                        ->success()
+                                        ->send();
+                                })
+                                ->rule(fn () => function (string $attribute, mixed $value, \Closure $fail): void {
+                                    if (! $value instanceof TemporaryUploadedFile) {
+                                        return;
+                                    }
 
-                                if (! $tier) {
-                                    return new HtmlString(
-                                        '<p class="text-sm text-gray-400 dark:text-gray-500 italic">Chưa được phân hạng.</p>'
-                                    );
-                                }
+                                    ['data' => $data, 'error' => $error] = self::scanUploadedQr($value);
+                                    if ($error) {
+                                        $fail($error);
 
-                                $html = '<div class="space-y-3 text-sm">';
+                                        return;
+                                    }
 
-                                if ($tier->description) {
-                                    $html .= '<p class="text-gray-600 dark:text-gray-300">' . e($tier->description) . '</p>';
-                                }
+                                    self::$scannedCccdData = $data;
+                                })
+                                ->helperText('Chụp đủ sáng, lấy nét vào thẻ, thẻ chiếm gần hết khung hình. Dùng ảnh gốc, tối đa 10MB.'),
 
-                                // Ngưỡng chi tiêu — khối "Coupon chào mừng" trước đây hiển thị ở đây đã bị bỏ:
-                                // welcome_coupon_* là cơ chế CŨ đã ngưng dùng (không sửa được qua form hạng,
-                                // không dùng để cấp coupon thật — xem MembershipService::grantTemplateCoupon()),
-                                // dữ liệu hiển thị chỉ là rác còn sót lại. Điều kiện/quyền lợi hạng thật sự nên
-                                // điền vào $tier->description (đã hiển thị ngay phía trên, qua trang Sửa hạng).
-                                $html .= '<div class="rounded-lg bg-gray-50 dark:bg-white/5 p-3">';
-                                $html .= '<div class="text-xs uppercase tracking-wide text-gray-400 mb-1">Ngưỡng chi tiêu</div>';
-                                $html .= '<div class="font-semibold text-gray-800 dark:text-gray-100">'
-                                    . number_format((float) $tier->min_spending, 0, ',', '.') . ' VNĐ'
-                                    . '</div>';
-                                $html .= '</div>';
+                            // Dữ liệu đọc từ QR (state cccd_data: nạp từ hồ sơ, hoặc vừa quét khi tải ảnh lên).
+                            Placeholder::make('cccd_data_view')
+                                ->label('Dữ liệu CCCD (sau khi quét)')
+                                ->content(fn (Get $get): HtmlString => self::renderCccdData($get('cccd_data'))),
 
-                                // Hạng tiếp theo
-                                $nextTier = MembershipTier::where('is_active', true)
-                                    ->where('min_spending', '>', $tier->min_spending)
-                                    ->orderBy('min_spending')
-                                    ->first();
+                            Section::make('Ảnh mặt trước / mặt sau (tuỳ chọn)')
+                                ->description('Chỉ để lưu trữ — thông tin CCCD lấy từ ảnh mặt có mã QR ở trên.')
+                                ->compact()
+                                ->collapsible()
+                                ->collapsed(fn (Get $get): bool => blank($get('cccd_front')) && blank($get('cccd_back')))
+                                ->columns(['default' => 1, 'md' => 2])
+                                ->columnSpanFull()
+                                ->schema([
+                                    FileUpload::make('cccd_front')
+                                        ->label('Mặt trước CCCD')
+                                        ->image()
+                                        ->disk('public')
+                                        ->directory('cccd')
+                                        ->maxSize(10240)
+                                        ->imagePreviewHeight('200')
+                                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                        ->helperText('Tối đa 10MB.'),
 
-                                if ($nextTier) {
-                                    $remaining = max(0, (float) $nextTier->min_spending - (float) ($record->total_spending ?? 0));
-                                    $html .= '<div class="border-t border-gray-200 dark:border-gray-700 pt-3">';
-                                    $html .= '<div class="text-xs text-gray-500">Hạng tiếp theo: <span class="font-medium text-gray-700 dark:text-gray-300">' . e($nextTier->name) . '</span></div>';
-                                    if ($remaining > 0) {
-                                        $html .= '<div class="text-xs text-gray-400 mt-1">Còn cần chi thêm <span class="font-semibold text-amber-600 dark:text-amber-400">'
-                                            . number_format($remaining, 0, ',', '.') . ' VNĐ</span></div>';
-                                    } else {
-                                        $html .= '<div class="text-xs text-emerald-600 dark:text-emerald-400 mt-1">Đủ điều kiện lên hạng ✓</div>';
+                                    FileUpload::make('cccd_back')
+                                        ->label('Mặt sau CCCD')
+                                        ->image()
+                                        ->disk('public')
+                                        ->directory('cccd')
+                                        ->maxSize(10240)
+                                        ->imagePreviewHeight('200')
+                                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                        ->helperText('Tối đa 10MB.'),
+                                ]),
+
+                            // Lịch sử khách tự xác thực CCCD (trang cá nhân) — hồ sơ dùng lần mới nhất;
+                            // dòng "Khác CCCD lần đầu" là lúc khách đổi sang CCCD khác số, cần để ý.
+                            Placeholder::make('cccd_verifications_history')
+                                ->label('Lịch sử xác thực CCCD')
+                                ->content(fn ($record) => self::renderCccdVerifications($record))
+                                ->columnSpanFull()
+                                ->hidden(fn ($record) => ! $record || ! $record->cccdVerifications()->exists()),
+                        ])
+                        ->columns(['default' => 1, 'md' => 2]),
+                ])
+                    ->columnSpan(fn (?Customer $record): int => $record === null ? 3 : 2),
+
+                // ── Cột phải: Hạng thành viên & mã giảm giá ─────────────
+                Group::make([
+                    // Hạng thành viên & quyền lợi
+                    Section::make('Hạng thành viên')
+                        ->icon('heroicon-o-trophy')
+                        ->schema([
+                            Select::make('membership_tier_id')
+                                ->label('Hạng')
+                                ->options(MembershipTier::where('is_active', true)->orderBy('sort_order')->pluck('name', 'id'))
+                                ->searchable()
+                                ->placeholder('— Chưa có hạng —')
+                                ->afterStateUpdated(function ($state, $record): void {
+                                    if (! $record || ! $state) {
+                                        return;
+                                    }
+                                    \App\Models\CustomerMembershipLog::create([
+                                        'customer_id'        => $record->id,
+                                        'from_tier_id'       => $record->getOriginal('membership_tier_id'),
+                                        'to_tier_id'         => $state,
+                                        'reason'             => 'manual',
+                                        'spending_at_change' => $record->total_spending ?? 0,
+                                    ]);
+                                })
+                                ->live(),
+
+                            TextInput::make('total_spending')
+                                ->label('Tổng chi tiêu')
+                                ->numeric()
+                                ->suffix('VNĐ'),
+
+                            Placeholder::make('personal_coupons_display')
+                                ->label('Mã giảm giá thành viên')
+                                ->content(function (?Customer $record): HtmlString {
+                                    if (! $record) {
+                                        return new HtmlString('<p class="text-sm text-gray-400 italic">—</p>');
+                                    }
+
+                                    $coupons = $record->personalCoupons()
+                                        ->orderByDesc('created_at')
+                                        ->get();
+
+                                    if ($coupons->isEmpty()) {
+                                        return new HtmlString('<p class="text-sm text-gray-400 italic">Chưa có mã nào.</p>');
+                                    }
+
+                                    $html = '<div class="space-y-2">';
+                                    foreach ($coupons as $coupon) {
+                                        $expired = $coupon->end_at && now()->gt($coupon->end_at);
+                                        $used    = $coupon->usage_limit && $coupon->used_count >= $coupon->usage_limit;
+                                        $inactive = ! $coupon->is_active;
+
+                                        if ($expired || $used || $inactive) {
+                                            $wrap = 'rounded-lg bg-gray-100 dark:bg-gray-800 px-3 py-2 opacity-50';
+                                            $code = '<s class="font-mono font-semibold text-sm text-gray-400">' . e($coupon->code) . '</s>';
+                                        } else {
+                                            $wrap = 'rounded-lg bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2 border border-emerald-200 dark:border-emerald-800';
+                                            $code = '<code class="font-mono font-semibold text-sm text-emerald-700 dark:text-emerald-300 select-all">' . e($coupon->code) . '</code>';
+                                        }
+
+                                        $value = $coupon->type === 'percentage'
+                                            ? $coupon->value . '%'
+                                            : number_format((float) $coupon->value, 0, ',', '.') . ' VNĐ';
+
+                                        $expire = $coupon->end_at
+                                            ? ' · HH: ' . \Carbon\Carbon::parse($coupon->end_at)->format('d/m/Y')
+                                            : '';
+
+                                        $html .= '<div class="flex items-center justify-between gap-2 ' . $wrap . '">';
+                                        $html .= $code;
+                                        $html .= '<span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">' . e($value) . $expire . '</span>';
+                                        $html .= '</div>';
                                     }
                                     $html .= '</div>';
-                                }
 
-                                $html .= '</div>';
+                                    return new HtmlString($html);
+                                })
+                                ->hiddenOn('create'),
 
-                                return new HtmlString($html);
-                            }),
-                    ])
-                    ->columns(1)
-                    ->columnSpan(1)
-                    ->hiddenOn('create'),
+                            Placeholder::make('tier_benefits_display')
+                                ->label('Quyền lợi hạng')
+                                ->content(function (?Customer $record): HtmlString {
+                                    $tier = $record?->membershipTier;
 
-                // ── Cột 3: Mã giảm giá được gán ────────────────────────
-                Section::make('Mã giảm giá')
-                    ->schema([
-                        Select::make('coupons')
-                            ->label('Mã giảm giá')
-                            ->multiple()
-                            ->relationship('coupons', 'code')
-                            ->getOptionLabelFromRecordUsing(
-                                fn (Coupon $record): string => "[{$record->code}] {$record->name}"
-                            )
-                            ->searchable()
-                            ->preload()
-                            ->placeholder('Tìm và chọn mã giảm giá...')
-                            ->helperText('Bỏ chọn để xoá, chọn thêm để gán mã mới cho khách hàng này.'),
-                    ])
-                    ->columns(1)
+                                    if (! $tier) {
+                                        return new HtmlString(
+                                            '<p class="text-sm text-gray-400 dark:text-gray-500 italic">Chưa được phân hạng.</p>'
+                                        );
+                                    }
+
+                                    $html = '<div class="space-y-3 text-sm">';
+
+                                    if ($tier->description) {
+                                        $html .= '<p class="text-gray-600 dark:text-gray-300">' . e($tier->description) . '</p>';
+                                    }
+
+                                    // Ngưỡng chi tiêu — khối "Coupon chào mừng" trước đây hiển thị ở đây đã bị bỏ:
+                                    // welcome_coupon_* là cơ chế CŨ đã ngưng dùng (không sửa được qua form hạng,
+                                    // không dùng để cấp coupon thật — xem MembershipService::grantTemplateCoupon()),
+                                    // dữ liệu hiển thị chỉ là rác còn sót lại. Điều kiện/quyền lợi hạng thật sự nên
+                                    // điền vào $tier->description (đã hiển thị ngay phía trên, qua trang Sửa hạng).
+                                    $html .= '<div class="rounded-lg bg-gray-50 dark:bg-white/5 p-3">';
+                                    $html .= '<div class="text-xs uppercase tracking-wide text-gray-400 mb-1">Ngưỡng chi tiêu</div>';
+                                    $html .= '<div class="font-semibold text-gray-800 dark:text-gray-100">'
+                                        . number_format((float) $tier->min_spending, 0, ',', '.') . ' VNĐ'
+                                        . '</div>';
+                                    $html .= '</div>';
+
+                                    // Hạng tiếp theo
+                                    $nextTier = MembershipTier::where('is_active', true)
+                                        ->where('min_spending', '>', $tier->min_spending)
+                                        ->orderBy('min_spending')
+                                        ->first();
+
+                                    if ($nextTier) {
+                                        $remaining = max(0, (float) $nextTier->min_spending - (float) ($record->total_spending ?? 0));
+                                        $html .= '<div class="border-t border-gray-200 dark:border-gray-700 pt-3">';
+                                        $html .= '<div class="text-xs text-gray-500">Hạng tiếp theo: <span class="font-medium text-gray-700 dark:text-gray-300">' . e($nextTier->name) . '</span></div>';
+                                        if ($remaining > 0) {
+                                            $html .= '<div class="text-xs text-gray-400 mt-1">Còn cần chi thêm <span class="font-semibold text-amber-600 dark:text-amber-400">'
+                                                . number_format($remaining, 0, ',', '.') . ' VNĐ</span></div>';
+                                        } else {
+                                            $html .= '<div class="text-xs text-emerald-600 dark:text-emerald-400 mt-1">Đủ điều kiện lên hạng ✓</div>';
+                                        }
+                                        $html .= '</div>';
+                                    }
+
+                                    $html .= '</div>';
+
+                                    return new HtmlString($html);
+                                }),
+                        ])
+                        ->columns(1)
+                        ->columnSpan(1)
+                        ->hiddenOn('create'),
+
+                    // ── Cột 3: Mã giảm giá được gán ────────────────────────
+                    Section::make('Mã giảm giá')
+                        ->icon('heroicon-o-ticket')
+                        ->schema([
+                            Select::make('coupons')
+                                ->label('Mã giảm giá')
+                                ->multiple()
+                                ->relationship('coupons', 'code')
+                                ->getOptionLabelFromRecordUsing(
+                                    fn (Coupon $record): string => "[{$record->code}] {$record->name}"
+                                )
+                                ->searchable()
+                                ->preload()
+                                ->placeholder('Tìm và chọn mã giảm giá...')
+                                ->helperText('Bỏ chọn để xoá, chọn thêm để gán mã mới cho khách hàng này.'),
+                        ])
+                        ->columns(1)
+                        ->columnSpan(1)
+                        ->hiddenOn('create'),
+
+                ])
                     ->columnSpan(1)
                     ->hiddenOn('create'),
 
@@ -499,6 +609,13 @@ class CustomerResource extends Resource
             ->withoutGlobalScopes([SoftDeletingScope::class]);
     }
 
+    public static function getRelations(): array
+    {
+        return [
+            CompanionsRelationManager::class,
+        ];
+    }
+
     public static function getRelationManagers(): array
     {
         return [
@@ -517,6 +634,42 @@ class CustomerResource extends Resource
             'edit'   => Pages\EditCustomer::route('/{record}/edit'),
             'view'   => Pages\ViewCustomer::route('/{record}'),
         ];
+    }
+
+    // Bảng "nhãn — giá trị" cho dữ liệu CCCD đọc từ QR (thay KeyValue hiện key thô cccd/dob/...).
+    public static function renderCccdData(mixed $data): HtmlString
+    {
+        if (! is_array($data) || blank($data['cccd'] ?? null)) {
+            return new HtmlString('<div class="rounded-lg bg-gray-50 dark:bg-white/5 p-3"><p class="text-sm text-gray-400 dark:text-gray-500 italic">Chưa có dữ liệu — tải ảnh mặt có mã QR để quét.</p></div>');
+        }
+
+        $rows = [
+            'Số CCCD'     => $data['cccd'] ?? null,
+            'Họ và tên'   => $data['full_name'] ?? null,
+            'Ngày sinh'   => $data['dob'] ?? null,
+            'Giới tính'   => $data['gender'] ?? null,
+            'Địa chỉ'     => $data['address'] ?? null,
+            'Ngày cấp'    => $data['issued_date'] ?? null,
+            'Số CMND cũ'  => $data['old_id'] ?? null,
+            'Nguồn'       => match ($data['source'] ?? null) {
+                'qr'    => 'Mã QR',
+                'ocr'   => 'Đọc chữ (OCR)',
+                default => $data['source'] ?? null,
+            },
+        ];
+
+        $html = '<div class="rounded-lg bg-gray-50 dark:bg-white/5 p-3 space-y-2 text-sm">';
+        foreach ($rows as $label => $value) {
+            if (blank($value)) {
+                continue;
+            }
+            $html .= '<div class="flex items-start justify-between gap-3">'
+                . '<span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">' . e($label) . '</span>'
+                . '<span class="font-semibold text-gray-800 dark:text-gray-100" style="text-align:right;">' . e((string) $value) . '</span>'
+                . '</div>';
+        }
+
+        return new HtmlString($html . '</div>');
     }
 
     // Bảng lịch sử xác thực CCCD: lần, thời điểm, số CCCD, họ tên, ngày sinh, ảnh QR, trạng thái.

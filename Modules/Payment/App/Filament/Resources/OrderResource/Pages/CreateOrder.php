@@ -279,15 +279,20 @@ class CreateOrder extends CreateRecord
         // phần còn lại của afterCreate() dưới đây — PayOS, mã cổng...). Bọc thêm try/catch để
         // dù CccdScannerService lỗi bất ngờ (ảnh hỏng, thiếu binary...) cũng KHÔNG làm hỏng việc
         // tạo đơn — chỉ báo thiếu thông tin và để admin tự quét lại thủ công ở trang Sửa.
-        if (blank($record->cccd_data) && ($record->cccd_qr_image || $record->cccd_front || $record->cccd_back)) {
-            try {
-                $data = app(CccdScannerService::class)->scanOrder($record);
-            } catch (\Throwable $e) {
-                $data = null;
-                Log::warning('Auto-scan CCCD khi tạo đơn thất bại', [
-                    'order_id' => $record->id,
-                    'error'    => $e->getMessage(),
-                ]);
+        if ($record->cccd_qr_image || $record->cccd_front || $record->cccd_back) {
+            // Popup "CCCD khách #1" đã quét QR ngay lúc tải ảnh (OrderForm::liveScanCccdQr()) và lưu
+            // sẵn cccd_data cùng đơn → dùng luôn, chỉ quét ở đây khi popup chưa đọc được.
+            $data = is_array($record->cccd_data) && $record->cccd_data ? $record->cccd_data : null;
+
+            if (! $data) {
+                try {
+                    $data = app(CccdScannerService::class)->scanOrder($record);
+                } catch (\Throwable $e) {
+                    Log::warning('Auto-scan CCCD khi tạo đơn thất bại', [
+                        'order_id' => $record->id,
+                        'error'    => $e->getMessage(),
+                    ]);
+                }
             }
 
             if ($data) {
