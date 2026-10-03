@@ -2,12 +2,24 @@
 
 @php
     $gs       = app(\App\Settings\GeneralSettings::class);
-    $ogTitle  = e($seoData['seo_title']        ?? $gs->og_title        ?? '');
-    $ogDesc   = e($seoData['seo_description']  ?? $gs->og_description  ?? '');
+    // KHÔNG bọc e() ở đây: các biến này chỉ được in ra qua {{ }} (đã tự escape) — bọc thêm e()
+    // là escape 2 lần, "&" trong tiêu đề ra thành "&amp;amp;" ở og:title/twitter:title/alt.
+    $ogTitle  = $seoData['seo_title']        ?? $gs->og_title        ?? '';
+    $ogDesc   = $seoData['seo_description']  ?? $gs->og_description  ?? '';
     $ogType   = $seoData['og_type']            ?? $gs->og_type         ?? 'website';
     $ogLocale = $seoData['og_locale']          ?? $gs->og_locale       ?? 'vi_VN';
     $ogImage  = $seoData['og_image']           ?? ($gs->og_image ? url('/storage/' . $gs->og_image) : '');
     $canonical = $seoData['canonical_url']     ?? url()->current();
+
+    // twitter:site / twitter:creator phải là @handle (chữ, số, gạch dưới, tối đa 15 ký tự). Cài
+    // đặt chung từng bị nhập tên người ("Nguyễn An Khoa") — giá trị không phải handle hợp lệ thì
+    // bỏ hẳn thẻ thay vì in ra sai.
+    $twitterHandle = function (?string $value): ?string {
+        $handle = ltrim(trim((string) $value), '@');
+        return preg_match('/^[A-Za-z0-9_]{1,15}$/', $handle) ? '@' . $handle : null;
+    };
+    $twitterSite    = $twitterHandle($gs->twitter_site ?? '');
+    $twitterCreator = $twitterHandle($gs->twitter_creator ?? '');
 @endphp
 
 @section('title'){{ $seoData['seo_title'] ?? $gs->og_title ?? '' }}@endsection
@@ -15,9 +27,9 @@
 @section('meta')
     {{-- Basic --}}
     <meta name="description" content="{{ $ogDesc }}">
-    <meta name="keywords"    content="{{ e($seoData['seo_keywords'] ?? '') }}">
+    <meta name="keywords"    content="{{ $seoData['seo_keywords'] ?? '' }}">
     @if(!empty($seoData['author_name'] ?? $gs->author ?? ''))
-        <meta name="author" content="{{ e($seoData['author_name'] ?? $gs->author) }}">
+        <meta name="author" content="{{ $seoData['author_name'] ?? $gs->author }}">
     @endif
 
     {{-- Canonical --}}
@@ -29,8 +41,13 @@
     <meta property="og:title"       content="{{ $ogTitle }}">
     <meta property="og:description" content="{{ $ogDesc }}">
     <meta property="og:locale"      content="{{ $ogLocale }}">
+    <meta property="og:site_name"   content="{{ $seoData['site_name'] ?? config('app.name') }}">
     @if($ogImage)
         <meta property="og:image" content="{{ $ogImage }}">
+        @if(!empty($seoData['og_image_width']) && !empty($seoData['og_image_height']))
+            <meta property="og:image:width"  content="{{ $seoData['og_image_width'] }}">
+            <meta property="og:image:height" content="{{ $seoData['og_image_height'] }}">
+        @endif
         {{-- og:image:alt: dùng seo_title (tiêu đề hiển thị) làm alt, cùng nguồn dữ liệu với alt
              của ảnh đại diện ở post-detail.blade.php (post->title). --}}
         <meta property="og:image:alt" content="{{ $ogTitle }}">
@@ -53,17 +70,14 @@
         <meta name="twitter:image" content="{{ $ogImage }}">
         <meta name="twitter:image:alt" content="{{ $ogTitle }}">
     @endif
-    @if($gs->twitter_site ?? '')
-        <meta name="twitter:site"    content="{{ $gs->twitter_site }}">
+    @if($twitterSite)
+        <meta name="twitter:site"    content="{{ $twitterSite }}">
     @endif
-    @if($gs->twitter_creator ?? '')
-        <meta name="twitter:creator" content="{{ $gs->twitter_creator }}">
+    @if($twitterCreator)
+        <meta name="twitter:creator" content="{{ $twitterCreator }}">
     @endif
 
     {{-- JSON-LD Structured Data --}}
-    @php
-        $ratingScriptSchema = null;
-    @endphp
     @if($ogType === 'article')
         @php
             // Rich Results Test flag "author" thiếu name/url khi rỗng — site chưa có trang hồ sơ
@@ -72,48 +86,31 @@
             // tên rỗng, tránh lặp lại đúng lỗi vừa bị flag.
             $authorName = trim((string) ($seoData['author_name'] ?? ''));
 
+            $publisher = ['@type' => 'Organization', 'name' => $seoData['site_name'] ?? config('app.name'), 'url' => url('/')];
+            if (!empty($gs->brand_logo)) {
+                $publisher['logo'] = ['@type' => 'ImageObject', 'url' => url('/storage/' . $gs->brand_logo)];
+            }
+
             $schema = [
-                '@context'      => 'https://schema.org',
-                '@type'         => 'Article',
-                'headline'      => $seoData['seo_title']      ?? '',
-                'description'   => $seoData['seo_description'] ?? '',
-                'url'           => url()->current(),
-                'author'        => $authorName !== ''
+                '@context'         => 'https://schema.org',
+                '@type'            => 'Article',
+                'mainEntityOfPage' => ['@type' => 'WebPage', '@id' => $canonical],
+                'headline'         => $seoData['seo_title']      ?? '',
+                'description'      => $seoData['seo_description'] ?? '',
+                'inLanguage'       => 'vi-VN',
+                'url'              => url()->current(),
+                'author'           => $authorName !== ''
                     ? ['@type' => 'Person', 'name' => $authorName, 'url' => url('/')]
                     : ['@type' => 'Organization', 'name' => $seoData['site_name'] ?? config('app.name'), 'url' => url('/')],
-                'publisher'     => ['@type' => 'Organization', 'name' => $seoData['site_name'] ?? config('app.name'), 'url' => url('/')],
-                'datePublished' => $seoData['article_published_time'] ?? '',
-                'dateModified'  => $seoData['article_modified_time']  ?? '',
+                'publisher'        => $publisher,
+                'datePublished'    => $seoData['article_published_time'] ?? '',
+                'dateModified'     => $seoData['article_modified_time']  ?? '',
             ];
-            if ($ogImage) $schema['image'] = $ogImage;
+            if ($ogImage) $schema['image'] = [$ogImage];
 
-            // KHÔNG gắn aggregateRating vào khối Article ở trên: Article/BlogPosting không nằm
-            // trong danh sách @type mà Google cho phép chứa aggregateRating (chỉ Book/Course/Event/
-            // LocalBusiness/Product/Recipe/CreativeWorkSeries...) — đã thử và Rich Results Test báo
-            // lỗi nghiêm trọng "Loại đối tượng cho trường '<parent_node>' không hợp lệ".
-            //
-            // Thay vào đó gắn 1 node JSON-LD RIÊNG, type "CreativeWorkSeries" — nằm trong whitelist
-            // nên qua được validate. Đây là kỹ thuật đối thủ đang dùng (vd goldenbeeltd.vn,
-            // nucuoimekong.com — dùng chính plugin "kk-star-ratings" tạo node này) để hiện sao ngoài
-            // SERP cho bài viết, dù về đúng ngữ nghĩa CreativeWorkSeries là series phim/podcast/sách
-            // nhiều tập chứ không phải bài blog. Google validate theo whitelist type chứ không kiểm
-            // tra loại có khớp nội dung thật hay không nên vẫn qua, nhưng đây là lách chính sách
-            // "structured data phải phản ánh đúng nội dung trang" — đã trao đổi và CHẤP NHẬN rủi ro
-            // này (có thể bị Google tắt rich result nếu quét lại) để đổi lấy sao hiển thị ngoài SERP.
-            $ratingScriptSchema = null;
-            if (!empty($seoData['rating_count'])) {
-                $ratingScriptSchema = [
-                    '@context'        => 'https://schema.org/',
-                    '@type'           => 'CreativeWorkSeries',
-                    'name'            => $seoData['seo_title'] ?? '',
-                    'aggregateRating' => [
-                        '@type'       => 'AggregateRating',
-                        'ratingValue' => (string) $seoData['rating_average'],
-                        'bestRating'  => '5',
-                        'ratingCount' => (string) $seoData['rating_count'],
-                    ],
-                ];
-            }
+            // KHÔNG gắn aggregateRating cho bài viết: Article không nằm trong danh sách @type Google
+            // cho phép chứa aggregateRating, còn node "CreativeWorkSeries" riêng (từng dùng để lách)
+            // không phản ánh đúng nội dung trang — SEO audit đánh dấu là spam markup, đã gỡ.
         @endphp
 
     @elseif($ogType === 'product')
@@ -184,8 +181,7 @@
             }
 
             // Chỉ gắn khi có đánh giá thật (RoomRating) — Product là loại được Google chính thức hỗ
-            // trợ hiện sao ngoài SERP (khác Article), không cần lo chính sách như AggregateRating ở
-            // schema Article phía trên.
+            // trợ hiện sao ngoài SERP (khác Article — bài viết không gắn aggregateRating).
             if (!empty($seoData['rating_count'])) {
                 $schema['aggregateRating'] = [
                     '@type'       => 'AggregateRating',
@@ -226,10 +222,6 @@
     @endif
 
     <script type="application/ld+json">{!! json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) !!}</script>
-
-    @if($ratingScriptSchema)
-        <script type="application/ld+json">{!! json_encode($ratingScriptSchema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) !!}</script>
-    @endif
 
     {{-- LodgingBusiness (con của LocalBusiness) — CHỈ gắn ở trang chủ, không lặp lại ở mọi trang
          (tránh trùng lặp schema không cần thiết). NAP (tên/địa chỉ/SĐT) PHẢI khớp chính xác với

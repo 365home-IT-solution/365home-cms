@@ -151,7 +151,7 @@ class TenantPortalController extends Controller
         return view('minihouse::portal.contracts.index', ['contracts' => $contracts]);
     }
 
-    public function showContract(int $id): View
+    public function showContract(int $id, TenantRoomUnlockService $unlockService): View
     {
         $tenant = $this->tenant();
         $contract = TenantPortalService::tenantContracts($tenant)->firstWhere('id', $id);
@@ -162,6 +162,13 @@ class TenantPortalController extends Controller
             'contract'       => $contract,
             'lockCode'       => ContractTtlockService::currentCode($contract),
             'canChangeCode'  => ContractTtlockService::canChangeCode($contract),
+            // Mã PHÒNG + mã CỔNG (toà có khoá cổng thì luôn hiện cả 2, kể cả khi trùng số) — separateGate:
+            // toà dùng mã cổng RIÊNG, cho chọn đổi mã nào.
+            'roomCode'       => ContractTtlockService::currentCodes($contract)['room'],
+            'gateCode'       => ContractTtlockService::currentCodes($contract)['gate'],
+            'separateGate'   => ContractTtlockService::hasSeparateGateCode($contract),
+            // Các khoá bấm mở từ xa được (khoá phòng + từng khoá cổng) — xem TenantRoomUnlockService::locks().
+            'unlockLocks'    => $unlockService->locks($contract),
         ]);
     }
 
@@ -176,25 +183,30 @@ class TenantPortalController extends Controller
 
         // custom_code không bắt buộc — để trống thì hệ thống tự sinh mã ngẫu nhiên như trước. LỖI
         // THẬT khách phản ánh: muốn tự đặt 1 mã dễ nhớ (VD "123456") thay vì mã ngẫu nhiên.
-        $request->validate(['custom_code' => ['nullable', 'digits_between:4,9']]);
+        $request->validate(['custom_code' => ['nullable', 'digits_between:4,9'], 'target' => ['nullable', 'in:room,gate']]);
 
-        $result = ContractTtlockService::regenerateCode($contract, $request->filled('custom_code') ? (string) $request->input('custom_code') : null);
+        $result = ContractTtlockService::regenerateCode($contract, $request->filled('custom_code') ? (string) $request->input('custom_code') : null, $request->input('target'));
 
         if (! $result['success']) {
             return back()->withErrors(['lock_code' => $result['message']]);
         }
 
-        return back()->with('portal_info', $result['message'] . ' Mã mới: ' . $result['code']);
+        return back()->with('portal_info', $result['message'] . ' Mã mới: ' . $result['code'] . '#'
+            . ($request->input('target') === null && filled($result['gate_code']) && $result['gate_code'] !== $result['code'] ? ' — mã cổng: ' . $result['gate_code'] . '#' : ''));
     }
 
-    public function unlockRoom(int $id, TenantRoomUnlockService $service): RedirectResponse
+    // target=room (mặc định) mở khoá phòng, target=gate mở khoá cổng của toà nhà (lock_id chọn cổng nào
+    // khi toà có nhiều cổng) — chỉ mở được khoá nằm trong TenantRoomUnlockService::locks().
+    public function unlockRoom(\Illuminate\Http\Request $request, int $id, TenantRoomUnlockService $service): RedirectResponse
     {
         $tenant = $this->tenant();
         $contract = TenantPortalService::tenantContracts($tenant)->firstWhere('id', $id);
 
         abort_unless($contract, 403);
 
-        $result = $service->unlock($tenant, $contract);
+        $data = $request->validate(['target' => ['nullable', 'in:room,gate'], 'lock_id' => ['nullable', 'integer']]);
+
+        $result = $service->unlock($tenant, $contract, $data['target'] ?? TenantRoomUnlockService::TARGET_ROOM, isset($data['lock_id']) ? (int) $data['lock_id'] : null);
 
         return $result['success']
             ? back()->with('portal_info', $result['message'])

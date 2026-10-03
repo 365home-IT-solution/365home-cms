@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace Modules\Minihouse\App\Services;
 
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Modules\Minihouse\App\Models\Contract;
 use Modules\Minihouse\App\Models\ContractTtlockPasscode;
+use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\Room;
+use Modules\Minihouse\App\Models\TtlockSetting;
 use Modules\TTLock\App\Services\TTLockService;
 
 // Tự cấp/sửa/xoá MÃ MỞ TTLock (passcode) theo ĐÚNG vòng đời Hợp đồng — trả lời câu hỏi "khoá TTLock
@@ -21,8 +24,13 @@ use Modules\TTLock\App\Services\TTLockService;
 //     hạn), nhưng LUÔN bị XOÁ NGAY khi hợp đồng kết thúc/thanh lý/huỷ (không đợi tới ngày nào cả).
 //   - Đổi/gỡ ổ khoá của phòng, gia hạn/rút ngắn hợp đồng: mã tự cấp lại/sửa hạn/xoá theo đúng hiện
 //     trạng, không cần nhân viên tự vào "Cấp mã mở"/"Xoá mã mở" tay nữa.
-// Gọi từ ContractObserver (created/updated/deleted) và RoomLockActions/RoomLockController (đổi khoá
-// của phòng). Toàn bộ lỗi gọi TTLock (mất mạng, token hết hạn...) CHỈ ghi log, KHÔNG ném exception —
+//
+// KHOÁ CỔNG của toà nhà (TtlockSetting::gateLockIds(), cấu hình ở "Cấu hình TTLock"): mọi hợp đồng
+// hiệu lực của toà đều được cấp mã trên các ổ cổng, cùng hạn với mã phòng. Chủ trọ chọn mã cổng TRÙNG
+// mã phòng (khách nhớ 1 số) hoặc là 1 số RIÊNG (gate_code_mode). Chủ trọ cũng chọn THỜI ĐIỂM cấp
+// (issue_mode): ngay khi tạo hợp đồng, hoặc chỉ khi đã thu cọc / đã thanh toán hoá đơn đầu tiên.
+// Gọi từ ContractObserver (created/updated/deleted), RoomLockActions/RoomLockController (đổi khoá
+// của phòng), InvoicePaymentObserver (hoá đơn vừa thanh toán) và trang cấu hình (đổi khoá cổng). Toàn bộ lỗi gọi TTLock (mất mạng, token hết hạn...) CHỈ ghi log, KHÔNG ném exception —
 // các hàm TTLockService::* bản thân cũng tự try/catch trả về null/false, không làm hỏng luồng lưu
 // Hợp đồng nếu TTLock đang lỗi.
 class ContractTtlockService
@@ -31,11 +39,11 @@ class ContractTtlockService
     // cấp mới/sửa hạn/xoá cho khớp hiện trạng, không làm gì nếu không có gì đổi.
     public static function syncForContract(Contract $contract): void
     {
-        $room = $contract->room_id ? Room::withoutGlobalScope('activeBuilding')->find($contract->room_id) : null;
+        $room    = $contract->room_id ? Room::withoutGlobalScope('activeBuilding')->find($contract->room_id) : null;
+        $setting = TtlockSetting::forBuilding($room ? (int) $room->building_id : null);
+        $targets = $room ? self::targetLocksFor($room, $setting) : [];
 
-        $shouldHaveCode = $contract->status === Contract::STATUS_ACTIVE && $room && $room->lock_id;
-
-        if (! $shouldHaveCode) {
+        if ($contract->status !== Contract::STATUS_ACTIVE || ! $targets) {
             self::purgeForContract($contract);
 
             return;
@@ -47,39 +55,26 @@ class ContractTtlockService
             return; // Toà nhà chưa cấu hình TTLock — không có gì để đồng bộ.
         }
 
-        $targetLockIds = self::targetLockIdsFor($room);
-        $existing      = ContractTtlockPasscode::where('contract_id', $contract->id)->get()->keyBy('lock_id');
+        $existing = ContractTtlockPasscode::where('contract_id', $contract->id)->get()->keyBy('lock_id');
 
-        // Ổ khoá không còn được gán cho phòng nữa (đổi/gỡ khoá) -> xoá mã cũ trên đúng ổ đó.
-        foreach ($existing as $lockId => $row) {
-            if (! in_array((int) $lockId, $targetLockIds, true)) {
+        // Toà nhà chọn "cấp mã sau khi thu tiền" mà hợp đồng chưa thu cọc/chưa thanh toán hoá đơn nào
+        // -> CHƯA cấp. Hợp đồng đã có mã từ trước thì giữ nguyên (chủ trọ đổi cấu hình giữa chừng không
+        // được làm khách đang ở mất mã).
+        if ($existing->isEmpty() && ! self::paymentSatisfied($contract, $setting)) {
+            return;
+        }
+
+        // Ổ khoá không còn được gán cho phòng/không còn là khoá cổng nữa -> xoá mã cũ trên đúng ổ đó.
+        foreach ($existing->all() as $lockId => $row) {
+            if (! array_key_exists((int) $lockId, $targets)) {
                 self::revokeRow($ttlock, $row);
+                $existing->forget($lockId);
             }
         }
 
-        $startDate = self::resolveStartDate($contract);
-        $endDate   = self::resolveEndDate($contract);
-        $startMs   = $startDate->getTimestampMs();
-        $endMs     = $endDate?->getTimestampMs() ?? 0;
-        $name      = 'HD-' . $contract->id . ($room->code ? " {$room->code}" : '');
+        $separate = $setting->usesSeparateGateCode();
 
-        // Dùng CHUNG 1 mã cho mọi ổ của cùng hợp đồng (khách chỉ cần nhớ 1 số) — lấy mã đã cấp từ
-        // trước nếu có (VD hợp đồng đã có mã ở ổ ngoài, giờ mới gán thêm ổ trong).
-        $code = $existing->first()?->code;
-
-        foreach ($targetLockIds as $lockId) {
-            $row = $existing->get($lockId);
-
-            if ($row) {
-                self::resyncDatesIfChanged($ttlock, $row, $startDate, $endDate, $startMs, $endMs, $name);
-
-                continue;
-            }
-
-            $code === null
-                ? self::issueFirst($ttlock, $contract, $room, $lockId, $startMs, $endMs, $name, $code)
-                : self::issueAdditional($ttlock, $contract, $room, $lockId, $code, $startMs, $endMs, $name);
-        }
+        self::issueMissing($ttlock, $contract, $room, $targets, $existing, self::codesFrom($existing, $separate), $separate);
     }
 
     // Đổi/gỡ ổ khoá của 1 Phòng (RoomLockActions/RoomLockController) — nếu phòng đang có Hợp đồng
@@ -97,9 +92,25 @@ class ContractTtlockService
         }
     }
 
+    // Đổi danh sách KHOÁ CỔNG của Toà nhà (ManageTtlockSettings/TtlockSettingsController) — cấp mã trên
+    // ổ cổng mới / thu hồi mã trên ổ vừa gỡ cho MỌI hợp đồng đang hiệu lực của toà.
+    public static function syncForBuilding(int $buildingId): void
+    {
+        $roomIds = Room::withoutGlobalScope('activeBuilding')->where('building_id', $buildingId)->pluck('id');
+
+        Contract::withoutGlobalScopes()
+            ->whereNull('deleted_at')
+            ->whereIn('room_id', $roomIds)
+            ->where('status', Contract::STATUS_ACTIVE)
+            ->get()
+            ->each(fn (Contract $contract) => self::syncForContract($contract));
+    }
+
     // Còn đổi mã được không — dùng CHUNG cho cả nút "Đổi mã mở" của nhân viên (EditContract) LẪN
     // khách thuê tự đổi ở Portal/API: hợp đồng phải ĐANG HIỆU LỰC VÀ CHƯA QUA ngày kết thúc (chưa có
-    // end_date thì luôn coi là còn hạn), và phòng phải đã gán ít nhất 1 ổ khoá TTLock.
+    // end_date thì luôn coi là còn hạn), phòng phải đã gán ít nhất 1 ổ khoá TTLock (hoặc toà có khoá
+    // cổng), và hợp đồng CHƯA có mã thì phải đủ điều kiện thu tiền của toà (paymentSatisfied()) — nếu
+    // không khách tự bấm "Cấp mã cổng" ở Portal là lách được điều kiện đó.
     public static function canChangeCode(Contract $contract): bool
     {
         if ($contract->status !== Contract::STATUS_ACTIVE) {
@@ -112,14 +123,59 @@ class ContractTtlockService
 
         $room = $contract->room_id ? Room::withoutGlobalScope('activeBuilding')->find($contract->room_id) : null;
 
-        return (bool) ($room && $room->lock_id);
+        if (! $room) {
+            return false;
+        }
+
+        $setting = TtlockSetting::forBuilding((int) $room->building_id);
+
+        if (! self::targetLocksFor($room, $setting)) {
+            return false;
+        }
+
+        return ContractTtlockPasscode::where('contract_id', $contract->id)->exists() || self::paymentSatisfied($contract, $setting);
     }
 
-    // Mã đang dùng của hợp đồng (mọi ổ khoá của cùng hợp đồng luôn chung 1 mã — xem syncForContract()),
-    // null nếu chưa từng cấp mã.
+    // Mã PHÒNG đang dùng của hợp đồng, null nếu chưa từng cấp mã. Toà chỉ có khoá cổng (phòng không
+    // gắn khoá) thì trả về mã cổng.
     public static function currentCode(Contract $contract): ?string
     {
-        return ContractTtlockPasscode::where('contract_id', $contract->id)->value('code');
+        $codes = self::currentCodes($contract);
+
+        return $codes['room'] ?? $codes['gate'];
+    }
+
+    // Mã phòng + mã cổng đang dùng. Toà chọn "mã cổng trùng mã phòng" thì 2 số giống nhau.
+    //
+    // @return array{room: ?string, gate: ?string}
+    public static function currentCodes(Contract $contract): array
+    {
+        $rows = ContractTtlockPasscode::where('contract_id', $contract->id)->get();
+
+        // Khoá cổng của toà CŨNG là khoá của chính phòng này (dòng được ghi là khoá phòng, is_gate =
+        // false) thì mã trên ổ đó vẫn là "mã cổng" của khách — LỖI THẬT 2026-10-03: toà đã cấu hình
+        // khoá cổng mà khách thấy gate_code = null và không mở cổng từ xa được.
+        $gateLockIds = $rows->isEmpty() ? [] : TtlockSetting::forBuilding((int) $rows->first()->building_id)->gateLockIds();
+
+        return [
+            'room' => $rows->firstWhere('is_gate', false)?->code,
+            'gate' => ($rows->firstWhere('is_gate', true) ?? $rows->first(fn ($row) => in_array((int) $row->lock_id, $gateLockIds, true)))?->code,
+        ];
+    }
+
+    // Hợp đồng này có mã cổng RIÊNG (khác mã phòng) để đổi độc lập không — toà chọn "mã cổng riêng",
+    // có khoá cổng, và phòng có khoá riêng (không thì chỉ có đúng 1 loại mã, không có gì để tách).
+    public static function hasSeparateGateCode(Contract $contract): bool
+    {
+        $room = $contract->room_id ? Room::withoutGlobalScope('activeBuilding')->find($contract->room_id) : null;
+
+        if (! $room || ! $room->lock_id) {
+            return false;
+        }
+
+        $setting = TtlockSetting::forBuilding((int) $room->building_id);
+
+        return $setting->usesSeparateGateCode() && in_array(true, self::targetLocksFor($room, $setting), true);
     }
 
     // Đổi hẳn sang 1 mã MỚI — cho nút "Đổi mã mở" (nhân viên) và khách thuê tự đổi ở Portal/API. Xoá
@@ -129,15 +185,18 @@ class ContractTtlockService
     // ĐÚNG số khách/nhân viên tự chọn — LỖI THẬT đã gặp: khách muốn tự đặt 1 mã dễ nhớ, không phải
     // mã ngẫu nhiên hệ thống đưa ra.
     //
-    // @return array{success: bool, message: string, code?: string}
-    public static function regenerateCode(Contract $contract, ?string $customCode = null): array
+    // $scope (chỉ có nghĩa khi hợp đồng có mã cổng RIÊNG — hasSeparateGateCode()): 'room' = chỉ đổi mã
+    // phòng, 'gate' = chỉ đổi mã cổng, null = đổi cả hai. Toà dùng chung 1 mã thì luôn đổi tất cả.
+    //
+    // @return array{success: bool, message: string, code?: string, gate_code?: ?string}
+    public static function regenerateCode(Contract $contract, ?string $customCode = null, ?string $scope = null): array
     {
         if ($customCode !== null && $customCode !== '' && ! preg_match('/^\d{4,9}$/', $customCode)) {
             return ['success' => false, 'message' => 'Mã tự chọn phải là 4-9 chữ số.'];
         }
 
         if (! self::canChangeCode($contract)) {
-            return ['success' => false, 'message' => 'Hợp đồng đã hết hạn/không còn hiệu lực, hoặc phòng chưa gán khoá TTLock — không thể đổi mã.'];
+            return ['success' => false, 'message' => 'Hợp đồng đã hết hạn/không còn hiệu lực, phòng chưa gán khoá TTLock, hoặc chưa thu cọc/thanh toán hoá đơn đầu tiên — không thể đổi mã.'];
         }
 
         $room   = Room::withoutGlobalScope('activeBuilding')->find($contract->room_id);
@@ -154,26 +213,41 @@ class ContractTtlockService
             return ['success' => false, 'message' => 'Mã này đang được dùng cho phòng khác trong cùng toà nhà, chọn mã khác.'];
         }
 
-        foreach (ContractTtlockPasscode::where('contract_id', $contract->id)->get() as $row) {
-            self::revokeRow($ttlock, $row);
+        $setting  = TtlockSetting::forBuilding((int) $room->building_id);
+        $targets  = self::targetLocksFor($room, $setting);
+        $separate = $setting->usesSeparateGateCode();
+        // $scope chỉ có nghĩa khi hợp đồng có CẢ khoá phòng LẪN khoá cổng với 2 mã riêng. Còn lại (toà
+        // dùng chung 1 mã, phòng không gắn khoá, khoá cổng trùng khoá phòng) chỉ có đúng 1 loại mã ->
+        // luôn đổi tất cả. LỖI THẬT 2026-10-03: gửi target=gate cho hợp đồng mà khoá cổng của toà cũng
+        // chính là khoá phòng -> không có ổ nào thuộc nhóm "cổng" để đổi, không gọi TTLock lần nào mà
+        // vẫn báo "kiểm tra khoá còn kết nối mạng".
+        $hasBothPools = $separate && in_array(true, $targets, true) && in_array(false, $targets, true);
+        $scope        = $hasBothPools && in_array($scope, ['room', 'gate'], true) ? $scope : null;
+        $inScope  = fn (bool $isGate): bool => $scope === null || $isGate === ($scope === 'gate');
+        $existing = ContractTtlockPasscode::where('contract_id', $contract->id)->get()->keyBy('lock_id');
+
+        foreach ($existing->all() as $lockId => $row) {
+            if ($inScope((bool) $row->is_gate) || ! array_key_exists((int) $lockId, $targets)) {
+                self::revokeRow($ttlock, $row);
+                $existing->forget($lockId);
+            }
         }
 
-        $targetLockIds = self::targetLockIdsFor($room);
-        $startDate     = self::resolveStartDate($contract);
-        $endDate       = self::resolveEndDate($contract);
-        $startMs       = $startDate->getTimestampMs();
-        $endMs         = $endDate?->getTimestampMs() ?? 0;
-        $name          = 'HD-' . $contract->id . ($room->code ? " {$room->code}" : '');
+        // Mã ngoài phạm vi đổi giữ nguyên (lấy lại từ dòng còn lại), mã trong phạm vi = số tự chọn
+        // hoặc null (cấp mới ngẫu nhiên).
+        $codes = self::codesFrom($existing, $separate);
 
-        $code = $customCode ?: null;
-
-        foreach ($targetLockIds as $lockId) {
-            $code === null
-                ? self::issueFirst($ttlock, $contract, $room, $lockId, $startMs, $endMs, $name, $code)
-                : self::issueAdditional($ttlock, $contract, $room, $lockId, $code, $startMs, $endMs, $name);
+        foreach (['room' => false, 'gate' => true] as $pool => $isGate) {
+            if ($inScope($isGate)) {
+                $codes[$pool] = $customCode ?: null;
+            }
         }
 
-        $new = ContractTtlockPasscode::where('contract_id', $contract->id)->first();
+        self::issueMissing($ttlock, $contract, $room, $targets, $existing, $codes, $separate);
+
+        $new = ContractTtlockPasscode::where('contract_id', $contract->id)
+            ->when($scope, fn ($q) => $q->where('is_gate', $scope === 'gate'))
+            ->first();
 
         if (! $new) {
             // $ttlock->lastErrorMessage giữ đúng errmsg gốc TTLock trả về (VD "Passcode is too
@@ -188,7 +262,7 @@ class ContractTtlockService
             return ['success' => false, 'message' => "Đổi mã thất bại — {$reason}."];
         }
 
-        return ['success' => true, 'message' => 'Đã đổi mã mở mới.', 'code' => $new->code];
+        return ['success' => true, 'message' => 'Đã đổi mã mở mới.', 'code' => $new->code, 'gate_code' => self::currentCodes($contract)['gate']];
     }
 
     // Hợp đồng bị XOÁ HẲN (forceDelete/xoá mềm) — thu hồi toàn bộ mã, không cần tính lại hiện trạng.
@@ -223,13 +297,81 @@ class ContractTtlockService
         };
     }
 
-    // Danh sách ổ khoá (khoá ngoài + khoá trong nếu có, loại trùng) hiện đang gán cho 1 Phòng.
-    private static function targetLockIdsFor(Room $room): array
+    // Mọi ổ khoá hợp đồng của 1 Phòng cần có mã: khoá phòng (ngoài + trong nếu có) rồi tới khoá cổng
+    // của toà nhà — khoá phòng xếp TRƯỚC để mã phòng được sinh trước, mã cổng "dùng chung" lấy theo.
+    //
+    // @return array<int, bool> lockId => là khoá cổng?
+    private static function targetLocksFor(Room $room, TtlockSetting $setting): array
     {
-        return array_values(array_unique(array_filter([
-            (int) $room->lock_id,
-            $room->lock_id_checkout ? (int) $room->lock_id_checkout : null,
-        ])));
+        $targets = [];
+
+        foreach (array_filter([(int) $room->lock_id, (int) $room->lock_id_checkout]) as $lockId) {
+            $targets[$lockId] = false;
+        }
+
+        foreach ($setting->gateLockIds() as $lockId) {
+            $targets[$lockId] ??= true;
+        }
+
+        return $targets;
+    }
+
+    // Đủ điều kiện thu tiền để cấp mã LẦN ĐẦU chưa — toà "cấp ngay khi tạo hợp đồng" thì luôn đủ; toà
+    // "cấp sau khi thu tiền" thì cần đã xác nhận thu cọc HOẶC có ít nhất 1 hoá đơn đã thanh toán đủ.
+    private static function paymentSatisfied(Contract $contract, TtlockSetting $setting): bool
+    {
+        if (! $setting->issuesOnPayment()) {
+            return true;
+        }
+
+        return $contract->deposit_paid_at !== null
+            || Invoice::withoutGlobalScopes()
+                ->whereNull('deleted_at')
+                ->where('contract_id', $contract->id)
+                ->where('status', Invoice::STATUS_PAID)
+                ->exists();
+    }
+
+    // Mã đang dùng theo từng "nhóm mã" — toà dùng CHUNG 1 mã thì chỉ có nhóm 'room' (lấy mã bất kỳ đã
+    // cấp, VD hợp đồng đã có mã ở ổ ngoài, giờ mới gán thêm ổ trong/thêm khoá cổng); mã cổng RIÊNG thì
+    // khoá cổng thuộc nhóm 'gate'.
+    //
+    // @return array{room: ?string, gate: ?string}
+    private static function codesFrom(Collection $existing, bool $separate): array
+    {
+        return $separate
+            ? ['room' => $existing->firstWhere('is_gate', false)?->code, 'gate' => $existing->firstWhere('is_gate', true)?->code]
+            : ['room' => $existing->first()?->code, 'gate' => null];
+    }
+
+    // Cấp mã cho các ổ CHƯA có dòng theo dõi, sửa hạn cho các ổ đã có. Mỗi nhóm mã dùng chung 1 số
+    // trên mọi ổ của nhóm (khách chỉ cần nhớ 1 số).
+    //
+    // @param array<int, bool> $targets
+    // @param array{room: ?string, gate: ?string} $codes
+    private static function issueMissing(TTLockService $ttlock, Contract $contract, Room $room, array $targets, Collection $existing, array $codes, bool $separate): void
+    {
+        $startDate = self::resolveStartDate($contract);
+        $endDate   = self::resolveEndDate($contract);
+        $startMs   = $startDate->getTimestampMs();
+        $endMs     = $endDate?->getTimestampMs() ?? 0;
+        $name      = 'HD-' . $contract->id . ($room->code ? " {$room->code}" : '');
+
+        foreach ($targets as $lockId => $isGate) {
+            if ($row = $existing->get($lockId)) {
+                self::resyncDatesIfChanged($ttlock, $row, $startDate, $endDate, $startMs, $endMs, $name);
+
+                continue;
+            }
+
+            $pool = $separate && $isGate ? 'gate' : 'room';
+
+            match (true) {
+                $codes[$pool] !== null => self::issueAdditional($ttlock, $contract, $room, $lockId, $isGate, $codes[$pool], $startMs, $endMs, $name),
+                $isGate                => self::issueRandom($ttlock, $contract, $room, $lockId, true, $startMs, $endMs, $name, $codes[$pool]),
+                default                => self::issueFirst($ttlock, $contract, $room, $lockId, $startMs, $endMs, $name, $codes[$pool]),
+            };
+        }
     }
 
     // Ngày bắt đầu hiệu lực của mã — TTLock CHẶN thẳng startDate ở quá khứ cho passcode loại thường
@@ -261,6 +403,13 @@ class ContractTtlockService
         if (! $result) {
             Log::error('MiniHouse ContractTtlockService: generatePasscode thất bại', ['contract_id' => $contract->id, 'lock_id' => $lockId]);
 
+            // LỖI THẬT 2026-10-03 (production, "Đổi mã mở" để hệ thống tự sinh): TTLock errcode -1026
+            // "Passcode with this validity period has been generated before and deleted" — mã tự sinh
+            // của TTLock tính theo khoá + khung giờ, đã xoá mã cũ thì KHÔNG xin lại được mã cho đúng
+            // khung giờ đó nữa, trong khi mã cũ đã bị xoá khỏi khoá -> khách mất mã. Tự sinh số ngẫu
+            // nhiên rồi thêm như mã tự chọn (cần khoá online qua gateway).
+            self::issueRandom($ttlock, $contract, $room, $lockId, false, $startMs, $endMs, $name, $code);
+
             return;
         }
 
@@ -273,7 +422,42 @@ class ContractTtlockService
         ]);
     }
 
-    private static function issueAdditional(TTLockService $ttlock, Contract $contract, Room $room, int $lockId, string $code, int $startMs, int $endMs, string $name): void
+    // Tự sinh 1 số ngẫu nhiên rồi thêm như mã tự chọn. Dùng cho: (1) issueFirst() bị TTLock từ chối, và
+    // (2) mã ĐẦU TIÊN của 1 nhóm mà ổ đầu tiên lại là KHOÁ CỔNG (mã cổng riêng, hoặc phòng không gắn
+    // khoá): KHÔNG để TTLock tự sinh như issueFirst() — khoá cổng dùng chung cho mọi hợp đồng, mà
+    // TTLock trả CÙNG 1 mã cho cùng khoá + cùng khung giờ (xem ManualLockPasswordTtlockIssuer), 2 hợp
+    // đồng cùng ngày bắt đầu/kết thúc sẽ trùng mã cổng. Tự sinh số ngẫu nhiên chưa ai trong toà dùng
+    // rồi thêm như mã tự chọn; TTLock chê "quá đơn giản"/trùng thì thử số khác.
+    private static function issueRandom(TTLockService $ttlock, Contract $contract, Room $room, int $lockId, bool $isGate, int $startMs, int $endMs, string $name, ?string &$code): void
+    {
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            $candidate = (string) random_int(100000, 999999);
+
+            if (ContractTtlockPasscode::where('building_id', $room->building_id)->where('code', $candidate)->exists()) {
+                continue;
+            }
+
+            $result = $ttlock->addCustomPasscode(lockId: $lockId, code: $candidate, startDate: $startMs, endDate: $endMs, name: $name);
+
+            if (! $result) {
+                continue;
+            }
+
+            $code = $candidate;
+
+            ContractTtlockPasscode::create([
+                'contract_id' => $contract->id, 'building_id' => $room->building_id, 'lock_id' => $lockId, 'is_gate' => $isGate,
+                'keyboard_pwd_id' => $result['keyboardPwdId'], 'code' => $code,
+                'start_date' => date('Y-m-d H:i:s', intdiv($startMs, 1000)), 'end_date' => $endMs > 0 ? date('Y-m-d H:i:s', intdiv($endMs, 1000)) : null,
+            ]);
+
+            return;
+        }
+
+        Log::error('MiniHouse ContractTtlockService: cấp mã ngẫu nhiên thất bại', ['contract_id' => $contract->id, 'lock_id' => $lockId]);
+    }
+
+    private static function issueAdditional(TTLockService $ttlock, Contract $contract, Room $room, int $lockId, bool $isGate, string $code, int $startMs, int $endMs, string $name): void
     {
         $result = $ttlock->addCustomPasscode(lockId: $lockId, code: $code, startDate: $startMs, endDate: $endMs, name: $name);
 
@@ -284,7 +468,7 @@ class ContractTtlockService
         }
 
         ContractTtlockPasscode::create([
-            'contract_id' => $contract->id, 'building_id' => $room->building_id, 'lock_id' => $lockId,
+            'contract_id' => $contract->id, 'building_id' => $room->building_id, 'lock_id' => $lockId, 'is_gate' => $isGate,
             'keyboard_pwd_id' => $result['keyboardPwdId'], 'code' => $code,
             'start_date' => date('Y-m-d H:i:s', intdiv($startMs, 1000)), 'end_date' => $endMs > 0 ? date('Y-m-d H:i:s', intdiv($endMs, 1000)) : null,
         ]);

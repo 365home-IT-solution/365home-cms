@@ -139,6 +139,16 @@ class PartnerLegalDocumentController extends Controller
         return response()->json(['message' => 'Đã phê duyệt hồ sơ pháp lý.', 'verification' => $this->verification($partner->fresh())]);
     }
 
+    public function rejectDossier(Request $request, Partner $partner): JsonResponse
+    {
+        $this->authorizePartner($request, $partner);
+        $this->requireSuperAdmin($request);
+        $data = $request->validate(['reason' => ['required', 'string', 'max:2000']], [], ['reason' => 'lý do từ chối']);
+        $this->service->rejectDossier($partner, $request->user(), $data['reason']);
+
+        return response()->json(['message' => 'Đã từ chối hồ sơ.', 'verification' => $this->verification($partner->fresh())]);
+    }
+
     public function download(Request $request, Partner $partner, PartnerLegalDocument $document): BinaryFileResponse
     {
         $this->authorizeDocument($request, $partner, $document);
@@ -181,6 +191,7 @@ class PartnerLegalDocumentController extends Controller
     {
         $user = $request->user();
         abort_unless($user->isSuperAdmin() || $user->partner_id === $partner->id, 403, 'Bạn không có quyền truy cập hồ sơ đối tác này.');
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hồ sơ pháp lý/hợp đồng đối tác (mua gói để sử dụng).');
     }
 
     private function authorizeDocument(Request $request, Partner $partner, PartnerLegalDocument $document): void

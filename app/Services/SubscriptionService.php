@@ -29,6 +29,11 @@ class SubscriptionService
             return null;
         }
 
+        // MiniHouse mua gói trên website (hồ sơ có mã đơn) không được tặng dùng thử — gói bắt đầu khi thanh toán xong.
+        if (filled($partner->onboarding_token) && ! $partner->usesContract()) {
+            return null;
+        }
+
         $plan = SubscriptionPlan::query()->where('is_active', true)->where('is_default', true)->forPartnerType($partner->partner_type)
             ->orderByRaw('partner_type is null')->first();
 
@@ -254,6 +259,15 @@ class SubscriptionService
         });
 
         if ($done) {
+            // MiniHouse mua gói lần đầu trên website: thanh toán xong → kích hoạt + tạo tài khoản + gửi email đăng nhập.
+            if ($done->partner && $done->partner->isMinihouse() && filled($done->partner->onboarding_token) && ! $done->partner->users()->exists()) {
+                try {
+                    app(PartnerOnboardingService::class)->provisionPurchasedAccount($done->partner);
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+            }
+
             $this->notifyPartner($done->partner, 'Thanh toán gói dịch vụ thành công', 'Gói ' . $done->plan?->name . ' đã được gia hạn đến ' . $done->extends_to?->format('d/m/Y') . ' (mã GD ' . $done->transaction_code . ').', 'subscription_paid', 'success');
             $this->notifySuperAdmins('Đối tác đã thanh toán gói dịch vụ', $this->partnerName($done->partner) . ' thanh toán ' . number_format($done->amount_vnd) . 'đ — gói ' . $done->plan?->name . ', mã GD ' . $done->transaction_code . ', đã tự gia hạn.', 'subscription_paid');
         }

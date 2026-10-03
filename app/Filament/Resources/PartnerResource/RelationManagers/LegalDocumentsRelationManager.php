@@ -132,6 +132,13 @@ class LegalDocumentsRelationManager extends RelationManager
                         app(PartnerLegalDocumentService::class)->review($record, 'changes_requested', $data['review_note'], auth()->user());
                         Notification::make()->title('Đã yêu cầu bổ sung giấy tờ')->warning()->send();
                     }),
+                Tables\Actions\Action::make('rejectDocument')->label('Từ chối')->icon('heroicon-o-x-mark')->color('danger')
+                    ->visible(fn (PartnerLegalDocument $record) => $record->status === 'pending_review')
+                    ->form([Forms\Components\Textarea::make('review_note')->label('Lý do từ chối')->required()->maxLength(2000)])
+                    ->action(function (PartnerLegalDocument $record, array $data) {
+                        app(PartnerLegalDocumentService::class)->review($record, 'rejected', $data['review_note'], auth()->user());
+                        Notification::make()->title('Đã từ chối giấy tờ')->warning()->send();
+                    }),
                 Tables\Actions\DeleteAction::make()
                     ->visible(fn (PartnerLegalDocument $record) => in_array($record->status, ['draft', 'changes_requested', 'rejected'], true)),
             ])
@@ -140,6 +147,6 @@ class LegalDocumentsRelationManager extends RelationManager
 
     public static function canViewForRecord(Model $ownerRecord, string $pageClass): bool
     {
-        return auth()->user()?->isSuperAdmin() ?? false;
+        return (auth()->user()?->isSuperAdmin() ?? false) && ($ownerRecord->usesContract());
     }
 }

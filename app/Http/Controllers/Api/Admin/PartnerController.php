@@ -28,6 +28,7 @@ class PartnerController extends Controller
     {
         $this->superAdmin($request);
         $partners = Partner::query()->where('partner_type', $this->partnerType($request))
+            ->with('subscription.plan')
             ->where('id', '!=', \Modules\Minihouse\App\Support\HomestayBridge::PARTNER_ID)
             ->latest()->paginate(min($request->integer('per_page', 20), 100));
 
@@ -37,7 +38,7 @@ class PartnerController extends Controller
     public function store(Request $request, PartnerLegalDocumentService $documents): JsonResponse
     {
         $this->superAdmin($request);
-        $data = $request->validate([...$this->rules(), 'plan_id' => ['nullable', 'integer', 'exists:subscription_plans,id']]);
+        $data = $request->validate([...$this->rules(), 'plan_id' => ['nullable', 'integer', 'exists:subscription_plans,id']], $this->messages());
         // Gói dùng thử được chọn lúc tạo (không phải cột của partners). Bỏ trống → gói mặc định của loại đối tác.
         $planId = $data['plan_id'] ?? null;
         unset($data['plan_id']);
@@ -65,7 +66,7 @@ class PartnerController extends Controller
     public function update(Request $request, Partner $partner, PartnerLegalDocumentService $documents): JsonResponse
     {
         $this->superAdmin($request);
-        $data = $request->validate($this->rules(true));
+        $data = $request->validate($this->rules(true, $partner), $this->messages());
         if (isset($data['legal_name'])) {
             $data['name'] = $data['legal_name'];
         }
@@ -77,6 +78,7 @@ class PartnerController extends Controller
     public function contract(Request $request, Partner $partner, PartnerLegalDocumentService $documents): JsonResponse
     {
         $this->partnerAccess($request, $partner);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
         $version = $partner->contractVersions()->first();
 
         return response()->json(['data' => [
@@ -91,13 +93,77 @@ class PartnerController extends Controller
         ]]);
     }
 
+    // GET /api/admin/partners/{partner}/contract/versions — lịch sử phiên bản/phụ lục hợp đồng (Filament: "Lịch sử phiên bản hợp đồng").
+    public function contractVersions(Request $request, Partner $partner): JsonResponse
+    {
+        $this->partnerAccess($request, $partner);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
+
+        return response()->json(['data' => $partner->contractVersions()->with(['changedBy', 'media'])->get()->map(fn ($v) => $this->versionData($v))->values()]);
+    }
+
+    // POST /api/admin/partners/{partner}/contract/versions — "Tải lên phụ lục mới" (multipart: version_label, change_note, document).
+    public function storeContractVersion(Request $request, Partner $partner): JsonResponse
+    {
+        $this->superAdmin($request);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
+        $data = $request->validate([
+            'version_label' => ['required', 'string', 'max:50'],
+            'change_note'   => ['nullable', 'string', 'max:2000'],
+            'document'      => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
+        ], ['version_label.required' => 'Vui lòng nhập tên phiên bản.', 'document.mimes' => 'Tài liệu phải là PDF hoặc ảnh (jpg, png, webp).', 'document.max' => 'Tài liệu tối đa 10 MB.']);
+
+        $version = $partner->contractVersions()->create(['version_label' => $data['version_label'], 'change_note' => $data['change_note'] ?? null, 'changed_by' => $request->user()->id]);
+        if ($request->hasFile('document')) {
+            $version->addMediaFromRequest('document')->toMediaCollection('document');
+        }
+
+        return response()->json(['message' => 'Đã thêm phiên bản hợp đồng mới.', 'data' => $this->versionData($version->fresh(['changedBy', 'media']))], 201);
+    }
+
+    // POST /api/admin/partners/{partner}/contract/renew — "Gia hạn hợp đồng": +12 tháng từ ngày hết hạn hiện tại (hoặc từ hôm nay nếu đã hết hạn).
+    public function renewContract(Request $request, Partner $partner): JsonResponse
+    {
+        $this->superAdmin($request);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
+        $base = $partner->contract_expires_at && $partner->contract_expires_at->isFuture() ? $partner->contract_expires_at : now();
+        $partner->update(['contract_expires_at' => $base->copy()->addYear(), 'contract_status' => 'active']);
+
+        return response()->json(['message' => 'Đã gia hạn hợp đồng thêm 12 tháng.', 'data' => ['contract_status' => $partner->contract_status, 'contract_expires_at' => $partner->contract_expires_at?->toDateString()]]);
+    }
+
+    // POST /api/admin/partners/{partner}/contract/terminate — "Yêu cầu chấm dứt": đánh dấu hợp đồng chấm dứt (quy trình pháp lý thực hiện ngoài hệ thống).
+    public function terminateContract(Request $request, Partner $partner): JsonResponse
+    {
+        $this->superAdmin($request);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
+        abort_if($partner->contract_status === 'terminated', 422, 'Hợp đồng đã được đánh dấu chấm dứt.');
+        $partner->update(['contract_status' => 'terminated']);
+
+        return response()->json(['message' => 'Đã đánh dấu hợp đồng chấm dứt.', 'data' => ['contract_status' => 'terminated']]);
+    }
+
+    private function versionData($version): array
+    {
+        $doc = $version->getFirstMedia('document');
+
+        return [
+            'id' => $version->id, 'version_label' => $version->version_label, 'change_note' => $version->change_note,
+            'changed_by' => $version->changedBy ? ['id' => $version->changedBy->id, 'name' => $version->changedBy->fullname] : null,
+            'content_hash' => $version->content_hash, 'is_partner_confirmed' => $version->isPartnerConfirmed(), 'is_platform_signed' => $version->isPlatformSigned(),
+            'document' => $doc ? ['name' => $doc->file_name, 'mime_type' => $doc->mime_type, 'size' => $doc->size, 'url' => $doc->getUrl()] : null,
+            'created_at' => $version->created_at?->toIso8601String(),
+        ];
+    }
+
     public function createContract(Request $request, Partner $partner, PartnerContractWorkflowService $workflow): JsonResponse
     {
         $this->superAdmin($request);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
         $result = $workflow->createAndSend($partner, $request->user());
 
         return response()->json(['message' => 'Đã tạo hợp đồng và xử lý gửi email.', 'data' => [
-            'version_id' => $result['version']->id, 'content_hash' => $result['version']->content_hash,
+            'version_id' => $result['version']->id, 'contract_code' => $partner->fresh()->contract_code, 'content_hash' => $result['version']->content_hash,
             'mail_sent' => $result['mailSent'], 'email' => $result['email'], 'signing_url' => $result['signingUrl'],
         ]], 201);
     }
@@ -105,6 +171,7 @@ class PartnerController extends Controller
     public function platformSign(Request $request, Partner $partner, PartnerContractWorkflowService $workflow): StreamedResponse
     {
         $this->superAdmin($request);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
         $result = $workflow->platformSign($partner, $request->user(), (string) $request->ip(), (string) $request->userAgent());
 
         return response()->streamDownload(fn () => print ($result['pdf']), $result['file_name'], ['Content-Type' => 'application/pdf']);
@@ -117,20 +184,96 @@ class PartnerController extends Controller
         return response()->json(['data' => $this->financialData($partner)]);
     }
 
-    public function updateFinancial(Request $request, Partner $partner): JsonResponse
+    // POST /api/admin/minihouse/partners/{partner}/signup/approve — Super Admin DUYỆT đăng ký MiniHouse: tặng dùng thử, tạo tài khoản, gửi email đăng nhập.
+    public function approveSignup(Request $request, Partner $partner, \App\Services\PartnerOnboardingService $onboarding): JsonResponse
     {
         $this->superAdmin($request);
+        abort_unless($partner->isMinihouse() && ! $partner->isSystemPartner(), 404);
+        $result = $onboarding->approveSignup($partner, $request->user());
+        abort_unless($result['created'], 422, $result['reason'] ?: 'Không tạo được tài khoản đăng nhập cho đối tác.');
+
+        return response()->json([
+            'message' => 'Đã duyệt đăng ký, tặng dùng thử và ' . ($result['mail_sent'] ? 'gửi email tài khoản đăng nhập cho đối tác.' : 'tạo tài khoản (chưa gửi được email — dùng “Gửi lại tài khoản đăng nhập”).'),
+            'data'    => ['email' => $result['email'], 'mail_sent' => $result['mail_sent'], 'trial_expires_at' => $result['trial_expires_at']] + $this->format($partner->fresh(), app(PartnerLegalDocumentService::class)),
+        ]);
+    }
+
+    // POST /api/admin/minihouse/partners/{partner}/signup/reject — Super Admin từ chối đăng ký MiniHouse (email lý do cho đối tác).
+    public function rejectSignup(Request $request, Partner $partner, \App\Services\PartnerOnboardingService $onboarding): JsonResponse
+    {
+        $this->superAdmin($request);
+        abort_unless($partner->isMinihouse() && ! $partner->isSystemPartner(), 404);
+        $data = $request->validate(['reason' => ['required', 'string', 'max:2000']], ['reason.required' => 'Vui lòng nhập lý do từ chối.']);
+        $onboarding->rejectSignup($partner, $data['reason'], $request->user());
+
+        return response()->json(['message' => 'Đã từ chối đăng ký.', 'data' => $this->format($partner->fresh(), app(PartnerLegalDocumentService::class))]);
+    }
+
+    // POST /api/admin/{minihouse/}partners/{partner}/financial — Super Admin sửa toàn bộ thông tin tài chính; CHỦ ĐỐI TÁC (tài khoản vai trò partner /
+    // Quản lý MiniHouse của chính đối tác này) tự thiết lập TÀI KHOẢN NGÂN HÀNG sau khi đăng nhập (chỉ các trường bank_*, trường khác bỏ qua).
+    // Cùng cột partners.bank_* với tab Tài chính của Super Admin nên hai bên tự đồng bộ.
+    // POST /api/admin/{minihouse/}partners/{partner}/resend-credentials — nút Filament "Gửi lại tài khoản đăng nhập": tạo tài khoản (nếu chưa có)
+    // hoặc đặt mật khẩu mới cho tài khoản chủ đối tác rồi gửi email. Cùng điều kiện hiển thị với nút Filament.
+    public function resendCredentials(Request $request, Partner $partner, \App\Services\PartnerOnboardingService $onboarding): JsonResponse
+    {
+        $this->superAdmin($request);
+        abort_if($partner->isSystemPartner(), 404);
+        $eligible = $partner->usesContract()
+            ? ($partner->contract_status === 'active' && filled($partner->onboarding_token))
+            : (filled($partner->onboarding_token) && $partner->subscription?->expires_at !== null);
+        abort_unless($eligible, 422, $partner->usesContract() ? 'Chỉ gửi lại tài khoản khi hợp đồng đã có hiệu lực.' : 'Chỉ gửi lại tài khoản khi đối tác đã được kích hoạt gói.');
+
+        $result = $onboarding->resendCredentials($partner);
+        abort_unless($result['created'] || $result['mail_sent'], 422, $result['reason'] ?: 'Không gửi được tài khoản đăng nhập.');
+
+        return response()->json([
+            'message' => $result['mail_sent'] ? 'Đã gửi thông tin đăng nhập cho đối tác.' : 'Đã tạo/đặt lại tài khoản nhưng chưa gửi được email — kiểm tra cấu hình SMTP.',
+            'data'    => ['email' => $result['email'], 'created' => $result['created'], 'mail_sent' => $result['mail_sent']],
+        ]);
+    }
+
+    // POST /api/admin/{minihouse/}partners/{partner}/suspend — nút Filament "Tạm dừng hồ sơ": verification_status = suspended, khoá đối tác (status = false).
+    public function suspend(Request $request, Partner $partner): JsonResponse
+    {
+        $this->superAdmin($request);
+        abort_if($partner->isSystemPartner(), 404);
+        abort_if($partner->verification_status === 'suspended', 422, 'Hồ sơ đã ở trạng thái tạm dừng.');
+        $data = $request->validate(['note' => ['nullable', 'string', 'max:500']]);
+
+        $from = $partner->verification_status;
+        $partner->update(['verification_status' => 'suspended', 'status' => false]);
+        PartnerStatusLog::create(['partner_id' => $partner->id, 'from_status' => $from, 'to_status' => 'suspended', 'note' => $data['note'] ?? 'Tạm dừng hồ sơ', 'changed_by' => $request->user()->id]);
+
+        return response()->json(['message' => 'Đã tạm dừng hồ sơ.', 'data' => $this->format($partner->fresh(), app(PartnerLegalDocumentService::class))]);
+    }
+
+    public function updateFinancial(Request $request, Partner $partner): JsonResponse
+    {
+        $user = $request->user();
+        if (! $user->isSuperAdmin()) {
+            abort_unless($user->partner_id === $partner->id && ! $partner->isSystemPartner()
+                && ($user->hasRole('partner') || $user->hasRole('Quản lý MiniHouse') || $user->can('update_partner')), 403, 'Chỉ chủ đối tác hoặc Super Admin được cập nhật thông tin ngân hàng.');
+        }
         $data = $request->validate([
-            'bank_name' => ['nullable', 'string', 'max:255'], 'bank_branch' => ['nullable', 'string', 'max:255'],
-            'bank_account_number' => ['nullable', 'string', 'max:50'], 'bank_account_holder' => ['nullable', 'string', 'max:255'],
-            'momo_phone' => ['nullable', 'string', 'max:30'], 'zalopay_id' => ['nullable', 'string', 'max:100'],
+            'bank_code' => ['nullable', 'string', Rule::in(\App\Support\Banks::codes())], 'bank_name' => ['nullable', 'string', Rule::in(\App\Support\Banks::shortNames())], 'bank_branch' => ['nullable', 'string', 'max:255'],
+            'bank_account_number' => ['nullable', 'string', 'regex:/^[0-9]{6,20}$/'], 'bank_account_holder' => ['nullable', 'string', 'max:255'],
+            'momo_phone' => ['nullable', 'string', 'max:30', 'regex:/^(0|\+84)[0-9]{9,10}$/'], 'zalopay_id' => ['nullable', 'string', 'max:100'],
             'vnpay_id' => ['nullable', 'string', 'max:100'], 'paypal_email' => ['nullable', 'email', 'max:255'],
             'wise_account' => ['nullable', 'string', 'max:255'], 'swift_code' => ['nullable', 'string', 'max:50'],
             'payment_cycle' => ['nullable', Rule::in(['weekly', 'biweekly', 'monthly'])],
             'bank_card_image' => ['sometimes', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
-        ]);
-        $partner->update(collect($data)->except('bank_card_image')->all());
-        if ($request->hasFile('bank_card_image')) {
+        ], $this->messages());
+        // Chủ đối tác chỉ được sửa tài khoản ngân hàng (ví điện tử, chu kỳ thanh toán... do Super Admin quản lý).
+        if (! $user->isSuperAdmin()) {
+            $data = \Illuminate\Support\Arr::only($data, ['bank_code', 'bank_name', 'bank_branch', 'bank_account_number', 'bank_account_holder']);
+        }
+        // Ngân hàng CHỌN từ danh sách: bank_code → lưu tên chuẩn vào bank_name.
+        if (! empty($data['bank_code'])) {
+            $data['bank_name'] = \App\Support\Banks::find($data['bank_code'])['short_name'];
+        }
+        $partner->update(collect($data)->except(['bank_card_image', 'bank_code'])->all());
+        app(\App\Services\PartnerOnboardingService::class)->logBankUpdate($partner, $user);
+        if ($user->isSuperAdmin() && $request->hasFile('bank_card_image')) {
             $partner->addMediaFromRequest('bank_card_image')->toMediaCollection('bank_card_image');
         }
 
@@ -276,7 +419,7 @@ class PartnerController extends Controller
     {
         $media = $partner->getFirstMedia('bank_card_image');
 
-        return [...$partner->only(['bank_name', 'bank_branch', 'bank_account_number', 'bank_account_holder', 'momo_phone', 'zalopay_id', 'vnpay_id', 'paypal_email', 'wise_account', 'swift_code', 'payment_cycle']),
+        return ['bank_code' => \App\Support\Banks::findByShortName($partner->bank_name)['code'] ?? null, ...$partner->only(['bank_name', 'bank_branch', 'bank_account_number', 'bank_account_holder', 'momo_phone', 'zalopay_id', 'vnpay_id', 'paypal_email', 'wise_account', 'swift_code', 'payment_cycle']),
             'bank_card_image' => $media ? ['name' => $media->file_name, 'mime_type' => $media->mime_type, 'size' => $media->size, 'url' => $media->getUrl()] : null,
         ];
     }
@@ -310,19 +453,48 @@ class PartnerController extends Controller
         abort_unless($facility->partner_id === $partner->id && $facility->parent_id === null && $facility->category_type === 'product', 404);
     }
 
-    private function rules(bool $update = false): array
+    // Thông báo tiếng Việt cho các quy tắc định dạng (mặc định hiện tên trường tiếng Anh/“today” khó hiểu).
+    private function messages(): array
+    {
+        return [
+            'tax_code.regex' => 'Mã số thuế gồm 10 số (hoặc 13 số cho đơn vị phụ thuộc, vd 0312345678-001).',
+            'phone.regex' => 'Số điện thoại phải dạng 0xxxxxxxxx hoặc +84xxxxxxxxx.',
+            'representative_phone_secondary.regex' => 'Số điện thoại phải dạng 0xxxxxxxxx hoặc +84xxxxxxxxx.',
+            'momo_phone.regex' => 'Số điện thoại MoMo phải dạng 0xxxxxxxxx hoặc +84xxxxxxxxx.',
+            'representative_id_number.regex' => 'Số giấy tờ gồm 6–20 chữ/số, không dấu cách.',
+            'representative_dob.before_or_equal' => 'Người đại diện phải đủ 18 tuổi.',
+            'business_license_date.before_or_equal' => 'Ngày cấp giấy phép kinh doanh không được ở tương lai.',
+            'contract_expires_at.after' => 'Ngày hết hạn hợp đồng phải sau hôm nay.',
+            'bank_account_number.regex' => 'Số tài khoản chỉ gồm 6–20 chữ số.',
+            'bank_code.in' => 'Ngân hàng không có trong danh sách — vui lòng chọn lại.',
+            'bank_name.in' => 'Ngân hàng không có trong danh sách — vui lòng chọn lại.',
+        ];
+    }
+
+    private function rules(bool $update = false, ?Partner $partner = null): array
     {
         $sometimes = $update ? 'sometimes' : 'required';
+        $vnPhone = 'regex:/^(0|\+84)[0-9]{9,10}$/';
 
         return [
-            'legal_name' => [$sometimes, 'string', 'max:255'], 'tax_code' => ['nullable', 'string', 'max:50'],
-            'phone' => ['nullable', 'string', 'max:30'], 'email' => ['nullable', 'email', 'max:255'],
+            'legal_name' => [$sometimes, 'string', 'max:255'],
+            'tax_code' => ['nullable', 'string', 'regex:/^\d{10}(-?\d{3})?$/'],
+            'phone' => ['nullable', 'string', 'max:30', $vnPhone], 'email' => ['nullable', 'email', 'max:255'],
             'address' => ['nullable', 'string', 'max:500'], 'representative_name' => [$sometimes, 'string', 'max:255'],
-            'representative_dob' => ['nullable', 'date'], 'representative_id_number' => ['nullable', 'string', 'max:50'],
-            'representative_phone_secondary' => ['nullable', 'string', 'max:30'],
-            'business_license_date' => ['nullable', 'date'], 'business_license_issuer' => ['nullable', 'string', 'max:255'],
-            'contract_code' => ['nullable', 'string', 'max:100'], 'contract_type' => ['nullable', Rule::in(['e_contract', 'paper'])],
-            'contract_expires_at' => ['nullable', 'date'], 'commission_rate' => ['nullable', 'string', 'max:50'],
+            'representative_dob' => ['nullable', 'date', 'before_or_equal:' . now()->subYears(18)->toDateString()],
+            'representative_id_number' => ['nullable', 'string', 'regex:/^[A-Za-z0-9]{6,20}$/'],
+            'representative_position' => ['nullable', 'string', 'max:100'],
+            'representative_id_issued_at' => ['nullable', 'date', 'before_or_equal:today'],
+            'representative_id_issued_place' => ['nullable', 'string', 'max:255'],
+            'representative_phone_secondary' => ['nullable', 'string', 'max:30', $vnPhone],
+            'business_license_date' => ['nullable', 'date', 'before_or_equal:today'], 'business_license_issuer' => ['nullable', 'string', 'max:255'],
+            'contract_type' => ['nullable', Rule::in(['e_contract', 'paper'])],
+            'contract_expires_at' => ['nullable', 'date', 'after:today'],
+            'commission_rate' => ['nullable', 'string', 'max:50', function (string $attribute, mixed $value, \Closure $fail) {
+                if (filled($value) && app(\App\Services\PartnerContractWorkflowService::class)->commissionValue((string) $value) === null) {
+                    $fail('Tỷ lệ hoa hồng phải là số từ 0 đến 100 (vd 10 hoặc 10%).');
+                }
+            }],
             'cancellation_policy' => ['nullable', 'string', 'max:5000'],
         ];
     }
@@ -331,7 +503,7 @@ class PartnerController extends Controller
     {
         $sub = $partner->subscription()->with('plan:id,code,name')->first();
 
-        return ['subscription' => $sub ? ['plan' => $sub->plan?->only(['id', 'code', 'name']), 'status' => $sub->state(), 'is_trial' => $sub->is_trial, 'expires_at' => $sub->expires_at?->toIso8601String()] : null, ...$partner->only(['id', 'partner_type', 'legal_name', 'tax_code', 'phone', 'email', 'address', 'representative_name', 'representative_dob', 'representative_id_number', 'business_license_date', 'business_license_issuer', 'verification_status', 'contract_code', 'contract_type', 'contract_status', 'contract_signed_at', 'contract_expires_at', 'commission_rate']), 'verification' => $documents->readiness($partner)];
+        return ['subscription' => $sub ? ['plan' => $sub->plan?->only(['id', 'code', 'name']), 'status' => $sub->state(), 'status_label' => \App\Models\PartnerSubscription::STATES[$sub->state()] ?? $sub->state(), 'is_trial' => $sub->is_trial, 'started_at' => $sub->started_at?->toIso8601String(), 'expires_at' => $sub->expires_at?->toIso8601String(), 'days_left' => $sub->daysLeft()] : null, ...$partner->only(['id', 'partner_type', 'legal_name', 'tax_code', 'phone', 'email', 'address', 'representative_name', 'representative_dob', 'representative_position', 'representative_id_number', 'representative_id_issued_at', 'representative_id_issued_place', 'business_license_date', 'business_license_issuer', 'verification_status', 'contract_code', 'contract_type', 'contract_status', 'contract_signed_at', 'contract_expires_at', 'commission_rate']), 'verification' => $documents->readiness($partner)];
     }
 
     private function partnerType(Request $request): string

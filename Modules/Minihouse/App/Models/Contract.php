@@ -24,7 +24,7 @@ class Contract extends Model
     protected $table = 'minihouse_contracts';
 
     protected $fillable = [
-        'room_id', 'tenant_id', 'start_date', 'end_date', 'monthly_price', 'deposit_amount', 'status',
+        'room_id', 'tenant_id', 'start_date', 'end_date', 'monthly_price', 'deposit_amount', 'deposit_paid_at', 'status',
         'reason_for_stay', 'custom_reason',
         'electric_unit_price', 'water_unit_price',
         'contract_content', 'contract_file', 'handover_file', 'deposit_receipt_file',
@@ -44,6 +44,7 @@ class Contract extends Model
         'checkout_at'              => 'date',
         'monthly_price'            => 'float',
         'deposit_amount'           => 'float',
+        'deposit_paid_at'          => 'datetime',
         'deposit_refunded_amount'  => 'float',
         'electric_unit_price'      => 'float',
         'water_unit_price'         => 'float',

@@ -38,6 +38,13 @@ use Illuminate\Support\Facades\Route;
 use Modules\AppPage\App\Http\Controllers\AppPageController;
 
 // Đăng ký hợp tác công khai (khách chưa có tài khoản đối tác): đăng ký → giấy tờ → thông tin hợp đồng → ký → gửi duyệt.
+// MiniHouse: chỉ MUA GÓI rồi dùng (không đăng ký đối tác/ký hợp đồng).
+Route::prefix('public')->name('api.minihouse-purchase.')->group(function () {
+    Route::get('minihouse-plans', [\App\Http\Controllers\Api\Public\MinihousePurchaseController::class, 'plans'])->middleware('throttle:public-api')->name('plans');
+    Route::post('minihouse-purchase', [\App\Http\Controllers\Api\Public\MinihousePurchaseController::class, 'purchase'])->middleware('throttle:partner-onboarding-register')->name('purchase');
+    Route::get('minihouse-purchase/{token}', [\App\Http\Controllers\Api\Public\MinihousePurchaseController::class, 'show'])->middleware('throttle:partner-onboarding')->name('show');
+});
+
 Route::prefix('public/partner-onboarding')->name('api.partner-onboarding.')->group(function () {
     Route::post('/', [PartnerOnboardingController::class, 'register'])->middleware('throttle:partner-onboarding-register')->name('register');
     Route::post('recover', [PartnerOnboardingController::class, 'recover'])->middleware('throttle:partner-onboarding-register')->name('recover');
@@ -229,11 +236,20 @@ Route::post('graphql', [GraphQLController::class, 'handle'])->name('graphql')->m
 | GET /api/v2/ward?search=bình           → Tìm theo tên
 | GET /api/v2/ward?division_type=phường  → Lọc loại đơn vị
 | GET /api/v2/ward/{code}               → Chi tiết 1 phường/xã
+| GET /api/v2/address/suggest?q=Cần      → Gợi ý địa chỉ (tỉnh/thành + phường/xã) cho ô tìm kiếm
+| GET /api/v2/address/provinces          → Danh sách tỉnh/thành phố
 |--------------------------------------------------------------------------
 */
 Route::prefix('v2')->name('api.v2.')->group(function () {
     Route::get('ward',        [WardController::class, 'index'])->name('ward.index');
     Route::get('ward/{code}', [WardController::class, 'show'])->name('ward.show')->whereNumber('code');
+    // Địa chỉ công khai: ô gợi ý (tỉnh/thành + phường/xã) và danh sách tỉnh/thành.
+    Route::middleware('throttle:public-api')->prefix('address')->name('address.')->group(function () {
+        Route::get('suggest', [\App\Http\Controllers\Api\AddressController::class, 'suggest'])->name('suggest');
+        Route::get('provinces', [\App\Http\Controllers\Api\AddressController::class, 'provinces'])->name('provinces');
+    });
+    // Danh sách ngân hàng cho ô chọn (không nhập tay).
+    Route::middleware('throttle:public-api')->get('banks', [\App\Http\Controllers\Api\BankController::class, 'index'])->name('banks');
 });
 
 /*

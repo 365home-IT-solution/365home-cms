@@ -21,7 +21,7 @@
     <main class="flex-1 min-w-0 bg-white">
         @if ($post)
             <article class="bg-white overflow-hidden">
-                <h1 class="md:text-2xl text-xl font-bold text-#E3A008 uppercase text-primary">
+                <h1 class="md:text-2xl text-xl font-bold uppercase text-primary">
                     {{ $post->title }}</h1>
 
                 @php
@@ -49,7 +49,7 @@
                              sizes="(max-width: 1023px) 100vw, 768px"
                          @endif
                          class="w-full h-auto rounded-lg my-4 object-cover max-h-[480px]"
-                         loading="lazy">
+                         loading="eager" fetchpriority="high" decoding="async">
                 @endif
 
                 <div class="flex flex-wrap items-center justify-between gap-4 my-4 border-gray-300 py-3 border-b">
@@ -61,6 +61,12 @@
                                   d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
                         </svg>
                         <span class="text-sm font-medium">Ngày tạo: {{ \Carbon\Carbon::parse($post->created_at)->format('d/m/Y') }}</span>
+                        @if ($post->updated_at && !$post->updated_at->isSameDay($post->created_at))
+                            <span class="text-sm font-medium">· Cập nhật: {{ $post->updated_at->format('d/m/Y') }}</span>
+                        @endif
+                        @if ($authorName = trim((string) ($post->user?->fullname ?? $post->user?->name ?? '')))
+                            <span class="text-sm font-medium">· Tác giả: {{ $authorName }}</span>
+                        @endif
                     </span>
 
                     @livewire('bladethemev1::post-rating', ['postId' => $post->id], key('post-rating-' . $post->id))
@@ -130,7 +136,7 @@
 
                         {{-- X --}}
                         <button class="relative group transition-all duration-500 hover:-translate-y-2">
-                            <a href="https://twitter.com/intent/tweet?url={{ urlencode($url) }}&text={{ $title }}"
+                            <a href="https://twitter.com/intent/tweet?url={{ urlencode($url) }}&text={{ urlencode($title) }}"
                                target="_blank">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36"
                                      viewBox="0 0 93 92" fill="none">
@@ -147,7 +153,7 @@
 
                         {{-- Mail --}}
                         <button class="relative group transition-all duration-500 hover:-translate-y-2">
-                            <a href="mailto:?subject={{ $title }}&body={{ urlencode($url) }}"
+                            <a href="mailto:?subject={{ rawurlencode($title) }}&body={{ rawurlencode($url) }}"
                                target="_blank">
                                 <svg width="36" height="36" viewBox="0 0 92 92" fill="none"
                                      xmlns="http://www.w3.org/2000/svg">
@@ -164,7 +170,7 @@
 
                         {{-- telegram --}}
                         <button class="relative group transition-all duration-500 hover:-translate-y-2">
-                            <a href="https://t.me/share/url?url={{ urlencode($url) }}&text={{ $title }}">
+                            <a href="https://t.me/share/url?url={{ urlencode($url) }}&text={{ urlencode($title) }}">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36"
                                      viewBox="0 0 92 93" fill="none">
                                     <use href="#i-social-telegram" />
@@ -200,6 +206,7 @@
                     @foreach ($relatedPosts as $relatedPost)
                         <div class="flex items-start space-x-4">
                             <img src="{{ $relatedPost->media->first()?->getUrl() }}" alt="{{ $relatedPost->title }}"
+                                 width="64" height="64" loading="lazy" decoding="async"
                                  class="w-16 h-16 rounded-lg object-cover flex-shrink-0">
                             <a href="{{ route('post.detail', ['slug' => $relatedPost->slug]) }}"
                                class="text-sm font-semibold text-black hover:text-primary">

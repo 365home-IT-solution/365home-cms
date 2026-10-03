@@ -82,6 +82,12 @@ class PartnerContractSignController extends Controller
 
     private function version(string $token): PartnerContractVersion
     {
-        return PartnerContractVersion::query()->where('signing_token', $token)->with('partner')->firstOrFail();
+        $version = PartnerContractVersion::query()->where('signing_token', $token)->with('partner')->firstOrFail();
+
+        // Chỉ phiên bản mới nhất của đối tác mới ký được (phiên bản cũ bị thay thế → link hết hiệu lực).
+        abort_unless($version->partner->contractVersions()->first()?->id === $version->id, 404);
+        abort_unless($version->partner->usesContract(), 404);
+
+        return $version;
     }
 }

@@ -51,6 +51,7 @@ class TransactionTable
                 TextColumn::make('category')->label('Hạng mục')->formatStateUsing(fn (?string $state) => match ($state) {
                     Transaction::CATEGORY_REPAIR         => 'Sửa chữa',
                     Transaction::CATEGORY_OPERATION      => 'Vận hành',
+                    Transaction::CATEGORY_DEPOSIT        => 'Thu cọc',
                     Transaction::CATEGORY_DEPOSIT_REFUND => 'Hoàn cọc',
                     Transaction::CATEGORY_OTHER          => 'Khác',
                     default => '—',
@@ -83,6 +84,7 @@ class TransactionTable
                     ->options([
                         Transaction::CATEGORY_REPAIR         => 'Sửa chữa',
                         Transaction::CATEGORY_OPERATION      => 'Vận hành',
+                        Transaction::CATEGORY_DEPOSIT        => 'Thu cọc',
                         Transaction::CATEGORY_DEPOSIT_REFUND => 'Hoàn cọc',
                         Transaction::CATEGORY_OTHER          => 'Khác',
                     ]),

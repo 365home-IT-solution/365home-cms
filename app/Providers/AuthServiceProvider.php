@@ -95,6 +95,7 @@ class AuthServiceProvider extends ServiceProvider
         Branch::class             => BranchPolicy::class,
         Business::class           => BusinessPolicy::class,
         Tag::class                => TagPolicy::class,
+        \App\Models\Camera::class => \App\Policies\CameraPolicy::class,
         User::class               => UserPolicy::class,
     ];
 

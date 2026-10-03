@@ -80,7 +80,17 @@ class ContractForm
                                 ->visible(fn (?Contract $record) => $record && ContractTtlockService::currentCode($record))
                                 ->content(fn (?Contract $record) => new \Illuminate\Support\HtmlString(
                                     '<span class="text-lg font-semibold tracking-widest text-gray-900 dark:text-gray-100">'
-                                    . e(ContractTtlockService::currentCode($record)) . '</span>'
+                                    . e(ContractTtlockService::currentCode($record)) . '#</span>'
+                                ))
+                                ->columnSpanFull(),
+                            // Toà nhà dùng mã cổng RIÊNG (khác mã phòng) — mã ở trên là mã PHÒNG, hiện
+                            // thêm mã CỔNG ở đây. Toà dùng chung 1 mã thì không hiện (trùng số ở trên).
+                            Placeholder::make('current_ttlock_gate_code')
+                                ->label('Mã cổng toà nhà (riêng, khác mã phòng ở trên)')
+                                ->visible(fn (?Contract $record) => $record && ContractTtlockService::hasSeparateGateCode($record) && ContractTtlockService::currentCodes($record)['gate'])
+                                ->content(fn (?Contract $record) => new \Illuminate\Support\HtmlString(
+                                    '<span class="text-lg font-semibold tracking-widest text-gray-900 dark:text-gray-100">'
+                                    . e(ContractTtlockService::currentCodes($record)['gate']) . '#</span>'
                                 ))
                                 ->columnSpanFull(),
                             Select::make('room_id')
@@ -172,7 +182,14 @@ class ContractForm
                                 ->minValue(0)
                                 ->prefix('đ')
                                 ->default(0)
-                                ->dehydrateStateUsing(fn ($state) => $state ?? 0),
+                                ->dehydrateStateUsing(fn ($state) => $state ?? 0)
+                                // Không bắt buộc — thuê không cọc thì bỏ trống. Có cọc thì xác nhận đã
+                                // thu bằng nút "Xác nhận đã thu cọc" ở đầu trang (ContractDepositService).
+                                ->helperText(fn (?Contract $record) => match (true) {
+                                    ! $record || (float) $record->deposit_amount <= 0 => 'Không bắt buộc — bỏ trống nếu không thu cọc.',
+                                    $record->deposit_paid_at !== null => 'Đã thu cọc ngày ' . $record->deposit_paid_at->format('d/m/Y') . '.',
+                                    default => 'Chưa xác nhận thu cọc — bấm "Xác nhận đã thu cọc" ở đầu trang khi đã nhận tiền.',
+                                }),
                             // KHÔNG còn lựa chọn "Đã huỷ" (Contract::STATUS_CANCELLED) ở đây — trước
                             // đây trạng thái này chọn tay được mà không qua nghiệp vụ nào (không ghi
                             // lý do huỷ, không xử lý hoàn cọc nhất quán) — giờ CHỈ chuyển sang "Đã

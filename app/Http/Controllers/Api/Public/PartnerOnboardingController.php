@@ -24,15 +24,23 @@ class PartnerOnboardingController extends Controller
     public function register(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'partner_type'  => ['required', Rule::in([Partner::TYPE_HOMESTAY, Partner::TYPE_MINIHOUSE])],
+            'partner_type'  => ['required', Rule::in(config('partner_flow.minihouse_contract_enabled') ? [Partner::TYPE_HOMESTAY, Partner::TYPE_MINIHOUSE] : [Partner::TYPE_HOMESTAY])],
             'full_name'     => ['required', 'string', 'max:255'],
             'phone'         => ['required', 'string', 'regex:/^(0|\+84)[0-9]{9}$/'],
             'email'         => ['required', 'email', 'max:255'],
             'business_name' => ['required', 'string', 'max:255'],
-            'address'       => ['required', 'string', 'max:500'],
+            // Địa chỉ: gửi dạng có cấu trúc (khuyến nghị) HOẶC chuỗi `address` như bản cũ.
+            'address'               => ['required_without:address_street', 'nullable', 'string', 'max:500'],
+            'address_street'        => ['required_without:address', 'nullable', 'string', 'max:255'],
+            'address_province_code' => ['required_with:address_street', 'nullable', 'integer', \Illuminate\Validation\Rule::exists(\App\Models\Province::class, 'code')],
+            'address_ward_code'     => ['required_with:address_street', 'nullable', 'integer', \Illuminate\Validation\Rule::exists(\App\Models\Ward::class, 'code')],
+            'address_unit'          => ['nullable', 'string', 'max:100'],
+            'address_building'      => ['nullable', 'string', 'max:150'],
+            'postal_code'           => ['nullable', 'regex:/^[0-9]{5,6}$/'],
             'note'          => ['nullable', 'string', 'max:2000'],
-        ], ['phone.regex' => 'Số điện thoại không hợp lệ.'], PartnerOnboardingService::LABELS);
+        ], ['partner_type.in' => 'MiniHouse không đăng ký đối tác/ký hợp đồng: vui lòng mua gói dịch vụ MiniHouse (POST /api/public/minihouse-purchase).', 'phone.regex' => 'Số điện thoại không hợp lệ.', 'postal_code.regex' => 'Mã bưu điện gồm 5–6 chữ số.', 'address_street.required_without' => 'Vui lòng nhập số nhà, tên đường/phố.', 'address.required_without' => 'Vui lòng nhập địa chỉ.'], PartnerOnboardingService::LABELS);
 
+        $data['address'] = $this->service->composeAddress($data);
         $result = $this->service->register($data);
 
         return response()->json([
@@ -69,10 +77,14 @@ class PartnerOnboardingController extends Controller
             'name'            => ['nullable', 'string', 'max:255'],
             'document_number' => ['nullable', 'string', 'max:100'],
             'issuer'          => ['nullable', 'string', 'max:255'],
-            'issued_at'       => ['nullable', 'date'],
-            'expires_at'      => ['nullable', 'date', 'after_or_equal:issued_at'],
+            'issued_at'       => ['nullable', 'date', 'before_or_equal:today'],
+            'expires_at'      => ['nullable', 'date', 'after_or_equal:issued_at', 'after:today'],
             'file'            => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
-        ], [], PartnerOnboardingService::LABELS);
+        ], [
+            'issued_at.before_or_equal' => 'Ngày cấp không được ở tương lai.',
+            'expires_at.after' => 'Giấy tờ đã hết hạn — vui lòng nộp giấy tờ còn hiệu lực.',
+            'expires_at.after_or_equal' => 'Ngày hết hạn phải sau hoặc bằng ngày cấp.',
+        ], PartnerOnboardingService::LABELS);
 
         $document = $this->service->addDocument($partner, $data, $request->file('file'));
 
@@ -94,19 +106,25 @@ class PartnerOnboardingController extends Controller
         $partner = $this->service->findByToken($token);
         $data = $request->validate([
             'legal_name'               => ['required', 'string', 'max:255'],
-            'tax_code'                 => ['nullable', 'string', 'max:50'],
+            'tax_code'                 => ['nullable', 'string', 'regex:/^\d{10}(-?\d{3})?$/'],
             'address'                  => ['required', 'string', 'max:500'],
             'email'                    => ['required', 'email', 'max:255'],
             'representative_name'      => ['required', 'string', 'max:255'],
             'representative_id_number' => ['required', 'string', 'regex:/^[0-9]{9}([0-9]{3})?$/'],
-            'representative_dob'       => ['nullable', 'date', 'before:today'],
-            'business_license_date'    => ['nullable', 'date'],
+            'representative_position'  => ['nullable', 'string', 'max:100'],
+            'representative_id_issued_at' => ['required', 'date', 'before_or_equal:today'],
+            'representative_id_issued_place' => ['nullable', 'string', 'max:255'],
+            'representative_dob'       => ['nullable', 'date', 'before_or_equal:' . now()->subYears(18)->toDateString()],
+            'business_license_date'    => ['nullable', 'date', 'before_or_equal:today'],
             'business_license_issuer'  => ['nullable', 'string', 'max:255'],
-            'bank_name'                => ['nullable', 'string', 'max:255'],
-            'bank_branch'              => ['nullable', 'string', 'max:255'],
-            'bank_account_number'      => ['nullable', 'string', 'max:50'],
-            'bank_account_holder'      => ['nullable', 'string', 'max:255'],
-        ], ['representative_id_number.regex' => 'Số CMND/CCCD phải gồm 9 hoặc 12 chữ số.'], PartnerOnboardingService::LABELS);
+        ], [
+            'representative_id_number.regex' => 'Số CMND/CCCD phải gồm 9 hoặc 12 chữ số.',
+            'tax_code.regex'                 => 'Mã số thuế gồm 10 số (hoặc 13 số cho đơn vị phụ thuộc, vd 0312345678-001).',
+            'representative_dob.before_or_equal' => 'Người đại diện phải đủ 18 tuổi.',
+            'representative_id_issued_at.required' => 'Vui lòng nhập ngày cấp CMND/CCCD.',
+            'representative_id_issued_at.before_or_equal' => 'Ngày cấp CMND/CCCD không được ở tương lai.',
+            'business_license_date.before_or_equal' => 'Ngày cấp giấy phép kinh doanh không được ở tương lai.',
+        ], PartnerOnboardingService::LABELS);
 
         $partner = $this->service->updateContractInfo($partner, $data);
 

@@ -40,7 +40,12 @@ class Partner extends Model implements HasMedia
         // Người đại diện
         'representative_name',
         'representative_dob',
+        'representative_position',
         'representative_id_number',
+        'representative_id_issued_at',
+        'signup_plan_id',
+        'signup_periods',
+        'representative_id_issued_place',
         'representative_phone_secondary',
 
         // Doanh nghiệp
@@ -84,6 +89,7 @@ class Partner extends Model implements HasMedia
         'status' => 'boolean',
         'is_platform_partner' => 'boolean',
         'representative_dob' => 'date',
+        'representative_id_issued_at' => 'date',
         'business_license_date' => 'date',
         'contract_signed_at' => 'date',
         'contract_expires_at' => 'date',
@@ -141,7 +147,7 @@ class Partner extends Model implements HasMedia
 
     public function contractVersions(): HasMany
     {
-        return $this->hasMany(PartnerContractVersion::class)->latest();
+        return $this->hasMany(PartnerContractVersion::class)->latest()->latest('id');
     }
 
     public function statusLogs(): HasMany
@@ -170,6 +176,12 @@ class Partner extends Model implements HasMedia
         return $this->belongsTo(User::class, 'verified_by');
     }
 
+    /** Đối tác có dùng luồng hồ sơ pháp lý + hợp đồng không? MiniHouse chỉ mua gói (ẩn hợp đồng) trừ khi bật MINIHOUSE_CONTRACT_ENABLED. */
+    public function usesContract(): bool
+    {
+        return ! $this->isMinihouse() || (bool) config('partner_flow.minihouse_contract_enabled');
+    }
+
     public function isMinihouse(): bool
     {
         return $this->partner_type === self::TYPE_MINIHOUSE;
@@ -182,10 +194,22 @@ class Partner extends Model implements HasMedia
 
     protected static function booted(): void
     {
+        // Homestay mới chưa nhập hoa hồng → mặc định theo cấu hình (20%).
+        static::creating(function (Partner $partner): void {
+            if (! $partner->isMinihouse() && blank($partner->commission_rate)) {
+                $partner->commission_rate = config('partner_flow.default_commission_rate');
+            }
+        });
+
         // Hồ sơ đăng ký hợp tác công khai: hợp đồng có hiệu lực (nền tảng đã ký xong) → tự tạo tài khoản chủ đối tác + gửi email đăng nhập.
         static::updated(function (Partner $partner): void {
             if ($partner->wasChanged('contract_status') && $partner->contract_status === 'active' && filled($partner->onboarding_token)) {
-                app(\App\Services\PartnerOnboardingService::class)->provisionAccount($partner);
+                // Lỗi tạo tài khoản không được làm hỏng thao tác ký hợp đồng của admin: ghi log để tạo tay.
+                try {
+                    app(\App\Services\PartnerOnboardingService::class)->provisionAccount($partner);
+                } catch (\Throwable $e) {
+                    report($e);
+                }
             }
         });
 

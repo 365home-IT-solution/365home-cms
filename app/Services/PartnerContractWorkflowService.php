@@ -15,37 +15,123 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
+// MỘT nơi duy nhất cho nghiệp vụ hợp đồng đối tác — Filament (tab Hợp đồng), API admin và luồng đăng ký hợp tác công khai
+// đều gọi vào đây để không lệch logic: điều kiện tạo hợp đồng, tạo phiên bản, vô hiệu link cũ, ký nền tảng.
 class PartnerContractWorkflowService
 {
     public function __construct(private readonly PartnerLegalDocumentService $documents)
     {
     }
 
-    /** @return array{version: PartnerContractVersion, mail_sent: bool, email: ?string, signing_url: string} */
-    public function createAndSend(Partner $partner, User $actor): array
+    /**
+     * Điều khoản/thông tin PHẢI có trước khi tạo hợp đồng (nếu thiếu, hợp đồng gửi khách sẽ hiện dấu chấm). Mã số hợp đồng không nằm trong danh sách này vì được TỰ SINH.
+     * Homestay: bắt buộc tỷ lệ hoa hồng. MiniHouse: không thu hoa hồng (chỉ phí gói) nên không đòi.
+     *
+     * @return array<string, string> trường => thông báo
+     */
+    public function missingTerms(Partner $partner): array
+    {
+        $missing = [];
+
+        if (! $partner->isMinihouse()) {
+            $rate = $this->commissionValue($partner->commission_rate);
+            if ($rate === null) {
+                $missing['commission_rate'] = 'Chưa nhập tỷ lệ hoa hồng (số từ 0 đến 100).';
+            }
+        }
+
+        if (blank($partner->contract_expires_at)) {
+            $missing['contract_expires_at'] = 'Chưa nhập ngày hết hạn hợp đồng.';
+        } elseif ($partner->contract_expires_at->lte(today())) {
+            $missing['contract_expires_at'] = 'Ngày hết hạn hợp đồng phải sau hôm nay.';
+        } elseif ($partner->contract_signed_at && $partner->contract_expires_at->lt($partner->contract_signed_at)) {
+            $missing['contract_expires_at'] = 'Ngày hết hạn phải sau ngày ký kết.';
+        }
+
+        foreach (['legal_name' => 'tên pháp lý', 'address' => 'địa chỉ', 'email' => 'email', 'representative_name' => 'họ tên người đại diện', 'representative_id_number' => 'số CMND/CCCD người đại diện', 'representative_id_issued_at' => 'ngày cấp CMND/CCCD người đại diện'] as $field => $label) {
+            if (blank($partner->{$field})) {
+                $missing[$field] = "Thiếu {$label} của đối tác.";
+            }
+        }
+
+        return $missing;
+    }
+
+    /** Tỷ lệ hoa hồng hợp lệ ("10", "10%", "7.5") → số; ngoài 0–100 hoặc sai định dạng → null. */
+    public function commissionValue(?string $raw): ?float
+    {
+        $raw = trim((string) $raw);
+        if ($raw === '' || ! preg_match('/^\d{1,3}([.,]\d{1,2})?\s*%?$/', $raw)) {
+            return null;
+        }
+        $value = (float) str_replace(',', '.', rtrim($raw, "% \t"));
+
+        return $value >= 0 && $value <= 100 ? $value : null;
+    }
+
+    /** Hồ sơ đủ điều kiện để tạo/gửi hợp đồng? (không ném lỗi) */
+    public function canCreate(Partner $partner): bool
+    {
+        return $this->documents->isContractEligible($partner) && $this->missingTerms($partner) === [] && ! $this->isLocked($partner);
+    }
+
+    /** Phiên bản mới nhất đã được đối tác xác nhận → không tạo lại được nữa (chỉ còn bước nền tảng ký). */
+    public function isLocked(Partner $partner): bool
+    {
+        return (bool) $partner->contractVersions()->first()?->isPartnerConfirmed();
+    }
+
+    public function assertCanCreate(Partner $partner): void
     {
         $this->documents->assertContractEligible($partner);
+
+        if ($this->isLocked($partner)) {
+            throw ValidationException::withMessages(['contract' => 'Đối tác đã xác nhận hợp đồng này — không thể tạo lại. Hãy ký phía nền tảng để hoàn tất.']);
+        }
+
+        $missing = $this->missingTerms($partner);
+        if ($missing !== []) {
+            throw ValidationException::withMessages(['contract_terms' => array_values($missing)]);
+        }
+    }
+
+    /** Tạo phiên bản hợp đồng (KHÔNG gửi email): link ký của các phiên bản cũ chưa ký tự bị vô hiệu (xem PartnerContractVersion). */
+    public function createVersion(Partner $partner, ?User $actor, string $label, string $note): PartnerContractVersion
+    {
+        $this->assertCanCreate($partner);
+
+        // Mã số hợp đồng TỰ SINH (001/2026/HĐHT-365) — cấp 1 lần cho đối tác, giữ nguyên khi tạo lại phiên bản.
+        app(ContractCodeService::class)->assign($partner);
+
         $content = PartnerContractRenderer::render($partner);
-        $token = Str::random(48);
         $version = $partner->contractVersions()->create([
-            'version_label' => 'Hợp đồng điện tử — '.now()->format('d/m/Y H:i'),
-            'change_note' => 'Tạo tự động để ký điện tử',
-            'changed_by' => $actor->id,
+            'version_label' => $label,
+            'change_note' => $note,
+            'changed_by' => $actor?->id,
             'content' => $content,
             'content_hash' => hash('sha256', $content),
             'legal_document_snapshot' => $this->documents->snapshot($partner),
-            'signing_token' => $token,
+            'signing_token' => Str::random(48),
         ]);
         $partner->update(['contract_status' => 'pending']);
 
+        return $version;
+    }
+
+    /** @return array{version: PartnerContractVersion, mailSent: bool, email: ?string, signingUrl: string} */
+    public function createAndSend(Partner $partner, ?User $actor): array
+    {
+        $version = $this->createVersion($partner, $actor, 'Hợp đồng điện tử — ' . now()->format('d/m/Y H:i'), 'Tạo tự động để ký điện tử');
+
+        // Ưu tiên email LIÊN HỆ của đối tác; chỉ dùng email đăng nhập khi chưa khai báo.
         $email = $partner->email ?? $partner->owner()?->email;
-        $signingUrl = route('contract.sign.show', $token);
+        $signingUrl = route('contract.sign.show', $version->signing_token);
         $mailSent = false;
         if (filled($email)) {
             try {
                 Mail::to($email)->send(new LockNotificationMail(
                     'Yêu cầu ký hợp đồng điện tử',
-                    "<p>Vui lòng mở liên kết để xem và xác nhận hợp đồng:</p><p><a href=\"{$signingUrl}\">{$signingUrl}</a></p>"
+                    "<p>Vui lòng mở liên kết để xem toàn văn và ký hợp đồng hợp tác:</p><p><a href=\"{$signingUrl}\">{$signingUrl}</a></p>"
                 ));
                 $mailSent = true;
             } catch (\Throwable $exception) {
@@ -56,32 +142,47 @@ class PartnerContractWorkflowService
         return compact('version', 'mailSent', 'email', 'signingUrl');
     }
 
-    /** @return array{pdf: string, file_name: string} */
-    public function platformSign(Partner $partner, User $actor, string $ip, string $userAgent): array
+    /**
+     * Nền tảng ký số hợp đồng sau khi đối tác đã xác nhận OTP. $reExport = true: xuất thêm 1 bản PDF khi đã ký rồi
+     * (không đổi trạng thái hợp đồng).
+     *
+     * @return array{pdf: string, file_name: string}
+     */
+    public function platformSign(Partner $partner, User $actor, string $ip, string $userAgent, bool $reExport = false): array
     {
         $this->documents->assertContractEligible($partner);
         $version = $partner->contractVersions()->first();
         if (! $version || ! $version->isPartnerConfirmed()) {
             throw ValidationException::withMessages(['contract' => 'Đối tác chưa xác nhận hợp đồng bằng OTP.']);
         }
-        if ($version->isPlatformSigned()) {
+        if (! $reExport && $version->isPlatformSigned()) {
             throw ValidationException::withMessages(['contract' => 'Hợp đồng đã được nền tảng ký số.']);
+        }
+        if ($reExport && ! $version->isPlatformSigned()) {
+            throw ValidationException::withMessages(['contract' => 'Hợp đồng chưa được nền tảng ký số nên chưa xuất lại được.']);
         }
 
         $signingTime = now();
-        $version->platform_signed_at = $signingTime;
-        $version->setRelation('platformSignedBy', $actor);
+        if (! $reExport) {
+            // Gán tạm vào bộ nhớ trước khi render PDF để khung ký "Nền tảng" trong PDF không hiện sai "Chưa ký".
+            $version->platform_signed_at = $signingTime;
+            $version->setRelation('platformSignedBy', $actor);
+        }
+
         $result = app(ContractPdfSigningService::class)->signAndEmbed($version, [
             'role' => 'platform', 'name' => $actor->name, 'user_id' => $actor->id,
         ]);
-        $version->update([
-            'platform_signing_provider' => app(DigitalSignatureProvider::class)->name(),
-            'platform_signed_at' => $signingTime,
-            'platform_signed_by' => $actor->id,
-            'platform_signed_ip' => $ip,
-            'platform_signed_user_agent' => $userAgent,
-        ]);
-        $partner->update(['contract_status' => 'active', 'contract_signed_at' => $signingTime]);
+
+        if (! $reExport) {
+            $version->update([
+                'platform_signing_provider' => app(DigitalSignatureProvider::class)->name(),
+                'platform_signed_at' => $signingTime,
+                'platform_signed_by' => $actor->id,
+                'platform_signed_ip' => $ip,
+                'platform_signed_user_agent' => $userAgent,
+            ]);
+            $partner->update(['contract_status' => 'active', 'contract_signed_at' => $signingTime]);
+        }
 
         return ['pdf' => $result['pdf'], 'file_name' => "hop-dong-{$version->id}-{$signingTime->format('YmdHis')}.pdf"];
     }

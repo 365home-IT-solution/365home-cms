@@ -4,6 +4,7 @@ namespace Modules\BladeThemeV1\Livewire;
 
 use Livewire\Component;
 use Modules\Post\Entities\Post;
+use Modules\BladeThemeV1\Support\ContentMarkup;
 use Modules\BladeThemeV1\Support\InternalLinks;
 use Modules\BladeThemeV1\Support\TableOfContents;
 use Modules\BladeThemeV1\Traits\HandleColorTrait;
@@ -45,7 +46,8 @@ class PostDetail extends Component
         // dung bài không đổi trong vòng đời request), xem TableOfContents::build().
         // Link nội bộ dán từ Facebook mang theo rel="nofollow" + ?fbclid=, xem InternalLinks::clean().
         $toc = TableOfContents::build(InternalLinks::clean($this->post->content ?? ''));
-        $this->contentWithIds = $toc['content'];
+        // Ảnh trong bài lazy-load + bảng có khung cuộn ngang, xem ContentMarkup::enhance().
+        $this->contentWithIds = ContentMarkup::enhance($toc['content']);
         $this->tocItems = $toc['items'];
 
           // Fetch chessboard data if post has a chessboard

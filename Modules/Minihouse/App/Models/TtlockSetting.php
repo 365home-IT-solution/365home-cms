@@ -21,13 +21,41 @@ class TtlockSetting extends Model
 
     public $incrementing = false;
 
-    protected $fillable = ['building_id', 'client_id', 'client_secret', 'username', 'password_md5', 'api_base', 'is_active'];
+    // Mã cổng TRÙNG mã phòng (khách nhớ 1 số) hay là 1 số RIÊNG — xem ContractTtlockService.
+    public const GATE_CODE_SHARED   = 'shared';
+    public const GATE_CODE_SEPARATE = 'separate';
+
+    // Cấp mã ngay khi tạo hợp đồng, hay chỉ khi đã thu cọc HOẶC đã thanh toán hoá đơn đầu tiên.
+    public const ISSUE_ON_CONTRACT = 'contract';
+    public const ISSUE_ON_PAYMENT  = 'payment';
+
+    protected $fillable = [
+        'building_id', 'client_id', 'client_secret', 'username', 'password_md5', 'api_base', 'is_active',
+        'gate_lock_ids', 'gate_code_mode', 'issue_mode',
+    ];
 
     protected $casts = [
         'client_secret' => 'encrypted',
         'password_md5'  => 'encrypted',
         'is_active'     => 'boolean',
+        'gate_lock_ids' => 'array',
     ];
+
+    /** @return list<int> */
+    public function gateLockIds(): array
+    {
+        return array_values(array_unique(array_filter(array_map('intval', $this->gate_lock_ids ?? []))));
+    }
+
+    public function usesSeparateGateCode(): bool
+    {
+        return $this->gate_code_mode === self::GATE_CODE_SEPARATE;
+    }
+
+    public function issuesOnPayment(): bool
+    {
+        return $this->issue_mode === self::ISSUE_ON_PAYMENT;
+    }
 
     public static function forBuilding(?int $buildingId): self
     {

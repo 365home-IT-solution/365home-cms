@@ -134,5 +134,14 @@ class Post extends Model implements HasMedia
                 ->quality(72)
                 ->nonQueued();
         }
+
+        // Ảnh chia sẻ mạng xã hội (og:image/twitter:image): 1200×630 (1.91:1), JPEG vì nhiều
+        // crawler (Zalo, một số bản Facebook) chưa đọc được AVIF.
+        $this->addMediaConversion('og')
+            ->performOnCollections('Ảnh chính')
+            ->fit(Fit::Crop, 1200, 630)
+            ->format('jpg')
+            ->quality(82)
+            ->nonQueued();
     }
 }

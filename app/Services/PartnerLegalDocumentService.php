@@ -18,7 +18,8 @@ class PartnerLegalDocumentService
         $documents = $partner->legalDocuments()->with('media')->get();
         $required = $documents->filter(fn (PartnerLegalDocument $document) => $document->is_required || $document->type === 'business_license');
         $problems = [];
-        $requiredTypes = ['business_license'];
+        // Homestay đăng ký trên website: bắt buộc cả An toàn an ninh và Phòng cháy chữa cháy; còn lại chỉ Giấy phép kinh doanh.
+        $requiredTypes = (! $partner->isMinihouse() && filled($partner->onboarding_token)) ? PartnerLegalDocument::HOMESTAY_REGISTRATION_REQUIRED : ['business_license'];
 
         foreach ($requiredTypes as $requiredType) {
             $matching = $documents->where('type', $requiredType)->whereNull('building_id');
@@ -134,6 +135,9 @@ class PartnerLegalDocumentService
             'reviewed_by' => $reviewer->id,
         ]);
 
+        // Hồ sơ đăng ký công khai: báo lý do cho đối tác qua email (họ chưa có tài khoản để xem thông báo).
+        app(PartnerOnboardingService::class)->notifyDocumentReviewed($document->fresh('partner'), $status, $note);
+
         // Hồ sơ đăng ký hợp tác công khai: admin yêu cầu bổ sung/từ chối → mở lại cho đối tác sửa và nộp lại (gửi duyệt lần nữa).
         if ($status !== 'approved' && filled($document->partner->onboarding_token) && $document->partner->verification_status === 'pending') {
             $document->partner->update(['verification_submitted_at' => null]);
@@ -168,6 +172,41 @@ class PartnerLegalDocumentService
         if (filled($partner->onboarding_token)) {
             app(PartnerOnboardingService::class)->sendContractAfterApproval($partner->fresh());
         }
+    }
+
+    /**
+     * TỪ CHỐI cả hồ sơ (Super Admin): đặt verification_status = rejected, khoá đối tác, vô hiệu link ký hợp đồng chưa được xác nhận.
+     * Không áp dụng khi hợp đồng đã có hiệu lực (dùng "Tạm dừng"/chấm dứt hợp đồng). Hồ sơ đăng ký công khai được gửi email lý do.
+     */
+    public function rejectDossier(Partner $partner, User $reviewer, string $reason): void
+    {
+        if (! $reviewer->isSuperAdmin()) {
+            abort(403, 'Chỉ Super Admin được từ chối hồ sơ.');
+        }
+        if (blank(trim($reason))) {
+            throw ValidationException::withMessages(['reason' => 'Phải nhập lý do từ chối hồ sơ.']);
+        }
+        if ($partner->contract_status === 'active') {
+            throw ValidationException::withMessages(['status' => 'Hợp đồng đã có hiệu lực — không thể từ chối hồ sơ.']);
+        }
+        if ($partner->verification_status === 'rejected') {
+            throw ValidationException::withMessages(['status' => 'Hồ sơ đã bị từ chối trước đó.']);
+        }
+
+        DB::transaction(function () use ($partner, $reviewer, $reason) {
+            $this->changePartnerStatus($partner, 'rejected', 'Super Admin từ chối hồ sơ: ' . $reason);
+            $partner->update([
+                'status' => false,
+                'verification_note' => $reason,
+                'verified_at' => null,
+                'verified_by' => $reviewer->id,
+                'contract_status' => 'draft',
+            ]);
+            // Link ký chưa được đối tác xác nhận mất hiệu lực.
+            $partner->contractVersions()->whereNull('partner_confirmed_at')->update(['signing_token' => null]);
+        });
+
+        app(PartnerOnboardingService::class)->notifyDossierRejected($partner->fresh(), $reason);
     }
 
     public function snapshot(Partner $partner): array

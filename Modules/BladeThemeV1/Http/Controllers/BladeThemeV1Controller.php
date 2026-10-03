@@ -277,9 +277,19 @@ class BladeThemeV1Controller extends Controller
         // (xem PostPage::$selectedCategory), nên link ở đây trỏ thẳng tới bộ lọc đó.
         $postCategory = $post->categories->first();
 
-        $seoOgImage = null;
-        if ($post->hasMedia('Ảnh chính')) {
-            $seoOgImage = $post->getFirstMedia('Ảnh chính')->getUrl();
+        // og:image ưu tiên conversion "og" (1200×630, tỉ lệ 1.91:1 Facebook/X/Zalo dùng cho thẻ
+        // link lớn — xem Post::registerMediaConversions()); ảnh cũ chưa sinh conversion này thì
+        // dùng ảnh gốc như trước, kèm kích thước thật nếu có.
+        $seoOgImage = $seoOgImageWidth = $seoOgImageHeight = null;
+        if ($featuredMedia = $post->getFirstMedia('Ảnh chính')) {
+            if ($featuredMedia->hasGeneratedConversion('og')) {
+                $seoOgImage = $featuredMedia->getUrl('og');
+                [$seoOgImageWidth, $seoOgImageHeight] = [1200, 630];
+            } else {
+                $seoOgImage = $featuredMedia->getUrl();
+                $seoOgImageWidth = $featuredMedia->getCustomProperty('width');
+                $seoOgImageHeight = $featuredMedia->getCustomProperty('height');
+            }
         }
 
         // H1 luôn là $post->title (post-detail.blade.php). Nếu seo_title bỏ trống hoặc được
@@ -297,23 +307,18 @@ class BladeThemeV1Controller extends Controller
             $seoTitle = trim(($core !== '' ? $core : trim($postTitle)) . ' | 365Home');
         }
 
-        // rating_average/rating_count: dùng cho node JSON-LD "CreativeWorkSeries" riêng (xem
-        // seo.blade.php) hiện sao ngoài SERP cho bài viết — chỉ gắn khi có ít nhất 1 bình chọn
-        // thật (post_ratings), không bịa số 0 sao/rỗng.
-        $ratingCount = $post->ratingCount();
-
         $seoData = [
             'seo_title'              => $seoTitle,
             'seo_description'        => $post->seo_description ?? '',
             'seo_keywords'           => $post->seo_keywords ?? '',
             'og_image'               => $seoOgImage,
+            'og_image_width'         => $seoOgImageWidth,
+            'og_image_height'        => $seoOgImageHeight,
             'og_type'                => 'article',
             'article_published_time' => $post->published_at?->toIso8601String() ?? $post->created_at?->toIso8601String(),
             'article_modified_time'  => $post->updated_at?->toIso8601String(),
             'author_name'            => $post->user?->fullname ?? $post->user?->name ?? '',
             'site_name'              => config('app.name'),
-            'rating_average'         => $ratingCount > 0 ? $post->ratingAverage() : null,
-            'rating_count'           => $ratingCount,
         ];
 
         // Bài "Chi nhánh mới... 89 Xuân Thủy" hiện chỉ có nội dung placeholder chưa điền (bảng/danh

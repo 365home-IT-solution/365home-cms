@@ -15,8 +15,8 @@ class InternalLinks
     private const TRACKING_PARAMS = '/^(fbclid|gclid|gbraid|wbraid|msclkid|ttclid|igshid|mc_cid|mc_eid|_aem_.*|utm_.*)$/i';
 
     /**
-     * Chuẩn hoá link NỘI BỘ trong nội dung bài viết: bỏ "nofollow" khỏi rel và bỏ tham số
-     * tracking khỏi href.
+     * Chuẩn hoá link NỘI BỘ trong nội dung bài viết: bỏ "nofollow" khỏi rel, bỏ tham số
+     * tracking khỏi href và bỏ target="_blank".
      *
      * Nội dung dán từ Facebook mang theo rel="nofollow noopener noreferrer" + ?fbclid=... cho cả
      * link trỏ về chính 365home.vn — SEO audit flag "outgoing internal link contains nofollow
@@ -50,6 +50,12 @@ class InternalLinks
             $cleanHref = self::stripTrackingParams($href);
             if ($cleanHref !== $href) {
                 $link->setAttribute('href', $cleanHref);
+                $changed = true;
+            }
+
+            // Link nội bộ không mở tab mới (SEO audit: target="_blank" trên link trong cùng site).
+            if (strtolower($link->getAttribute('target')) === '_blank') {
+                $link->removeAttribute('target');
                 $changed = true;
             }
 
