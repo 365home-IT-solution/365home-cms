@@ -9,6 +9,7 @@ use App\Models\Partner;
 use App\Models\PartnerContractVersion;
 use App\Models\PartnerLegalDocument;
 use App\Models\PartnerStatusLog;
+use App\Models\SubscriptionPlan;
 use App\Models\User;
 use App\Support\PartnerContractRenderer;
 use Filament\Facades\Filament;
@@ -142,21 +143,91 @@ class PartnerOnboardingService
             'onboarding_token'    => self::hashToken($token),
         ];
 
+        // Đủ điều kiện tặng dùng thử → hồ sơ CHỜ SUPER ADMIN DUYỆT (duyệt xong mới tạo tài khoản + gửi mật khẩu); ngược lại phải thanh toán mới được dùng.
+        $needsApproval = $this->signupTrialEligible($phone, $data['email'], $existing?->id);
+
         $partner = $existing
-            ? tap($existing)->update($attributes)
+            ? tap($existing)->update($attributes + ($existing->verification_status === 'rejected' ? [] : ['verification_status' => $needsApproval ? 'pending' : 'approved']))
             : Partner::create($attributes + [
                 'partner_type'        => Partner::TYPE_MINIHOUSE,
                 'status'              => false,
-                'verification_status' => 'approved',
-                'verified_at'         => now(),
+                'verification_status' => $needsApproval ? 'pending' : 'approved',
+                'verified_at'         => $needsApproval ? null : now(),
                 'contract_status'     => 'draft',
             ]);
 
         if (! $existing) {
-            PartnerStatusLog::create(['partner_id' => $partner->id, 'to_status' => 'approved', 'note' => 'MiniHouse mua gói trên website (chờ thanh toán).']);
+            PartnerStatusLog::create(['partner_id' => $partner->id, 'to_status' => $needsApproval ? 'pending' : 'approved', 'note' => $needsApproval
+                ? 'MiniHouse đăng ký trên website — chờ Super Admin duyệt để tặng dùng thử (hoặc thanh toán gói để kích hoạt ngay).'
+                : 'MiniHouse mua gói trên website (chờ thanh toán).']);
+            if ($needsApproval) {
+                $this->notifyAdmins($partner, 'Có đăng ký MiniHouse chờ duyệt', $this->partnerLabel($partner) . ' vừa đăng ký MiniHouse — duyệt để tặng dùng thử và gửi tài khoản đăng nhập.', 'minihouse_signup_pending', 'info', 'heroicon-o-user-plus');
+                $this->mailPartner($partner, 'Đã nhận đăng ký MiniHouse — chờ 365 Home duyệt', '<p>Xin chào <strong>' . e($partner->representative_name ?: $partner->name) . '</strong>,</p><p>365 Home đã nhận đăng ký MiniHouse của <strong>' . e($partner->name) . '</strong>. Sau khi được duyệt, tài khoản đăng nhập và mật khẩu sẽ được gửi về email này.</p>');
+            }
         }
 
         return ['partner' => $partner->fresh(), 'token' => $token];
+    }
+
+    /** Có tặng dùng thử cho SĐT/email này không: bật tính năng, và chưa từng có đối tác MiniHouse (kể cả đã xoá) dùng gói với cùng SĐT/email. */
+    public function signupTrialEligible(?string $phone, ?string $email, ?string $exceptPartnerId = null): bool
+    {
+        if ((int) config('partner_flow.minihouse_signup_trial_months', 0) < 1) {
+            return false;
+        }
+        $match = fn ($q) => $q->where(fn ($w) => $w->where('phone', $phone)->orWhere('email', $email));
+
+        return ! Partner::onlyTrashed()->where('partner_type', Partner::TYPE_MINIHOUSE)->where($match)->exists()
+            && ! Partner::query()->where('partner_type', Partner::TYPE_MINIHOUSE)->when($exceptPartnerId, fn ($q) => $q->whereKeyNot($exceptPartnerId))
+                ->where($match)->whereHas('subscription')->exists();
+    }
+
+    /** Đối tác MiniHouse đang chờ Super Admin duyệt đăng ký (chưa có tài khoản, chưa thanh toán). */
+    public function awaitingSignupApproval(Partner $partner): bool
+    {
+        return $partner->isMinihouse() && filled($partner->onboarding_token) && $partner->verification_status === 'pending' && ! $partner->users()->exists();
+    }
+
+    /**
+     * Super Admin DUYỆT đăng ký MiniHouse → tặng dùng thử (mặc định 1 tháng), kích hoạt đối tác, tạo tài khoản và gửi email đăng nhập.
+     * Gói lấy theo đơn khách đã chọn; khi khách thanh toán sau đó, hạn gói được cộng NỐI TIẾP sau ngày hết hạn dùng thử.
+     *
+     * @return array{created: bool, email: ?string, mail_sent: bool, reason: ?string, trial_expires_at: ?string}
+     */
+    public function approveSignup(Partner $partner, ?User $admin = null): array
+    {
+        if (! $this->awaitingSignupApproval($partner)) {
+            throw ValidationException::withMessages(['partner' => 'Đăng ký này không ở trạng thái chờ duyệt.']);
+        }
+        $months = (int) config('partner_flow.minihouse_signup_trial_months', 0);
+        if ($months < 1) {
+            throw ValidationException::withMessages(['partner' => 'Tính năng tặng dùng thử đang tắt — đối tác cần thanh toán gói để được kích hoạt.']);
+        }
+
+        $plan = \App\Models\SubscriptionPayment::query()->where('partner_id', $partner->id)->latest('id')->first()?->plan
+            ?? SubscriptionPlan::query()->where('is_active', true)->forPartnerType(Partner::TYPE_MINIHOUSE)->orderBy('sort_order')->orderBy('id')->first();
+        if (! $plan) {
+            throw ValidationException::withMessages(['partner' => 'Chưa có gói MiniHouse đang bán để gán dùng thử.']);
+        }
+
+        $expires = now()->addMonthsNoOverflow($months);
+        app(SubscriptionService::class)->assignPlan($partner, $plan, $expires, true);
+        $partner->update(['status' => true, 'verification_status' => 'approved', 'verified_at' => now()]);
+        $this->log($partner, "Super Admin" . ($admin ? " {$admin->fullname}" : '') . " duyệt đăng ký MiniHouse — tặng dùng thử {$months} tháng đến " . $expires->format('d/m/Y') . '.');
+        $result = $this->provisionAccount($partner->fresh());
+
+        return $result + ['trial_expires_at' => $expires->toIso8601String()];
+    }
+
+    /** Super Admin TỪ CHỐI đăng ký MiniHouse: khoá hồ sơ, gửi email lý do (đối tác vẫn có thể thanh toán gói bằng đăng ký mới). */
+    public function rejectSignup(Partner $partner, string $reason, ?User $admin = null): void
+    {
+        if (! $this->awaitingSignupApproval($partner)) {
+            throw ValidationException::withMessages(['partner' => 'Đăng ký này không ở trạng thái chờ duyệt.']);
+        }
+        $partner->update(['verification_status' => 'rejected', 'status' => false]);
+        $this->log($partner, 'Super Admin từ chối đăng ký MiniHouse. Lý do: ' . $reason);
+        $this->mailPartner($partner, 'Đăng ký MiniHouse chưa được chấp nhận', '<p>Xin chào <strong>' . e($partner->representative_name ?: $partner->name) . '</strong>,</p><p>Đăng ký MiniHouse của bạn chưa được 365 Home chấp nhận.</p><p>Lý do: ' . e($reason) . '</p>');
     }
 
     /** Thanh toán gói xong → kích hoạt đối tác, tạo tài khoản quản lý MiniHouse và gửi email đăng nhập. */
@@ -643,6 +714,7 @@ class PartnerOnboardingService
     {
         $loginUrl = $this->loginUrl($partner);
         $name = e($partner->legal_name ?: $partner->name);
+        $trial = $partner->isMinihouse() && (bool) $partner->subscription?->is_trial;
         $next = $partner->isMinihouse()
             ? 'Sau khi đăng nhập, bạn tạo toà nhà, phòng và bổ sung giấy tờ cấp toà nhà (PCCC, an ninh trật tự, quyền khai thác) để bắt đầu vận hành.'
             : 'Sau khi đăng nhập, bạn tạo chi nhánh, phòng và bảng giá để bắt đầu nhận khách.';
@@ -650,9 +722,11 @@ class PartnerOnboardingService
         if ($partner->isMinihouse()) {
             try {
                 Mail::to($email)->send(new LockNotificationMail(
-                    'Kích hoạt gói MiniHouse — tài khoản đăng nhập của bạn',
+                    $trial ? 'Đăng ký MiniHouse đã được duyệt — tài khoản đăng nhập của bạn' : 'Kích hoạt gói MiniHouse — tài khoản đăng nhập của bạn',
                     "<p>Xin chào <strong>{$name}</strong>,</p>"
-                    . '<p>365 Home đã nhận thanh toán và kích hoạt gói dịch vụ MiniHouse cho bạn.</p>'
+                    . ($trial
+                        ? '<p>365 Home đã <strong>duyệt đăng ký MiniHouse</strong> của bạn và tặng dùng thử đến ngày <strong>' . $partner->subscription->expires_at->format('d/m/Y') . '</strong>. Vui lòng thanh toán gói trước ngày này để tiếp tục sử dụng (thời hạn đã mua được cộng nối tiếp sau thời gian dùng thử).</p>'
+                        : '<p>365 Home đã nhận thanh toán và kích hoạt gói dịch vụ MiniHouse cho bạn.</p>')
                     . "<p>Thông tin đăng nhập trang quản trị:<br>Địa chỉ: <a href=\"{$loginUrl}\">{$loginUrl}</a><br>Email đăng nhập: <strong>" . e($email) . '</strong><br>Mật khẩu: <strong>' . e($password) . '</strong></p>'
                     . "<p>{$next}</p><p>Vui lòng đổi mật khẩu sau khi đăng nhập lần đầu.</p>"
                 ));

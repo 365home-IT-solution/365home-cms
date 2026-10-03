@@ -183,13 +183,14 @@
                             </select>
                             <p class="text-xs text-red-600 mt-1" x-show="errors.periods || errors.plan_id" x-text="err('periods') || err('plan_id')"></p>
                             <p class="text-sm text-gray-700 mt-2">Thành tiền: <strong x-text="vnd(selectedPeriod ? selectedPeriod.amount_vnd : 0)"></strong></p>
+                            <p class="text-sm text-green-700 mt-1" x-show="trialMonths > 0">Đăng ký lần đầu được tặng dùng thử <strong x-text="trialMonths"></strong> tháng sau khi 365 Home duyệt — tài khoản và mật khẩu gửi về email, thanh toán sau.</p>
                         </div>
                     </div>
                     <div x-show="!minihouseMode">
                         <label class="block text-sm font-medium text-gray-700 mb-1">Ghi chú</label>
                         <textarea x-model="reg.note" rows="3" maxlength="2000" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-gray-400"></textarea>
                     </div>
-                    <button type="submit" :disabled="loading" class="w-full rounded-lg bg-gray-900 text-white font-semibold py-3 hover:bg-gray-800 disabled:opacity-60" x-text="loading ? 'Đang gửi...' : (minihouseMode ? 'Mua gói & thanh toán' : 'Tiếp tục')"></button>
+                    <button type="submit" :disabled="loading" class="w-full rounded-lg bg-gray-900 text-white font-semibold py-3 hover:bg-gray-800 disabled:opacity-60" x-text="loading ? 'Đang gửi...' : (minihouseMode ? (trialMonths > 0 ? 'Đăng ký MiniHouse' : 'Mua gói & thanh toán') : 'Tiếp tục')"></button>
 
                     {{-- Mất mã hồ sơ (đổi trình duyệt/máy): nhập SĐT + email đã đăng ký → nhận link tiếp tục qua email --}}
                     <div class="border-t border-gray-100 pt-4 text-center text-sm">
@@ -222,6 +223,21 @@
                             <a :href="purchase.account.login_url" class="inline-block rounded-lg bg-gray-900 text-white font-semibold px-6 py-3 hover:bg-gray-800">Đăng nhập trang quản trị</a>
                         </div>
                     </template>
+                    <template x-if="purchase && purchase.stage === 'trial'">
+                        <div class="space-y-3">
+                            <div class="text-5xl">🎉</div>
+                            <h2 class="text-xl font-bold text-gray-900">Đăng ký đã được duyệt — đang dùng thử</h2>
+                            <p class="text-gray-600">Tài khoản đăng nhập đã được gửi về email <strong x-text="purchase.account.email"></strong>. Dùng thử đến <strong x-text="purchase.subscription && purchase.subscription.expires_at ? new Date(purchase.subscription.expires_at).toLocaleDateString('vi-VN') : ''"></strong>; thanh toán gói trước ngày này để tiếp tục.</p>
+                            <a :href="purchase.account.login_url" class="inline-block rounded-lg bg-gray-900 text-white font-semibold px-6 py-3 hover:bg-gray-800">Đăng nhập trang quản trị</a>
+                        </div>
+                    </template>
+                    <template x-if="purchase && purchase.stage === 'pending_approval'">
+                        <div class="space-y-2">
+                            <div class="text-5xl">⏳</div>
+                            <h2 class="text-xl font-bold text-gray-900">Đã ghi nhận đăng ký — chờ 365 Home duyệt</h2>
+                            <p class="text-gray-600">Sau khi được duyệt, tài khoản dùng thử và mật khẩu sẽ gửi về email của bạn. Bạn cũng có thể thanh toán gói ngay bên dưới để kích hoạt luôn.</p>
+                        </div>
+                    </template>
                     <template x-if="purchase && purchase.stage === 'paid'">
                         <div class="space-y-2">
                             <div class="text-5xl">⏳</div>
@@ -235,7 +251,7 @@
                             <button type="button" class="rounded-lg bg-gray-900 text-white font-semibold px-6 py-3 hover:bg-gray-800" @click="resetPurchase()">Tạo đơn mới</button>
                         </div>
                     </template>
-                    <template x-if="purchase && purchase.stage === 'pending_payment' && purchase.payment">
+                    <template x-if="purchase && ['pending_payment', 'pending_approval'].includes(purchase.stage) && purchase.payment">
                         <div class="space-y-4">
                             <h2 class="text-xl font-bold text-gray-900">Thanh toán gói <span x-text="purchase.payment.plan ? purchase.payment.plan.name : ''"></span></h2>
                             <p class="text-gray-600"><span x-text="purchase.payment.months"></span> tháng — <strong x-text="vnd(purchase.payment.amount_vnd)"></strong></p>
@@ -513,7 +529,7 @@
                 provinces: provinces || [], wards: [], loadingWards: false,
                 banks: banks || [], bank: { bank_code: '', bank_branch: '', bank_account_number: '', bank_account_holder: '' },
                 addrQuery: '', suggestions: [], suggestOpen: false, suggestLoading: false,
-                plans: [], planId: null, periods: 1, purchase: null, pollTimer: null,
+                plans: [], planId: null, periods: 1, purchase: null, pollTimer: null, trialMonths: {{ (int) config('partner_flow.minihouse_signup_trial_months', 0) }},
                 doc: { type: 'business_license', name: '', document_number: '', issuer: '', issued_at: '', expires_at: '' },
                 info: {},
                 sign: { otp: '', signer_name: '', agree: false },

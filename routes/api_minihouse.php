@@ -84,6 +84,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
         Route::match(['put', 'patch'], 'partners/{partner}', [MinihousePartnerController::class, 'update'])->name('partners.update');
         Route::get('partners/{partner}/financial', [MinihousePartnerController::class, 'financial'])->name('partners.financial.show');
         Route::post('partners/{partner}/financial', [MinihousePartnerController::class, 'updateFinancial'])->name('partners.financial.update');
+        // Duyệt đăng ký MiniHouse (tặng dùng thử → tạo tài khoản + gửi email) hoặc từ chối.
+        Route::post('partners/{partner}/signup/approve', [MinihousePartnerController::class, 'approveSignup'])->name('partners.signup.approve');
+        Route::post('partners/{partner}/signup/reject', [MinihousePartnerController::class, 'rejectSignup'])->name('partners.signup.reject');
         Route::get('partners/{partner}/building-assignments', [MinihousePartnerController::class, 'branchAssignments'])->name('partners.building-assignments.show');
         Route::put('partners/{partner}/building-assignments', [MinihousePartnerController::class, 'updateBranchAssignments'])->name('partners.building-assignments.update');
         Route::get('partners/{partner}/user-assignments', [MinihousePartnerController::class, 'userAssignments'])->name('partners.user-assignments.show');

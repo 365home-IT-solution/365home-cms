@@ -121,6 +121,31 @@ class PartnerController extends Controller
         return response()->json(['data' => $this->financialData($partner)]);
     }
 
+    // POST /api/admin/minihouse/partners/{partner}/signup/approve — Super Admin DUYỆT đăng ký MiniHouse: tặng dùng thử, tạo tài khoản, gửi email đăng nhập.
+    public function approveSignup(Request $request, Partner $partner, \App\Services\PartnerOnboardingService $onboarding): JsonResponse
+    {
+        $this->superAdmin($request);
+        abort_unless($partner->isMinihouse() && ! $partner->isSystemPartner(), 404);
+        $result = $onboarding->approveSignup($partner, $request->user());
+        abort_unless($result['created'], 422, $result['reason'] ?: 'Không tạo được tài khoản đăng nhập cho đối tác.');
+
+        return response()->json([
+            'message' => 'Đã duyệt đăng ký, tặng dùng thử và ' . ($result['mail_sent'] ? 'gửi email tài khoản đăng nhập cho đối tác.' : 'tạo tài khoản (chưa gửi được email — dùng “Gửi lại tài khoản đăng nhập”).'),
+            'data'    => ['email' => $result['email'], 'mail_sent' => $result['mail_sent'], 'trial_expires_at' => $result['trial_expires_at']] + $this->format($partner->fresh(), app(PartnerLegalDocumentService::class)),
+        ]);
+    }
+
+    // POST /api/admin/minihouse/partners/{partner}/signup/reject — Super Admin từ chối đăng ký MiniHouse (email lý do cho đối tác).
+    public function rejectSignup(Request $request, Partner $partner, \App\Services\PartnerOnboardingService $onboarding): JsonResponse
+    {
+        $this->superAdmin($request);
+        abort_unless($partner->isMinihouse() && ! $partner->isSystemPartner(), 404);
+        $data = $request->validate(['reason' => ['required', 'string', 'max:2000']], ['reason.required' => 'Vui lòng nhập lý do từ chối.']);
+        $onboarding->rejectSignup($partner, $data['reason'], $request->user());
+
+        return response()->json(['message' => 'Đã từ chối đăng ký.', 'data' => $this->format($partner->fresh(), app(PartnerLegalDocumentService::class))]);
+    }
+
     public function updateFinancial(Request $request, Partner $partner): JsonResponse
     {
         $this->superAdmin($request);

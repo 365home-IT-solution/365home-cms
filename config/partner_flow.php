@@ -6,6 +6,10 @@
 return [
     'minihouse_contract_enabled' => (bool) env('MINIHOUSE_CONTRACT_ENABLED', false),
 
+    // MiniHouse: đăng ký lần đầu được TẶNG dùng thử N tháng sau khi Super Admin DUYỆT (tài khoản + mật khẩu gửi qua email lúc duyệt); 0 = tắt,
+    // khi đó phải thanh toán gói mới được dùng. Thanh toán trước khi được duyệt cũng kích hoạt luôn.
+    'minihouse_signup_trial_months' => (int) env('MINIHOUSE_SIGNUP_TRIAL_MONTHS', 1),
+
     // Tỷ lệ hoa hồng mặc định (%) của Bên A cho đối tác Homestay mới; admin vẫn sửa được trước khi tạo hợp đồng.
     'default_commission_rate' => (string) env('DEFAULT_COMMISSION_RATE', '20'),
 ];

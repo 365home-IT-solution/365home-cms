@@ -30,7 +30,10 @@ class MinihousePurchaseController extends Controller
     {
         $plans = SubscriptionPlan::query()->where('is_active', true)->forPartnerType(Partner::TYPE_MINIHOUSE)->orderBy('sort_order')->orderBy('id')->get();
 
-        return response()->json(['data' => $plans->map(fn (SubscriptionPlan $p) => $p->toApi())->values()]);
+        return response()->json([
+            'data' => $plans->map(fn (SubscriptionPlan $p) => $p->toApi())->values(),
+            'meta' => ['signup_trial_months' => (int) config('partner_flow.minihouse_signup_trial_months', 0)],
+        ]);
     }
 
     // POST /api/public/minihouse-purchase
@@ -65,8 +68,12 @@ class MinihousePurchaseController extends Controller
 
         $payment = $this->subscriptions->createCheckout($result['partner'], $plan, (int) $data['periods']);
 
+        $pendingApproval = $this->onboarding->awaitingSignupApproval($result['partner']);
+
         return response()->json([
-            'message' => 'Đã tạo đơn mua gói. Quét QR hoặc mở link để thanh toán; sau khi thanh toán, tài khoản đăng nhập sẽ được gửi về email của bạn.',
+            'message' => $pendingApproval
+                ? 'Đã ghi nhận đăng ký MiniHouse. Sau khi 365 Home duyệt, tài khoản dùng thử và mật khẩu sẽ được gửi về email của bạn; bạn cũng có thể thanh toán gói ngay để kích hoạt luôn.'
+                : 'Đã tạo đơn mua gói. Quét QR hoặc mở link để thanh toán; sau khi thanh toán, tài khoản đăng nhập sẽ được gửi về email của bạn.',
             'data'    => ['purchase_token' => $result['token'], ...$this->status($result['partner'], $payment)],
         ], 201);
     }
@@ -87,13 +94,20 @@ class MinihousePurchaseController extends Controller
             'stage'        => match (true) {
                 $paid && $hasAccount => 'active',
                 $paid                => 'paid',
+                $hasAccount && $partner->subscription?->state() === \App\Models\PartnerSubscription::STATE_TRIAL => 'trial',
+                $this->onboarding->awaitingSignupApproval($partner) && ! in_array($payment?->status, [Pay::STATUS_CANCELLED, Pay::STATUS_EXPIRED], true) => 'pending_approval',
                 $payment?->status === Pay::STATUS_CANCELLED => 'cancelled',
                 $payment?->status === Pay::STATUS_EXPIRED   => 'expired',
                 default              => 'pending_payment',
             },
             'partner'      => $partner->only(['name', 'phone', 'email', 'address']),
             'payment'      => $payment?->loadMissing('plan')->toApi(),
-            'subscription' => $partner->subscription ? ['expires_at' => $partner->subscription->expires_at?->toIso8601String(), 'status' => $partner->subscription->state()] : null,
+            'subscription' => $partner->subscription ? [
+                'expires_at' => $partner->subscription->expires_at?->toIso8601String(),
+                'status'     => $partner->subscription->state(),
+                'is_trial'   => (bool) $partner->subscription->is_trial,
+                'days_left'  => $partner->subscription->daysLeft(),
+            ] : null,
             'account'      => [
                 'created'   => $hasAccount,
                 'email'     => $hasAccount ? $partner->email : null,
