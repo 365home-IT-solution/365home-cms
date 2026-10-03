@@ -76,6 +76,9 @@ use App\Http\Controllers\Api\Admin\PartnerLegalDocumentController as MinihousePa
 Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->name('api.admin.minihouse.')->group(function () {
     Route::middleware('partner.type:minihouse')->group(function () {
         Route::get('partners', [MinihousePartnerController::class, 'index'])->name('partners.index');
+        // Giao dịch gói dịch vụ MiniHouse: Super Admin xem và xác nhận đã nhận tiền (khi webhook PayOS chưa ghi nhận).
+        Route::get('subscription-payments', [\App\Http\Controllers\Api\Admin\SubscriptionPaymentAdminController::class, 'index'])->name('subscription-payments.index');
+        Route::post('subscription-payments/{id}/confirm', [\App\Http\Controllers\Api\Admin\SubscriptionPaymentAdminController::class, 'confirm'])->whereNumber('id')->name('subscription-payments.confirm');
         Route::post('partners', [MinihousePartnerController::class, 'store'])->name('partners.store');
         Route::get('partners/{partner}', [MinihousePartnerController::class, 'show'])->name('partners.show');
         Route::match(['put', 'patch'], 'partners/{partner}', [MinihousePartnerController::class, 'update'])->name('partners.update');
