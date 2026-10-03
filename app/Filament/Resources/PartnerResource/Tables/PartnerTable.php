@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Filament\Resources\PartnerResource\Tables;
 
 use App\Models\Partner;
+use App\Models\PartnerSubscription;
+use Filament\Facades\Filament;
 use Filament\Tables\Actions\DeleteAction;
 use Filament\Tables\Actions\EditAction;
 use Filament\Tables\Actions\ViewAction;
@@ -31,6 +33,7 @@ class PartnerTable
     public static function table(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(fn ($query) => $query->with('subscription.plan'))
             ->columns([
                 TextColumn::make('name')
                     ->label('Tên đối tác')
@@ -53,6 +56,21 @@ class PartnerTable
                     ->formatStateUsing(fn (string $state): string => self::STATUS_LABELS[$state] ?? $state)
                     ->color(fn (string $state): string => self::STATUS_COLORS[$state] ?? 'gray')
                     ->sortable(),
+
+                // MiniHouse: gói đang dùng, hạn dùng và số ngày còn lại (Homestay không dùng gói).
+                TextColumn::make('subscription_state')
+                    ->label('Gói dịch vụ')
+                    ->visible(fn () => Filament::getCurrentPanel()?->getId() === 'minihouse-admin')
+                    ->badge()
+                    ->placeholder('Chưa có gói')
+                    ->state(fn (Partner $record) => $record->subscription ? PartnerSubscription::STATES[$record->subscription->state()] : null)
+                    ->color(fn (Partner $record) => match ($record->subscription?->state()) {
+                        PartnerSubscription::STATE_ACTIVE => 'success', PartnerSubscription::STATE_TRIAL => 'info', PartnerSubscription::STATE_EXPIRED => 'danger', default => 'gray',
+                    })
+                    ->description(fn (Partner $record) => ($sub = $record->subscription)?->expires_at
+                        ? ($sub->plan?->name ? $sub->plan->name . ' · ' : '') . 'Hết hạn ' . $sub->expires_at->format('d/m/Y')
+                            . ($sub->isExpired() ? ' (đã hết hạn)' : ' · còn ' . $sub->daysLeft() . ' ngày')
+                        : null),
 
                 TextColumn::make('categories_count')
                     ->label('Số cơ sở')

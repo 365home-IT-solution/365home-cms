@@ -57,6 +57,20 @@ class PartnerContractVersion extends Model implements HasMedia
         'legal_document_snapshot' => 'array',
     ];
 
+    protected static function booted(): void
+    {
+        // Phiên bản mới → link ký của các phiên bản CŨ chưa được đối tác xác nhận mất hiệu lực (tránh khách ký nhầm bản đã bị thay,
+        // trong khi admin chỉ thấy bản mới nhất "chưa xác nhận"). Phiên bản đã xác nhận giữ nguyên làm chứng cứ.
+        static::created(function (self $version): void {
+            static::query()
+                ->where('partner_id', $version->partner_id)
+                ->where('id', '!=', $version->id)
+                ->whereNull('partner_confirmed_at')
+                ->whereNotNull('signing_token')
+                ->update(['signing_token' => null]);
+        });
+    }
+
     public function registerMediaCollections(): void
     {
         $this->addMediaCollection('document')->singleFile();

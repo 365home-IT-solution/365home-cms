@@ -109,6 +109,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
         Route::post('/', [PartnerLegalDocumentController::class, 'store'])->name('store');
         Route::post('submit', [PartnerLegalDocumentController::class, 'submit'])->name('submit');
         Route::post('approve-dossier', [PartnerLegalDocumentController::class, 'approveDossier'])->name('approve-dossier');
+        Route::post('reject-dossier', [PartnerLegalDocumentController::class, 'rejectDossier'])->name('reject-dossier');
         Route::get('{document}', [PartnerLegalDocumentController::class, 'show'])->name('show');
         Route::post('{document}', [PartnerLegalDocumentController::class, 'update'])->name('update');
         Route::delete('{document}', [PartnerLegalDocumentController::class, 'destroy'])->name('destroy');

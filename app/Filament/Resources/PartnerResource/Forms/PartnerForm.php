@@ -50,8 +50,8 @@ class PartnerForm
                     ...($isMinihouse ? [] : [self::propertiesTab()]),
                     self::branchAssignmentTab(),
                     self::userAssignmentTab(),
-                    self::contractTab(),
-                    self::verificationTab(),
+                    // MiniHouse chỉ mua gói: ẩn Hợp đồng + Tài liệu & Xác minh (code giữ nguyên, bật lại bằng MINIHOUSE_CONTRACT_ENABLED).
+                    ...(($isMinihouse && ! config('partner_flow.minihouse_contract_enabled')) ? [] : [self::contractTab(), self::verificationTab()]),
                     self::historyTab(),
                 ])
                 ->columnSpanFull(),
@@ -112,11 +112,32 @@ class PartnerForm
                             Forms\Components\DatePicker::make('representative_dob')
                                 ->label('Ngày sinh')
                                 ->native(false)
-                                ->displayFormat('d/m/Y'),
+                                ->displayFormat('d/m/Y')
+                                ->maxDate(now()->subYears(18))
+                                ->validationMessages(['before_or_equal' => 'Người đại diện phải đủ 18 tuổi.']),
+
+                            Forms\Components\TextInput::make('representative_position')
+                                ->label('Chức vụ')
+                                ->placeholder('Chủ cơ sở')
+                                ->maxLength(100),
 
                             Forms\Components\TextInput::make('representative_id_number')
                                 ->label('Số CMND/CCCD/Hộ chiếu')
-                                ->maxLength(50),
+                                ->maxLength(20)
+                                ->regex('/^[A-Za-z0-9]{6,20}$/')
+                                ->validationMessages(['regex' => 'Số giấy tờ gồm 6–20 chữ/số, không dấu cách (CMND 9 số, CCCD 12 số).']),
+
+                            Forms\Components\DatePicker::make('representative_id_issued_at')
+                                ->label('Ngày cấp CMND/CCCD')
+                                ->native(false)
+                                ->displayFormat('d/m/Y')
+                                ->maxDate(now())
+                                ->validationMessages(['before_or_equal' => 'Ngày cấp không được ở tương lai.']),
+
+                            Forms\Components\TextInput::make('representative_id_issued_place')
+                                ->label('Nơi cấp CMND/CCCD')
+                                ->placeholder('Cục Cảnh sát QLHC về TTXH')
+                                ->maxLength(255),
 
                             Forms\Components\Placeholder::make('login_email')
                                 ->label('Email đăng nhập hệ thống')
@@ -132,12 +153,16 @@ class PartnerForm
                             Forms\Components\TextInput::make('phone')
                                 ->label('Số điện thoại - chính')
                                 ->tel()
-                                ->maxLength(20),
+                                ->maxLength(20)
+                                ->regex('/^(0|\+84)[0-9]{9,10}$/')
+                                ->validationMessages(['regex' => 'Số điện thoại phải dạng 0xxxxxxxxx hoặc +84xxxxxxxxx.']),
 
                             Forms\Components\TextInput::make('representative_phone_secondary')
                                 ->label('Số điện thoại - phụ')
                                 ->tel()
-                                ->maxLength(20),
+                                ->maxLength(20)
+                                ->regex('/^(0|\+84)[0-9]{9,10}$/')
+                                ->validationMessages(['regex' => 'Số điện thoại phải dạng 0xxxxxxxxx hoặc +84xxxxxxxxx.']),
                         ]),
                     ]),
 
@@ -180,12 +205,16 @@ class PartnerForm
 
                             Forms\Components\TextInput::make('tax_code')
                                 ->label('Mã số thuế')
-                                ->maxLength(50),
+                                ->maxLength(14)
+                                ->regex('/^\d{10}(-?\d{3})?$/')
+                                ->validationMessages(['regex' => 'Mã số thuế gồm 10 số (hoặc 13 số cho đơn vị phụ thuộc, vd 0312345678-001).']),
 
                             Forms\Components\DatePicker::make('business_license_date')
                                 ->label('Ngày cấp GPKD')
                                 ->native(false)
-                                ->displayFormat('d/m/Y'),
+                                ->displayFormat('d/m/Y')
+                                ->maxDate(now())
+                                ->validationMessages(['before_or_equal' => 'Ngày cấp GPKD không được ở tương lai.']),
 
                             Forms\Components\TextInput::make('business_license_issuer')
                                 ->label('Nơi cấp')
@@ -213,9 +242,15 @@ class PartnerForm
                     ->schema([
                         Forms\Components\Grid::make(2)->schema([
                             Forms\Components\Grid::make(1)->schema([
-                                Forms\Components\TextInput::make('bank_name')->label('Tên ngân hàng')->maxLength(255),
+                                Forms\Components\Select::make('bank_name')
+                                    ->label('Ngân hàng')
+                                    ->options(fn () => \App\Support\Banks::options())
+                                    ->searchable()
+                                    ->native(false)
+                                    ->placeholder('Chọn ngân hàng')
+                                    ->helperText('Chọn trong danh sách ngân hàng (không nhập tay).'),
                                 Forms\Components\TextInput::make('bank_branch')->label('Chi nhánh')->maxLength(255),
-                                Forms\Components\TextInput::make('bank_account_number')->label('Số tài khoản')->maxLength(50),
+                                Forms\Components\TextInput::make('bank_account_number')->label('Số tài khoản')->maxLength(20)->regex('/^[0-9]{6,20}$/')->validationMessages(['regex' => 'Số tài khoản chỉ gồm 6–20 chữ số.']),
                                 Forms\Components\TextInput::make('bank_account_holder')->label('Tên chủ tài khoản')->maxLength(255),
                             ]),
 
@@ -572,7 +607,10 @@ class PartnerForm
                 Forms\Components\Grid::make(2)->schema([
                     Forms\Components\TextInput::make('contract_code')
                         ->label('Mã số hợp đồng')
-                        ->maxLength(100),
+                        ->disabled()
+                        ->dehydrated(false)
+                        ->placeholder('Tự sinh khi tạo hợp đồng')
+                        ->helperText('Hệ thống tự cấp theo mẫu 001/2026/HĐHT-365 (số thứ tự/năm/HĐHT-365) khi tạo hợp đồng; không nhập tay.'),
 
                     Forms\Components\Select::make('contract_type')
                         ->label('Hình thức hợp đồng')
@@ -589,13 +627,17 @@ class PartnerForm
                     Forms\Components\DatePicker::make('contract_expires_at')
                         ->label('Ngày hết hạn')
                         ->native(false)
-                        ->displayFormat('d/m/Y'),
+                        ->displayFormat('d/m/Y')
+                        ->afterOrEqual('contract_signed_at')
+                        ->validationMessages(['after_or_equal' => 'Ngày hết hạn phải sau hoặc bằng ngày ký kết.']),
                 ]),
 
                 Forms\Components\Select::make('contract_status')
                     ->label('Trạng thái hợp đồng')
                     ->options(self::CONTRACT_STATUS_LABELS)
-                    ->default('draft'),
+                    ->default('draft')
+                    ->disabled(fn (?Partner $record) => filled($record?->onboarding_token) && $record->contract_type !== 'paper')
+                    ->helperText(fn (?Partner $record) => filled($record?->onboarding_token) && $record->contract_type !== 'paper' ? 'Hồ sơ đăng ký trên website: trạng thái do hệ thống cập nhật theo luồng ký (không chỉnh tay).' : null),
 
                 SpatieMediaLibraryFileUpload::make('contract_file')
                     ->label('Tệp hợp đồng (bản giấy/scan, nếu có)')
@@ -606,7 +648,13 @@ class PartnerForm
                 Forms\Components\Grid::make(2)->schema([
                     Forms\Components\TextInput::make('commission_rate')
                         ->label('Tỷ lệ hoa hồng (%)')
-                        ->helperText('Áp dụng cho tất cả các loại phòng và dịch vụ cộng thêm.'),
+                        ->default(fn () => config('partner_flow.default_commission_rate'))
+                        ->helperText('Số từ 0 đến 100 (vd 10 hoặc 10%). Mặc định 20%, bắt buộc với Homestay trước khi tạo hợp đồng. Áp dụng cho tất cả các loại phòng và dịch vụ cộng thêm.')
+                        ->rules([fn () => function (string $attribute, $value, \Closure $fail) {
+                            if (filled($value) && app(\App\Services\PartnerContractWorkflowService::class)->commissionValue((string) $value) === null) {
+                                $fail('Tỷ lệ hoa hồng phải là số từ 0 đến 100 (vd 10 hoặc 10%).');
+                            }
+                        }]),
 
                     Forms\Components\Textarea::make('cancellation_policy')
                         ->label('Chính sách hủy/hoàn tiền')
@@ -724,10 +772,10 @@ class PartnerForm
                                             ->label(fn (?Partner $record) => self::latestVersion($record) ? 'Tạo lại & gửi ký' : 'Tạo & gửi hợp đồng ký')
                                             ->icon('heroicon-o-paper-airplane')
                                             ->color('primary')
-                                            ->visible(fn (?Partner $record) => $record && ! self::latestVersion($record)?->isFullySigned())
+                                            ->visible(fn (?Partner $record) => $record && ! self::latestVersion($record)?->isPartnerConfirmed() && ! self::latestVersion($record)?->isFullySigned())
                                             ->disabled(fn (?Partner $record) => ! $record || ! app(PartnerLegalDocumentService::class)->isContractEligible($record))
                                             ->requiresConfirmation()
-                                            ->modalDescription('Hệ thống sẽ tạo bản hợp đồng điện tử từ đúng thông tin đối tác hiện tại (điều khoản hoa hồng, chính sách hủy...) và gửi link ký cho đối tác qua email. Kiểm tra kỹ thông tin trước khi gửi — mỗi lần gửi sẽ tạo 1 phiên bản mới, hủy hiệu lực link ký cũ.')
+                                            ->modalDescription('Hệ thống sẽ tạo bản hợp đồng điện tử từ đúng thông tin đối tác hiện tại (điều khoản hoa hồng, chính sách hủy...) và gửi link ký cho đối tác qua email. Kiểm tra kỹ thông tin trước khi gửi — mỗi lần gửi sẽ tạo 1 phiên bản mới, hủy hiệu lực link ký cũ. Mã số hợp đồng tự sinh; thiếu tỷ lệ hoa hồng (Homestay) hoặc ngày hết hạn thì hệ thống không cho tạo. Khi đối tác đã xác nhận, không tạo lại được nữa.')
                                             ->action(fn (?Partner $record) => self::createAndSendContract($record)),
 
                                         Forms\Components\Actions\Action::make('signAndExportContract')
@@ -936,56 +984,20 @@ class PartnerForm
             return;
         }
 
-        $documentService = app(PartnerLegalDocumentService::class);
         try {
-            $documentService->assertContractEligible($record);
+            $result = app(\App\Services\PartnerContractWorkflowService::class)->createAndSend($record, auth()->user());
         } catch (ValidationException $e) {
             Notification::make()
                 ->title('Chưa thể tạo hợp đồng')
-                ->body(implode(' ', $e->errors()['legal_documents'] ?? ['Hồ sơ pháp lý chưa được duyệt.']))
-                ->danger()->send();
+                ->body(collect($e->errors())->flatten()->map(fn ($m) => '• ' . $m)->implode("\n"))
+                ->danger()->persistent()->send();
 
             return;
         }
 
-        $content = PartnerContractRenderer::render($record);
-        $token = Str::random(48);
-
-        $record->contractVersions()->create([
-            'version_label' => 'Hợp đồng điện tử — '.now()->format('d/m/Y H:i'),
-            'change_note' => 'Tạo tự động để ký điện tử',
-            'changed_by' => auth()->id(),
-            'content' => $content,
-            'content_hash' => hash('sha256', $content),
-            'legal_document_snapshot' => $documentService->snapshot($record),
-            'signing_token' => $token,
-        ]);
-
-        $record->update(['contract_status' => 'pending']);
-
-        // Ưu tiên email LIÊN HỆ của đối tác (record->email, khai báo ở tab Doanh nghiệp) — đây
-        // mới là email giao dịch/pháp lý thật của đối tác. Email đăng nhập hệ thống (owner()->email)
-        // chỉ dùng khi đối tác chưa khai báo email liên hệ riêng.
-        $email = $record->email ?? $record->owner()?->email;
-        $signUrl = route('contract.sign.show', $token);
-
-        $mailSent = false;
-
-        if (filled($email)) {
-            try {
-                Mail::to($email)->send(new LockNotificationMail(
-                    'Yêu cầu ký hợp đồng điện tử',
-                    "<p>Vui lòng bấm vào link bên dưới để xem toàn văn và ký hợp đồng hợp tác:</p><p><a href=\"{$signUrl}\">{$signUrl}</a></p>"
-                ));
-                $mailSent = true;
-            } catch (\Throwable $e) {
-                // Bỏ qua — admin vẫn xem được link để gửi thủ công qua "Xem toàn văn hợp đồng".
-            }
-        }
-
         Notification::make()
-            ->title($mailSent
-                ? "Đã tạo hợp đồng & gửi link ký tới {$email}"
+            ->title($result['mailSent']
+                ? "Đã tạo hợp đồng & gửi link ký tới {$result['email']}"
                 : 'Đã tạo hợp đồng — chưa gửi được email, xem "Xem toàn văn hợp đồng" để lấy link gửi thủ công')
             ->success()
             ->send();
@@ -1004,85 +1016,35 @@ class PartnerForm
     // lại platform_signed_at/contract_status (đã set từ lần ký đầu, không ghi đè).
     private static function signAndExportContract(?Partner $record, bool $forceNewSignature = false): ?StreamedResponse
     {
-        $version = self::latestVersion($record);
-
-        if (! $record || ! $version || ! $version->isPartnerConfirmed()) {
+        if (! $record) {
             return null;
         }
 
         try {
-            app(PartnerLegalDocumentService::class)->assertContractEligible($record);
+            $result = app(\App\Services\PartnerContractWorkflowService::class)->platformSign(
+                $record,
+                auth()->user(),
+                (string) request()->ip(),
+                (string) request()->userAgent(),
+                reExport: $forceNewSignature,
+            );
         } catch (ValidationException $e) {
             Notification::make()
                 ->title('Chưa thể ký hợp đồng')
-                ->body(implode(' ', $e->errors()['legal_documents'] ?? ['Hồ sơ pháp lý chưa được duyệt.']))
+                ->body(collect($e->errors())->flatten()->map(fn ($m) => '• ' . $m)->implode("\n"))
                 ->danger()->send();
 
             return null;
-        }
-
-        if (! $forceNewSignature && $version->isPlatformSigned()) {
-            return null;
-        }
-
-        // QUAN TRỌNG: PDF được render/ký NGAY TRONG signAndEmbed() bên dưới, TRƯỚC KHI trạng thái
-        // "đã ký" được lưu vào DB — nếu không gán tạm các giá trị này vào $version TRONG BỘ NHỚ
-        // (chưa save) trước khi render, khung ký "Nền tảng" trong PDF xuất ra sẽ hiện SAI thành
-        // "Chưa ký" (vì PartnerContractRenderer::renderFramed() đọc thẳng $version->isPlatformSigned()
-        // tại đúng lúc render). Chỉ áp dụng cho lần ký ĐẦU (forceNewSignature=false); lần "xuất lại"
-        // thì $version đã có sẵn trạng thái đã ký thật từ trước, không cần gán tạm gì thêm.
-        $signingUser = auth()->user();
-        $signingTime = now();
-
-        if (! $forceNewSignature) {
-            $version->platform_signed_at = $signingTime;
-            $version->setRelation('platformSignedBy', $signingUser);
-        }
-
-        try {
-            $service = app(ContractPdfSigningService::class);
-            $result = $service->signAndEmbed($version, [
-                'role' => 'platform',
-                'name' => $signingUser?->name,
-                'user_id' => $signingUser?->id,
-            ]);
         } catch (\Throwable $e) {
             report($e);
-            Notification::make()
-                ->title('Ký số & xuất PDF thất bại')
-                ->body($e->getMessage())
-                ->danger()
-                ->send();
+            Notification::make()->title('Ký số & xuất PDF thất bại')->body($e->getMessage())->danger()->send();
 
             return null;
         }
-
-        if (! $forceNewSignature) {
-            $version->update([
-                'platform_signing_provider' => app(DigitalSignatureProvider::class)->name(),
-                'platform_signed_at' => $signingTime,
-                'platform_signed_by' => $signingUser?->id,
-                'platform_signed_ip' => request()->ip(),
-                'platform_signed_user_agent' => (string) request()->userAgent(),
-                // KHÔNG lưu platform_signature/platform_signature_certificate ở đây — chữ ký này
-                // được ký trên hash của FILE PDF (ByteRange), không phải content_hash, nên không
-                // khớp với cơ chế verifyPlatformSignature() cũ (tránh hiện badge "KHÔNG khớp" sai).
-                // Chữ ký thật đã tự-chứa (self-contained) NGAY TRONG file PDF — kiểm tra độc lập
-                // bằng NEAC/Adobe/openssl, không cần verify qua DB nữa. File không lưu server nên
-                // đây cũng là LẦN DUY NHẤT có thể tải bản gốc — nhắc admin lưu lại cẩn thận.
-            ]);
-
-            $record->update([
-                'contract_status' => 'active',
-                'contract_signed_at' => $signingTime,
-            ]);
-        }
-
-        $fileName = "hop-dong-{$version->id}-".$signingTime->format('YmdHis').'.pdf';
 
         return response()->streamDownload(
             fn () => print ($result['pdf']),
-            $fileName,
+            $result['file_name'],
             ['Content-Type' => 'application/pdf']
         );
     }

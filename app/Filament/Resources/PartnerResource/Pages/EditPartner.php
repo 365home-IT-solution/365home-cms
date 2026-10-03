@@ -60,12 +60,35 @@ class EditPartner extends EditRecord
                 ->visible(fn () => $this->record->verification_status !== 'suspended')
                 ->action(fn () => $this->changeStatus('suspended', 'Tạm dừng hồ sơ')),
 
+            Action::make('rejectDossier')
+                ->label('Từ chối hồ sơ')
+                ->color('danger')
+                ->icon('heroicon-o-x-circle')
+                ->visible(fn () => $this->record->usesContract() && $this->record->verification_status !== 'rejected' && $this->record->contract_status !== 'active')
+                ->modalHeading('Từ chối hồ sơ đối tác')
+                ->modalDescription('Hồ sơ bị từ chối, link ký hợp đồng chưa được xác nhận sẽ mất hiệu lực. Với hồ sơ đăng ký trên website, lý do được gửi cho đối tác qua email.')
+                ->form([
+                    \Filament\Forms\Components\Textarea::make('reason')->label('Lý do từ chối')->required()->maxLength(2000),
+                ])
+                ->action(function (array $data) {
+                    try {
+                        app(PartnerLegalDocumentService::class)->rejectDossier($this->record, auth()->user(), $data['reason']);
+                    } catch (\Illuminate\Validation\ValidationException $e) {
+                        Notification::make()->title('Không thể từ chối hồ sơ')->body(collect($e->errors())->flatten()->implode(' '))->danger()->send();
+
+                        return;
+                    }
+
+                    $this->record->refresh();
+                    Notification::make()->title('Đã từ chối hồ sơ')->warning()->send();
+                }),
+
             Action::make('approve')
                 ->label('Phê duyệt chính thức')
                 ->color('success')
                 ->icon('heroicon-o-check-circle')
                 ->requiresConfirmation()
-                ->visible(fn () => $this->record->verification_status !== 'approved')
+                ->visible(fn () => $this->record->usesContract() && $this->record->verification_status !== 'approved')
                 ->action(function () {
                     // Hồ sơ pháp lý chưa đủ điều kiện → service ném ValidationException(legal_documents) mà form không có ô nào hiển thị,
                     // nên trước đây bấm "Xác nhận" không thấy gì. Hiện rõ lý do thay vì im lặng.
@@ -84,6 +107,20 @@ class EditPartner extends EditRecord
 
                     $this->record->refresh();
                     Notification::make()->title('Đã phê duyệt hồ sơ pháp lý')->success()->send();
+                }),
+
+            Action::make('resendCredentials')
+                ->label('Gửi lại tài khoản đăng nhập')
+                ->color('info')
+                ->icon('heroicon-o-envelope')
+                ->requiresConfirmation()
+                ->modalDescription('Tạo tài khoản (nếu chưa có) hoặc đặt mật khẩu mới cho tài khoản chủ đối tác, rồi gửi email xác nhận hợp tác kèm thông tin đăng nhập.')
+                ->visible(fn () => $this->record->usesContract() ? ($this->record->contract_status === 'active' && filled($this->record->onboarding_token)) : (filled($this->record->onboarding_token) && $this->record->subscription?->expires_at !== null))
+                ->action(function () {
+                    $result = app(\App\Services\PartnerOnboardingService::class)->resendCredentials($this->record);
+                    if (! $result['created'] && ! $result['mail_sent'] && filled($result['reason'] ?? null)) {
+                        Notification::make()->title('Không tạo được tài khoản')->body($result['reason'])->danger()->persistent()->send();
+                    }
                 }),
 
             DeleteAction::make(),
