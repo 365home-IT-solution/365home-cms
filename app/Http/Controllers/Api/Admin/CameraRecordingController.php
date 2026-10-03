@@ -27,6 +27,10 @@ class CameraRecordingController extends Controller
     // Tổng hợp theo GIỜ (có ghi hình/motion/object không) — dùng vẽ lịch/thanh thời gian chọn giờ.
     public function summary(Request $request, int $id): JsonResponse
     {
+        if (! ($request->user()->isSuperAdmin() || $request->user()->can('page_CameraMonitor') || $request->user()->can('view_any_camera'))) {
+            return response()->json(['message' => 'Bạn không có quyền xem camera.'], 403);
+        }
+
         $camera = $this->findInScope($request->user(), $id);
 
         if (! $camera) {
@@ -46,6 +50,10 @@ class CameraRecordingController extends Controller
     // Frigate tự lấy 1 giờ gần nhất.
     public function index(Request $request, int $id): JsonResponse
     {
+        if (! ($request->user()->isSuperAdmin() || $request->user()->can('page_CameraMonitor') || $request->user()->can('view_any_camera'))) {
+            return response()->json(['message' => 'Bạn không có quyền xem camera.'], 403);
+        }
+
         $camera = $this->findInScope($request->user(), $id);
 
         if (! $camera) {
@@ -68,6 +76,10 @@ class CameraRecordingController extends Controller
     // hạn (App\Support\CameraMediaToken) — proxy đó tự gắn cookie Frigate khi chuyển tiếp request.
     public function playbackUrl(Request $request, int $id): JsonResponse
     {
+        if (! ($request->user()->isSuperAdmin() || $request->user()->can('page_CameraMonitor') || $request->user()->can('view_any_camera'))) {
+            return response()->json(['message' => 'Bạn không có quyền xem camera.'], 403);
+        }
+
         $camera = $this->findInScope($request->user(), $id);
 
         if (! $camera) {
@@ -93,6 +105,10 @@ class CameraRecordingController extends Controller
     // khi gọi .../stop), pre_capture (giây lùi lại trước thời điểm gọi API, nếu Frigate có buffer đủ).
     public function start(Request $request, int $id): JsonResponse
     {
+        if (! ($request->user()->isSuperAdmin() || $request->user()->can('page_CameraMonitor') || $request->user()->can('view_any_camera'))) {
+            return response()->json(['message' => 'Bạn không có quyền xem camera.'], 403);
+        }
+
         $camera = $this->findInScope($request->user(), $id);
 
         if (! $camera) {
@@ -122,6 +138,10 @@ class CameraRecordingController extends Controller
     // xấu (Frigate tự bỏ qua sự kiện đã kết thúc) nhưng cũng không cần thiết.
     public function stop(Request $request, int $id, string $eventId): JsonResponse
     {
+        if (! ($request->user()->isSuperAdmin() || $request->user()->can('page_CameraMonitor') || $request->user()->can('view_any_camera'))) {
+            return response()->json(['message' => 'Bạn không có quyền xem camera.'], 403);
+        }
+
         $camera = $this->findInScope($request->user(), $id);
 
         if (! $camera) {

@@ -18,7 +18,8 @@ class PartnerLegalDocumentService
         $documents = $partner->legalDocuments()->with('media')->get();
         $required = $documents->filter(fn (PartnerLegalDocument $document) => $document->is_required || $document->type === 'business_license');
         $problems = [];
-        $requiredTypes = ['business_license'];
+        // Homestay đăng ký trên website: bắt buộc cả An toàn an ninh và Phòng cháy chữa cháy; còn lại chỉ Giấy phép kinh doanh.
+        $requiredTypes = (! $partner->isMinihouse() && filled($partner->onboarding_token)) ? PartnerLegalDocument::HOMESTAY_REGISTRATION_REQUIRED : ['business_license'];
 
         foreach ($requiredTypes as $requiredType) {
             $matching = $documents->where('type', $requiredType)->whereNull('building_id');

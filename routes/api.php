@@ -53,7 +53,6 @@ Route::prefix('public/partner-onboarding')->name('api.partner-onboarding.')->gro
         Route::post('documents', [PartnerOnboardingController::class, 'storeDocument'])->name('documents.store');
         Route::delete('documents/{document}', [PartnerOnboardingController::class, 'destroyDocument'])->name('documents.destroy');
         Route::put('contract-info', [PartnerOnboardingController::class, 'updateContractInfo'])->name('contract-info');
-        Route::put('bank-info', [PartnerOnboardingController::class, 'updateBankInfo'])->name('bank-info');
         Route::post('submit', [PartnerOnboardingController::class, 'submit'])->name('submit');
         Route::post('withdraw', [PartnerOnboardingController::class, 'withdraw'])->name('withdraw');
     });
