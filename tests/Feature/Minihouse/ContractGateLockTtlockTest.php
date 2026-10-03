@@ -135,6 +135,13 @@ class ContractGateLockTtlockTest extends TestCase
 
         $this->assertTrue($result['success'], $result['message']);
         $this->assertSame('739152', ContractTtlockService::currentCode($contract));
+
+        // Toà đã cấu hình khoá cổng -> khách vẫn thấy mã cổng (trùng mã phòng) và mở cổng từ xa được.
+        $this->assertSame(['room' => '739152', 'gate' => '739152'], ContractTtlockService::currentCodes($contract));
+
+        $service = app(TenantRoomUnlockService::class);
+        $this->assertSame(['room', 'gate'], array_column($service->locks($contract), 'target'));
+        $this->assertTrue($service->unlock(Tenant::find($contract->tenant_id), $contract, 'gate')['success']);
     }
 
     // TTLock từ chối tự sinh lại mã cho đúng khung giờ vừa xoá (errcode -1026) -> phải tự sinh số ngẫu

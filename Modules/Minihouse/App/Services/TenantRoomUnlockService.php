@@ -35,10 +35,9 @@ class TenantRoomUnlockService
             $locks[] = ['target' => self::TARGET_ROOM, 'lock_id' => (int) $room->lock_id, 'name' => 'Phòng ' . $room->code];
         }
 
-        $gateIds = array_values(array_diff(
-            TtlockSetting::forBuilding((int) $room->building_id)->gateLockIds(),
-            array_filter([(int) $room->lock_id, (int) $room->lock_id_checkout]),
-        ));
+        // KHÔNG loại khoá cổng trùng với khoá của chính phòng này — toà đã cấu hình khoá cổng thì khách
+        // phải thấy nút mở cổng (LỖI THẬT 2026-10-03: báo "Toà nhà chưa cấu hình khóa cổng" dù đã cấu hình).
+        $gateIds = TtlockSetting::forBuilding((int) $room->building_id)->gateLockIds();
         $aliases = $gateIds ? $this->lockAliases((int) $room->building_id) : [];
 
         foreach ($gateIds as $i => $lockId) {

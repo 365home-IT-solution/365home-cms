@@ -152,9 +152,14 @@ class ContractTtlockService
     {
         $rows = ContractTtlockPasscode::where('contract_id', $contract->id)->get();
 
+        // Khoá cổng của toà CŨNG là khoá của chính phòng này (dòng được ghi là khoá phòng, is_gate =
+        // false) thì mã trên ổ đó vẫn là "mã cổng" của khách — LỖI THẬT 2026-10-03: toà đã cấu hình
+        // khoá cổng mà khách thấy gate_code = null và không mở cổng từ xa được.
+        $gateLockIds = $rows->isEmpty() ? [] : TtlockSetting::forBuilding((int) $rows->first()->building_id)->gateLockIds();
+
         return [
             'room' => $rows->firstWhere('is_gate', false)?->code,
-            'gate' => $rows->firstWhere('is_gate', true)?->code,
+            'gate' => ($rows->firstWhere('is_gate', true) ?? $rows->first(fn ($row) => in_array((int) $row->lock_id, $gateLockIds, true)))?->code,
         ];
     }
 
