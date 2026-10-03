@@ -154,6 +154,164 @@ class ManualLockPasswordController extends Controller
         ], $result['ok'] ? 201 : 422);
     }
 
+    // GET /api/admin/manual-lock-passwords/{id}
+    public function show(Request $request, int $id): JsonResponse
+    {
+        $user = $this->user($request);
+
+        if (! $this->canView($user)) {
+            return response()->json(['message' => 'Không có quyền xem mật khẩu khóa thủ công.'], 403);
+        }
+
+        $record = $this->findVisible($user, $id);
+
+        return $record
+            ? response()->json(['data' => $this->toItem($record)])
+            : response()->json(['message' => 'Không tìm thấy bộ mật khẩu.'], 404);
+    }
+
+    // PUT|PATCH /api/admin/manual-lock-passwords/{id}
+    // { name?, notes?, room_password?, gate_password?, valid_from?, valid_until?, is_active?, product_ids[]? }
+    // Gửi trường nào sửa trường đó. Bộ mật khẩu cấp qua TTLock: đổi valid_from/valid_until thì cập
+    // nhật luôn thời gian mã TRÊN KHÓA (lỗi thì không lưu gì); KHÔNG đổi được gate_password (mã do
+    // TTLock sinh) — muốn đổi mã thì xóa rồi cấp lại.
+    public function update(Request $request, int $id): JsonResponse
+    {
+        $user   = $this->user($request);
+        $record = $this->findVisible($user, $id);
+
+        if (! $record) {
+            return response()->json(['message' => 'Không tìm thấy bộ mật khẩu.'], 404);
+        }
+
+        if (! $user->can('update', $record)) {
+            return response()->json(['message' => 'Không có quyền sửa mật khẩu khóa thủ công.'], 403);
+        }
+
+        $data = $request->validate([
+            'name'          => 'sometimes|nullable|string|max:255',
+            'notes'         => 'sometimes|nullable|string|max:2000',
+            'gate_password' => 'sometimes|required|string|max:100',
+            'room_password' => 'sometimes|nullable|string|max:100',
+            'valid_from'    => 'sometimes|nullable|date',
+            'valid_until'   => 'sometimes|nullable|date',
+            'is_active'     => 'sometimes|boolean',
+            'product_ids'   => 'sometimes|array',
+            'product_ids.*' => 'string',
+        ]);
+
+        $ttlockBacked = Issuer::isTtlockBacked($record);
+
+        if ($ttlockBacked && array_key_exists('gate_password', $data) && $data['gate_password'] !== $record->gate_password) {
+            return response()->json([
+                'message' => 'Pass Cổng do TTLock sinh, không đổi được — hãy xóa bộ mật khẩu này rồi cấp mã mới.',
+                'errors'  => ['gate_password' => ['Pass Cổng do TTLock sinh, không đổi được.']],
+            ], 422);
+        }
+
+        $validFrom  = array_key_exists('valid_from', $data) ? ($data['valid_from'] ? Carbon::parse($data['valid_from']) : null) : $record->valid_from;
+        $validUntil = array_key_exists('valid_until', $data) ? ($data['valid_until'] ? Carbon::parse($data['valid_until']) : null) : $record->valid_until;
+
+        if ($validFrom && $validUntil && $validUntil->lte($validFrom)) {
+            return response()->json(['message' => 'Hết hạn phải sau thời gian bắt đầu.', 'errors' => ['valid_until' => ['Hết hạn phải sau thời gian bắt đầu.']]], 422);
+        }
+
+        $same          = fn (?Carbon $a, $b): bool => $a === null ? $b === null : ($b !== null && $a->equalTo($b));
+        $periodChanged = ! $same($validFrom, $record->valid_from) || ! $same($validUntil, $record->valid_until);
+
+        if ($ttlockBacked && $periodChanged) {
+            if (! $validFrom || ! $validUntil) {
+                return response()->json(['message' => 'Mã TTLock bắt buộc có thời gian bắt đầu và hết hạn.'], 422);
+            }
+
+            $sync = Issuer::syncPeriodToLocks($record, $validFrom, $validUntil);
+
+            if (! $sync['ok']) {
+                return response()->json(['success' => false, 'message' => 'Chưa lưu — không cập nhật được thời gian mã trên khóa.', 'errors' => $sync['errors']], 422);
+            }
+        }
+
+        // Phòng: chỉ nhận phòng thuộc chi nhánh của bộ mật khẩu; bật/tắt has_manual_lock theo phòng
+        // thêm/bớt (cùng logic EditManualLockPassword::afterSave()).
+        $added = $removed = [];
+
+        if (array_key_exists('product_ids', $data)) {
+            $allowed    = array_map('strval', array_keys(Issuer::products((int) $record->category_id)));
+            $newIds     = array_values(array_intersect(array_map('strval', $data['product_ids']), $allowed));
+            $oldIds     = $record->products()->pluck('products.id')->map(fn ($v) => (string) $v)->all();
+            $added      = array_diff($newIds, $oldIds);
+            $removed    = array_diff($oldIds, $newIds);
+        }
+
+        $record->fill(array_intersect_key($data, array_flip(['name', 'notes', 'gate_password', 'room_password', 'is_active'])));
+        $record->valid_from  = $validFrom;
+        $record->valid_until = $validUntil;
+        $record->save();
+
+        if (array_key_exists('product_ids', $data)) {
+            $record->products()->sync($newIds);
+            ManualLockPassword::markProductsAsManualLock($added);
+            ManualLockPassword::unmarkProductsIfUnlinked($removed);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Đã cập nhật bộ mật khẩu' . ($ttlockBacked && $periodChanged ? ' (đã cập nhật thời gian mã trên khóa)' : '') . '.',
+            'data'    => $this->toItem($record->fresh(['category:id,name,partner_id', 'category.partner:id,name', 'products:id,name'])),
+        ]);
+    }
+
+    // DELETE /api/admin/manual-lock-passwords/{id}[?force=1]
+    // Bộ mật khẩu cấp qua TTLock: xóa mã trên khóa TRƯỚC, lỗi thì không xóa bản ghi (tránh mất dấu
+    // mã vẫn còn mở được cửa) — force=1 để vẫn xóa bản ghi (VD khóa đã gỡ khỏi tài khoản TTLock).
+    public function destroy(Request $request, int $id): JsonResponse
+    {
+        $user   = $this->user($request);
+        $record = $this->findVisible($user, $id);
+
+        if (! $record) {
+            return response()->json(['message' => 'Không tìm thấy bộ mật khẩu.'], 404);
+        }
+
+        if (! $user->can('delete', $record)) {
+            return response()->json(['message' => 'Không có quyền xóa mật khẩu khóa thủ công.'], 403);
+        }
+
+        $warnings = [];
+
+        if (Issuer::isTtlockBacked($record)) {
+            $result = Issuer::deleteFromLocks($record);
+
+            if (! $result['ok'] && ! $request->boolean('force')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Chưa xóa — không xóa được mã trên khóa. Gửi lại với force=1 để vẫn xóa bản ghi (mã trên khóa sẽ còn hiệu lực tới hết hạn).',
+                    'errors'  => $result['errors'],
+                ], 422);
+            }
+
+            $warnings = $result['errors'];
+        }
+
+        $productIds = $record->products()->pluck('products.id')->all();
+        $record->delete();
+        ManualLockPassword::unmarkProductsIfUnlinked($productIds);
+
+        return response()->json([
+            'success'  => true,
+            'message'  => 'Đã xóa bộ mật khẩu' . (Issuer::isTtlockBacked($record) && ! $warnings ? ' và mã trên khóa' : '') . '.',
+            'warnings' => $warnings,
+        ]);
+    }
+
+    private function findVisible(User $user, int $id): ?ManualLockPassword
+    {
+        return ManualLockPassword::query()
+            ->visibleTo($user)
+            ->with(['category:id,name,partner_id', 'category.partner:id,name', 'products:id,name'])
+            ->find($id);
+    }
+
     private function toItem(ManualLockPassword $r): array
     {
         return [
@@ -171,6 +329,9 @@ class ManualLockPasswordController extends Controller
             'partner'       => $r->category?->partner ? ['id' => $r->category->partner->id, 'name' => $r->category->partner->name] : null,
             'rooms'         => $r->products->map(fn ($p) => ['id' => $p->id, 'name' => $p->name])->values(),
             'rooms_count'   => $r->products->count(),
+            // true = mã do TTLock sinh, đã cài lên khóa: KHÔNG sửa được gate_password; sửa thời gian /
+            // xóa sẽ đồng bộ xuống khóa.
+            'is_ttlock'     => Issuer::isTtlockBacked($r),
         ];
     }
 

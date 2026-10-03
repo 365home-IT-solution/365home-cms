@@ -225,11 +225,19 @@ class ManualLockPasswordTtlockIssuer
             $code        = null;
             $failedLocks = [];
             $shiftNote   = '';
+            // Mã đã cài lên khóa nào (keyboardPwdId) + khung giờ đã nới bao nhiêu — lưu vào
+            // ttlock_passcodes để SỬA thời gian / XÓA đồng bộ được xuống khóa (xem syncPeriodToLocks()).
+            $passcodes   = [];
+            $shift       = [0, 0];
 
             // Khóa đầu tiên tự sinh mã, các khóa sau thêm ĐÚNG mã đó (giống TTLock IssuePasscode).
             foreach ($lockIds as $lockId) {
                 if ($code !== null) {
-                    if (! $ttlock->addCustomPasscode($lockId, $code, $startMs, $endMs, $name, 3)) {
+                    $res = $ttlock->addCustomPasscode($lockId, $code, $startMs, $endMs, $name, 3);
+
+                    if ($res) {
+                        $passcodes[] = self::passcodeEntry($lockId, (int) $res['keyboardPwdId'], $shift);
+                    } else {
                         $failedLocks[] = $lockId . ($ttlock->lastErrorMessage ? " ({$ttlock->lastErrorMessage})" : '');
                     }
 
@@ -259,9 +267,11 @@ class ManualLockPasswordTtlockIssuer
                     }
 
                     // Các khóa sau cấp cùng khung giờ với khóa đầu.
-                    $code      = (string) $res['code'];
-                    $startMs   = $tryStartMs;
-                    $endMs     = $tryEndMs;
+                    $code        = (string) $res['code'];
+                    $startMs     = $tryStartMs;
+                    $endMs       = $tryEndMs;
+                    $shift       = [$earlier, $later];
+                    $passcodes[] = self::passcodeEntry($lockId, (int) $res['keyboardPwdId'], $shift);
                     $shiftNote = $earlier || $later
                         ? " — trên khóa: sớm {$earlier}h, muộn {$later}h để khác mã phòng khác"
                         : '';
@@ -297,6 +307,7 @@ class ManualLockPasswordTtlockIssuer
                 'valid_from'    => $validFrom,
                 'valid_until'   => $validUntil,
                 'is_active'     => (bool) ($data['is_active'] ?? true),
+                'ttlock_passcodes' => $passcodes,
             ]);
 
             if ($productId) {
@@ -329,6 +340,122 @@ class ManualLockPasswordTtlockIssuer
         $result['ok'] = $result['created'] || $result['skipped'];
 
         return $result;
+    }
+
+    // =========================================================================================
+    // Đồng bộ SỬA / XÓA bộ mật khẩu xuống khóa TTLock — dùng cho API sửa/xóa
+    // (Api\Admin\ManualLockPasswordController). Mã TTLock nằm TRÊN KHÓA, sửa/xóa bản ghi mà không
+    // sửa/xóa trên khóa thì mã cũ vẫn mở được cửa.
+    // =========================================================================================
+
+    /** @param array{0: int, 1: int} $shift */
+    private static function passcodeEntry(int $lockId, int $keyboardPwdId, array $shift): array
+    {
+        return ['lock_id' => $lockId, 'keyboard_pwd_id' => $keyboardPwdId, 'earlier_h' => $shift[0], 'later_h' => $shift[1]];
+    }
+
+    // Bộ mật khẩu được cấp qua TTLock (có ghi khóa trong ttlock_passcodes, hoặc bản ghi cũ trước khi
+    // có cột đó — nhận ra qua ghi chú "Cấp tự động qua TTLock (khóa ...)").
+    public static function isTtlockBacked(ManualLockPassword $record): bool
+    {
+        return ! empty($record->ttlock_passcodes)
+            || str_starts_with((string) $record->notes, 'Cấp tự động qua TTLock (khóa ');
+    }
+
+    /**
+     * Danh sách mã trên khóa của bộ mật khẩu. Bản ghi cấp TRƯỚC khi có cột ttlock_passcodes thì tự
+     * tìm lại trên khóa (ghi trong notes) theo đúng số mã + tên, rồi lưu luôn để lần sau khỏi tìm.
+     *
+     * @return list<array{lock_id: int, keyboard_pwd_id: int, earlier_h: int, later_h: int}>
+     */
+    public static function resolvePasscodes(ManualLockPassword $record, TTLockService $ttlock): array
+    {
+        if (! empty($record->ttlock_passcodes)) {
+            return $record->ttlock_passcodes;
+        }
+
+        if (! preg_match('/^Cấp tự động qua TTLock \(khóa ([\d,\s]+)\)/u', (string) $record->notes, $m)) {
+            return [];
+        }
+
+        $shift = preg_match('/sớm (\d+)h, muộn (\d+)h/u', (string) $record->notes, $s) ? [(int) $s[1], (int) $s[2]] : [0, 0];
+        $code  = rtrim((string) $record->gate_password, '#');
+        $found = [];
+
+        foreach (array_filter(array_map('intval', explode(',', $m[1]))) as $lockId) {
+            $match = collect($ttlock->listKeyboardPwds($lockId))
+                ->first(fn (array $p) => (string) ($p['keyboardPwd'] ?? '') === $code
+                    && ($p['keyboardPwdName'] ?? $record->name) === $record->name);
+
+            if ($match) {
+                $found[] = self::passcodeEntry($lockId, (int) $match['keyboardPwdId'], $shift);
+            }
+        }
+
+        if ($found) {
+            $record->forceFill(['ttlock_passcodes' => $found])->saveQuietly();
+        }
+
+        return $found;
+    }
+
+    /**
+     * Đổi thời gian hiệu lực của mã trên MỌI khóa (giữ nguyên số mã). Khung giờ trên khóa = khung
+     * mới + đúng độ nới lúc cấp (earlier_h/later_h) + đệm 30' của TTLockService::generatePasscode().
+     *
+     * @return array{ok: bool, errors: list<string>}
+     */
+    public static function syncPeriodToLocks(ManualLockPassword $record, Carbon $validFrom, Carbon $validUntil): array
+    {
+        $ttlock = TTLockService::forCategory($record->category_id);
+
+        if (! $ttlock) {
+            return ['ok' => false, 'errors' => ['Chi nhánh chưa có tài khoản TTLock hoạt động — không cập nhật được mã trên khóa.']];
+        }
+
+        $passcodes = self::resolvePasscodes($record, $ttlock);
+
+        if (! $passcodes) {
+            return ['ok' => false, 'errors' => ['Không tìm thấy mã này trên khóa TTLock (có thể đã bị xóa trong app TTLock).']];
+        }
+
+        $errors = [];
+
+        foreach ($passcodes as $p) {
+            $startMs = $validFrom->copy()->subHours($p['earlier_h'] ?? 0)->subMinutes(30)->getTimestampMs();
+            $endMs   = $validUntil->copy()->addHours($p['later_h'] ?? 0)->addMinutes(30)->getTimestampMs();
+
+            if (! $ttlock->modifyPasscode((int) $p['lock_id'], (int) $p['keyboard_pwd_id'], $startMs, $endMs, (string) $record->name)) {
+                $errors[] = "Khóa {$p['lock_id']}: TTLock không cập nhật được thời gian mã.";
+            }
+        }
+
+        return ['ok' => ! $errors, 'errors' => $errors];
+    }
+
+    /**
+     * Xóa mã khỏi MỌI khóa. Không tìm thấy mã trên khóa nữa (đã xóa trong app TTLock) thì coi như
+     * đã xóa xong.
+     *
+     * @return array{ok: bool, errors: list<string>}
+     */
+    public static function deleteFromLocks(ManualLockPassword $record): array
+    {
+        $ttlock = TTLockService::forCategory($record->category_id);
+
+        if (! $ttlock) {
+            return ['ok' => false, 'errors' => ['Chi nhánh chưa có tài khoản TTLock hoạt động — không xóa được mã trên khóa.']];
+        }
+
+        $errors = [];
+
+        foreach (self::resolvePasscodes($record, $ttlock) as $p) {
+            if (! $ttlock->deletePasscode((int) $p['lock_id'], (int) $p['keyboard_pwd_id'])) {
+                $errors[] = "Khóa {$p['lock_id']}: TTLock không xóa được mã.";
+            }
+        }
+
+        return ['ok' => ! $errors, 'errors' => $errors];
     }
 
     /**

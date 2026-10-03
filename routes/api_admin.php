@@ -410,6 +410,9 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::get('manual-lock-passwords', [ManualLockPasswordController::class, 'index'])->name('manual-lock-passwords.index');
     Route::get('manual-lock-passwords/ttlock-options', [ManualLockPasswordController::class, 'ttlockOptions'])->name('manual-lock-passwords.ttlock-options');
     Route::post('manual-lock-passwords/ttlock-issue', [ManualLockPasswordController::class, 'ttlockIssue'])->name('manual-lock-passwords.ttlock-issue');
+    Route::get('manual-lock-passwords/{id}', [ManualLockPasswordController::class, 'show'])->whereNumber('id')->name('manual-lock-passwords.show');
+    Route::match(['put', 'patch'], 'manual-lock-passwords/{id}', [ManualLockPasswordController::class, 'update'])->whereNumber('id')->name('manual-lock-passwords.update');
+    Route::delete('manual-lock-passwords/{id}', [ManualLockPasswordController::class, 'destroy'])->whereNumber('id')->name('manual-lock-passwords.destroy');
 });
 
 /*

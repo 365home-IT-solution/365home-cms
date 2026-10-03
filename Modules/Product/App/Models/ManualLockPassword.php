@@ -20,12 +20,16 @@ class ManualLockPassword extends Model
         'valid_from',
         'valid_until',
         'is_active',
+        'ttlock_passcodes',
     ];
 
     protected $casts = [
-        'valid_from'  => 'datetime',
-        'valid_until' => 'datetime',
-        'is_active'   => 'boolean',
+        'valid_from'       => 'datetime',
+        'valid_until'      => 'datetime',
+        'is_active'        => 'boolean',
+        // [{lock_id, keyboard_pwd_id}] — mã đã cài lên khóa TTLock nào, xem
+        // ManualLockPasswordTtlockIssuer. NULL = nhập tay/Import Excel.
+        'ttlock_passcodes' => 'array',
     ];
 
     public function products()
@@ -138,6 +142,27 @@ class ManualLockPassword extends Model
 
         if ($ids) {
             Product::whereIn('id', $ids)->where('has_manual_lock', false)->update(['has_manual_lock' => true]);
+        }
+    }
+
+    /**
+     * Tắt cờ has_manual_lock cho các phòng KHÔNG còn gắn với bộ mật khẩu nào khác (ngoài
+     * $exceptId) — dùng khi xóa bộ mật khẩu / gỡ phòng khỏi bộ mật khẩu, cùng logic với
+     * EditManualLockPassword.
+     *
+     * @param  iterable<string>  $productIds
+     */
+    public static function unmarkProductsIfUnlinked(iterable $productIds, ?int $exceptId = null): void
+    {
+        foreach (collect($productIds)->filter()->unique() as $productId) {
+            $stillLinked = static::query()
+                ->when($exceptId, fn ($q) => $q->where('id', '!=', $exceptId))
+                ->whereHas('products', fn ($q) => $q->where('products.id', $productId))
+                ->exists();
+
+            if (! $stillLinked) {
+                Product::where('id', $productId)->update(['has_manual_lock' => false]);
+            }
         }
     }
 
