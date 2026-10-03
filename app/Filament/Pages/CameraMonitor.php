@@ -34,6 +34,14 @@ class CameraMonitor extends Page
     protected static ?string $title           = 'Xem camera trực tiếp';
     protected static ?int    $navigationSort  = 21;
 
+    // Chỉ super_admin hoặc tài khoản được tích quyền "Xem camera" (Shield: page_CameraMonitor).
+    public static function canAccess(): bool
+    {
+        $user = auth()->user();
+
+        return $user?->isSuperAdmin() || ($user?->can('page_CameraMonitor') ?? false);
+    }
+
     public function getCameras(): \Illuminate\Support\Collection
     {
         return Camera::query()

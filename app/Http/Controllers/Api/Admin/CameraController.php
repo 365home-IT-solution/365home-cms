@@ -33,6 +33,10 @@ class CameraController extends Controller
      */
     public function index(Request $request): JsonResponse
     {
+        if ($denied = $this->deny($request->user(), ['view_any_camera', 'view_camera', 'page_CameraMonitor'])) {
+            return $denied;
+        }
+
         /** @var User $user */
         $user = $request->user();
 
@@ -70,6 +74,10 @@ class CameraController extends Controller
      */
     public function show(Request $request, int $id): JsonResponse
     {
+        if ($denied = $this->deny($request->user(), ['view_any_camera', 'view_camera', 'page_CameraMonitor'])) {
+            return $denied;
+        }
+
         /** @var User $user */
         $user = $request->user();
 
@@ -101,6 +109,10 @@ class CameraController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
+        if ($denied = $this->deny($request->user(), ['create_camera'])) {
+            return $denied;
+        }
+
         /** @var User $user */
         $user = $request->user();
 
@@ -155,6 +167,10 @@ class CameraController extends Controller
      */
     public function update(Request $request, int $id): JsonResponse
     {
+        if ($denied = $this->deny($request->user(), ['update_camera'])) {
+            return $denied;
+        }
+
         /** @var User $user */
         $user = $request->user();
 
@@ -213,6 +229,10 @@ class CameraController extends Controller
      */
     public function destroy(Request $request, int $id): JsonResponse
     {
+        if ($denied = $this->deny($request->user(), ['delete_camera'])) {
+            return $denied;
+        }
+
         /** @var User $user */
         $user = $request->user();
 
@@ -225,6 +245,16 @@ class CameraController extends Controller
         $camera->delete();
 
         return response()->json(['message' => 'Đã xoá camera.']);
+    }
+
+    // Phân quyền theo quyền Shield đã tích cho vai trò (super_admin luôn được). Phạm vi đối tác/chi nhánh do findInScope()/query lọc.
+    private function deny(?User $user, array $permissions): ?JsonResponse
+    {
+        if ($user && ($user->isSuperAdmin() || collect($permissions)->contains(fn (string $p) => $user->can($p)))) {
+            return null;
+        }
+
+        return response()->json(['message' => 'Bạn không có quyền thực hiện thao tác này.'], 403);
     }
 
     private function findInScope(User $user, int $id): ?Camera
