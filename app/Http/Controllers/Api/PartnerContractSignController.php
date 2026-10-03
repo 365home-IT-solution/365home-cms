@@ -20,7 +20,9 @@ class PartnerContractSignController extends Controller
         return response()->json(['data' => [
             'version_id' => $version->id,
             'partner_name' => $version->partner->legal_name ?? $version->partner->name,
-            'content' => $version->content,
+            // content = văn bản ĐẦY ĐỦ như bản in/PDF (quốc hiệu, tiêu ngữ, thân hợp đồng, khung ĐẠI DIỆN BÊN A/B); content_body = thân hợp đồng đã lưu (nội dung tính content_hash).
+            'content' => \App\Support\PartnerContractRenderer::renderFramed($version->content, $version->partner, $version),
+            'content_body' => $version->content,
             'content_hash' => $version->content_hash,
             'can_confirm' => $documents->isContractEligible($version->partner) && ! $version->isPartnerConfirmed(),
             'partner_confirmed_at' => $version->partner_confirmed_at?->toIso8601String(),

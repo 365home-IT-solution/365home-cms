@@ -49,10 +49,18 @@ class ContractPdfSigningService
         $cmsDer = $cmsBuilder->buildSignedData($signedAttrsDer, $result->signature);
         $signedPdf = $this->pdfSigner->embedSignature($prepared, $cmsDer);
 
+        // Chủ thể chứng thư số (người/đơn vị đứng tên chữ ký) — để hiển thị "đã ký số với ai".
+        $certificate = $result->certificate;
+        $pem = "-----BEGIN CERTIFICATE-----\n" . chunk_split((string) $certData, 64, "\n") . "-----END CERTIFICATE-----\n";
+        $parsed = @openssl_x509_parse($pem) ?: [];
+        $certificate['cert_subject'] = $parsed['subject']['CN'] ?? null;
+        $certificate['cert_org'] = $parsed['subject']['O'] ?? null;
+        $certificate['cert_issuer'] = $parsed['issuer']['CN'] ?? null;
+
         return [
             'pdf'         => $signedPdf,
             'signature'   => $result->signature,
-            'certificate' => $result->certificate,
+            'certificate' => $certificate,
         ];
     }
 }

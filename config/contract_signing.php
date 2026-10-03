@@ -2,7 +2,7 @@
 
 return [
 
-    // Provider ký số đang dùng — đổi ở .env, KHÔNG sửa code gọi ký (ContractSignController,
+    // Provider ký số mặc định (dự phòng) — nên nhập ở web: Cấu hình web > Chữ ký số (ưu tiên hơn .env), KHÔNG sửa code gọi ký (ContractSignController,
     // PartnerForm). Giá trị hợp lệ: 'local' (test, không cần đăng ký gì) | 'vnpt_smartca' (thật,
     // cần tài khoản đối tác VNPT SmartCA — xem doitac-smartca.vnpt.vn).
     'default' => env('CONTRACT_SIGNING_PROVIDER', 'local'),

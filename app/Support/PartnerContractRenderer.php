@@ -20,6 +20,15 @@ class PartnerContractRenderer
 {
     public const FONT = "'Times New Roman',Times,serif";
 
+    // ĐỊNH DẠNG theo ĐÚNG mẫu Word "HỢP ĐỒNG 365 HOME" (đo từ chính file Word xuất PDF): Times New Roman 13pt, "giãn dòng 1,5 dòng" của Word
+    // = 22,4pt cho chữ 13pt (20,7pt cho chữ 12pt, 31pt cho chữ 18pt), cách đoạn 6pt, căn đều hai bên. Dùng đơn vị pt tuyệt đối để trình duyệt/PDF
+    // cho cùng khoảng cách như Word.
+    public const LH13 = '22.4pt';
+
+    public const LH12 = '20.7pt';
+
+    public const LH18 = '31pt';
+
     public static function render(Partner $partner): string
     {
         return $partner->isMinihouse() ? self::renderMinihouse($partner) : self::renderHomestay($partner);
@@ -54,7 +63,7 @@ class PartnerContractRenderer
         $rateA = $rate ?? 0.0;
         $rateB = 100.0 - $rateA;
         $pctA = $rate === null ? '……%  (………………………………………)' : VietnameseNumber::percent($rateA) . '% (' . VietnameseNumber::percentWords($rateA) . ')';
-        $pctB = $rate === null ? '……%  (………………………………………)' : VietnameseNumber::percent($rateB) . '% (' . VietnameseNumber::percentWords($rateB) . ')';
+        $pctB = $rate === null ? '……%  (………………………………………)' : VietnameseNumber::percent($rateB) . '% &nbsp;(' . VietnameseNumber::percentWords($rateB) . ')';
 
         $guarantee = VietnameseNumber::format((int) $cfg['guarantee_vnd']) . ' đồng (' . VietnameseNumber::money((int) $cfg['guarantee_vnd']) . ')';
         $violationFee = VietnameseNumber::format((int) $cfg['violation_fee_vnd']) . ' đồng';
@@ -69,37 +78,48 @@ class PartnerContractRenderer
             ? sprintf('%02d tháng kể từ ngày ký (đến hết ngày %s)', $termMonths, $partner->contract_expires_at->format('d/m/Y'))
             : sprintf('%02d tháng kể từ ngày ký', $termMonths);
 
-        $p = fn (string $text, string $extra = '') => '<p style="margin:0 0 6pt;' . $extra . '">' . $text . '</p>';
-        $h = fn (string $text) => '<p style="margin:6pt 0;font-weight:700;">' . $text . '</p>';
-        $indent = 'text-indent:1.27cm;';
+        $lh = self::LH13;
+        $p = fn (string $text, string $extra = '') => '<p style="margin:0 0 6pt;page-break-inside:avoid;line-height:' . $lh . ';' . $extra . '">' . $text . '</p>';
+        $h = fn (string $text) => '<p style="margin:6pt 0;page-break-inside:avoid;line-height:' . $lh . ';font-weight:700;">' . $text . '</p>';
+        $indent = 'text-indent:36pt;';
+        $b = fn (string $text) => '<strong>' . $text . '</strong>';
+        // Hai ô cùng một dòng (Word dùng tab): ô trái rộng $w pt, ô phải bắt đầu đúng vị trí tab.
+        $cols = fn (string $left, string $right, float $w) => '<table style="width:100%;border-collapse:collapse;margin:0 0 6pt;page-break-inside:avoid;"><tr><td style="width:' . $w . 'pt;padding:0;line-height:' . $lh . ';vertical-align:top;">' . $left
+            . '</td><td style="padding:0;line-height:' . $lh . ';vertical-align:top;">' . $right . '</td></tr></table>';
+        // Mục liệt kê có chấm tròn (•): chấm ở lề 18pt, chữ ở 36pt như mẫu.
+        $bullet = fn (string $text) => '<p style="margin:0 0 6pt 36pt;page-break-inside:avoid;text-indent:-18pt;line-height:' . $lh . ';"><span style="font-size:14.5pt;position:relative;top:2pt;">&bull;</span><span style="display:inline-block;width:13pt;"></span>' . $text . '</p>';
 
         $html = [];
-        $html[] = '<div class="hd" style="font-family:' . self::FONT . ';font-size:13pt;line-height:1.5;text-align:justify;color:#000;">';
+        $html[] = '<div class="hd" style="font-family:' . self::FONT . ';font-size:13pt;line-height:' . $lh . ';text-align:justify;color:#000;">';
         $html[] = $p($dateLine, 'text-align:right;font-style:italic;');
-        $html[] = '<p style="margin:0 0 6pt;text-align:center;font-size:18pt;font-weight:700;line-height:1.3;">HỢP ĐỒNG HỢP TÁC KINH DOANH</p>';
-        $html[] = $p('Số: ' . $dots($partner->contract_code, 20), 'text-align:center;');
-        $html[] = $p('- Căn cứ Bộ luật Dân sự số 91/2015/QH13 ngày 24/11/2015;', $indent);
-        $html[] = $p('- Căn cứ vào Luật Thương mại số 36/2005/QH11 ngày 14/06/2005;', $indent);
-        $html[] = $p('- Căn cứ vào nhu cầu và sự thỏa thuận của các bên tham gia Hợp đồng;', $indent);
+        $html[] = '<p style="margin:0 0 6pt;padding-top:5.9pt;padding-left:0.95pt;text-indent:36pt;text-align:center;font-size:18pt;font-weight:700;line-height:' . self::LH18 . ';">HỢP ĐỒNG HỢP TÁC KINH DOANH</p>';
+        $html[] = '<p style="margin:0 0 6pt;padding-top:10.2pt;padding-left:0.95pt;text-indent:36pt;text-align:center;font-weight:700;line-height:' . $lh . ';">Số: ' . $dots($partner->contract_code, 20) . '</p>';
+        foreach ([
+            '- Căn cứ Bộ luật Dân sự số 91/2015/QH13 ngày 24/11/2015;',
+            '- Căn cứ vào Luật Thương mại số 36/2005/QH11 ngày 14/06/2005;',
+            '- Căn cứ vào nhu cầu và sự thỏa thuận của các bên tham gia Hợp đồng;',
+        ] as $line) {
+            $html[] = '<p style="margin:0 0 6pt;page-break-inside:avoid;font-size:12pt;font-style:italic;line-height:' . self::LH12 . ';' . $indent . '">' . $line . '</p>';
+        }
         $html[] = $p("Hôm nay, {$dateWords}, các Bên gồm:", $indent);
 
-        // BÊN A
-        $html[] = $p('<strong>BÊN A: ' . e($a['name']) . '</strong>', 'margin-top:6pt;');
-        $html[] = $p('Người đại diện: ' . e($a['representative']) . ' &nbsp;&nbsp;&nbsp;&nbsp; Chức vụ: ' . e($a['position']));
+        // BÊN A (thông tin cố định theo config/contract.php) — họ tên và chức vụ in đậm như mẫu
+        $html[] = $p($b('BÊN A: ' . e($a['name'])));
+        $html[] = $cols('Người đại diện: ' . $b(e($a['representative'])), 'Chức vụ: ' . $b(e($a['position'])), 248.5);
         $html[] = $p('Địa chỉ: ' . e($a['address']));
-        $html[] = $p('Điện thoại: ' . e($a['phone']) . ' &nbsp;&nbsp;&nbsp;&nbsp; Mã số thuế: ' . e($a['tax_code']));
-        $html[] = $p('Tài khoản: ' . e($a['bank_account']) . ' tại ' . e($a['bank_name']));
+        $html[] = $cols('Điện thoại: ' . e($a['phone']), 'Mã số thuế: ' . e($a['tax_code']), 245.3);
+        $html[] = $p('Tài khoản: ' . e($a['bank_account']) . ' &nbsp;tại ' . e($a['bank_name']));
 
-        // BÊN B
-        $html[] = $p("<strong>BÊN B: {$legalName}</strong>", 'margin-top:6pt;');
-        $html[] = $p("Người đại diện: {$repName} &nbsp;&nbsp;&nbsp;&nbsp; Chức vụ: {$position}");
+        // BÊN B (từ hồ sơ đối tác)
+        $html[] = $p($b("BÊN B: {$legalName}"));
+        $html[] = $cols("Người đại diện: {$b($repName)}", "Chức vụ: {$b($position)}", 248.5);
         $html[] = $p("CCCD số: {$idNumber} cấp ngày {$idDate} tại {$idPlace}");
-        $html[] = $p("Số điện thoại: {$phone} &nbsp;&nbsp;&nbsp;&nbsp; Mã số thuế: {$tax}");
+        $html[] = $cols("Số điện thoại: {$phone}", "Mã số thuế: {$tax}", 245.3);
         $html[] = $p("Cơ sở lưu trú hợp tác: {$facilityName}");
         $html[] = $p("Địa chỉ cơ sở lưu trú: {$facilityAddress}");
 
-        // Điều 1–3
-        $html[] = $h('ĐIỀU 1. MỤC ĐÍCH VÀ NGUYÊN TẮC HỢP TÁC');
+        // Điều 1–3: mẫu bắt đầu Điều 1 ở đầu trang 2 (sau 1 đoạn trống cuối trang 1) → ngắt trang cố định để mọi bản đều giống mẫu.
+        $html[] = '<p style="margin:0 0 6pt;page-break-before:always;line-height:' . $lh . ';font-weight:700;">ĐIỀU 1. MỤC ĐÍCH VÀ NGUYÊN TẮC HỢP TÁC</p>';
         $html[] = $p('1.1. Hai bên hợp tác khai thác, vận hành và kinh doanh dịch vụ lưu trú tại cơ sở của Bên B nhằm tối ưu công suất phòng, tăng doanh thu và phát triển thương hiệu.');
         $html[] = $p('1.2. Việc hợp tác được thực hiện trên nguyên tắc tự nguyện, minh bạch, bình đẳng và cùng có lợi, không làm ảnh hưởng đến uy tín và hoạt động kinh doanh của mỗi bên.');
         $html[] = $h('ĐIỀU 2. PHẠM VI VÀ NỘI DUNG HỢP TÁC');
@@ -115,8 +135,8 @@ class PartnerContractRenderer
         $html[] = $p('4.1. Doanh thu hợp tác là khoản thu từ hoạt động kinh doanh lưu trú tại cơ sở của Bên B thông qua hệ thống của Bên A.');
         $html[] = $p("4.2. Khoản tiền đảm bảo thực hiện hợp đồng: Bên B thanh toán cho Bên A số tiền {$guarantee} trước khi bắt đầu hợp tác. Khoản tiền này được hoàn trả cho Bên B khi Hợp đồng chấm dứt và hai bên hoàn tất các nghĩa vụ liên quan. Trường hợp Bên B phát sinh nghĩa vụ thanh toán hoặc bồi thường do vi phạm Hợp đồng, Bên A được quyền khấu trừ vào khoản tiền này.");
         $html[] = $p('4.3. Tỷ lệ phân chia doanh thu: Tiền khách hàng thanh toán được chuyển trực tiếp vào tài khoản của Bên B. Hai bên thực hiện đối soát doanh thu theo tỷ lệ:');
-        $html[] = $p("Bên A: {$pctA}");
-        $html[] = $p("Bên B: {$pctB}");
+        $html[] = $bullet("Bên A: {$pctA}");
+        $html[] = $bullet("Bên B: {$pctB}");
         $html[] = $p("Bên B có trách nhiệm thanh toán phần doanh thu {$pctA} thuộc Bên A trong vòng 03 ngày kể từ ngày hoàn tất đối soát.");
         $html[] = $p('4.4. Mỗi bên tự chịu trách nhiệm xuất hóa đơn và thực hiện nghĩa vụ thuế đối với phần doanh thu thuộc trách nhiệm của mình. Hai bên có trách nhiệm phối hợp cung cấp thông tin, chứng từ cần thiết để thực hiện việc đối soát và xuất hóa đơn.');
 
@@ -286,7 +306,9 @@ class PartnerContractRenderer
         );
 
         $font = self::FONT;
+        $lh = self::LH13;
 
+        // Quốc hiệu / tiêu ngữ: chữ đậm 13pt căn giữa, có đường kẻ dưới tiêu ngữ, cách phần sau một dòng trống (đúng mẫu).
         return <<<HTML
             <div class="hd-wrap" style="font-family:{$font};color:#000;">
                 <style>
@@ -295,63 +317,54 @@ class PartnerContractRenderer
                         .hd-sign { page-break-inside: avoid; }
                     }
                 </style>
-                <div style="text-align:center;margin-bottom:10pt;line-height:1.5;">
-                    <div style="font-weight:700;font-size:13pt;">CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</div>
-                    <div style="font-weight:700;font-size:13pt;border-bottom:1px solid #000;display:inline-block;padding-bottom:1px;">Độc lập - Tự do - Hạnh phúc</div>
-                </div>
+                <div style="text-align:center;padding-left:0.95pt;font-weight:700;font-size:13pt;line-height:{$lh};height:{$lh};">CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</div>
+                <div style="position:relative;text-align:center;padding-left:0.95pt;font-weight:700;font-size:13pt;line-height:{$lh};height:{$lh};">Độc lập - Tự do - Hạnh phúc<div style="position:absolute;left:50%;margin-left:-79.7pt;width:165pt;top:29.3pt;border-top:0.75pt solid #000;"></div></div>
+                <div style="height:{$lh};line-height:{$lh};">&nbsp;</div>
 
                 {$bodyContent}
 
-                <table class="hd-sign" style="width:100%;margin-top:16pt;border-collapse:collapse;font-family:{$font};font-size:13pt;">
-                    <tr>
-                        <td style="width:50%;text-align:center;padding-right:8px;vertical-align:top;">{$platformBox}</td>
-                        <td style="width:50%;text-align:center;padding-left:8px;vertical-align:top;">{$partnerBox}</td>
-                    </tr>
-                </table>
+                <div class="hd-sign" style="position:relative;width:478.55pt;height:133.6pt;margin-left:-5.4pt;font-family:{$font};font-size:13pt;page-break-inside:avoid;">
+                    <div style="position:absolute;left:0;top:0;width:239.25pt;text-align:center;">{$platformBox}</div>
+                    <div style="position:absolute;left:239.25pt;top:0;width:239.3pt;text-align:center;">{$partnerBox}</div>
+                </div>
             </div>
         HTML;
     }
 
     private static function renderSignatureBox(string $label, bool $signed, ?string $signerName, ?string $signedAt): string
     {
+        $lh = self::LH13;
+        $labelHtml = '<p style="margin:6pt 0;padding-left:0.95pt;text-align:center;font-weight:700;line-height:' . $lh . ';">' . $label . '</p>';
+
         if ($signed) {
             $name = e($signerName ?? '—');
 
-            return <<<HTML
-                <div style="font-weight:700;margin-bottom:2pt;">{$label}</div>
-                <div style="font-size:11pt;font-style:italic;margin-bottom:6pt;">(Đã ký số điện tử)</div>
-                <div style="border:1px solid #2563eb;padding:8px;font-size:10pt;color:#2563eb;">
+            return $labelHtml . <<<HTML
+                <div style="border:1px solid #2563eb;padding:8px;font-size:10pt;line-height:1.4;color:#2563eb;">
                     ĐÃ KÝ SỐ BỞI: {$name}<br>THỜI GIAN: {$signedAt}
                 </div>
             HTML;
         }
 
-        return <<<HTML
-            <div style="font-weight:700;margin-bottom:2pt;">{$label}</div>
-            <div style="font-size:11pt;font-style:italic;margin-bottom:6pt;">(Ký, ghi rõ họ tên, đóng dấu)</div>
-            <div style="height:84px;"><span class="hd-hint" style="font-size:10pt;color:#9ca3af;">Chưa ký</span></div>
-        HTML;
+        return $labelHtml;
     }
 
     // Dùng riêng cho phía Đối tác — xác nhận qua OTP, KHÔNG phải chữ ký số PKI nên không dùng wording "ĐÃ KÝ SỐ".
     private static function renderConfirmationBox(string $label, bool $confirmed, ?string $signerName, ?string $confirmedAt): string
     {
+        $lh = self::LH13;
+        $labelHtml = '<p style="margin:6pt 0;padding-left:0.95pt;text-align:center;font-weight:700;line-height:' . $lh . ';">' . $label . '</p>';
+
         if ($confirmed) {
             $name = e($signerName ?? '—');
 
-            return <<<HTML
-                <div style="font-weight:700;margin-bottom:2pt;">{$label}</div>
-                <div style="font-size:11pt;font-style:italic;margin-bottom:6pt;">(Đã xác nhận qua email OTP)</div>
-                <div style="border:1px solid #0369a1;padding:8px;font-size:10pt;color:#0369a1;">
-                    ĐÃ XÁC NHẬN BỞI: {$name}<br>THỜI GIAN: {$confirmedAt}
+            return $labelHtml . <<<HTML
+                <div style="border:1px solid #0369a1;padding:8px;font-size:10pt;line-height:1.4;color:#0369a1;">
+                    ĐÃ XÁC NHẬN QUA OTP BỞI: {$name}<br>THỜI GIAN: {$confirmedAt}
                 </div>
             HTML;
         }
 
-        return <<<HTML
-            <div style="font-weight:700;margin-bottom:2pt;">{$label}</div>
-            <div style="font-size:11pt;font-style:italic;margin-bottom:6pt;">(Ký, ghi rõ họ tên)</div>
-            <div style="height:84px;"><span class="hd-hint" style="font-size:10pt;color:#9ca3af;">Chưa xác nhận</span></div>
-        HTML;
+        return $labelHtml;
     }
 }

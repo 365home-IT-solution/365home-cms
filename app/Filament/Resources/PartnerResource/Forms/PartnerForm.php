@@ -785,16 +785,14 @@ class PartnerForm
                                             ->visible(fn (?Partner $record) => self::latestVersion($record)?->isPartnerConfirmed() && ! self::latestVersion($record)?->isPlatformSigned())
                                             ->disabled(fn (?Partner $record) => ! $record || ! app(PartnerLegalDocumentService::class)->isContractEligible($record))
                                             ->requiresConfirmation()
-                                            ->modalDescription('Đối tác đã xác nhận đồng ý qua email — bấm để NỀN TẢNG ký số THẬT niêm phong hợp đồng (chỉ 1 lượt ký duy nhất) và TẢI VỀ MÁY file PDF đã nhúng chữ ký (chuẩn PAdES, nộp được lên neac.gov.vn) — file KHÔNG lưu lại trên server, đây là lần duy nhất tải được bản này nên hãy lưu cẩn thận. Nếu đang dùng chữ ký số thật (VNPT SmartCA), hệ thống sẽ gửi thông báo tới điện thoại của thuê bao — cần MỞ ĐIỆN THOẠI BẤM XÁC NHẬN trong ít phút để hoàn tất.')
+                                            ->modalDescription('Đối tác đã xác nhận đồng ý qua email — bấm để NỀN TẢNG ký số THẬT niêm phong hợp đồng (chỉ 1 lượt ký duy nhất) và TẢI VỀ MÁY file PDF đã nhúng chữ ký (chuẩn PAdES, nộp được lên neac.gov.vn) — file được lưu trên server, sau này bấm "Tải lại PDF đã ký" để tải lại mà không phải ký lại. Nếu đang dùng chữ ký số thật (VNPT SmartCA), hệ thống sẽ gửi thông báo tới điện thoại của thuê bao — cần MỞ ĐIỆN THOẠI BẤM XÁC NHẬN trong ít phút để hoàn tất.')
                                             ->action(fn (?Partner $record) => self::signAndExportContract($record)),
 
                                         Forms\Components\Actions\Action::make('reExportSignedPdf')
-                                            ->label('Xuất lại PDF (bản mới)')
+                                            ->label('Tải lại PDF đã ký')
                                             ->icon('heroicon-o-document-arrow-down')
                                             ->color('gray')
                                             ->visible(fn (?Partner $record) => self::latestVersion($record)?->isPlatformSigned())
-                                            ->requiresConfirmation()
-                                            ->modalDescription('Hợp đồng đã ký số rồi — TẢI VỀ MÁY thêm 1 bản PDF khác (vd để gửi lại cho đối tác). LƯU Ý: tốn thêm 1 lượt ký thật MỚI (không tái dùng được chữ ký cũ, vì mỗi file PDF có hash riêng), và file cũng KHÔNG lưu trên server.')
                                             ->action(fn (?Partner $record) => self::signAndExportContract($record, forceNewSignature: true)),
                                     ])->fullWidth(),
 
@@ -1008,12 +1006,10 @@ class PartnerForm
     // PDF đã nhúng chữ ký (PAdES) — không còn khái niệm "ký thay đối tác" (xem thảo luận: dùng
     // chứng thư số CỦA NỀN TẢNG để "ký thay" đối tác là không chính xác về bản chất pháp lý).
     //
-    // File PDF được TẢI THẲNG VỀ MÁY (streamDownload) — KHÔNG lưu vào storage server, theo đúng
-    // yêu cầu (tránh tích lũy file nhạy cảm trên server nếu không cần thiết).
+    // File PDF đã ký được LƯU trên server (đĩa riêng tư, media 'signed_pdf') và tải về qua streamDownload.
     //
-    // $forceNewSignature: dùng cho "Xuất lại PDF" khi đã ký rồi nhưng muốn có thêm 1 bản PDF khác —
-    // vẫn tốn 1 lượt ký MỚI (không tránh được, mỗi PDF có hash riêng), chỉ khác là không cập nhật
-    // lại platform_signed_at/contract_status (đã set từ lần ký đầu, không ghi đè).
+    // $forceNewSignature: dùng cho "Tải lại PDF đã ký" — trả lại đúng file đã lưu, KHÔNG ký lại. Chỉ hợp đồng ký
+    // trước khi có tính năng lưu (chưa có file) mới ký lại 1 lần để lưu.
     private static function signAndExportContract(?Partner $record, bool $forceNewSignature = false): ?StreamedResponse
     {
         if (! $record) {
@@ -1069,9 +1065,13 @@ class PartnerForm
 
         $platformRow = $version->isPlatformSigned()
             ? '<span style="color:#10b981;font-weight:700;">✓ Đã ký số & phát hành PDF</span> lúc '.e($version->platform_signed_at->format('H:i d/m/Y'))
-                .' bởi '.e($version->platformSignedBy?->fullname ?? '—')
+                .' — người thao tác: '.e($version->platformSignedBy?->fullname ?: ($version->platformSignedBy?->email ?? '—'))
                 .' — <span style="color:#6b7280;">'.e(self::SIGNING_PROVIDER_LABELS[$version->platform_signing_provider] ?? $version->platform_signing_provider ?? '—').'</span>'
-                .'<div style="margin-top:2px;font-size:0.72rem;color:#6b7280;">🔏 File PDF đã tải về máy lúc ký — mở lại file đó để kiểm tra chữ ký độc lập (Adobe/Foxit/NEAC). File KHÔNG lưu trên server; nếu cần thêm bản, bấm "Xuất lại PDF".</div>'
+                .(($cert = $version->platform_signature_certificate) && filled($cert['cert_subject'] ?? null)
+                    ? '<div style="margin-top:2px;font-size:0.76rem;color:#374151;">Chứng thư số: <strong>'.e($cert['cert_subject']).'</strong>'
+                        .(filled($cert['cert_org'] ?? null) ? ' — '.e($cert['cert_org']) : '').(filled($cert['cert_issuer'] ?? null) ? ' (CA: '.e($cert['cert_issuer']).')' : '').'</div>'
+                    : '')
+                .'<div style="margin-top:2px;font-size:0.72rem;color:#6b7280;">🔏 File PDF đã ký được lưu trên server — bấm "Tải lại PDF đã ký" để tải về (không ký lại).</div>'
             : '<span style="color:#f59e0b;font-weight:700;">Chưa ký</span>';
 
         return <<<HTML

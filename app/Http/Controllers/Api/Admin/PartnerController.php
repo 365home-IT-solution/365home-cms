@@ -87,6 +87,9 @@ class PartnerController extends Controller
             'can_create_contract' => $documents->isContractEligible($partner),
             'version_id' => $version?->id,
             'content_hash' => $version?->content_hash,
+            // Văn bản đầy đủ như bản in/PDF (giống trang Filament “Xem toàn văn hợp đồng”) và thân hợp đồng dùng tính content_hash.
+            'content' => $version ? \App\Support\PartnerContractRenderer::renderFramed($version->content, $partner, $version) : null,
+            'content_body' => $version?->content,
             'partner_confirmed_at' => $version?->partner_confirmed_at?->toIso8601String(),
             'platform_signed_at' => $version?->platform_signed_at?->toIso8601String(),
             'is_fully_signed' => $version?->isFullySigned() ?? false,
@@ -173,6 +176,16 @@ class PartnerController extends Controller
         $this->superAdmin($request);
         abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
         $result = $workflow->platformSign($partner, $request->user(), (string) $request->ip(), (string) $request->userAgent());
+
+        return response()->streamDownload(fn () => print ($result['pdf']), $result['file_name'], ['Content-Type' => 'application/pdf']);
+    }
+
+    // GET /api/admin/partners/{partner}/contract/signed-pdf — tải lại PDF hợp đồng đã ký số lưu trên server (không ký lại).
+    public function downloadSignedPdf(Request $request, Partner $partner, PartnerContractWorkflowService $workflow): StreamedResponse
+    {
+        $this->superAdmin($request);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
+        $result = $workflow->platformSign($partner, $request->user(), (string) $request->ip(), (string) $request->userAgent(), reExport: true);
 
         return response()->streamDownload(fn () => print ($result['pdf']), $result['file_name'], ['Content-Type' => 'application/pdf']);
     }

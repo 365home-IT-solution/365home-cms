@@ -115,6 +115,7 @@
     </style>
 
     <script src="{{ asset('js/leaflet.min.js') }}"></script>
+    @include('partials.map-base')
     <script>
         (function () {
             var mapEl = document.getElementById('mh-map');
@@ -125,10 +126,7 @@
             var zoom = markers.length ? 14 : 5;
 
             var map = L.map('mh-map').setView(center, zoom);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OpenStreetMap contributors',
-                maxZoom: 19,
-            }).addTo(map);
+            window.createBaseLayer().addTo(map);
 
             function vndFormat(amount) {
                 return Number(amount).toLocaleString('vi-VN') + 'đ';

@@ -97,6 +97,7 @@
     </div>
 
     <script src="{{ asset('js/leaflet.min.js') }}"></script>
+    @include('partials.map-base')
 
     <script>
         window.__searchMapConfig = {

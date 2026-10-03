@@ -84,7 +84,7 @@
         @media (max-width: 640px) { .hd { font-size: 11.5pt !important; } .hd p[style*="font-size:18pt"] { font-size: 15pt !important; } }
 
         /* In: đúng khổ mẫu — A4, lề trái 3cm / phải 1,5cm / trên-dưới 2cm; chỉ in toàn văn hợp đồng. */
-        @page { size: A4; margin: 2cm 1.5cm 2cm 3cm; }
+        @page { size: A4; margin: 2cm 1.5cm 2cm 3cm; @bottom-right { content: counter(page); font-family: Calibri, Carlito, Arial, sans-serif; font-size: 11pt; } } /* số trang góc phải dưới như mẫu Word */
         @media print {
             body { background: #fff; padding: 0; }
             .topbar, .head, .jump, .side, .alert, .hash { display: none !important; }
@@ -93,7 +93,8 @@
             .layout { display: block; }
             .card { box-shadow: none; border-radius: 0; }
             .paper { padding: 0; }
-            .contract-content { overflow: visible; font-size: 13pt; }
+            .contract-content { overflow: visible; font-size: 13pt; line-height: 22.4pt; }
+            .hd, .hd-wrap { max-width: none !important; }
         }
     </style>
 </head>

@@ -290,10 +290,7 @@ function initSearchMap() {
         .setView([cfg.lat, cfg.lng], cfg.zoom);
     window.__searchMapInstance = map;
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-    }).addTo(map);
+    window.createBaseLayer().addTo(map);
 
     var cards = document.querySelectorAll('.branch-card');
     var bounds = [];
@@ -472,10 +469,7 @@ function initBranchesMap(branches) {
     var map = L.map(mapEl, { zoomControl: true, scrollWheelZoom: true }).setView([cfg.lat, cfg.lng], cfg.zoom);
     window.__searchMapInstance = map;
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-    }).addTo(map);
+    window.createBaseLayer().addTo(map);
 
     function esc(s) {
         return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {

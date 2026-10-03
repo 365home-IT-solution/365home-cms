@@ -92,7 +92,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::get('partners/{partner}/contract', [AdminPartnerController::class, 'contract'])->name('partners.contract.show');
     Route::post('partners/{partner}/contract/send', [AdminPartnerController::class, 'createContract'])->name('partners.contract.send');
     Route::post('partners/{partner}/contract/platform-sign', [AdminPartnerController::class, 'platformSign'])->name('partners.contract.platform-sign');
-    Route::get('partners/{partner}/contract/versions', [AdminPartnerController::class, 'contractVersions'])->name('partners.contract.versions.index');
+    Route::get('partners/{partner}/contract/signed-pdf', [AdminPartnerController::class, 'downloadSignedPdf'])->name('partners.contract.signed-pdf');
+    Route::get('partners/{partner}/contract/versions',[AdminPartnerController::class, 'contractVersions'])->name('partners.contract.versions.index');
     Route::post('partners/{partner}/contract/versions', [AdminPartnerController::class, 'storeContractVersion'])->name('partners.contract.versions.store');
     Route::post('partners/{partner}/contract/renew', [AdminPartnerController::class, 'renewContract'])->name('partners.contract.renew');
     Route::post('partners/{partner}/contract/terminate', [AdminPartnerController::class, 'terminateContract'])->name('partners.contract.terminate');
