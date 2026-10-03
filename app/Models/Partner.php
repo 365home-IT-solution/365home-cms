@@ -192,6 +192,13 @@ class Partner extends Model implements HasMedia
 
     protected static function booted(): void
     {
+        // Homestay mới chưa nhập hoa hồng → mặc định theo cấu hình (20%).
+        static::creating(function (Partner $partner): void {
+            if (! $partner->isMinihouse() && blank($partner->commission_rate)) {
+                $partner->commission_rate = config('partner_flow.default_commission_rate');
+            }
+        });
+
         // Hồ sơ đăng ký hợp tác công khai: hợp đồng có hiệu lực (nền tảng đã ký xong) → tự tạo tài khoản chủ đối tác + gửi email đăng nhập.
         static::updated(function (Partner $partner): void {
             if ($partner->wasChanged('contract_status') && $partner->contract_status === 'active' && filled($partner->onboarding_token)) {

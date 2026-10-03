@@ -94,11 +94,13 @@ class MinihouseSubscriptionPaymentResource extends Resource
                 TextColumn::make('note')->label('Ghi chú')->wrap()->limit(60)->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                // Mặc định CHỈ hiện giao dịch có tiền hoặc cần xử lý: đã thanh toán, hoặc đang chờ nhưng có ghi chú (yêu cầu gói chưa có
-                // phí, trả thiếu tiền). Ẩn các giao dịch đối tác chỉ bấm chọn gói rồi huỷ/bỏ (chờ thanh toán, đã huỷ, hết hạn).
+                // Mặc định CHỈ hiện giao dịch có tiền hoặc cần xử lý: đã thanh toán, đang chờ có ghi chú (yêu cầu gói chưa có
+                // phí, trả thiếu tiền) hoặc đơn mua mới của đối tác chưa kích hoạt. Ẩn các giao dịch đối tác chỉ bấm chọn gói rồi huỷ/bỏ (chờ thanh toán, đã huỷ, hết hạn).
                 Filter::make('attention')->label('Chỉ giao dịch có tiền / cần xử lý')->toggle()->default()
                     ->query(fn (Builder $query) => $query->where(fn ($w) => $w->where('status', Pay::STATUS_PAID)
-                        ->orWhere(fn ($p) => $p->where('status', Pay::STATUS_PENDING)->whereNotNull('note')))),
+                        ->orWhere(fn ($p) => $p->where('status', Pay::STATUS_PENDING)->whereNotNull('note'))
+                        // Đơn MUA GÓI mới trên website (đối tác chưa được kích hoạt): Super Admin cần thấy để xác nhận khi đã nhận tiền.
+                        ->orWhere(fn ($p) => $p->where('status', Pay::STATUS_PENDING)->whereHas('partner', fn ($q) => $q->where('status', false))))),
                 SelectFilter::make('status')->label('Trạng thái')->options(Pay::STATUSES),
             ])
             ->actions([

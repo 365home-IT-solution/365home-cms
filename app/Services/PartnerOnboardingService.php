@@ -59,6 +59,30 @@ class PartnerOnboardingService
     {
     }
 
+    /** Email đã thuộc tài khoản đăng nhập còn dùng? Tài khoản "mồ côi" của đối tác đã xoá không tính (sẽ được giải phóng khi cấp tài khoản mới). */
+    public function emailTaken(?string $email, ?string $exceptPartnerId = null): bool
+    {
+        if (blank($email)) {
+            return false;
+        }
+        $user = User::query()->where('email', $email)->first();
+        if (! $user) {
+            return false;
+        }
+        if ($exceptPartnerId && $user->partner_id === $exceptPartnerId) {
+            return false;
+        }
+
+        return ! ($user->partner_id && Partner::onlyTrashed()->whereKey($user->partner_id)->exists());
+    }
+
+    private function assertEmailFree(?string $email, ?string $exceptPartnerId = null): void
+    {
+        if ($this->emailTaken($email, $exceptPartnerId)) {
+            throw ValidationException::withMessages(['email' => 'Email này đã được dùng cho một tài khoản khác. Vui lòng dùng email khác.']);
+        }
+    }
+
     public static function hashToken(string $token): string
     {
         return hash('sha256', $token);
@@ -105,9 +129,7 @@ class PartnerOnboardingService
         if ($existing && ($existing->status || $existing->users()->exists())) {
             throw ValidationException::withMessages(['phone' => 'Số điện thoại này đã có tài khoản MiniHouse. Vui lòng đăng nhập trang quản trị để gia hạn gói.']);
         }
-        if (User::query()->where('email', $data['email'])->exists()) {
-            throw ValidationException::withMessages(['email' => 'Email này đã được dùng cho một tài khoản khác. Vui lòng dùng email khác.']);
-        }
+        $this->assertEmailFree($data['email'], $existing?->id);
 
         $token = Str::random(48);
         $attributes = [
@@ -154,6 +176,8 @@ class PartnerOnboardingService
         if (Partner::query()->where('partner_type', $data['partner_type'])->where('phone', $phone)->exists()) {
             throw ValidationException::withMessages(['phone' => 'Số điện thoại này đã đăng ký hợp tác. Vui lòng dùng mã hồ sơ đã nhận hoặc liên hệ 365 Home.']);
         }
+
+        $this->assertEmailFree($data['email']);
 
         $token = Str::random(48);
 
@@ -251,6 +275,7 @@ class PartnerOnboardingService
     public function updateContractInfo(Partner $partner, array $data): Partner
     {
         $this->assertEditable($partner);
+        $this->assertEmailFree($data['email'] ?? null, $partner->id);
         $partner->update(collect($data)->only(self::CONTRACT_FIELDS)->all());
 
         return $partner->fresh();
@@ -540,6 +565,17 @@ class PartnerOnboardingService
         }
 
         $email = $partner->email;
+
+        // Tài khoản "mồ côi" của đối tác đã bị xoá không được giữ email: giải phóng để cấp cho hồ sơ mới.
+        if (filled($email)) {
+            $orphan = User::query()->where('email', $email)->first();
+            if ($orphan && $orphan->partner_id && $orphan->partner_id !== $partner->id && Partner::onlyTrashed()->whereKey($orphan->partner_id)->exists()) {
+                $orphan->tokens()->delete();
+                $orphan->delete();
+                $this->log($partner, "Đã giải phóng email {$email} từ tài khoản của đối tác đã xoá.");
+            }
+        }
+
         if (blank($email) || User::query()->where('email', $email)->exists()) {
             $reason = blank($email) ? 'Hồ sơ không có email.' : "Email {$email} đã thuộc một tài khoản khác.";
             $this->log($partner, "Không tự tạo được tài khoản đối tác: {$reason} Vui lòng tạo tài khoản thủ công.");

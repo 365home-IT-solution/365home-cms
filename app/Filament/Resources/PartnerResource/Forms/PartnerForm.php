@@ -648,7 +648,8 @@ class PartnerForm
                 Forms\Components\Grid::make(2)->schema([
                     Forms\Components\TextInput::make('commission_rate')
                         ->label('Tỷ lệ hoa hồng (%)')
-                        ->helperText('Số từ 0 đến 100 (vd 10 hoặc 10%). Bắt buộc với Homestay trước khi tạo hợp đồng. Áp dụng cho tất cả các loại phòng và dịch vụ cộng thêm.')
+                        ->default(fn () => config('partner_flow.default_commission_rate'))
+                        ->helperText('Số từ 0 đến 100 (vd 10 hoặc 10%). Mặc định 20%, bắt buộc với Homestay trước khi tạo hợp đồng. Áp dụng cho tất cả các loại phòng và dịch vụ cộng thêm.')
                         ->rules([fn () => function (string $attribute, $value, \Closure $fail) {
                             if (filled($value) && app(\App\Services\PartnerContractWorkflowService::class)->commissionValue((string) $value) === null) {
                                 $fail('Tỷ lệ hoa hồng phải là số từ 0 đến 100 (vd 10 hoặc 10%).');
@@ -774,7 +775,7 @@ class PartnerForm
                                             ->visible(fn (?Partner $record) => $record && ! self::latestVersion($record)?->isPartnerConfirmed() && ! self::latestVersion($record)?->isFullySigned())
                                             ->disabled(fn (?Partner $record) => ! $record || ! app(PartnerLegalDocumentService::class)->isContractEligible($record))
                                             ->requiresConfirmation()
-                                            ->modalDescription('Hệ thống sẽ tạo bản hợp đồng điện tử từ đúng thông tin đối tác hiện tại (điều khoản hoa hồng, chính sách hủy...) và gửi link ký cho đối tác qua email. Kiểm tra kỹ thông tin trước khi gửi — mỗi lần gửi sẽ tạo 1 phiên bản mới, hủy hiệu lực link ký cũ. Thiếu mã hợp đồng, tỷ lệ hoa hồng (Homestay) hoặc ngày hết hạn thì hệ thống không cho tạo. Khi đối tác đã xác nhận, không tạo lại được nữa.')
+                                            ->modalDescription('Hệ thống sẽ tạo bản hợp đồng điện tử từ đúng thông tin đối tác hiện tại (điều khoản hoa hồng, chính sách hủy...) và gửi link ký cho đối tác qua email. Kiểm tra kỹ thông tin trước khi gửi — mỗi lần gửi sẽ tạo 1 phiên bản mới, hủy hiệu lực link ký cũ. Mã số hợp đồng tự sinh; thiếu tỷ lệ hoa hồng (Homestay) hoặc ngày hết hạn thì hệ thống không cho tạo. Khi đối tác đã xác nhận, không tạo lại được nữa.')
                                             ->action(fn (?Partner $record) => self::createAndSendContract($record)),
 
                                         Forms\Components\Actions\Action::make('signAndExportContract')
