@@ -8,6 +8,7 @@ use Modules\Minihouse\App\Models\InvoicePayment;
 use Modules\Minihouse\App\Models\PortalNotification;
 use Modules\Minihouse\App\Models\Reminder;
 use Modules\Minihouse\App\Models\Transaction;
+use Modules\Minihouse\App\Services\ContractTtlockService;
 use Modules\Minihouse\App\Services\PortalNotificationService;
 
 // Đồng bộ lại Invoice.amount_paid/paid_at/status (cột CACHE, giống hệt cách Invoice.service_amount
@@ -76,6 +77,7 @@ class InvoicePaymentObserver
         // số điện nước của 1 hoá đơn đã thanh toán từ trước không nên bắn thông báo lại).
         if ($status === Invoice::STATUS_PAID && ! $wasAlreadyPaid) {
             $this->notifyTenantsInvoicePaid($invoice);
+            $this->issueTtlockCodeIfWaitingForPayment($invoice);
         }
 
         // Hoá đơn vừa chuyển "Đã thanh toán" — tự đánh dấu xong mọi "Nhắc đóng tiền" đang gắn hoá
@@ -106,6 +108,17 @@ class InvoicePaymentObserver
             'Cảm ơn bạn đã thanh toán ' . number_format((float) $invoice->total_amount, 0, ',', '.') . 'đ.',
             '/minihouse/portal/invoices/' . $invoice->id,
         );
+    }
+
+    // Toà nhà chọn "cấp mã TTLock sau khi thu tiền" — hoá đơn đầu tiên vừa thanh toán đủ thì cấp mã
+    // phòng/cổng ngay (ContractTtlockService tự bỏ qua nếu hợp đồng đã có mã hoặc toà không dùng TTLock).
+    private function issueTtlockCodeIfWaitingForPayment(Invoice $invoice): void
+    {
+        $contract = $invoice->contract_id ? Contract::withoutGlobalScopes()->whereNull('deleted_at')->find($invoice->contract_id) : null;
+
+        if ($contract) {
+            ContractTtlockService::syncForContract($contract);
+        }
     }
 
     private function syncTransaction(InvoicePayment $payment): void

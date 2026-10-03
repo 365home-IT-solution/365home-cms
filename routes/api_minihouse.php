@@ -141,6 +141,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
     // trước đây tính năng này chỉ có ở Filament + Portal khách thuê.
     Route::get('contracts/{id}/lock-code', [ContractController::class, 'lockCode'])->name('contracts.lock-code.show');
     Route::post('contracts/{id}/lock-code/regenerate', [ContractController::class, 'regenerateLockCode'])->name('contracts.lock-code.regenerate');
+    Route::post('contracts/{id}/deposit-paid', [ContractController::class, 'markDepositPaid'])->name('contracts.deposit-paid');
 
     // Hợp đồng điện tử (Mức A) — xem docs/be-minihouse-contract-signing.md mục 4 và
     // ContractDocumentController.

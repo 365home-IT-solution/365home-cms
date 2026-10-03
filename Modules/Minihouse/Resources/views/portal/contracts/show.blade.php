@@ -22,7 +22,7 @@
         $contractIsCurrent = $contract->status === \Modules\Minihouse\App\Models\Contract::STATUS_ACTIVE
             && (! $contract->start_date || ! $contract->start_date->isFuture())
             && (! $contract->end_date || ! $contract->end_date->isPast());
-        $canOpenByApp = $contractIsCurrent && $room?->lock_id && ! $room?->emergency_locked_at;
+        $canOpenByApp = $contractIsCurrent && $unlockLocks && ! $room?->emergency_locked_at;
     @endphp
 
     <a href="{{ route('minihouse.portal.contracts.index') }}" class="text-sm text-gray-500 hover:text-gray-900 transition">&larr; Danh sách hợp đồng</a>
@@ -50,12 +50,12 @@
         </div>
     </div>
 
-    @if ($room?->lock_id && $contractIsCurrent)
+    @if ($unlockLocks && $contractIsCurrent)
         <div class="mt-4 mh-card mh-card-pad">
             <div class="flex items-start justify-between gap-3">
                 <div>
-                    <div class="text-sm font-semibold text-gray-900">Mở cửa phòng</div>
-                    <p class="mt-1 text-xs text-gray-500">Gửi lệnh mở trực tiếp đến khóa TTLock của phòng {{ $room->code }}.</p>
+                    <div class="text-sm font-semibold text-gray-900">Mở khóa từ xa</div>
+                    <p class="mt-1 text-xs text-gray-500">Chọn khóa cần mở — lệnh được gửi trực tiếp đến khóa TTLock.</p>
                 </div>
                 <span class="mh-badge {{ $room->emergency_locked_at ? 'mh-badge-red' : 'mh-badge-green' }}">
                     {{ $room->emergency_locked_at ? 'Đang khóa khẩn cấp' : 'Sẵn sàng' }}
@@ -63,13 +63,23 @@
             </div>
 
             @if ($canOpenByApp)
-                <form method="POST" action="{{ route('minihouse.portal.contracts.unlock', $contract->id) }}" class="mt-4"
-                      onsubmit="return confirm('Bạn muốn mở khóa phòng {{ addslashes($room->code) }} ngay bây giờ?')">
-                    @csrf
-                    <button type="submit" class="mh-btn-primary">
-                        Mở khóa phòng
-                    </button>
-                </form>
+                @error('unlock')
+                    <p class="mt-3 text-sm text-red-600">{{ $message }}</p>
+                @enderror
+                {{-- 1 nút cho khoá phòng + 1 nút cho từng khoá cổng của toà nhà (TenantRoomUnlockService::locks()). --}}
+                <div class="mt-4 space-y-2">
+                    @foreach ($unlockLocks as $lock)
+                        <form method="POST" action="{{ route('minihouse.portal.contracts.unlock', $contract->id) }}"
+                              onsubmit="return confirm(@js('Bạn muốn mở khóa "' . $lock['name'] . '" ngay bây giờ?'))">
+                            @csrf
+                            <input type="hidden" name="target" value="{{ $lock['target'] }}">
+                            <input type="hidden" name="lock_id" value="{{ $lock['lock_id'] }}">
+                            <button type="submit" class="{{ $lock['target'] === 'room' ? 'mh-btn-primary' : 'mh-btn-secondary' }}" style="width: 100%;">
+                                {{ $lock['target'] === 'room' ? 'Mở khóa phòng' : 'Mở khóa cổng' }} — {{ $lock['name'] }}
+                            </button>
+                        </form>
+                    @endforeach
+                </div>
                 <p class="mt-2 text-xs text-gray-400">Nếu khóa ngoại tuyến, hãy dùng mật mã hoặc thẻ dự phòng.</p>
             @else
                 <div class="mt-3 rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-700">
@@ -81,11 +91,26 @@
 
     @if ($lockCode || $canChangeCode)
         <div class="mt-4 mh-card mh-card-pad">
-            <div class="text-sm font-semibold text-gray-900">Mã cổng</div>
-
+            {{-- Toà có khoá cổng: hiện RIÊNG "Mã phòng" và "Mã cổng" (kể cả khi 2 số trùng nhau — khách
+                 khỏi phải đoán mã nào mở cửa nào). Toà không có khoá cổng: giữ tên cũ "Mã cổng". --}}
             @if ($lockCode)
-                <div class="mt-2 text-3xl font-extrabold tracking-[0.2em] mh-heading mh-tabular" style="color: var(--mh-primary);">{{ $lockCode }}</div>
+                @if ($gateCode && $roomCode)
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <div class="text-sm font-semibold text-gray-900">Mã phòng</div>
+                            <div class="mt-2 text-2xl font-extrabold tracking-[0.15em] mh-heading mh-tabular" style="color: var(--mh-primary);">{{ $roomCode }}#</div>
+                        </div>
+                        <div>
+                            <div class="text-sm font-semibold text-gray-900">Mã cổng</div>
+                            <div class="mt-2 text-2xl font-extrabold tracking-[0.15em] mh-heading mh-tabular" style="color: var(--mh-primary);">{{ $gateCode }}#</div>
+                        </div>
+                    </div>
+                @else
+                    <div class="text-sm font-semibold text-gray-900">Mã cổng</div>
+                    <div class="mt-2 text-3xl font-extrabold tracking-[0.2em] mh-heading mh-tabular" style="color: var(--mh-primary);">{{ $lockCode }}#</div>
+                @endif
             @else
+                <div class="text-sm font-semibold text-gray-900">Mã cổng</div>
                 <p class="mt-2 text-sm text-gray-500">Chưa có mã — liên hệ nhân viên toà nhà nếu bạn cần mở cổng bằng mã số.</p>
             @endif
 
@@ -98,6 +123,12 @@
                 @enderror
                 <form id="lockCodeForm" method="POST" action="{{ route('minihouse.portal.contracts.lock-code.regenerate', $contract->id) }}" class="mt-3 flex flex-wrap items-center gap-2">
                     @csrf
+                    @if ($separateGate)
+                        <select name="target" class="mh-input" style="width: auto;">
+                            <option value="room" @selected(old('target') === 'room')>Mã phòng</option>
+                            <option value="gate" @selected(old('target') === 'gate')>Mã cổng</option>
+                        </select>
+                    @endif
                     <input type="text" name="custom_code" inputmode="numeric" maxlength="9" value="{{ old('custom_code') }}"
                            placeholder="Tự chọn mã (bỏ trống để hệ thống tự tạo)"
                            class="mh-input flex-1 min-w-[12rem]">

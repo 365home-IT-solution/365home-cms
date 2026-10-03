@@ -10,8 +10,10 @@ use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Illuminate\Support\Facades\Cache;
 use Modules\Minihouse\App\Models\Building;
 use Modules\Minihouse\App\Models\TtlockSetting;
+use Modules\Minihouse\App\Services\ContractTtlockService;
 use Modules\Minihouse\App\Support\ActiveBuildingScope;
 use Modules\TTLock\App\Services\TTLockService;
 
@@ -64,7 +66,38 @@ class ManageTtlockSettings extends Page implements HasForms
             'username'  => $setting->username,
             'api_base'  => $setting->api_base ?: 'https://euapi.ttlock.com',
             'is_active' => $setting->exists ? $setting->is_active : true,
+            'gate_lock_ids'  => $setting->gateLockIds(),
+            'gate_code_mode' => $setting->gate_code_mode ?: TtlockSetting::GATE_CODE_SHARED,
+            'issue_mode'     => $setting->issue_mode ?: TtlockSetting::ISSUE_ON_CONTRACT,
         ]);
+    }
+
+    // Danh sách khoá của Toà nhà để chọn làm KHOÁ CỔNG — form tính lại options mỗi lần re-render nên
+    // cache ngắn, không gọi TTLock /v3/lock/list liên tục (không cache kết quả rỗng: vừa lưu tài khoản
+    // xong phải thấy khoá ngay).
+    public function lockOptions(): array
+    {
+        if (! $this->hasSecrets()) {
+            return [];
+        }
+
+        $key = "minihouse_ttlock_gate_lock_options_{$this->buildingId}";
+
+        if ($cached = Cache::get($key)) {
+            return $cached;
+        }
+
+        $options = [];
+
+        foreach (TTLockService::forBuilding((int) $this->buildingId)?->getLockList() ?? [] as $lock) {
+            $options[(int) $lock['lockId']] = ($lock['lockAlias'] ?? $lock['lockName'] ?? "Lock #{$lock['lockId']}") . ' • ' . ($lock['lockMac'] ?? '');
+        }
+
+        if ($options) {
+            Cache::put($key, $options, now()->addMinutes(5));
+        }
+
+        return $options;
     }
 
     public function buildingOptions(): array
@@ -103,6 +136,38 @@ class ManageTtlockSettings extends Page implements HasForms
                             ->default('https://euapi.ttlock.com')->required()->url()->maxLength(200)->columnSpanFull(),
                         Forms\Components\Toggle::make('is_active')->label('Kích hoạt')->default(true),
                     ]),
+                Forms\Components\Section::make('Khoá cổng & cấp mã cho khách thuê')
+                    ->description('Mã mở được cấp tự động theo Hợp đồng: có hạn đúng bằng thời hạn hợp đồng, tự xoá khi thanh lý/huỷ.')
+                    ->columns(2)
+                    ->schema([
+                        Forms\Components\Select::make('gate_lock_ids')->label('Khoá cổng của toà nhà')
+                            ->multiple()->searchable()
+                            ->options(fn () => $this->lockOptions())
+                            ->helperText(fn () => $this->hasSecrets()
+                                ? 'Mọi hợp đồng đang hiệu lực của toà đều được cấp mã trên các khoá này. Để trống nếu toà không có khoá cổng TTLock.'
+                                : 'Lưu tài khoản TTLock ở trên trước, sau đó mới chọn được khoá cổng.')
+                            ->columnSpanFull(),
+                        Forms\Components\Radio::make('gate_code_mode')->label('Mã cổng')
+                            ->options([
+                                TtlockSetting::GATE_CODE_SHARED   => 'Dùng chung với mã phòng',
+                                TtlockSetting::GATE_CODE_SEPARATE => 'Mã riêng cho cổng',
+                            ])
+                            ->descriptions([
+                                TtlockSetting::GATE_CODE_SHARED   => 'Khách chỉ nhớ 1 số, mở được cả cổng lẫn phòng.',
+                                TtlockSetting::GATE_CODE_SEPARATE => 'Mỗi hợp đồng có 1 mã cổng và 1 mã phòng khác nhau, đổi độc lập.',
+                            ])
+                            ->default(TtlockSetting::GATE_CODE_SHARED)->required()
+                            ->helperText('Đổi lựa chọn này chỉ áp dụng cho mã cấp mới/đổi mã sau đó, mã đang dùng giữ nguyên.'),
+                        Forms\Components\Radio::make('issue_mode')->label('Thời điểm cấp mã')
+                            ->options([
+                                TtlockSetting::ISSUE_ON_CONTRACT => 'Ngay khi tạo hợp đồng',
+                                TtlockSetting::ISSUE_ON_PAYMENT  => 'Sau khi thu cọc hoặc thanh toán hoá đơn đầu tiên',
+                            ])
+                            ->descriptions([
+                                TtlockSetting::ISSUE_ON_PAYMENT => 'Hợp đồng không cọc thì cấp khi hoá đơn đầu tiên được thanh toán đủ. Hợp đồng đã có mã không bị thu hồi.',
+                            ])
+                            ->default(TtlockSetting::ISSUE_ON_CONTRACT)->required(),
+                    ]),
             ])
             ->statePath('data');
     }
@@ -129,7 +194,12 @@ class ManageTtlockSettings extends Page implements HasForms
             'username'  => $data['username'],
             'api_base'  => $data['api_base'],
             'is_active' => (bool) ($data['is_active'] ?? true),
+            'gate_lock_ids'  => array_values(array_map('intval', $data['gate_lock_ids'] ?? [])),
+            'gate_code_mode' => $data['gate_code_mode'],
+            'issue_mode'     => $data['issue_mode'],
         ]);
+
+        $gateLocksChanged = $setting->isDirty('gate_lock_ids');
 
         if (filled($data['client_secret'] ?? null)) {
             $setting->client_secret = $data['client_secret'];
@@ -144,7 +214,16 @@ class ManageTtlockSettings extends Page implements HasForms
         // Đổi tài khoản thì token cũ trong cache không còn hợp lệ.
         TTLockService::forBuilding((int) $this->buildingId)?->clearTokenCache();
 
-        Notification::make()->title('Đã lưu cấu hình TTLock.')->success()->send();
+        // Đổi khoá cổng -> cấp/thu hồi mã cổng cho mọi hợp đồng đang hiệu lực. Mỗi hợp đồng là 1+ lần
+        // gọi TTLock (~1-2s) nên chạy SAU khi đã trả response, không bắt người dùng chờ.
+        if ($gateLocksChanged) {
+            $buildingId = (int) $this->buildingId;
+            dispatch(fn () => ContractTtlockService::syncForBuilding($buildingId))->afterResponse();
+        }
+
+        Notification::make()->title('Đã lưu cấu hình TTLock.')
+            ->body($gateLocksChanged ? 'Mã cổng của các hợp đồng đang hiệu lực sẽ được cập nhật trong ít phút.' : null)
+            ->success()->send();
         $this->fillFormForBuilding();
     }
 

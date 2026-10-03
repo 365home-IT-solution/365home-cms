@@ -51,7 +51,8 @@ class ContractObserver
         }
 
         // Đổi ngày/đổi phòng/đổi trạng thái -> cấp mới, sửa hạn, hoặc xoá mã mở TTLock cho khớp.
-        if ($contract->wasChanged(['status', 'room_id', 'start_date', 'end_date'])) {
+        // deposit_paid_at: toà "cấp mã sau khi thu tiền" — vừa xác nhận thu cọc thì cấp mã ngay.
+        if ($contract->wasChanged(['status', 'room_id', 'start_date', 'end_date', 'deposit_paid_at'])) {
             ContractTtlockService::syncForContract($contract);
         }
 

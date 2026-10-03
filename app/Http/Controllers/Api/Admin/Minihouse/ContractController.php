@@ -507,7 +507,36 @@ class ContractController extends Controller
         return response()->json(['data' => [
             'code'       => \Modules\Minihouse\App\Services\ContractTtlockService::currentCode($contract),
             'can_change' => \Modules\Minihouse\App\Services\ContractTtlockService::canChangeCode($contract),
+            // Mã cổng của toà nhà (null nếu toà không có khoá cổng) + có phải mã RIÊNG, đổi độc lập
+            // được qua "target" ở regenerate hay không.
+            'gate_code'          => \Modules\Minihouse\App\Services\ContractTtlockService::currentCodes($contract)['gate'],
+            'separate_gate_code' => \Modules\Minihouse\App\Services\ContractTtlockService::hasSeparateGateCode($contract),
         ]]);
+    }
+
+    // POST /api/admin/minihouse/contracts/{id}/deposit-paid — bản API của nút "Xác nhận đã thu cọc"
+    // (Filament EditContract): ghi 1 dòng "Thu cọc" vào sổ Thu Chi + đánh dấu deposit_paid_at; toà nhà
+    // chọn "cấp mã TTLock sau khi thu tiền" thì mã được cấp ngay (xem ContractDepositService).
+    public function markDepositPaid(Request $request, int $id): JsonResponse
+    {
+        if (! $this->hasPermission($request, 'update_contracts')) {
+            return response()->json(['message' => 'Không có quyền sửa hợp đồng.'], 403);
+        }
+
+        $contract = Contract::withoutGlobalScopes()->with(['room' => fn ($q) => $q->withoutGlobalScopes()])->find($id);
+
+        if (! $contract || ! $this->isBuildingAllowed($request, $contract->room?->building_id)) {
+            return response()->json(['message' => 'Không tìm thấy hợp đồng.'], 404);
+        }
+
+        if (! \Modules\Minihouse\App\Services\ContractDepositService::markPaid($contract)) {
+            return response()->json(['message' => 'Hợp đồng không có tiền cọc, đã thu cọc rồi, hoặc không còn hiệu lực.'], 422);
+        }
+
+        return response()->json([
+            'data'    => ['deposit_paid_at' => $contract->deposit_paid_at?->toIso8601String()],
+            'message' => 'Đã xác nhận thu cọc.',
+        ]);
     }
 
     // POST /api/admin/minihouse/contracts/{id}/lock-code/regenerate — cùng quyền "update_contracts"
@@ -526,12 +555,13 @@ class ContractController extends Controller
             return response()->json(['message' => 'Không tìm thấy hợp đồng.'], 404);
         }
 
-        $data = $request->validate(['code' => ['nullable', 'digits_between:4,9']]);
+        // "target" (room|gate) chỉ có tác dụng khi hợp đồng có mã cổng RIÊNG — bỏ trống = đổi tất cả.
+        $data = $request->validate(['code' => ['nullable', 'digits_between:4,9'], 'target' => ['nullable', 'in:room,gate']]);
 
-        $result = \Modules\Minihouse\App\Services\ContractTtlockService::regenerateCode($contract, filled($data['code'] ?? null) ? (string) $data['code'] : null);
+        $result = \Modules\Minihouse\App\Services\ContractTtlockService::regenerateCode($contract, filled($data['code'] ?? null) ? (string) $data['code'] : null, $data['target'] ?? null);
 
         return $result['success']
-            ? response()->json(['data' => ['code' => $result['code']], 'message' => $result['message']])
+            ? response()->json(['data' => ['code' => $result['code'], 'gate_code' => $result['gate_code']], 'message' => $result['message']])
             : response()->json(['message' => $result['message']], 422);
     }
 
@@ -564,6 +594,8 @@ class ContractController extends Controller
             'end_date'                      => $contract->end_date?->toDateString(),
             'monthly_price'                 => $contract->monthly_price,
             'deposit_amount'                => $contract->deposit_amount,
+            // null = chưa xác nhận thu cọc (hoặc hợp đồng không cọc) — xem markDepositPaid().
+            'deposit_paid_at'               => $contract->deposit_paid_at?->toIso8601String(),
             'status'                        => $contract->status,
             'electric_unit_price'           => $contract->electric_unit_price,
             'water_unit_price'              => $contract->water_unit_price,

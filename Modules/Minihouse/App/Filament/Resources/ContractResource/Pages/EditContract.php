@@ -23,6 +23,7 @@ use Modules\Minihouse\App\Models\Invoice;
 use Modules\Minihouse\App\Models\Room;
 use Modules\Minihouse\App\Models\Transaction;
 use Modules\Minihouse\App\Services\ContractContentRenderer;
+use Modules\Minihouse\App\Services\ContractDepositService;
 use Modules\Minihouse\App\Services\ContractDocumentService;
 use Modules\Minihouse\App\Services\ContractEarlyEndService;
 use Modules\Minihouse\App\Services\ContractTtlockService;
@@ -50,6 +51,13 @@ class EditContract extends EditRecord
                 ->color('gray')
                 ->visible(fn () => ContractTtlockService::canChangeCode($this->record))
                 ->form([
+                    // Toà nhà dùng mã cổng RIÊNG (khác mã phòng) — chọn đổi mã nào; toà dùng chung 1
+                    // mã thì không hiện (luôn đổi tất cả).
+                    Select::make('scope')
+                        ->label('Đổi mã nào')
+                        ->options(['room' => 'Mã phòng', 'gate' => 'Mã cổng'])
+                        ->placeholder('Cả mã phòng và mã cổng')
+                        ->visible(fn () => ContractTtlockService::hasSeparateGateCode($this->record)),
                     // Để trống = TTLock tự sinh ngẫu nhiên (như trước). LỖI THẬT khách phản ánh: muốn
                     // tự đặt 1 mã dễ nhớ (VD "123456") thay vì mã ngẫu nhiên hệ thống đưa ra.
                     TextInput::make('custom_code')
@@ -62,11 +70,33 @@ class EditContract extends EditRecord
                 ->requiresConfirmation()
                 ->modalDescription('Mã mở cũ sẽ ngừng hoạt động ngay lập tức và được thay bằng 1 mã mới. Cần báo lại mã mới cho khách.')
                 ->action(function (array $data): void {
-                    $result = ContractTtlockService::regenerateCode($this->record, filled($data['custom_code'] ?? null) ? (string) $data['custom_code'] : null);
+                    $result = ContractTtlockService::regenerateCode($this->record, filled($data['custom_code'] ?? null) ? (string) $data['custom_code'] : null, $data['scope'] ?? null);
 
                     $result['success']
-                        ? Notification::make()->title('Đã đổi mã mở')->body('Mã mới: ' . $result['code'])->success()->persistent()->send()
+                        ? Notification::make()->title('Đã đổi mã mở')
+                            ->body('Mã mới: ' . $result['code'] . '#' . (blank($data['scope'] ?? null) && filled($result['gate_code']) && $result['gate_code'] !== $result['code'] ? ' — mã cổng: ' . $result['gate_code'] . '#' : ''))
+                            ->success()->persistent()->send()
                         : Notification::make()->title('Đổi mã thất bại')->body($result['message'])->danger()->send();
+                }),
+
+            // Xác nhận đã thu cọc — ghi 1 dòng "Thu cọc" vào sổ Thu Chi; toà nhà chọn "cấp mã TTLock
+            // sau khi thu tiền" thì mã phòng/cổng được cấp ngay (xem ContractDepositService). Cọc không
+            // bắt buộc: hợp đồng không nhập tiền cọc thì nút này không hiện.
+            Actions\Action::make('markDepositPaid')
+                ->label('Xác nhận đã thu cọc')
+                ->icon('heroicon-o-banknotes')
+                ->color('success')
+                ->visible(fn () => ContractDepositService::canMarkPaid($this->record))
+                ->requiresConfirmation()
+                ->modalDescription(fn () => 'Ghi nhận đã thu ' . number_format((float) $this->record->deposit_amount, 0, ',', '.') . 'đ tiền cọc vào sổ Thu Chi.')
+                ->action(function (): void {
+                    ContractDepositService::markPaid($this->record);
+
+                    $code = ContractTtlockService::currentCode($this->record);
+
+                    Notification::make()->title('Đã xác nhận thu cọc')
+                        ->body($code ? 'Mã mở của khách: ' . $code . '#' : null)
+                        ->success()->send();
                 }),
 
             // Gia hạn hợp đồng — thay vì sửa tay end_date/monthly_price ở tab "Thông tin hợp đồng"
