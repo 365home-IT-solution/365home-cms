@@ -47,6 +47,9 @@ class PartnerLegalDocument extends Model implements HasMedia
         'reviewed_at' => 'datetime',
     ];
 
+    // Đối tác HOMESTAY đăng ký hợp tác trên website BẮT BUỘC nộp đủ 3 loại: Giấy phép kinh doanh, An toàn an ninh (ANTT), Phòng cháy chữa cháy (PCCC).
+    public const HOMESTAY_REGISTRATION_REQUIRED = ['business_license', 'security_order', 'fire_safety'];
+
     protected static function booted(): void
     {
         static::saving(function (self $document): void {
@@ -63,7 +66,10 @@ class PartnerLegalDocument extends Model implements HasMedia
                 $document->building_id = null;
             }
 
-            if ($document->type === 'business_license' || $isMinihouseBuildingDocument) {
+            $isHomestayRegistrationRequired = $document->partner && ! $document->partner->isMinihouse() && filled($document->partner->onboarding_token)
+                && in_array($document->type, self::HOMESTAY_REGISTRATION_REQUIRED, true);
+
+            if ($document->type === 'business_license' || $isMinihouseBuildingDocument || $isHomestayRegistrationRequired) {
                 $document->is_required = true;
             }
         });

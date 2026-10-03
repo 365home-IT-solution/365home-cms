@@ -43,6 +43,8 @@ class Partner extends Model implements HasMedia
         'representative_position',
         'representative_id_number',
         'representative_id_issued_at',
+        'signup_plan_id',
+        'signup_periods',
         'representative_id_issued_place',
         'representative_phone_secondary',
 

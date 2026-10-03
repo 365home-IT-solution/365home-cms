@@ -34,10 +34,9 @@ class PartnerOnboardingService
         'representative_dob', 'business_license_date', 'business_license_issuer',
     ];
 
-    // Bước RIÊNG "Ngân hàng" (sau Thông tin hợp đồng): ngân hàng CHỌN từ danh sách (config/banks.php), không nhập tay.
+    // Ngân hàng KHÔNG còn là bước đăng ký: đối tác tự thiết lập sau khi đăng nhập (ngân hàng CHỌN từ danh sách config/banks.php, không nhập tay).
     public const BANK_FIELDS = ['bank_name', 'bank_branch', 'bank_account_number', 'bank_account_holder'];
 
-    public const BANK_REQUIRED = ['bank_name', 'bank_account_number', 'bank_account_holder'];
 
     // Bắt buộc có trước khi tạo hợp đồng.
     public const CONTRACT_REQUIRED = ['legal_name', 'address', 'email', 'representative_name', 'representative_id_number', 'representative_id_issued_at'];
@@ -204,7 +203,8 @@ class PartnerOnboardingService
             throw ValidationException::withMessages(['partner' => 'Tính năng tặng dùng thử đang tắt — đối tác cần thanh toán gói để được kích hoạt.']);
         }
 
-        $plan = \App\Models\SubscriptionPayment::query()->where('partner_id', $partner->id)->latest('id')->first()?->plan
+        $plan = ($partner->signup_plan_id ? SubscriptionPlan::query()->find($partner->signup_plan_id) : null)
+            ?? \App\Models\SubscriptionPayment::query()->where('partner_id', $partner->id)->latest('id')->first()?->plan
             ?? SubscriptionPlan::query()->where('is_active', true)->forPartnerType(Partner::TYPE_MINIHOUSE)->orderBy('sort_order')->orderBy('id')->first();
         if (! $plan) {
             throw ValidationException::withMessages(['partner' => 'Chưa có gói MiniHouse đang bán để gán dùng thử.']);
@@ -324,10 +324,12 @@ class PartnerOnboardingService
         $document->delete();
     }
 
-    /** Bước Ngân hàng: lưu ngân hàng (đã chọn từ danh sách → lưu tên chuẩn), chi nhánh, số tài khoản, chủ tài khoản. */
-    public function updateBankInfo(Partner $partner, array $data): Partner
+    /**
+     * Tài khoản ngân hàng của ĐỐI TÁC (cùng các cột partners.bank_* mà Super Admin thấy ở tab Tài chính — một nguồn duy nhất, tự đồng bộ).
+     * Đối tác tự thiết lập sau khi đăng nhập (không còn là bước đăng ký): ngân hàng chọn từ danh sách → lưu tên chuẩn.
+     */
+    public function updateBankAccount(Partner $partner, array $data): Partner
     {
-        $this->assertEditable($partner);
         $bank = \App\Support\Banks::find($data['bank_code'] ?? null);
         if (! $bank) {
             throw ValidationException::withMessages(['bank_code' => 'Vui lòng chọn ngân hàng trong danh sách.']);
@@ -341,6 +343,12 @@ class PartnerOnboardingService
         ]);
 
         return $partner->fresh();
+    }
+
+    /** Ghi lịch sử hồ sơ khi tài khoản ngân hàng đổi (đối tác hoặc Super Admin) để đối soát. */
+    public function logBankUpdate(Partner $partner, ?User $actor): void
+    {
+        $this->log($partner, 'Cập nhật tài khoản ngân hàng' . ($actor ? " bởi {$actor->fullname}" : '') . ': ' . ($partner->bank_name ?: '—') . ' · ' . ($partner->bank_account_number ?: '—') . ' · ' . ($partner->bank_account_holder ?: '—') . '.');
     }
 
     public function updateContractInfo(Partner $partner, array $data): Partner
@@ -437,17 +445,13 @@ class PartnerOnboardingService
         if ($partner->verification_status !== 'pending') {
             throw ValidationException::withMessages(['status' => 'Hồ sơ không ở trạng thái chờ hoàn thiện.']);
         }
-        if (! $this->hasBusinessLicense($partner)) {
-            throw ValidationException::withMessages(['documents' => 'Phải nộp Giấy phép kinh doanh (có tệp).']);
+        $missingDocs = $this->missingRequiredDocuments($partner);
+        if ($missingDocs !== []) {
+            throw ValidationException::withMessages(['documents' => 'Phải nộp đủ giấy tờ bắt buộc (có tệp). Còn thiếu: ' . implode(', ', array_map(fn ($t) => PartnerLegalDocument::TYPES[$t] ?? $t, $missingDocs)) . '.']);
         }
         $missing = $this->missingContractFields($partner);
         if ($missing !== []) {
             throw ValidationException::withMessages(['contract_info' => 'Thiếu thông tin ký hợp đồng: ' . implode(', ', array_map(fn ($f) => self::LABELS[$f] ?? $f, $missing)) . '.']);
-        }
-
-        $missingBank = $this->missingBankFields($partner);
-        if ($missingBank !== []) {
-            throw ValidationException::withMessages(['bank_info' => 'Thiếu thông tin ngân hàng: ' . implode(', ', array_map(fn ($f) => self::LABELS[$f] ?? $f, $missingBank)) . '.']);
         }
 
         // Gửi các giấy tờ mới/bổ sung sang "chờ duyệt"; không còn giấy tờ mới (đã gửi trước đó) → báo lỗi như API hồ sơ pháp lý.
@@ -798,7 +802,6 @@ class PartnerOnboardingService
         $documents = $partner->legalDocuments()->with('media')->latest()->get();
         $contract = $this->latestContract($partner);
         $missing = $this->missingContractFields($partner);
-        $missingBank = $this->missingBankFields($partner);
 
         $approved = $partner->verification_status === 'approved';
         $signingActive = $contract && $contract->signing_token !== null && ! $contract->isPartnerConfirmed();
@@ -812,8 +815,7 @@ class PartnerOnboardingService
             $partner->verification_status === 'rejected' => 'rejected',
             $hasChanges => 'changes_requested',
             $partner->verification_submitted_at !== null => 'pending_review',
-            $missing === [] && $missingBank === [] && $this->hasBusinessLicense($partner) => 'ready_to_submit',
-            $missing === [] && $this->hasBusinessLicense($partner) => 'bank_info_pending',
+            $missing === [] && $this->missingRequiredDocuments($partner) === [] => 'ready_to_submit',
             $documents->isNotEmpty() => 'documents_uploaded',
             default => 'registered',
         };
@@ -821,14 +823,12 @@ class PartnerOnboardingService
         return [
             'stage'        => $stage,
             'partner_type' => $partner->partner_type,
-            'partner'      => collect(['name', 'phone', 'partner_type', ...self::CONTRACT_FIELDS, ...self::BANK_FIELDS])
-                ->mapWithKeys(fn ($f) => [$f => $partner->{$f} instanceof \DateTimeInterface ? $partner->{$f}->format('Y-m-d') : $partner->{$f}])
-                ->put('bank_code', \App\Support\Banks::findByShortName($partner->bank_name)['code'] ?? null)->all(),
+            'partner'      => collect(['name', 'phone', 'partner_type', ...self::CONTRACT_FIELDS])
+                ->mapWithKeys(fn ($f) => [$f => $partner->{$f} instanceof \DateTimeInterface ? $partner->{$f}->format('Y-m-d') : $partner->{$f}])->all(),
             'steps' => [
                 'registered'          => true,
-                'documents_uploaded'  => $this->hasBusinessLicense($partner),
+                'documents_uploaded'  => $this->missingRequiredDocuments($partner) === [],
                 'contract_info_ready' => $missing === [],
-                'bank_info_ready'     => $missingBank === [],
                 'submitted'           => $partner->verification_submitted_at !== null,
                 'documents_approved'  => $approved,
                 'contract_sent'       => $contract !== null,
@@ -836,7 +836,7 @@ class PartnerOnboardingService
                 'active'              => $partner->contract_status === 'active',
             ],
             'missing_contract_fields' => $missing,
-            'missing_bank_fields'     => $missingBank,
+            'required_documents'      => $this->requiredDocumentsStatus($partner),
             'documents'    => $documents->map(fn (PartnerLegalDocument $d) => $this->formatDocument($d))->values()->all(),
             'contract'     => $contract ? [
                 'version_id'           => $contract->id,
@@ -887,14 +887,32 @@ class PartnerOnboardingService
         return $partner->contractVersions()->first();
     }
 
-    private function missingBankFields(Partner $partner): array
-    {
-        return array_values(array_filter(self::BANK_REQUIRED, fn ($f) => blank($partner->{$f})));
-    }
-
     private function missingContractFields(Partner $partner): array
     {
         return array_values(array_filter(self::CONTRACT_REQUIRED, fn ($f) => blank($partner->{$f})));
+    }
+
+    /** Loại giấy tờ BẮT BUỘC khi đăng ký: Homestay = Giấy phép kinh doanh + An toàn an ninh + Phòng cháy chữa cháy; MiniHouse chỉ Giấy phép kinh doanh (giấy tờ toà nhà bổ sung sau). */
+    private function requiredDocumentTypes(Partner $partner): array
+    {
+        return $partner->isMinihouse() ? ['business_license'] : PartnerLegalDocument::HOMESTAY_REGISTRATION_REQUIRED;
+    }
+
+    /** @return array<int, string> loại giấy tờ bắt buộc còn thiếu (chưa có tệp hoặc đã bị từ chối) */
+    private function missingRequiredDocuments(Partner $partner): array
+    {
+        $uploaded = $partner->legalDocuments()->whereIn('type', $this->requiredDocumentTypes($partner))->whereNull('building_id')
+            ->whereNotIn('status', ['rejected'])->get()->filter(fn (PartnerLegalDocument $d) => $d->hasMedia('file'))->pluck('type')->unique()->all();
+
+        return array_values(array_diff($this->requiredDocumentTypes($partner), $uploaded));
+    }
+
+    /** Danh sách giấy tờ bắt buộc kèm trạng thái đã nộp — để màn hình đăng ký hiển thị đúng những gì khách phải gửi. */
+    private function requiredDocumentsStatus(Partner $partner): array
+    {
+        $missing = $this->missingRequiredDocuments($partner);
+
+        return array_map(fn (string $type) => ['type' => $type, 'label' => PartnerLegalDocument::TYPES[$type] ?? $type, 'uploaded' => ! in_array($type, $missing, true)], $this->requiredDocumentTypes($partner));
     }
 
     private function hasBusinessLicense(Partner $partner): bool

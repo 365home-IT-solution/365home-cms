@@ -8,14 +8,13 @@
 
     @php
         $docTypes = collect(\App\Models\PartnerLegalDocument::TYPES)->map(fn ($label, $key) => ['value' => $key, 'label' => $label])->values();
-        $bankOptions = collect(\App\Support\Banks::all())->map(fn ($b, $code) => ['code' => $code, 'short_name' => $b['short_name'], 'name' => $b['name']])->sortBy('short_name')->values();
         $provinceOptions = \App\Models\Province::query()->whereNotNull('code')->orderBy('name')->get(['code', 'name'])->map(fn ($p) => ['code' => $p->code, 'name' => $p->name])->values();
     @endphp
 
     {{-- Đăng ký hợp tác (Homestay / MiniHouse) — gọi API công khai /api/public/partner-onboarding. Mã hồ sơ lưu ở localStorage để quay lại làm tiếp. --}}
     <div class="bg-gray-50 px-4 py-10 sm:px-6 lg:px-8">
         <div class="mx-auto max-w-3xl"
-            x-data="partnerOnboarding(@js($initialType), @js($docTypes), @js($provinceOptions), @js($bankOptions))"
+            x-data="partnerOnboarding(@js($initialType), @js($docTypes), @js($provinceOptions))"
             x-init="init()">
 
             <div class="mb-6">
@@ -161,7 +160,12 @@
                         <p class="text-xs text-red-600" x-show="errors.address" x-text="err('address')"></p>
                     </fieldset>
                     {{-- MiniHouse: chỉ mua gói rồi dùng — chọn gói + số tháng, không đăng ký đối tác/ký hợp đồng. --}}
-                    <div x-show="minihouseMode" x-cloak class="space-y-4">
+                    {{-- Lần đầu được TẶNG dùng thử: không chọn gói, không thanh toán lúc đăng ký — chọn gói/thanh toán sau khi đăng nhập. --}}
+                    <div x-show="minihouseMode && trialMonths > 0" x-cloak class="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 space-y-1">
+                        <p class="font-semibold">Tặng dùng thử <span x-text="trialMonths"></span> tháng cho lần đăng ký đầu tiên.</p>
+                        <p>Bạn không cần chọn gói hay thanh toán lúc đăng ký. Sau khi 365 Home duyệt, tài khoản và mật khẩu sẽ gửi về email; hết thời gian dùng thử, đăng nhập để chọn gói và thanh toán.</p>
+                    </div>
+                    <div x-show="minihouseMode && trialMonths === 0" x-cloak class="space-y-4">
                         <div class="text-sm font-medium text-gray-700">Gói dịch vụ MiniHouse <span class="text-red-500">*</span></div>
                         <p class="text-sm text-gray-500" x-show="!plans.length">Chưa có gói đang bán. Vui lòng liên hệ 365 Home.</p>
                         <template x-for="p in plans" :key="p.id">
@@ -183,7 +187,6 @@
                             </select>
                             <p class="text-xs text-red-600 mt-1" x-show="errors.periods || errors.plan_id" x-text="err('periods') || err('plan_id')"></p>
                             <p class="text-sm text-gray-700 mt-2">Thành tiền: <strong x-text="vnd(selectedPeriod ? selectedPeriod.amount_vnd : 0)"></strong></p>
-                            <p class="text-sm text-green-700 mt-1" x-show="trialMonths > 0">Đăng ký lần đầu được tặng dùng thử <strong x-text="trialMonths"></strong> tháng sau khi 365 Home duyệt — tài khoản và mật khẩu gửi về email, thanh toán sau.</p>
                         </div>
                     </div>
                     <div x-show="!minihouseMode">
@@ -234,8 +237,8 @@
                     <template x-if="purchase && purchase.stage === 'pending_approval'">
                         <div class="space-y-2">
                             <div class="text-5xl">⏳</div>
-                            <h2 class="text-xl font-bold text-gray-900">Đã ghi nhận đăng ký — chờ 365 Home duyệt</h2>
-                            <p class="text-gray-600">Sau khi được duyệt, tài khoản dùng thử và mật khẩu sẽ gửi về email của bạn. Bạn cũng có thể thanh toán gói ngay bên dưới để kích hoạt luôn.</p>
+                            <h2 class="text-xl font-bold text-gray-900">Đã xác nhận đăng ký — chờ 365 Home duyệt</h2>
+                            <p class="text-gray-600">Sau khi được duyệt, tài khoản dùng thử và mật khẩu sẽ gửi về email của bạn. Bạn chưa cần thanh toán lúc này.</p>
                         </div>
                     </template>
                     <template x-if="purchase && purchase.stage === 'paid'">
@@ -251,7 +254,7 @@
                             <button type="button" class="rounded-lg bg-gray-900 text-white font-semibold px-6 py-3 hover:bg-gray-800" @click="resetPurchase()">Tạo đơn mới</button>
                         </div>
                     </template>
-                    <template x-if="purchase && ['pending_payment', 'pending_approval'].includes(purchase.stage) && purchase.payment">
+                    <template x-if="purchase && purchase.stage === 'pending_payment' && purchase.payment">
                         <div class="space-y-4">
                             <h2 class="text-xl font-bold text-gray-900">Thanh toán gói <span x-text="purchase.payment.plan ? purchase.payment.plan.name : ''"></span></h2>
                             <p class="text-gray-600"><span x-text="purchase.payment.months"></span> tháng — <strong x-text="vnd(purchase.payment.amount_vnd)"></strong></p>
@@ -278,16 +281,23 @@
                         <h2 class="text-lg font-bold text-gray-900">Giấy tờ pháp lý</h2>
                         <p class="text-sm text-gray-600 mt-1">Tệp PDF hoặc ảnh (jpg, png, webp), tối đa 10 MB. Loại giấy tờ trùng với danh mục 365 HOME dùng khi duyệt hồ sơ.</p>
                     </div>
-                    {{-- Yêu cầu hồ sơ — khớp điều kiện "Phê duyệt chính thức" ở trang admin: bắt buộc Giấy phép kinh doanh còn hạn; MiniHouse bổ sung giấy tờ toà nhà sau. --}}
-                    <div class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700 space-y-1.5">
-                        <div class="flex items-center gap-2">
-                            <span class="inline-flex items-center justify-center rounded-full text-white" style="width:18px;height:18px;font-size:12px;"
-                                :style="status && status.steps.documents_uploaded ? 'background:#16a34a;' : 'background:#9ca3af;'" x-text="status && status.steps.documents_uploaded ? '✓' : '!'"></span>
-                            <span><strong>Giấy phép kinh doanh</strong> — <span class="text-red-600">bắt buộc</span>, phải còn hạn (nếu có ngày hết hạn).</span>
-                        </div>
-                        <p class="text-gray-500">Giấy tờ khác (đăng ký thuế, giấy phép/công nhận cơ sở lưu trú, giấy uỷ quyền người ký...) không bắt buộc nhưng nên nộp để duyệt nhanh hơn.</p>
-                        <p class="text-gray-500" x-show="(status ? status.partner_type : reg.partner_type) === 'minihouse'">MiniHouse: giấy tờ từng toà nhà (PCCC, an ninh trật tự, sở hữu/quyền khai thác) sẽ bổ sung trong trang quản trị sau khi hợp đồng có hiệu lực và bạn tạo toà nhà.</p>
-                        <p class="text-gray-500">Hồ sơ chỉ được 365 HOME phê duyệt khi mọi giấy tờ bắt buộc đã được duyệt và còn hạn.</p>
+                    {{-- Giấy tờ BẮT BUỘC khi đăng ký: khách phải gửi đủ trước khi sang bước tiếp theo. --}}
+                    <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-gray-800 space-y-2">
+                        <p class="font-semibold text-red-700">BẮT BUỘC gửi đủ các hồ sơ, tài liệu sau (tệp PDF hoặc ảnh) thì mới gửi duyệt được:</p>
+                        <template x-for="r in (status ? status.required_documents : [])" :key="r.type">
+                            <div class="flex items-center gap-2">
+                                <span class="inline-flex items-center justify-center rounded-full text-white shrink-0" style="width:18px;height:18px;font-size:12px;"
+                                    :style="r.uploaded ? 'background:#16a34a;' : 'background:#dc2626;'" x-text="r.uploaded ? '✓' : '!'"></span>
+                                <span><strong x-text="r.label"></strong> — <span :class="r.uploaded ? 'text-green-700' : 'text-red-600'" x-text="r.uploaded ? 'đã gửi' : 'chưa gửi — bắt buộc'"></span></span>
+                                <button type="button" class="ml-auto text-gray-700 underline shrink-0" x-show="!r.uploaded && editable" @click="doc.type = r.type; $refs.docFile && $refs.docFile.focus()">Chọn loại này</button>
+                            </div>
+                        </template>
+                        <ul class="list-disc pl-5 text-gray-700" x-show="!status">
+                            <li>Giấy phép kinh doanh</li><li>Giấy chứng nhận an ninh, trật tự</li><li>Hồ sơ phòng cháy chữa cháy</li>
+                        </ul>
+                        <p class="text-gray-600">Giấy tờ cần còn hiệu lực (nếu có ngày hết hạn). Chọn đúng <strong>Loại giấy tờ</strong> khi tải lên để 365 HOME duyệt nhanh. Hồ sơ chỉ được phê duyệt khi mọi giấy tờ bắt buộc đã được duyệt.</p>
+                        <p class="text-gray-500">Giấy tờ khác (đăng ký thuế, giấy phép/công nhận cơ sở lưu trú, giấy uỷ quyền người ký...) không bắt buộc nhưng nên nộp.</p>
+                        <p class="text-gray-500" x-show="(status ? status.partner_type : reg.partner_type) === 'minihouse'">MiniHouse: giấy tờ từng toà nhà (PCCC, an ninh trật tự, sở hữu/quyền khai thác) sẽ bổ sung sau khi hồ sơ được duyệt và tạo toà nhà.</p>
                     </div>
                     <ul class="divide-y divide-gray-100 rounded-lg border border-gray-200" x-show="status && status.documents.length">
                         <template x-for="d in (status ? status.documents : [])" :key="d.id">
@@ -364,46 +374,9 @@
                     </div>
                 </form>
 
-                {{-- B3b. Ngân hàng — bước riêng; ngân hàng CHỌN từ danh sách (GET /api/v2/banks), không nhập tay. --}}
-                <form x-show="step === 3" @submit.prevent="saveBank" class="space-y-5">
-                    <div>
-                        <h2 class="text-lg font-bold text-gray-900">Tài khoản ngân hàng</h2>
-                        <p class="text-sm text-gray-600 mt-1">Tài khoản nhận tiền và đối soát doanh thu với 365 HOME.</p>
-                    </div>
-                    <div class="grid sm:grid-cols-2 gap-5">
-                        <div class="sm:col-span-2">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Ngân hàng <span class="text-red-500">*</span></label>
-                            <select x-model="bank.bank_code" required class="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-gray-400">
-                                <option value="">— Chọn ngân hàng —</option>
-                                <template x-for="b in banks" :key="b.code"><option :value="b.code" x-text="b.short_name + ' — ' + b.name"></option></template>
-                            </select>
-                            <p class="text-xs text-red-600 mt-1" x-show="errors.bank_code" x-text="err('bank_code')"></p>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Chi nhánh</label>
-                            <input type="text" x-model="bank.bank_branch" maxlength="255" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-gray-400">
-                            <p class="text-xs text-red-600 mt-1" x-show="errors.bank_branch" x-text="err('bank_branch')"></p>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Số tài khoản <span class="text-red-500">*</span></label>
-                            <input type="text" x-model="bank.bank_account_number" inputmode="numeric" maxlength="20" required class="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-gray-400">
-                            <p class="text-xs text-red-600 mt-1" x-show="errors.bank_account_number" x-text="err('bank_account_number')"></p>
-                        </div>
-                        <div class="sm:col-span-2">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Chủ tài khoản <span class="text-red-500">*</span></label>
-                            <input type="text" x-model="bank.bank_account_holder" maxlength="255" required placeholder="Họ tên viết hoa, không dấu như trên thẻ" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-gray-400">
-                            <p class="text-xs text-red-600 mt-1" x-show="errors.bank_account_holder" x-text="err('bank_account_holder')"></p>
-                        </div>
-                    </div>
-                    <div class="flex justify-between gap-3">
-                        <button type="button" class="rounded-lg border border-gray-300 px-5 py-3" @click="go(2)">Quay lại</button>
-                        <button type="submit" :disabled="loading" class="rounded-lg bg-gray-900 text-white font-semibold px-6 py-3 hover:bg-gray-800 disabled:opacity-60" x-text="loading ? 'Đang lưu...' : 'Lưu & tiếp tục'"></button>
-                    </div>
-                </form>
-
                 {{-- B4. Gửi hồ sơ cho 365 HOME duyệt giấy tờ --}}
-                <div x-show="step === 4" class="space-y-5 text-center">
-                    <template x-if="status && ['ready_to_submit', 'bank_info_pending', 'documents_uploaded', 'registered'].includes(status.stage)">
+                <div x-show="step === 3" class="space-y-5 text-center">
+                    <template x-if="status && ['ready_to_submit', 'documents_uploaded', 'registered'].includes(status.stage)">
                         <div class="space-y-4">
                             <div class="text-5xl">📨</div>
                             <h2 class="text-xl font-bold text-gray-900">Gửi hồ sơ cho 365 HOME</h2>
@@ -452,7 +425,7 @@
                 </div>
 
                 {{-- B5. Ký hợp đồng (chỉ sau khi 365 HOME duyệt giấy tờ) --}}
-                <div x-show="step === 5" class="space-y-5">
+                <div x-show="step === 4" class="space-y-5">
                     <template x-if="status && status.stage === 'contract_sent'">
                         <div class="space-y-5">
                             <h2 class="text-lg font-bold text-gray-900">Ký hợp đồng hợp tác</h2>
@@ -510,7 +483,7 @@
     </div>
 
     <script>
-        function partnerOnboarding(initialType, docTypes, provinces, banks) {
+        function partnerOnboarding(initialType, docTypes, provinces) {
             const KEY = '365home_partner_onboarding';
             const API = '/api/public/partner-onboarding';
             const store = {
@@ -521,13 +494,12 @@
             const BUILDING_TYPES = ['fire_safety', 'security_order', 'property_ownership_or_use'];
 
             return {
-                stepLabels: ['Đăng ký', 'Giấy tờ', 'Thông tin', 'Ngân hàng', 'Gửi duyệt', 'Ký hợp đồng'],
+                stepLabels: ['Đăng ký', 'Giấy tờ', 'Thông tin', 'Gửi duyệt', 'Ký hợp đồng'],
                 recoverOpen: false, rec: { phone: '', email: '' },
                 step: 0, loading: false, message: '', messageOk: false, errors: {},
                 token: null, signingToken: null, status: null, contract: null, otpSentTo: '', otpCooldown: 0,
                 reg: { partner_type: initialType || 'homestay', full_name: '', phone: '', email: '', business_name: '', address_province_code: '', address_ward_code: '', address_street: '', address_unit: '', address_building: '', postal_code: '', note: '' },
                 provinces: provinces || [], wards: [], loadingWards: false,
-                banks: banks || [], bank: { bank_code: '', bank_branch: '', bank_account_number: '', bank_account_holder: '' },
                 addrQuery: '', suggestions: [], suggestOpen: false, suggestLoading: false,
                 plans: [], planId: null, periods: 1, purchase: null, pollTimer: null, trialMonths: {{ (int) config('partner_flow.minihouse_signup_trial_months', 0) }},
                 doc: { type: 'business_license', name: '', document_number: '', issuer: '', issued_at: '', expires_at: '' },
@@ -548,7 +520,7 @@
                     { key: 'business_license_issuer', label: 'Nơi cấp giấy phép kinh doanh' },
                 ],
 
-                get editable() { return !!this.status && ['registered', 'documents_uploaded', 'bank_info_pending', 'ready_to_submit', 'changes_requested'].includes(this.status.stage); },
+                get editable() { return !!this.status && ['registered', 'documents_uploaded', 'ready_to_submit', 'changes_requested'].includes(this.status.stage); },
                 err(k) { return this.errors[k] ? this.errors[k][0] : ''; },
                 flash(msg, ok = false) { this.message = msg; this.messageOk = ok; },
                 allowedDocTypes() {
@@ -614,12 +586,11 @@
                 applyStatus(s) {
                     this.status = s;
                     this.infoFields.forEach((f) => { this.info[f.key] = s.partner[f.key] ?? ''; });
-                    this.bank = { bank_code: s.partner.bank_code || '', bank_branch: s.partner.bank_branch || '', bank_account_number: s.partner.bank_account_number || '', bank_account_holder: s.partner.bank_account_holder || '' };
                     if (!this.sign.signer_name) this.sign.signer_name = s.partner.representative_name || '';
                 },
                 goToStage() {
                     const st = this.status.stage;
-                    const map = { registered: 1, documents_uploaded: this.status.steps.documents_uploaded ? 2 : 1, bank_info_pending: 3, ready_to_submit: 4, pending_review: 4, changes_requested: 4, approved: 4, rejected: 4, contract_sent: 5, contract_signed: 5, active: 5 };
+                    const map = { registered: 1, documents_uploaded: this.status.steps.documents_uploaded ? 2 : 1, ready_to_submit: 3, pending_review: 3, changes_requested: 3, approved: 3, rejected: 3, contract_sent: 4, contract_signed: 4, active: 4 };
                     this.step = map[st] ?? 0;
                 },
                 // Hợp đồng chỉ có sau khi 365 HOME duyệt giấy tờ: lấy mã ký từ trạng thái hồ sơ rồi tải nội dung.
@@ -655,8 +626,8 @@
                     } catch (e) {}
                 },
                 async buy() {
-                    if (!this.selectedPlan) { this.flash('Vui lòng chọn gói dịch vụ.'); return; }
-                    const body = { ...this.reg, plan_id: this.planId, periods: this.periods };
+                    if (this.trialMonths === 0 && !this.selectedPlan) { this.flash('Vui lòng chọn gói dịch vụ.'); return; }
+                    const body = this.trialMonths > 0 ? { ...this.reg } : { ...this.reg, plan_id: this.planId, periods: this.periods };
                     delete body.note; delete body.partner_type;
                     const data = await this.call('POST', '/api/public/minihouse-purchase', body);
                     if (!data || data._status) return;
@@ -747,12 +718,6 @@
                     this.applyStatus(data.data);
                     this.step = 3;
                 },
-                async saveBank() {
-                    const data = await this.call('PUT', `${API}/${this.token}/bank-info`, this.bank);
-                    if (!data || data._status) return;
-                    this.applyStatus(data.data);
-                    this.step = 4;
-                },
                 async sendOtp() {
                     const data = await this.call('POST', `/api/partner-contracts/${this.signingToken}/otp`);
                     if (!data || data._status) return;
@@ -765,7 +730,7 @@
                     if (!data || data._status) return;
                     await this.refresh();
                     await this.syncContract();
-                    this.step = 5; this.flash('Đã ký hợp đồng.', true);
+                    this.step = 4; this.flash('Đã ký hợp đồng.', true);
                 },
                 async recover() {
                     const data = await this.call('POST', `${API}/recover`, this.rec);
@@ -785,7 +750,7 @@
                     if (!data || data._status) return;
                     this.applyStatus(data.data);
                     this.flash(data.message, true);
-                    this.step = 4;
+                    this.step = 3;
                 },
             };
         }

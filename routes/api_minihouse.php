@@ -82,6 +82,8 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
         Route::post('partners', [MinihousePartnerController::class, 'store'])->name('partners.store');
         Route::get('partners/{partner}', [MinihousePartnerController::class, 'show'])->name('partners.show');
         Route::match(['put', 'patch'], 'partners/{partner}', [MinihousePartnerController::class, 'update'])->name('partners.update');
+        Route::post('partners/{partner}/resend-credentials', [MinihousePartnerController::class, 'resendCredentials'])->name('partners.resend-credentials');
+        Route::post('partners/{partner}/suspend', [MinihousePartnerController::class, 'suspend'])->name('partners.suspend');
         Route::get('partners/{partner}/financial', [MinihousePartnerController::class, 'financial'])->name('partners.financial.show');
         Route::post('partners/{partner}/financial', [MinihousePartnerController::class, 'updateFinancial'])->name('partners.financial.update');
         // Duyệt đăng ký MiniHouse (tặng dùng thử → tạo tài khoản + gửi email) hoặc từ chối.

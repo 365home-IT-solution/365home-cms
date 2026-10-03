@@ -131,26 +131,6 @@ class PartnerOnboardingController extends Controller
         return response()->json(['message' => 'Đã lưu thông tin ký hợp đồng.', 'data' => $this->service->status($partner)]);
     }
 
-    // PUT /api/public/partner-onboarding/{token}/bank-info — bước riêng "Ngân hàng": CHỌN ngân hàng từ danh sách (GET /api/v2/banks)
-    public function updateBankInfo(Request $request, string $token): JsonResponse
-    {
-        $partner = $this->service->findByToken($token);
-        $data = $request->validate([
-            'bank_code'           => ['required', 'string', Rule::in(\App\Support\Banks::codes())],
-            'bank_branch'         => ['nullable', 'string', 'max:255'],
-            'bank_account_number' => ['required', 'string', 'regex:/^[0-9]{6,20}$/'],
-            'bank_account_holder' => ['required', 'string', 'max:255'],
-        ], [
-            'bank_code.required'            => 'Vui lòng chọn ngân hàng.',
-            'bank_code.in'                  => 'Ngân hàng không có trong danh sách — vui lòng chọn lại.',
-            'bank_account_number.regex'     => 'Số tài khoản chỉ gồm 6–20 chữ số.',
-        ], PartnerOnboardingService::LABELS);
-
-        $partner = $this->service->updateBankInfo($partner, $data);
-
-        return response()->json(['message' => 'Đã lưu thông tin ngân hàng.', 'data' => $this->service->status($partner)]);
-    }
-
     // POST /api/public/partner-onboarding/{token}/submit
     public function submit(string $token): JsonResponse
     {

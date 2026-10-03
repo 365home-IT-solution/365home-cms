@@ -181,7 +181,6 @@
                                 {{-- Tổng tiền = giá/tháng × số tháng − ưu đãi của kỳ — khớp đúng số tiền tạo ở bước thanh toán --}}
                                 <div class="sp-price">{{ number_format($total) }}đ @if ($pct > 0)<s class="sp-muted" style="font-weight:400;font-size:14px">{{ number_format($original) }}đ</s>@endif</div>
                                 <div class="sp-muted">{{ $plan->period_months * $this->periods }} tháng · {{ number_format((int) round($total / max(1, $plan->period_months * $this->periods))) }}đ/tháng @if ($pct > 0)· giảm {{ $pct }}% @endif</div>
-                                @if ($plan->trial_months > 0)<div class="sp-muted" style="color:rgb(var(--success-600))">Miễn phí {{ $plan->trial_months }} tháng đầu</div>@endif
                             @else
                                 <div class="sp-price" style="font-size:16px">Liên hệ báo giá</div>
                                 <div class="sp-muted">Công ty sẽ báo số tiền</div>
