@@ -37,7 +37,7 @@ class PartnerController extends Controller
     public function store(Request $request, PartnerLegalDocumentService $documents): JsonResponse
     {
         $this->superAdmin($request);
-        $data = $request->validate([...$this->rules(), 'plan_id' => ['nullable', 'integer', 'exists:subscription_plans,id']]);
+        $data = $request->validate([...$this->rules(), 'plan_id' => ['nullable', 'integer', 'exists:subscription_plans,id']], $this->messages());
         // Gói dùng thử được chọn lúc tạo (không phải cột của partners). Bỏ trống → gói mặc định của loại đối tác.
         $planId = $data['plan_id'] ?? null;
         unset($data['plan_id']);
@@ -65,7 +65,7 @@ class PartnerController extends Controller
     public function update(Request $request, Partner $partner, PartnerLegalDocumentService $documents): JsonResponse
     {
         $this->superAdmin($request);
-        $data = $request->validate($this->rules(true));
+        $data = $request->validate($this->rules(true, $partner), $this->messages());
         if (isset($data['legal_name'])) {
             $data['name'] = $data['legal_name'];
         }
@@ -77,6 +77,7 @@ class PartnerController extends Controller
     public function contract(Request $request, Partner $partner, PartnerLegalDocumentService $documents): JsonResponse
     {
         $this->partnerAccess($request, $partner);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
         $version = $partner->contractVersions()->first();
 
         return response()->json(['data' => [
@@ -94,10 +95,11 @@ class PartnerController extends Controller
     public function createContract(Request $request, Partner $partner, PartnerContractWorkflowService $workflow): JsonResponse
     {
         $this->superAdmin($request);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
         $result = $workflow->createAndSend($partner, $request->user());
 
         return response()->json(['message' => 'Đã tạo hợp đồng và xử lý gửi email.', 'data' => [
-            'version_id' => $result['version']->id, 'content_hash' => $result['version']->content_hash,
+            'version_id' => $result['version']->id, 'contract_code' => $partner->fresh()->contract_code, 'content_hash' => $result['version']->content_hash,
             'mail_sent' => $result['mailSent'], 'email' => $result['email'], 'signing_url' => $result['signingUrl'],
         ]], 201);
     }
@@ -105,6 +107,7 @@ class PartnerController extends Controller
     public function platformSign(Request $request, Partner $partner, PartnerContractWorkflowService $workflow): StreamedResponse
     {
         $this->superAdmin($request);
+        abort_unless($partner->usesContract(), 404, 'MiniHouse không dùng hợp đồng đối tác (mua gói để sử dụng).');
         $result = $workflow->platformSign($partner, $request->user(), (string) $request->ip(), (string) $request->userAgent());
 
         return response()->streamDownload(fn () => print ($result['pdf']), $result['file_name'], ['Content-Type' => 'application/pdf']);
@@ -121,15 +124,19 @@ class PartnerController extends Controller
     {
         $this->superAdmin($request);
         $data = $request->validate([
-            'bank_name' => ['nullable', 'string', 'max:255'], 'bank_branch' => ['nullable', 'string', 'max:255'],
-            'bank_account_number' => ['nullable', 'string', 'max:50'], 'bank_account_holder' => ['nullable', 'string', 'max:255'],
-            'momo_phone' => ['nullable', 'string', 'max:30'], 'zalopay_id' => ['nullable', 'string', 'max:100'],
+            'bank_code' => ['nullable', 'string', Rule::in(\App\Support\Banks::codes())], 'bank_name' => ['nullable', 'string', Rule::in(\App\Support\Banks::shortNames())], 'bank_branch' => ['nullable', 'string', 'max:255'],
+            'bank_account_number' => ['nullable', 'string', 'regex:/^[0-9]{6,20}$/'], 'bank_account_holder' => ['nullable', 'string', 'max:255'],
+            'momo_phone' => ['nullable', 'string', 'max:30', 'regex:/^(0|\+84)[0-9]{9,10}$/'], 'zalopay_id' => ['nullable', 'string', 'max:100'],
             'vnpay_id' => ['nullable', 'string', 'max:100'], 'paypal_email' => ['nullable', 'email', 'max:255'],
             'wise_account' => ['nullable', 'string', 'max:255'], 'swift_code' => ['nullable', 'string', 'max:50'],
             'payment_cycle' => ['nullable', Rule::in(['weekly', 'biweekly', 'monthly'])],
             'bank_card_image' => ['sometimes', 'image', 'mimes:jpg,jpeg,png,webp', 'max:10240'],
-        ]);
-        $partner->update(collect($data)->except('bank_card_image')->all());
+        ], $this->messages());
+        // Ngân hàng CHỌN từ danh sách: bank_code → lưu tên chuẩn vào bank_name.
+        if (! empty($data['bank_code'])) {
+            $data['bank_name'] = \App\Support\Banks::find($data['bank_code'])['short_name'];
+        }
+        $partner->update(collect($data)->except(['bank_card_image', 'bank_code'])->all());
         if ($request->hasFile('bank_card_image')) {
             $partner->addMediaFromRequest('bank_card_image')->toMediaCollection('bank_card_image');
         }
@@ -276,7 +283,7 @@ class PartnerController extends Controller
     {
         $media = $partner->getFirstMedia('bank_card_image');
 
-        return [...$partner->only(['bank_name', 'bank_branch', 'bank_account_number', 'bank_account_holder', 'momo_phone', 'zalopay_id', 'vnpay_id', 'paypal_email', 'wise_account', 'swift_code', 'payment_cycle']),
+        return ['bank_code' => \App\Support\Banks::findByShortName($partner->bank_name)['code'] ?? null, ...$partner->only(['bank_name', 'bank_branch', 'bank_account_number', 'bank_account_holder', 'momo_phone', 'zalopay_id', 'vnpay_id', 'paypal_email', 'wise_account', 'swift_code', 'payment_cycle']),
             'bank_card_image' => $media ? ['name' => $media->file_name, 'mime_type' => $media->mime_type, 'size' => $media->size, 'url' => $media->getUrl()] : null,
         ];
     }
@@ -310,19 +317,48 @@ class PartnerController extends Controller
         abort_unless($facility->partner_id === $partner->id && $facility->parent_id === null && $facility->category_type === 'product', 404);
     }
 
-    private function rules(bool $update = false): array
+    // Thông báo tiếng Việt cho các quy tắc định dạng (mặc định hiện tên trường tiếng Anh/“today” khó hiểu).
+    private function messages(): array
+    {
+        return [
+            'tax_code.regex' => 'Mã số thuế gồm 10 số (hoặc 13 số cho đơn vị phụ thuộc, vd 0312345678-001).',
+            'phone.regex' => 'Số điện thoại phải dạng 0xxxxxxxxx hoặc +84xxxxxxxxx.',
+            'representative_phone_secondary.regex' => 'Số điện thoại phải dạng 0xxxxxxxxx hoặc +84xxxxxxxxx.',
+            'momo_phone.regex' => 'Số điện thoại MoMo phải dạng 0xxxxxxxxx hoặc +84xxxxxxxxx.',
+            'representative_id_number.regex' => 'Số giấy tờ gồm 6–20 chữ/số, không dấu cách.',
+            'representative_dob.before_or_equal' => 'Người đại diện phải đủ 18 tuổi.',
+            'business_license_date.before_or_equal' => 'Ngày cấp giấy phép kinh doanh không được ở tương lai.',
+            'contract_expires_at.after' => 'Ngày hết hạn hợp đồng phải sau hôm nay.',
+            'bank_account_number.regex' => 'Số tài khoản chỉ gồm 6–20 chữ số.',
+            'bank_code.in' => 'Ngân hàng không có trong danh sách — vui lòng chọn lại.',
+            'bank_name.in' => 'Ngân hàng không có trong danh sách — vui lòng chọn lại.',
+        ];
+    }
+
+    private function rules(bool $update = false, ?Partner $partner = null): array
     {
         $sometimes = $update ? 'sometimes' : 'required';
+        $vnPhone = 'regex:/^(0|\+84)[0-9]{9,10}$/';
 
         return [
-            'legal_name' => [$sometimes, 'string', 'max:255'], 'tax_code' => ['nullable', 'string', 'max:50'],
-            'phone' => ['nullable', 'string', 'max:30'], 'email' => ['nullable', 'email', 'max:255'],
+            'legal_name' => [$sometimes, 'string', 'max:255'],
+            'tax_code' => ['nullable', 'string', 'regex:/^\d{10}(-?\d{3})?$/'],
+            'phone' => ['nullable', 'string', 'max:30', $vnPhone], 'email' => ['nullable', 'email', 'max:255'],
             'address' => ['nullable', 'string', 'max:500'], 'representative_name' => [$sometimes, 'string', 'max:255'],
-            'representative_dob' => ['nullable', 'date'], 'representative_id_number' => ['nullable', 'string', 'max:50'],
-            'representative_phone_secondary' => ['nullable', 'string', 'max:30'],
-            'business_license_date' => ['nullable', 'date'], 'business_license_issuer' => ['nullable', 'string', 'max:255'],
-            'contract_code' => ['nullable', 'string', 'max:100'], 'contract_type' => ['nullable', Rule::in(['e_contract', 'paper'])],
-            'contract_expires_at' => ['nullable', 'date'], 'commission_rate' => ['nullable', 'string', 'max:50'],
+            'representative_dob' => ['nullable', 'date', 'before_or_equal:' . now()->subYears(18)->toDateString()],
+            'representative_id_number' => ['nullable', 'string', 'regex:/^[A-Za-z0-9]{6,20}$/'],
+            'representative_position' => ['nullable', 'string', 'max:100'],
+            'representative_id_issued_at' => ['nullable', 'date', 'before_or_equal:today'],
+            'representative_id_issued_place' => ['nullable', 'string', 'max:255'],
+            'representative_phone_secondary' => ['nullable', 'string', 'max:30', $vnPhone],
+            'business_license_date' => ['nullable', 'date', 'before_or_equal:today'], 'business_license_issuer' => ['nullable', 'string', 'max:255'],
+            'contract_type' => ['nullable', Rule::in(['e_contract', 'paper'])],
+            'contract_expires_at' => ['nullable', 'date', 'after:today'],
+            'commission_rate' => ['nullable', 'string', 'max:50', function (string $attribute, mixed $value, \Closure $fail) {
+                if (filled($value) && app(\App\Services\PartnerContractWorkflowService::class)->commissionValue((string) $value) === null) {
+                    $fail('Tỷ lệ hoa hồng phải là số từ 0 đến 100 (vd 10 hoặc 10%).');
+                }
+            }],
             'cancellation_policy' => ['nullable', 'string', 'max:5000'],
         ];
     }
@@ -331,7 +367,7 @@ class PartnerController extends Controller
     {
         $sub = $partner->subscription()->with('plan:id,code,name')->first();
 
-        return ['subscription' => $sub ? ['plan' => $sub->plan?->only(['id', 'code', 'name']), 'status' => $sub->state(), 'is_trial' => $sub->is_trial, 'expires_at' => $sub->expires_at?->toIso8601String()] : null, ...$partner->only(['id', 'partner_type', 'legal_name', 'tax_code', 'phone', 'email', 'address', 'representative_name', 'representative_dob', 'representative_id_number', 'business_license_date', 'business_license_issuer', 'verification_status', 'contract_code', 'contract_type', 'contract_status', 'contract_signed_at', 'contract_expires_at', 'commission_rate']), 'verification' => $documents->readiness($partner)];
+        return ['subscription' => $sub ? ['plan' => $sub->plan?->only(['id', 'code', 'name']), 'status' => $sub->state(), 'is_trial' => $sub->is_trial, 'expires_at' => $sub->expires_at?->toIso8601String()] : null, ...$partner->only(['id', 'partner_type', 'legal_name', 'tax_code', 'phone', 'email', 'address', 'representative_name', 'representative_dob', 'representative_position', 'representative_id_number', 'representative_id_issued_at', 'representative_id_issued_place', 'business_license_date', 'business_license_issuer', 'verification_status', 'contract_code', 'contract_type', 'contract_status', 'contract_signed_at', 'contract_expires_at', 'commission_rate']), 'verification' => $documents->readiness($partner)];
     }
 
     private function partnerType(Request $request): string

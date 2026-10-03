@@ -29,21 +29,28 @@ class PartnerOnboardingService
     public const BUILDING_TYPES = ['fire_safety', 'security_order', 'property_ownership_or_use'];
 
     public const CONTRACT_FIELDS = [
-        'legal_name', 'tax_code', 'address', 'email', 'representative_name', 'representative_id_number',
+        'legal_name', 'tax_code', 'address', 'email', 'representative_name', 'representative_position', 'representative_id_number', 'representative_id_issued_at', 'representative_id_issued_place',
         'representative_dob', 'business_license_date', 'business_license_issuer',
-        'bank_name', 'bank_branch', 'bank_account_number', 'bank_account_holder',
     ];
 
+    // Bước RIÊNG "Ngân hàng" (sau Thông tin hợp đồng): ngân hàng CHỌN từ danh sách (config/banks.php), không nhập tay.
+    public const BANK_FIELDS = ['bank_name', 'bank_branch', 'bank_account_number', 'bank_account_holder'];
+
+    public const BANK_REQUIRED = ['bank_name', 'bank_account_number', 'bank_account_holder'];
+
     // Bắt buộc có trước khi tạo hợp đồng.
-    public const CONTRACT_REQUIRED = ['legal_name', 'address', 'email', 'representative_name', 'representative_id_number'];
+    public const CONTRACT_REQUIRED = ['legal_name', 'address', 'email', 'representative_name', 'representative_id_number', 'representative_id_issued_at'];
 
     public const LABELS = [
         'partner_type' => 'loại hình hợp tác', 'full_name' => 'họ tên người đăng ký', 'phone' => 'số điện thoại', 'email' => 'email',
         'business_name' => 'tên cơ sở kinh doanh', 'address' => 'địa chỉ', 'note' => 'ghi chú',
+        'address_street' => 'số nhà, tên đường/phố', 'address_province_code' => 'tỉnh/thành phố', 'address_ward_code' => 'phường/xã',
+        'address_unit' => 'căn hộ/tầng', 'address_building' => 'tên toà nhà', 'postal_code' => 'mã bưu điện',
         'legal_name' => 'tên pháp lý', 'tax_code' => 'mã số thuế', 'representative_name' => 'họ tên người đại diện',
-        'representative_id_number' => 'số CMND/CCCD người đại diện', 'representative_dob' => 'ngày sinh người đại diện',
+        'representative_id_number' => 'số CMND/CCCD người đại diện', 'representative_position' => 'chức vụ người đại diện',
+        'representative_id_issued_at' => 'ngày cấp CMND/CCCD', 'representative_id_issued_place' => 'nơi cấp CMND/CCCD', 'representative_dob' => 'ngày sinh người đại diện',
         'business_license_date' => 'ngày cấp giấy phép kinh doanh', 'business_license_issuer' => 'nơi cấp giấy phép kinh doanh',
-        'bank_name' => 'ngân hàng', 'bank_branch' => 'chi nhánh ngân hàng', 'bank_account_number' => 'số tài khoản',
+        'bank_name' => 'ngân hàng', 'bank_code' => 'ngân hàng', 'bank_branch' => 'chi nhánh ngân hàng', 'bank_account_number' => 'số tài khoản',
         'bank_account_holder' => 'chủ tài khoản', 'type' => 'loại giấy tờ', 'name' => 'tên giấy tờ', 'document_number' => 'số giấy tờ',
         'issuer' => 'nơi cấp', 'issued_at' => 'ngày cấp', 'expires_at' => 'ngày hết hạn', 'file' => 'tệp giấy tờ',
     ];
@@ -60,6 +67,83 @@ class PartnerOnboardingService
     public function findByToken(string $token): Partner
     {
         return Partner::query()->where('onboarding_token', self::hashToken($token))->firstOrFail();
+    }
+
+    /**
+     * Ghép địa chỉ đầy đủ từ các phần: "Căn hộ, Toà nhà, Số nhà đường, Phường/Xã, Tỉnh/TP". Không có phần có cấu trúc thì giữ nguyên `address`.
+     * Phường/xã phải thuộc đúng tỉnh/thành đã chọn.
+     */
+    public function composeAddress(array $data): string
+    {
+        if (blank($data['address_street'] ?? null)) {
+            return (string) ($data['address'] ?? '');
+        }
+
+        $province = \App\Models\Province::query()->where('code', $data['address_province_code'])->first();
+        $ward = \App\Models\Ward::query()->where('code', $data['address_ward_code'])->first();
+        if (! $province || ! $ward || (int) $ward->province_code !== (int) $province->code) {
+            throw ValidationException::withMessages(['address_ward_code' => 'Phường/xã không thuộc tỉnh/thành phố đã chọn.']);
+        }
+
+        return collect([$data['address_unit'] ?? null, $data['address_building'] ?? null, $data['address_street'], $ward->name, $province->name])
+            ->map(fn ($part) => trim((string) $part))
+            ->filter()
+            ->implode(', ');
+    }
+
+    /**
+     * MiniHouse MUA GÓI: tạo hồ sơ đối tác CHƯA kích hoạt (chờ thanh toán) hoặc dùng lại hồ sơ chưa thanh toán cùng SĐT.
+     * Không có bước duyệt giấy tờ/ký hợp đồng; không tặng dùng thử — gói bắt đầu khi thanh toán xong (xem provisionPurchasedAccount).
+     *
+     * @return array{partner: Partner, token: string}
+     */
+    public function createPurchasePartner(array $data): array
+    {
+        $phone = preg_replace('/^\+84/', '0', $data['phone']);
+
+        $existing = Partner::query()->where('partner_type', Partner::TYPE_MINIHOUSE)->where('phone', $phone)->first();
+        if ($existing && ($existing->status || $existing->users()->exists())) {
+            throw ValidationException::withMessages(['phone' => 'Số điện thoại này đã có tài khoản MiniHouse. Vui lòng đăng nhập trang quản trị để gia hạn gói.']);
+        }
+        if (User::query()->where('email', $data['email'])->exists()) {
+            throw ValidationException::withMessages(['email' => 'Email này đã được dùng cho một tài khoản khác. Vui lòng dùng email khác.']);
+        }
+
+        $token = Str::random(48);
+        $attributes = [
+            'name'                => $data['business_name'],
+            'legal_name'          => $data['business_name'],
+            'representative_name' => $data['full_name'],
+            'phone'               => $phone,
+            'email'               => $data['email'],
+            'address'             => $data['address'],
+            'onboarding_token'    => self::hashToken($token),
+        ];
+
+        $partner = $existing
+            ? tap($existing)->update($attributes)
+            : Partner::create($attributes + [
+                'partner_type'        => Partner::TYPE_MINIHOUSE,
+                'status'              => false,
+                'verification_status' => 'approved',
+                'verified_at'         => now(),
+                'contract_status'     => 'draft',
+            ]);
+
+        if (! $existing) {
+            PartnerStatusLog::create(['partner_id' => $partner->id, 'to_status' => 'approved', 'note' => 'MiniHouse mua gói trên website (chờ thanh toán).']);
+        }
+
+        return ['partner' => $partner->fresh(), 'token' => $token];
+    }
+
+    /** Thanh toán gói xong → kích hoạt đối tác, tạo tài khoản quản lý MiniHouse và gửi email đăng nhập. */
+    public function provisionPurchasedAccount(Partner $partner): array
+    {
+        $partner->update(['status' => true, 'verification_status' => 'approved', 'verified_at' => $partner->verified_at ?? now()]);
+        $this->log($partner, 'MiniHouse đã thanh toán gói — kích hoạt đối tác.');
+
+        return $this->provisionAccount($partner);
     }
 
     /** @return array{partner: Partner, token: string} */
@@ -145,6 +229,25 @@ class PartnerOnboardingService
         $document->delete();
     }
 
+    /** Bước Ngân hàng: lưu ngân hàng (đã chọn từ danh sách → lưu tên chuẩn), chi nhánh, số tài khoản, chủ tài khoản. */
+    public function updateBankInfo(Partner $partner, array $data): Partner
+    {
+        $this->assertEditable($partner);
+        $bank = \App\Support\Banks::find($data['bank_code'] ?? null);
+        if (! $bank) {
+            throw ValidationException::withMessages(['bank_code' => 'Vui lòng chọn ngân hàng trong danh sách.']);
+        }
+
+        $partner->update([
+            'bank_name'           => $bank['short_name'],
+            'bank_branch'         => $data['bank_branch'] ?? null,
+            'bank_account_number' => $data['bank_account_number'],
+            'bank_account_holder' => mb_strtoupper(trim((string) $data['bank_account_holder'])),
+        ]);
+
+        return $partner->fresh();
+    }
+
     public function updateContractInfo(Partner $partner, array $data): Partner
     {
         $this->assertEditable($partner);
@@ -161,6 +264,11 @@ class PartnerOnboardingService
      */
     public function sendContractAfterApproval(Partner $partner): array
     {
+        // MiniHouse chỉ mua gói — không tạo/gửi hợp đồng (trừ khi bật lại MINIHOUSE_CONTRACT_ENABLED).
+        if (! $partner->usesContract()) {
+            return ['version' => null, 'mail_sent' => false, 'signing_url' => null];
+        }
+
         $latest = $this->latestContract($partner);
         if ($latest && ($latest->isPartnerConfirmed() || $latest->signing_token !== null)) {
             return ['version' => $latest, 'mail_sent' => false, 'signing_url' => null];
@@ -171,34 +279,37 @@ class PartnerOnboardingService
             return ['version' => null, 'mail_sent' => false, 'signing_url' => null];
         }
 
-        $token = Str::random(48);
-        $content = PartnerContractRenderer::render($partner);
-        $version = DB::transaction(function () use ($partner, $content, $token) {
-            $version = $partner->contractVersions()->create([
-                'version_label'           => 'Hợp đồng đăng ký hợp tác — ' . now()->format('d/m/Y H:i'),
-                'change_note'             => 'Tự động tạo sau khi admin duyệt giấy tờ (đăng ký hợp tác trên website)',
-                'changed_by'              => auth()->id(),
-                'content'                 => $content,
-                'content_hash'            => hash('sha256', $content),
-                'legal_document_snapshot' => $this->documents->snapshot($partner),
-                'signing_token'           => $token,
-            ]);
-            $partner->update(['contract_status' => 'pending']);
+        // Thiếu mã hợp đồng / hoa hồng / ngày hết hạn → KHÔNG tự gửi hợp đồng trống; báo admin nhập rồi bấm "Tạo & gửi hợp đồng ký".
+        $workflow = app(PartnerContractWorkflowService::class);
+        $missing = $workflow->missingTerms($partner);
+        if ($missing !== []) {
+            $list = implode(' ', array_values($missing));
+            $this->log($partner, "Đã duyệt giấy tờ nhưng chưa gửi hợp đồng: {$list}");
+            $this->notifyAdmins($partner, 'Đã duyệt giấy tờ — chưa gửi được hợp đồng', $this->partnerLabel($partner) . ": {$list} Nhập ở tab Hợp đồng rồi bấm “Tạo & gửi hợp đồng ký”.", 'partner_contract_blocked', 'warning', 'heroicon-o-exclamation-triangle');
+            $this->toastContractBlocked($partner, $missing);
 
-            return $version;
-        });
-
-        $signingUrl = route('contract.sign.show', $token);
-        $mailSent = false;
-        try {
-            Mail::to($partner->email)->send(new LockNotificationMail(
-                'Hồ sơ đã được duyệt — vui lòng ký hợp đồng hợp tác 365 Home',
-                "<p>Giấy tờ pháp lý của bạn đã được 365 Home duyệt. Vui lòng mở liên kết để xem và ký xác nhận hợp đồng hợp tác (xác thực bằng mã OTP gửi về email này):</p><p><a href=\"{$signingUrl}\">{$signingUrl}</a></p>"
-            ));
-            $mailSent = true;
-        } catch (\Throwable $e) {
-            report($e);
+            return ['version' => null, 'mail_sent' => false, 'signing_url' => null, 'missing' => $missing];
         }
+
+        try {
+            $version = DB::transaction(fn () => $workflow->createVersion(
+                $partner,
+                auth()->user(),
+                'Hợp đồng đăng ký hợp tác — ' . now()->format('d/m/Y H:i'),
+                'Tự động tạo sau khi admin duyệt giấy tờ (đăng ký hợp tác trên website)'
+            ));
+        } catch (ValidationException $e) {
+            $this->log($partner, 'Không tạo được hợp đồng: ' . collect($e->errors())->flatten()->implode(' '));
+
+            return ['version' => null, 'mail_sent' => false, 'signing_url' => null];
+        }
+
+        $signingUrl = route('contract.sign.show', $version->signing_token);
+        $mailSent = $this->mailPartner(
+            $partner,
+            'Hồ sơ đã được duyệt — vui lòng ký hợp đồng hợp tác 365 Home',
+            "<p>Giấy tờ pháp lý của bạn đã được 365 Home duyệt. Vui lòng mở liên kết để xem và ký xác nhận hợp đồng hợp tác (xác thực bằng mã OTP gửi về email này):</p><p><a href=\"{$signingUrl}\">{$signingUrl}</a></p>"
+        );
         $this->log($partner, 'Đã tạo hợp đồng và gửi link ký cho đối tác' . ($mailSent ? '.' : ' — gửi email thất bại, đối tác vẫn ký được trên trang đăng ký hợp tác.'));
 
         return ['version' => $version, 'mail_sent' => $mailSent, 'signing_url' => $signingUrl];
@@ -236,6 +347,11 @@ class PartnerOnboardingService
         $missing = $this->missingContractFields($partner);
         if ($missing !== []) {
             throw ValidationException::withMessages(['contract_info' => 'Thiếu thông tin ký hợp đồng: ' . implode(', ', array_map(fn ($f) => self::LABELS[$f] ?? $f, $missing)) . '.']);
+        }
+
+        $missingBank = $this->missingBankFields($partner);
+        if ($missingBank !== []) {
+            throw ValidationException::withMessages(['bank_info' => 'Thiếu thông tin ngân hàng: ' . implode(', ', array_map(fn ($f) => self::LABELS[$f] ?? $f, $missingBank)) . '.']);
         }
 
         // Gửi các giấy tờ mới/bổ sung sang "chờ duyệt"; không còn giấy tờ mới (đã gửi trước đó) → báo lỗi như API hồ sơ pháp lý.
@@ -294,6 +410,39 @@ class PartnerOnboardingService
         } catch (\Throwable $e) {
             report($e);
         }
+    }
+
+    private function toastContractBlocked(Partner $partner, array $missing): void
+    {
+        if (! auth()->check()) {
+            return;
+        }
+
+        try {
+            \Filament\Notifications\Notification::make()
+                ->title('Đã duyệt giấy tờ — chưa gửi được hợp đồng')
+                ->body(implode("\n", array_map(fn ($m) => '• ' . $m, array_values($missing))) . "\nNhập ở tab Hợp đồng rồi bấm “Tạo & gửi hợp đồng ký”.")
+                ->warning()
+                ->persistent()
+                ->send();
+        } catch (\Throwable) {
+        }
+    }
+
+    /** Hồ sơ bị TỪ CHỐI (cả hồ sơ) → báo lý do cho đối tác qua email. */
+    public function notifyDossierRejected(Partner $partner, string $reason): void
+    {
+        if (blank($partner->onboarding_token)) {
+            return;
+        }
+
+        $this->mailPartner(
+            $partner,
+            'Hồ sơ hợp tác 365 Home không được chấp nhận',
+            '<p>Rất tiếc, hồ sơ hợp tác của <strong>' . e($partner->legal_name ?: $partner->name) . '</strong> chưa được 365 Home chấp nhận.</p>'
+            . '<p>Lý do: <strong>' . e($reason) . '</strong></p>'
+            . '<p>Nếu cần làm rõ hoặc nộp lại hồ sơ, vui lòng liên hệ 365 Home.</p>'
+        );
     }
 
     /** Gửi email cho đối tác đăng ký (không làm hỏng luồng chính nếu lỗi). */
@@ -462,6 +611,24 @@ class PartnerOnboardingService
             ? 'Sau khi đăng nhập, bạn tạo toà nhà, phòng và bổ sung giấy tờ cấp toà nhà (PCCC, an ninh trật tự, quyền khai thác) để bắt đầu vận hành.'
             : 'Sau khi đăng nhập, bạn tạo chi nhánh, phòng và bảng giá để bắt đầu nhận khách.';
 
+        if ($partner->isMinihouse()) {
+            try {
+                Mail::to($email)->send(new LockNotificationMail(
+                    'Kích hoạt gói MiniHouse — tài khoản đăng nhập của bạn',
+                    "<p>Xin chào <strong>{$name}</strong>,</p>"
+                    . '<p>365 Home đã nhận thanh toán và kích hoạt gói dịch vụ MiniHouse cho bạn.</p>'
+                    . "<p>Thông tin đăng nhập trang quản trị:<br>Địa chỉ: <a href=\"{$loginUrl}\">{$loginUrl}</a><br>Email đăng nhập: <strong>" . e($email) . '</strong><br>Mật khẩu: <strong>' . e($password) . '</strong></p>'
+                    . "<p>{$next}</p><p>Vui lòng đổi mật khẩu sau khi đăng nhập lần đầu.</p>"
+                ));
+
+                return true;
+            } catch (\Throwable $e) {
+                report($e);
+
+                return false;
+            }
+        }
+
         try {
             Mail::to($email)->send(new LockNotificationMail(
                 'Xác nhận hợp tác với 365 Home — tài khoản đăng nhập của bạn',
@@ -521,6 +688,7 @@ class PartnerOnboardingService
         $documents = $partner->legalDocuments()->with('media')->latest()->get();
         $contract = $this->latestContract($partner);
         $missing = $this->missingContractFields($partner);
+        $missingBank = $this->missingBankFields($partner);
 
         $approved = $partner->verification_status === 'approved';
         $signingActive = $contract && $contract->signing_token !== null && ! $contract->isPartnerConfirmed();
@@ -534,7 +702,8 @@ class PartnerOnboardingService
             $partner->verification_status === 'rejected' => 'rejected',
             $hasChanges => 'changes_requested',
             $partner->verification_submitted_at !== null => 'pending_review',
-            $missing === [] && $this->hasBusinessLicense($partner) => 'ready_to_submit',
+            $missing === [] && $missingBank === [] && $this->hasBusinessLicense($partner) => 'ready_to_submit',
+            $missing === [] && $this->hasBusinessLicense($partner) => 'bank_info_pending',
             $documents->isNotEmpty() => 'documents_uploaded',
             default => 'registered',
         };
@@ -542,12 +711,14 @@ class PartnerOnboardingService
         return [
             'stage'        => $stage,
             'partner_type' => $partner->partner_type,
-            'partner'      => collect(['name', 'phone', 'partner_type', ...self::CONTRACT_FIELDS])
-                ->mapWithKeys(fn ($f) => [$f => $partner->{$f} instanceof \DateTimeInterface ? $partner->{$f}->format('Y-m-d') : $partner->{$f}])->all(),
+            'partner'      => collect(['name', 'phone', 'partner_type', ...self::CONTRACT_FIELDS, ...self::BANK_FIELDS])
+                ->mapWithKeys(fn ($f) => [$f => $partner->{$f} instanceof \DateTimeInterface ? $partner->{$f}->format('Y-m-d') : $partner->{$f}])
+                ->put('bank_code', \App\Support\Banks::findByShortName($partner->bank_name)['code'] ?? null)->all(),
             'steps' => [
                 'registered'          => true,
                 'documents_uploaded'  => $this->hasBusinessLicense($partner),
                 'contract_info_ready' => $missing === [],
+                'bank_info_ready'     => $missingBank === [],
                 'submitted'           => $partner->verification_submitted_at !== null,
                 'documents_approved'  => $approved,
                 'contract_sent'       => $contract !== null,
@@ -555,6 +726,7 @@ class PartnerOnboardingService
                 'active'              => $partner->contract_status === 'active',
             ],
             'missing_contract_fields' => $missing,
+            'missing_bank_fields'     => $missingBank,
             'documents'    => $documents->map(fn (PartnerLegalDocument $d) => $this->formatDocument($d))->values()->all(),
             'contract'     => $contract ? [
                 'version_id'           => $contract->id,
@@ -603,6 +775,11 @@ class PartnerOnboardingService
     public function latestContract(Partner $partner): ?PartnerContractVersion
     {
         return $partner->contractVersions()->first();
+    }
+
+    private function missingBankFields(Partner $partner): array
+    {
+        return array_values(array_filter(self::BANK_REQUIRED, fn ($f) => blank($partner->{$f})));
     }
 
     private function missingContractFields(Partner $partner): array

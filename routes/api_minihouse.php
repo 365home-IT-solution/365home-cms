@@ -94,6 +94,7 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
             Route::post('/', [MinihousePartnerLegalDocumentController::class, 'store'])->name('store');
             Route::post('submit', [MinihousePartnerLegalDocumentController::class, 'submit'])->name('submit');
             Route::post('approve-dossier', [MinihousePartnerLegalDocumentController::class, 'approveDossier'])->name('approve-dossier');
+            Route::post('reject-dossier', [MinihousePartnerLegalDocumentController::class, 'rejectDossier'])->name('reject-dossier');
             Route::get('{document}', [MinihousePartnerLegalDocumentController::class, 'show'])->name('show');
             Route::post('{document}', [MinihousePartnerLegalDocumentController::class, 'update'])->name('update');
             Route::delete('{document}', [MinihousePartnerLegalDocumentController::class, 'destroy'])->name('destroy');
