@@ -21,6 +21,7 @@ use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
 use App\Models\CustomerCompanion;
+use App\Services\CccdDeclarationService;
 use App\Services\PromotionCalculator;
 use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Promotion\App\Models\Coupon;
@@ -444,6 +445,10 @@ class BookingController extends Controller
 
             // KHÔNG tăng used_count ở đây nữa — mã chỉ thực sự bị trừ lượt khi đơn thanh toán thành
             // công (xem CouponUsageLedger::confirm(), gọi từ OrderObserver).
+
+            // Khai báo lưu trú (trước đây đơn đặt qua app có tài khoản KHÔNG tạo khai báo) — cùng
+            // transaction để đơn và cccd_declarations luôn nhất quán.
+            app(CccdDeclarationService::class)->upsertFromOrder($order->load(['items', 'guestCccds']));
 
             return $order;
         });

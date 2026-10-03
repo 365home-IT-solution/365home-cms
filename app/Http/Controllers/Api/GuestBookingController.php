@@ -652,6 +652,8 @@ class GuestBookingController extends Controller
                         'cccd_data'   => $row['data'],
                     ]);
                 }
+
+                $guestsAdded = (bool) $newGuestRows;
             }
 
             $order->items()->update(['guest_count' => $newGuestCount]);
@@ -725,8 +727,10 @@ class GuestBookingController extends Controller
             $order->refresh();
         }
 
-        if (isset($updates['cccd_data'])) {
-            app(CccdDeclarationService::class)->upsertFromOrder($order->load('items'));
+        // Cả khi đổi CCCD người đặt LẪN khi thêm người đi cùng mới — trước đây chỉ chạy khi đổi
+        // CCCD người đặt nên người đi cùng thêm sau không có khai báo lưu trú.
+        if (isset($updates['cccd_data']) || ! empty($guestsAdded)) {
+            app(CccdDeclarationService::class)->upsertFromOrder($order->load(['items', 'guestCccds']));
         }
 
         // Tạo lại link PayOS nếu giá thay đổi — số tiền thu qua PayOS luôn tính động (cọc hay đủ),

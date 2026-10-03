@@ -7,6 +7,7 @@ use App\Models\Customer;
 use App\Models\CustomerCompanion;
 use App\Models\GuestCustomer;
 use App\Models\MembershipTier;
+use App\Services\CccdIntakeService;
 use App\Services\ZaloOtpService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -424,20 +425,19 @@ class ZaloOtpController extends Controller
                 ], 422);
             }
 
-            // QR hợp lệ — xoá file cũ và lưu dữ liệu
-            if (isset($data['cccd_front']) && $oldCccdFront) {
-                Storage::disk('public')->delete($oldCccdFront);
-            }
-            if (isset($data['cccd_back']) && $oldCccdBack) {
-                Storage::disk('public')->delete($oldCccdBack);
-            }
-
             $data['cccd_data'] = $cccdData;
         }
 
         if (! empty($data)) {
             $customer->update($data);
         }
+
+        // Ảnh cũ bị thay: chỉ xoá file không còn bản ghi nào dùng — đơn đặt qua app trước đây trỏ
+        // thẳng vào file ảnh của hồ sơ, xoá bừa sẽ làm đơn cũ mất ảnh CCCD.
+        app(CccdIntakeService::class)->deleteUnreferencedImages(array_filter([
+            isset($data['cccd_front']) ? $oldCccdFront : null,
+            isset($data['cccd_back']) ? $oldCccdBack : null,
+        ]));
 
         // Thêm CCCD người đi cùng vào hồ sơ.
         if ($request->has('companions')) {
@@ -497,9 +497,12 @@ class ZaloOtpController extends Controller
             return response()->json(['message' => 'Không tìm thấy người đi cùng.'], 404);
         }
 
-        Storage::disk('public')->delete(array_filter([$companion->cccd_front, $companion->cccd_back]));
+        $paths = [$companion->cccd_front, $companion->cccd_back];
 
         $companion->delete();
+
+        // Chỉ xoá file không còn bản ghi nào dùng (đơn cũ có thể trỏ thẳng vào ảnh người đi cùng).
+        app(CccdIntakeService::class)->deleteUnreferencedImages($paths);
 
         return response()->json($this->customerResource(
             Customer::find($customer->id) ?? $customer

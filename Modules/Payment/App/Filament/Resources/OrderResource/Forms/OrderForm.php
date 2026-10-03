@@ -248,10 +248,12 @@ class OrderForm
                                                             ->dehydrated(),
 
                                                         // Ảnh CCCD khách #1 lúc TẠO đơn — popup "CCCD khách #1" chưa có
-                                                        // $record để lưu thẳng nên ghi tạm vào 2 field này, Order::create()
+                                                        // $record để lưu thẳng nên ghi tạm vào 3 field này, Order::create()
                                                         // lưu cùng đơn (CreateOrder::afterCreate() tự quét QR). Chỉ có ở
                                                         // trang tạo: ở trang sửa popup lưu thẳng vào đơn, nếu để field này
                                                         // dehydrate sẽ ghi đè ảnh vừa lưu bằng giá trị cũ lúc mở trang.
+                                                        Hidden::make('cccd_qr_image')
+                                                            ->visible(fn (string $operation) => $operation === 'create'),
                                                         Hidden::make('cccd_front')
                                                             ->visible(fn (string $operation) => $operation === 'create'),
                                                         Hidden::make('cccd_back')
@@ -1591,6 +1593,7 @@ class OrderForm
 
         if ($guestIndex === 1) {
             return [
+                'qr'    => $record->cccd_qr_image,
                 'front' => $record->cccd_front,
                 'back'  => $record->cccd_back,
                 'data'  => is_array($record->cccd_data) ? $record->cccd_data : null,
@@ -1600,6 +1603,7 @@ class OrderForm
         $guest = $record->guestCccds->firstWhere('guest_index', $guestIndex);
         if ($guest) {
             return [
+                'qr'    => $guest->cccd_qr_image,
                 'front' => $guest->cccd_front,
                 'back'  => $guest->cccd_back,
                 'data'  => is_array($guest->cccd_data) ? $guest->cccd_data : null,
@@ -1668,37 +1672,55 @@ class OrderForm
             . '</div>';
     }
 
-    private static function persistCccdUploadAndScan($record, int $guestIndex, array $data): void
+    /**
+     * Lưu ảnh CCCD (mặt có mã QR + 2 mặt tuỳ chọn) của 1 khách rồi quét. Trả về thông báo lỗi (và
+     * KHÔNG lưu gì, xoá ảnh vừa tải) nếu vi phạm quy tắc chung với web/app/API admin: dưới 16 tuổi
+     * (người đặt: mọi đơn; người đi cùng: đơn qua đêm — tính tại ngày nhận phòng) hoặc trùng người
+     * với khách khác trong đơn. Không đọc được QR vẫn lưu ảnh (lễ tân nhập tay sau).
+     */
+    private static function persistCccdUploadAndScan($record, int $guestIndex, array $data): ?string
     {
         if (! $record) {
-            return;
+            return null;
         }
 
+        $qr    = array_key_exists('cccd_qr_image', $data) ? $data['cccd_qr_image'] : null;
         $front = array_key_exists('cccd_front', $data) ? $data['cccd_front'] : null;
         $back  = array_key_exists('cccd_back', $data) ? $data['cccd_back'] : null;
+        $current = self::resolveCccdGuestSource($record, $guestIndex) ?? [];
+
+        $scan = ($qr || $front || $back)
+            ? app(\Modules\Payment\App\Services\CccdScannerService::class)->scanPaths($front, $back, $qr)
+            : null;
+
+        if ($scan && ($error = self::cccdRuleError($record, $guestIndex, $scan))) {
+            // Chỉ xoá ảnh MỚI tải trong popup này (khác ảnh đang lưu), không đụng ảnh cũ.
+            $newUploads = array_diff(array_filter([$qr, $front, $back]), array_filter([$current['qr'] ?? null, $current['front'] ?? null, $current['back'] ?? null]));
+            app(\App\Services\CccdIntakeService::class)->deleteImages($newUploads);
+
+            return $error;
+        }
 
         if ($guestIndex === 1) {
             $record->update([
-                'cccd_front' => $front,
-                'cccd_back'  => $back,
+                'cccd_qr_image' => $qr,
+                'cccd_front'    => $front,
+                'cccd_back'     => $back,
             ]);
 
-            if ($front || $back) {
-                $scan = app(\Modules\Payment\App\Services\CccdScannerService::class)->scanPaths($front, $back);
-                if ($scan) {
-                    $updateFields = ['cccd_data' => $scan];
-                    if (! empty($scan['full_name'])) {
-                        $updateFields['buyer_name'] = $scan['full_name'];
-                    }
-                    if (! empty($scan['address'])) {
-                        $updateFields['buyer_address'] = $scan['address'];
-                    }
-                    $record->update($updateFields);
-                    app(\App\Services\CccdDeclarationService::class)->upsertFromOrder($record->fresh(['items']));
+            if ($scan) {
+                $updateFields = ['cccd_data' => $scan];
+                if (! empty($scan['full_name'])) {
+                    $updateFields['buyer_name'] = $scan['full_name'];
                 }
+                if (! empty($scan['address'])) {
+                    $updateFields['buyer_address'] = $scan['address'];
+                }
+                $record->update($updateFields);
+                app(\App\Services\CccdDeclarationService::class)->upsertFromOrder($record->fresh(['items']));
             }
 
-            return;
+            return null;
         }
 
         $guest = $record->guestCccds()->firstOrNew([
@@ -1707,18 +1729,51 @@ class OrderForm
         ]);
 
         $guest->fill([
-            'cccd_front' => $front,
-            'cccd_back'  => $back,
+            'cccd_qr_image' => $qr,
+            'cccd_front'    => $front,
+            'cccd_back'     => $back,
         ]);
         $guest->save();
 
-        if ($front || $back) {
-            $scan = app(\Modules\Payment\App\Services\CccdScannerService::class)->scanPaths($front, $back);
-            if ($scan) {
-                $guest->update(['cccd_data' => $scan]);
-                app(\App\Services\CccdDeclarationService::class)->upsertFromOrder($record->fresh(['items']));
+        if ($scan) {
+            $guest->update(['cccd_data' => $scan]);
+            app(\App\Services\CccdDeclarationService::class)->upsertFromOrder($record->fresh(['items']));
+        }
+
+        return null;
+    }
+
+    // Quy tắc chung (CccdIntakeService::assertPeople): khách đang sửa so với mọi khách còn lại trong
+    // đơn. Người đi cùng chỉ xét tuổi khi đơn có khung qua đêm.
+    private static function cccdRuleError($record, int $guestIndex, array $scan): ?string
+    {
+        $record->loadMissing(['items', 'guestCccds']);
+        $overnight = $record->items->contains(fn ($i) => (bool) $i->over_night);
+
+        $people = [];
+        if ($guestIndex !== 1 && is_array($record->cccd_data) && $record->cccd_data) {
+            $people[] = ['field' => 'cccd_qr_image', 'label' => 'Khách #1', 'is_booker' => true, 'data' => $record->cccd_data, 'skip_age' => true];
+        }
+        foreach ($record->guestCccds as $g) {
+            if ($g->guest_index !== $guestIndex && is_array($g->cccd_data) && $g->cccd_data) {
+                $people[] = ['field' => 'cccd_qr_image', 'label' => "Khách #{$g->guest_index}", 'is_booker' => false, 'data' => $g->cccd_data, 'skip_age' => true];
             }
         }
+        $people[] = [
+            'field' => 'cccd_qr_image',
+            'label' => "Khách #{$guestIndex}",
+            'is_booker' => $guestIndex === 1,
+            'data' => $scan,
+            'skip_age' => $guestIndex !== 1 && ! $overnight,
+        ];
+
+        try {
+            app(\App\Services\CccdIntakeService::class)->assertPeople($people, \App\Services\CccdIntakeService::checkinDateFromItems($record->items));
+        } catch (\App\Exceptions\CccdIntakeException $e) {
+            return $e->getMessage();
+        }
+
+        return null;
     }
 
     private static function shouldShowGuestCccdAction($record, int $guestIndex, ?Get $get = null): bool
@@ -1888,9 +1943,9 @@ class OrderForm
     private static function buildGuestOneCccdAction(): \Filament\Forms\Components\Actions\Action
     {
         // CCCD khách #1 BẮT BUỘC khi tạo đơn (xem CreateOrder::assertPrimaryGuestCccd()) — nút đổi
-        // nhãn/màu khi chưa có ảnh để lễ tân thấy ngay cần làm gì.
-        $hasCccd = fn ($record, Get $get): bool => (bool) (($record?->cccd_front || $get('cccd_front'))
-            && ($record?->cccd_back || $get('cccd_back')));
+        // nhãn/màu khi chưa có ảnh để lễ tân thấy ngay cần làm gì. Đủ = có ảnh mặt QR, hoặc đủ 2 mặt.
+        $hasCccd = fn ($record, Get $get): bool => (bool) ($record?->cccd_qr_image || $get('cccd_qr_image')
+            || (($record?->cccd_front || $get('cccd_front')) && ($record?->cccd_back || $get('cccd_back'))));
 
         return \Filament\Forms\Components\Actions\Action::make('view_cccd_guest_1')
             ->label(fn ($record, Get $get) => $hasCccd($record, $get) ? 'Xem CCCD khách #1' : 'Tải CCCD khách #1 (bắt buộc)')
@@ -1901,10 +1956,11 @@ class OrderForm
             ->modalHeading('CCCD — Khách #1 (khách chính)')
             ->modalWidth('4xl')
             // Trang tạo đơn: chưa có $record — lấy lại ảnh đã tải tạm trong form chính (Hidden
-            // 'cccd_front'/'cccd_back', xem cột 1 của form).
+            // 'cccd_qr_image'/'cccd_front'/'cccd_back', xem cột 1 của form).
             ->fillForm(fn ($record, Get $get) => [
-                'cccd_front' => $record?->cccd_front ?? $get('cccd_front'),
-                'cccd_back'  => $record?->cccd_back ?? $get('cccd_back'),
+                'cccd_qr_image' => $record?->cccd_qr_image ?? $get('cccd_qr_image'),
+                'cccd_front'    => $record?->cccd_front ?? $get('cccd_front'),
+                'cccd_back'     => $record?->cccd_back ?? $get('cccd_back'),
             ])
             ->form([
                 // Cột 1: thông tin đã trích xuất. Cột 2: ảnh mặt trước/sau CHUNG 1 hàng, rồi khung
@@ -1924,6 +1980,14 @@ class OrderForm
                     ]),
 
                     Grid::make(1)->columnSpan(1)->schema([
+                        // Ảnh mặt có mã QR hiện tại (luồng 1 ảnh của web/app).
+                        Placeholder::make('cccd_preview_qr_1')
+                            ->label('Mặt có mã QR — ảnh hiện tại')
+                            ->content(fn ($record) => new \Illuminate\Support\HtmlString(
+                                self::renderCccdImageWithDownload($record?->cccd_qr_image, 'Mặt có QR', $record?->order_code, $record?->id)
+                            ))
+                            ->visible(fn ($record) => (bool) $record?->cccd_qr_image),
+
                         // Hàng 1: ảnh hiện tại (mặt trước + mặt sau) CHUNG hàng.
                         Grid::make(2)->schema([
                             Placeholder::make('cccd_preview_front_1')
@@ -1941,7 +2005,18 @@ class OrderForm
                                 ->visible(fn ($record) => (bool) $record?->cccd_back),
                         ]),
 
-                        // Hàng 2: khung tải/thay ảnh mới (mặt trước + mặt sau) CHUNG hàng.
+                        // Hàng 2: khung tải/thay ảnh mới — ảnh QR, rồi mặt trước + mặt sau CHUNG hàng.
+                            FileUpload::make('cccd_qr_image')
+                                ->label(fn ($record) => $record?->cccd_qr_image ? 'Thay ảnh mặt có mã QR' : 'Tải ảnh mặt có mã QR')
+                                ->helperText('Ảnh dùng để quét thông tin — chỉ cần 1 ảnh này; mặt trước/sau là tuỳ chọn để lưu trữ.')
+                                ->image()
+                                ->directory('cccd/qr')
+                                ->imagePreviewHeight('80')
+                                ->panelLayout('integrated')
+                                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                ->maxSize(10240)
+                                ->nullable(),
+
                         Grid::make(2)->schema([
                             FileUpload::make('cccd_front')
                                 ->label(fn ($record) => $record?->cccd_front ? 'Thay ảnh mặt trước' : 'Tải ảnh mặt trước')
@@ -1951,8 +2026,9 @@ class OrderForm
                                 ->panelLayout('integrated')
                                 ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
                                 ->maxSize(10240)
-                                ->required()
-                                ->validationMessages(['required' => 'Bắt buộc ảnh CCCD mặt trước của khách chính.']),
+                                // Đã có ảnh mặt QR thì 2 mặt chỉ là tuỳ chọn lưu trữ.
+                                ->required(fn (Get $get) => blank($get('cccd_qr_image')))
+                                ->validationMessages(['required' => 'Bắt buộc ảnh CCCD mặt có mã QR, hoặc đủ mặt trước + mặt sau của khách chính.']),
 
                             FileUpload::make('cccd_back')
                                 ->label(fn ($record) => $record?->cccd_back ? 'Thay ảnh mặt sau' : 'Tải ảnh mặt sau')
@@ -1962,15 +2038,16 @@ class OrderForm
                                 ->panelLayout('integrated')
                                 ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
                                 ->maxSize(10240)
-                                ->required()
-                                ->validationMessages(['required' => 'Bắt buộc ảnh CCCD mặt sau của khách chính.']),
+                                ->required(fn (Get $get) => blank($get('cccd_qr_image')))
+                                ->validationMessages(['required' => 'Bắt buộc ảnh CCCD mặt có mã QR, hoặc đủ mặt trước + mặt sau của khách chính.']),
                         ]),
                     ]),
                 ]),
             ])
-            ->action(function (array $data, $record, Set $set) {
+            ->action(function (array $data, $record, Set $set, \Filament\Forms\Components\Actions\Action $action) {
                 // Trang tạo đơn: giữ tạm ảnh vào form chính, lưu cùng lúc tạo đơn.
                 if (! $record) {
+                    $set('cccd_qr_image', $data['cccd_qr_image'] ?? null);
                     $set('cccd_front', $data['cccd_front'] ?? null);
                     $set('cccd_back', $data['cccd_back'] ?? null);
 
@@ -1983,7 +2060,10 @@ class OrderForm
                     return;
                 }
 
-                self::persistCccdUploadAndScan($record, 1, $data);
+                if ($error = self::persistCccdUploadAndScan($record, 1, $data)) {
+                    \Filament\Notifications\Notification::make()->title('Chưa lưu CCCD khách #1')->body($error)->danger()->send();
+                    $action->halt();
+                }
                 $record->refresh();
 
                 \Filament\Notifications\Notification::make()
@@ -2006,8 +2086,9 @@ class OrderForm
             ->modalHeading('CCCD — Khách #' . $guestIndex)
             ->modalWidth('4xl')
             ->fillForm(fn ($record) => [
-                'cccd_front' => self::resolveCccdGuestSource($record, $guestIndex)['front'] ?? null,
-                'cccd_back'  => self::resolveCccdGuestSource($record, $guestIndex)['back'] ?? null,
+                'cccd_qr_image' => self::resolveCccdGuestSource($record, $guestIndex)['qr'] ?? null,
+                'cccd_front'    => self::resolveCccdGuestSource($record, $guestIndex)['front'] ?? null,
+                'cccd_back'     => self::resolveCccdGuestSource($record, $guestIndex)['back'] ?? null,
             ])
             ->form([
                 Grid::make(2)->schema([
@@ -2018,6 +2099,13 @@ class OrderForm
                     ]),
 
                     Grid::make(1)->columnSpan(1)->schema([
+                        Placeholder::make('cccd_preview_qr_' . $guestIndex)
+                            ->label('Mặt có mã QR — ảnh hiện tại')
+                            ->content(fn ($record) => new \Illuminate\Support\HtmlString(
+                                self::renderCccdImageWithDownload(self::resolveCccdGuestSource($record, $guestIndex)['qr'] ?? null, 'Mặt có QR', $record?->order_code, $record?->id)
+                            ))
+                            ->visible(fn ($record) => (bool) (self::resolveCccdGuestSource($record, $guestIndex)['qr'] ?? null)),
+
                         Grid::make(2)->schema([
                             Placeholder::make('cccd_preview_front_' . $guestIndex)
                                 ->label('Mặt trước — ảnh hiện tại')
@@ -2033,6 +2121,17 @@ class OrderForm
                                 ))
                                 ->visible(fn ($record) => (bool) (self::resolveCccdGuestSource($record, $guestIndex)['back'] ?? null)),
                         ]),
+
+                            FileUpload::make('cccd_qr_image')
+                                ->label(fn ($record) => (self::resolveCccdGuestSource($record, $guestIndex)['qr'] ?? null) ? 'Thay ảnh mặt có mã QR' : 'Tải ảnh mặt có mã QR')
+                                ->helperText('Ảnh dùng để quét thông tin — chỉ cần 1 ảnh này; mặt trước/sau là tuỳ chọn để lưu trữ.')
+                                ->image()
+                                ->directory('cccd/qr')
+                                ->imagePreviewHeight('80')
+                                ->panelLayout('integrated')
+                                ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                ->maxSize(10240)
+                                ->nullable(),
 
                         Grid::make(2)->schema([
                             FileUpload::make('cccd_front')
@@ -2058,12 +2157,15 @@ class OrderForm
                     ]),
                 ]),
             ])
-            ->action(function (array $data, $record) use ($guestIndex) {
+            ->action(function (array $data, $record, \Filament\Forms\Components\Actions\Action $action) use ($guestIndex) {
                 if (! $record) {
                     return;
                 }
 
-                self::persistCccdUploadAndScan($record, $guestIndex, $data);
+                if ($error = self::persistCccdUploadAndScan($record, $guestIndex, $data)) {
+                    \Filament\Notifications\Notification::make()->title('Chưa lưu CCCD khách #' . $guestIndex)->body($error)->danger()->send();
+                    $action->halt();
+                }
                 $record->refresh();
 
                 \Filament\Notifications\Notification::make()
@@ -2122,12 +2224,12 @@ class OrderForm
             return $model->cccd_data;
         }
 
-        if (! $model->cccd_front && ! $model->cccd_back) {
+        if (! $model->cccd_qr_image && ! $model->cccd_front && ! $model->cccd_back) {
             return null;
         }
 
         try {
-            $scan = app(\Modules\Payment\App\Services\CccdScannerService::class)->scanPaths($model->cccd_front, $model->cccd_back);
+            $scan = app(\Modules\Payment\App\Services\CccdScannerService::class)->scanPaths($model->cccd_front, $model->cccd_back, $model->cccd_qr_image);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('Quét CCCD theo yêu cầu (khi hiển thị) thất bại', [
                 'model' => get_class($model),
@@ -2178,8 +2280,9 @@ class OrderForm
                 $livewire->data['member_companion_panel_id'] = null;
 
                 return [
-                    'member_cccd_front' => Customer::find($customerId)?->cccd_front,
-                    'member_cccd_back'  => Customer::find($customerId)?->cccd_back,
+                    'member_cccd_qr_image' => Customer::find($customerId)?->cccd_qr_image,
+                    'member_cccd_front'    => Customer::find($customerId)?->cccd_front,
+                    'member_cccd_back'     => Customer::find($customerId)?->cccd_back,
                     // Số người đi cùng tối đa — đọc số khách SỐNG qua $livewire->data (xem ghi chú
                     // ở resolveMaxCompanionsForMember()), hoạt động NGAY CẢ KHI đơn CHƯA lưu lần
                     // nào (đang tạo đơn mới, $record còn null — trước đây rơi về 0 khiến cả section
@@ -2208,6 +2311,17 @@ class OrderForm
                         ]),
 
                         Grid::make(1)->columnSpan(1)->schema([
+                            Placeholder::make('member_cccd_preview_qr')
+                                ->label('Mặt có mã QR — ảnh hiện tại')
+                                ->content(function (Get $get, $record, $livewire) {
+                                    $customer = Customer::find(self::resolveMemberCustomerId($get, $record, $livewire));
+
+                                    return new \Illuminate\Support\HtmlString(
+                                        self::renderCccdImageWithDownload($customer?->cccd_qr_image, 'Mặt có QR', null, $customer?->id)
+                                    );
+                                })
+                                ->visible(fn (Get $get, $record, $livewire) => (bool) Customer::find(self::resolveMemberCustomerId($get, $record, $livewire))?->cccd_qr_image),
+
                             Grid::make(2)->schema([
                                 Placeholder::make('member_cccd_preview_front')
                                     ->label('Mặt trước — ảnh hiện tại')
@@ -2231,6 +2345,17 @@ class OrderForm
                                     })
                                     ->visible(fn (Get $get, $record, $livewire) => (bool) Customer::find(self::resolveMemberCustomerId($get, $record, $livewire))?->cccd_back),
                             ]),
+
+                            FileUpload::make('member_cccd_qr_image')
+                                    ->label(fn (Get $get, $record, $livewire) => Customer::find(self::resolveMemberCustomerId($get, $record, $livewire))?->cccd_qr_image ? 'Thay ảnh mặt có mã QR' : 'Tải ảnh mặt có mã QR')
+                                    ->helperText('Ảnh dùng để quét thông tin — chỉ cần 1 ảnh này; mặt trước/sau là tuỳ chọn để lưu trữ.')
+                                    ->image()
+                                    ->directory('cccd/qr')
+                                    ->imagePreviewHeight('80')
+                                    ->panelLayout('integrated')
+                                    ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                    ->maxSize(10240)
+                                    ->nullable(),
 
                             Grid::make(2)->schema([
                                 FileUpload::make('member_cccd_front')
@@ -2307,10 +2432,20 @@ class OrderForm
                             Section::make(fn ($livewire) => data_get($livewire->data ?? [], 'member_companion_panel_id') === 'new'
                                 ? 'Thêm người đi cùng mới'
                                 : 'Sửa ảnh CCCD người đi cùng')
-                                ->description('Tải ảnh CCCD 2 mặt — hệ thống tự động quét thông tin.')
+                                ->description('Tải ảnh CCCD mặt có mã QR (hoặc đủ 2 mặt) — hệ thống tự động quét thông tin.')
                                 ->icon('heroicon-o-user-plus')
                                 ->visible(fn ($livewire) => filled(data_get($livewire->data ?? [], 'member_companion_panel_id')))
                                 ->schema([
+                                    FileUpload::make('new_companion_qr')
+                                        ->label('Mặt có mã QR')
+                                        ->image()
+                                        ->directory('cccd/qr')
+                                        ->imagePreviewHeight('80')
+                                        ->panelLayout('integrated')
+                                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                                        ->maxSize(10240)
+                                        ->nullable(),
+
                                     Grid::make(2)->schema([
                                         FileUpload::make('new_companion_front')
                                             ->label('Mặt trước')
@@ -2344,6 +2479,7 @@ class OrderForm
                                             ->label('Huỷ')
                                             ->color('gray')
                                             ->action(function (Set $set, $livewire) {
+                                                $set('new_companion_qr', null);
                                                 $set('new_companion_front', null);
                                                 $set('new_companion_back', null);
                                                 $livewire->data['member_companion_panel_id'] = null;
@@ -2361,16 +2497,18 @@ class OrderForm
 
                 // CCCD của chính thành viên — lưu thẳng vào Customer (KHÔNG phụ thuộc $record, tái
                 // dùng được cho MỌI đơn sau này của thành viên đó, giống scanCustomer()).
+                $memberQr    = $data['member_cccd_qr_image'] ?? null;
                 $memberFront = $data['member_cccd_front'] ?? null;
                 $memberBack  = $data['member_cccd_back'] ?? null;
 
-                if ($memberFront || $memberBack) {
+                if ($memberQr || $memberFront || $memberBack) {
+                    $newQr    = $memberQr ?: $customer->cccd_qr_image;
                     $newFront = $memberFront ?: $customer->cccd_front;
                     $newBack  = $memberBack ?: $customer->cccd_back;
 
                     $scan = null;
                     try {
-                        $scan = app(\Modules\Payment\App\Services\CccdScannerService::class)->scanPaths($newFront, $newBack);
+                        $scan = app(\Modules\Payment\App\Services\CccdScannerService::class)->scanPaths($newFront, $newBack, $newQr);
                     } catch (\Throwable $e) {
                         \Illuminate\Support\Facades\Log::warning('Quét CCCD thành viên thất bại', [
                             'customer_id' => $customer->id,
@@ -2379,9 +2517,10 @@ class OrderForm
                     }
 
                     $customer->update(array_filter([
-                        'cccd_front' => $newFront,
-                        'cccd_back'  => $newBack,
-                        'cccd_data'  => $scan,
+                        'cccd_qr_image' => $newQr,
+                        'cccd_front'    => $newFront,
+                        'cccd_back'     => $newBack,
+                        'cccd_data'     => $scan,
                     ], fn ($v) => $v !== null));
                 }
 
@@ -2439,11 +2578,13 @@ class OrderForm
         // đi qua $data của ->action() bình thường (form submit thật sự), không áp dụng cho $get()
         // gọi tay như ở đây. Tự lấy phần tử đầu tiên để ra đúng path.
         $normalizeUpload = fn ($value) => is_array($value) ? (array_values($value)[0] ?? null) : $value;
+        $qr    = $normalizeUpload($get('new_companion_qr'));
         $front = $normalizeUpload($get('new_companion_front'));
         $back  = $normalizeUpload($get('new_companion_back'));
 
-        if (! $front || ! $back) {
-            \Filament\Notifications\Notification::make()->title('Vui lòng tải đủ ảnh 2 mặt CCCD')->warning()->send();
+        // Đủ khi có ảnh mặt có mã QR, HOẶC đủ 2 mặt (cách cũ).
+        if (! $qr && (! $front || ! $back)) {
+            \Filament\Notifications\Notification::make()->title('Vui lòng tải ảnh mặt có mã QR (hoặc đủ 2 mặt CCCD)')->warning()->send();
 
             return;
         }
@@ -2453,7 +2594,7 @@ class OrderForm
             return;
         }
 
-        if (self::cccdSidesConflict($front, $back)) {
+        if ($front && $back && self::cccdSidesConflict($front, $back)) {
             \Filament\Notifications\Notification::make()
                 ->title('Ảnh 2 mặt không khớp')
                 ->body('Có thể đã chụp nhầm CCCD của 2 người khác nhau.')
@@ -2465,7 +2606,7 @@ class OrderForm
 
         $scan = null;
         try {
-            $scan = app(\Modules\Payment\App\Services\CccdScannerService::class)->scanPaths($front, $back);
+            $scan = app(\Modules\Payment\App\Services\CccdScannerService::class)->scanPaths($front, $back, $qr);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('Quét CCCD người đi cùng (thành viên) thất bại', [
                 'customer_id' => $customer->id,
@@ -2498,10 +2639,11 @@ class OrderForm
             }
 
             $companion = $customer->companions()->create([
-                'full_name'  => $scan['full_name'] ?? null,
-                'cccd_front' => $front,
-                'cccd_back'  => $back,
-                'cccd_data'  => $scan,
+                'full_name'     => $scan['full_name'] ?? null,
+                'cccd_qr_image' => $qr,
+                'cccd_front'    => $front,
+                'cccd_back'     => $back,
+                'cccd_data'     => $scan,
             ]);
 
             $currentIds[] = $companion->id;
@@ -2514,16 +2656,19 @@ class OrderForm
                 return;
             }
 
+            // Không đọc được QR thì giữ cccd_data/full_name cũ; ảnh nào không tải mới thì giữ ảnh cũ.
             $companion->update([
-                'full_name'  => $scan['full_name'] ?? $companion->full_name,
-                'cccd_front' => $front,
-                'cccd_back'  => $back,
-                'cccd_data'  => $scan,
+                'full_name'     => $scan['full_name'] ?? $companion->full_name,
+                'cccd_qr_image' => $qr ?: $companion->cccd_qr_image,
+                'cccd_front'    => $front ?: $companion->cccd_front,
+                'cccd_back'     => $back ?: $companion->cccd_back,
+                'cccd_data'     => $scan ?? $companion->cccd_data,
             ]);
 
             \Filament\Notifications\Notification::make()->title('Đã cập nhật ảnh CCCD')->success()->send();
         }
 
+        $set('new_companion_qr', null);
         $set('new_companion_front', null);
         $set('new_companion_back', null);
         $livewire->data['member_companion_panel_id'] = null;
@@ -2568,8 +2713,12 @@ class OrderForm
                     // đã chọn ai trước đó, bảng "Người đi cùng" LUÔN hiện trống dù đã lưu (xem
                     // ->fillForm() ở buildMemberCccdAction()).
                     'companion_id' => $companion->id,
-                    'cccd_front'   => $companion->cccd_front,
-                    'cccd_back'    => $companion->cccd_back,
+                    // COPY ảnh (snapshot) — sửa/xoá hồ sơ người đi cùng sau này không làm đơn mất ảnh.
+                    ...app(\App\Services\CccdIntakeService::class)->snapshotImages([
+                        'cccd_qr_image' => $companion->cccd_qr_image,
+                        'cccd_front'    => $companion->cccd_front,
+                        'cccd_back'     => $companion->cccd_back,
+                    ]),
                     'cccd_data'    => $companion->cccd_data,
                 ]
             );
@@ -2613,19 +2762,18 @@ class OrderForm
     // Chỉ so khi quét ra được số CCCD (quét lỗi thì bỏ qua check, CCCD vốn là dữ liệu tuỳ chọn).
     private static function cccdIsDuplicateForCustomer(Customer $customer, ?array $scan): bool
     {
-        $cccd = trim((string) ($scan['cccd'] ?? ''));
-        if ($cccd === '') {
+        if (! $scan) {
             return false;
         }
 
-        $customerCccd = trim((string) ($customer->cccd_data['cccd'] ?? ''));
-        if ($customerCccd !== '' && $customerCccd === $cccd) {
+        // Cùng 1 người = trùng số CCCD, hoặc trùng họ tên + ngày sinh (quy tắc chung toàn hệ thống).
+        if (is_array($customer->cccd_data) && $customer->cccd_data && \App\Support\CccdIdentity::samePerson($scan, $customer->cccd_data)) {
             return true;
         }
 
         return $customer->companions()
             ->get()
-            ->contains(fn (CustomerCompanion $c) => trim((string) ($c->cccd_data['cccd'] ?? '')) === $cccd);
+            ->contains(fn (CustomerCompanion $c) => is_array($c->cccd_data) && $c->cccd_data && \App\Support\CccdIdentity::samePerson($scan, $c->cccd_data));
     }
 
     // "Lịch sử thanh toán" — nằm CHUNG cột với Mã cổng (xem Grid::make(1) bọc cả 2 trong

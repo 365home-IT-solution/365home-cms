@@ -98,6 +98,16 @@ class CustomerResource extends Resource
                             ->dehydrateStateUsing(fn (bool $state) => $state ? 'active' : 'inactive')
                             ->default(true),
 
+                        FileUpload::make('cccd_qr_image')
+                            ->label('CCCD — mặt có mã QR')
+                            ->image()
+                            ->disk('public')
+                            ->directory('cccd/qr')
+                            ->maxSize(10240)
+                            ->imagePreviewHeight('300')
+                            ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/jpg', 'image/avif', 'image/webp', 'image/heic', 'image/heif'])
+                            ->helperText('Ảnh dùng để quét thông tin (khách tải lên từ web/app). Mặt trước/sau bên dưới là tuỳ chọn để lưu trữ.'),
+
                         FileUpload::make('cccd_front')
                             ->label('Mặt trước CCCD')
                             ->image()
@@ -124,6 +134,13 @@ class CustomerResource extends Resource
                             ->valueLabel('Giá trị')
                             ->disabled()
                             ->hidden(fn ($record) => blank($record?->cccd_data)),
+
+                        // Lịch sử khách tự xác thực CCCD (trang cá nhân) — hồ sơ dùng lần mới nhất;
+                        // dòng "Khác CCCD lần đầu" là lúc khách đổi sang CCCD khác số, cần để ý.
+                        Placeholder::make('cccd_verifications_history')
+                            ->label('Lịch sử xác thực CCCD')
+                            ->content(fn ($record) => self::renderCccdVerifications($record))
+                            ->hidden(fn ($record) => ! $record || ! $record->cccdVerifications()->exists()),
                     ])
                     ->columns(1)
                     ->columnSpan(fn (?Customer $record): int => $record === null ? 3 : 1),
@@ -311,7 +328,8 @@ class CustomerResource extends Resource
                 IconColumn::make('cccd_front')
                     ->label('CCCD')
                     ->boolean()
-                    ->getStateUsing(fn ($record) => ! is_null($record->cccd_front)),
+                    // Có CCCD dùng được để đặt phòng (cccd_data đúng cấu trúc), không chỉ là có ảnh.
+                    ->getStateUsing(fn ($record) => \App\Support\CccdIdentity::validate($record->cccd_data, requireQr: false) === null),
 
                 ToggleColumn::make('status')
                     ->label('Hoạt động')
@@ -499,5 +517,44 @@ class CustomerResource extends Resource
             'edit'   => Pages\EditCustomer::route('/{record}/edit'),
             'view'   => Pages\ViewCustomer::route('/{record}'),
         ];
+    }
+
+    // Bảng lịch sử xác thực CCCD: lần, thời điểm, số CCCD, họ tên, ngày sinh, ảnh QR, trạng thái.
+    private static function renderCccdVerifications(?Customer $record): \Illuminate\Support\HtmlString
+    {
+        $rows = '';
+        $latest = $record?->cccdVerifications->max('attempt');
+        foreach ($record?->cccdVerifications ?? [] as $v) {
+            $data   = is_array($v->cccd_data) ? $v->cccd_data : [];
+            $image  = $v->cccd_qr_image
+                ? '<a href="' . e(\Illuminate\Support\Facades\Storage::disk('public')->url($v->cccd_qr_image)) . '" target="_blank" style="color:#2563eb;text-decoration:underline;">Xem ảnh</a>'
+                : '—';
+            $status = match (true) {
+                $v->attempt === 1    => '<span style="color:#15803d;font-weight:600;">Lần đầu</span>',
+                $v->same_as_first    => '<span style="color:#15803d;font-weight:600;">Cùng CCCD lần đầu</span>',
+                default              => '<span style="color:#b91c1c;font-weight:600;">Khác CCCD lần đầu</span>',
+            };
+            if ($v->attempt === $latest) {
+                $status .= ' <span style="font-size:.6875rem;color:#fff;background:#111827;padding:.05rem .4rem;border-radius:9999px;">Đang dùng</span>';
+            }
+
+            $rows .= '<tr style="border-top:1px solid #e5e7eb;">'
+                . '<td style="padding:.35rem .5rem;">#' . $v->attempt . '</td>'
+                . '<td style="padding:.35rem .5rem;white-space:nowrap;">' . e($v->created_at?->format('d/m/Y H:i')) . '</td>'
+                . '<td style="padding:.35rem .5rem;font-family:monospace;">' . e($data['cccd'] ?? '') . '</td>'
+                . '<td style="padding:.35rem .5rem;">' . e($data['full_name'] ?? '') . '</td>'
+                . '<td style="padding:.35rem .5rem;">' . e($data['dob'] ?? '') . '</td>'
+                . '<td style="padding:.35rem .5rem;">' . $image . '</td>'
+                . '<td style="padding:.35rem .5rem;">' . $status . '</td>'
+                . '</tr>';
+        }
+
+        return new \Illuminate\Support\HtmlString(
+            '<table style="width:100%;font-size:.8125rem;border-collapse:collapse;">'
+            . '<thead><tr style="text-align:left;color:#6b7280;">'
+            . '<th style="padding:.35rem .5rem;">Lần</th><th style="padding:.35rem .5rem;">Thời điểm</th><th style="padding:.35rem .5rem;">Số CCCD</th>'
+            . '<th style="padding:.35rem .5rem;">Họ tên</th><th style="padding:.35rem .5rem;">Ngày sinh</th><th style="padding:.35rem .5rem;">Ảnh</th><th style="padding:.35rem .5rem;">Trạng thái</th>'
+            . '</tr></thead><tbody>' . $rows . '</tbody></table>'
+        );
     }
 }

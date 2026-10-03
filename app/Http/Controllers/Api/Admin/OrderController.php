@@ -7,6 +7,8 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Api\Concerns\BuildsRoomBooking;
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\CccdDeclarationService;
+use App\Services\CccdIntakeService;
 use App\Services\SlotRealtimeService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -236,10 +238,12 @@ class OrderController extends Controller
 
         $cccds = collect();
 
-        if ($order->cccd_front || $order->cccd_back || $order->cccd_data) {
+        if ($order->cccd_qr_image || $order->cccd_front || $order->cccd_back || $order->cccd_data) {
             $cccds->push([
                 'guest_index' => 1,
                 'is_primary'  => true,
+                // Ảnh mặt có mã QR — đơn đặt trên web (luồng 1 ảnh) chỉ có ảnh này.
+                'cccd_qr_image' => $order->cccd_qr_image ? Storage::disk('public')->url($order->cccd_qr_image) : null,
                 'cccd_front'  => $order->cccd_front ? Storage::disk('public')->url($order->cccd_front) : null,
                 'cccd_back'   => $order->cccd_back  ? Storage::disk('public')->url($order->cccd_back)  : null,
                 'cccd_data'   => $order->cccd_data,
@@ -250,6 +254,7 @@ class OrderController extends Controller
             $cccds->push([
                 'guest_index' => $g->guest_index,
                 'is_primary'  => false,
+                'cccd_qr_image' => $g->cccd_qr_image ? Storage::disk('public')->url($g->cccd_qr_image) : null,
                 'cccd_front'  => $g->cccd_front ? Storage::disk('public')->url($g->cccd_front) : null,
                 'cccd_back'   => $g->cccd_back  ? Storage::disk('public')->url($g->cccd_back)  : null,
                 'cccd_data'   => $g->cccd_data,
@@ -396,6 +401,9 @@ class OrderController extends Controller
         }
 
         // ── CCCD khách chính (tùy chọn) ────────────────────────────────────────
+        $replacedCccdPaths = [];
+        $guestCccdChanged  = false;
+
         if ($request->hasFile('cccd_front') && $request->hasFile('cccd_back')) {
             $newFront = $request->file('cccd_front')->store('cccd', 'public');
             $newBack  = $request->file('cccd_back')->store('cccd', 'public');
@@ -409,8 +417,8 @@ class OrderController extends Controller
             }
             // Không bắt buộc đọc được QR (giống lúc tạo đơn) — vẫn lưu ảnh, cccd_data để trống nếu quét lỗi.
 
-            if ($order->cccd_front) Storage::disk('public')->delete($order->cccd_front);
-            if ($order->cccd_back)  Storage::disk('public')->delete($order->cccd_back);
+            // Ảnh cũ xoá SAU khi lưu, và chỉ khi không còn bản ghi nào dùng (xem cuối hàm).
+            array_push($replacedCccdPaths, $order->cccd_front, $order->cccd_back);
 
             $updates['cccd_front'] = $newFront;
             $updates['cccd_back']  = $newBack;
@@ -437,14 +445,14 @@ class OrderController extends Controller
 
             $existing = $order->guestCccds->firstWhere('guest_index', (int) $guestIndex);
             if ($existing) {
-                if ($existing->cccd_front) Storage::disk('public')->delete($existing->cccd_front);
-                if ($existing->cccd_back)  Storage::disk('public')->delete($existing->cccd_back);
+                array_push($replacedCccdPaths, $existing->cccd_front, $existing->cccd_back);
             }
 
             $order->guestCccds()->updateOrCreate(
                 ['guest_index' => (int) $guestIndex],
                 ['cccd_front' => $frontPath, 'cccd_back' => $backPath, 'cccd_data' => $guestData]
             );
+            $guestCccdChanged = true;
         }
 
         // ── Đổi khung giờ/ngày (chỉ khi có gửi 'type') ─────────────────────────
@@ -682,12 +690,24 @@ class OrderController extends Controller
             $updates['current_payos_code'] = null;
         }
 
-        if (empty($updates)) {
+        // Chỉ gửi ảnh người đi cùng thì $updates rỗng nhưng vẫn là 1 lần cập nhật hợp lệ (trước đây
+        // ảnh đã lưu mà vẫn trả 422).
+        if (empty($updates) && ! $guestCccdChanged) {
             return response()->json(['message' => 'Không có trường nào để cập nhật.'], 422);
         }
 
-        $order->update($updates);
+        if ($updates) {
+            $order->update($updates);
+        }
         $order->load(['items.product:id,name', 'category:id,name', 'customer:id,fullname,phone', 'guestCccds']);
+
+        // Chỉ xoá ảnh cũ không còn bản ghi nào dùng — đơn cũ có thể dùng chung file với hồ sơ khách.
+        app(CccdIntakeService::class)->deleteUnreferencedImages($replacedCccdPaths);
+
+        // Khai báo lưu trú theo CCCD mới (trước đây API admin sửa CCCD không cập nhật khai báo).
+        if (isset($updates['cccd_data']) || $guestCccdChanged) {
+            app(CccdDeclarationService::class)->upsertFromOrder($order);
+        }
 
         return response()->json([
             'order' => $this->toListItem($order) + [
@@ -849,14 +869,14 @@ class OrderController extends Controller
             return response()->json(['message' => 'Không tìm thấy CCCD khách đi cùng với guest_index này.'], 404);
         }
 
-        if ($guestCccd->cccd_front) {
-            Storage::disk('public')->delete($guestCccd->cccd_front);
-        }
-        if ($guestCccd->cccd_back) {
-            Storage::disk('public')->delete($guestCccd->cccd_back);
-        }
-
+        $paths = [$guestCccd->cccd_qr_image, $guestCccd->cccd_front, $guestCccd->cccd_back];
         $guestCccd->delete();
+
+        // Chỉ xoá file không còn ai dùng (đơn cũ có thể dùng chung file với hồ sơ khách).
+        app(CccdIntakeService::class)->deleteUnreferencedImages($paths);
+
+        // Khai báo lưu trú của khách này không còn nguồn dữ liệu → xoá theo.
+        \App\Models\CccdDeclaration::where('order_id', $order->id)->where('guest_index', $guestIndex)->delete();
 
         return response()->json(['message' => 'Đã xoá CCCD khách đi cùng.', 'guest_index' => $guestIndex]);
     }
@@ -935,13 +955,13 @@ class OrderController extends Controller
      */
     private function deleteOrderWithRelations(Order $order): void
     {
+        // Gom path ảnh CCCD, xoá bản ghi trước rồi mới xoá file không còn ai dùng — đơn cũ có thể
+        // dùng chung file với hồ sơ khách/người đi cùng.
+        $cccdPaths = [$order->cccd_qr_image, $order->cccd_front, $order->cccd_back];
         foreach ($order->guestCccds as $guestCccd) {
-            if ($guestCccd->cccd_front) Storage::disk('public')->delete($guestCccd->cccd_front);
-            if ($guestCccd->cccd_back)  Storage::disk('public')->delete($guestCccd->cccd_back);
+            array_push($cccdPaths, $guestCccd->cccd_qr_image, $guestCccd->cccd_front, $guestCccd->cccd_back);
         }
-
-        if ($order->cccd_front) Storage::disk('public')->delete($order->cccd_front);
-        if ($order->cccd_back)  Storage::disk('public')->delete($order->cccd_back);
+        app()->terminating(fn () => app(CccdIntakeService::class)->deleteUnreferencedImages($cccdPaths));
 
         $order->guestCccds()->delete();
         $order->items()->delete();
@@ -1045,10 +1065,13 @@ class OrderController extends Controller
             // khác update() vốn phải gửi kèm cccd_front/back mới thì mới nhận lại URL trong response).
             'cccd_front' => $order->cccd_front ? Storage::disk('public')->url($order->cccd_front) : null,
             'cccd_back'  => $order->cccd_back  ? Storage::disk('public')->url($order->cccd_back)  : null,
+            // Ảnh mặt có mã QR — đơn đặt trên web (luồng 1 ảnh) chỉ có ảnh này.
+            'cccd_qr_image' => $order->cccd_qr_image ? Storage::disk('public')->url($order->cccd_qr_image) : null,
             'cccd_data'  => $order->cccd_data,
             // Khách đi cùng (guest_index từ 2) — bảng order_guest_cccds.
             'guests' => $order->guestCccds->map(fn ($g) => [
                 'guest_index' => $g->guest_index,
+                'cccd_qr_image' => $g->cccd_qr_image ? Storage::disk('public')->url($g->cccd_qr_image) : null,
                 'cccd_front'  => $g->cccd_front ? Storage::disk('public')->url($g->cccd_front) : null,
                 'cccd_back'   => $g->cccd_back  ? Storage::disk('public')->url($g->cccd_back)  : null,
                 'cccd_data'   => $g->cccd_data,

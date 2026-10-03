@@ -171,26 +171,28 @@ class CreateOrder extends CreateRecord
         return $data;
     }
 
-    // CCCD khách chính BẮT BUỘC khi tạo đơn (khai báo lưu trú) — khách vãng lai phải tải đủ mặt
-    // trước + mặt sau qua nút "CCCD khách #1" (lưu tạm vào Hidden cccd_front/cccd_back của form);
-    // thành viên thì hồ sơ (customers) phải có sẵn CCCD — cập nhật qua nút "CCCD thành viên".
-    // Cùng quy tắc với API POST /api/admin/orders (Api\Admin\BookingController::store()).
+    // CCCD khách chính BẮT BUỘC khi tạo đơn (khai báo lưu trú) — khách vãng lai phải tải ảnh mặt
+    // có mã QR, hoặc đủ mặt trước + mặt sau, qua nút "CCCD khách #1" (lưu tạm vào Hidden
+    // cccd_qr_image/cccd_front/cccd_back của form); thành viên thì hồ sơ (customers) phải có sẵn
+    // CCCD — cập nhật qua nút "CCCD thành viên".
     private function assertPrimaryGuestCccd(array $data): void
     {
+        $hasImages = fn ($qr, $front, $back): bool => filled($qr) || (filled($front) && filled($back));
+
         if (! empty($data['customer_id'])) {
             $customer = \App\Models\Customer::find($data['customer_id']);
 
-            if ($customer?->cccd_front && $customer?->cccd_back) {
+            if ($customer && $hasImages($customer->cccd_qr_image, $customer->cccd_front, $customer->cccd_back)) {
                 return;
             }
 
             $title = 'Thành viên chưa có CCCD';
-            $body  = 'Hồ sơ thành viên chưa có đủ ảnh CCCD mặt trước và mặt sau — bấm "CCCD thành viên" để tải lên trước khi tạo đơn.';
-        } elseif (! empty($data['cccd_front']) && ! empty($data['cccd_back'])) {
+            $body  = 'Hồ sơ thành viên chưa có ảnh CCCD (mặt có mã QR, hoặc đủ mặt trước + mặt sau) — bấm "CCCD thành viên" để tải lên trước khi tạo đơn.';
+        } elseif ($hasImages($data['cccd_qr_image'] ?? null, $data['cccd_front'] ?? null, $data['cccd_back'] ?? null)) {
             return;
         } else {
             $title = 'Thiếu CCCD khách chính';
-            $body  = 'Bấm "Tải CCCD khách #1 (bắt buộc)" để tải ảnh CCCD mặt trước và mặt sau trước khi tạo đơn.';
+            $body  = 'Bấm "Tải CCCD khách #1 (bắt buộc)" để tải ảnh CCCD mặt có mã QR (hoặc mặt trước + mặt sau) trước khi tạo đơn.';
         }
 
         Notification::make()->title($title)->body($body)->danger()->send();
@@ -277,7 +279,7 @@ class CreateOrder extends CreateRecord
         // phần còn lại của afterCreate() dưới đây — PayOS, mã cổng...). Bọc thêm try/catch để
         // dù CccdScannerService lỗi bất ngờ (ảnh hỏng, thiếu binary...) cũng KHÔNG làm hỏng việc
         // tạo đơn — chỉ báo thiếu thông tin và để admin tự quét lại thủ công ở trang Sửa.
-        if (blank($record->cccd_data) && ($record->cccd_front || $record->cccd_back)) {
+        if (blank($record->cccd_data) && ($record->cccd_qr_image || $record->cccd_front || $record->cccd_back)) {
             try {
                 $data = app(CccdScannerService::class)->scanOrder($record);
             } catch (\Throwable $e) {

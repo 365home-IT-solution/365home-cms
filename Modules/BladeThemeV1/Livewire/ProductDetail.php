@@ -11,6 +11,7 @@ use Modules\BladeThemeV1\Traits\HandleSectionCfgTrait;
 use Modules\BladeThemeV1\Traits\ValidationRulesTrait;
 use Modules\BladeThemeV1\Traits\PropertiesProductDetail;
 use Modules\BladeThemeV1\Traits\HasTimeSlots;
+use Modules\BladeThemeV1\Traits\HandlesCccdQrScan;
 
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
@@ -22,9 +23,8 @@ use Modules\BladeThemeV1\App\Models\BlindBag;
 
 use Modules\BladeThemeV1\Services\Payment\OrderHandlerService;
 use Modules\BladeThemeV1\Services\Payment\PaymentService;
-use Modules\BladeThemeV1\Services\OcrSpaceService;
-use Modules\Payment\App\Services\CccdScannerService;
 use App\Services\CccdDeclarationService;
+use App\Support\CccdIdentity;
 use App\Services\PromotionCalculator;
 use Modules\Category\Entities\Category;
 
@@ -32,6 +32,8 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Storage;
 
 class ProductDetail extends Component
 {
@@ -40,7 +42,8 @@ class ProductDetail extends Component
         HasTimeSlots,
         WithFileUploads,
         ValidationRulesTrait,
-        PropertiesProductDetail;
+        PropertiesProductDetail,
+        HandlesCccdQrScan;
 
     // resources/js/echo-client.js nghe kênh public "timeslot-holds.{productId}" rồi tự gọi
     // Livewire.dispatch('timeslotHoldsChanged') mỗi khi 1 admin giữ/trả 1 khung giờ real-time (xem
@@ -110,11 +113,6 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
     // gợi ý bấm-là-áp-dụng ngay trong form, chỉ load lại khi prefillFromAuth() xác thực token.
     public array $myCoupons = [];
 
-    // OCR properties
-    public $cccdFrontText = '';
-    public $cccdBackText = '';
-    protected $ocrService;
-    protected $cccdScanner;
 
     public $additionalServices = null;
     public array $selectedServices = [];
@@ -128,12 +126,10 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
     public int $ratingsCount = 0;
     public ?float $ratingsAvg = null;
 
-    public function boot(PaymentService $paymentService, OrderHandlerService $orderHandler, OcrSpaceService $ocrService, CccdScannerService $cccdScanner)
+    public function boot(PaymentService $paymentService, OrderHandlerService $orderHandler)
     {
         $this->paymentService = $paymentService;
         $this->orderHandler = $orderHandler;
-        $this->ocrService = $ocrService;
-        $this->cccdScanner = $cccdScanner;
     }
 
     public function mount($slug)
@@ -233,8 +229,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
                 $this->buyerPhone   = '';
                 $this->isAuthUser   = false;
                 $this->authUserId   = null;
-                $this->authCccdFront = '';
-                $this->authCccdBack  = '';
+                $this->authHasCccd   = false;
                 $this->myCoupons     = [];
             }
             return;
@@ -262,9 +257,10 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
             $this->buyerPhone    = $phone;
             $this->isAuthUser    = true;
             $this->authUserId    = $customer->id;
-            // Lưu path CCCD từ profile để dùng khi đặt phòng (không cần upload lại)
-            $this->authCccdFront = $customer->cccd_front ?? '';
-            $this->authCccdBack  = $customer->cccd_back  ?? '';
+            // CCCD trong hồ sơ chỉ được dùng lại khi cccd_data hợp lệ (có số + ngày sinh khớp
+            // cấu trúc) — hồ sơ chỉ có ảnh mà không có dữ liệu thì khách vẫn phải tải ảnh QR.
+            $profileCccd = $this->authProfileCccdData();
+            $this->authHasCccd   = (bool) $profileCccd;
 
             $this->loadMyCoupons($customer);
         } catch (\Throwable $e) {
@@ -966,29 +962,6 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         }
     }
 
-    public function updatedCccdFront()
-    {
-        if ($this->cccd_front && $this->ocrService && $this->ocrService->isConfigured()) {
-            try {
-                $tempPath = $this->cccd_front->getRealPath();
-                $this->cccdFrontText = $this->ocrService->extractTextFromImage($tempPath);
-                Log::info('CCCD Front OCR completed (OCR.space)', [
-                    'text_length' => strlen($this->cccdFrontText)
-                ]);
-            } catch (\Exception $e) {
-                Log::error('Failed to process CCCD front OCR (OCR.space)', [
-                    'error' => $e->getMessage()
-                ]);
-                $this->cccdFrontText = '';
-            }
-        }
-    }
-
-    public function updatedCccdBack()
-    {
-        $this->cccdBackText = '';
-    }
-
     public function updatedStartTime()
     {
         if ($this->bookingStyle == 2) $this->calculateDateRangeTotal();
@@ -1003,8 +976,8 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
     {
         // Cắt bớt CCCD người đi cùng dư ra khi giảm số khách (giữ đúng thứ tự index 0..N-1).
         $companionCount = max(0, (int) $this->guests - 1);
-        $this->cccdFrontExtra = array_slice($this->cccdFrontExtra, 0, $companionCount, true);
-        $this->cccdBackExtra  = array_slice($this->cccdBackExtra, 0, $companionCount, true);
+        $this->cccdQrImageExtra = array_slice($this->cccdQrImageExtra, 0, $companionCount, true);
+        $this->pruneCccdExtraScans($companionCount);
 
         if ($this->bookingStyle == 2) {
             $this->calculateDateRangeTotal();
@@ -1131,7 +1104,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
      * True nếu có ít nhất 1 khung giờ đang chọn là qua đêm (room_time_slots.over_night), HOẶC
      * phòng đang đặt theo kiểu "Theo Ngày" (style=2 — nhận phòng ngày này trả ngày sau, luôn là
      * qua đêm về bản chất dù không có cột over_night riêng như style=1) — dùng để quyết định có
-     * hiển thị/bắt buộc upload CCCD người đi cùng (cccdFrontExtra/cccdBackExtra) hay không. Đồng
+     * hiển thị/bắt buộc upload CCCD người đi cùng (cccdQrImageExtra) hay không. Đồng
      * bộ với OrderForm.php phía admin (requiresSecondGuestCccd() coi style=2 luôn qua đêm).
      */
     public function hasOvernightSlotSelected(): bool
@@ -1158,12 +1131,9 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
 
         $requiredFields = ['buyerName', 'buyerPhone', 'guests', 'accept1'];
 
-        // CCCD chỉ bắt buộc upload nếu auth user chưa có sẵn trong profile
-        if (!($this->isAuthUser && !empty($this->authCccdFront))) {
-            $requiredFields[] = 'cccd_front';
-        }
-        if (!($this->isAuthUser && !empty($this->authCccdBack))) {
-            $requiredFields[] = 'cccd_back';
+        // CCCD chỉ bắt buộc upload nếu auth user chưa có CCCD hợp lệ trong profile
+        if (!$this->authHasCccd) {
+            $requiredFields[] = 'cccd_qr_image';
         }
 
         $hasSelectedSlots = !empty($this->selectedSlots);
@@ -1176,7 +1146,7 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         if ($hasAllFields && $this->hasOvernightSlotSelected()) {
             $companionCount = max(0, (int) $this->guests - 1);
             for ($i = 0; $i < $companionCount; $i++) {
-                if (empty($this->cccdFrontExtra[$i] ?? null) || empty($this->cccdBackExtra[$i] ?? null)) {
+                if (empty($this->cccdQrImageExtra[$i] ?? null)) {
                     $hasAllFields = false;
                     break;
                 }
@@ -1204,6 +1174,9 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
         }
 
         $this->validateAndNotify();
+        if (!$this->ensureCccdScansReady()) {
+            return;
+        }
         if ($this->bookingStyle == 2) {
             $this->calculateDateRangeTotal();
         } else {
@@ -1323,116 +1296,99 @@ const LOYALTY_DISCOUNT_ENABLED = 0;
 public function confirmBooking()
 {
     $this->bookingConfirmError = '';
+
+    // Chặn spam tạo đơn (mỗi đơn pending giữ khung giờ + lưu ảnh CCCD).
+    $bookingLimitKey = 'pd-confirm-booking:' . request()->ip();
+    if (RateLimiter::tooManyAttempts($bookingLimitKey, 10)) {
+        $this->bookingConfirmError = 'Bạn đã gửi quá nhiều yêu cầu đặt phòng. Vui lòng thử lại sau ít phút.';
+        return;
+    }
+    RateLimiter::hit($bookingLimitKey, 600);
+
+    // Ảnh CCCD mới lưu trong lượt này — xoá nếu không tạo được đơn (xem finally).
+    $storedPaths  = [];
+    $orderCreated = false;
     try {
-        // Upload file TRƯỚC transaction (không thể rollback file)
-        // Nếu auth user đã có CCCD trong profile → dùng lại, không bắt upload lại
-        $frontPath = null;
-        $backPath  = null;
-        if ($this->cccd_front) {
-            $frontPath = $this->cccd_front->store('cccd/front', 'public');
-        } elseif ($this->isAuthUser && !empty($this->authCccdFront)) {
-            $frontPath = $this->authCccdFront;
-        }
-        if ($this->cccd_back) {
-            $backPath = $this->cccd_back->store('cccd/back', 'public');
-        } elseif ($this->isAuthUser && !empty($this->authCccdBack)) {
-            $backPath = $this->authCccdBack;
-        }
-
-        // CCCD người đi cùng (khung giờ qua đêm) — không có hồ sơ auth để tái dùng, luôn là file
-        // mới upload. Mỗi khách từ #2 trở đi có 1 cặp ảnh trong $cccdFrontExtra/$cccdBackExtra
-        // (index 0 = khách #2, index 1 = khách #3...).
-        $companionPaths = [];
-        foreach ($this->cccdFrontExtra as $i => $file) {
-            $backFile = $this->cccdBackExtra[$i] ?? null;
-            $companionPaths[$i] = [
-                'front' => $file     ? $file->store('cccd/front', 'public')     : null,
-                'back'  => $backFile ? $backFile->store('cccd/back', 'public')  : null,
-            ];
-        }
-
-        $deleteAllUploaded = function () use ($frontPath, $backPath, &$companionPaths) {
-            if ($frontPath && $this->cccd_front) {
-                \Illuminate\Support\Facades\Storage::disk('public')->delete($frontPath);
-            }
-            if ($backPath && $this->cccd_back) {
-                \Illuminate\Support\Facades\Storage::disk('public')->delete($backPath);
-            }
-            foreach ($companionPaths as $paths) {
-                if ($paths['front']) {
-                    \Illuminate\Support\Facades\Storage::disk('public')->delete($paths['front']);
-                }
-                if ($paths['back']) {
-                    \Illuminate\Support\Facades\Storage::disk('public')->delete($paths['back']);
-                }
-            }
-        };
-
-        // Quét QR CCCD — chỉ khi có file mới upload (guest hoặc auth user đổi ảnh)
-        $cccdData = null;
-        if ($this->cccd_front || $this->cccd_back) {
-            $cccdData = $this->cccdScanner->scanPaths($frontPath, $backPath);
-
-            if (!$cccdData) {
-                // Không đọc được QR → xóa file, yêu cầu upload lại
-                $deleteAllUploaded();
-                $this->bookingConfirmError = 'Không đọc được mã QR trên CCCD. ' . \Modules\Payment\App\Services\CccdScannerService::failureHint();
-                return;
-            }
-
-            if (!empty($cccdData['dob'])) {
-                try {
-                    $dob = Carbon::createFromFormat('d/m/Y', $cccdData['dob']);
-                    if ($dob->diffInYears(Carbon::now()) < 18) {
-                        // Chưa đủ 18 tuổi → xóa file, không tạo đơn
-                        $deleteAllUploaded();
-                        $this->bookingConfirmError = 'Người đặt phòng chưa đủ 18 tuổi. Vui lòng liên hệ trực tiếp để được hỗ trợ.';
-                        return;
-                    }
-                } catch (\Throwable) {
-                    // Không parse được ngày sinh → bỏ qua kiểm tra tuổi
-                }
+        // CCCD người đặt: dữ liệu lấy từ kết quả quét QR phía server (session, gắn với đúng file
+        // đã quét) hoặc cccd_data hợp lệ trong hồ sơ — không bao giờ từ dữ liệu client gửi lên.
+        // Ảnh: luồng mới chỉ có cccd_qr_image. Dùng hồ sơ thì ảnh được COPY (snapshot, xem bên
+        // dưới) để sau này khách sửa/xoá hồ sơ thì đơn vẫn còn ảnh.
+        $cccdImages     = ['cccd_qr_image' => null, 'cccd_front' => null, 'cccd_back' => null];
+        $profileImages  = null;
+        if ($this->cccd_qr_image) {
+            $cccdData = $this->verifiedCccdScan('main', $this->cccd_qr_image);
+        } else {
+            $cccdData = $this->authProfileCccdData();
+            if ($cccdData) {
+                $profile       = \App\Models\Customer::find($this->authUserId);
+                $profileImages = [
+                    'cccd_qr_image' => $profile?->cccd_qr_image,
+                    'cccd_front'    => $profile?->cccd_front,
+                    'cccd_back'     => $profile?->cccd_back,
+                ];
             }
         }
 
-        // Quét QR CCCD của từng người đi cùng (khung giờ qua đêm) — bắt buộc đọc được QR như CCCD
-        // chính để admin có đủ thông tin khai báo lưu trú cho tất cả mọi người, nhưng KHÔNG kiểm
-        // tra tuổi (người đi cùng không cần đủ 18, ví dụ trẻ nhỏ đi cùng phụ huynh).
+        if (!$cccdData) {
+            $this->bookingConfirmError = 'Chưa có thông tin CCCD hợp lệ. Vui lòng tải ảnh CCCD mặt có mã QR rõ nét.';
+            return;
+        }
+
+        // Dưới 16 tuổi (tính tại ngày nhận phòng) → không được đặt, ở mọi loại khung.
+        if ($ageError = $this->cccdAgeError($cccdData, 'main')) {
+            $this->bookingConfirmError = $ageError;
+            return;
+        }
+
+        // CCCD người đi cùng (khung giờ qua đêm) — mỗi khách từ #2 trở đi 1 ảnh QR đã quét
+        // (index 0 = khách #2...). Qua đêm nên người đi cùng phải đủ 16 tuổi.
         $companionCccdList = [];
-        $seenCccds = array_filter([$cccdData['cccd'] ?? null]);
+        $seenPeople = ['main' => $cccdData];
+        $companionCount = $this->hasOvernightSlotSelected() ? max(0, (int) $this->guests - 1) : 0;
 
-        foreach ($companionPaths as $i => $paths) {
-            if (!$paths['front'] && !$paths['back']) {
-                continue;
-            }
-
+        for ($i = 0; $i < $companionCount; $i++) {
             $guestNumber = $i + 2;
-            $data = $this->cccdScanner->scanPaths($paths['front'], $paths['back']);
+            $data = $this->verifiedCccdScan("extra.{$i}", $this->cccdQrImageExtra[$i] ?? null);
 
             if (!$data) {
-                $deleteAllUploaded();
-                $this->bookingConfirmError = "Không đọc được mã QR trên CCCD người đi cùng thứ {$guestNumber}. " . \Modules\Payment\App\Services\CccdScannerService::failureHint();
+                $this->bookingConfirmError = "CCCD người đi cùng thứ {$guestNumber} chưa quét được mã QR. Vui lòng tải lại ảnh mặt có mã QR rõ nét.";
                 return;
             }
 
-            // Chặn dùng chung 1 CCCD cho nhiều người trong cùng đơn (kể cả khách chính).
-            if (!empty($data['cccd']) && in_array($data['cccd'], $seenCccds, true)) {
-                $deleteAllUploaded();
-                $this->bookingConfirmError = "CCCD của người đi cùng thứ {$guestNumber} bị trùng với một CCCD khác trong đơn. Vui lòng upload CCCD của một người khác.";
+            if ($ageError = $this->cccdAgeError($data, "extra.{$i}")) {
+                $this->bookingConfirmError = $ageError;
                 return;
             }
 
-            if (!empty($data['cccd'])) {
-                $seenCccds[] = $data['cccd'];
+            // Không được trùng thông tin (số CCCD, hoặc họ tên + ngày sinh) giữa người đặt và
+            // người đi cùng, cũng như giữa các người đi cùng với nhau.
+            if ($duplicateError = $this->cccdDuplicateError($data, "extra.{$i}", $seenPeople)) {
+                $this->bookingConfirmError = $duplicateError;
+                return;
             }
+            $seenPeople["extra.{$i}"] = $data;
 
             $companionCccdList[] = [
                 'guest_index' => $guestNumber,
-                'front'       => $paths['front'],
-                'back'        => $paths['back'],
+                'file'        => $this->cccdQrImageExtra[$i],
+                'qr_image'    => null,
                 'data'        => $data,
             ];
         }
+
+        // Mọi kiểm tra đã qua → mới lưu ảnh vĩnh viễn (tránh rác file từ lượt đặt lỗi/spam).
+        $intake = app(\App\Services\CccdIntakeService::class);
+        if ($this->cccd_qr_image) {
+            $cccdImages['cccd_qr_image'] = $storedPaths[] = $intake->storeQrImage($this->cccd_qr_image);
+        } elseif ($profileImages) {
+            $cccdImages  = $intake->snapshotImages($profileImages);
+            $storedPaths = array_merge($storedPaths, array_values(array_filter($cccdImages)));
+        }
+        foreach ($companionCccdList as &$companion) {
+            $companion['qr_image'] = $storedPaths[] = $intake->storeQrImage($companion['file']);
+            unset($companion['file']);
+        }
+        unset($companion);
 
         $roomConfig   = $this->product ? ($this->product->room_config ?? []) : [];
         $maxFreeGuests = (int) ($roomConfig['max_free_guests'] ?? 2);
@@ -1451,11 +1407,6 @@ public function confirmBooking()
         $orderTotal   = $this->totalAmount ?? 0;
         $noteForAdmin = '';
 
-        if ($this->ocrService && $this->ocrService->isConfigured() && !empty($this->cccdFrontText)) {
-            $noteForAdmin = $this->ocrService->formatCccdInfo($this->cccdFrontText);
-        }
-
-        // QR data chính xác hơn OCR → ghi đè note_for_admin khi có
         if ($cccdData) {
             $noteForAdmin = implode("\n", array_filter([
                 !empty($cccdData['cccd'])      ? "Số CCCD:   {$cccdData['cccd']}"      : null,
@@ -1533,7 +1484,7 @@ public function confirmBooking()
         // TRANSACTION: conflict check + order creation trong cùng 1 transaction
         // lockForUpdate ngăn 2 request đồng thời cùng tạo đơn trùng khung giờ
         // =====================================================================
-        $order = DB::transaction(function () use ($frontPath, $backPath, $companionCccdList, $extraFee, $categoryId, $orderTotal, $noteForAdmin, $paymentAmount, $depositPercent, $fullAmount, $verifiedBuyerName, $verifiedBuyerPhone, $verifiedUserId, $cccdData) {
+        $order = DB::transaction(function () use ($cccdImages, $companionCccdList, $extraFee, $categoryId, $orderTotal, $noteForAdmin, $paymentAmount, $depositPercent, $fullAmount, $verifiedBuyerName, $verifiedBuyerPhone, $verifiedUserId, $cccdData) {
 
             // --- Kiểm tra xung đột (style 1) ---
             if ($this->bookingStyle == 1 && !empty($this->selectedSlots)) {
@@ -1568,8 +1519,9 @@ public function confirmBooking()
                 'status'         => ($depositPercent < 100) ? 'deposit' : 'pending',
                 'payment_method' => $this->paymentMethod ?? 'payos',
                 'description'    => $this->note ?: null,
-                'cccd_front'     => $frontPath,
-                'cccd_back'      => $backPath,
+                'cccd_qr_image'  => $cccdImages['cccd_qr_image'],
+                'cccd_front'     => $cccdImages['cccd_front'],
+                'cccd_back'      => $cccdImages['cccd_back'],
                 'cccd_data'      => $cccdData,
                 'guest_count'    => $this->guests,
                 'category_id'    => $categoryId,
@@ -1596,9 +1548,8 @@ public function confirmBooking()
             foreach ($companionCccdList as $companion) {
                 $order->guestCccds()->create([
                     'guest_index' => $companion['guest_index'],
-                    'cccd_front'  => $companion['front'],
-                    'cccd_back'   => $companion['back'],
-                    'cccd_data'   => $companion['data'],
+                    'cccd_qr_image' => $companion['qr_image'],
+                    'cccd_data'     => $companion['data'],
                 ]);
             }
 
@@ -1707,10 +1658,17 @@ public function confirmBooking()
             // KHÔNG tăng used_count ở đây nữa — mã chỉ thực sự bị trừ lượt khi đơn thanh toán thành
             // công (xem CouponUsageLedger::confirm(), gọi từ OrderObserver).
 
+            // Khai báo lưu trú (cccd_declarations) từ đúng cccd_data vừa ghi vào đơn + người đi
+            // cùng — cùng transaction để đơn và khai báo luôn nhất quán (lỗi thì rollback cả 2).
+            app(CccdDeclarationService::class)->upsertFromOrder($order->load(['items', 'guestCccds']));
+
             return $order;
         });
 
-        app(CccdDeclarationService::class)->upsertFromOrder($order->load('items'));
+        $orderCreated = true;
+
+        // Dữ liệu CCCD đã nằm trong đơn → xoá bản tạm trong session.
+        $this->clearCccdScans();
 
         Session::forget('booking_data');
         Session::forget('booking_detail_state');
@@ -1781,6 +1739,10 @@ public function confirmBooking()
     } catch (\Exception $e) {
         Log::error('confirmBooking Exception', ['error' => $e->getMessage()]);
         $this->dispatch('notify', ['message' => 'Có lỗi xảy ra, vui lòng thử lại.', 'type' => 'error']);
+    } finally {
+        if (!$orderCreated && $storedPaths) {
+            Storage::disk('public')->delete($storedPaths);
+        }
     }
 }
 

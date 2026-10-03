@@ -247,6 +247,12 @@ class OrderExtraBookingService
                     $order->items()->create($itemData);
                 }
             }
+
+            // Khai báo lưu trú: người đi cùng mới + khoảng lưu trú mới (thêm phòng/khung giờ) —
+            // trước đây đặt thêm không cập nhật cccd_declarations.
+            if ($guestCccdRows || $roomAddition) {
+                app(CccdDeclarationService::class)->upsertFromOrder($order->fresh(['items', 'guestCccds']));
+            }
         });
 
         $order->refresh();

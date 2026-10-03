@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Services\CccdDeclarationService;
 use App\Services\PromotionCalculator;
 use App\Support\MediaThumbnailUrls;
 use Illuminate\Http\JsonResponse;
@@ -180,6 +181,11 @@ class OrderController extends Controller
                         'cccd_back'   => $row['back'],
                         'cccd_data'   => $row['data'],
                     ]);
+                }
+
+                // Khai báo lưu trú cho người đi cùng vừa thêm (trước đây bị bỏ sót).
+                if ($newGuestRows) {
+                    app(CccdDeclarationService::class)->upsertFromOrder($order->load(['items', 'guestCccds']));
                 }
             }
 

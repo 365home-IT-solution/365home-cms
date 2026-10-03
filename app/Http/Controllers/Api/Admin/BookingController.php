@@ -120,7 +120,8 @@ class BookingController extends Controller
         }
 
         // CCCD khách chính bắt buộc (xem docblock) — thành viên đã có đủ ảnh trong hồ sơ thì thôi.
-        $memberHasCccd = $customer && $customer->cccd_front && $customer->cccd_back;
+        // Hồ sơ có ảnh mặt QR (xác thực trên web) cũng tính là đã có CCCD.
+        $memberHasCccd = $customer && ($customer->cccd_qr_image || ($customer->cccd_front && $customer->cccd_back));
 
         if (! $memberHasCccd && (! $request->hasFile('cccd_front') || ! $request->hasFile('cccd_back'))) {
             $message = $customer
@@ -389,6 +390,8 @@ class BookingController extends Controller
                 // dùng lại CCCD đã lưu sẵn trong hồ sơ khách thành viên (hành vi cũ, không đổi).
                 'cccd_front'      => $cccdFront ?? $customer?->cccd_front,
                 'cccd_back'       => $cccdBack  ?? $customer?->cccd_back,
+                // Ảnh mặt QR của hồ sơ chỉ đi kèm khi admin không upload ảnh mới cho đơn.
+                'cccd_qr_image'   => ($cccdFront || $cccdBack) ? null : $customer?->cccd_qr_image,
                 'cccd_data'       => $cccdData  ?? $customer?->cccd_data,
             ]);
 

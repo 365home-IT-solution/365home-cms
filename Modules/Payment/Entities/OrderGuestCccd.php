@@ -13,6 +13,7 @@ class OrderGuestCccd extends Model
         'companion_id',
         'cccd_front',
         'cccd_back',
+        'cccd_qr_image',
         'cccd_data',
     ];
 

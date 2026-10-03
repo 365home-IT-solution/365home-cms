@@ -26,10 +26,8 @@
         editDob: '',
 
         // CCCD upload state
-        cccdFrontFile: null,
-        cccdBackFile: null,
-        cccdFrontPreview: null,
-        cccdBackPreview: null,
+        cccdFile: null,
+        cccdPreview: null,
         cccdLoading: false,
         cccdError: '',
         cccdSuccess: '',
@@ -57,10 +55,8 @@
             this.editSuccess = '';
             this.cccdError = '';
             this.cccdSuccess = '';
-            this.cccdFrontFile = null;
-            this.cccdBackFile = null;
-            this.cccdFrontPreview = null;
-            this.cccdBackPreview = null;
+            this.cccdFile = null;
+            this.cccdPreview = null;
             this.pwError = '';
             this.pwSuccess = '';
             this.currentPw = '';
@@ -70,7 +66,7 @@
             this.editOpen = true;
         },
 
-        onCccdPick(event, side) {
+        onCccdPick(event) {
             const file = event.target.files[0];
             if (!file) return;
             // Validate type & size (5MB)
@@ -87,10 +83,7 @@
             }
             this.cccdError = '';
             const reader = new FileReader();
-            reader.onload = (e) => {
-                if (side === 'front') { this.cccdFrontPreview = e.target.result; this.cccdFrontFile = file; }
-                else                  { this.cccdBackPreview  = e.target.result; this.cccdBackFile  = file; }
-            };
+            reader.onload = (e) => { this.cccdPreview = e.target.result; this.cccdFile = file; };
             reader.readAsDataURL(file);
         },
 
@@ -182,8 +175,8 @@
         },
 
         async saveCccd() {
-            if (!this.cccdFrontFile && !this.cccdBackFile) {
-                this.cccdError = 'Vui lòng chọn ít nhất một ảnh CCCD.';
+            if (!this.cccdFile) {
+                this.cccdError = 'Vui lòng chọn ảnh CCCD (mặt có mã QR).';
                 return;
             }
             this.cccdLoading = true;
@@ -193,24 +186,20 @@
             if (!token) { this.cccdLoading = false; return; }
 
             try {
-                const fd = new FormData();
-                if (this.cccdFrontFile) fd.append('cccd_front', this.cccdFrontFile);
-                if (this.cccdBackFile)  fd.append('cccd_back',  this.cccdBackFile);
+                // Upload file tạm qua Livewire rồi để server quét mã QR + lưu hồ sơ (AccountPage::saveCccd).
+                await new Promise((resolve, reject) =>
+                    this.$wire.upload('cccdQrImage', this.cccdFile, resolve, () => reject(new Error('upload')))
+                );
+                const result = await this.$wire.saveCccd(token);
+                if (!result || !result.ok) { this.cccdError = (result && result.message) || 'Lỗi tải CCCD.'; return; }
 
-                const res  = await fetch('/api/auth/me', {
-                    method: 'POST',
-                    headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
-                    body: fd,
-                });
-                const data = await res.json();
-                if (!res.ok) { this.cccdError = data.message || 'Lỗi tải CCCD.'; return; }
-
-                localStorage.setItem('auth_user', JSON.stringify(data));
-                this.cccdSuccess = 'Cập nhật CCCD thành công!';
+                this.cccdSuccess = result.message;
+                this.cccdFile = null;
+                this.cccdPreview = null;
                 window.dispatchEvent(new CustomEvent('auth-state-changed'));
                 setTimeout(() => { this.editOpen = false; }, 1200);
             } catch {
-                this.cccdError = 'Lỗi kết nối. Vui lòng thử lại.';
+                this.cccdError = 'Tải ảnh thất bại. Vui lòng thử lại.';
             } finally {
                 this.cccdLoading = false;
             }
@@ -321,7 +310,7 @@
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
                         </svg>
-                        CCCD đã xác minh
+                        CCCD đã xác thực
                     </span>
                     @else
                     <button @click="openEdit()"
@@ -329,7 +318,7 @@
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
                         </svg>
-                        Chưa có CCCD
+                        Chưa xác thực CCCD
                     </button>
                     @endif
                 </div>
@@ -725,56 +714,41 @@
                         <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide flex items-center gap-2">
                             Căn cước công dân
                             @if($hasCccd)
-                            <span class="text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">Đã có</span>
+                            <span class="text-xs font-medium text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">Đã xác thực</span>
                             @else
-                            <span class="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">Chưa có</span>
+                            <span class="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">Chưa xác thực</span>
                             @endif
                         </h3>
 
                         @if($hasCccd)
-                        <div class="flex gap-2">
-                            <div class="flex-1 rounded-xl overflow-hidden border border-gray-200 aspect-video">
-                                <img src="{{ $cccdFrontUrl }}" alt="Mặt trước" class="w-full h-full object-cover">
-                            </div>
-                            <div class="flex-1 rounded-xl overflow-hidden border border-gray-200 aspect-video">
-                                <img src="{{ $cccdBackUrl }}" alt="Mặt sau" class="w-full h-full object-cover">
-                            </div>
-                        </div>
-                        <p class="text-xs text-gray-500">Muốn cập nhật CCCD? Chọn ảnh mới bên dưới.</p>
+                        <p class="text-xs text-gray-500">CCCD của bạn đã được xác thực và sẽ tự động dùng khi đặt phòng. Muốn cập nhật? Chọn ảnh mới bên dưới.</p>
                         @endif
 
-                        {{-- Upload areas --}}
-                        <div class="grid grid-cols-2 gap-3">
-                            @foreach(['front' => 'Mặt trước', 'back' => 'Mặt sau'] as $side => $label)
-                            <label class="relative flex flex-col items-center justify-center h-28 rounded-xl border-2 border-dashed border-gray-300 cursor-pointer overflow-hidden hover:border-gray-400 hover:bg-gray-50 transition-all">
-                                <input type="file" class="hidden" accept="image/jpeg,image/png,image/webp"
-                                    @change="onCccdPick($event, '{{ $side }}')">
+                        {{-- 1 ảnh CCCD mặt có mã QR — server quét QR, kiểm tra hợp lệ rồi lưu vào hồ sơ --}}
+                        <label class="relative flex flex-col items-center justify-center h-32 rounded-xl border-2 border-dashed border-gray-300 cursor-pointer overflow-hidden hover:border-gray-400 hover:bg-gray-50 transition-all">
+                            <input type="file" class="hidden" accept="image/jpeg,image/png,image/webp"
+                                @change="onCccdPick($event)">
 
-                                {{-- Preview --}}
-                                <template x-if="{{ $side === 'front' ? 'cccdFrontPreview' : 'cccdBackPreview' }}">
-                                    <img :src="{{ $side === 'front' ? 'cccdFrontPreview' : 'cccdBackPreview' }}"
-                                        class="absolute inset-0 w-full h-full object-cover rounded-xl">
-                                </template>
+                            <template x-if="cccdPreview">
+                                <img :src="cccdPreview" class="absolute inset-0 w-full h-full object-contain bg-gray-50 rounded-xl">
+                            </template>
 
-                                {{-- Placeholder --}}
-                                <template x-if="!{{ $side === 'front' ? 'cccdFrontPreview' : 'cccdBackPreview' }}">
-                                    <div class="flex flex-col items-center gap-1 text-gray-400 pointer-events-none">
-                                        <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
-                                        </svg>
-                                        <span class="text-xs font-medium">{{ $label }}</span>
-                                    </div>
-                                </template>
+                            <template x-if="!cccdPreview">
+                                <div class="flex flex-col items-center gap-1 text-gray-400 pointer-events-none px-4 text-center">
+                                    <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+                                    </svg>
+                                    <span class="text-xs font-medium">Ảnh CCCD — mặt có mã QR</span>
+                                    <span class="text-[11px]">Chụp thẳng, đủ sáng, mã QR rõ nét</span>
+                                </div>
+                            </template>
 
-                                {{-- Hover overlay when has preview --}}
-                                <template x-if="{{ $side === 'front' ? 'cccdFrontPreview' : 'cccdBackPreview' }}">
-                                    <div class="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                                        <span class="text-white text-xs font-semibold">Đổi ảnh</span>
-                                    </div>
-                                </template>
-                            </label>
-                            @endforeach
-                        </div>
+                            <template x-if="cccdPreview">
+                                <div class="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                                    <span class="text-white text-xs font-semibold">Đổi ảnh</span>
+                                </div>
+                            </template>
+                        </label>
 
                         <div x-show="cccdError" x-cloak class="text-sm text-red-500 flex items-center gap-1.5">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -790,17 +764,17 @@
                         </div>
 
                         <p class="text-xs text-gray-400 leading-relaxed">
-                            * Ảnh CCCD phải rõ nét, có mã QR đọc được. Chấp nhận JPG, PNG, WEBP (tối đa 5MB mỗi ảnh).
+                            * Chỉ cần 1 ảnh mặt có mã QR, rõ nét, không chụp lại màn hình. Chấp nhận JPG, PNG, WEBP (tối đa 5MB).
                         </p>
 
-                        <button @click="saveCccd()" :disabled="cccdLoading || (!cccdFrontFile && !cccdBackFile)"
+                        <button @click="saveCccd()" :disabled="cccdLoading || !cccdFile"
                             class="w-full rounded-lg py-2.5 text-sm font-semibold flex items-center justify-center gap-2 transition-opacity hover:opacity-85 disabled:opacity-40 disabled:cursor-not-allowed border-2"
                             style="border-color: {{ $primaryHex }}; color: {{ $primaryHex }};">
                             <svg x-show="cccdLoading" class="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
                             </svg>
-                            <span x-text="cccdLoading ? 'Đang tải lên...' : 'Cập nhật CCCD'"></span>
+                            <span x-text="cccdLoading ? 'Đang quét mã QR...' : 'Cập nhật CCCD'"></span>
                         </button>
                     </div>
 

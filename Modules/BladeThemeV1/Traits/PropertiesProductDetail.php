@@ -2,6 +2,8 @@
 
 namespace Modules\BladeThemeV1\Traits;
 
+use Livewire\Attributes\Locked;
+
 trait PropertiesProductDetail
 {
     /** Public Properties **/
@@ -25,13 +27,17 @@ trait PropertiesProductDetail
     public bool $isOvernightBooking = false;
     public $startTime = '';
     public $endTime = '';
-    public $cccd_front = '';
-    public $cccd_back = '';
+    // 1 ảnh CCCD mặt có mã QR (lưu vào cột cccd_qr_image) — quét ngay khi upload, xem HandlesCccdQrScan.
+    public $cccd_qr_image = '';
     // CCCD người đi cùng — mảng, mỗi phần tử ứng với 1 khách từ khách thứ 2 trở đi (index 0 =
     // khách #2, index 1 = khách #3...). Chỉ hiển thị/bắt buộc khi có khung giờ qua đêm được chọn
     // (xem ProductDetail::hasOvernightSlotSelected()), số lượng = $guests - 1.
-    public array $cccdFrontExtra = [];
-    public array $cccdBackExtra = [];
+    public array $cccdQrImageExtra = [];
+    // Trạng thái quét QR theo slot ('main', 'extra.0'...): ['ok' => bool, 'error' => ?string].
+    // KHÔNG chứa thông tin cá nhân — dữ liệu CCCD nằm (mã hoá) trong session phía server và chỉ
+    // được ghi vào đơn lúc tạo đơn.
+    #[Locked]
+    public array $cccdScanStatus = [];
     public $note = '';
     public $totalAmount = 0;
     public $accept1 = false;
@@ -49,11 +55,15 @@ trait PropertiesProductDetail
     // 'deposit' = cọc theo %, 'full' = thanh toán 100%
     public string $paymentOption = 'deposit';
 
-    // Auth-prefill: set server-side via prefillFromAuth(), never trust client-set values
+    // Auth-prefill: set server-side via prefillFromAuth(), never trust client-set values —
+    // #[Locked] để client không sửa được qua $set (gắn tài khoản/CCCD của người khác vào đơn).
+    #[Locked]
     public bool    $isAuthUser    = false;
+    #[Locked]
     public ?string $authUserId    = null; // UUID of authenticated customer
-    public string  $authCccdFront = '';   // stored path from customer profile
-    public string  $authCccdBack  = '';   // stored path from customer profile
+    // Hồ sơ có cccd_data hợp lệ → dùng lại, khách không phải tải CCCD.
+    #[Locked]
+    public bool    $authHasCccd   = false;
 
     // Lỗi phát sinh trong confirmBooking() (CCCD không hợp lệ, chưa đủ tuổi, v.v.) — hiển thị
     // ngay trong modal xác nhận đặt phòng thay vì toast 'notify' (bị che khuất sau modal do

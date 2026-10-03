@@ -43,6 +43,7 @@ class Customer extends Authenticatable
         'token_device',
         'cccd_front',
         'cccd_back',
+        'cccd_qr_image',
         'cccd_data',
         'membership_tier_id',
         'total_spending',
@@ -155,6 +156,13 @@ class Customer extends Authenticatable
     public function companions(): HasMany
     {
         return $this->hasMany(CustomerCompanion::class);
+    }
+
+    // Lịch sử xác thực CCCD (lần 1, 2, 3...) — cccd_data của hồ sơ là lần mới nhất, xem
+    // CustomerCccdVerification.
+    public function cccdVerifications(): HasMany
+    {
+        return $this->hasMany(CustomerCccdVerification::class)->orderBy('attempt');
     }
 
     public function checkinCycles(): HasMany

@@ -13,6 +13,7 @@ class CustomerCompanion extends Model
         'full_name',
         'cccd_front',
         'cccd_back',
+        'cccd_qr_image',
         'cccd_data',
     ];
 
