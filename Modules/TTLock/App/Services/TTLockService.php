@@ -35,6 +35,10 @@ class TTLockService
     // bại nếu chỉ thấy thông báo chung chung.
     public ?string $lastErrorMessage = null;
 
+    // errcode của lần gọi generatePasscode() THẤT BẠI gần nhất — để nơi gọi phân biệt được -1026
+    // (mã cho khung giờ này đã sinh rồi bị xoá, phải đổi khung giờ) với lỗi mạng/token.
+    public ?int $lastErrorCode = null;
+
     public function __construct(
         string $clientId,
         string $clientSecret,
@@ -419,6 +423,8 @@ class TTLockService
             $endDate = $endDate + (30 * 60 * 1000);
         }
 
+        $this->lastErrorCode = null;
+
         try {
             $response = $this->sendWithTokenRetry(function (string $token) use ($lockId, $startDate, $endDate, $name, $pwdType, $now) {
                 $params = [
@@ -464,6 +470,7 @@ class TTLockService
             }
 
             $this->lastErrorMessage = $data['errmsg'] ?? null;
+            $this->lastErrorCode    = isset($data['errcode']) ? (int) $data['errcode'] : null;
             Log::error('TTLock generatePasscode failed', ['lockId' => $lockId, 'response' => $data]);
             return null;
 

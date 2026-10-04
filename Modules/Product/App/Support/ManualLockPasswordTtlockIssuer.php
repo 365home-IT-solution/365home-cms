@@ -38,6 +38,10 @@ class ManualLockPasswordTtlockIssuer
     // nhau = tối đa 9 phòng/ngày với N = 2.
     public const MAX_SHIFT_HOURS = 2;
 
+    // TTLock errcode "Passcode with this validity period has been generated before and deleted" — mã
+    // tự sinh tính theo khóa + khung giờ, đã xoá thì KHÔNG xin lại được cho đúng khung giờ đó nữa.
+    private const TTLOCK_PASSCODE_DELETED = -1026;
+
     /**
      * Số mã sẽ tạo (1 mã / ngày / phòng) — dùng cho kiểm tra MAX_CODES và dòng tóm tắt trên form.
      *
@@ -250,6 +254,7 @@ class ManualLockPasswordTtlockIssuer
                 $shifts  = self::hourShifts();
                 $first   = self::issuedCount($categoryId, $validFrom) % count($shifts);
                 $lastDup = null;
+                $deleted = false;
 
                 foreach ([...array_slice($shifts, $first), ...array_slice($shifts, 0, $first)] as [$earlier, $later]) {
                     $tryStartMs = $startMs - $earlier * 3_600_000;
@@ -257,6 +262,14 @@ class ManualLockPasswordTtlockIssuer
                     $res        = $ttlock->generatePasscode($lockId, $tryStartMs, $tryEndMs, $name, 3);
 
                     if (! $res) {
+                        // LỖI THẬT 2026-10-04 (production): mã của khung giờ này đã sinh rồi bị xoá →
+                        // TTLock không cấp lại, phải đổi khung giờ (xem TTLOCK_PASSCODE_DELETED).
+                        if ($ttlock->lastErrorCode === self::TTLOCK_PASSCODE_DELETED) {
+                            $deleted = true;
+
+                            continue;
+                        }
+
                         break;
                     }
 
@@ -277,6 +290,31 @@ class ManualLockPasswordTtlockIssuer
                         : '';
 
                     break;
+                }
+
+                // Hết khung giờ nới mà vẫn dính mã đã xoá → tự sinh số ngẫu nhiên rồi thêm như mã tự
+                // chọn, đúng khung giờ gốc (giống ContractTtlockService::issueRandom(); cần khóa online
+                // qua gateway).
+                if ($code === null && $deleted) {
+                    // Thất bại thì báo lý do của addCustomPasscode (VD khóa offline), không phải "hết khung giờ".
+                    $lastDup = null;
+
+                    for ($attempt = 0; $attempt < 3; $attempt++) {
+                        $candidate = (string) random_int(100000, 999999);
+
+                        if (self::codeInUse($categoryId, $candidate, $validFrom, $validUntil)) {
+                            continue;
+                        }
+
+                        $res = $ttlock->addCustomPasscode($lockId, $candidate, $startMs, $endMs, $name, 3);
+
+                        if ($res) {
+                            $code        = $candidate;
+                            $passcodes[] = self::passcodeEntry($lockId, (int) $res['keyboardPwdId'], $shift);
+
+                            break;
+                        }
+                    }
                 }
 
                 if ($code === null) {
