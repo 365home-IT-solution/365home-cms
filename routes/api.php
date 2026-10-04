@@ -309,6 +309,18 @@ Route::middleware('throttle:hold-slot')->group(function () {
 
 /*
 |--------------------------------------------------------------------------
+| CCCD — Quét độc lập 1 ảnh mặt có mã QR (tuỳ chọn, không lưu ảnh, không gắn vào đơn/hồ sơ nào) —
+| xem docblock CccdController::scanQr(). Không cần đăng nhập; ngoài throttle IP còn có giới hạn
+| lượt quét riêng (config cccd.scan_limit).
+| POST /api/cccd/scan-qr → body multipart {cccd_qr_image, checkin_date?, guest_index?}
+|--------------------------------------------------------------------------
+*/
+Route::post('cccd/scan-qr', [\App\Http\Controllers\Api\CccdController::class, 'scanQr'])
+    ->name('api.cccd.scan-qr')
+    ->middleware('throttle:hold-slot');
+
+/*
+|--------------------------------------------------------------------------
 | Room Ratings — Đánh giá sao
 | GET    /api/rooms/{id}/ratings → Danh sách đánh giá + summary (public)
 | POST   /api/rooms/{id}/ratings → Tạo / cập nhật đánh giá (auth)

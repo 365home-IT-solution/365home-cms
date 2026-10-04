@@ -30,6 +30,9 @@ class CreateOrder extends CreateRecord
 
     protected ?string $payosCheckoutUrl = null;
 
+    // vetPrimaryGuestCccd() đã quét ảnh CCCD khách #1 trong request tạo đơn này (afterCreate() không quét lại).
+    protected bool $primaryCccdScanned = false;
+
     // Mở trang tạo đơn từ menu thao tác nhanh trên thẻ phòng (Dashboard) với
     // ?product_id=... — tự chọn sẵn ĐÚNG chi nhánh + phòng đó thay vì để trống, tránh admin phải
     // tìm lại từ đầu (chi nhánh PHẢI set trước product_id vì Select 'product_id' trong Repeater
@@ -146,11 +149,11 @@ class CreateOrder extends CreateRecord
         // Chặn TRƯỚC khi tạo bất kỳ bản ghi nào nếu thiếu checkin_date/checkout_date (xem
         // HasTimeslotGridSelection::assertExpandedItemsHaveDates()) — gọi ngay ở đây (sớm nhất có
         // thể trong vòng đời Create) để không lỡ tạo dòng Order trống rồi mới phát hiện lỗi.
-        $this->assertExpandedItemsHaveDates(
-            OrderForm::expandOrderItemsForPersistence(is_array($data['orderItems'] ?? null) ? $data['orderItems'] : [])
-        );
+        $expandedItems = OrderForm::expandOrderItemsForPersistence(is_array($data['orderItems'] ?? null) ? $data['orderItems'] : []);
+        $this->assertExpandedItemsHaveDates($expandedItems);
 
         $this->assertPrimaryGuestCccd($data);
+        $data = $this->vetPrimaryGuestCccd($data, $expandedItems);
 
         if (! empty($data['category_id'])) {
             $category = \Modules\Category\Entities\Category::find($data['category_id']);
@@ -198,6 +201,50 @@ class CreateOrder extends CreateRecord
         Notification::make()->title($title)->body($body)->danger()->send();
 
         throw new \Filament\Support\Exceptions\Halt();
+    }
+
+    // Kiểm tra CCCD khách #1 TRƯỚC khi tạo đơn: popup chưa đọc được (ảnh mặt trước/sau, hoặc QR
+    // quét lỗi lúc tải) thì quét ở đây rồi kiểm tra cấu trúc (OrderForm::vetScannedCccd()) — QR sai
+    // thì chặn, không đọc được thì vẫn tạo đơn với ảnh. Đã có dữ liệu thì chặn khách dưới 16 tuổi
+    // tại ngày nhận phòng (trang Sửa kiểm tra ngay trong popup, xem OrderForm::cccdRuleError()).
+    private function vetPrimaryGuestCccd(array $data, array $items): array
+    {
+        $scan  = is_array($data['cccd_data'] ?? null) && $data['cccd_data'] ? $data['cccd_data'] : null;
+        $qr    = $data['cccd_qr_image'] ?? null;
+        $front = $data['cccd_front'] ?? null;
+        $back  = $data['cccd_back'] ?? null;
+        $error = null;
+
+        if (! $scan && ($qr || $front || $back)) {
+            $this->primaryCccdScanned = true;
+
+            try {
+                $raw = app(CccdScannerService::class)->scanPaths($front, $back, $qr);
+            } catch (\Throwable $e) {
+                $raw = null;
+                Log::warning('Quét CCCD khách #1 trước khi tạo đơn thất bại', ['error' => $e->getMessage()]);
+            }
+
+            ['data' => $scan, 'error' => $error] = OrderForm::vetScannedCccd($raw);
+            $data['cccd_data'] = $scan;
+        }
+
+        if (! $error && $scan) {
+            $error = \App\Support\CccdIdentity::ageError(
+                $scan,
+                true,
+                \App\Services\CccdIntakeService::checkinDateFromItems($items),
+                'Khách #1'
+            );
+        }
+
+        if ($error) {
+            Notification::make()->title('CCCD khách #1 không hợp lệ')->body($error)->danger()->persistent()->send();
+
+            throw new \Filament\Support\Exceptions\Halt();
+        }
+
+        return $data;
     }
 
     // Repeater 'orderItems' KHÔNG còn dùng ->relationship('items') (xem OrderForm.php) — 1 dòng
@@ -284,9 +331,10 @@ class CreateOrder extends CreateRecord
             // sẵn cccd_data cùng đơn → dùng luôn, chỉ quét ở đây khi popup chưa đọc được.
             $data = is_array($record->cccd_data) && $record->cccd_data ? $record->cccd_data : null;
 
-            if (! $data) {
+            // vetPrimaryGuestCccd() đã quét trước khi tạo đơn mà không đọc được → không quét lại lần 2.
+            if (! $data && ! $this->primaryCccdScanned) {
                 try {
-                    $data = app(CccdScannerService::class)->scanOrder($record);
+                    $data = OrderForm::vetScannedCccd(app(CccdScannerService::class)->scanOrder($record))['data'];
                 } catch (\Throwable $e) {
                     Log::warning('Auto-scan CCCD khi tạo đơn thất bại', [
                         'order_id' => $record->id,
@@ -339,7 +387,7 @@ class CreateOrder extends CreateRecord
             }
 
             try {
-                $scanned = app(CccdScannerService::class)->scanPaths($front, $back);
+                $scanned = OrderForm::vetScannedCccd(app(CccdScannerService::class)->scanPaths($front, $back))['data'];
             } catch (\Throwable $e) {
                 $scanned = null;
                 Log::warning('Auto-scan CCCD khách đi cùng khi tạo đơn thất bại', [

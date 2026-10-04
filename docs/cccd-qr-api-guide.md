@@ -6,6 +6,38 @@
 > Bản API đầy đủ theo tài liệu này nằm ở commit `d5bb15dd` (branch `feature/cccd-qr-image`), sẽ
 > áp lại sau khi test xong.
 
+## 0. Endpoint quét độc lập (ĐÃ CÓ, 04/10/2026)
+
+`POST /api/cccd/scan-qr` — quét 1 ảnh mặt có mã QR và trả dữ liệu đọc được. Là endpoint **tuỳ
+chọn, thêm mới**: không lưu ảnh, không gắn vào đơn/hồ sơ, không thay đổi API nào khác (các API đặt
+phòng/hồ sơ vẫn nhận `cccd_front` + `cccd_back` như cũ). Không cần đăng nhập; có Bearer token thì
+giới hạn lượt quét tính theo tài khoản.
+
+Body `multipart/form-data`:
+
+| Trường | Bắt buộc | Ghi chú |
+|---|---|---|
+| `cccd_qr_image` | có | JPG/PNG/WEBP, tối đa 5MB, cạnh ngắn ≥ 300px và cạnh dài ≥ 500px |
+| `checkin_date` | không | `Y-m-d` — mốc tính tuổi, mặc định hôm nay |
+| `guest_index` | không | chỉ echo lại để FE map đúng ô đang nhập |
+
+Response 200:
+
+```json
+{ "scanned": true,
+  "guest_index": 2,
+  "data": { "cccd": "087204016918", "old_id": "", "full_name": "NGUYỄN VĂN A", "dob": "12/05/2004",
+            "gender": "Nam", "address": "…", "issued_date": "01/01/2022", "source": "qr" },
+  "birth_province": "Đồng Tháp",
+  "age": 22, "min_age": 16, "under_age": false }
+```
+
+- Tuổi **không chặn** ở endpoint này (không biết đơn có qua đêm hay không) — FE tự xử lý theo
+  `under_age`.
+- Lỗi trả theo định dạng ở mục 2 với `field = "cccd_qr_image"`: `cccd_required`,
+  `cccd_image_invalid`, `cccd_qr_unreadable`, `cccd_invalid` (422), `cccd_rate_limited` (429).
+- Giới hạn: 15 request/phút/IP, và 30 lượt quét/IP + 12 lượt/tài khoản mỗi 10 phút.
+
 Từ 28/09/2026, BE chuyển toàn bộ luồng CCCD sang **1 ảnh mặt có mã QR** (cột mới
 `cccd_qr_image`). Tài liệu này mô tả thay đổi hợp đồng API. App bản cũ đang gửi
 `cccd_front`/`cccd_back` **vẫn chạy** trong giai đoạn chuyển tiếp (xem mục 6).

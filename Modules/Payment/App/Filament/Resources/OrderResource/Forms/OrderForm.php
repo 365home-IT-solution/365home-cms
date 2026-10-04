@@ -1697,11 +1697,16 @@ class OrderForm
         // đó, không quét lại lần 2. Không có (ảnh QR không đổi/không đọc được) thì quét như cũ.
         $prescanned = is_array($data['cccd_scanned'] ?? null) && $data['cccd_scanned'] ? $data['cccd_scanned'] : null;
 
-        $scan = $prescanned ?? (($qr || $front || $back)
-            ? app(\Modules\Payment\App\Services\CccdScannerService::class)->scanPaths($front, $back, $qr)
-            : null);
+        $scan  = $prescanned;
+        $error = null;
 
-        if ($scan && ($error = self::cccdRuleError($record, $guestIndex, $scan))) {
+        if (! $scan && ($qr || $front || $back)) {
+            ['data' => $scan, 'error' => $error] = self::vetScannedCccd(
+                app(\Modules\Payment\App\Services\CccdScannerService::class)->scanPaths($front, $back, $qr)
+            );
+        }
+
+        if ($error || ($scan && ($error = self::cccdRuleError($record, $guestIndex, $scan)))) {
             // Chỉ xoá ảnh MỚI tải trong popup này (khác ảnh đang lưu), không đụng ảnh cũ.
             $newUploads = array_diff(array_filter([$qr, $front, $back]), array_filter([$current['qr'] ?? null, $current['front'] ?? null, $current['back'] ?? null]));
             app(\App\Services\CccdIntakeService::class)->deleteImages($newUploads);
@@ -1749,6 +1754,22 @@ class OrderForm
         }
 
         return null;
+    }
+
+    // Kiểm tra cấu trúc (CccdIdentity::validate()) cho kết quả quét từ ảnh ĐÃ LƯU (scanPaths()/
+    // scanOrder() — liveScanCccdQr() thì đã tự kiểm tra lúc tải ảnh). Đọc từ QR mà sai cấu trúc →
+    // trả 'error' để chặn lưu; đọc bằng OCR mà thiếu/sai → coi như không đọc được (bỏ dữ liệu, vẫn
+    // giữ ảnh để lễ tân nhập tay sau), vì OCR hay đọc nhầm nên không đủ căn cứ để chặn.
+    public static function vetScannedCccd(?array $scan): array
+    {
+        if (! $scan) {
+            return ['data' => null, 'error' => null];
+        }
+
+        $isQr  = ($scan['source'] ?? null) === 'qr';
+        $error = \App\Support\CccdIdentity::validate($scan, $isQr);
+
+        return ['data' => $error ? null : $scan, 'error' => $isQr ? $error : null];
     }
 
     // Quét QR NGAY khi ảnh mặt có mã QR tải lên xong trong popup CCCD (giống form Khách hàng, dùng
@@ -2122,11 +2143,19 @@ class OrderForm
                     return;
                 }
 
+                $oldBuyerName = $record->buyer_name;
+
                 if ($error = self::persistCccdUploadAndScan($record, 1, $data)) {
                     \Filament\Notifications\Notification::make()->title('Chưa lưu CCCD khách #1')->body($error)->danger()->send();
                     $action->halt();
                 }
                 $record->refresh();
+
+                // Tên trên đơn đã được ghi theo CCCD (persistCccdUploadAndScan()) — đồng bộ luôn ô "Tên
+                // khách" đang mở, nếu không form vẫn hiện tên cũ và bấm Lưu đơn sẽ ghi đè lại tên cũ.
+                if (! empty($data['cccd_scanned']['full_name']) || $record->buyer_name !== $oldBuyerName) {
+                    $set('buyer_name', $record->buyer_name);
+                }
 
                 \Filament\Notifications\Notification::make()
                     ->title('Đã lưu CCCD khách #1')

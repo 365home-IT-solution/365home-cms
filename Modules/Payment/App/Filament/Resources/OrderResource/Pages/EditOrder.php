@@ -930,7 +930,7 @@ class EditOrder extends EditRecord
             }
 
             try {
-                $scanned = app(CccdScannerService::class)->scanPaths($guest->cccd_front, $guest->cccd_back, $guest->cccd_qr_image);
+                $scanned = OrderForm::vetScannedCccd(app(CccdScannerService::class)->scanPaths($guest->cccd_front, $guest->cccd_back, $guest->cccd_qr_image))['data'];
 
                 if ($scanned) {
                     $guest->update(['cccd_data' => $scanned]);
