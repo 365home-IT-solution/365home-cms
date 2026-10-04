@@ -317,7 +317,7 @@ Route::middleware('throttle:hold-slot')->group(function () {
 */
 Route::post('cccd/scan-qr', [\App\Http\Controllers\Api\CccdController::class, 'scanQr'])
     ->name('api.cccd.scan-qr')
-    ->middleware('throttle:hold-slot');
+    ->middleware('throttle:cccd-scan');
 
 /*
 |--------------------------------------------------------------------------
