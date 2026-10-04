@@ -90,6 +90,8 @@ class TenantController extends Controller
             'id_card_issued_place'     => 'nullable|string|max:255',
             'id_card_front'            => $this->idCardFileRules($request, 'id_card_front'),
             'id_card_back'             => $this->idCardFileRules($request, 'id_card_back'),
+            // Tuỳ chọn: 1 ảnh mặt có mã QR, song song với id_card_front/id_card_back.
+            'id_card_qr_image'         => $this->idCardFileRules($request, 'id_card_qr_image'),
             'date_of_birth'            => 'nullable|date',
             'gender'                   => ['nullable', Rule::in([Tenant::GENDER_MALE, Tenant::GENDER_FEMALE, Tenant::GENDER_OTHER])],
             'hometown'                 => 'nullable|string|max:255',
@@ -146,6 +148,8 @@ class TenantController extends Controller
             'id_card_issued_place'     => 'nullable|string|max:255',
             'id_card_front'            => $this->idCardFileRules($request, 'id_card_front'),
             'id_card_back'             => $this->idCardFileRules($request, 'id_card_back'),
+            // Tuỳ chọn: 1 ảnh mặt có mã QR, song song với id_card_front/id_card_back.
+            'id_card_qr_image'         => $this->idCardFileRules($request, 'id_card_qr_image'),
             'date_of_birth'            => 'nullable|date',
             'gender'                   => ['nullable', Rule::in([Tenant::GENDER_MALE, Tenant::GENDER_FEMALE, Tenant::GENDER_OTHER])],
             'hometown'                 => 'nullable|string|max:255',
@@ -216,7 +220,7 @@ class TenantController extends Controller
     // client gửi sẵn 1 chuỗi path — không cần 2 nhánh xử lý khác nhau ở nơi gọi.
     private function storeIdCardUploads(Request $request, array $data): array
     {
-        foreach (['id_card_front', 'id_card_back'] as $field) {
+        foreach (['id_card_front', 'id_card_back', 'id_card_qr_image'] as $field) {
             if ($request->hasFile($field)) {
                 $data[$field] = $request->file($field)->store('minihouse/tenants', 'public');
             }
@@ -259,6 +263,7 @@ class TenantController extends Controller
             'id_card_issued_place'     => $tenant->id_card_issued_place,
             'id_card_front'            => $tenant->id_card_front,
             'id_card_back'             => $tenant->id_card_back,
+            'id_card_qr_image'         => $tenant->id_card_qr_image,
             'date_of_birth'            => $tenant->date_of_birth?->toDateString(),
             'gender'                   => $tenant->gender,
             'hometown'                 => $tenant->hometown,

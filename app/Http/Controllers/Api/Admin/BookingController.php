@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\User;
 use App\Services\CccdDeclarationService;
+use App\Services\CccdIntakeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -79,6 +80,10 @@ class BookingController extends Controller
             'guests'                  => 'sometimes|array',
             'guests.*.front'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'guests.*.back'           => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
+            // Tuỳ chọn 1 ảnh mặt có mã QR: cccd_qr_image thay cho cccd_front + cccd_back của khách
+            // chính, guests[{guest_index}][qr_image] thay cho front + back của khách đi cùng đó.
+            'cccd_qr_image'           => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
+            'guests.*.qr_image'       => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
         ];
 
         if ($request->input('type') === 'slot') {
@@ -123,7 +128,7 @@ class BookingController extends Controller
         // Hồ sơ có ảnh mặt QR (xác thực trên web) cũng tính là đã có CCCD.
         $memberHasCccd = $customer && ($customer->cccd_qr_image || ($customer->cccd_front && $customer->cccd_back));
 
-        if (! $memberHasCccd && (! $request->hasFile('cccd_front') || ! $request->hasFile('cccd_back'))) {
+        if (! $memberHasCccd && ! $request->hasFile('cccd_qr_image') && (! $request->hasFile('cccd_front') || ! $request->hasFile('cccd_back'))) {
             $message = $customer
                 ? 'Thành viên chưa có CCCD trong hồ sơ — gửi kèm ảnh CCCD mặt trước (cccd_front) và mặt sau (cccd_back).'
                 : 'Bắt buộc ảnh CCCD mặt trước (cccd_front) và mặt sau (cccd_back) của khách chính.';
@@ -177,9 +182,22 @@ class BookingController extends Controller
 
         $cccdFront = null;
         $cccdBack  = null;
+        $cccdQr    = null;
         $cccdData  = null;
+        $intake    = app(CccdIntakeService::class);
 
-        if ($request->hasFile('cccd_front') && $request->hasFile('cccd_back')) {
+        if ($request->hasFile('cccd_qr_image')) {
+            // Luồng 1 ảnh mặt có mã QR (tuỳ chọn) — cùng nguyên tắc 2 mặt bên dưới: không đọc được QR
+            // vẫn lưu ảnh và tạo đơn, cccd_data để trống.
+            $cccdQr = $intake->storeQrImage($request->file('cccd_qr_image'));
+
+            try {
+                $cccdData = $intake->scanQr($request->file('cccd_qr_image'));
+            } catch (\Throwable $e) {
+                $cccdData = null;
+                Log::warning('Admin API: quét CCCD (ảnh QR) khách chính thất bại', ['error' => $e->getMessage()]);
+            }
+        } elseif ($request->hasFile('cccd_front') && $request->hasFile('cccd_back')) {
             $cccdFront = $request->file('cccd_front')->store('cccd', 'public');
             $cccdBack  = $request->file('cccd_back')->store('cccd', 'public');
 
@@ -212,10 +230,33 @@ class BookingController extends Controller
                 $guestIndex = $i + 2;
                 $frontKey   = "guests.{$guestIndex}.front";
                 $backKey    = "guests.{$guestIndex}.back";
+                $qrKey      = "guests.{$guestIndex}.qr_image";
 
-                $row = ['guest_index' => $guestIndex, 'front' => null, 'back' => null, 'data' => null];
+                $row = ['guest_index' => $guestIndex, 'front' => null, 'back' => null, 'qr' => null, 'data' => null];
 
-                if ($request->hasFile($frontKey) && $request->hasFile($backKey)) {
+                if ($request->hasFile($qrKey)) {
+                    $row['qr'] = $intake->storeQrImage($request->file($qrKey));
+
+                    try {
+                        $row['data'] = $intake->scanQr($request->file($qrKey));
+                    } catch (\Throwable $e) {
+                        $row['data'] = null;
+                        Log::warning('Admin API: quét CCCD (ảnh QR) khách đi cùng thất bại', [
+                            'guest_index' => $guestIndex,
+                            'error'       => $e->getMessage(),
+                        ]);
+                    }
+
+                    $rowCccd = $row['data']['cccd'] ?? null;
+                    if (! empty($rowCccd)) {
+                        if (in_array($rowCccd, $seenCccds, true)) {
+                            throw ValidationException::withMessages([
+                                $qrKey => ["CCCD của người đi cùng thứ {$guestIndex} bị trùng với một CCCD khác trong đơn. Vui lòng upload CCCD của một người khác."],
+                            ]);
+                        }
+                        $seenCccds[] = $rowCccd;
+                    }
+                } elseif ($request->hasFile($frontKey) && $request->hasFile($backKey)) {
                     $row['front'] = $request->file($frontKey)->store('cccd', 'public');
                     $row['back']  = $request->file($backKey)->store('cccd', 'public');
 
@@ -388,17 +429,18 @@ class BookingController extends Controller
                 'created_by'      => $admin->id,
                 // Ưu tiên ảnh CCCD admin vừa upload trong request này (tùy chọn); nếu không gửi thì
                 // dùng lại CCCD đã lưu sẵn trong hồ sơ khách thành viên (hành vi cũ, không đổi).
-                'cccd_front'      => $cccdFront ?? $customer?->cccd_front,
-                'cccd_back'       => $cccdBack  ?? $customer?->cccd_back,
+                // Admin upload ảnh QR mới cho đơn ($cccdQr) → đơn chỉ dùng ảnh đó, không lấy 2 mặt của hồ sơ.
+                'cccd_front'      => $cccdQr ? null : ($cccdFront ?? $customer?->cccd_front),
+                'cccd_back'       => $cccdQr ? null : ($cccdBack  ?? $customer?->cccd_back),
                 // Ảnh mặt QR của hồ sơ chỉ đi kèm khi admin không upload ảnh mới cho đơn.
-                'cccd_qr_image'   => ($cccdFront || $cccdBack) ? null : $customer?->cccd_qr_image,
+                'cccd_qr_image'   => $cccdQr ?? (($cccdFront || $cccdBack) ? null : $customer?->cccd_qr_image),
                 'cccd_data'       => $cccdData  ?? $customer?->cccd_data,
             ]);
 
             // CCCD khách đi cùng (khung giờ qua đêm) — chỉ lưu những khách ĐÃ gửi ảnh, các ô còn
             // trống (chưa upload) không tạo bản ghi rỗng.
             foreach ($guestCccdRows as $guestRow) {
-                if (! $guestRow['front'] || ! $guestRow['back']) {
+                if (! $guestRow['qr'] && (! $guestRow['front'] || ! $guestRow['back'])) {
                     continue;
                 }
 
@@ -406,6 +448,7 @@ class BookingController extends Controller
                     'guest_index' => $guestRow['guest_index'],
                     'cccd_front'  => $guestRow['front'],
                     'cccd_back'   => $guestRow['back'],
+                    'cccd_qr_image' => $guestRow['qr'],
                     'cccd_data'   => $guestRow['data'],
                 ]);
             }
@@ -468,6 +511,7 @@ class BookingController extends Controller
                 'created_by'     => $admin->fullname,
                 'cccd_front'     => $order->cccd_front ? Storage::disk('public')->url($order->cccd_front) : null,
                 'cccd_back'      => $order->cccd_back  ? Storage::disk('public')->url($order->cccd_back)  : null,
+                'cccd_qr_image'  => $order->cccd_qr_image ? Storage::disk('public')->url($order->cccd_qr_image) : null,
                 'cccd_data'      => $order->cccd_data,
             ],
             'room' => [
@@ -482,6 +526,7 @@ class BookingController extends Controller
                 'guest_index' => $row['guest_index'],
                 'cccd_front'  => $row['front'] ? Storage::disk('public')->url($row['front']) : null,
                 'cccd_back'   => $row['back']  ? Storage::disk('public')->url($row['back'])  : null,
+                'cccd_qr_image' => $row['qr'] ? Storage::disk('public')->url($row['qr']) : null,
                 'cccd_data'   => $row['data'],
             ])->values(),
             'slots'            => $slotSummary,

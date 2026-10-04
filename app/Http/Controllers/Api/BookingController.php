@@ -21,7 +21,9 @@ use Modules\Payment\Entities\OrderItem;
 use Modules\Product\App\Models\Product;
 use Modules\Product\App\Models\RoomTimeSlot;
 use App\Models\CustomerCompanion;
+use App\Exceptions\CccdIntakeException;
 use App\Services\CccdDeclarationService;
+use App\Services\CccdIntakeService;
 use App\Services\PromotionCalculator;
 use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Promotion\App\Models\Coupon;
@@ -46,6 +48,8 @@ class BookingController extends Controller
             'services.*.quantity'     => 'required_with:services|integer|min:1',
             'return_url'              => 'sometimes|nullable|string|max:500',
             'cancel_url'              => 'sometimes|nullable|string|max:500',
+            // guests[i][qr_image]: 1 ảnh mặt có mã QR thay cho guests[i][front] + guests[i][back].
+            'guests.*.qr_image'       => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
         ];
 
         if ($request->input('type') === 'slot') {
@@ -84,7 +88,11 @@ class BookingController extends Controller
         $buyerName  = $customer->fullname;
         $buyerPhone = $customer->phone;
 
-        if (empty($customer->cccd_front) || empty($customer->cccd_back) || empty($customer->cccd_data)) {
+        // Hồ sơ đủ CCCD = có ảnh mặt QR (hồ sơ lưu bằng 1 ảnh), hoặc đủ 2 mặt trước + sau như cũ.
+        $profileHasCccdImages = ! empty($customer->cccd_qr_image)
+            || (! empty($customer->cccd_front) && ! empty($customer->cccd_back));
+
+        if (! $profileHasCccdImages || empty($customer->cccd_data)) {
             return response()->json([
                 'message' => 'Bạn cần cập nhật CCCD/CMND vào tài khoản trước khi đặt phòng.',
                 'error'   => 'cccd_required',
@@ -155,6 +163,7 @@ class BookingController extends Controller
                             'guest_index' => $guestIndex,
                             'front'       => $companion->cccd_front,
                             'back'        => $companion->cccd_back,
+                            'qr'          => $companion->cccd_qr_image,
                             'data'        => $companion->cccd_data,
                         ];
                         continue;
@@ -164,6 +173,38 @@ class BookingController extends Controller
                     // theo vị trí 0-based $i (KHÔNG phải $guestIndex — xem comment ở trên).
                     $frontKey = "guests.{$i}.front";
                     $backKey  = "guests.{$i}.back";
+                    $qrKey    = "guests.{$i}.qr_image";
+
+                    // Người đi cùng gửi 1 ảnh mặt có mã QR thay cho 2 mặt.
+                    if ($request->hasFile($qrKey)) {
+                        $intake = app(CccdIntakeService::class);
+
+                        try {
+                            $guestData = $intake->readQrForSave($request->file($qrKey), $qrKey);
+                        } catch (CccdIntakeException $e) {
+                            $this->cleanupNewCompanionUploads($newCompanionUploads);
+
+                            return $e->render();
+                        }
+
+                        $guestQr = $intake->storeQrImage($request->file($qrKey));
+
+                        $guestCccdRows[] = [
+                            'guest_index' => $guestIndex,
+                            'front'       => null,
+                            'back'        => null,
+                            'qr'          => $guestQr,
+                            'data'        => $guestData,
+                        ];
+
+                        $newCompanionUploads[] = [
+                            'cccd_front'    => null,
+                            'cccd_back'     => null,
+                            'cccd_qr_image' => $guestQr,
+                            'cccd_data'     => $guestData,
+                        ];
+                        continue;
+                    }
 
                     if (! $request->hasFile($frontKey) || ! $request->hasFile($backKey)) {
                         Log::warning('Booking: thiếu CCCD người đi cùng — đối chiếu key thực nhận', [
@@ -227,6 +268,7 @@ class BookingController extends Controller
                 'full_name'   => $row['cccd_data']['full_name'] ?? null,
                 'cccd_front'  => $row['cccd_front'],
                 'cccd_back'   => $row['cccd_back'],
+                'cccd_qr_image' => $row['cccd_qr_image'] ?? null,
                 'cccd_data'   => $row['cccd_data'],
             ]);
         }
@@ -421,6 +463,7 @@ class BookingController extends Controller
                 'customer_id'     => $customer?->id,
                 'cccd_front'      => $customer?->cccd_front,
                 'cccd_back'       => $customer?->cccd_back,
+                'cccd_qr_image'   => $customer?->cccd_qr_image,
                 'cccd_data'       => $customer?->cccd_data,
             ]);
 
@@ -431,6 +474,7 @@ class BookingController extends Controller
                     'guest_index' => $guestRow['guest_index'],
                     'cccd_front'  => $guestRow['front'],
                     'cccd_back'   => $guestRow['back'],
+                    'cccd_qr_image' => $guestRow['qr'] ?? null,
                     'cccd_data'   => $guestRow['data'],
                 ]);
             }
@@ -493,8 +537,9 @@ class BookingController extends Controller
                 'buyer_phone'    => $order->buyer_phone,
                 'guests'         => $order->guestCccds->map(fn ($g) => [
                     'guest_index' => $g->guest_index,
-                    'cccd_front'  => Storage::disk('public')->url($g->cccd_front),
-                    'cccd_back'   => Storage::disk('public')->url($g->cccd_back),
+                    'cccd_front'  => $g->cccd_front ? Storage::disk('public')->url($g->cccd_front) : null,
+                    'cccd_back'   => $g->cccd_back  ? Storage::disk('public')->url($g->cccd_back)  : null,
+                    'cccd_qr_image' => $g->cccd_qr_image ? Storage::disk('public')->url($g->cccd_qr_image) : null,
                     'cccd_data'   => $g->cccd_data,
                 ])->values(),
             ],
@@ -551,8 +596,8 @@ class BookingController extends Controller
     private function cleanupNewCompanionUploads(array $uploads): void
     {
         foreach ($uploads as $row) {
-            Storage::disk('public')->delete($row['cccd_front']);
-            Storage::disk('public')->delete($row['cccd_back']);
+            // Luồng 1 ảnh QR để trống front/back — chỉ xoá path có thật.
+            app(CccdIntakeService::class)->deleteImages([$row['cccd_front'], $row['cccd_back'], $row['cccd_qr_image'] ?? null]);
         }
     }
 

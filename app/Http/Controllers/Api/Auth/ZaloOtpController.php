@@ -7,7 +7,10 @@ use App\Models\Customer;
 use App\Models\CustomerCompanion;
 use App\Models\GuestCustomer;
 use App\Models\MembershipTier;
+use App\Exceptions\CccdIntakeException;
+use App\Models\CustomerCccdVerification;
 use App\Services\CccdIntakeService;
+use App\Support\CccdIdentity;
 use App\Services\ZaloOtpService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -364,6 +367,12 @@ class ZaloOtpController extends Controller
      * companions[i][cccd_front]?, companions[i][cccd_back]?, companions[i][full_name]?
      * (companions = CCCD người đi cùng lưu vào hồ sơ, tái sử dụng cho các lần đặt phòng
      * qua đêm sau này — xem customer_companions).
+     *
+     * Tuỳ chọn 1 ảnh mặt có mã QR (song song, không thay luồng 2 mặt ở trên):
+     *  - cccd_qr_image             thay cho cccd_front + cccd_back của chính chủ
+     *  - companions[i][qr_image]   thay cho companions[i][cccd_front] + [cccd_back]
+     * Luồng này chỉ nhận dữ liệu từ QR, lỗi trả 422 {message, code, field}; response có thêm
+     * companions_sync: [{index, status: created|updated|conflict|skipped}].
      */
     public function update(Request $request): JsonResponse
     {
@@ -372,10 +381,17 @@ class ZaloOtpController extends Controller
             'date_of_birth'           => 'sometimes|date_format:d-m-Y|before:today',
             'cccd_front'              => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
             'cccd_back'               => 'sometimes|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'cccd_qr_image'           => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
             'companions'              => 'sometimes|array',
-            'companions.*.cccd_front' => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
-            'companions.*.cccd_back'  => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
+            // 2 mặt vẫn bắt buộc như cũ, TRỪ KHI người đi cùng đó gửi qr_image.
+            'companions.*.cccd_front' => 'required_without:companions.*.qr_image|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'companions.*.cccd_back'  => 'required_without:companions.*.qr_image|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'companions.*.qr_image'   => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
             'companions.*.full_name'  => 'nullable|string|max:255',
+        ], [
+            // Giữ nguyên câu báo lỗi "bắt buộc" như trước khi có qr_image.
+            'companions.*.cccd_front.required_without' => __('validation.required'),
+            'companions.*.cccd_back.required_without'  => __('validation.required'),
         ]);
 
         $customer = $request->user();
@@ -389,15 +405,37 @@ class ZaloOtpController extends Controller
             $data['date_of_birth'] = Carbon::createFromFormat('d-m-Y', $request->date_of_birth)->toDateString();
         }
 
+        // Luồng 1 ảnh mặt có mã QR (tuỳ chọn) — quét trên file tạm TRƯỚC khi lưu bất cứ gì; lỗi ném
+        // CccdIntakeException → 422 {message, code, field}. Có cccd_qr_image thì bỏ qua cccd_front/back.
+        $intake = app(CccdIntakeService::class);
+        $qrFile = $request->hasFile('cccd_qr_image') ? $request->file('cccd_qr_image') : null;
+        $qrData = null;
+
+        if ($qrFile) {
+            $qrData = $intake->readQrForSave($qrFile, 'cccd_qr_image');
+
+            $duplicate = $customer->companions()->get()
+                ->first(fn (CustomerCompanion $c) => is_array($c->cccd_data) && $c->cccd_data && CccdIdentity::samePerson($qrData, $c->cccd_data));
+            if ($duplicate) {
+                throw new CccdIntakeException(
+                    'CCCD này đang được lưu cho người đi cùng (' . ($duplicate->full_name ?: 'không tên') . ') trong hồ sơ của bạn.',
+                    CccdIntakeException::DUPLICATE,
+                    'cccd_qr_image',
+                    422,
+                    ['companion_id' => $duplicate->id],
+                );
+            }
+        }
+
         // Lưu path file cũ để xoá sau khi xác nhận QR hợp lệ
         $oldCccdFront = $customer->cccd_front;
         $oldCccdBack  = $customer->cccd_back;
 
-        if ($request->hasFile('cccd_front')) {
+        if (! $qrFile && $request->hasFile('cccd_front')) {
             $data['cccd_front'] = $request->file('cccd_front')->store('cccd', 'public');
         }
 
-        if ($request->hasFile('cccd_back')) {
+        if (! $qrFile && $request->hasFile('cccd_back')) {
             $data['cccd_back'] = $request->file('cccd_back')->store('cccd', 'public');
         }
 
@@ -432,6 +470,13 @@ class ZaloOtpController extends Controller
             $customer->update($data);
         }
 
+        // Luồng QR: hồ sơ nhận ảnh QR + dữ liệu mới, ghi thêm 1 dòng lịch sử xác thực (giống trang tài
+        // khoản trên web). Ảnh cccd_front/back cũ của hồ sơ giữ nguyên.
+        if ($qrFile) {
+            $intake->recordCustomerVerification($customer, $qrData, $qrFile, CustomerCccdVerification::SOURCE_APP);
+            $customer->refresh();
+        }
+
         // Ảnh cũ bị thay: chỉ xoá file không còn bản ghi nào dùng — đơn đặt qua app trước đây trỏ
         // thẳng vào file ảnh của hồ sơ, xoá bừa sẽ làm đơn cũ mất ảnh CCCD.
         app(CccdIntakeService::class)->deleteUnreferencedImages(array_filter([
@@ -440,13 +485,30 @@ class ZaloOtpController extends Controller
         ]));
 
         // Thêm CCCD người đi cùng vào hồ sơ.
+        $companionsSync = [];
+
         if ($request->has('companions')) {
             $uploadedPaths = [];
             $scanner       = app(CccdScannerService::class);
 
             try {
-                DB::transaction(function () use ($request, $customer, $scanner, &$uploadedPaths) {
+                DB::transaction(function () use ($request, $customer, $scanner, $intake, &$uploadedPaths, &$companionsSync) {
                     foreach ($request->file('companions') as $index => $files) {
+                        // Người đi cùng gửi 1 ảnh mặt có mã QR thay cho 2 mặt — lưu có chống trùng theo
+                        // số CCCD (CccdIntakeService::rememberCompanion), kết quả trả ở companions_sync.
+                        if (! empty($files['qr_image'])) {
+                            $field     = "companions.{$index}.qr_image";
+                            $qrData    = $intake->readQrForSave($files['qr_image'], $field);
+                            $qrPath    = $intake->storeQrImage($files['qr_image']);
+                            $uploadedPaths[] = $qrPath;
+
+                            $companionsSync[] = [
+                                'index'  => $index,
+                                'status' => $intake->rememberCompanion($customer, $qrData, $qrPath, copyImage: false),
+                            ];
+                            continue;
+                        }
+
                         $frontPath = $files['cccd_front']->store('cccd', 'public');
                         $backPath  = $files['cccd_back']->store('cccd', 'public');
                         $uploadedPaths[] = $frontPath;
@@ -469,6 +531,12 @@ class ZaloOtpController extends Controller
                         ]);
                     }
                 });
+            } catch (CccdIntakeException $e) {
+                foreach ($uploadedPaths as $path) {
+                    Storage::disk('public')->delete($path);
+                }
+
+                return $e->render();
             } catch (\RuntimeException $e) {
                 foreach ($uploadedPaths as $path) {
                     Storage::disk('public')->delete($path);
@@ -478,9 +546,9 @@ class ZaloOtpController extends Controller
             }
         }
 
-        return response()->json($this->customerResource(
-            Customer::find($customer->id) ?? $customer
-        ));
+        $resource = $this->customerResource(Customer::find($customer->id) ?? $customer);
+
+        return response()->json($companionsSync ? $resource + ['companions_sync' => $companionsSync] : $resource);
     }
 
     /**
@@ -497,7 +565,7 @@ class ZaloOtpController extends Controller
             return response()->json(['message' => 'Không tìm thấy người đi cùng.'], 404);
         }
 
-        $paths = [$companion->cccd_front, $companion->cccd_back];
+        $paths = [$companion->cccd_front, $companion->cccd_back, $companion->cccd_qr_image];
 
         $companion->delete();
 
@@ -545,12 +613,16 @@ class ZaloOtpController extends Controller
             'cccd_back'         => $customer->cccd_back
                 ? Storage::disk('public')->url($customer->cccd_back)
                 : null,
+            'cccd_qr_image'     => $customer->cccd_qr_image
+                ? Storage::disk('public')->url($customer->cccd_qr_image)
+                : null,
             'cccd_data'         => $customer->cccd_data,
             'companions'        => $customer->companions->map(fn (CustomerCompanion $c) => [
                 'id'          => $c->id,
                 'full_name'   => $c->full_name,
-                'cccd_front'  => Storage::disk('public')->url($c->cccd_front),
-                'cccd_back'   => Storage::disk('public')->url($c->cccd_back),
+                'cccd_front'  => $c->cccd_front ? Storage::disk('public')->url($c->cccd_front) : null,
+                'cccd_back'   => $c->cccd_back  ? Storage::disk('public')->url($c->cccd_back)  : null,
+                'cccd_qr_image' => $c->cccd_qr_image ? Storage::disk('public')->url($c->cccd_qr_image) : null,
                 'cccd_data'   => $c->cccd_data,
             ]),
             'membership'        => [

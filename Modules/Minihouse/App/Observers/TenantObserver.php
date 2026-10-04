@@ -23,11 +23,11 @@ class TenantObserver
         // wasChanged() KHÔNG tính "đã đổi" ngay lúc TẠO MỚI (Laravel chỉ syncChanges() ở
         // performUpdate(), không gọi ở performInsert()) — phải tự kiểm tra thêm wasRecentlyCreated,
         // nếu không ảnh CCCD tải lên ngay lúc tạo Khách thuê sẽ không được quét.
-        $imagesTouched = $tenant->wasRecentlyCreated || $tenant->wasChanged(['id_card_front', 'id_card_back']);
+        $imagesTouched = $tenant->wasRecentlyCreated || $tenant->wasChanged(['id_card_front', 'id_card_back', 'id_card_qr_image']);
 
-        if ($imagesTouched && ($tenant->id_card_front || $tenant->id_card_back)) {
+        if ($imagesTouched && ($tenant->id_card_front || $tenant->id_card_back || $tenant->id_card_qr_image)) {
             // Ảnh cũ (trước lần lưu này) đã có sẵn -> đây là THAY ảnh khác, không phải tải lần đầu.
-            $isReplacingImage = (bool) ($tenant->getOriginal('id_card_front') || $tenant->getOriginal('id_card_back'));
+            $isReplacingImage = (bool) ($tenant->getOriginal('id_card_front') || $tenant->getOriginal('id_card_back') || $tenant->getOriginal('id_card_qr_image'));
 
             $this->scanAndFill($tenant, overwrite: $isReplacingImage);
         }
@@ -41,7 +41,7 @@ class TenantObserver
     /** @return array<string, mixed> field => giá trị vừa cập nhật (rỗng nếu không quét được/không có gì để điền) */
     public function scanAndFill(Tenant $tenant, bool $overwrite = false): array
     {
-        $scan = CccdScanMapper::scan($tenant->id_card_front, $tenant->id_card_back);
+        $scan = CccdScanMapper::scan($tenant->id_card_front, $tenant->id_card_back, $tenant->id_card_qr_image);
 
         if (! $scan) {
             return [];
