@@ -38,14 +38,20 @@ class PartnerOnboardingController extends Controller
             'address_building'      => ['nullable', 'string', 'max:150'],
             'postal_code'           => ['nullable', 'regex:/^[0-9]{5,6}$/'],
             'note'          => ['nullable', 'string', 'max:2000'],
-        ], ['partner_type.in' => 'MiniHouse không đăng ký đối tác/ký hợp đồng: vui lòng mua gói dịch vụ MiniHouse (POST /api/public/minihouse-purchase).', 'phone.regex' => 'Số điện thoại không hợp lệ.', 'postal_code.regex' => 'Mã bưu điện gồm 5–6 chữ số.', 'address_street.required_without' => 'Vui lòng nhập số nhà, tên đường/phố.', 'address.required_without' => 'Vui lòng nhập địa chỉ.'], PartnerOnboardingService::LABELS);
+        ] + \App\Services\TermsService::rulesFor(\App\Services\TermsService::typeForPartner((string) $request->input('partner_type'))), \App\Services\TermsService::ACCEPT_MESSAGES + ['partner_type.in' => 'MiniHouse không đăng ký đối tác/ký hợp đồng: vui lòng mua gói dịch vụ MiniHouse (POST /api/public/minihouse-purchase).', 'phone.regex' => 'Số điện thoại không hợp lệ.', 'postal_code.regex' => 'Mã bưu điện gồm 5–6 chữ số.', 'address_street.required_without' => 'Vui lòng nhập số nhà, tên đường/phố.', 'address.required_without' => 'Vui lòng nhập địa chỉ.'], PartnerOnboardingService::LABELS);
+
+        $terms = app(\App\Services\TermsService::class);
+        $termsType = \App\Services\TermsService::typeForPartner($data['partner_type']);
+        $version = $terms->required($termsType) ? $terms->currentOrFail($termsType, isset($data['terms_version_id']) ? (int) $data['terms_version_id'] : null) : null;
 
         $data['address'] = $this->service->composeAddress($data);
         $result = $this->service->register($data);
+        // Công tắc Điều khoản tắt → đăng ký như trước, không đòi/không ghi lịch sử đồng ý.
+        $acceptance = $version ? $terms->record($version, $result['partner'], $data, $request, ['source' => 'api', 'meta' => ['partner_type' => $data['partner_type']]]) : null;
 
         return response()->json([
             'message' => 'Đã tạo hồ sơ đăng ký hợp tác. Lưu lại mã hồ sơ để tiếp tục nộp giấy tờ và ký hợp đồng.',
-            'data'    => ['onboarding_token' => $result['token'], ...$this->service->status($result['partner'])],
+            'data'    => ['onboarding_token' => $result['token'], ...($acceptance ? ['terms_acceptance' => ['id' => $acceptance->id, 'version' => $acceptance->terms_version_label, 'accepted_at' => $acceptance->accepted_at->toIso8601String()]] : []), ...$this->service->status($result['partner'])],
         ], 201);
     }
 

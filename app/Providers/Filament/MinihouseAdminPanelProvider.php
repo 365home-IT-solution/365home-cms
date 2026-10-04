@@ -85,6 +85,11 @@ class MinihouseAdminPanelProvider extends PanelProvider
             ->pages([
                 Dashboard::class,
             ])
+            // Điều khoản dịch vụ + lịch sử đồng ý: dùng chung code với panel Homestay nhưng mỗi panel chỉ quản lý loại của mình (TermsVersion::typeForCurrentPanel()).
+            ->resources([
+                \App\Filament\Resources\TermsVersionResource::class,
+                \App\Filament\Resources\TermsAcceptanceResource::class,
+            ])
             ->topNavigation()
             ->maxContentWidth('full')
             ->collapsibleNavigationGroups(false)

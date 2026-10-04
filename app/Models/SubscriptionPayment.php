@@ -28,6 +28,18 @@ class SubscriptionPayment extends Model
         'payos_account_number', 'payos_account_name', 'payos_expired_at', 'bank_reference', 'paid_at', 'extends_to', 'note',
     ];
 
+    // Đơn thanh toán mới của đối tác đã có lần đồng ý Điều khoản chưa gắn đơn (vd được duyệt dùng thử rồi mới mua gói) → bổ sung mã đơn/mã giao dịch vào lịch sử đồng ý.
+    protected static function booted(): void
+    {
+        static::created(function (self $payment): void {
+            try {
+                app(\App\Services\TermsService::class)->attachPayment($payment);
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        });
+    }
+
     protected $casts = [
         'amount_vnd'       => 'integer',
         'months'           => 'integer',

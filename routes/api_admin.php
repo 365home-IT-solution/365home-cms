@@ -92,6 +92,13 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin')->name('api.adm
     Route::get('partners/{partner}/contract', [AdminPartnerController::class, 'contract'])->name('partners.contract.show');
     Route::post('partners/{partner}/contract/send', [AdminPartnerController::class, 'createContract'])->name('partners.contract.send');
     Route::post('partners/{partner}/contract/platform-sign', [AdminPartnerController::class, 'platformSign'])->name('partners.contract.platform-sign');
+    // Điều khoản Homestay (loại partner_homestay được ép theo đường dẫn). MiniHouse dùng /api/admin/minihouse/terms/... (routes/api_minihouse.php).
+    Route::get('terms/versions', [\App\Http\Controllers\Api\Admin\TermsController::class, 'versions'])->defaults('terms_type', 'partner_homestay')->name('terms.versions.index');
+    Route::post('terms/versions', [\App\Http\Controllers\Api\Admin\TermsController::class, 'storeVersion'])->defaults('terms_type', 'partner_homestay')->name('terms.versions.store');
+    Route::get('terms/versions/{version}', [\App\Http\Controllers\Api\Admin\TermsController::class, 'showVersion'])->defaults('terms_type', 'partner_homestay')->name('terms.versions.show');
+    Route::get('terms/acceptances', [\App\Http\Controllers\Api\Admin\TermsController::class, 'acceptances'])->defaults('terms_type', 'partner_homestay')->name('terms.acceptances.index');
+    Route::get('terms/acceptances/{acceptance}', [\App\Http\Controllers\Api\Admin\TermsController::class, 'showAcceptance'])->defaults('terms_type', 'partner_homestay')->name('terms.acceptances.show');
+    Route::get('partners/{partner}/terms-acceptances', [\App\Http\Controllers\Api\Admin\TermsController::class, 'partnerAcceptances'])->defaults('terms_type', 'partner_homestay')->name('partners.terms-acceptances');
     Route::get('partners/{partner}/contract/signed-pdf', [AdminPartnerController::class, 'downloadSignedPdf'])->name('partners.contract.signed-pdf');
     Route::get('partners/{partner}/contract/versions',[AdminPartnerController::class, 'contractVersions'])->name('partners.contract.versions.index');
     Route::post('partners/{partner}/contract/versions', [AdminPartnerController::class, 'storeContractVersion'])->name('partners.contract.versions.store');

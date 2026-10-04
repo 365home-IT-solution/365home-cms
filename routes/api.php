@@ -44,6 +44,9 @@ Route::prefix('public')->name('api.minihouse-purchase.')->group(function () {
     Route::get('minihouse-purchase/{token}', [\App\Http\Controllers\Api\Public\MinihousePurchaseController::class, 'show'])->middleware('throttle:partner-onboarding')->name('show');
 });
 
+// Điều khoản dịch vụ hiệu lực (hiển thị trước khi khách tick đồng ý khi đăng ký): slug = homestay | minihouse.
+Route::get('public/terms/{slug}', [\App\Http\Controllers\Api\Public\TermsController::class, 'current'])->middleware('throttle:public-api')->name('api.terms.current');
+
 Route::prefix('public/partner-onboarding')->name('api.partner-onboarding.')->group(function () {
     Route::post('/', [PartnerOnboardingController::class, 'register'])->middleware('throttle:partner-onboarding-register')->name('register');
     Route::post('recover', [PartnerOnboardingController::class, 'recover'])->middleware('throttle:partner-onboarding-register')->name('recover');

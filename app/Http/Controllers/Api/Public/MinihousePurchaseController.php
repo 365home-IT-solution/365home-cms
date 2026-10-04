@@ -53,7 +53,7 @@ class MinihousePurchaseController extends Controller
             'address_unit'          => ['nullable', 'string', 'max:100'],
             'address_building'      => ['nullable', 'string', 'max:150'],
             'postal_code'           => ['nullable', 'regex:/^[0-9]{5,6}$/'],
-        ], [
+        ] + \App\Services\TermsService::rulesFor(\App\Models\TermsVersion::TYPE_MINIHOUSE), \App\Services\TermsService::ACCEPT_MESSAGES + [
             'phone.regex'                 => 'Số điện thoại không hợp lệ.',
             'postal_code.regex'           => 'Mã bưu điện gồm 5–6 chữ số.',
             'address_street.required_without' => 'Vui lòng nhập số nhà, tên đường/phố.',
@@ -67,6 +67,10 @@ class MinihousePurchaseController extends Controller
         abort_if(! $plan, 422, 'Chưa có gói MiniHouse đang bán. Vui lòng liên hệ 365 Home.');
         $data['periods'] = (int) ($data['periods'] ?? 1);
         abort_unless($plan->is_active && ($plan->partner_type === null || $plan->partner_type === Partner::TYPE_MINIHOUSE), 422, 'Gói này không áp dụng cho MiniHouse.');
+
+        $terms = app(\App\Services\TermsService::class);
+        $termsVersion = $terms->required(\App\Models\TermsVersion::TYPE_MINIHOUSE)
+            ? $terms->currentOrFail(\App\Models\TermsVersion::TYPE_MINIHOUSE, isset($data['terms_version_id']) ? (int) $data['terms_version_id'] : null) : null;
 
         $data['address'] = $this->onboarding->composeAddress($data);
         $result = $this->onboarding->createPurchasePartner($data);
@@ -82,11 +86,17 @@ class MinihousePurchaseController extends Controller
         }
         $result['partner'] = $result['partner']->fresh();
 
+        // Lưu lịch sử đồng ý Điều khoản: phiên bản, thời điểm, thông tin khách, gói/giá, mã đơn/mã giao dịch (nếu đã có đơn), trạng thái tick.
+        $acceptance = $termsVersion ? $terms->record($termsVersion, $result['partner'], $data, $request, [
+            'plan' => $plan, 'periods' => (int) $data['periods'], 'amount_vnd' => $plan->amountFor((int) $data['periods']), 'payment' => $payment, 'source' => 'api',
+            'meta' => ['pending_approval' => $pendingApproval],
+        ]) : null;
+
         return response()->json([
             'message' => $pendingApproval
                 ? 'Đã xác nhận đăng ký MiniHouse. Sau khi 365 Home duyệt, tài khoản dùng thử và mật khẩu sẽ được gửi về email của bạn.'
                 : 'Đã tạo đơn mua gói. Quét QR hoặc mở link để thanh toán; sau khi thanh toán, tài khoản đăng nhập sẽ được gửi về email của bạn.',
-            'data'    => ['purchase_token' => $result['token'], ...$this->status($result['partner'], $payment)],
+            'data'    => ['purchase_token' => $result['token'], ...($acceptance ? ['terms_acceptance' => ['id' => $acceptance->id, 'version' => $acceptance->terms_version_label, 'accepted_at' => $acceptance->accepted_at->toIso8601String()]] : []), ...$this->status($result['partner'], $payment)],
         ], 201);
     }
 

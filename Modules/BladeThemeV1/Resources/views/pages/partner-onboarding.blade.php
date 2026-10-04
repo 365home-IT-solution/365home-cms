@@ -14,7 +14,7 @@
     {{-- Đăng ký hợp tác (Homestay / MiniHouse) — gọi API công khai /api/public/partner-onboarding. Mã hồ sơ lưu ở localStorage để quay lại làm tiếp. --}}
     <div class="bg-gray-50 px-4 py-10 sm:px-6 lg:px-8">
         <div class="mx-auto max-w-3xl"
-            x-data="partnerOnboarding(@js($initialType), @js($docTypes), @js($provinceOptions))"
+            x-data="partnerOnboarding(@js($initialType), @js($docTypes), @js($provinceOptions), @js(['homestay' => app(\App\Services\TermsService::class)->required('partner_homestay'), 'minihouse' => app(\App\Services\TermsService::class)->required('partner_minihouse')]))"
             x-init="init()">
 
             <div class="mb-6">
@@ -192,6 +192,29 @@
                     <div x-show="!minihouseMode">
                         <label class="block text-sm font-medium text-gray-700 mb-1">Ghi chú</label>
                         <textarea x-model="reg.note" rows="3" maxlength="2000" class="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-gray-400"></textarea>
+                    </div>
+                    {{-- Đồng ý Điều khoản dịch vụ (bắt buộc) — lưu lịch sử đồng ý kèm phiên bản Điều khoản đang hiển thị --}}
+                    <div class="space-y-1" x-show="termsNeeded" x-cloak>
+                        <label class="flex items-start gap-2 text-sm text-gray-700">
+                            <input type="checkbox" x-model="reg.accept_terms" class="mt-1">
+                            <span>Tôi đã đọc và đồng ý với <button type="button" class="underline font-medium text-gray-900" @click="termsOpen = true">Điều khoản dịch vụ</button><template x-if="terms"><span> (phiên bản <span x-text="terms.version"></span>)</span></template>.</span>
+                        </label>
+                        <p class="text-xs text-red-600" x-show="errors.accept_terms || errors.terms_version_id" x-text="err('accept_terms') || err('terms_version_id')"></p>
+                    </div>
+                    <div x-show="termsNeeded && termsOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @keydown.escape.window="termsOpen = false">
+                        <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[85vh] flex flex-col" @click.outside="termsOpen = false">
+                            <div class="flex items-start justify-between gap-4 border-b border-gray-100 px-5 py-4">
+                                <div>
+                                    <h3 class="font-semibold text-gray-900" x-text="terms ? terms.title : 'Điều khoản dịch vụ'"></h3>
+                                    <p class="text-xs text-gray-500 mt-0.5" x-show="terms">Phiên bản <span x-text="terms && terms.version"></span></p>
+                                </div>
+                                <button type="button" class="text-gray-500 hover:text-gray-800 text-xl leading-none" @click="termsOpen = false">&times;</button>
+                            </div>
+                            <div class="px-5 py-4 overflow-y-auto text-sm text-gray-700 whitespace-pre-line" x-text="terms ? terms.content : 'Chưa tải được Điều khoản. Vui lòng thử lại.'"></div>
+                            <div class="border-t border-gray-100 px-5 py-3 text-right">
+                                <button type="button" class="rounded-lg bg-gray-900 text-white font-semibold px-5 py-2 hover:bg-gray-800" @click="reg.accept_terms = true; termsOpen = false">Đã đọc và đồng ý</button>
+                            </div>
+                        </div>
                     </div>
                     <button type="submit" :disabled="loading" class="w-full rounded-lg bg-gray-900 text-white font-semibold py-3 hover:bg-gray-800 disabled:opacity-60" x-text="loading ? 'Đang gửi...' : (minihouseMode ? (trialMonths > 0 ? 'Đăng ký MiniHouse' : 'Mua gói & thanh toán') : 'Tiếp tục')"></button>
 
@@ -483,7 +506,7 @@
     </div>
 
     <script>
-        function partnerOnboarding(initialType, docTypes, provinces) {
+        function partnerOnboarding(initialType, docTypes, provinces, termsRequired) {
             const KEY = '365home_partner_onboarding';
             const API = '/api/public/partner-onboarding';
             const store = {
@@ -498,7 +521,9 @@
                 recoverOpen: false, rec: { phone: '', email: '' },
                 step: 0, loading: false, message: '', messageOk: false, errors: {},
                 token: null, signingToken: null, status: null, contract: null, otpSentTo: '', otpCooldown: 0,
-                reg: { partner_type: initialType || 'homestay', full_name: '', phone: '', email: '', business_name: '', address_province_code: '', address_ward_code: '', address_street: '', address_unit: '', address_building: '', postal_code: '', note: '' },
+                reg: { partner_type: initialType || 'homestay', full_name: '', phone: '', email: '', business_name: '', address_province_code: '', address_ward_code: '', address_street: '', address_unit: '', address_building: '', postal_code: '', note: '', accept_terms: false, terms_version_id: null },
+                terms: null, termsOpen: false, termsReq: termsRequired || { homestay: false, minihouse: true },
+                get termsNeeded() { return !!this.termsReq[this.reg.partner_type === 'minihouse' ? 'minihouse' : 'homestay']; },
                 provinces: provinces || [], wards: [], loadingWards: false,
                 addrQuery: '', suggestions: [], suggestOpen: false, suggestLoading: false,
                 plans: [], planId: null, periods: 1, purchase: null, pollTimer: null, trialMonths: {{ (int) config('partner_flow.minihouse_signup_trial_months', 0) }},
@@ -552,6 +577,8 @@
 
                 async init() {
                     this.loadPlans();
+                    this.loadTerms();
+                    this.$watch('reg.partner_type', () => { this.reg.accept_terms = false; this.loadTerms(); });
                     try {
                         if (localStorage.getItem('365home_minihouse_purchase') && !store.get().token) {
                             this.reg.partner_type = 'minihouse';
@@ -684,13 +711,25 @@
                     } catch (e) {} finally { this.loadingWards = false; }
                 },
 
+                async loadTerms() {
+                    try {
+                        const res = await fetch('/api/public/terms/' + (this.reg.partner_type === 'minihouse' ? 'minihouse' : 'homestay'), { headers: { Accept: 'application/json' } });
+                        if (res.ok) { this.terms = (await res.json()).data; this.reg.terms_version_id = this.terms.id; }
+                    } catch (e) {}
+                },
                 async register() {
-                    if (this.reg.partner_type === 'minihouse') return this.buy();
+                    if (this.termsNeeded && !this.reg.accept_terms) { this.errors = { accept_terms: ['Bạn cần đọc và đồng ý Điều khoản dịch vụ để đăng ký.'] }; this.flash('Vui lòng đồng ý Điều khoản dịch vụ.'); return; }
+                    if (this.reg.partner_type === 'minihouse') { await this.buy(); return this.termsChanged(); }
                     const data = await this.call('POST', API, this.reg);
-                    if (!data || data._status) return;
+                    if (!data || data._status) { return this.termsChanged(); }
                     this.token = data.data.onboarding_token; this.save();
                     this.applyStatus(data.data);
                     this.step = 1; this.flash('Đã tạo hồ sơ. Tiếp theo, tải lên giấy tờ pháp lý.', true);
+                },
+
+                // Điều khoản vừa được cập nhật phiên bản mới (server từ chối bản cũ): tải lại, bỏ tick để khách đọc và đồng ý lại.
+                async termsChanged() {
+                    if (this.errors.terms_version_id) { this.reg.accept_terms = false; await this.loadTerms(); }
                 },
 
                 async uploadDoc() {
