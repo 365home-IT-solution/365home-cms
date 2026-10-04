@@ -7,12 +7,15 @@
  * Dùng: node qr_scan_zxing.cjs <ảnh1> [ảnh2 ...]
  * Ra stdout: chuỗi QR CCCD (>= 6 dấu '|') + exit 0; không đọc được: "QR_NOT_FOUND" + exit 1.
  */
+const fs = require('fs');
+const path = require('path');
 const { Jimp, JimpMime } = require('jimp');
 const Z = require('@zxing/library');
 
 const DEADLINE_MS = 5500;            // tổng thời gian tối đa (PHP còn tự ngắt thêm theo ngân sách)
 const MAX_SOURCE_SIDE = 2600;        // ảnh gốc quá lớn thì thu nhỏ trước để giới hạn thời gian
 const MAX_OUT_PIXELS = 9_000_000;    // trần số điểm ảnh mỗi lần giải mã
+const MAX_CPP_PIXELS = 12_000_000;   // trần riêng cho zxing-cpp (cần phóng to cả ảnh nhỏ tới x4)
 const started = Date.now();
 const timeUp = () => Date.now() - started > DEADLINE_MS;
 
@@ -40,6 +43,78 @@ function decodeBitmap(img) {
 }
 
 const isCccd = (t) => !!t && (t.match(/\|/g) || []).length >= 6;
+
+// zxing-cpp (WASM) — mạnh hơn hẳn bản ZXing JS ở trên: đọc được QR chỉ ~3px/ô trong ảnh đã bị nén/thu nhỏ (ảnh gửi qua Zalo/Messenger)
+// mà ZXing JS lẫn jsQR đều bó tay. Nạp .wasm từ node_modules (mặc định thư viện tự tải từ CDN — chậm và phụ thuộc mạng).
+// Thiếu gói (chưa npm install) → trả null, các chiến lược ZXing JS bên dưới vẫn chạy như cũ.
+let cppReader;
+async function loadCppReader() {
+    if (cppReader !== undefined) return cppReader;
+    try {
+        const entry = require.resolve('zxing-wasm/reader');
+        const wasm = fs.readFileSync(path.join(path.dirname(entry), '..', '..', 'reader', 'zxing_reader.wasm'));
+        const { readBarcodes, prepareZXingModule } = require('zxing-wasm/reader');
+        await prepareZXingModule({ overrides: { wasmBinary: wasm.buffer.slice(wasm.byteOffset, wasm.byteOffset + wasm.byteLength) }, fireImmediately: true });
+        cppReader = readBarcodes;
+    } catch {
+        cppReader = null;
+    }
+    return cppReader;
+}
+
+const cppOptions = { formats: ['QRCode'], tryHarder: true, tryRotate: true, tryInvert: true, tryDownscale: true, maxNumberOfSymbols: 1 };
+
+async function decodeCpp(img) {
+    const readBarcodes = await loadCppReader();
+    if (!readBarcodes) return null;
+    try {
+        const { data, width, height } = img.bitmap;
+        const pixels = new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength);
+        const found = await readBarcodes({ data: pixels, width, height, colorSpace: 'srgb' }, cppOptions);
+        return found.length ? found[0].text : null;
+    } catch {
+        return null;
+    }
+}
+
+// Ảnh đủ nét thì đọc ngay ở toàn ảnh x1. Ảnh nhỏ/nén thì QR chỉ ra ở VÀI tổ hợp vùng cắt + độ phóng (thực nghiệm: không tổ hợp nào
+// luôn trúng) nên phải thử cả lưới — mỗi lần giải mã chỉ vài chục ms. Vùng nhỏ trước (rẻ), toàn ảnh sau.
+function cppStrategies() {
+    const crops = [
+        { x: 0.64, y: 0.03, w: 0.34, h: 0.42 },
+        { x: 0.55, y: 0.00, w: 0.45, h: 0.60 },
+        { x: 0.45, y: 0.00, w: 0.55, h: 1.00 },
+        { x: 0.00, y: 0.00, w: 1.00, h: 1.00 },
+    ];
+    const list = [{ x: 0, y: 0, w: 1, h: 1, z: 1 }];
+    for (const z of [4, 5, 3, 2, 6]) {
+        for (const c of crops) list.push({ ...c, z });
+    }
+    return list;
+}
+
+async function scanImageCpp(base) {
+    if (!(await loadCppReader())) return null;
+
+    const W = base.width, H = base.height;
+    for (const s of cppStrategies()) {
+        if (timeUp()) return null;
+
+        const cx = Math.round(W * s.x), cy = Math.round(H * s.y);
+        const cw = Math.min(W - cx, Math.round(W * s.w)), ch = Math.min(H - cy, Math.round(H * s.h));
+        if (cw < 24 || ch < 24) continue;
+        if (cw * s.z * ch * s.z > MAX_CPP_PIXELS) continue; // ảnh gốc đã lớn thì không cần (và không nên) phóng thêm
+
+        let piece = base;
+        if (cw !== W || ch !== H) piece = base.clone().crop({ x: cx, y: cy, w: cw, h: ch });
+        if (s.z !== 1) piece = (piece === base ? base.clone() : piece).resize({ w: cw * s.z, h: ch * s.z });
+
+        const text = await decodeCpp(piece);
+        if (isCccd(text)) return text;
+    }
+
+    return null;
+}
 
 // Chiến lược crop+zoom: ưu tiên vùng QR góc trên-phải (CCCD gắn chip, mặt trước), rồi mở rộng. Toạ độ theo tỉ lệ ảnh.
 function strategies() {
@@ -72,6 +147,9 @@ async function scanImage(file) {
         const k = MAX_SOURCE_SIDE / longest;
         base.resize({ w: Math.round(base.width * k), h: Math.round(base.height * k) });
     }
+
+    const viaCpp = await scanImageCpp(base);
+    if (viaCpp) return viaCpp;
 
     const W = base.width, H = base.height;
     for (const s of strategies()) {
