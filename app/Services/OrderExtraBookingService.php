@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use App\Exceptions\CccdIntakeException;
 use Modules\Payment\App\Services\CccdScannerService;
 use Modules\Payment\Entities\Order;
 use Modules\Product\App\Models\Product;
@@ -101,6 +102,28 @@ class OrderExtraBookingService
             for ($guestIndex = $declaredMax + 1; $guestIndex <= $finalGuestCount; $guestIndex++) {
                 $files = $guestFiles[$guestIndex] ?? null;
 
+                // Khách mới gửi 1 ảnh mặt có mã QR (guests[{guest_index}][qr_image]) thay cho 2 mặt.
+                if (! empty($files['qr'])) {
+                    $intake = app(CccdIntakeService::class);
+
+                    try {
+                        $guestData = $intake->readQrForSave($files['qr'], "guests.{$guestIndex}.qr_image");
+                    } catch (CccdIntakeException $e) {
+                        $this->cleanupGuestUploads($guestCccdRows);
+
+                        return ['error' => "Khách thứ {$guestIndex}: " . $e->getMessage()];
+                    }
+
+                    $guestCccdRows[] = [
+                        'guest_index' => $guestIndex,
+                        'front'       => null,
+                        'back'        => null,
+                        'qr'          => $intake->storeQrImage($files['qr']),
+                        'data'        => $guestData,
+                    ];
+                    continue;
+                }
+
                 if (empty($files['front']) || empty($files['back'])) {
                     $this->cleanupGuestUploads($guestCccdRows);
 
@@ -182,6 +205,7 @@ class OrderExtraBookingService
                     'guest_index' => $row['guest_index'],
                     'cccd_front'  => $row['front'],
                     'cccd_back'   => $row['back'],
+                    'cccd_qr_image' => $row['qr'] ?? null,
                     'cccd_data'   => $row['data'],
                 ]);
             }
@@ -382,8 +406,8 @@ class OrderExtraBookingService
     private function cleanupGuestUploads(array $rows): void
     {
         foreach ($rows as $row) {
-            Storage::disk('public')->delete($row['front']);
-            Storage::disk('public')->delete($row['back']);
+            // Luồng 1 ảnh QR để trống front/back — chỉ xoá path có thật.
+            app(CccdIntakeService::class)->deleteImages([$row['front'], $row['back'], $row['qr'] ?? null]);
         }
     }
 

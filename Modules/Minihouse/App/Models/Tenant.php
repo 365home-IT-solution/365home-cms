@@ -48,7 +48,7 @@ class Tenant extends Model implements AuthenticatableContract, HasName
     protected $table = 'minihouse_tenants';
 
     protected $fillable = [
-        'fullname', 'phone', 'password', 'id_card_number', 'id_card_front', 'id_card_back',
+        'fullname', 'phone', 'password', 'id_card_number', 'id_card_front', 'id_card_back', 'id_card_qr_image',
         'id_card_issued_date', 'id_card_issued_place',
         'date_of_birth', 'gender', 'nationality', 'document_type', 'hometown', 'permanent_address',
         'occupation', 'workplace',

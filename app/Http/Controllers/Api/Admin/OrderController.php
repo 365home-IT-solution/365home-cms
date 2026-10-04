@@ -347,6 +347,10 @@ class OrderController extends Controller
             'guests'                 => 'sometimes|array',
             'guests.*.front'         => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'guests.*.back'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
+            // Tuỳ chọn 1 ảnh mặt có mã QR: cccd_qr_image thay cho cccd_front + cccd_back của khách
+            // chính, guests[{guest_index}][qr_image] thay cho front + back của khách đi cùng đó.
+            'cccd_qr_image'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
+            'guests.*.qr_image'      => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'guest_count'            => 'sometimes|integer|min:1',
             'type'                   => 'sometimes|in:slot,daily,monthly',
             'room_id'                => 'sometimes|string',
@@ -403,8 +407,27 @@ class OrderController extends Controller
         // ── CCCD khách chính (tùy chọn) ────────────────────────────────────────
         $replacedCccdPaths = [];
         $guestCccdChanged  = false;
+        $intake            = app(CccdIntakeService::class);
 
-        if ($request->hasFile('cccd_front') && $request->hasFile('cccd_back')) {
+        if ($request->hasFile('cccd_qr_image')) {
+            // Luồng 1 ảnh mặt có mã QR (tuỳ chọn) — thay toàn bộ ảnh CCCD khách chính của đơn bằng ảnh
+            // này. Cùng nguyên tắc 2 mặt bên dưới: không đọc được QR vẫn lưu ảnh, cccd_data để trống.
+            $newQr = $intake->storeQrImage($request->file('cccd_qr_image'));
+
+            $cccdData = null;
+            try {
+                $cccdData = $intake->scanQr($request->file('cccd_qr_image'));
+            } catch (\Throwable $e) {
+                Log::warning('Admin API: quét lại CCCD (ảnh QR) khách chính thất bại', ['order_code' => $order->order_code, 'error' => $e->getMessage()]);
+            }
+
+            array_push($replacedCccdPaths, $order->cccd_qr_image, $order->cccd_front, $order->cccd_back);
+
+            $updates['cccd_qr_image'] = $newQr;
+            $updates['cccd_front']    = null;
+            $updates['cccd_back']     = null;
+            $updates['cccd_data']     = $cccdData;
+        } elseif ($request->hasFile('cccd_front') && $request->hasFile('cccd_back')) {
             $newFront = $request->file('cccd_front')->store('cccd', 'public');
             $newBack  = $request->file('cccd_back')->store('cccd', 'public');
 
@@ -427,6 +450,30 @@ class OrderController extends Controller
 
         // ── CCCD khách đi cùng (tùy chọn) — chỉ ghi đè guest_index nào có gửi ảnh mới ──────────
         foreach ((array) $request->file('guests', []) as $guestIndex => $files) {
+            // Khách đi cùng gửi 1 ảnh mặt có mã QR thay cho 2 mặt.
+            if (! empty($files['qr_image'])) {
+                $qrPath = $intake->storeQrImage($files['qr_image']);
+
+                $guestData = null;
+                try {
+                    $guestData = $intake->scanQr($files['qr_image']);
+                } catch (\Throwable $e) {
+                    Log::warning('Admin API: quét lại CCCD (ảnh QR) khách đi cùng thất bại', ['guest_index' => $guestIndex, 'error' => $e->getMessage()]);
+                }
+
+                $existing = $order->guestCccds->firstWhere('guest_index', (int) $guestIndex);
+                if ($existing) {
+                    array_push($replacedCccdPaths, $existing->cccd_qr_image, $existing->cccd_front, $existing->cccd_back);
+                }
+
+                $order->guestCccds()->updateOrCreate(
+                    ['guest_index' => (int) $guestIndex],
+                    ['cccd_qr_image' => $qrPath, 'cccd_front' => null, 'cccd_back' => null, 'cccd_data' => $guestData]
+                );
+                $guestCccdChanged = true;
+                continue;
+            }
+
             $front = $files['front'] ?? null;
             $back  = $files['back']  ?? null;
             if (! $front || ! $back) {
@@ -714,11 +761,13 @@ class OrderController extends Controller
                 'surcharge' => (int) $order->surcharge,
                 'cccd_front' => $order->cccd_front ? Storage::disk('public')->url($order->cccd_front) : null,
                 'cccd_back'  => $order->cccd_back  ? Storage::disk('public')->url($order->cccd_back)  : null,
+                'cccd_qr_image' => $order->cccd_qr_image ? Storage::disk('public')->url($order->cccd_qr_image) : null,
                 'cccd_data'  => $order->cccd_data,
                 'guests'     => $order->guestCccds->map(fn ($g) => [
                     'guest_index' => $g->guest_index,
-                    'cccd_front'  => Storage::disk('public')->url($g->cccd_front),
-                    'cccd_back'   => Storage::disk('public')->url($g->cccd_back),
+                    'cccd_front'  => $g->cccd_front ? Storage::disk('public')->url($g->cccd_front) : null,
+                    'cccd_back'   => $g->cccd_back  ? Storage::disk('public')->url($g->cccd_back)  : null,
+                    'cccd_qr_image' => $g->cccd_qr_image ? Storage::disk('public')->url($g->cccd_qr_image) : null,
                     'cccd_data'   => $g->cccd_data,
                 ])->values(),
                 'deposit' => $order->deposit_percent !== null ? [

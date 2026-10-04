@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Api\Admin\Minihouse;
 use App\Http\Controllers\Api\Admin\Minihouse\Concerns\ScopesToMinihouseBuilding;
 use App\Http\Controllers\Controller;
 use App\Services\CccdIntakeService;
-use Carbon\Carbon;
+use App\Support\CccdIdentity;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Minihouse\App\Support\CccdScanMapper;
@@ -28,6 +28,9 @@ class CccdController extends Controller
      * Không đọc được QR KHÔNG coi là lỗi request — trả 200 scanned=false kèm warnings để nhân viên
      * nhập tay. Quyền: tạo hoặc sửa khách thuê.
      *
+     * Tuổi KHÔNG chặn (khách thuê có thể là trẻ ở cùng cha mẹ) — trả age/min_age/under_age để FE
+     * tự cảnh báo, mốc tham khảo CccdScanMapper::TENANT_MIN_AGE.
+     *
      * Body (multipart/form-data):
      *  - cccd_qr_image : file ảnh mặt có mã QR (bắt buộc) — JPG/PNG/WEBP, tối đa 10MB
      */
@@ -39,27 +42,16 @@ class CccdController extends Controller
 
         ['data' => $data, 'warnings' => $warnings] = $intake->scanQrForAdmin($request);
 
+        $age = CccdIdentity::ageOn($data);
+
         return response()->json([
             'scanned'       => $data !== null,
             'data'          => $data,
             'warnings'      => $warnings,
-            'tenant_fields' => $data ? $this->tenantFields($data) : null,
+            'tenant_fields' => $data ? CccdScanMapper::toTenantApiFields($data) : null,
+            'age'           => $age,
+            'min_age'       => CccdScanMapper::TENANT_MIN_AGE,
+            'under_age'     => $age !== null && $age < CccdScanMapper::TENANT_MIN_AGE,
         ]);
-    }
-
-    // Ngày trong QR là dd/mm/yyyy — API khách thuê nhận Y-m-d. Ngày không đúng định dạng thì bỏ
-    // qua field đó (không để CccdScanMapper ném lỗi parse).
-    private function tenantFields(array $data): array
-    {
-        $date = fn (mixed $value): ?string => is_string($value) && preg_match('#^\d{2}/\d{2}/\d{4}$#', $value)
-            ? Carbon::createFromFormat('!d/m/Y', $value)->toDateString()
-            : null;
-
-        $fields = CccdScanMapper::mapToTenantFields(array_diff_key($data, ['dob' => true]));
-
-        return array_filter($fields + [
-            'date_of_birth'       => $date($data['dob'] ?? null),
-            'id_card_issued_date' => $date($data['issued_date'] ?? null),
-        ], fn ($value) => filled($value));
     }
 }

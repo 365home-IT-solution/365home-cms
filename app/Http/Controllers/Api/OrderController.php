@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Api;
 
+use App\Exceptions\CccdIntakeException;
 use App\Services\CccdDeclarationService;
+use App\Services\CccdIntakeService;
 use App\Services\PromotionCalculator;
 use App\Support\MediaThumbnailUrls;
 use Illuminate\Http\JsonResponse;
@@ -114,6 +116,8 @@ class OrderController extends Controller
             'guests'                  => 'sometimes|array',
             'guests.*.front'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
             'guests.*.back'           => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            // guests[{index}][qr_image]: 1 ảnh mặt có mã QR thay cho front + back của khách đó.
+            'guests.*.qr_image'       => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
 
         $updates            = [];
@@ -140,6 +144,31 @@ class OrderController extends Controller
                 for ($guestIndex = $declaredMax + 1; $guestIndex <= $newGuestCount; $guestIndex++) {
                     $frontKey = "guests.{$guestIndex}.front";
                     $backKey  = "guests.{$guestIndex}.back";
+                    $qrKey    = "guests.{$guestIndex}.qr_image";
+
+                    // Khách mới gửi 1 ảnh mặt có mã QR thay cho 2 mặt.
+                    if ($request->hasFile($qrKey)) {
+                        $intake = app(CccdIntakeService::class);
+
+                        try {
+                            $guestData = $intake->readQrForSave($request->file($qrKey), $qrKey);
+                        } catch (CccdIntakeException $e) {
+                            foreach ($newGuestRows as $row) {
+                                $intake->deleteImages([$row['front'], $row['back'], $row['qr'] ?? null]);
+                            }
+
+                            return $e->render();
+                        }
+
+                        $newGuestRows[] = [
+                            'guest_index' => $guestIndex,
+                            'front'       => null,
+                            'back'        => null,
+                            'qr'          => $intake->storeQrImage($request->file($qrKey)),
+                            'data'        => $guestData,
+                        ];
+                        continue;
+                    }
 
                     if (! $request->hasFile($frontKey) || ! $request->hasFile($backKey)) {
                         return response()->json([
@@ -157,8 +186,7 @@ class OrderController extends Controller
                         Storage::disk('public')->delete($guestFront);
                         Storage::disk('public')->delete($guestBack);
                         foreach ($newGuestRows as $row) {
-                            Storage::disk('public')->delete($row['front']);
-                            Storage::disk('public')->delete($row['back']);
+                            app(CccdIntakeService::class)->deleteImages([$row['front'], $row['back'], $row['qr'] ?? null]);
                         }
 
                         return response()->json([
@@ -179,6 +207,7 @@ class OrderController extends Controller
                         'guest_index' => $row['guest_index'],
                         'cccd_front'  => $row['front'],
                         'cccd_back'   => $row['back'],
+                        'cccd_qr_image' => $row['qr'] ?? null,
                         'cccd_data'   => $row['data'],
                     ]);
                 }
@@ -785,6 +814,7 @@ class OrderController extends Controller
             'guests'                             => 'sometimes|array',
             'guests.*.front'                     => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
             'guests.*.back'                      => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'guests.*.qr_image'                  => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
 
         $result = $service->addExtra(
@@ -815,6 +845,7 @@ class OrderController extends Controller
             $guestFiles[(int) $guestIndex] = [
                 'front' => $files['front'] ?? null,
                 'back'  => $files['back'] ?? null,
+                'qr'    => $files['qr_image'] ?? null,
             ];
         }
 

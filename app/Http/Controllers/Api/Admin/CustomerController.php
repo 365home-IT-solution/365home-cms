@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\User;
+use App\Services\CccdIntakeService;
 use App\Services\MembershipService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -250,6 +251,8 @@ class CustomerController extends Controller
             'membership_tier_id' => 'nullable|integer|exists:membership_tiers,id',
             'cccd_front'         => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'cccd_back'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
+            // Tuỳ chọn: 1 ảnh mặt có mã QR thay cho cccd_front + cccd_back.
+            'cccd_qr_image'      => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
         ];
     }
 
@@ -262,7 +265,7 @@ class CustomerController extends Controller
 
     private function mainFields(array $data, bool $isUpdate = false): array
     {
-        $fields = collect($data)->except(['cccd_front', 'cccd_back'])->toArray();
+        $fields = collect($data)->except(['cccd_front', 'cccd_back', 'cccd_qr_image'])->toArray();
 
         if (isset($fields['date_of_birth'])) {
             $fields['date_of_birth'] = Carbon::createFromFormat('d-m-Y', $fields['date_of_birth'])->format('Y-m-d');
@@ -279,6 +282,29 @@ class CustomerController extends Controller
     // quét lỗi không chặn request (lễ tân có thể xác minh/sửa tay cccd_data sau).
     private function handleCccd(Request $request, Customer $customer): void
     {
+        // Luồng 1 ảnh mặt có mã QR (tuỳ chọn) — cùng nguyên tắc: quét lỗi không chặn request. Ảnh
+        // cccd_front/back đang có của hồ sơ giữ nguyên.
+        if ($request->hasFile('cccd_qr_image')) {
+            $intake = app(CccdIntakeService::class);
+            $oldQr  = $customer->cccd_qr_image;
+            $qr     = $intake->storeQrImage($request->file('cccd_qr_image'));
+
+            $data = null;
+            try {
+                $data = $intake->scanQr($request->file('cccd_qr_image'));
+            } catch (\Throwable $e) {
+                Log::warning('Admin API: quét CCCD (ảnh QR) khách hàng thất bại', [
+                    'customer_id' => $customer->id,
+                    'error'       => $e->getMessage(),
+                ]);
+            }
+
+            $customer->update(['cccd_qr_image' => $qr, 'cccd_data' => $data]);
+            $intake->deleteUnreferencedImages([$oldQr]);
+
+            return;
+        }
+
         if (! $request->hasFile('cccd_front') || ! $request->hasFile('cccd_back')) {
             return;
         }
@@ -309,6 +335,7 @@ class CustomerController extends Controller
 
         $data['cccd_front_url'] = $customer->cccd_front ? Storage::disk('public')->url($customer->cccd_front) : null;
         $data['cccd_back_url']  = $customer->cccd_back  ? Storage::disk('public')->url($customer->cccd_back)  : null;
+        $data['cccd_qr_image_url'] = $customer->cccd_qr_image ? Storage::disk('public')->url($customer->cccd_qr_image) : null;
 
         return $data;
     }

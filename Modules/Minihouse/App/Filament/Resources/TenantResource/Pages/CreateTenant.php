@@ -74,7 +74,7 @@ class CreateTenant extends CreateRecord
                     // vì các field required như "Họ tên" chưa nhập lúc mới tải ảnh CCCD lên).
                     $data = $this->form->getRawState();
 
-                    $scan = CccdScanMapper::scan($data['id_card_front'] ?? null, $data['id_card_back'] ?? null);
+                    $scan = CccdScanMapper::scan($data['id_card_front'] ?? null, $data['id_card_back'] ?? null, $data['id_card_qr_image'] ?? null);
 
                     if (! $scan) {
                         Notification::make()

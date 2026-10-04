@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Modules\Category\Entities\Category;
+use App\Exceptions\CccdIntakeException;
+use App\Services\CccdIntakeService;
 use Modules\Payment\App\Services\CccdScannerService;
 use Illuminate\Validation\ValidationException;
 use Modules\Payment\Entities\Order;
@@ -49,8 +51,11 @@ class GuestBookingController extends Controller
             'services'                => 'sometimes|nullable|array',
             'services.*.service_id'   => 'required_with:services|integer',
             'services.*.quantity'     => 'required_with:services|integer|min:1',
-            'cccd_front'              => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
-            'cccd_back'               => 'required|file|mimes:jpg,jpeg,png,webp|max:5120',
+            // Gửi cccd_qr_image (1 ảnh mặt có mã QR) thì KHÔNG cần cccd_front + cccd_back; không gửi thì
+            // 2 mặt vẫn bắt buộc y như trước.
+            'cccd_qr_image'           => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'cccd_front'              => ($request->hasFile('cccd_qr_image') ? 'sometimes|nullable' : 'required') . '|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'cccd_back'               => ($request->hasFile('cccd_qr_image') ? 'sometimes|nullable' : 'required') . '|file|mimes:jpg,jpeg,png,webp|max:5120',
             'device_token'            => 'sometimes|nullable|string|max:500',
             // CCCD người đi cùng (khung giờ qua đêm) — khách thứ 2 trở đi, key theo VỊ TRÍ 0-based
             // (guests[0][front]/guests[0][back] = người đi cùng đầu tiên, guests[1] = người thứ
@@ -61,6 +66,8 @@ class GuestBookingController extends Controller
             'guests'                  => 'sometimes|array',
             'guests.*.front'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
             'guests.*.back'           => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            // guests[i][qr_image] thay cho guests[i][front] + guests[i][back] của người đi cùng đó.
+            'guests.*.qr_image'       => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
         ];
 
         if ($request->input('type') === 'slot') {
@@ -90,26 +97,43 @@ class GuestBookingController extends Controller
         $buyerPhone = trim($request->input('buyer_phone'));
 
         // ── CCCD upload + QR scan (bắt buộc cho guest) ───────────────────────
-        $cccdFront = $request->file('cccd_front')->store('cccd', 'public');
-        $cccdBack  = $request->file('cccd_back')->store('cccd', 'public');
+        $intake    = app(CccdIntakeService::class);
+        $cccdQr    = null;
+        $cccdFront = null;
+        $cccdBack  = null;
 
-        $tempOrder = new Order(['cccd_front' => $cccdFront, 'cccd_back' => $cccdBack]);
-        $cccdData  = app(CccdScannerService::class)->scanOrder($tempOrder);
+        if ($request->hasFile('cccd_qr_image')) {
+            // Luồng 1 ảnh mặt có mã QR (tuỳ chọn) — quét trên file tạm, hợp lệ mới lưu ảnh. Lỗi ném
+            // CccdIntakeException → 422 {message, code, field}.
+            $cccdData = $intake->readQrForSave($request->file('cccd_qr_image'), 'cccd_qr_image');
 
-        if (! $cccdData) {
-            Storage::disk('public')->delete($cccdFront);
-            Storage::disk('public')->delete($cccdBack);
+            if ($ageError = $this->validateCccdAge($cccdData)) {
+                return $ageError;
+            }
 
-            return response()->json([
-                'message' => 'Không đọc được QR trên ảnh CCCD. ' . \Modules\Payment\App\Services\CccdScannerService::failureHint(),
-                    'reason'  => \Modules\Payment\App\Services\CccdScannerService::lastFailure(),
-            ], 422);
-        }
+            $cccdQr = $intake->storeQrImage($request->file('cccd_qr_image'));
+        } else {
+            $cccdFront = $request->file('cccd_front')->store('cccd', 'public');
+            $cccdBack  = $request->file('cccd_back')->store('cccd', 'public');
 
-        if ($ageError = $this->validateCccdAge($cccdData)) {
-            Storage::disk('public')->delete($cccdFront);
-            Storage::disk('public')->delete($cccdBack);
-            return $ageError;
+            $tempOrder = new Order(['cccd_front' => $cccdFront, 'cccd_back' => $cccdBack]);
+            $cccdData  = app(CccdScannerService::class)->scanOrder($tempOrder);
+
+            if (! $cccdData) {
+                Storage::disk('public')->delete($cccdFront);
+                Storage::disk('public')->delete($cccdBack);
+
+                return response()->json([
+                    'message' => 'Không đọc được QR trên ảnh CCCD. ' . \Modules\Payment\App\Services\CccdScannerService::failureHint(),
+                        'reason'  => \Modules\Payment\App\Services\CccdScannerService::lastFailure(),
+                ], 422);
+            }
+
+            if ($ageError = $this->validateCccdAge($cccdData)) {
+                Storage::disk('public')->delete($cccdFront);
+                Storage::disk('public')->delete($cccdBack);
+                return $ageError;
+            }
         }
 
         // ── 2. Load phòng ─────────────────────────────────────────────────────
@@ -156,6 +180,27 @@ class GuestBookingController extends Controller
                 $guestIndex = $position + 2; // số thứ tự khách (2, 3, 4...) — chỉ dùng để lưu DB/hiện thông báo
                 $frontKey   = "guests.{$position}.front";
                 $backKey    = "guests.{$position}.back";
+                $qrKey      = "guests.{$position}.qr_image";
+
+                // Người đi cùng gửi 1 ảnh mặt có mã QR thay cho 2 mặt.
+                if ($request->hasFile($qrKey)) {
+                    try {
+                        $guestData = $intake->readQrForSave($request->file($qrKey), $qrKey);
+                    } catch (CccdIntakeException $e) {
+                        $this->cleanupUploadedFiles($cccdFront, $cccdBack, $guestCccdRows, $cccdQr);
+
+                        return $e->render();
+                    }
+
+                    $guestCccdRows[] = [
+                        'guest_index' => $guestIndex,
+                        'front'       => null,
+                        'back'        => null,
+                        'qr'          => $intake->storeQrImage($request->file($qrKey)),
+                        'data'        => $guestData,
+                    ];
+                    continue;
+                }
 
                 if (! $request->hasFile($frontKey) || ! $request->hasFile($backKey)) {
                     Log::warning('GuestBooking: thiếu CCCD người đi cùng — đối chiếu key thực nhận', [
@@ -168,7 +213,7 @@ class GuestBookingController extends Controller
                         'guests_raw_input'   => $request->input('guests'),
                     ]);
 
-                    $this->cleanupUploadedFiles($cccdFront, $cccdBack, $guestCccdRows);
+                    $this->cleanupUploadedFiles($cccdFront, $cccdBack, $guestCccdRows, $cccdQr);
 
                     return response()->json([
                         'message' => "Khung giờ qua đêm cần khai báo lưu trú cho khách thứ {$guestIndex} — vui lòng gửi kèm CCCD (mặt trước/sau) của khách này.",
@@ -184,7 +229,7 @@ class GuestBookingController extends Controller
                 if (! $guestData) {
                     Storage::disk('public')->delete($guestFront);
                     Storage::disk('public')->delete($guestBack);
-                    $this->cleanupUploadedFiles($cccdFront, $cccdBack, $guestCccdRows);
+                    $this->cleanupUploadedFiles($cccdFront, $cccdBack, $guestCccdRows, $cccdQr);
 
                     return response()->json([
                         'message' => "Không đọc được QR trên ảnh CCCD của khách thứ {$guestIndex}. " . \Modules\Payment\App\Services\CccdScannerService::failureHint(),
@@ -359,6 +404,7 @@ class GuestBookingController extends Controller
                 'buyer_phone'     => $buyerPhone,
                 'cccd_front'      => $cccdFront,
                 'cccd_back'       => $cccdBack,
+                'cccd_qr_image'   => $cccdQr,
                 'cccd_data'       => $cccdData,
                 'payment_method'  => $paymentMethod,
                 'status'          => 'pending',
@@ -381,6 +427,7 @@ class GuestBookingController extends Controller
                     'guest_index' => $guestRow['guest_index'],
                     'cccd_front'  => $guestRow['front'],
                     'cccd_back'   => $guestRow['back'],
+                    'cccd_qr_image' => $guestRow['qr'] ?? null,
                     'cccd_data'   => $guestRow['data'],
                 ]);
             }
@@ -442,11 +489,13 @@ class GuestBookingController extends Controller
                 'buyer_phone'    => $order->buyer_phone,
                 'cccd_front'     => $order->cccd_front ? Storage::disk('public')->url($order->cccd_front) : null,
                 'cccd_back'      => $order->cccd_back  ? Storage::disk('public')->url($order->cccd_back)  : null,
+                'cccd_qr_image'  => $order->cccd_qr_image ? Storage::disk('public')->url($order->cccd_qr_image) : null,
                 'cccd_data'      => $order->cccd_data,
                 'guests'         => $order->guestCccds->map(fn ($g) => [
                     'guest_index' => $g->guest_index,
-                    'cccd_front'  => Storage::disk('public')->url($g->cccd_front),
-                    'cccd_back'   => Storage::disk('public')->url($g->cccd_back),
+                    'cccd_front'  => $g->cccd_front ? Storage::disk('public')->url($g->cccd_front) : null,
+                    'cccd_back'   => $g->cccd_back  ? Storage::disk('public')->url($g->cccd_back)  : null,
+                    'cccd_qr_image' => $g->cccd_qr_image ? Storage::disk('public')->url($g->cccd_qr_image) : null,
                     'cccd_data'   => $g->cccd_data,
                 ])->values(),
             ],
@@ -489,11 +538,14 @@ class GuestBookingController extends Controller
             'note_for_admin'          => 'sometimes|nullable|string|max:500',
             'cccd_front'              => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
             'cccd_back'               => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            // 1 ảnh mặt có mã QR thay cho cccd_front + cccd_back (tuỳ chọn).
+            'cccd_qr_image'           => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
             // CCCD khách thứ 2 trở đi, gửi khi tăng guest_count cho đơn có khung giờ qua đêm —
             // cùng key guests[{index}][front/back] như lúc tạo đơn.
             'guests'                  => 'sometimes|array',
             'guests.*.front'          => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
             'guests.*.back'           => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'guests.*.qr_image'       => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
             'services'                => 'sometimes|array',
             'services.*.service_id'   => 'required_with:services|integer',
             'services.*.quantity'     => 'required_with:services|integer|min:1',
@@ -532,7 +584,25 @@ class GuestBookingController extends Controller
         }
 
         // ── CCCD upload + QR scan ─────────────────────────────────────────────
-        if ($request->hasFile('cccd_front') || $request->hasFile('cccd_back')) {
+        $intake             = app(CccdIntakeService::class);
+        $replacedBookerCccd = [];
+
+        if ($request->hasFile('cccd_qr_image')) {
+            // Luồng 1 ảnh mặt có mã QR (tuỳ chọn) — thay toàn bộ ảnh CCCD người đặt của đơn bằng ảnh
+            // này. Lỗi ném CccdIntakeException → 422 {message, code, field}, chưa lưu gì.
+            $cccdData = $intake->readQrForSave($request->file('cccd_qr_image'), 'cccd_qr_image');
+
+            if ($ageError = $this->validateCccdAge($cccdData)) {
+                return $ageError;
+            }
+
+            $replacedBookerCccd = [$order->cccd_qr_image, $order->cccd_front, $order->cccd_back];
+
+            $updates['cccd_qr_image'] = $intake->storeQrImage($request->file('cccd_qr_image'));
+            $updates['cccd_front']    = null;
+            $updates['cccd_back']     = null;
+            $updates['cccd_data']     = $cccdData;
+        } elseif ($request->hasFile('cccd_front') || $request->hasFile('cccd_back')) {
             $newFront = null;
             $newBack  = null;
 
@@ -600,6 +670,29 @@ class GuestBookingController extends Controller
                     $guestIndex = $declaredMax + 1 + $position;
                     $frontKey   = "guests.{$position}.front";
                     $backKey    = "guests.{$position}.back";
+                    $qrKey      = "guests.{$position}.qr_image";
+
+                    // Khách mới gửi 1 ảnh mặt có mã QR thay cho 2 mặt.
+                    if ($request->hasFile($qrKey)) {
+                        try {
+                            $guestData = $intake->readQrForSave($request->file($qrKey), $qrKey);
+                        } catch (CccdIntakeException $e) {
+                            foreach ($newGuestRows as $row) {
+                                $intake->deleteImages([$row['front'], $row['back'], $row['qr'] ?? null]);
+                            }
+
+                            return $e->render();
+                        }
+
+                        $newGuestRows[] = [
+                            'guest_index' => $guestIndex,
+                            'front'       => null,
+                            'back'        => null,
+                            'qr'          => $intake->storeQrImage($request->file($qrKey)),
+                            'data'        => $guestData,
+                        ];
+                        continue;
+                    }
 
                     if (! $request->hasFile($frontKey) || ! $request->hasFile($backKey)) {
                         Log::warning('GuestBooking update: thiếu CCCD người đi cùng — đối chiếu key thực nhận', [
@@ -627,8 +720,7 @@ class GuestBookingController extends Controller
                         Storage::disk('public')->delete($guestFront);
                         Storage::disk('public')->delete($guestBack);
                         foreach ($newGuestRows as $row) {
-                            Storage::disk('public')->delete($row['front']);
-                            Storage::disk('public')->delete($row['back']);
+                            $intake->deleteImages([$row['front'], $row['back'], $row['qr'] ?? null]);
                         }
 
                         return response()->json([
@@ -649,6 +741,7 @@ class GuestBookingController extends Controller
                         'guest_index' => $row['guest_index'],
                         'cccd_front'  => $row['front'],
                         'cccd_back'   => $row['back'],
+                        'cccd_qr_image' => $row['qr'] ?? null,
                         'cccd_data'   => $row['data'],
                     ]);
                 }
@@ -725,6 +818,11 @@ class GuestBookingController extends Controller
         if (! empty($updates)) {
             $order->update($updates);
             $order->refresh();
+        }
+
+        // Đổi CCCD người đặt bằng ảnh QR: ảnh cũ của đơn chỉ xoá SAU khi đơn đã trỏ sang ảnh mới.
+        if ($replacedBookerCccd) {
+            $intake->deleteUnreferencedImages($replacedBookerCccd);
         }
 
         // Cả khi đổi CCCD người đặt LẪN khi thêm người đi cùng mới — trước đây chỉ chạy khi đổi
@@ -1055,6 +1153,7 @@ class GuestBookingController extends Controller
             'guests'                              => 'sometimes|array',
             'guests.*.front'                      => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
             'guests.*.back'                       => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+            'guests.*.qr_image'                   => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
 
         $order = Order::with(['items.product.additionalServices', 'services'])
@@ -1095,6 +1194,7 @@ class GuestBookingController extends Controller
             $guestFiles[(int) $guestIndex] = [
                 'front' => $files['front'] ?? null,
                 'back'  => $files['back'] ?? null,
+                'qr'    => $files['qr_image'] ?? null,
             ];
         }
 
@@ -1928,11 +2028,13 @@ class GuestBookingController extends Controller
                 'note_for_admin' => $order->note_for_admin,
                 'cccd_front'     => $order->cccd_front ? Storage::disk('public')->url($order->cccd_front) : null,
                 'cccd_back'      => $order->cccd_back  ? Storage::disk('public')->url($order->cccd_back)  : null,
+                'cccd_qr_image'  => $order->cccd_qr_image ? Storage::disk('public')->url($order->cccd_qr_image) : null,
                 'cccd_data'      => $order->cccd_data,
                 'guests'         => $order->guestCccds->map(fn ($g) => [
                     'guest_index' => $g->guest_index,
-                    'cccd_front'  => Storage::disk('public')->url($g->cccd_front),
-                    'cccd_back'   => Storage::disk('public')->url($g->cccd_back),
+                    'cccd_front'  => $g->cccd_front ? Storage::disk('public')->url($g->cccd_front) : null,
+                    'cccd_back'   => $g->cccd_back  ? Storage::disk('public')->url($g->cccd_back)  : null,
+                    'cccd_qr_image' => $g->cccd_qr_image ? Storage::disk('public')->url($g->cccd_qr_image) : null,
                     'cccd_data'   => $g->cccd_data,
                 ])->values(),
             ],
@@ -2173,15 +2275,16 @@ class GuestBookingController extends Controller
         return $paths;
     }
 
-    private function cleanupUploadedFiles(string $mainFront, string $mainBack, array $guestCccdRows): void
+    private function cleanupUploadedFiles(?string $mainFront, ?string $mainBack, array $guestCccdRows, ?string $mainQr = null): void
     {
-        Storage::disk('public')->delete($mainFront);
-        Storage::disk('public')->delete($mainBack);
+        $paths = [$mainFront, $mainBack, $mainQr];
 
         foreach ($guestCccdRows as $row) {
-            Storage::disk('public')->delete($row['front']);
-            Storage::disk('public')->delete($row['back']);
+            array_push($paths, $row['front'], $row['back'], $row['qr'] ?? null);
         }
+
+        // Luồng 1 ảnh QR để trống front/back — chỉ xoá path có thật.
+        app(CccdIntakeService::class)->deleteImages($paths);
     }
 
     private function validateCccdAge(array $cccdData): ?JsonResponse

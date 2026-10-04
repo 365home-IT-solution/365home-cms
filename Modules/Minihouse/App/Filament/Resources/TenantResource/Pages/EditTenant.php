@@ -35,7 +35,7 @@ class EditTenant extends EditRecord
                 ->label('Quét CCCD')
                 ->icon('heroicon-o-qr-code')
                 ->color('gray')
-                ->visible(fn () => (bool) ($this->record->id_card_front || $this->record->id_card_back))
+                ->visible(fn () => (bool) ($this->record->id_card_front || $this->record->id_card_back || $this->record->id_card_qr_image))
                 ->action(function (): void {
                     $record  = $this->record->fresh();
                     $updated = app(TenantObserver::class)->scanAndFill($record, overwrite: true);

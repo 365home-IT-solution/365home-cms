@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use App\Services\CccdIntakeService;
 use Modules\Payment\App\Services\CccdScannerService;
 
 /**
@@ -69,6 +70,8 @@ class CustomerCompanionController extends Controller
             'companions'                => 'required|array|min:1',
             'companions.*.cccd_front'   => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'companions.*.cccd_back'    => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
+            // Chế độ ẢNH QR (tuỳ chọn): companions[{index}][qr_image] — 1 ảnh mặt có mã QR thay cho 2 mặt.
+            'companions.*.qr_image'     => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'companions.*.full_name'    => 'sometimes|nullable|string|max:255',
             'companions.*.cccd'         => 'sometimes|nullable|string|max:20',
             'companions.*.dob'          => 'sometimes|nullable|string|max:20',
@@ -87,6 +90,41 @@ class CustomerCompanionController extends Controller
                 foreach (array_keys($data['companions']) as $index) {
                     $hasFront = $request->hasFile("companions.{$index}.cccd_front");
                     $hasBack  = $request->hasFile("companions.{$index}.cccd_back");
+
+                    if ($request->hasFile("companions.{$index}.qr_image")) {
+                        $intake = app(CccdIntakeService::class);
+                        $qrFile = $request->file("companions.{$index}.qr_image");
+                        $qr     = $intake->storeQrImage($qrFile);
+                        $uploadedPaths[] = $qr;
+
+                        $cccdData = null;
+                        try {
+                            $cccdData = $intake->scanQr($qrFile);
+                        } catch (\Throwable $e) {
+                            Log::warning('Admin API: quét CCCD (ảnh QR) khách đi cùng (companion) thất bại', [
+                                'customer_id' => $customer->id,
+                                'index'       => $index,
+                                'error'       => $e->getMessage(),
+                            ]);
+                        }
+
+                        $this->assertNoCccdDuplicate($customer, $cccdData, null, $seenCccds, $index);
+
+                        $rowCccd = trim((string) ($cccdData['cccd'] ?? ''));
+                        if ($rowCccd !== '') {
+                            $seenCccds[$index] = $rowCccd;
+                        }
+
+                        $created[] = $customer->companions()->create([
+                            'full_name'     => $cccdData['full_name'] ?? null,
+                            'cccd_front'    => null,
+                            'cccd_back'     => null,
+                            'cccd_qr_image' => $qr,
+                            'cccd_data'     => $cccdData,
+                        ]);
+
+                        continue;
+                    }
 
                     if ($hasFront && $hasBack) {
                         $front = $request->file("companions.{$index}.cccd_front")->store('cccd', 'public');
@@ -198,11 +236,43 @@ class CustomerCompanionController extends Controller
         $request->validate([
             'cccd_front' => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
             'cccd_back'  => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
+            // Tuỳ chọn: 1 ảnh mặt có mã QR thay cho 2 mặt.
+            'cccd_qr_image' => 'sometimes|nullable|file|mimes:jpg,jpeg,png,webp|max:10240',
         ]);
 
-        $fields = [];
+        $fields     = [];
+        $replacedQr = null;
 
-        if ($request->hasFile('cccd_front') && $request->hasFile('cccd_back')) {
+        if ($request->hasFile('cccd_qr_image')) {
+            $intake = app(CccdIntakeService::class);
+            $qr     = $intake->storeQrImage($request->file('cccd_qr_image'));
+
+            $cccdData = null;
+            try {
+                $cccdData = $intake->scanQr($request->file('cccd_qr_image'));
+            } catch (\Throwable $e) {
+                Log::warning('Admin API: quét lại CCCD (ảnh QR) khách đi cùng (companion) thất bại', [
+                    'companion_id' => $companion->id,
+                    'error'        => $e->getMessage(),
+                ]);
+            }
+
+            try {
+                $this->assertNoCccdDuplicate($customer, $cccdData, $companion->id);
+            } catch (\Throwable $e) {
+                $intake->deleteImages([$qr]);
+                throw $e;
+            }
+
+            $replacedQr = $companion->cccd_qr_image;
+
+            $fields['cccd_qr_image'] = $qr;
+            $fields['cccd_data']     = $cccdData;
+
+            if (! empty($cccdData['full_name'])) {
+                $fields['full_name'] = $cccdData['full_name'];
+            }
+        } elseif ($request->hasFile('cccd_front') && $request->hasFile('cccd_back')) {
             $front = $request->file('cccd_front')->store('cccd', 'public');
             $back  = $request->file('cccd_back')->store('cccd', 'public');
 
@@ -231,6 +301,11 @@ class CustomerCompanionController extends Controller
         }
 
         $companion->update($fields);
+
+        // Ảnh QR cũ bị thay: chỉ xoá khi không còn đơn/hồ sơ nào dùng.
+        if ($replacedQr) {
+            app(CccdIntakeService::class)->deleteUnreferencedImages([$replacedQr]);
+        }
 
         return response()->json(['companion' => $this->formatCompanion($companion->fresh())]);
     }
@@ -407,6 +482,7 @@ class CustomerCompanionController extends Controller
 
         $data['cccd_front_url'] = $companion->cccd_front ? Storage::disk('public')->url($companion->cccd_front) : null;
         $data['cccd_back_url']  = $companion->cccd_back  ? Storage::disk('public')->url($companion->cccd_back)  : null;
+        $data['cccd_qr_image_url'] = $companion->cccd_qr_image ? Storage::disk('public')->url($companion->cccd_qr_image) : null;
         // Số lần companion này được gắn vào 1 đơn — chỉ có giá trị khi index() eager-load bằng
         // withCount('orderGuestCccds'); các nơi khác gọi formatCompanion() (store/update) không load
         // nên mặc định 0 (companion mới/vừa sửa chưa gắn đơn nào).

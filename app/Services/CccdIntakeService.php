@@ -143,6 +143,20 @@ class CccdIntakeService
     }
 
     /**
+     * Như readStrict() nhưng KHÔNG tính lượt quét — dùng trong các API LƯU (đặt phòng, sửa đơn, hồ
+     * sơ) khi app gửi cccd_qr_image thay cho cccd_front + cccd_back: các API đó vốn không giới hạn
+     * lượt quét ở luồng 2 mặt, và không được để đơn hỏng vì khách đã quét thử nhiều lần trước đó.
+     */
+    public function readQrForSave(UploadedFile $file, string $field): array
+    {
+        if ($error = $this->imageError($file)) {
+            throw new E($error, E::IMAGE_INVALID, $field);
+        }
+
+        return $this->assertValid($this->scanQr($file), $field);
+    }
+
+    /**
      * App cũ gửi 2 ảnh trước/sau: tìm ảnh chứa QR (thẻ cũ QR ở mặt trước, thẻ căn cước 2024 ở
      * mặt sau) → ảnh đó được lưu làm cccd_qr_image.
      *

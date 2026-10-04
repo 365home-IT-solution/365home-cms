@@ -37,10 +37,26 @@ class CccdScanMapper
     // nhận không quét được, còn hơn để request treo thêm tới 18s nữa.
     private const MAX_SECONDS_BEFORE_SKIPPING_BACK_SCAN = 10;
 
-    public static function scan(mixed $front, mixed $back): ?array
+    // Mốc tuổi THAM KHẢO cho khách thuê — KHÔNG dùng để chặn. Luật Căn cước 2023 (hiệu lực
+    // 01/07/2024): công dân từ đủ 14 tuổi bắt buộc làm thẻ căn cước, dưới 14 tuổi cấp theo nhu cầu —
+    // nên từ 14 tuổi trở lên mới chắc chắn có thẻ riêng để khai báo. Khác Home (đặt phòng ngắn hạn,
+    // chặn dưới 16): khách thuê có thể là trẻ ở cùng cha mẹ nên không ràng buộc tuổi.
+    public const TENANT_MIN_AGE = 14;
+
+    // $qr: ảnh mặt có mã QR (id_card_qr_image, luồng 1 ảnh) — quét CHỈ mã QR trên ảnh này trước
+    // (nhanh, đúng nguồn); không có/không đọc được mới tới mặt trước/sau như cũ.
+    public static function scan(mixed $front, mixed $back, mixed $qr = null): ?array
     {
         $front = self::resolveScanPath($front);
         $back  = self::resolveScanPath($back);
+        $qr    = self::resolveScanPath($qr);
+
+        if ($qr) {
+            $result = app(CccdScannerService::class)->scanQrImage($qr);
+            if ($result) {
+                return $result;
+            }
+        }
 
         $start = microtime(true);
 
@@ -98,6 +114,26 @@ class CccdScanMapper
         }
 
         return array_filter($fields, fn ($value) => filled($value));
+    }
+
+    /**
+     * Kết quả quét → dữ liệu đúng tên/định dạng field của API khách thuê (ngày dạng Y-m-d), dùng cho
+     * các endpoint quét độc lập (quản trị + portal). Ngày không đúng dd/mm/yyyy thì bỏ qua field đó.
+     *
+     * @return array<string, string>
+     */
+    public static function toTenantApiFields(array $scan): array
+    {
+        $date = fn (mixed $value): ?string => is_string($value) && preg_match('#^\d{2}/\d{2}/\d{4}$#', $value)
+            ? Carbon::createFromFormat('!d/m/Y', $value)->toDateString()
+            : null;
+
+        $fields = self::mapToTenantFields(array_diff_key($scan, ['dob' => true]));
+
+        return array_filter($fields + [
+            'date_of_birth'       => $date($scan['dob'] ?? null),
+            'id_card_issued_date' => $date($scan['issued_date'] ?? null),
+        ], fn ($value) => filled($value));
     }
 
     public static function mapGender(string $raw): ?string

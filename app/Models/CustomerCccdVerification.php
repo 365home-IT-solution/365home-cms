@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class CustomerCccdVerification extends Model
 {
     public const SOURCE_WEB_ACCOUNT = 'web_account';
+    public const SOURCE_APP         = 'app';
     public const SOURCE_LEGACY      = 'legacy';
 
     protected $fillable = [

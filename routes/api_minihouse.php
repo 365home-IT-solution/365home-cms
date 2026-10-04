@@ -430,6 +430,11 @@ Route::prefix('minihouse/portal')->name('api.minihouse.portal.')->group(function
         Route::post('feedback', [TenantPortalApiController::class, 'storeFeedback'])->name('feedback.store');
         Route::get('profile', [TenantPortalApiController::class, 'profile'])->name('profile.show');
         Route::put('profile', [TenantPortalApiController::class, 'updateProfile'])->name('profile.update');
+        // Quét độc lập 1 ảnh CCCD mặt có mã QR (chỉ đọc, không lưu ảnh, không sửa hồ sơ) — xem
+        // docblock Portal\CccdController::scanQr().
+        Route::post('cccd/scan-qr', [\App\Http\Controllers\Api\Minihouse\Portal\CccdController::class, 'scanQr'])
+            ->name('cccd.scan-qr')
+            ->middleware('throttle:cccd-scan');
         Route::post('password', [TenantPortalApiController::class, 'updatePassword'])->name('password.update');
         Route::post('push-token', [TenantPortalApiController::class, 'registerPushToken'])->name('push-token.register');
         Route::delete('push-token', [TenantPortalApiController::class, 'unregisterPushToken'])->name('push-token.unregister');

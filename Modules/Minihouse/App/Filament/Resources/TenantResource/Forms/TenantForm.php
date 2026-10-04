@@ -172,6 +172,14 @@ class TenantForm
                                 ->maxSize(5120)
                                 ->directory('minihouse/tenants')
                                 ->disk('public'),
+                            // Luồng 1 ảnh (tuỳ chọn, song song với 2 mặt ở trên) — có ảnh này thì quét
+                            // mã QR trên nó trước, xem CccdScanMapper::scan().
+                            FileUpload::make('id_card_qr_image')
+                                ->label('CCCD mặt có mã QR')
+                                ->image()
+                                ->maxSize(5120)
+                                ->directory('minihouse/tenants')
+                                ->disk('public'),
                         ]),
 
                     Tab::make('Địa chỉ & liên hệ khẩn cấp')
