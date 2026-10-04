@@ -197,7 +197,12 @@
                     <div class="space-y-1" x-show="termsNeeded" x-cloak>
                         <label class="flex items-start gap-2 text-sm text-gray-700">
                             <input type="checkbox" x-model="reg.accept_terms" class="mt-1">
-                            <span>Tôi đã đọc và đồng ý với <button type="button" class="underline font-medium text-gray-900" @click="termsOpen = true">Điều khoản dịch vụ</button><template x-if="terms"><span> (phiên bản <span x-text="terms.version"></span>)</span></template>.</span>
+                            <span x-show="reg.partner_type !== 'minihouse'">Tôi đã đọc và đồng ý với <button type="button" class="underline font-medium text-gray-900" @click="termsOpen = true">Điều khoản dịch vụ</button><template x-if="terms"><span> (phiên bản <span x-text="terms.version"></span>)</span></template>.</span>
+                            {{-- MiniHouse: câu xác nhận đầy đủ theo Điều khoản (màn rộng); bản ngắn cho màn hẹp --}}
+                            <span x-show="reg.partner_type === 'minihouse'" x-cloak>
+                                <span class="hidden sm:inline">Tôi đã đọc và đồng ý với <button type="button" class="underline font-medium text-gray-900" @click="termsOpen = true">Điều khoản dịch vụ MiniHouse</button><template x-if="terms"><span> (phiên bản <span x-text="terms.version"></span>)</span></template>, bao gồm: phí đã thanh toán không hoàn lại, tài khoản bị khoá khi hết hạn gói, và tôi chịu trách nhiệm về dữ liệu cá nhân của khách thuê do tôi nhập.</span>
+                                <span class="sm:hidden">Tôi đã đọc và đồng ý với <button type="button" class="underline font-medium text-gray-900" @click="termsOpen = true">Điều khoản dịch vụ</button> MiniHouse.</span>
+                            </span>
                         </label>
                         <p class="text-xs text-red-600" x-show="errors.accept_terms || errors.terms_version_id" x-text="err('accept_terms') || err('terms_version_id')"></p>
                     </div>
@@ -216,7 +221,7 @@
                             </div>
                         </div>
                     </div>
-                    <button type="submit" :disabled="loading" class="w-full rounded-lg bg-gray-900 text-white font-semibold py-3 hover:bg-gray-800 disabled:opacity-60" x-text="loading ? 'Đang gửi...' : (minihouseMode ? (trialMonths > 0 ? 'Đăng ký MiniHouse' : 'Mua gói & thanh toán') : 'Tiếp tục')"></button>
+                    <button type="submit" :disabled="loading || (termsNeeded && !reg.accept_terms)" class="w-full rounded-lg bg-gray-900 text-white font-semibold py-3 hover:bg-gray-800 disabled:opacity-60 disabled:cursor-not-allowed" x-text="loading ? 'Đang gửi...' : (minihouseMode ? (trialMonths > 0 ? 'Đăng ký MiniHouse' : 'Mua gói & thanh toán') : 'Tiếp tục')"></button>
 
                     {{-- Mất mã hồ sơ (đổi trình duyệt/máy): nhập SĐT + email đã đăng ký → nhận link tiếp tục qua email --}}
                     <div class="border-t border-gray-100 pt-4 text-center text-sm">
