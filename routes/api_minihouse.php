@@ -135,6 +135,11 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
     // Postman/nhiều client chỉ đính kèm file được qua POST. Đặt SAU apiResource nên không đụng route
     // POST /tenants (store, không có {id}) đã đăng ký ở trên.
     Route::post('tenants/{id}', [TenantController::class, 'update'])->name('tenants.update.post');
+    // Quét độc lập 1 ảnh CCCD mặt có mã QR để điền form Khách thuê (tuỳ chọn, không lưu ảnh, không
+    // đụng luồng id_card_front/back ở trên) — xem docblock Minihouse\CccdController::scanQr().
+    Route::post('cccd/scan-qr', [\App\Http\Controllers\Api\Admin\Minihouse\CccdController::class, 'scanQr'])
+        ->name('cccd.scan-qr')
+        ->middleware('throttle:cccd-scan-admin');
 
     Route::apiResource('contracts', ContractController::class)->except(['show'])->parameters(['contracts' => 'id']);
     Route::get('contracts/{id}', [ContractController::class, 'show'])->name('contracts.show');

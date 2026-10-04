@@ -570,6 +570,34 @@ class CccdIntakeService
     }
 
     /**
+     * Quét 1 ảnh mặt có mã QR cho các endpoint quét ĐỘC LẬP của quản trị (homestay, minihouse) —
+     * chỉ đọc QR, không OCR, không lưu ảnh. Thiếu ảnh/ảnh không hợp lệ → ném lỗi; không đọc được
+     * QR hoặc dữ liệu sai cấu trúc thì KHÔNG chặn, trả cảnh báo để nhân viên nhập tay.
+     *
+     * @return array{data: ?array, warnings: string[]}
+     */
+    public function scanQrForAdmin(Request $request, string $key = 'cccd_qr_image'): array
+    {
+        if (! $request->hasFile($key)) {
+            throw new E('Vui lòng gửi ảnh CCCD (mặt có mã QR).', E::REQUIRED, $key);
+        }
+
+        $file = $request->file($key);
+        if ($error = $this->imageError($file, self::ADMIN_MAX_BYTES)) {
+            throw new E($error, E::IMAGE_INVALID, $key);
+        }
+
+        $data = $this->scanQr($file);
+
+        return [
+            'data'     => $data,
+            'warnings' => array_values(array_filter([
+                $data ? CccdIdentity::validate($data) : 'Không đọc được mã QR trên ảnh CCCD — vui lòng chụp lại hoặc nhập tay.',
+            ])),
+        ];
+    }
+
+    /**
      * Ảnh admin gửi cho 1 người, map về tên cột: $prefix '' → cccd_qr_image|cccd_front|cccd_back;
      * $prefix 'guests.2.' → guests.2.qr_image|front|back.
      *
