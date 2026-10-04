@@ -74,6 +74,8 @@ class PartnerContractVersion extends Model implements HasMedia
     public function registerMediaCollections(): void
     {
         $this->addMediaCollection('document')->singleFile();
+        // PDF hợp đồng ĐÃ KÝ SỐ — lưu ở đĩa riêng tư (storage/app), chỉ tải qua chức năng có phân quyền, không có URL công khai.
+        $this->addMediaCollection('signed_pdf')->singleFile()->useDisk('local');
     }
 
     public function partner(): BelongsTo

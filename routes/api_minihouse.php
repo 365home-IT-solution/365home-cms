@@ -93,6 +93,13 @@ Route::middleware(['auth:sanctum', 'admin.api'])->prefix('admin/minihouse')->nam
         Route::put('partners/{partner}/building-assignments', [MinihousePartnerController::class, 'updateBranchAssignments'])->name('partners.building-assignments.update');
         Route::get('partners/{partner}/user-assignments', [MinihousePartnerController::class, 'userAssignments'])->name('partners.user-assignments.show');
         Route::put('partners/{partner}/user-assignments', [MinihousePartnerController::class, 'updateUserAssignments'])->name('partners.user-assignments.update');
+        // Điều khoản MiniHouse (loại partner_minihouse được ép theo đường dẫn): phiên bản + lịch sử khách đồng ý khi đăng ký/mua gói. Chỉ Super Admin.
+        Route::get('terms/versions', [\App\Http\Controllers\Api\Admin\TermsController::class, 'versions'])->defaults('terms_type', 'partner_minihouse')->name('terms.versions.index');
+        Route::post('terms/versions', [\App\Http\Controllers\Api\Admin\TermsController::class, 'storeVersion'])->defaults('terms_type', 'partner_minihouse')->name('terms.versions.store');
+        Route::get('terms/versions/{version}', [\App\Http\Controllers\Api\Admin\TermsController::class, 'showVersion'])->defaults('terms_type', 'partner_minihouse')->name('terms.versions.show');
+        Route::get('terms/acceptances', [\App\Http\Controllers\Api\Admin\TermsController::class, 'acceptances'])->defaults('terms_type', 'partner_minihouse')->name('terms.acceptances.index');
+        Route::get('terms/acceptances/{acceptance}', [\App\Http\Controllers\Api\Admin\TermsController::class, 'showAcceptance'])->defaults('terms_type', 'partner_minihouse')->name('terms.acceptances.show');
+        Route::get('partners/{partner}/terms-acceptances', [\App\Http\Controllers\Api\Admin\TermsController::class, 'partnerAcceptances'])->defaults('terms_type', 'partner_minihouse')->name('partners.terms-acceptances');
         Route::get('partners/{partner}/contract', [MinihousePartnerController::class, 'contract'])->name('partners.contract.show');
         Route::post('partners/{partner}/contract/send', [MinihousePartnerController::class, 'createContract'])->name('partners.contract.send');
         Route::post('partners/{partner}/contract/platform-sign', [MinihousePartnerController::class, 'platformSign'])->name('partners.contract.platform-sign');

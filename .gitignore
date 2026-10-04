@@ -54,3 +54,6 @@ storage/app/firebase-credentials.json
 /Modules/**/dist
 /Modules/**/public/storage
 /Modules/**/public/hot
+
+# Bản đồ nền PMTiles (file rất lớn, không đưa vào git)
+/public/maps

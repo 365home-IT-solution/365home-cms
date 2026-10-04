@@ -58,8 +58,9 @@
     @livewire('bladethemev1::contact-link')
     @livewire('bladethemev1::notification')
 {{-- Leaflet Map --}}
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="{{ asset('css/leaflet.min.css') }}"/>
+<script src="{{ asset('js/leaflet.min.js') }}"></script>
+@include('partials.map-base')
 
 <script>
 document.addEventListener('DOMContentLoaded', function () {
@@ -72,10 +73,7 @@ document.addEventListener('DOMContentLoaded', function () {
         scrollWheelZoom: true,
     }).setView([lat, lng], zoom);
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-    }).addTo(map);
+    window.createBaseLayer().addTo(map);
 
     @if ($province && $province->lat && $province->lng)
     var icon = L.divIcon({

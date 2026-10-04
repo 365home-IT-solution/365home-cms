@@ -101,6 +101,13 @@ return [
         'api_key' => env('OCR_SPACE_API_KEY'),
     ],
 
+    // Bản đồ nền tự phục vụ (Protomaps/PMTiles). Để trống thì dùng ảnh bản đồ công cộng của OpenStreetMap (dự phòng).
+    // Local: /maps/vietnam.pmtiles (public/maps)  ·  Server: https://maps.365home.vn/vietnam.pmtiles
+    'map' => [
+        'pmtiles_url' => env('MAP_PMTILES_URL'),
+        'flavor'      => env('MAP_FLAVOR', 'osm'), // osm = bảng màu giống OpenStreetMap; hoặc light|dark|white|grayscale|black
+    ],
+
     'google_maps' => [
         'key' => env('GOOGLE_MAPS_API_KEY'),
     ],

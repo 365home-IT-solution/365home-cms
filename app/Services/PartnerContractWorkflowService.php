@@ -162,6 +162,11 @@ class PartnerContractWorkflowService
             throw ValidationException::withMessages(['contract' => 'Hợp đồng chưa được nền tảng ký số nên chưa xuất lại được.']);
         }
 
+        // Tải lại: đã có file PDF ký số lưu trên server thì trả đúng file đó, KHÔNG ký lại.
+        if ($reExport && ($stored = $version->getFirstMedia('signed_pdf'))) {
+            return ['pdf' => file_get_contents($stored->getPath()), 'file_name' => $stored->file_name];
+        }
+
         $signingTime = now();
         if (! $reExport) {
             // Gán tạm vào bộ nhớ trước khi render PDF để khung ký "Nền tảng" trong PDF không hiện sai "Chưa ký".
@@ -176,6 +181,7 @@ class PartnerContractWorkflowService
         if (! $reExport) {
             $version->update([
                 'platform_signing_provider' => app(DigitalSignatureProvider::class)->name(),
+                'platform_signature_certificate' => $result['certificate'],
                 'platform_signed_at' => $signingTime,
                 'platform_signed_by' => $actor->id,
                 'platform_signed_ip' => $ip,
@@ -184,6 +190,10 @@ class PartnerContractWorkflowService
             $partner->update(['contract_status' => 'active', 'contract_signed_at' => $signingTime]);
         }
 
-        return ['pdf' => $result['pdf'], 'file_name' => "hop-dong-{$version->id}-{$signingTime->format('YmdHis')}.pdf"];
+        $fileName = "hop-dong-{$version->id}-{$signingTime->format('YmdHis')}.pdf";
+        // Lưu bản đã ký lên server (hợp đồng cũ ký trước khi có tính năng này sẽ được lưu ở lần xuất lại đầu tiên).
+        $version->addMediaFromString($result['pdf'])->usingFileName($fileName)->toMediaCollection('signed_pdf', 'local');
+
+        return ['pdf' => $result['pdf'], 'file_name' => $fileName];
     }
 }

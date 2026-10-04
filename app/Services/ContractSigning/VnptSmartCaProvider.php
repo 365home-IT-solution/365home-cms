@@ -59,6 +59,26 @@ class VnptSmartCaProvider implements DigitalSignatureProvider
         return ['cert_data' => $certData];
     }
 
+    /**
+     * Kiểm tra cấu hình: đăng nhập OAuth + tra cứu chứng thư số của thuê bao — KHÔNG gọi signhash nên KHÔNG tốn lượt ký
+     * và không gửi thông báo xác nhận về điện thoại.
+     *
+     * @return array{ok: bool, message: string}
+     */
+    public function testConnection(): array
+    {
+        try {
+            $this->ensureConfigured();
+            $accessToken = $this->getValidAccessToken();
+            $credentialId = $this->getCredentialId($accessToken);
+            $cert = $this->fetchCertificateData($accessToken, $credentialId);
+
+            return ['ok' => true, 'message' => 'Kết nối VNPT SmartCA thành công' . ($cert ? ' — đã lấy được chứng thư số của thuê bao.' : ' (chưa lấy được chứng thư số).')];
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'message' => 'Kết nối thất bại: ' . $e->getMessage()];
+        }
+    }
+
     public function sign(string $contentHash, array $signerContext): SignatureResult
     {
         $this->ensureConfigured();
@@ -292,8 +312,8 @@ class VnptSmartCaProvider implements DigitalSignatureProvider
     {
         if (blank($this->subscriberPassword)) {
             throw new RuntimeException(
-                'Chưa có access_token còn hiệu lực và thiếu VNPT_SMARTCA_SUBSCRIBER_PASSWORD để đăng '
-                . 'nhập lại — điền mật khẩu thuê bao vào .env (chỉ cần đúng 1 lần, refresh_token sống '
+                'Chưa có access_token còn hiệu lực và thiếu mật khẩu thuê bao để đăng '
+                . 'nhập lại — nhập ở Cấu hình web > Chữ ký số (chỉ cần đúng 1 lần, refresh_token sống '
                 . '~3 tháng cho các lần ký sau).'
             );
         }
@@ -335,8 +355,8 @@ class VnptSmartCaProvider implements DigitalSignatureProvider
     {
         if (blank($this->baseUrl) || blank($this->clientId) || blank($this->clientSecret) || blank($this->subscriberUserId)) {
             throw new RuntimeException(
-                'VNPT SmartCA chưa được cấu hình đủ — cần điền VNPT_SMARTCA_BASE_URL/CLIENT_ID/'
-                . 'CLIENT_SECRET và VNPT_SMARTCA_SUBSCRIBER_USER_ID trong .env.'
+                'VNPT SmartCA chưa được cấu hình đủ — cần nhập Domain, Client ID, Client Secret '
+                . 'và CCCD thuê bao ở Cấu hình web > Chữ ký số.'
             );
         }
     }
